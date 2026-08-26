@@ -1,8 +1,10 @@
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
+import { PERSISTENCE_MINIDB_READMODEL_FLAG_ID } from '#/persistence/backends/minidb/flag';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
 import { ISessionIndexMirror, type SessionSummary } from './sessionIndex';
@@ -38,6 +40,7 @@ export class SessionIndexMirror extends Disposable implements ISessionIndexMirro
 
   constructor(
     @IQueryStore private readonly queryStore: IQueryStore,
+    @IFlagService private readonly flags: IFlagService,
     @ILogService private readonly log: ILogService,
   ) {
     super();
@@ -52,7 +55,7 @@ export class SessionIndexMirror extends Disposable implements ISessionIndexMirro
   }
 
   record(summary: SessionSummary): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.flags.enabled(PERSISTENCE_MINIDB_READMODEL_FLAG_ID)) return;
     if (this.pendingMap.size >= MAX_PENDING && !this.pendingMap.has(summary.id)) {
       if (!this.overflowLogged) {
         this.overflowLogged = true;

@@ -29,7 +29,6 @@
     "build": "bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
     "build:packages": "bun run --filter './packages/*' build",
     "dev:cli": "cd apps/kimi-code && bun run dev",
-    "dev:cli:legacy": "cd apps/kimi-code && KIMI_CODE_LEGACY_FLAG=1 bun run dev",
     "dev:cli:marketplace": "cd apps/kimi-code && KIMI_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/kimi-code/plugins/marketplace.json bun run dev",
     "dev:server": "cd apps/kimi-code && bun run dev:server",
     "dev:kap-server": "cd apps/kimi-code && bun run dev:kap-server",

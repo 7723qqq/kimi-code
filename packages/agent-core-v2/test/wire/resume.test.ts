@@ -449,7 +449,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, GitHubAddIssueComment, GitHubCreateBranch, GitHubCreateCommit, GitHubCreateIssue, GitHubCreateOrUpdateFile, GitHubCreatePR, GitHubCreatePRReview, GitHubCreateTree, GitHubGetCommit, GitHubGetFileContents, GitHubGetIssue, GitHubGetLatestRelease, GitHubGetMe, GitHubGetPR, GitHubGetPRDiff, GitHubGetPRFiles, GitHubGetRef, GitHubGetRepo, GitHubGetWorkflowRun, GitHubListBranches, GitHubListCommits, GitHubListIssueComments, GitHubListIssues, GitHubListPRReviewComments, GitHubListPRs, GitHubListReleases, GitHubListWorkflowRuns, GitHubMergePR, GitHubSearchCode, GitHubSearchIssues, GitHubSearchRepos, GitHubUpdateIssue, GitHubUpdatePR, GitHubUpdateRef, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }

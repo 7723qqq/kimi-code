@@ -9,6 +9,7 @@
  */
 export {
   ErrorCodes,
+  isKimiErrorCode,
   KIMI_ERROR_INFO,
   resolveErrorTitle,
   type KimiErrorCode,

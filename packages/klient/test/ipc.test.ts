@@ -126,7 +126,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
       .mockImplementation(
         () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
       );
-    const klient = createKlient({ socketPath, callTimeoutMs: 25 });
+    const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // completeAuth passes the engine wait + margin as its per-call deadline,
       // so the 200ms wait resolves instead of dying at the 25ms default.
@@ -153,7 +153,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
       .mockImplementation(
         () => new Promise<void>((resolve) => setTimeout(resolve, 50)),
       );
-    const klient = createKlient({ socketPath, callTimeoutMs: 25 });
+    const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // timeoutMs at the contract max plus the facade margin would overflow
       // Node's 32-bit setTimeout into ~1ms; the clamp keeps the call alive

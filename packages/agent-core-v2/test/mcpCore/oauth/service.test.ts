@@ -2,7 +2,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import type { AddressInfo as HttpAddress } from 'node:net';
 
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { ILogger as Logger } from '#/_base/log/log';
 import * as callbackServerModule from '#/mcpCore/oauth/callback-server';
@@ -51,6 +51,24 @@ afterEach(async () => {
   while (cleanups.length > 0) {
     await cleanups.pop()?.();
   }
+});
+
+const realFetch = globalThis.fetch;
+beforeAll(() => {
+  globalThis.fetch = (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('https://mcp.example.test')) {
+      throw new TypeError(`blocked external request to ${url}`);
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = realFetch;
 });
 
 async function listMetaKeys(store: McpOAuthStore): Promise<readonly string[]> {

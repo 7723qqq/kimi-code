@@ -54,7 +54,7 @@ const MAX_DECODE_PIXELS = 100_000_000;
 
 export const MAX_IMAGE_DECODE_BYTES = 64 * 1024 * 1024;
 
-const RECODABLE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const RECODABLE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export interface CompressImageOptions {
   readonly maxEdge?: number;
@@ -439,7 +439,7 @@ export async function cropImageForModel(
   if (!RECODABLE_MIME.has(normalizedMime)) {
     return fail(
       'unsupported_format',
-      `Cropping is only supported for PNG, JPEG, and WebP images; got ${mimeType}.`,
+      `Cropping is only supported for PNG, JPEG, GIF, and WebP images; got ${mimeType}.`,
     );
   }
   if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {

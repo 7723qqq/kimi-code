@@ -81,35 +81,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: cd packages/pi-tui && bun --bun run test
 
-  # The VS Code extension suite runs on the default (v2) engine as part of the
-  # sharded root run above; this job reruns it on the legacy v1 engine, which
-  # the extension selects through the rollback env var.
-  test-vscode-legacy:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.0
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      # Same Bun-runtime note as the sharded test job.
-      - run: bun install --frozen-lockfile
-      - run: cd apps/vscode && bun --bun run test
-        env:
-          KIMI_CODE_LEGACY_FLAG: "1"
-
   test-windows:
     runs-on: windows-latest
     # Temporarily disabled while Windows tests are being stabilized.

@@ -13,7 +13,11 @@ import {
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { AgentLLMRequesterService, KIMI_CODE_INFINITE_RETRY_ENV } from '#/agent/llmRequester/llmRequesterService';
+import { AgentLLMRequesterService, KIMI_CODE_INFINITE_RETRY_ENV, estimateLlmRequestBytes } from '#/agent/llmRequester/llmRequesterService';
+import {
+  DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
+  LlmRequesterConfigSchema,
+} from '#/agent/llmRequester/configSection';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -53,7 +57,7 @@ import {
   type ModelRequester,
 } from '#/kosong/model/modelRequester';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ILogService } from '#/_base/log/log';
+import { ILogService, type LogContext } from '#/_base/log/log';
 import { Error2, ErrorCodes } from '#/errors';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
@@ -166,6 +170,7 @@ function createService(
     readonly mediaResolver?: Partial<IAgentMediaResolverService>;
     readonly contextMessages?: Message[];
     readonly env?: Record<string, string>;
+    readonly configValues?: Record<string, unknown>;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
@@ -208,10 +213,17 @@ function createService(
     get: () => options.contextMessages ?? history,
   };
   const tools = { list: () => [] };
+  const configValues = options.configValues ?? {};
   const config: Partial<IConfigService> = {
-    get: (() => undefined) as IConfigService['get'],
+    get: ((domain: string) => configValues[domain]) as IConfigService['get'],
   };
-  const log = { info: () => undefined, warn: () => undefined };
+  const warnings: { message: string; context?: LogContext }[] = [];
+  const log = {
+    info: () => undefined,
+    warn: (message: string, context?: LogContext) => {
+      warnings.push({ message, context });
+    },
+  };
   const telemetryRecords: TelemetryRecord[] = [];
   const telemetry = recordingTelemetry(telemetryRecords);
   const toolSelect: Partial<IAgentToolSelectService> = {
@@ -273,6 +285,7 @@ function createService(
     events,
     telemetryRecords,
     measuredCalls,
+    warnings,
   };
 }
 
@@ -1032,5 +1045,208 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
+  });
+});
+
+describe('estimateLlmRequestBytes', () => {
+  it('sums text, media url, think and tool-call argument lengths', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'abc' }], toolCalls: [] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'think', think: 'th', encrypted: 'enc' },
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AA' } },
+        ],
+        toolCalls: [{ type: 'function', id: 'c1', name: 'Bash', arguments: '{"a":1}' }],
+      },
+      { role: 'assistant', content: [], toolCalls: [{ type: 'function', id: 'c2', name: 'B', arguments: null }] },
+    ];
+    expect(estimateLlmRequestBytes(messages)).toBe(3 + 2 + 3 + 24 + 7);
+  });
+});
+
+describe('AgentLLMRequesterService proactive media eviction', () => {
+  const MIB = 1024 * 1024;
+  const imageDataUrl = (tag: string, chars: number): string =>
+    `data:image/png;base64,${tag}${'A'.repeat(chars)}`;
+
+  function imageHistory(urls: string[]): Message[] {
+    return urls.map((url) => ({
+      role: 'user',
+      content: [{ type: 'image_url', imageUrl: { url } }],
+      toolCalls: [],
+    }));
+  }
+
+  function sentParts(capturedInputs: ModelRequestInput[]): {
+    urls: string[];
+    texts: string[];
+  } {
+    const parts = (capturedInputs.at(-1)?.messages ?? []).flatMap((message) => message.content);
+    return {
+      urls: parts
+        .filter((part) => part.type === 'image_url')
+        .map((part) => part.imageUrl.url),
+      texts: parts.filter((part) => part.type === 'text').map((part) => part.text),
+    };
+  }
+
+  it('sends the request untouched when the estimate is within the budget', async () => {
+    const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    const url = imageDataUrl('SMALL', 100);
+    const { service, warnings } = createService(
+      createRequester(calls, null, [], capturedInputs),
+      undefined,
+      { contextMessages: imageHistory([url]) },
+    );
+
+    await service.request();
+
+    expect(calls.value).toBe(1);
+    expect(sentParts(capturedInputs).urls).toEqual([url]);
+    expect(warnings.some((warning) => warning.message.includes('evicting older media'))).toBe(
+      false,
+    );
+  });
+
+  it('applies the degraded projection proactively when over budget, keeping the two most recent media parts', async () => {
+    const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    const urls = [
+      imageDataUrl('OLD1', 12 * MIB),
+      imageDataUrl('OLD2', 12 * MIB),
+      imageDataUrl('KEEP1', 12 * MIB),
+      imageDataUrl('KEEP2', 12 * MIB),
+    ];
+    const { service, warnings } = createService(
+      createRequester(calls, null, [], capturedInputs),
+      undefined,
+      { contextMessages: imageHistory(urls) },
+    );
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(1);
+    const parts = sentParts(capturedInputs);
+    expect(parts.urls).toEqual([urls[2], urls[3]]);
+    expect(
+      parts.texts.filter((text) =>
+        text.includes('dropped to fit the provider request size limit'),
+      ),
+    ).toHaveLength(2);
+    const eviction = warnings.find((warning) =>
+      warning.message.includes('evicting older media'),
+    );
+    expect(eviction?.context).toMatchObject({
+      budgetBytes: DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
+      evictedMediaCount: 2,
+      projection: 'media-degraded',
+    });
+    expect(eviction?.context?.['estimatedBytesBefore']).toBeGreaterThan(
+      DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
+    );
+    expect(eviction?.context?.['estimatedBytesAfter']).toBeLessThanOrEqual(
+      DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
+    );
+  });
+
+  it('strips all media proactively when even the degraded projection stays over budget', async () => {
+    const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    const urls = [
+      imageDataUrl('BIG1', 20 * MIB),
+      imageDataUrl('BIG2', 20 * MIB),
+      imageDataUrl('BIG3', 20 * MIB),
+      imageDataUrl('BIG4', 20 * MIB),
+    ];
+    const { service, warnings } = createService(
+      createRequester(calls, null, [], capturedInputs),
+      undefined,
+      { contextMessages: imageHistory(urls) },
+    );
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(1);
+    const parts = sentParts(capturedInputs);
+    expect(parts.urls).toEqual([]);
+    expect(
+      parts.texts.some((text) => text.includes('omitted for provider compatibility')),
+    ).toBe(true);
+    const eviction = warnings.find((warning) =>
+      warning.message.includes('evicting older media'),
+    );
+    expect(eviction?.context).toMatchObject({
+      evictedMediaCount: 4,
+      projection: 'media-stripped',
+    });
+  });
+
+  it('honors a custom request byte budget from config', async () => {
+    const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    const url = `data:image/png;base64,${'B'.repeat(30)}`;
+    const { service, warnings } = createService(
+      createRequester(calls, null, [], capturedInputs),
+      undefined,
+      {
+        contextMessages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'hello' },
+              { type: 'image_url', imageUrl: { url } },
+            ],
+            toolCalls: [],
+          },
+        ],
+        configValues: { llmRequester: { requestByteBudget: 40 } },
+      },
+    );
+
+    await service.request();
+
+    expect(calls.value).toBe(1);
+    const parts = sentParts(capturedInputs);
+    expect(parts.urls).toEqual([]);
+    expect(parts.texts.some((text) => text.includes('omitted for provider compatibility'))).toBe(
+      true,
+    );
+    expect(warnings.find((warning) => warning.message.includes('evicting older media'))?.context)
+      .toMatchObject({ budgetBytes: 40, evictedMediaCount: 1, projection: 'media-stripped' });
+  });
+
+  it('rejects invalid requestByteBudget values at config intake', () => {
+    expect(DEFAULT_REQUEST_BYTE_BUDGET_BYTES).toBe(32 * 1024 * 1024);
+    expect(() => LlmRequesterConfigSchema.parse({ requestByteBudget: 0 })).toThrow();
+    expect(() => LlmRequesterConfigSchema.parse({ requestByteBudget: -4 })).toThrow();
+    expect(() => LlmRequesterConfigSchema.parse({ requestByteBudget: 1.5 })).toThrow();
+    expect(() => LlmRequesterConfigSchema.parse({ requestByteBudget: 'big' })).toThrow();
+    expect(LlmRequesterConfigSchema.parse({})).toEqual({});
+    expect(LlmRequesterConfigSchema.parse({ requestByteBudget: 1024 })).toEqual({
+      requestByteBudget: 1024,
+    });
+  });
+
+  it('reports the estimated request size in failure logs and api_error telemetry', async () => {
+    const calls = { value: 0 };
+    const requester = createRequester(calls, new APIStatusError(500, 'boom'));
+    const { service, telemetryRecords, warnings } = createService(requester, undefined, {
+      contextMessages: imageHistory([imageDataUrl('X', 100)]),
+    });
+
+    await expect(service.request()).rejects.toMatchObject({ statusCode: 500 });
+
+    const expectedBytes = imageDataUrl('X', 100).length;
+    expect(
+      warnings.find((warning) => warning.message === 'llm request failed')?.context,
+    ).toMatchObject({ estimatedRequestBytes: expectedBytes });
+    expect(telemetryRecords.find((record) => record.event === 'api_error')?.properties).toMatchObject(
+      { estimated_request_bytes: expectedBytes },
+    );
   });
 });

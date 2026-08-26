@@ -25,8 +25,10 @@ class MemoryStore implements McpOAuthStore {
     return Promise.resolve();
   }
 
-  list(suffix: string): Promise<readonly string[]> {
-    return Promise.resolve([...this.data.keys()].filter((key) => key.endsWith(suffix)));
+  list(suffix?: string): Promise<readonly string[]> {
+    return Promise.resolve(
+      [...this.data.keys()].filter((key) => suffix === undefined || key.endsWith(suffix)),
+    );
   }
 }
 
@@ -192,7 +194,7 @@ describe('McpOAuthService lifecycle', () => {
     seedGrant(store, 'srv', oauthServer.url, {
       access_token: 'old',
       refresh_token: 'rt-1',
-      expires_in: 30,
+      expires_in: 1,
     });
     const service = new McpOAuthService({ store });
 
@@ -210,7 +212,7 @@ describe('McpOAuthService lifecycle', () => {
     seedGrant(store, 'srv', oauthServer.url, {
       access_token: 'old',
       refresh_token: 'rt-1',
-      expires_in: 30,
+      expires_in: 1,
     });
     const service = new McpOAuthService({ store });
     const failures: string[] = [];

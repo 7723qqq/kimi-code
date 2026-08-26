@@ -12,6 +12,8 @@ import { FileErrors } from '#/app/file/fileService';
 import { FsErrors } from '#/workspace/workspaceFs/internal/errors';
 import { FullCompactionErrors } from '#/agent/fullCompaction/errors';
 import { GoalErrors } from '#/features/goal/errors';
+import { LspErrors } from '#/features/lsp/errors';
+import { SessionQueryErrors } from '#/features/sessionQuery/errors';
 import { LoopErrors } from '#/agent/loop/errors';
 import { McpErrors } from '#/mcpCore/errors';
 import { ModelCatalogErrors } from '#/kosong/model/errors';
@@ -49,6 +51,8 @@ export { FileErrors } from '#/app/file/fileService';
 export { FsErrors } from '#/workspace/workspaceFs/internal/errors';
 export { FullCompactionErrors } from '#/agent/fullCompaction/errors';
 export { GoalErrors } from '#/features/goal/errors';
+export { LspErrors } from '#/features/lsp/errors';
+export { SessionQueryErrors } from '#/features/sessionQuery/errors';
 export { LoopErrors } from '#/agent/loop/errors';
 export { McpErrors } from '#/mcpCore/errors';
 export { ModelCatalogErrors } from '#/kosong/model/errors';
@@ -84,6 +88,8 @@ export const ErrorCodes = {
   ...FsErrors.codes,
   ...FullCompactionErrors.codes,
   ...GoalErrors.codes,
+  ...LspErrors.codes,
+  ...SessionQueryErrors.codes,
   ...LoopErrors.codes,
   ...McpErrors.codes,
   ...ModelCatalogErrors.codes,

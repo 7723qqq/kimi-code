@@ -79,7 +79,9 @@
     "postinstall": "bun scripts/postinstall.mjs"
   },
   "dependencies": {
-    "@moonshot-ai/kimi-agent": "workspace:^"
+    "@moonshot-ai/kimi-agent": "workspace:^",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",
@@ -116,9 +118,5 @@
   },
   "engines": {
     "node": ">=22.19.0"
-  },
-  "dependencies": {
-    "qrcode": "^1.5.4",
-    "ws": "^8.18.0"
   }
 }

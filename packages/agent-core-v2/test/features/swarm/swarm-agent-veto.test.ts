@@ -4,11 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
@@ -34,6 +31,7 @@ import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
 } from '../../agent/toolExecutor/stubs';
+import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
 import { registerTestAgentWire, registerTestEventDispatcher, testWireScope } from '../../wire/stubs';
 
 const signal = new AbortController().signal;
@@ -91,7 +89,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
       status: () => ({ state: 'idle', pendingTurnIds: [], hasPendingRequests: false }),
     });
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
-    ix.stub(IAgentLifecycleService, {});
+    ix.stub(IAgentLifecycleService, lifecycleWithReminder(createReminderStub()));
     ix.stub(ISessionSwarmService, {
       getSwarmItem: async () => {},
       run: async () => [],
@@ -107,10 +105,6 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
       eventBus: ix.get(IEventBus),
     });
     registerTestEventDispatcher(ix);
-    ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
-    ix.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-    } as unknown as IAgentContextInjectorService);
     ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });
 

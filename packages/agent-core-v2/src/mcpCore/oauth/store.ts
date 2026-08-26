@@ -32,6 +32,13 @@ export function mcpOAuthStoreKey(serverName: string, serverUrl: string | URL): s
   return `${safeName}-${digest}`;
 }
 
+export const META_SUFFIX = '-meta.json';
+
+export interface McpOAuthStoreMeta {
+  readonly serverName: string;
+  readonly serverUrl: string;
+}
+
 export interface McpOAuthStore {
   read<T>(key: string): Promise<T | undefined>;
   write(key: string, data: unknown): Promise<void>;

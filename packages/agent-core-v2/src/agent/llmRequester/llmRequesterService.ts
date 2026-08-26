@@ -8,7 +8,15 @@ import {
   type MediaStripSnapshot,
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
+import {
+  MEDIA_DEGRADE_KEEP_RECENT,
+  captureMediaStripSnapshot,
+  degradeOlderMediaParts,
+  stripMediaPartsBySnapshot,
+} from '#/agent/contextProjector/mediaProjection';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -25,7 +33,7 @@ import {
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
 } from '#/kosong/contract/errors';
-import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
+import { isToolCall, type ContentPart, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
 import { type Tool } from '#/kosong/contract/tool';
 import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
@@ -50,6 +58,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WarningIssued } from '#/agent/profile/profileOps';
 
+import { resolveRequestByteBudget } from './configSection';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
@@ -124,6 +133,16 @@ interface TurnRequestConfig {
   readonly systemPrompt: string;
 }
 
+interface ProactiveMediaEscalation {
+  readonly mediaEscalationPolicy: ProjectionPolicy;
+}
+
+function isProactiveMediaEscalation(
+  outcome: AgentLLMRequestFinish | ProactiveMediaEscalation,
+): outcome is ProactiveMediaEscalation {
+  return 'mediaEscalationPolicy' in outcome;
+}
+
 export const llmRequesterLastConfigLogSignatureKey = defineState<string | undefined>(
   'llmRequester.lastConfigLogSignature',
   () => undefined as string | undefined,
@@ -168,6 +187,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IInstantiationService private readonly instantiation?: IInstantiationService,
   ) {
     this.states.contributeState(llmRequestTraceKey);
     this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
@@ -236,6 +256,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     signal?.throwIfAborted();
     const startedAt = Date.now();
     trace.set(undefined);
+    const sizeProbe: { bytes?: number } = {};
     try {
       return await this.runRequest(
         this.resolveRequest(overrides),
@@ -244,10 +265,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         (traceId) => {
           trace.set(traceId);
         },
+        sizeProbe,
       );
     } catch (error) {
-      this.logRequestFailure(error, overrides, signal);
-      trace.set(this.trackApiError(error, startedAt, signal, overrides.source, trace.traceId));
+      this.logRequestFailure(error, overrides, signal, sizeProbe.bytes);
+      trace.set(
+        this.trackApiError(error, startedAt, signal, overrides.source, trace.traceId, sizeProbe.bytes),
+      );
       throw error;
     }
   }
@@ -256,12 +280,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     error: unknown,
     overrides: AgentLLMRequestOverrides,
     signal: AbortSignal | undefined,
+    estimatedRequestBytes?: number,
   ): void {
     if (isAbortError(error) || signal?.aborted === true) return;
     const payload: LogContext = {
       ...logFieldsForSource(overrides.source),
       model: this.profile.data().modelAlias ?? 'unknown',
       ...retryErrorFields(error),
+      ...(estimatedRequestBytes === undefined ? {} : { estimatedRequestBytes }),
     };
     this.log.warn('llm request failed', payload);
   }
@@ -272,6 +298,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     signal: AbortSignal | undefined,
     source?: AgentLLMRequestSource,
     requestTraceId?: string,
+    estimatedRequestBytes?: number,
   ): string | undefined {
     if (isAbortError(error) || signal?.aborted === true) return requestTraceId;
     const modelAlias = this.profile.data().modelAlias;
@@ -295,6 +322,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
     const statusCode = apiStatusCode(error);
     if (statusCode !== undefined) properties['status_code'] = statusCode;
+    if (estimatedRequestBytes !== undefined) {
+      properties['estimated_request_bytes'] = estimatedRequestBytes;
+    }
     const currentTurn = this.usage.status(this.scopeContext.agentContext).currentTurn;
     if (currentTurn !== undefined) properties['input_tokens'] = inputTotal(currentTurn);
     this.telemetry.track2('api_error', properties);
@@ -311,14 +341,28 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
+  private microCompactionService: IAgentMicroCompactionService | undefined;
+  private get microCompaction(): IAgentMicroCompactionService | undefined {
+    if (this.instantiation === undefined) return undefined;
+    this.microCompactionService ??= this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IAgentMicroCompactionService),
+    );
+    return this.microCompactionService;
+  }
+
   private async runRequest(
     request: ResolvedLLMRequest,
     onPart: AgentLLMRequestPartHandler,
     signal: AbortSignal | undefined,
     onRequestTrace: (traceId: string | undefined) => void,
+    sizeProbe?: { bytes?: number },
   ): Promise<AgentLLMRequestFinish> {
     this.toolCallIdNormalizer.seedFrom(this.context.get());
-    const shaped = this.toolSelect.shapeHistory(request.messages);
+    const compacted =
+      this.microCompaction !== undefined
+        ? this.microCompaction.compact(request.messages)
+        : request.messages;
+    const shaped = this.toolSelect.shapeHistory(compacted);
     const recoveredStrip = this.mediaStripSnapshotForTurn(request.source);
     let policy: ProjectionPolicy | undefined =
       recoveredStrip !== undefined
@@ -333,7 +377,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
     const run = async (
       policy: ProjectionPolicy | undefined,
-    ): Promise<AgentLLMRequestFinish> => {
+    ): Promise<AgentLLMRequestFinish | ProactiveMediaEscalation> => {
       onRequestTrace(undefined);
       const projection = projectionNameOf(policy);
       const fields =
@@ -347,6 +391,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           signal,
         ),
       };
+      const estimatedBytes = estimateLlmRequestBytes(input.messages);
+      if (sizeProbe !== undefined) sizeProbe.bytes = estimatedBytes;
+      const escalation = this.proactiveMediaEviction(
+        input.messages,
+        estimatedBytes,
+        policy,
+        request,
+        captureMediaStripPolicy,
+      );
+      if (escalation !== undefined) return { mediaEscalationPolicy: escalation };
       this.warnAboutAnthropicThinkingEffort(request);
       const logInput: LLMRequestLogInput = {
         protocol: request.model.protocol,
@@ -448,7 +502,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     let infiniteRetryAttempt = 0;
     for (;;) {
       try {
-        return await run(policy);
+        const outcome = await run(policy);
+        if (isProactiveMediaEscalation(outcome)) {
+          policy = outcome.mediaEscalationPolicy;
+          continue;
+        }
+        return outcome;
       } catch (error) {
         const nextPolicy = this.nextProjectionPolicyForError(
           error,
@@ -542,6 +601,66 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       return { ...policy, structure: 'strict' };
     }
     return undefined;
+  }
+
+  private proactiveMediaEviction(
+    messages: readonly Message[],
+    estimatedBytes: number,
+    policy: ProjectionPolicy | undefined,
+    request: ResolvedLLMRequest,
+    captureMediaStripPolicy: () => { readonly strip: MediaStripSnapshot },
+  ): ProjectionPolicy | undefined {
+    const budgetBytes = resolveRequestByteBudget(this.config);
+    if (estimatedBytes <= budgetBytes) return undefined;
+    const media = policy?.media;
+    if (typeof media === 'object') return undefined;
+
+    if (media !== 'degraded') {
+      const degraded = degradeOlderMediaParts(messages, MEDIA_DEGRADE_KEEP_RECENT);
+      const degradedBytes = estimateLlmRequestBytes(degraded);
+      if (degradedBytes <= budgetBytes) {
+        this.logProactiveMediaEviction(
+          request,
+          budgetBytes,
+          estimatedBytes,
+          degradedBytes,
+          countMediaParts(messages) - countMediaParts(degraded),
+          'media-degraded',
+        );
+        this.markRecoveryTurn(this.mediaDegradedTurns, request.source);
+        return { ...policy, media: 'degraded' };
+      }
+    }
+    const stripped = stripMediaPartsBySnapshot(messages, captureMediaStripSnapshot(messages));
+    const strippedBytes = estimateLlmRequestBytes(stripped);
+    this.logProactiveMediaEviction(
+      request,
+      budgetBytes,
+      estimatedBytes,
+      strippedBytes,
+      countMediaParts(messages) - countMediaParts(stripped),
+      'media-stripped',
+    );
+    return { ...policy, media: captureMediaStripPolicy() };
+  }
+
+  private logProactiveMediaEviction(
+    request: ResolvedLLMRequest,
+    budgetBytes: number,
+    beforeBytes: number,
+    afterBytes: number,
+    evictedMediaCount: number,
+    projection: 'media-degraded' | 'media-stripped',
+  ): void {
+    this.log.warn('estimated request size exceeds the budget; evicting older media before send', {
+      model: request.model.name,
+      ...request.logFields,
+      budgetBytes,
+      estimatedBytesBefore: beforeBytes,
+      estimatedBytesAfter: afterBytes,
+      evictedMediaCount,
+      projection,
+    });
   }
 
   private normalizeStreamPart(
@@ -788,6 +907,32 @@ class MutableLLMRequestTrace implements LLMRequestTrace {
   set(traceId: string | undefined): void {
     this.traceId = traceId;
   }
+}
+
+export function estimateLlmRequestBytes(messages: readonly Message[]): number {
+  let total = 0;
+  for (const message of messages) {
+    for (const part of message.content) {
+      if (part.type === 'text') total += part.text.length;
+      else if (part.type === 'think') total += part.think.length + (part.encrypted?.length ?? 0);
+      else if (part.type === 'image_url') total += part.imageUrl.url.length;
+      else if (part.type === 'audio_url') total += part.audioUrl.url.length;
+      else if (part.type === 'video_url') total += part.videoUrl.url.length;
+    }
+    for (const call of message.toolCalls) total += call.arguments?.length ?? 0;
+  }
+  return total;
+}
+
+function isMediaPart(part: ContentPart): boolean {
+  return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
+}
+
+function countMediaParts(messages: readonly Message[]): number {
+  return messages.reduce(
+    (count, message) => count + message.content.filter(isMediaPart).length,
+    0,
+  );
 }
 
 function logFieldsForSource(source: AgentLLMRequestSource | undefined): AgentLLMRequestLogFields {

@@ -32,6 +32,10 @@ import type {
   UsageStatus,
 } from '@moonshot-ai/agent-core-v2';
 import type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
+import type {
+  McpRegistryPluginOrigin,
+  McpServerSource,
+} from '@moonshot-ai/agent-core-v2/app/mcpRegistry/mcpRegistry';
 import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import type { Kaos } from '@moonshot-ai/kaos';
@@ -90,6 +94,9 @@ export interface GetCronTasksResult {
 }
 
 export type { McpServerEntry as McpServerInfo };
+
+export type { McpServerLocator } from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
+export type { McpServerInspection as AppMcpServerInspection } from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
 
 export interface McpStartupMetrics {
   readonly durationMs: number;
@@ -554,18 +561,19 @@ export interface AgentRuntimeBinding {
 }
 
 /**
- * Unified management-plane view of a global MCP server. Plugin, project, and
- * user entries are normalized into this shape for RPC consumers.
+ * Unified management-plane view of a global MCP server: the named config
+ * entry flattened to the top level and tagged with its registry metadata
+ * (mutable entries keep the full values, read-only ones the redacted key
+ * lists). Plugin, project, and user entries normalize into this shape for
+ * RPC consumers.
  */
-export interface McpManagedServerInfo {
-  readonly name: string;
-  readonly source: 'plugin' | 'project' | 'user' | 'caller';
-  readonly kind: 'stdio' | 'http' | 'sse';
-  readonly enabled: boolean;
-  readonly state: 'connected' | 'needs-auth' | 'failed' | 'disabled' | 'pending' | 'removed';
-  readonly config: Record<string, unknown>;
-  readonly auth?: { readonly state: 'authorized' | 'unauthorized' | 'unsupported' };
-  readonly toolCount?: number;
-  readonly lastError?: string;
-  readonly redactedKeys?: readonly string[];
-}
+export type McpManagedServerInfo = GlobalMcpServerConfig & {
+  readonly source: McpServerSource;
+  /** global: defining file path; plugin: plugin id. */
+  readonly origin: string;
+  readonly mutable: boolean;
+  readonly plugin?: McpRegistryPluginOrigin;
+  /** Set instead of `env` / `headers` when the entry is read-only. */
+  readonly envKeys?: readonly string[];
+  readonly headerKeys?: readonly string[];
+};

@@ -183,11 +183,8 @@ describe('VS Code replay from a public Node SDK resume state', () => {
                   arguments: JSON.stringify({
                     todos: [
                       {
-                        id: 'T1',
-                        parentId: null,
                         title: 'Verify resume',
                         status: 'done',
-                        description: 'Verify resume works',
                       },
                     ],
                   }),

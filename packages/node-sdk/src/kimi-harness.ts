@@ -1,11 +1,8 @@
 import type { Kaos } from '@moonshot-ai/kaos';
-import {
-  ErrorCodes,
-  KimiError,
-  ImageLimits,
-  withTelemetryContext,
-  type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core';
+import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+
+import { ErrorCodes, KimiError, log, withTelemetryContext } from '#/legacy';
+import { ImageLimits } from '#/image-limits';
 
 import { capabilityRpc, Session } from '#/session';
 import type { KimiAuthFacade } from '#/auth';
@@ -78,6 +75,8 @@ export class KimiHarness {
   private readonly uiMode: string;
   private readonly telemetry: TelemetryClient;
   private readonly activeSessions = new Map<string, Session>();
+  /** Guards {@link close}: the second call returns immediately. */
+  private closed = false;
   private readonly resumeInflight = new Map<string, Promise<Session>>();
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
@@ -608,7 +607,20 @@ export class KimiHarness {
   }
 
   async close(): Promise<void> {
-    await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
+    if (this.closed) return;
+    this.closed = true;
+    // Best-effort session teardown: a session close failure must not block
+    // the engine teardown below (the host's onClose may remove homeDir).
+    const results = await Promise.allSettled(
+      Array.from(this.activeSessions.values(), (session) => session.close()),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        log.error('A session close failed during harness shutdown; continuing teardown', {
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    }
     await this.closeImpl();
   }
 

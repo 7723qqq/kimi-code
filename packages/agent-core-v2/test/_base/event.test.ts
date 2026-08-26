@@ -103,7 +103,7 @@ describe('Emitter / Event', () => {
     const emitter = new Emitter<number>();
     const bag: IDisposable[] = [];
 
-    emitter.event(() => {}, undefined, bag);
+    emitter.event(() => undefined, undefined, bag);
 
     expect(bag).toHaveLength(1);
     emitter.dispose();
@@ -170,7 +170,7 @@ describe('Emitter debug name / EventSubscription ledger labels', () => {
     const emitter = new Emitter<number>('test.event');
     const store = new DisposableStore();
 
-    emitter.event(() => {}, undefined, store);
+    emitter.event(() => undefined, undefined, store);
 
     expect(store.ledger.entries().map((entry) => entry.label)).toContain('on:test.event');
     store.dispose();
@@ -181,7 +181,7 @@ describe('Emitter debug name / EventSubscription ledger labels', () => {
     const emitter = new Emitter<number>();
     const store = new DisposableStore();
 
-    emitter.event(() => {}, undefined, store);
+    emitter.event(() => undefined, undefined, store);
 
     expect(store.ledger.entries().map((entry) => entry.label)).toContain(
       'disposable:EventSubscription',
@@ -194,7 +194,7 @@ describe('Emitter debug name / EventSubscription ledger labels', () => {
     const emitter = new Emitter<number>();
     expect(emitter.listenerCount).toBe(0);
 
-    const subscription = emitter.event(() => {});
+    const subscription = emitter.event(() => undefined);
     expect(emitter.listenerCount).toBe(1);
 
     subscription.dispose();
@@ -297,7 +297,7 @@ describe('Event.any', () => {
     });
 
     const error = captureThrown(() => {
-      Event.any(first, second)(() => {}).dispose();
+      Event.any(first, second)(() => undefined).dispose();
     });
 
     expect(order).toEqual(['first', 'second']);

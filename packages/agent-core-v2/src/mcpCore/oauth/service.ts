@@ -4,6 +4,7 @@ import type { ILogger as Logger } from '#/_base/log/log';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
+import type { McpOAuthCredentialsCoordinator } from './coordinator';
 import {
   META_SUFFIX,
   McpOAuthClientProvider,
@@ -24,6 +25,7 @@ export interface McpOAuthServiceOptions {
   readonly store: McpOAuthStore;
   readonly clientLabel?: string;
   readonly resolveClientName?: () => string | undefined;
+  readonly coordinator?: McpOAuthCredentialsCoordinator;
   readonly log?: Logger;
   readonly scheduler?: McpOAuthScheduler;
   readonly authRequestTimeoutMs?: number;
@@ -106,6 +108,7 @@ export class McpOAuthService {
   private readonly store: McpOAuthStore;
   private readonly clientLabel: string | undefined;
   private readonly resolveClientName: (() => string | undefined) | undefined;
+  private readonly coordinator: McpOAuthCredentialsCoordinator | undefined;
   private readonly log: Logger;
   private readonly scheduler: McpOAuthScheduler;
   private readonly authRequestTimeoutMs: number;
@@ -123,6 +126,7 @@ export class McpOAuthService {
     this.store = options.store;
     this.clientLabel = options.clientLabel;
     this.resolveClientName = options.resolveClientName;
+    this.coordinator = options.coordinator;
     this.log = options.log ?? defaultLog;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.authRequestTimeoutMs = options.authRequestTimeoutMs ?? DEFAULT_AUTH_REQUEST_TIMEOUT_MS;
@@ -612,6 +616,17 @@ export class McpOAuthService {
   }
 
   private emit(event: McpOAuthEvent): void {
+    if (
+      event.type === 'tokens-saved' ||
+      (event.type === 'tokens-invalidated' && (event.scope === 'tokens' || event.scope === 'all'))
+    ) {
+      const url = canonicalMcpOAuthResource(event.serverUrl);
+      if (event.type === 'tokens-saved') {
+        this.coordinator?.notifyCredentialsChanged(event.serverName, url);
+      } else {
+        this.coordinator?.notifyCredentialsInvalidated(event.serverName, url);
+      }
+    }
     for (const listener of this.listeners) {
       try {
         listener(event);

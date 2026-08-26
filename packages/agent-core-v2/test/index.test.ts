@@ -49,6 +49,7 @@ const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
   'full_compaction.cancel',
   'full_compaction.complete',
   'micro_compaction.apply',
+  'micro_compaction.clamp',
   'plan_mode.enter',
   'plan_mode.cancel',
   'plan_mode.exit',
@@ -203,6 +204,7 @@ describe('v1 wire vocabulary', () => {
 describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
+    'microCompaction',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [

@@ -472,3 +472,8 @@ export const KIMI_ERROR_INFO = {
 export function isKimiErrorCode(code: unknown): code is KimiErrorCode {
   return typeof code === 'string' && Object.hasOwn(KIMI_ERROR_INFO, code);
 }
+
+export function resolveErrorTitle(code: KimiErrorCode): string {
+  const info = KIMI_ERROR_INFO[code];
+  return info ? info.title : code;
+}

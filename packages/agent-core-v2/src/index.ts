@@ -44,6 +44,8 @@ export * from '#/program/program';
 export * from '#/workspace/workspaceInstance/workspaceInstance';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManager';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManagerService';
+export * from '#/app/workspaceLifecycle/workspaceLifecycle';
+export * from '#/app/workspaceLifecycle/workspaceLifecycleService';
 export * from '#/agent/runtimeBinding/runtimeBinding';
 export * from '#/agent/runtimeBinding/runtimeBindingService';
 export * from '#/agent/runtimeBinding/agentRuntime';
@@ -110,6 +112,7 @@ export * from '#/state/errors';
 export * from '#/state/state';
 export * from '#/state/stateContribution';
 export * from '#/state/agentModel';
+export * from '#/state/agentEffect';
 export {
   AgentRuntimeContributionPoint,
   AgentRuntimeOverrideContributionPoint,
@@ -478,6 +481,7 @@ export * from '#/session/subagent/subagent';
 export * from '#/session/subagent/subagentService';
 export * from '#/session/subagent/spawn';
 import '#/session/subagent/flag';
+import '#/persistence/backends/minidb/flag';
 export * from '#/session/subagent/subagentModelsValidation';
 import '#/session/subagent/subagentModelsValidationService';
 export * from '#/agent/tools/agent/subagent-task';
@@ -565,7 +569,6 @@ export * from '#/persistence/backends/node-fs/appendLogStore';
 export * from '#/persistence/backends/node-fs/atomicDocumentStore';
 export * from '#/persistence/backends/node-fs/blobStoreService';
 export * from '#/persistence/backends/node-fs/projectLocalConfigService';
-import '#/persistence/backends/minidb/flag';
 export * from '#/persistence/backends/minidb/miniDbQueryStore';
 export * from '#/persistence/backends/memory/inMemoryStorageService';
 export * from '#/agent/tools/web-search/web-search';
@@ -655,9 +658,14 @@ export * from '#/agent/fullCompaction/fullCompaction';
 export * from '#/agent/fullCompaction/fullCompactionService';
 export * from '#/agent/fullCompaction/compactionOps';
 export * from '#/agent/fullCompaction/types';
+export * from '#/agent/microCompaction/microCompaction';
+export * from '#/agent/microCompaction/microCompactionOps';
+export * from '#/agent/microCompaction/microCompactionService';
+export * from '#/agent/checkpoint/checkpointService';
 export * from '#/agent/llmRequester/llmRequester';
 export * from '#/agent/llmRequester/llmRequesterService';
 export * from '#/agent/llmRequester/llmRequestOps';
+import '#/agent/llmRequester/configSection';
 export * from '#/_base/utils/promise';
 export * from '#/_base/utils/retry';
 export * from '#/_base/utils/timer';
@@ -673,9 +681,7 @@ export * from '#/agent/mcp/mcp';
 export * from '#/agent/mcp/mcpService';
 export * from '#/agent/mcp/mcpDiscoveryOps';
 export * from '#/mcpCore/config-schema';
-export * from '#/agent/media/mediaTools';
-export * from '#/agent/media/mediaToolsRegistrar';
-export * from '#/agent/media/registerMediaTools';
+export * from '#/agent/media/mediaReadContext';
 export {
   buildDaemonFileUrl,
   buildMediaPathTag,

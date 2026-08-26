@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { TodoItem } from '#/session/todo/todoItem';
+import type { TodoRuntime } from '#/features/todo/todoAgentRuntime';
+import type { TodoItem } from '#/features/todo/todoItem';
 import type { PlanData } from '#/features/plan/plan';
 import { tryConvertPlanToTodos } from '#/features/plan/planToTodoConverter';
-import type { ISessionTodoService } from '#/session/todo/sessionTodo';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 
 import { parsePlanToTodos } from '#/features/plan/parsePlanToTodos';
@@ -102,16 +102,15 @@ describe('parsePlanToTodos', () => {
   });
 });
 
-function makeTodoService(initial: readonly TodoItem[] = []): {
-  service: ISessionTodoService;
+function makeTodoRuntime(initial: readonly TodoItem[] = []): {
+  runtime: TodoRuntime;
   setCalls: TodoItem[][];
 } {
   let todos = [...initial];
   const setCalls: TodoItem[][] = [];
-  const service: ISessionTodoService = {
-    _serviceBrand: undefined,
-    getTodos: async () => todos,
-    setTodos: async (_agent, next) => {
+  const runtime = {
+    get: () => todos,
+    replace: async (next: readonly TodoItem[]) => {
       setCalls.push([...next]);
       todos = [...next];
     },
@@ -119,8 +118,8 @@ function makeTodoService(initial: readonly TodoItem[] = []): {
       todos = [];
     },
     onDidChange: () => ({ dispose: () => {} }),
-  };
-  return { service, setCalls };
+  } as unknown as TodoRuntime;
+  return { runtime, setCalls };
 }
 
 const FAKE_AGENT = { agentId: 'main', generation: 0 } as unknown as AgentContext;
@@ -137,14 +136,14 @@ const PLAN: PlanData = {
 
 describe('tryConvertPlanToTodos', () => {
   it('skips when planData is null', async () => {
-    const { service, setCalls } = makeTodoService();
+    const { runtime: service, setCalls } = makeTodoRuntime();
     const outcome = await tryConvertPlanToTodos(null, service, FAKE_AGENT);
     expect(outcome).toEqual({ kind: 'skipped', reason: 'empty-plan' });
     expect(setCalls).toHaveLength(0);
   });
 
   it('skips when plan content is whitespace only', async () => {
-    const { service, setCalls } = makeTodoService();
+    const { runtime: service, setCalls } = makeTodoRuntime();
     const outcome = await tryConvertPlanToTodos(
       { id: 'p', path: '/p', content: '  \n  ' },
       service,
@@ -155,7 +154,7 @@ describe('tryConvertPlanToTodos', () => {
   });
 
   it('skips when the plan has no headings + lists', async () => {
-    const { service, setCalls } = makeTodoService();
+    const { runtime: service, setCalls } = makeTodoRuntime();
     const outcome = await tryConvertPlanToTodos(
       { id: 'p', path: '/p', content: 'Just narrative, no checklist.' },
       service,
@@ -166,7 +165,7 @@ describe('tryConvertPlanToTodos', () => {
   });
 
   it('skips when the agent context is undefined', async () => {
-    const { service, setCalls } = makeTodoService();
+    const { runtime: service, setCalls } = makeTodoRuntime();
     const outcome = await tryConvertPlanToTodos(PLAN, service, undefined);
     expect(outcome).toEqual({ kind: 'skipped', reason: 'no-agent' });
     expect(setCalls).toHaveLength(0);
@@ -176,14 +175,14 @@ describe('tryConvertPlanToTodos', () => {
     const existing: TodoItem[] = [
       { id: 'T1', parentId: null, kind: 'task', title: 'prior work', status: 'pending' },
     ];
-    const { service, setCalls } = makeTodoService(existing);
+    const { runtime: service, setCalls } = makeTodoRuntime(existing);
     const outcome = await tryConvertPlanToTodos(PLAN, service, FAKE_AGENT);
     expect(outcome).toEqual({ kind: 'skipped', reason: 'existing-todos' });
     expect(setCalls).toHaveLength(0);
   });
 
   it('converts a structured plan and writes via the todo service', async () => {
-    const { service, setCalls } = makeTodoService();
+    const { runtime: service, setCalls } = makeTodoRuntime();
     const outcome = await tryConvertPlanToTodos(PLAN, service, FAKE_AGENT);
     expect(outcome).toEqual({ kind: 'converted', count: 4 });
     expect(setCalls).toHaveLength(1);
@@ -195,16 +194,15 @@ describe('tryConvertPlanToTodos', () => {
     ]);
   });
 
-  it('does not throw when the todo service rejects (caller can ignore)', async () => {
-    const service: ISessionTodoService = {
-      _serviceBrand: undefined,
-      getTodos: async () => [],
-      setTodos: vi.fn(async () => {
+  it('does not throw when the todo runtime rejects (caller can ignore)', async () => {
+    const service = {
+      get: () => [],
+      replace: vi.fn(async () => {
         throw new Error('boom');
-      }) as ISessionTodoService['setTodos'],
+      }),
       clear: async () => {},
       onDidChange: () => ({ dispose: () => {} }),
-    };
+    } as unknown as TodoRuntime;
     await expect(tryConvertPlanToTodos(PLAN, service, FAKE_AGENT)).rejects.toThrow('boom');
   });
 });

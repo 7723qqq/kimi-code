@@ -1,14 +1,10 @@
-import {
-  FORK_CANNOT_COMBINE_WITH_MODEL,
-  FORK_CANNOT_COMBINE_WITH_RESUME,
-  FORK_CANNOT_COMBINE_WITH_SUBAGENT_TYPE,
-} from '#/agent/tools/agent/agent';
+export const FORK_CANNOT_COMBINE_WITH_RESUME =
+  'Cannot use fork with resume — fork creates a new subagent from the caller\'s snapshot; resume targets an existing agent by id.';
+export const FORK_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
+  'Cannot use fork with subagent_type — a forked subagent inherits the caller\'s profile. Omit subagent_type to use fork.';
+export const FORK_CANNOT_COMBINE_WITH_MODEL =
+  'Cannot use fork with model — a forked subagent inherits the caller\'s model. Omit model to use fork.';
 
-/**
- * A subset of the SubagentToolInput that fork-compatibility checks inspect.
- * Keeping this narrow lets the same helper serve both Agent and AgentSwarm
- * without pulling in agent-private types.
- */
 export interface ForkCompatInputLike {
   readonly fork?: boolean;
   readonly resume?: string;
@@ -16,19 +12,6 @@ export interface ForkCompatInputLike {
   readonly model?: string;
 }
 
-/**
- * Validate a fork request. Returns `undefined` when the request is
- * compatible, or a user-facing error message when one of the disallow
- * rules fires.
- *
- * Rules:
- * 1. fork + resume → cannot resume an existing agent AND fork a new one
- * 2. fork + subagent_type → fork inherits the caller's profile
- * 3. fork + model → fork inherits the caller's model
- *
- * The checks run in that order so the first violation wins (no chained
- * errors), matching the existing single-error style of the Agent tool.
- */
 export function forkIncompatibility(args: ForkCompatInputLike): string | undefined {
   if (args.fork !== true) return undefined;
 

@@ -4,7 +4,7 @@ import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
   nativeManifestUrl,
-  selectPlatformEntry,
+  selectBunPlatformEntry,
 } from '#/cli/update/native-manifest';
 import { kimiCodeCdnBinariesBase } from '#/constant/app';
 
@@ -42,7 +42,7 @@ describe('fetchNativeReleaseManifest', () => {
     const f = mockFetch({ ok: true, status: 200, body: MANIFEST_BODY });
     const manifest = await fetchNativeReleaseManifest(VERSION, f);
     expect(manifest.version).toBe(VERSION);
-    expect(Object.keys(manifest.platforms)).toEqual(['win32-x64', 'darwin-arm64']);
+    expect(Object.keys(manifest.platforms ?? {})).toEqual(['win32-x64', 'darwin-arm64']);
     expect(f).toHaveBeenCalledWith(
       nativeManifestUrl(VERSION),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -121,23 +121,23 @@ describe('fetchNativeReleaseManifest', () => {
   });
 });
 
-describe('selectPlatformEntry', () => {
+describe('selectBunPlatformEntry', () => {
   const manifest = {
     version: VERSION,
-    platforms: {
+    bun: {
       'win32-x64': { filename: 'kimi-code-win32-x64.zip', checksum: 'a'.repeat(64) },
     },
   };
 
   it('returns the entry matching platform-arch', () => {
-    expect(selectPlatformEntry(manifest, 'win32', 'x64')).toEqual(
-      manifest.platforms['win32-x64'],
+    expect(selectBunPlatformEntry(manifest, 'win32', 'x64')).toEqual(
+      manifest.bun['win32-x64'],
     );
   });
 
   it('throws when the platform is missing', () => {
-    expect(() => selectPlatformEntry(manifest, 'linux', 'arm64')).toThrow(
-      /linux-arm64 not found/,
+    expect(() => selectBunPlatformEntry(manifest, 'linux', 'arm64')).toThrow(
+      /linux-arm64/,
     );
   });
 });

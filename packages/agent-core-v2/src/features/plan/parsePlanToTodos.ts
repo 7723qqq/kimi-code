@@ -1,21 +1,5 @@
-import type { TodoItem } from '../../session/todo/todoItem';
+import type { TodoItem } from '#/features/todo/todoItem';
 
-/**
- * Parse a plan-mode markdown document into a TodoList skeleton.
- *
- * Conventions (documented in `enter-plan-mode.md`):
- * - `## <title>` / `### <title>` headings mark milestones
- *   (`kind: 'milestone'`, `parentId: null`); first = start, last = finish,
- *   middle = phase.
- * - A list item under a milestone marks a leaf task:
- *   `- <text>` or `<n>. <text>`. Its parentId is the milestone id and its
- *   title is the item text.
- * - `- [x] <text>` (completed) maps to `status: 'done'`, `- [ ] <text>`
- *   and bare `-` to `status: 'pending'`.
- *
- * Returns `null` when the plan has no recognizable structure; callers skip
- * conversion rather than invent items.
- */
 export function parsePlanToTodos(content: string): readonly TodoItem[] | null {
   const lines = content.split(/\r?\n/);
   const items: TodoItem[] = [];

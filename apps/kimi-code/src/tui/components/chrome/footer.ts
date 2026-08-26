@@ -2,24 +2,39 @@
  * Footer/status bar — multi-line status display at the bottom of the TUI.
  *
  * Layout:
- *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: N% (tokens/max)
+ *   Line 1: slots from status_line.items (mode, goal, model, tasks, cwd, git)
+ *           joined left, rotating tips right (unless 'tips' is a slot); a
+ *           status_line.command's first stdout line replaces it when set.
+ *   Line 2: transient hint left, session stats right (turns/steps, LLM · tool
+ *           time, first-token avg · tok/s, cache hit, in/out tokens, context).
  */
 
+import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
-import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
-import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
+import { t } from '#/i18n';
+import { getAllTips } from '#/tui/constant/tips';
+import {
+  isRainbowDancing,
+  renderDanceFooterModel,
+  rainbowText,
+  getDanceRainbowPalette,
+} from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 import {
-  StatusLineCommandRunner,
-  type StatusLinePayload,
-} from '#/tui/utils/status-line-command';
+  firstTokenAverageMs,
+  fitSessionStatsText,
+  formatStatDuration,
+  formatTokenSpeed,
+  type SessionStatsGroup,
+  type SessionStatsSegment,
+} from '#/tui/utils/session-stats';
+import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
+import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 import {
   createGitStatusCache,
   formatGitBadgeBase,
@@ -27,53 +42,22 @@ import {
   type GitStatus,
   type GitStatusCache,
 } from '#/utils/git/git-status';
-import {
-  formatTokenCount,
-  usagePercent,
-  usagePercentFromRatio,
-} from '#/utils/usage/usage-format';
+import { formatTokenCount, usagePercent, usagePercentFromRatio } from '#/utils/usage/usage-format';
 
 const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
+const THINKING_PULSE_INTERVAL_MS = 80;
 
 // Toolbar tips — rotates every 10s. Most tips are short and pair up (two
 // joined by " | ") when space allows; tips flagged `solo` are long or
 // important enough to take the whole slot on their own. A `priority` weight
 // makes a tip recur more often in the rotation (default 1). Width is always
 // the final arbiter (a pair that doesn't fit falls back to its first tip).
-const TIP_ROTATE_INTERVAL_MS = 10_000;
 const TIP_SEPARATOR = ' | ';
 
-/**
- * Expand tips into a rotation sequence using smooth weighted round-robin
- * (the nginx SWRR algorithm). Higher-`priority` tips appear more often while
- * staying evenly spread, so a tip generally does not land next to its own
- * duplicate. Deterministic and computed once at module load. Exported for
- * unit testing.
- */
-export function buildWeightedTips(tips: readonly ToolbarTip[]): readonly ToolbarTip[] {
-  const items = tips.map((t) => ({
-    tip: t,
-    weight: Math.max(1, Math.trunc(t.priority ?? 1)),
-    current: 0,
-  }));
-  const total = items.reduce((sum, it) => sum + it.weight, 0);
-  const seq: ToolbarTip[] = [];
-  for (let n = 0; n < total; n++) {
-    let best = items[0]!;
-    for (const it of items) {
-      it.current += it.weight;
-      if (it.current > best.current) best = it;
-    }
-    best.current -= total;
-    seq.push(best.tip);
-  }
-  return seq;
-}
-
-const ROTATION: readonly ToolbarTip[] = buildWeightedTips(ALL_TIPS);
+const getRotation = createLocaleKeyedTipRotation(getAllTips);
 
 function currentTipIndex(): number {
   return Math.floor(Date.now() / TIP_ROTATE_INTERVAL_MS);
@@ -88,12 +72,13 @@ function currentTipIndex(): number {
  * tips on their own and avoiding "X | X".
  */
 function tipsForIndex(index: number): { primary: string; pair: string | null } {
-  const n = ROTATION.length;
+  const rotation = getRotation();
+  const n = rotation.length;
   if (n === 0) return { primary: '', pair: null };
   const offset = ((index % n) + n) % n;
-  const current = ROTATION[offset]!;
+  const current = rotation[offset]!;
   if (n === 1 || current.solo) return { primary: current.text, pair: null };
-  const next = ROTATION[(offset + 1) % n]!;
+  const next = rotation[(offset + 1) % n]!;
   if (next.solo || next.text === current.text) return { primary: current.text, pair: null };
   return { primary: current.text, pair: current.text + TIP_SEPARATOR + next.text };
 }
@@ -122,9 +107,17 @@ function formatGoalBadge(
         : colors.textMuted;
   const turns =
     goal.budget.turnBudget !== null
-      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
-      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : 'turns'}`;
-  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+      ? `${goal.turnsUsed}/${goal.budget.turnBudget} ${t('tui.chrome.footer.turns')}`
+      : goal.turnsUsed === 1
+        ? t('tui.chrome.footer.turn_one', { count: String(goal.turnsUsed) })
+        : t('tui.chrome.footer.turn_other', { count: String(goal.turnsUsed) });
+  const statusLabel =
+    goal.status === 'active'
+      ? t('tui.chrome.footer.statusActive')
+      : goal.status === 'blocked'
+        ? t('tui.chrome.footer.statusBlocked')
+        : t('tui.chrome.footer.statusPaused');
+  const label = `${statusLabel} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -165,6 +158,15 @@ function shortenCwd(path: string): string {
 }
 
 /**
+ * Render the combined swarm-plan badge with a rainbow gradient effect.
+ * Each character gets a different color from the theme-appropriate palette.
+ */
+function renderSwarmPlanBadge(text: string): string {
+  const palette = getDanceRainbowPalette();
+  return rainbowText(text, palette, 0, true);
+}
+
+/**
  * Footer context readout. Percent comes from the exact token counts when
  * both are known (the ratio can lag a step behind); otherwise it falls
  * back to the precomputed ratio. Counts use the shared 1024-based
@@ -173,9 +175,124 @@ function shortenCwd(path: string): string {
 function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
   if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
     const pct = String(usagePercent(tokens, maxTokens));
-    return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+    return t('tui.chrome.footer.contextWithTokens', {
+      pct,
+      tokens: formatTokenCount(tokens),
+      maxTokens: formatTokenCount(maxTokens),
+    });
   }
-  return `context: ${String(usagePercentFromRatio(usage))}%`;
+  return t('tui.chrome.footer.context', { pct: String(usagePercentFromRatio(usage)) });
+}
+
+/**
+ * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden until at least one
+ * step reported usage (no session traffic yet).
+ *
+ * Hit rate: reads / (reads + writes) when the provider reports cache writes.
+ * OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never surface cache
+ * writes — their miss lands in `input_other` — so the share-of-total-input
+ * fallback is the norm for them, otherwise the readout would always read 100%.
+ */
+function formatCacheHitRate(
+  cacheReadTokens: number,
+  cacheMissTokens: number,
+  cacheOtherTokens: number,
+): string | null {
+  const read = cacheReadTokens ?? 0;
+  const miss = cacheMissTokens ?? 0;
+  const other = cacheOtherTokens ?? 0;
+  let pct: number;
+  if (miss > 0) {
+    pct = Math.round((read / (read + miss)) * 100);
+  } else if (read > 0) {
+    const inputTotal = read + other;
+    pct = inputTotal > 0 ? Math.round((read / inputTotal) * 100) : 0;
+  } else {
+    return null;
+  }
+  return t('tui.chrome.footer.cacheHit', { pct: String(pct) });
+}
+
+/**
+ * Compose the footer's right-hand readout as ordered groups (items in a group
+ * join with ` · `, groups with ` | `). Display order: turns/steps, LLM time ·
+ * tool time, first-token avg · tok/s, cache hit, input/output, context. The
+ * cache-hit and context readouts carry `Infinity` priority and only disappear
+ * when their data is absent entirely. Item drop priority (lower = dropped
+ * first when the terminal narrows): tool time → first-token avg → tok/s →
+ * LLM time → input/output → turns/steps.
+ */
+function buildSessionStatSegments(
+  stats: AppState['sessionStats'],
+  hitRateText: string | null,
+  speedText: string | null,
+  contextText: string,
+): SessionStatsGroup[] {
+  const groups: SessionStatsGroup[] = [];
+  if (stats.turnCount > 0 || stats.stepCount > 0) {
+    const turnText = t(
+      stats.turnCount === 1 ? 'tui.chrome.footer.turn_one' : 'tui.chrome.footer.turn_other',
+      { count: String(stats.turnCount) },
+    );
+    const stepText = t(
+      stats.stepCount === 1 ? 'tui.chrome.footer.step_one' : 'tui.chrome.footer.step_other',
+      { count: String(stats.stepCount) },
+    );
+    groups.push({
+      items: [
+        {
+          text: t('tui.chrome.footer.turnsSteps', { turns: turnText, steps: stepText }),
+          priority: 6,
+        },
+      ],
+    });
+  }
+  const llmTool: SessionStatsSegment[] = [];
+  if (stats.llmTotalMs > 0) {
+    llmTool.push({
+      text: t('tui.chrome.footer.llmTime', { time: formatStatDuration(stats.llmTotalMs) }),
+      priority: 4,
+    });
+  }
+  if (stats.toolTotalMs > 0) {
+    llmTool.push({
+      text: t('tui.chrome.footer.toolTime', { time: formatStatDuration(stats.toolTotalMs) }),
+      priority: 1,
+    });
+  }
+  if (llmTool.length > 0) groups.push({ items: llmTool });
+
+  const latencySpeed: SessionStatsSegment[] = [];
+  const firstToken = firstTokenAverageMs(stats);
+  if (firstToken !== null) {
+    latencySpeed.push({
+      text: t('tui.chrome.footer.firstTokenAvg', { time: formatStatDuration(firstToken) }),
+      priority: 2,
+    });
+  }
+  if (speedText !== null) {
+    latencySpeed.push({ text: speedText, priority: 3 });
+  }
+  if (latencySpeed.length > 0) groups.push({ items: latencySpeed });
+
+  if (hitRateText !== null) {
+    groups.push({ items: [{ text: hitRateText, priority: Number.POSITIVE_INFINITY }] });
+  }
+  if (stats.inputTokens > 0 || stats.outputTokens > 0) {
+    groups.push({
+      items: [
+        {
+          text: t('tui.chrome.footer.inputOutput', {
+            input: formatTokenCount(stats.inputTokens),
+            output: formatTokenCount(stats.outputTokens),
+          }),
+          priority: 5,
+        },
+      ],
+    });
+  }
+  groups.push({ items: [{ text: contextText, priority: Number.POSITIVE_INFINITY }] });
+  return groups;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -198,6 +315,8 @@ export class FooterComponent implements Component {
   private goalSnapshotKey: string | null = null;
   private goalObservedAtMs = Date.now();
   private goalTimer: ReturnType<typeof setInterval> | null = null;
+  private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  private pulsePhase = 0;
   private statusLineRunner: StatusLineCommandRunner | null = null;
   /**
    * Non-terminal background-task counts split by kind so the footer can
@@ -226,6 +345,7 @@ export class FooterComponent implements Component {
     }
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
+    this.syncPulseTimer(state.thinkingEffort !== 'off' && state.streamingPhase !== 'idle');
     this.syncStatusLineRunner(state);
     this.state = state;
   }
@@ -337,13 +457,33 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: hint (bottom-left) + context (right) ──
+    // ── Line 2: transient hint (bottom-left) + session stats / context (right) ──
+    const hitRateText = formatCacheHitRate(
+      state.cacheReadTokens,
+      state.cacheMissTokens,
+      state.cacheOtherTokens,
+    );
+    const speedText =
+      (state.tokenSpeed ?? 0) > 0
+        ? t('tui.chrome.footer.tokenSpeed', { speed: formatTokenSpeed(state.tokenSpeed ?? 0) })
+        : null;
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const contextWidth = visibleWidth(contextText);
+    const segments = buildSessionStatSegments(
+      state.sessionStats,
+      hitRateText,
+      speedText,
+      contextText,
+    );
+    // The context group is always present; when nothing else exists there is
+    // no session traffic yet — keep the old plain context readout instead of
+    // a stats bar with a single group.
+    const hasLiveStats = segments.length > 1;
+    const rightText = hasLiveStats ? fitSessionStatsText(segments, width) : contextText;
+    const contextWidth = visibleWidth(rightText);
     let line2: string;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
@@ -355,10 +495,10 @@ export class FooterComponent implements Component {
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(contextText);
+        chalk.hex(colors.text)(rightText);
     } else {
       const leftPad = Math.max(0, width - contextWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
@@ -389,8 +529,12 @@ export class FooterComponent implements Component {
     const modes: string[] = [];
     if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold('auto'));
     if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold('yolo'));
-    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
-    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
+    if (state.planMode && state.swarmMode) {
+      modes.push(renderSwarmPlanBadge('swarm-plan'));
+    } else {
+      if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
+      if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
+    }
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
@@ -409,11 +553,17 @@ export class FooterComponent implements Component {
       const thinkingLabel =
         effort !== 'off'
           ? hasEfforts && effort !== 'on'
-            ? ` thinking: ${effort}`
-            : ' thinking'
+            ? t('tui.chrome.footer.thinkingEffort', { effort })
+            : t('tui.chrome.footer.thinking')
           : '';
+      const thinkingColor =
+        this.pulsePhase > 0
+          ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
+          : colors.text;
       const modelLabel = `${model}${thinkingLabel}`;
-      let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
+      let renderedModelLabel =
+        chalk.hex(colors.text)(model) +
+        (thinkingLabel ? chalk.hex(thinkingColor)(thinkingLabel) : '');
       if (isRainbowDancing()) {
         renderedModelLabel = renderDanceFooterModel(modelLabel);
       }
@@ -425,16 +575,22 @@ export class FooterComponent implements Component {
     // apart at a glance.
     const taskBadges: string[] = [];
     if (this.backgroundBashTaskCount > 0) {
-      const noun = this.backgroundBashTaskCount === 1 ? 'task' : 'tasks';
-      taskBadges.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)} ${noun} running]`),
+      const noun = t(
+        this.backgroundBashTaskCount === 1
+          ? 'tui.chrome.footer.task_one'
+          : 'tui.chrome.footer.task_other',
+        { count: String(this.backgroundBashTaskCount) },
       );
+      taskBadges.push(chalk.hex(colors.primary)(`[${noun}]`));
     }
     if (this.backgroundAgentCount > 0) {
-      const noun = this.backgroundAgentCount === 1 ? 'agent' : 'agents';
-      taskBadges.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)} ${noun} running]`),
+      const noun = t(
+        this.backgroundAgentCount === 1
+          ? 'tui.chrome.footer.agent_one'
+          : 'tui.chrome.footer.agent_other',
+        { count: String(this.backgroundAgentCount) },
       );
+      taskBadges.push(chalk.hex(colors.primary)(`[${noun}]`));
     }
     slots['tasks'] = taskBadges;
 
@@ -486,10 +642,31 @@ export class FooterComponent implements Component {
     }
   }
 
+  private syncPulseTimer(thinking: boolean): void {
+    if (thinking) {
+      if (this.pulseTimer !== null) return;
+      this.pulseTimer = setInterval(() => {
+        this.pulsePhase = (this.pulsePhase + 0.05) % 1;
+        this.onRefresh();
+      }, THINKING_PULSE_INTERVAL_MS);
+      this.pulseTimer.unref?.();
+      return;
+    }
+    if (this.pulseTimer !== null) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+    this.pulsePhase = 0;
+  }
+
   dispose(): void {
     if (this.goalTimer !== null) {
       clearInterval(this.goalTimer);
       this.goalTimer = null;
+    }
+    if (this.pulseTimer !== null) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
     }
   }
 
@@ -513,4 +690,27 @@ function goalSnapshotKey(goal: AppState['goal']): string | null {
     String(goal.budget.turnBudget),
     String(goal.budget.wallClockBudgetMs),
   ].join('\u0000');
+}
+
+function pulseHexColor(fromHex: string, toHex: string, t: number): string {
+  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+  const safe = clamp(t);
+  const from = parseHexColor(fromHex);
+  const to = parseHexColor(toHex);
+  if (from === undefined || to === undefined) return fromHex;
+  const mix = (s: number, e: number): string =>
+    Math.round(s + (e - s) * safe)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${mix(from.red, to.red)}${mix(from.green, to.green)}${mix(from.blue, to.blue)}`;
+}
+
+function parseHexColor(hex: string): { red: number; green: number; blue: number } | undefined {
+  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+  if (match === null) return undefined;
+  return {
+    red: Number.parseInt(match[1]!, 16),
+    green: Number.parseInt(match[2]!, 16),
+    blue: Number.parseInt(match[3]!, 16),
+  };
 }

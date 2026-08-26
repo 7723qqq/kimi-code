@@ -1,12 +1,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import {
   IAgentKnowledgeService,
@@ -63,7 +63,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
     @IEventBus eventBus: IEventBus,
     @IAgentContextMemoryService contextMemory: IAgentContextMemoryService,
     @ILogService private readonly log: ILogService,
@@ -75,7 +75,9 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     this.initDatabase();
     if (this.scopeContext.agentId === 'main') {
       this._register(new KnowledgeLearner(this, eventBus, contextMemory));
-      this._register(new KnowledgeInjection(this, dynamicInjector, contextMemory));
+      this._register(
+        new KnowledgeInjection(this, this.scopeContext, lifecycle, contextMemory),
+      );
     }
   }
 

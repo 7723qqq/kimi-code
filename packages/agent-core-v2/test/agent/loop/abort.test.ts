@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUsageService } from '#/agent/usage/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import type { generate as kosongGenerate } from '#/kosong/contract/generate';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 import { permissionModeServices, type TestAgentContext } from '../../harness';
@@ -134,7 +134,7 @@ describe('Agent loop — abort handling', () => {
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
-    expect(ctx.get(IAgentUsageService).status().total).toEqual({
+    expect(ctx.get(ISessionUsageService).status(ctx.agentContext).total).toEqual({
       inputOther: 107,
       output: 61,
       inputCacheRead: 0,

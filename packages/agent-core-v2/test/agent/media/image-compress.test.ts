@@ -66,6 +66,50 @@ async function randomNoiseJpeg(width: number, height: number): Promise<Uint8Arra
   return new Uint8Array(await image.getBuffer('image/jpeg', { quality: 90 }));
 }
 
+async function noiseGif(width: number, height: number): Promise<Uint8Array> {
+  const image = new Jimp({ width, height, color: 0x000000ff });
+  fillXorshiftNoise(image.bitmap.data);
+  return new Uint8Array(await image.getBuffer('image/gif'));
+}
+
+interface GifWriterLike {
+  addFrame(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    indexedPixels: number[],
+    opts: { palette: number[]; delay: number },
+  ): void;
+  end(): number;
+}
+
+function indexedGif(width: number, height: number, frames: readonly number[][]): Uint8Array {
+  const requireLocal = createRequire(import.meta.url);
+  const gifModule = requireLocal('omggif') as {
+    GifWriter: new (
+      buf: number[],
+      w: number,
+      h: number,
+      opts?: { loop?: number },
+    ) => GifWriterLike;
+  };
+  const palette = [0x000000, 0xffffff];
+  const buffer = Array.from<number>({ length: width * height * frames.length });
+  const writer = new gifModule.GifWriter(buffer, width, height, { loop: 0 });
+  for (const pixels of frames) {
+    writer.addFrame(0, 0, width, height, pixels, { palette, delay: 10 });
+  }
+  return new Uint8Array(buffer.slice(0, writer.end()));
+}
+
+function animatedGif(width: number, height: number): Uint8Array {
+  return indexedGif(width, height, [
+    Array.from({ length: width * height }, () => 0),
+    Array.from({ length: width * height }, () => 1),
+  ]);
+}
+
 function fillXorshiftNoise(data: Buffer | Uint8Array): void {
   let state = 0x9e3779b9;
   const next = (): number => {
@@ -290,7 +334,7 @@ describe('compressImageForModel — fallback', () => {
     expect(result.data).toBe(empty);
   });
 
-  it('passes GIF through (preserves animation)', async () => {
+  it('passes a within-budget GIF through untouched (preserves animation)', async () => {
     const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]);
     const result = await compressImageForModel(gif, 'image/gif');
     expect(result.changed).toBe(false);
@@ -411,6 +455,46 @@ describe('compressImageForModel — webp', () => {
     if (result.ok) return;
     expect(result.error).toContain('animated WebP');
   });
+});
+
+describe('compressImageForModel — gif', () => {
+  it(
+    'recodes an over-budget GIF within the byte budget',
+    async () => {
+      const budget = 32 * 1024;
+      const gif = await noiseGif(500, 500);
+      expect(gif.length).toBeGreaterThan(budget);
+      const result = await compressImageForModel(gif, 'image/gif', { byteBudget: budget });
+      expect(result.changed).toBe(true);
+      expect(result.finalByteLength).toBeLessThanOrEqual(budget);
+      expect(sniffImageDimensions(result.data)).not.toBeNull();
+      expect(Math.max(result.width, result.height)).toBeLessThanOrEqual(MAX_IMAGE_EDGE_PX);
+    },
+    15_000,
+  );
+
+  it('downscales an oversized GIF to the edge cap', async () => {
+    const gif = indexedGif(2100, 1050, [Array.from({ length: 2100 * 1050 }, () => 0)]);
+    const result = await compressImageForModel(gif, 'image/gif');
+    expect(result.changed).toBe(true);
+    expect(Math.max(result.width, result.height)).toBe(MAX_IMAGE_EDGE_PX);
+    expect(result.originalWidth).toBe(2100);
+    expect(result.originalHeight).toBe(1050);
+    expect(sniffImageDimensions(result.data)).toEqual({ width: 2000, height: 1000 });
+  });
+
+  it(
+    'recodes an oversized animated GIF from its decodable first frame',
+    async () => {
+      const gif = animatedGif(2100, 1050);
+      const result = await compressImageForModel(gif, 'image/gif');
+      expect(result.changed).toBe(true);
+      expect(Math.max(result.width, result.height)).toBe(MAX_IMAGE_EDGE_PX);
+      const decoded = await Jimp.fromBuffer(Buffer.from(result.data));
+      expect(decoded.bitmap.data[0]).toBe(0);
+    },
+    30_000,
+  );
 });
 
 describe('compressImageForModel — invariants', () => {
@@ -948,8 +1032,8 @@ describe('cropImageForModel', () => {
   });
 
   it('rejects non-recodable formats explicitly', async () => {
-    const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]);
-    const result = await cropImageForModel(gif, 'image/gif', {
+    const bmp = new Uint8Array([0x42, 0x4d, 1, 2, 3, 4]);
+    const result = await cropImageForModel(bmp, 'image/bmp', {
       x: 0,
       y: 0,
       width: 1,
@@ -957,7 +1041,7 @@ describe('cropImageForModel', () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/PNG, JPEG, and WebP/);
+    expect(result.error).toMatch(/PNG, JPEG, GIF, and WebP/);
   });
 
   it('rejects corrupt bytes without throwing', async () => {
@@ -1330,13 +1414,11 @@ describe('compressImageForModel — telemetry', () => {
   });
 
   it('reports non-recodable formats and empty input as passthrough_unsupported', async () => {
-    const gif = captureTelemetry();
-    await compressImageForModel(
-      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]),
-      'image/gif',
-      { telemetry: { client: gif.client, source: 'mcp_tool_result' } },
-    );
-    expect(gif.events[0]!.props['outcome']).toBe('passthrough_unsupported');
+    const bmp = captureTelemetry();
+    await compressImageForModel(new Uint8Array([0x42, 0x4d, 1, 2, 3, 4]), 'image/bmp', {
+      telemetry: { client: bmp.client, source: 'mcp_tool_result' },
+    });
+    expect(bmp.events[0]!.props['outcome']).toBe('passthrough_unsupported');
 
     const empty = captureTelemetry();
     await compressImageForModel(new Uint8Array(0), 'image/png', {
@@ -1447,8 +1529,8 @@ describe('cropImageForModel — telemetry', () => {
 
     const format = captureTelemetry();
     await cropImageForModel(
-      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]),
-      'image/gif',
+      new Uint8Array([0x42, 0x4d, 1, 2, 3, 4]),
+      'image/bmp',
       { x: 0, y: 0, width: 1, height: 1 },
       { telemetry: { client: format.client, source: 'read_media' } },
     );

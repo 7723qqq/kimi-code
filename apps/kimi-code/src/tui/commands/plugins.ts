@@ -10,7 +10,16 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { Markdown, Spacer } from '@moonshot-ai/pi-tui';
 
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
+import { openUrl } from '#/utils/open-url';
+import {
+  loadPluginMarketplace,
+  withBuiltInEntries,
+  withMarketplaceLatestVersions,
+  type PluginMarketplace,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
+
 import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
@@ -27,6 +36,7 @@ import {
   buildPluginsListLines,
 } from '../components/messages/plugins-status-panel';
 import { UsagePanelComponent } from '../components/messages/usage-panel';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
@@ -35,18 +45,6 @@ import {
   isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import {
-  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
-  QUOTA_CONSUMING_PLUGIN_IDS,
-} from '#/constant/app';
-import {
-  loadPluginMarketplace,
-  withBuiltInEntries,
-  withMarketplaceLatestVersions,
-  type PluginMarketplace,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
-import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {
@@ -90,7 +88,7 @@ type PluginApi = Pick<
 async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
   if (host.session !== undefined) return host.session;
   if (!host.engineV2) {
-    throw new Error(NO_ACTIVE_SESSION_MESSAGE);
+    throw new Error(getNoActiveSessionMessage());
   }
   return {
     listPlugins: () => host.harness.listPlugins(),
@@ -105,7 +103,10 @@ async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
 }
 
 export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: string): Promise<void> {
-  const args = rawArgs.trim().split(/\s+/).filter((part) => part.length > 0);
+  const args = rawArgs
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   const sub = args[0];
   const rest = args.slice(1);
   const session = await resolvePluginApi(host);
@@ -129,7 +130,9 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
         host.showStatus('Install cancelled.');
         return;
       }
-      const spinner = host.showProgressSpinner(`Installing plugin from ${truncateForStatus(source)}…`);
+      const spinner = host.showProgressSpinner(
+        `Installing plugin from ${truncateForStatus(source)}…`,
+      );
       try {
         await installPluginFromSource(host, source);
         spinner.stop({ ok: true, label: `Install finished — see details below.` });
@@ -164,7 +167,11 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
       const action = rest[0];
       const id = rest[1];
       const server = rest[2];
-      if ((action !== 'enable' && action !== 'disable') || id === undefined || server === undefined) {
+      if (
+        (action !== 'enable' && action !== 'disable') ||
+        id === undefined ||
+        server === undefined
+      ) {
         host.showError('Usage: /plugins mcp enable|disable <id> <server>');
         return;
       }
@@ -223,7 +230,7 @@ type CapabilityApi = Pick<Session, 'listCapabilities' | 'getCapability' | 'insta
 async function resolveCapabilityApi(host: SlashCommandHost): Promise<CapabilityApi> {
   if (host.session !== undefined) return host.session;
   if (!host.engineV2) {
-    throw new Error(NO_ACTIVE_SESSION_MESSAGE);
+    throw new Error(getNoActiveSessionMessage());
   }
   return host.harness;
 }
@@ -240,10 +247,7 @@ function logCapabilityStatus(capability: CapabilityStatus, installed?: boolean):
     steps: capability.steps,
   };
   const hasStepIssues = capability.steps.some((step) => step.state !== 'ok');
-  if (
-    capability.install.error !== undefined ||
-    (installed !== false && hasStepIssues)
-  ) {
+  if (capability.install.error !== undefined || (installed !== false && hasStepIssues)) {
     log.warn('capability needs attention', payload);
   } else {
     log.info('capability status', payload);
@@ -493,10 +497,7 @@ function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry
  * entry's detector (seconds of probes) just to print one hint line.
  */
 function isCapabilityPluginId(host: SlashCommandHost, id: string): boolean {
-  return (
-    host.engineV2 &&
-    (id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge')
-  );
+  return host.engineV2 && (id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge');
 }
 
 /** Poll a background capability install until it settles (or we run out of budget). */
@@ -549,9 +550,10 @@ async function installCapabilityFromPanel(
     // An install already running (started from another panel or client) is
     // followed, not restarted — the service rejects duplicate starts even
     // though the original is healthy.
-    const alreadyRunning = await api
-      .getCapability(entry.id)
-      .then((status) => status.install.running, () => false);
+    const alreadyRunning = await api.getCapability(entry.id).then(
+      (status) => status.install.running,
+      () => false,
+    );
     if (!alreadyRunning) {
       await api.installCapability(entry.id);
     } else {
@@ -607,7 +609,14 @@ async function installCapabilityFromPanel(
     host.showNotice(`${label} is installed.`);
     host.state.transcriptContainer.addChild(new Spacer(1));
     host.state.transcriptContainer.addChild(
-      new Markdown(WEBBRIDGE_POST_INSTALL_MARKDOWN, 2, 0, createMarkdownTheme(), undefined, createMarkdownOptions()),
+      new Markdown(
+        WEBBRIDGE_POST_INSTALL_MARKDOWN,
+        2,
+        0,
+        createMarkdownTheme(),
+        undefined,
+        createMarkdownOptions(),
+      ),
     );
     host.state.ui.requestRender();
     return;
@@ -675,7 +684,9 @@ async function applyPluginEnabled(
       ? ` Some MCP servers are disabled; re-enable with /plugins mcp enable ${id} <server>.`
       : '';
   if (showStatus) {
-    host.showStatus(`${enabled ? 'Enabled' : 'Disabled'} ${id}. Run /reload or /new to apply.${mcpHint}`);
+    host.showStatus(
+      `${enabled ? 'Enabled' : 'Disabled'} ${id}. Run /reload or /new to apply.${mcpHint}`,
+    );
   }
   const inlineMcpHint = mcpHint.length > 0 ? ' · MCP servers disabled' : '';
   return `${pluginInlineChangeHint()}${inlineMcpHint}`;
@@ -808,10 +819,7 @@ async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<voi
   host.state.ui.requestRender();
 }
 
-async function installPluginFromSource(
-  host: SlashCommandHost,
-  source: string,
-): Promise<void> {
+async function installPluginFromSource(host: SlashCommandHost, source: string): Promise<void> {
   const session = await resolvePluginApi(host);
   const beforeList = await session.listPlugins();
   const summary = await session.installPlugin(
@@ -856,10 +864,7 @@ function showPluginInstallResult(
   }
 }
 
-function describeInstallAction(
-  previous: PluginSummary | undefined,
-  next: PluginSummary,
-): string {
+function describeInstallAction(previous: PluginSummary | undefined, next: PluginSummary): string {
   const sourceLabel = formatPluginSourceLabel(next);
   const versionFromTo = (prev?: string, cur?: string): string => {
     if (prev === undefined || prev === cur) return cur === undefined ? '' : ` ${cur}`;
@@ -895,7 +900,8 @@ function truncateForStatus(input: string): string {
 
 async function reloadPlugins(host: SlashCommandHost): Promise<void> {
   const summary = await (await resolvePluginApi(host)).reloadPlugins();
-  const line = `Reload: +${summary.added.length} -${summary.removed.length}` +
+  const line =
+    `Reload: +${summary.added.length} -${summary.removed.length}` +
     (summary.errors.length > 0 ? ` (${summary.errors.length} errors)` : '');
   host.showStatus(line);
   // Rebuild the TUI's plugin slash-command list from the reloaded service so

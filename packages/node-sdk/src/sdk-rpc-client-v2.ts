@@ -135,19 +135,21 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import { readConfigFile } from '#/config-local';
+import { getRootLogger } from '#/legacy/logging';
+import { ImageLimits } from '#/image-limits';
 import {
   ensureConfigFile,
   ErrorCodes,
+  flushDiagnosticLogs,
   HookDefSchema,
   isKimiErrorCode,
   KimiError,
   limitAgentReplayByTurns,
   noopTelemetryClient,
-  type AgentContextData,
-  type BeginGlobalMcpServerAuthResult,
-  type ExperimentalFeatureState,
   type KimiErrorCode,
-} from '@moonshot-ai/agent-core';
+} from '#/legacy';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
@@ -273,6 +275,7 @@ import type {
   AgentRuntimeBinding,
   AppMcpServerInspection,
   BackgroundTaskInfo,
+  BeginGlobalMcpServerAuthResult,
   CapabilityStatus,
   CompactOptions,
   ConfigDiagnostics,
@@ -458,6 +461,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       },
       [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
     );
+    void getRootLogger().configure(
+      resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }),
+    );
     this.app = app;
     this.klient = createKlient({ scope: app });
     this.configReady = app.accessor.get(IConfigService).ready;
@@ -525,6 +531,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await drainSessionIndexMirror();
     await drainQueryStoreDisposals();
     await drainLogCloses();
+    await flushDiagnosticLogs();
   }
 
   /**
@@ -2663,6 +2670,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 }
 
+function resolveImageLimits(configPath: string, injected?: ImageLimits): ImageLimits {
+  if (injected !== undefined) return injected;
+  try {
+    const config = readConfigFile(configPath);
+    return new ImageLimits(process.env, config.image);
+  } catch {
+    return new ImageLimits(process.env);
+  }
+}
+
 export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
   const rpc = new SDKRpcClientV2(options);
   return new KimiHarness(rpc, {
@@ -2674,12 +2691,12 @@ export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    // v1-core-owned ingestion limits; the v2 engine has no equivalent yet, so
-    // ingestion falls back to env / built-in defaults like daemon-client hosts.
-    imageLimits: undefined,
+    imageLimits: resolveImageLimits(rpc.configPath, options.imageLimits),
     sessionStartedProperties: options.sessionStartedProperties,
   });
 }
+
+export const createKimiHarness = createKimiHarnessV2;
 
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: string): string {

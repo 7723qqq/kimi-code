@@ -32,6 +32,7 @@ import {
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
 import { createAsyncApiDocument } from './protocol/asyncapi';
+import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
@@ -101,6 +102,7 @@ export interface ServerStartOptions {
   readonly homeDir?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly pluginMarketplaceUrl?: string;
+  readonly pluginMarketplaceHomeDir?: string;
   readonly configPath?: string;
   readonly instancesDir?: string;
   readonly logLevel?: ServerLogLevel;
@@ -162,6 +164,8 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const enableShutdown = exposureClass === 'loopback' || opts.allowRemoteShutdown === true;
   const enableTerminals = exposureClass === 'loopback';
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
+  setExposeErrorDetails(exposureClass === 'loopback');
+  if (debugEndpoints) enableEnvelopeStackTraces();
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
   const onUnhandledRejection = (reason: unknown): void => {
     logger.error(
@@ -432,6 +436,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       opts.pluginMarketplaceUrl === undefined &&
       (process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
         process.env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
+    pluginMarketplaceHomeDir: opts.pluginMarketplaceHomeDir,
     onShutdown: () => {
       void close().catch((err: unknown) => logger.error({ err }, 'server close failed'));
     },

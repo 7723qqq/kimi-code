@@ -177,6 +177,14 @@ function nextTick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+const todoItem = (title: string, status: 'pending' | 'in_progress' | 'done'): TodoItem => ({
+  id: 'T1',
+  parentId: null,
+  kind: 'task',
+  title,
+  status,
+});
+
 describe('TodoAgentRuntime', () => {
   it('isolates state by agent and generation', async () => {
     const registry = new RuntimeRegistry();
@@ -185,11 +193,11 @@ describe('TodoAgentRuntime', () => {
     const sub = makeRuntimeAgent(registry, 'agent-1', 1);
     const next = makeRuntimeAgent(registry, 'main', 2);
 
-    await main.todo.replace([{ title: 'main todo', status: 'pending' }]);
-    await sub.todo.replace([{ title: 'sub todo', status: 'done' }]);
+    await main.todo.replace([todoItem('main todo', 'pending')]);
+    await sub.todo.replace([todoItem('sub todo', 'done')]);
 
-    expect(main.todo.get()).toEqual([{ title: 'main todo', status: 'pending' }]);
-    expect(sub.todo.get()).toEqual([{ title: 'sub todo', status: 'done' }]);
+    expect(main.todo.get()).toEqual([todoItem('main todo', 'pending')]);
+    expect(sub.todo.get()).toEqual([todoItem('sub todo', 'done')]);
     expect(next.todo.get()).toEqual([]);
     expect(main.registeredVariants).toEqual([TODO_LIST_REMINDER_VARIANT]);
     expect(sub.activeReminders()).toBe(0);
@@ -286,13 +294,13 @@ describe('TodoAgentRuntime', () => {
     const registry = new RuntimeRegistry();
     registry.register(todoRecord());
     const agent = makeRuntimeAgent(registry, 'main');
-    await agent.todo.replace([{ title: 'persist me', status: 'in_progress' }]);
+    await agent.todo.replace([todoItem('persist me', 'in_progress')]);
 
     expect(agent.journal).toEqual([{
       type: 'tools.update_store',
       agentId: 'main',
       key: 'todo',
-      value: [{ title: 'persist me', status: 'in_progress' }],
+      value: [todoItem('persist me', 'in_progress')],
       time: expect.any(Number),
     }]);
 
@@ -310,7 +318,7 @@ describe('TodoAgentRuntime', () => {
       ],
     } as unknown as WireRecord]);
 
-    expect(restored.todo.get()).toEqual([{ title: 'valid', status: 'done' }]);
+    expect(restored.todo.get()).toEqual([todoItem('valid', 'done')]);
     await agent.dispose();
     await restored.dispose();
   });
@@ -331,7 +339,7 @@ describe('TodoAgentRuntime', () => {
         origin: { kind: 'user' },
       },
     }));
-    await agent.todo.replace([{ title: 'kept', status: 'pending' }]);
+    await agent.todo.replace([todoItem('kept', 'pending')]);
     await agent.dispatcher.dispatch(new ContextAppendMessage({
       agentId: 'main',
       message: {
@@ -341,14 +349,14 @@ describe('TodoAgentRuntime', () => {
         origin: { kind: 'user' },
       },
     }));
-    await agent.todo.replace([{ title: 'doomed', status: 'in_progress' }]);
+    await agent.todo.replace([todoItem('doomed', 'in_progress')]);
     seen.length = 0;
 
     await agent.dispatcher.dispatch(new ContextUndo({ agentId: 'main', count: 1 }));
     await agent.dispatcher.dispatch(new ContextUndo({ agentId: 'main', count: 0 }));
 
-    expect(agent.todo.get()).toEqual([{ title: 'kept', status: 'pending' }]);
-    expect(seen).toEqual([[{ title: 'kept', status: 'pending' }]]);
+    expect(agent.todo.get()).toEqual([todoItem('kept', 'pending')]);
+    expect(seen).toEqual([[todoItem('kept', 'pending')]]);
     subscription.dispose();
     await agent.dispose();
   });

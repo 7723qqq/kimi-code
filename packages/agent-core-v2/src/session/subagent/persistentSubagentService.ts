@@ -6,7 +6,6 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { IAgentUsageService } from '#/agent/usage/usage';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
@@ -20,6 +19,7 @@ import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalo
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 
 import {
   IPersistentSubagentService,
@@ -38,6 +38,7 @@ export class PersistentSubagentService extends Service implements IPersistentSub
   constructor(
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
+    @ISessionUsageService private readonly usage: ISessionUsageService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
   ) {
@@ -82,24 +83,25 @@ export class PersistentSubagentService extends Service implements IPersistentSub
       },
       labels: subagentLabels(ownerAgentId, { depth: nextDepth }),
     });
-    child.accessor
+    const childHandle = this.lifecycle.handleOf(child.agentId)!;
+    childHandle.accessor
       .get(IAgentPermissionModeService)
       .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
-    child.accessor
+    childHandle.accessor
       .get(IAgentUserToolService)
       .inheritUserTools(caller.accessor.get(IAgentUserToolService));
-    emitAgentRunSpawned(caller, child.id, {
+    emitAgentRunSpawned(caller, child.agentId, {
       profileName: options.profileName,
       parentToolCallId: options.parentToolCallId,
       parentToolCallUuid: options.parentToolCallUuid,
       description: options.description,
       runInBackground: options.runInBackground,
     });
-    this.persistentChildren.set(child.id, {
+    this.persistentChildren.set(child.agentId, {
       callerAgentId: ownerAgentId,
       profileName: options.profileName,
     });
-    return child.id;
+    return child.agentId;
   }
 
   private async runDiscussionTurn(
@@ -138,23 +140,23 @@ export class PersistentSubagentService extends Service implements IPersistentSub
   private getPersistentUsage(ownerAgentId: string, agentId: string): TokenUsage | undefined {
     const entry = this.persistentChildren.get(agentId);
     if (entry === undefined || entry.callerAgentId !== ownerAgentId) return undefined;
-    const handle = this.lifecycle.findAgentHandle(agentId);
+    const handle = this.lifecycle.handleOf(agentId);
     if (handle === undefined) return undefined;
-    return handle.accessor.get(IAgentUsageService).status().total;
+    return this.usage.status(agentContextOf(handle)).total;
   }
 
   private async destroyPersistent(ownerAgentId: string, agentId: string): Promise<void> {
     const entry = this.persistentChildren.get(agentId);
     if (entry === undefined || entry.callerAgentId !== ownerAgentId) return;
     this.persistentChildren.delete(agentId);
-    const handle = this.lifecycle.findAgentHandle(agentId);
+    const handle = this.lifecycle.handleOf(agentId);
     if (handle !== undefined) {
       await this.lifecycle.remove(agentContextOf(handle));
     }
   }
 
   private requireAgent(agentId: string, _label: string): IAgentScopeHandle {
-    const handle = this.lifecycle.findAgentHandle(agentId);
+    const handle = this.lifecycle.handleOf(agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.subagentNotFound', { agentId }), {
         details: { agentId },

@@ -99,6 +99,7 @@ function managerStub(
     getOrCreate,
     get: (workspaceId) => instances.get(workspaceId),
     findByRoot: (root) => [...instances.values()].find((instance) => instance.root === root),
+    findContaining: () => undefined,
     list: () => [...instances.values()],
     snapshot: () => ({ workspaces: [] }),
     close: async () => {},

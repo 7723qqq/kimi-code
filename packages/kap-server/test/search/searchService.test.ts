@@ -7,6 +7,7 @@ import { Worker } from 'node:worker_threads';
 
 import type {
   IBootstrapService,
+  IFlagService,
   ILogService,
   ISessionIndex,
   SessionSummary,
@@ -20,6 +21,7 @@ import {
   GlobalSearchError,
   GlobalSearchService,
   InlineSearchBackend,
+  SEARCH_WORKER_FLAG_ID,
   drainGlobalSearchDisposals,
   type LiveTranscriptSource,
   type SearchBackend,
@@ -123,18 +125,20 @@ const noopLog = {
   debug: () => {},
 } as unknown as ILogService;
 
-function makeInlineBackend(home: string, log: ILogService = noopLog): InlineSearchBackend {
-  return new InlineSearchBackend({ indexDir: join(home, 'search-index'), log });
+function makeFlags(workerEnabled: boolean): IFlagService {
+  return {
+    enabled: (id: string) => id === SEARCH_WORKER_FLAG_ID && workerEnabled,
+  } as unknown as IFlagService;
 }
 
 function makeService(home: string, index: ISessionIndex): GlobalSearchService {
-  const service = new GlobalSearchService(index, makeBootstrap(home), noopLog);
+  const service = new GlobalSearchService(index, makeBootstrap(home), noopLog, makeFlags(true));
   service.syncDebounceMs = 0;
   return service;
 }
 
 function makeInlineService(home: string, index: ISessionIndex): GlobalSearchService {
-  const service = new GlobalSearchService(index, makeBootstrap(home), noopLog, makeInlineBackend(home));
+  const service = new GlobalSearchService(index, makeBootstrap(home), noopLog, makeFlags(false));
   service.syncDebounceMs = 0;
   return service;
 }
@@ -2087,7 +2091,7 @@ describe('GlobalSearchService', () => {
         makeSessionIndex(async () => ({ items: sessions, nextCursor: undefined })),
         makeBootstrap(home!),
         log,
-        makeInlineBackend(home!, log),
+        makeFlags(false),
       );
       service.syncDebounceMs = 0;
       track(service);
@@ -2132,12 +2136,7 @@ describe('GlobalSearchService', () => {
       await writer.reindex();
 
       const { log, warnings } = recordingLog();
-      const reader = new GlobalSearchService(
-        staticIndex([s1]),
-        makeBootstrap(home!),
-        log,
-        makeInlineBackend(home!, log),
-      );
+      const reader = new GlobalSearchService(staticIndex([s1]), makeBootstrap(home!), log, makeFlags(false));
       reader.syncDebounceMs = 0;
       track(reader);
       await syncNow(reader);
@@ -2172,7 +2171,7 @@ describe('GlobalSearchService', () => {
           makeSessionIndex(async () => ({ items: sessions, nextCursor: undefined })),
           makeBootstrap(root),
           noopLog,
-          makeInlineBackend(root),
+          makeFlags(false),
         );
         service.syncDebounceMs = 0;
         track(service);
@@ -2386,7 +2385,7 @@ describe('search worker host (stage 4)', () => {
         const worker = new Worker(url, { workerData: data, execArgv });
         const original = worker.postMessage.bind(worker);
         worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
-          if (gate && (message as { type?: string } | null)?.type === 'search') return true;
+          if (gate && (message as { type?: string } | null)?.type === 'status') return true;
           return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
         }) as Worker['postMessage'];
         return worker;
@@ -2395,23 +2394,7 @@ describe('search worker host (stage 4)', () => {
     hosts.push(host);
     await host.ensureOpen();
 
-    const wedged = host.search({
-      q: {
-        query: 'wedged',
-        mode: 'terms',
-        termsQuery: ['wedged'],
-        op: 'AND',
-        sort: 'time_desc',
-        pageSize: 10,
-      },
-      budgets: {
-        literalCandidateCap: 100,
-        maxTextHits: 100,
-        postingsVisitBudget: 100_000,
-        queryDeadlineMs: 5_000,
-        queryTextBudgetChars: 100_000,
-      },
-    });
+    const wedged = host.status();
     wedged.catch(() => {});
     await expect(wedged).rejects.toMatchObject({ code: 'crashed' });
     await expect(wedged).rejects.toThrow(/timed out/);
@@ -2790,12 +2773,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     await writeFile(join(home!, 'search-index', 'db.textindexes.json'), 'not json {{{', 'utf8');
 
     const { log, warnings } = recordingLog();
-    const second = new GlobalSearchService(
-      staticIndex([s1]),
-      makeBootstrap(home!),
-      log,
-      makeInlineBackend(home!, log),
-    );
+    const second = new GlobalSearchService(staticIndex([s1]), makeBootstrap(home!), log, makeFlags(false));
     track(second);
     second.syncDebounceMs = 0;
     await settleSync(second);

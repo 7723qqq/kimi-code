@@ -2,7 +2,7 @@
  * Scan submitted text for media placeholders and produce the prompt content
  * we'll send to the SDK prompt endpoint.
  *
- * `extractMediaAttachments` (sync) is the single expansion path for prompts:
+ * `extractMediaAttachments` is the single expansion path for prompts:
  *   - image placeholders expand to inline image content parts. When the paste
  *     was uploaded to the daemon file store (`ImageAttachment.fileId`, v2
  *     engine only), the placeholder instead expands to a bare
@@ -40,7 +40,10 @@
  *   - Bare absolute image file paths (typed or pasted — Windows drive
  *     paths included, with a WSL `/mnt/<drive>` fallback) attach as
  *     images when the file is readable and parses as a supported format;
- *     anything else stays as literal text.
+ *     anything else stays as literal text. The attach runs through the
+ *     same ingestion as clipboard paste (`PathImageIngester`) when the
+ *     caller supplies one, so path-attached images are captured compressed
+ *     too; without an ingester the raw bytes attach as-is.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -124,11 +127,28 @@ const IMAGE_PATH_REGEX =
 const MAX_PATH_ATTACH_BYTES = 20 * 1024 * 1024;
 const MAX_PATH_ATTACHMENTS_PER_SUBMIT = 10;
 
-function attachFromImagePath(
+/**
+ * Background-free ingestion twin of the clipboard paste, applied when a bare
+ * image path attaches: compress at capture time (`compressImageForModel`),
+ * upload to the daemon file store when the v2 engine file store is active,
+ * then `completeImage`. Implementations must surface their own failures and
+ * resolve — the raw attachment stays as the inline fallback; a rejection
+ * aborts the attach and leaves the path as literal text.
+ */
+export type PathImageIngester = (
+  attachment: ImageAttachment,
+  bytes: Uint8Array,
+  mime: string,
+  width: number,
+  height: number,
+) => Promise<void>;
+
+async function attachFromImagePath(
   raw: string,
   store: ImageAttachmentStore,
   seen: Map<string, string>,
-): string | undefined {
+  ingest?: PathImageIngester,
+): Promise<string | undefined> {
   const cached = seen.get(raw);
   if (cached !== undefined) return cached;
   const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
@@ -146,7 +166,11 @@ function attachFromImagePath(
       if (bytes.length === 0 || bytes.length > MAX_PATH_ATTACH_BYTES) continue;
       const meta = parseImageMeta(bytes);
       if (meta === null) continue;
-      const placeholder = `${store.addImage(bytes, meta.mime, meta.width, meta.height).placeholder} `;
+      const attachment = store.addImage(bytes, meta.mime, meta.width, meta.height);
+      if (ingest !== undefined) {
+        await ingest(attachment, bytes, meta.mime, meta.width, meta.height);
+      }
+      const placeholder = `${attachment.placeholder} `;
       seen.set(raw, placeholder);
       return placeholder;
     } catch {
@@ -156,25 +180,41 @@ function attachFromImagePath(
   return undefined;
 }
 
-function rewriteImageFilePaths(text: string, store: ImageAttachmentStore): string {
+async function rewriteImageFilePaths(
+  text: string,
+  store: ImageAttachmentStore,
+  ingest?: PathImageIngester,
+): Promise<string> {
   let conversions = 0;
   // Repeated references to the same path share one attachment instead of
   // duplicating bytes and uploading twice.
   const seen = new Map<string, string>();
-  return text.replace(IMAGE_PATH_REGEX, (match, quoted, unquoted) => {
-    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) return match;
-    const placeholder = attachFromImagePath(quoted ?? unquoted ?? match, store, seen);
-    if (placeholder === undefined) return match;
-    conversions++;
-    return placeholder;
-  });
+  let out = '';
+  let cursor = 0;
+  IMAGE_PATH_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = IMAGE_PATH_REGEX.exec(text)) !== null) {
+    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) break;
+    out += text.slice(cursor, match.index);
+    const placeholder = await attachFromImagePath(
+      match[1] ?? match[2] ?? match[0],
+      store,
+      seen,
+      ingest,
+    );
+    out += placeholder ?? match[0];
+    if (placeholder !== undefined) conversions++;
+    cursor = match.index + match[0].length;
+  }
+  return out + text.slice(cursor);
 }
 
-export function extractMediaAttachments(
+export async function extractMediaAttachments(
   text: string,
   store: ImageAttachmentStore,
-): ExtractionResult {
-  text = rewriteImageFilePaths(text, store);
+  ingest?: PathImageIngester,
+): Promise<ExtractionResult> {
+  text = await rewriteImageFilePaths(text, store, ingest);
   const parts: PromptPart[] = [];
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];

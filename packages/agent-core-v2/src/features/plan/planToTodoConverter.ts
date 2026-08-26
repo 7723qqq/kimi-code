@@ -1,5 +1,5 @@
-import { ISessionTodoService } from '../../session/todo/sessionTodo';
 import type { AgentContext } from '../../agent/agentContext/agentContext';
+import type { TodoRuntime } from '../todo/todoAgentRuntime';
 import type { PlanData } from './plan';
 import { parsePlanToTodos } from './parsePlanToTodos';
 
@@ -7,14 +7,9 @@ export type PlanToTodoOutcome =
   | { readonly kind: 'converted'; readonly count: number }
   | { readonly kind: 'skipped'; readonly reason: 'empty-plan' | 'no-structure' | 'existing-todos' | 'no-agent' };
 
-/**
- * Best-effort conversion of an approved plan into the TodoList initial
- * skeleton. Never throws: callers (planModeExit) treat conversion failure
- * as a no-op so plan exit never blocks on todo wiring.
- */
 export async function tryConvertPlanToTodos(
   planData: PlanData,
-  todo: ISessionTodoService,
+  todo: TodoRuntime,
   agent: AgentContext | undefined,
 ): Promise<PlanToTodoOutcome> {
   if (agent === undefined) return { kind: 'skipped', reason: 'no-agent' };
@@ -26,12 +21,12 @@ export async function tryConvertPlanToTodos(
     return { kind: 'skipped', reason: 'no-structure' };
   }
 
-  const current = await todo.getTodos(agent);
+  const current = todo.get();
   if (current.length > 0) {
     return { kind: 'skipped', reason: 'existing-todos' };
   }
 
-  await todo.setTodos(agent, items);
+  await todo.replace(items);
   return { kind: 'converted', count: items.length };
 }
 

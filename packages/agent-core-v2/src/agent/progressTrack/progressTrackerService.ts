@@ -1,17 +1,18 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
+import { AgentReminder, type ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { ProgressTracker, type ToolReceipt } from './progressTracker';
 
 export const EBM_REMINDER_VARIANT = 'progress-track-ebm';
 
-/** Mutations without a discriminating observation that trip the reminder. */
 export const EBM_BLIND_MUTATION_THRESHOLD = 3;
 
 const EBM_REMINDER = [
@@ -33,14 +34,17 @@ export class ProgressTrackerService extends Service implements IProgressTrackerS
   declare readonly _serviceBrand: undefined;
 
   private readonly tracker = new ProgressTracker();
+  private readonly reminders: ReminderRuntime;
   private ebmInjectedThisTurn = false;
 
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
-    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
     @IEventBus eventBus: IEventBus,
   ) {
     super();
+    this.reminders = lifecycle.resolve(this.scopeContext.agentContext, AgentReminder);
     this._register(
       toolExecutor.hooks.onDidExecuteTool.register('progress-track', async (ctx, next) => {
         this.observeToolRound(ctx);
@@ -64,10 +68,7 @@ export class ProgressTrackerService extends Service implements IProgressTrackerS
 
   private maybeInjectEbmReminder(): void {
     if (this.ebmInjectedThisTurn) return;
-    this.reminders.appendSystemReminder(EBM_REMINDER, {
-      kind: 'injection',
-      variant: EBM_REMINDER_VARIANT,
-    });
+    this.reminders.notify(EBM_REMINDER, { variant: EBM_REMINDER_VARIANT });
     this.ebmInjectedThisTurn = true;
   }
 }

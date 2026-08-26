@@ -1,28 +1,24 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import {
-  ErrorCodes,
-  KimiError,
-  makeErrorPayload,
-  type AgentContextData,
-  type ApprovalRequest,
-  type ApprovalResponse,
-  type BeginGlobalMcpServerAuthResult,
-  type CoreAPI,
-  type Event,
-  type ExperimentalFeatureState,
-  type GetCronTasksResult,
-  type QuestionRequest,
-  type QuestionResult,
-  type RPCMethods,
-  type SDKAPI,
-  type ToolCallRequest,
-  type ToolCallResponse,
-  type SwarmModeTrigger,
-} from '@moonshot-ai/agent-core';
+import type {
+  AgentContextData,
+  ExperimentalFeatureState,
+  SwarmModeTrigger,
+} from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import type { ApprovalHandler, QuestionHandler } from '#/events';
+import { ErrorCodes, KimiError, makeErrorPayload } from '#/legacy';
+import type {
+  ApprovalHandler,
+  ApprovalRequest,
+  ApprovalResponse,
+  Event,
+  QuestionHandler,
+  QuestionRequest,
+  QuestionResult,
+  ToolCallRequest,
+  ToolCallResponse,
+} from '#/events';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -30,6 +26,7 @@ import type {
   AgentRuntimeBinding,
   AppMcpServerInspection,
   BackgroundTaskInfo,
+  BeginGlobalMcpServerAuthResult,
   ConfigDiagnostics,
   CreateSessionOptions,
   ExportSessionInput,
@@ -39,6 +36,7 @@ import type {
   ForkSessionInput,
   GenerateSessionTitleInput,
   GetConfigOptions,
+  GetCronTasksResult,
   GlobalMcpServerAuthStatus,
   McpManagedServerInfo,
   McpServerConfig,
@@ -175,8 +173,6 @@ export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly config?: McpServerConfig;
 }
 
-type ResolvedCoreAPI = RPCMethods<CoreAPI>;
-
 export abstract class SDKRpcClientBase {
   private readonly interactiveAgentScope = new AsyncLocalStorage<string>();
   private readonly eventListeners = new Set<(event: Event) => void>();
@@ -191,7 +187,8 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
-  protected abstract getRpc(): Promise<ResolvedCoreAPI>;
+  // oxlint-disable-next-line typescript/no-explicit-any
+  protected abstract getRpc(): Promise<any>;
 
   async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
     const rpc = await this.getRpc();
@@ -1180,7 +1177,7 @@ export abstract class SDKRpcClientBase {
 
 }
 
-export class ClientAPI implements SDKAPI {
+export class ClientAPI {
   constructor(readonly client: SDKRpcClientBase) {}
 
   emitEvent(event: Event): void {

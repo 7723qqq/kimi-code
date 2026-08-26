@@ -2,31 +2,36 @@ import { release as osRelease, type as osType } from 'node:os';
 
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
+import { openUrl } from '#/utils/open-url';
+
+import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
-import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
-import { isExperimentalFlagEnabled } from './experimental-flags';
+import {
+  buildUsageReportLines,
+  UsagePanelComponent,
+  type ManagedUsageReport,
+} from '../components/messages/usage-panel';
 import {
   FEEDBACK_ISSUE_URL,
-  FEEDBACK_STATUS_CANCELLED,
-  FEEDBACK_STATUS_FALLBACK,
-  FEEDBACK_STATUS_NETWORK_ERROR,
-  FEEDBACK_STATUS_NOT_SIGNED_IN,
-  FEEDBACK_STATUS_SUBMITTING,
-  FEEDBACK_STATUS_SUCCESS,
-  FEEDBACK_STATUS_UPLOAD_FAILED,
   FEEDBACK_TELEMETRY_EVENT,
   feedbackIdLine,
   feedbackSessionLine,
+  getFeedbackStatusCancelled,
+  getFeedbackStatusFallback,
+  getFeedbackStatusNetworkError,
+  getFeedbackStatusNotSignedIn,
+  getFeedbackStatusSubmitting,
+  getFeedbackStatusSuccess,
+  getFeedbackStatusUploadFailed,
   kimiCodeSignupUrl,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
-import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { formatErrorMessage } from '../utils/event-payload';
-import { openUrl } from '#/utils/open-url';
-import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 import type { SlashCommandHost } from './dispatch';
+import { isExperimentalFlagEnabled } from './experimental-flags';
+import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 
 // ---------------------------------------------------------------------------
 // Feedback
@@ -51,11 +56,11 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   } catch {
     // The sign-in state is unreadable — keep the feedback entry usable by
     // falling back to GitHub Issues instead of failing the command.
-    fallback(FEEDBACK_STATUS_FALLBACK);
+    fallback(getFeedbackStatusFallback());
     return;
   }
   if (!signedIn) {
-    host.showStatus(FEEDBACK_STATUS_NOT_SIGNED_IN);
+    host.showStatus(getFeedbackStatusNotSignedIn());
     host.showStatus(kimiCodeSignupUrl());
     host.showStatus(FEEDBACK_ISSUE_URL);
     return;
@@ -64,19 +69,19 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   // Stage 1: collect the free-form feedback text.
   const input = await promptFeedbackInput(host);
   if (input === undefined) {
-    host.showStatus(FEEDBACK_STATUS_CANCELLED);
+    host.showStatus(getFeedbackStatusCancelled());
     return;
   }
 
   // Stage 2: ask whether to attach diagnostics (logs / codebase).
   const level = await promptFeedbackAttachment(host);
   if (level === undefined) {
-    host.showStatus(FEEDBACK_STATUS_CANCELLED);
+    host.showStatus(getFeedbackStatusCancelled());
     return;
   }
 
   const version = withFeedbackVersionPrefix(host.state.appState.version);
-  const spinner = host.showLoginProgressSpinner(FEEDBACK_STATUS_SUBMITTING);
+  const spinner = host.showLoginProgressSpinner(getFeedbackStatusSubmitting());
   // Guarantee the spinner's underlying setInterval is always cleared, even when
   // submitFeedback throws — otherwise the interval (and its per-frame
   // requestRender) leaks for the rest of the session.
@@ -97,7 +102,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
 
     if (res.kind !== 'ok') {
       stopSpinner({ ok: false, label: res.message });
-      fallback(FEEDBACK_STATUS_FALLBACK);
+      fallback(getFeedbackStatusFallback());
       return;
     }
 
@@ -112,16 +117,16 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
       attachmentFailed = true;
     }
 
-    stopSpinner({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
+    stopSpinner({ ok: true, label: getFeedbackStatusSuccess() });
     host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
     host.showStatus(feedbackIdLine(res.feedbackId));
     host.track(FEEDBACK_TELEMETRY_EVENT);
     if (attachmentFailed) {
-      host.showStatus(FEEDBACK_STATUS_UPLOAD_FAILED);
+      host.showStatus(getFeedbackStatusUploadFailed());
     }
   } catch (error) {
-    stopSpinner({ ok: false, label: FEEDBACK_STATUS_NETWORK_ERROR });
-    fallback(FEEDBACK_STATUS_FALLBACK);
+    stopSpinner({ ok: false, label: getFeedbackStatusNetworkError() });
+    fallback(getFeedbackStatusFallback());
     throw error;
   }
 }
@@ -188,7 +193,11 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
   };
-  const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
+  const panel = new UsagePanelComponent(
+    () => buildStatusReportLines(reportArgs),
+    'primary',
+    ' Status ',
+  );
   host.state.transcriptContainer.addChild(panel);
   host.state.ui.requestRender();
 }
@@ -236,7 +245,9 @@ async function loadRuntimeStatusReport(host: SlashCommandHost): Promise<RuntimeS
   }
 }
 
-async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUsageResult | undefined> {
+async function loadManagedUsageReport(
+  host: SlashCommandHost,
+): Promise<ManagedUsageResult | undefined> {
   const alias = host.state.appState.model;
   const providerKey = host.state.appState.availableModels[alias]?.provider;
   if (!isManagedUsageProvider(providerKey)) return undefined;

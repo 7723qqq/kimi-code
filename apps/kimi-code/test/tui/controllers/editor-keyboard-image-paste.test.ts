@@ -12,11 +12,11 @@
  *     original recorded
  */
 
-import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ImageLimits, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { ImageLimits, IMAGE_BYTE_BUDGET, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Jimp } from 'jimp';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -40,6 +40,7 @@ vi.mock('#/utils/clipboard/clipboard-image', async (importActual) => {
 interface PasteHarness {
   readonly store: ImageAttachmentStore;
   readonly track: ReturnType<typeof vi.fn>;
+  readonly controller: EditorKeyboardController;
   pasteImage(): Promise<void>;
 }
 
@@ -81,6 +82,7 @@ function createPasteHarness(
   return {
     store,
     track,
+    controller,
     async pasteImage() {
       const handler = editor['onPasteImage'];
       if (handler === undefined) throw new Error('onPasteImage handler not installed');
@@ -203,7 +205,7 @@ describe('clipboard image paste compression', () => {
     expect(att.original?.path).toBeUndefined();
 
     // Dispatch-time caption resolution persists it and authors the caption.
-    const extracted = extractMediaAttachments(att.placeholder, store);
+    const extracted = await extractMediaAttachments(att.placeholder, store);
     const resolved = resolveOriginalCaptions(
       extracted.parts,
       extracted.imageAttachmentIds,
@@ -233,7 +235,7 @@ describe('clipboard image paste compression', () => {
     if (att?.kind !== 'image') throw new Error('expected image attachment');
     // The original is written by dispatch-time caption resolution, into the
     // session's media-originals dir (not the shared temp dir).
-    const extracted = extractMediaAttachments(att.placeholder, store);
+    const extracted = await extractMediaAttachments(att.placeholder, store);
     resolveOriginalCaptions(
       extracted.parts,
       extracted.imageAttachmentIds,
@@ -323,5 +325,107 @@ describe('clipboard image paste compression', () => {
     const props = compressCalls[0]![1] as Record<string, unknown>;
     expect(props['source']).toBe('tui_paste');
     expect(props['outcome']).toBe('compressed');
+  });
+});
+
+describe('path-attached image ingestion', () => {
+  async function noisePng(width: number, height: number): Promise<Uint8Array> {
+    const image = new Jimp({ width, height, color: 0x000000ff });
+    let state = 42;
+    const next = (): number => {
+      state = (state * 48271) % 2147483647;
+      return state % 256;
+    };
+    const data = image.bitmap.data;
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = next();
+      data[i + 1] = next();
+      data[i + 2] = next();
+      data[i + 3] = 0xff;
+    }
+    return new Uint8Array(await image.getBuffer('image/png'));
+  }
+
+  it('compresses an oversized image attached by file path before storing it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-path-img-'));
+    try {
+      const big = await solidPng(3600, 1800);
+      const file = join(dir, 'big.png');
+      await writeFile(file, big);
+
+      const harness = createPasteHarness();
+      const r = await extractMediaAttachments(
+        `看这个 ${file} 谢谢`,
+        harness.store,
+        (attachment, bytes, mime, width, height) =>
+          harness.controller.prepareImageAttachment(attachment, bytes, mime, width, height),
+      );
+
+      expect(r.hasMedia).toBe(true);
+      expect(r.imageAttachmentIds).toEqual([1]);
+      const att = harness.store.get(1);
+      if (att?.kind !== 'image') throw new Error('expected image attachment');
+      // Stored metadata reflects the compressed size, mirroring the paste path.
+      expect(Math.max(att.width, att.height)).toBeLessThanOrEqual(2000);
+      expect(att.placeholder).toContain('2000×1000');
+      const dims = parseImageMeta(att.bytes);
+      expect(dims).not.toBeNull();
+      expect(Math.max(dims!.width, dims!.height)).toBeLessThanOrEqual(3000);
+      expect(att.original?.byteLength).toBe(big.length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it('brings an over-budget file under IMAGE_BYTE_BUDGET', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-path-img-'));
+    try {
+      const huge = await noisePng(1200, 1200);
+      expect(huge.length).toBeGreaterThan(IMAGE_BYTE_BUDGET);
+      const file = join(dir, 'huge.png');
+      await writeFile(file, huge);
+
+      const harness = createPasteHarness();
+      await extractMediaAttachments(
+        `看这个 ${file}`,
+        harness.store,
+        (attachment, bytes, mime, width, height) =>
+          harness.controller.prepareImageAttachment(attachment, bytes, mime, width, height),
+      );
+
+      const att = harness.store.get(1);
+      if (att?.kind !== 'image') throw new Error('expected image attachment');
+      expect(att.bytes.length).toBeLessThanOrEqual(IMAGE_BYTE_BUDGET);
+      expect(att.bytes.length).toBeLessThan(huge.length);
+      expect(att.original?.byteLength).toBe(huge.length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('stores a within-budget file byte-for-byte (fast-path passthrough)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-path-img-'));
+    try {
+      const small = await solidPng(80, 80);
+      const file = join(dir, 'small.png');
+      await writeFile(file, small);
+
+      const harness = createPasteHarness();
+      await extractMediaAttachments(
+        `看这个 ${file}`,
+        harness.store,
+        (attachment, bytes, mime, width, height) =>
+          harness.controller.prepareImageAttachment(attachment, bytes, mime, width, height),
+      );
+
+      const att = harness.store.get(1);
+      if (att?.kind !== 'image') throw new Error('expected image attachment');
+      expect(att.width).toBe(80);
+      expect(att.height).toBe(80);
+      expect(new Uint8Array(att.bytes)).toEqual(small);
+      expect(att.original).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -2785,36 +2785,7 @@ describe('AgentGoalService WaitFor guidance gating', () => {
     }
   });
 
-  it('hides WaitFor from the reminder, the continuation prompt, and the tools when the flag is off', async () => {
-    const ctx = createTestAgent(appService(IFlagService, stubFlag(false)));
-    try {
-      ctx.configure();
-      await ctx.rpc.createGoal({ objective: 'finish bounded work' });
-
-      ctx.mockNextResponse({ type: 'text', text: 'slice done' });
-      ctx.mockNextResponse({
-        type: 'function',
-        id: 'ug_1',
-        name: 'UpdateGoal',
-        arguments: JSON.stringify({ status: 'complete' }),
-      });
-      ctx.mockNextResponse({ type: 'text', text: 'done' });
-
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(3));
-
-      const allCalls = JSON.stringify(ctx.llmCalls);
-      expect(allCalls).not.toContain('re-invoked again and again');
-      for (const call of ctx.llmCalls) {
-        expect(call.tools.map((tool) => tool.name)).not.toContain('WaitFor');
-      }
-      expect((await ctx.rpc.getGoal({})).goal).toBeNull();
-    } finally {
-      await ctx.dispose();
-    }
-  });
-
-  it('hides WaitFor guidance when a tool policy disables WaitFor even though the flag is on', async () => {
+  it('hides WaitFor guidance when a tool policy disables WaitFor', async () => {
     const ctx = createTestAgent(
       sessionService(ISessionToolPolicyGate, {
         _serviceBrand: undefined,

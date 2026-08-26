@@ -15,6 +15,7 @@ import type { ResolvedTheme } from '../theme/colors';
 import type { TUIState } from '../tui-state';
 import type {
   AppState,
+  InlineSkillActivation,
   LoginProgressSpinnerHandle,
   QueuedMessage,
   TranscriptEntry,
@@ -206,6 +207,10 @@ export interface SlashCommandHost {
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string): void;
+  sendInlineSkillUserInput(
+    text: string,
+    activations: readonly InlineSkillActivation[],
+  ): Promise<void>;
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void;
   activatePluginCommand(
     session: Session,
@@ -228,10 +233,23 @@ export interface SlashCommandHost {
 // ---------------------------------------------------------------------------
 
 export function dispatchInput(host: SlashCommandHost, text: string): void {
-  if (dispatchInlineSkillCombo(host, text)) return;
   if (parseSlashInput(text) !== null) {
+    // A leading skill command combined with further inline skill tokens
+    // (`/skill:a args /skill:b`) is one grouped submission on the v2 engine.
+    if (host.engineV2 && dispatchInlineSkillCombo(host, text)) {
+      return;
+    }
     void executeSlashCommand(host, text);
     return;
+  }
+  // Inline skill tokens anywhere in a plain prompt (v2 engine only); on the
+  // legacy engine they keep their plain-text meaning.
+  if (host.engineV2) {
+    const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+    if (activations.length > 0) {
+      void host.sendInlineSkillUserInput(text, activations);
+      return;
+    }
   }
   host.sendNormalUserInput(text);
 }
@@ -274,7 +292,10 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
   // 'message' instead of 'skill', and must not silently drop the leading
   // activation.
   if (tokens.length >= 2 && tokens[0]!.start === 0) {
-    host.sendNormalUserInput(text);
+    const leadingActivations = extractInlineSkillActivations(text, host.skillCommandMap, {
+      includeLeading: true,
+    });
+    void host.sendInlineSkillUserInput(text, leadingActivations);
     return true;
   }
 
@@ -283,7 +304,7 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
   if (intent.kind !== 'message') return false;
   const activations = extractInlineSkillActivations(text, host.skillCommandMap);
   if (activations.length === 0) return false;
-  host.sendNormalUserInput(text);
+  void host.sendInlineSkillUserInput(text, activations);
   return true;
 }
 

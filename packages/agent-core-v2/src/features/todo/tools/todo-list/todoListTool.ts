@@ -6,8 +6,8 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { AgentTodo, type TodoRuntime } from '#/features/todo/todoAgentRuntime';
 import {
   TODO_LIST_TOOL_NAME,
+  readTodoItems,
   renderTodoList,
-  type TodoItem,
 } from '#/features/todo/todoItem';
 
 import {
@@ -48,10 +48,7 @@ export class TodoListTool implements ITodoListTool {
           return { isError: false, output: renderTodoList(this.todo.get()) };
         }
 
-        const next: readonly TodoItem[] = args.todos.map((todo) => ({
-          title: todo.title,
-          status: todo.status,
-        }));
+        const next = readTodoItems(args.todos);
         await this.todo.replace(next);
         const stored = this.todo.get();
         const output =

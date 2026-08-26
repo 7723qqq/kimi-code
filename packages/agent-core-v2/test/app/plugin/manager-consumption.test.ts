@@ -1,3 +1,4 @@
+/* oxlint-disable eslint-plugin-jest/no-standalone-expect -- zipIt is a conditional alias of `it` */
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -9,6 +10,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PluginManager } from '#/app/plugin/manager';
 
 import { stubSkill } from '../../features/skill/catalog/stubs';
+
+const hasZipBinary = (() => {
+  try {
+    execFileSync('zip', ['-v'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const zipIt = hasZipBinary ? it : it.skip;
 
 async function isolatedTmpdir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
@@ -338,7 +349,7 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  it('removes the zip temp dir and reports the original source when a zip plugin has no manifest', async () => {
+  zipIt('removes the zip temp dir and reports the original source when a zip plugin has no manifest', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
@@ -359,7 +370,7 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  it('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
+  zipIt('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
@@ -381,7 +392,7 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  it('removes the zip temp dir when a GitHub plugin tarball has no manifest', async () => {
+  zipIt('removes the zip temp dir when a GitHub plugin tarball has no manifest', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
@@ -414,7 +425,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  it('removes the zip temp dir after a successful zip install', async () => {
+  zipIt('removes the zip temp dir after a successful zip install', async () => {
     const home = await makeKimiHome();
     const root = await makePlugin('zip-demo');
     const isolated = await isolatedTmpdir();
@@ -736,7 +747,7 @@ describe('PluginManager consumption plane', () => {
     expect(manager.enabledHooks()).toEqual([]);
   });
 
-  it('install() from /tree/<tag-shaped-ref> pins the resolved commit', async () => {
+  zipIt('install() from /tree/<tag-shaped-ref> pins the resolved commit', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-tag-'));
     await writeFile(
@@ -775,7 +786,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  it('install() from /releases/tag/<tag> pins the tag commit', async () => {
+  zipIt('install() from /releases/tag/<tag> pins the tag commit', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-release-'));
     await writeFile(
@@ -814,7 +825,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  it('install() from github /tree/<branch> bypasses the GitHub API', async () => {
+  zipIt('install() from github /tree/<branch> bypasses the GitHub API', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-branch-'));
     await writeFile(
@@ -847,7 +858,7 @@ describe('PluginManager consumption plane', () => {
     expect((record as { marketplace?: unknown }).marketplace).toBeUndefined();
   });
 
-  it('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
+  zipIt('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
     const home = await makeKimiHome();
 
     const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));

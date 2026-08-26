@@ -33,6 +33,7 @@ export interface StdioMcpClientOptions {
 }
 
 const STDERR_BUFFER_CAPACITY = 4 * 1024;
+const STDIO_DRAIN_GRACE_MS = 100;
 
 export class StdioMcpClient implements MCPClient {
   private readonly client: Client;
@@ -166,6 +167,11 @@ class RuntimeStdioTransport implements Transport {
   private lease: ReturnType<IRuntimeResolver['acquire']> | undefined;
   private started = false;
   private closed = false;
+  private finished = false;
+  private stdoutEnded = false;
+  private stderrEnded = false;
+  private onCloseFired = false;
+  private drainTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly config: McpServerStdioConfig,
@@ -198,10 +204,18 @@ class RuntimeStdioTransport implements Transport {
       lease.track(this);
       process.stdin.on('error', (error: Error) => this.onerror?.(error));
       process.stdout.on('data', (chunk: Buffer | string) => this.onData(chunk));
-      process.stdout.on('end', () => this.finish());
+      process.stdout.on('end', () => {
+        this.stdoutEnded = true;
+        this.finish();
+        this.fireOnClose();
+      });
       process.stdout.on('error', (error: Error) => this.onerror?.(error));
       process.stderr.on('data', (chunk: Buffer | string) => {
         this.stderr.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      });
+      process.stderr.on('end', () => {
+        this.stderrEnded = true;
+        this.fireOnClose();
       });
       process.stderr.on('error', (error: Error) => this.onerror?.(error));
       void process.wait().then(
@@ -237,6 +251,7 @@ class RuntimeStdioTransport implements Transport {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.clearDrainTimer();
     const process = this.process;
     this.process = undefined;
     if (process !== undefined) {
@@ -249,7 +264,10 @@ class RuntimeStdioTransport implements Transport {
     const lease = this.lease;
     this.lease = undefined;
     lease?.dispose();
-    this.onclose?.();
+    if (!this.onCloseFired) {
+      this.onCloseFired = true;
+      this.onclose?.();
+    }
   }
 
   private onData(chunk: Buffer | string): void {
@@ -266,14 +284,37 @@ class RuntimeStdioTransport implements Transport {
   }
 
   private finish(): void {
-    if (this.closed) return;
-    this.closed = true;
+    if (this.closed || this.finished) return;
+    this.finished = true;
     this.process = undefined;
     this.readBuffer.clear();
     const lease = this.lease;
     this.lease = undefined;
     lease?.dispose();
-    this.onclose?.();
+    this.fireOnClose();
+  }
+
+  private fireOnClose(): void {
+    if (this.onCloseFired || this.closed || !this.finished) return;
+    this.clearDrainTimer();
+    if (this.stdoutEnded && this.stderrEnded) {
+      this.onCloseFired = true;
+      this.onclose?.();
+      return;
+    }
+    this.drainTimer = setTimeout(() => {
+      this.drainTimer = undefined;
+      if (this.onCloseFired || this.closed) return;
+      this.onCloseFired = true;
+      this.onclose?.();
+    }, STDIO_DRAIN_GRACE_MS);
+    this.drainTimer.unref();
+  }
+
+  private clearDrainTimer(): void {
+    if (this.drainTimer === undefined) return;
+    clearTimeout(this.drainTimer);
+    this.drainTimer = undefined;
   }
 }
 

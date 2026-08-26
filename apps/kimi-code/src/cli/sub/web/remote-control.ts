@@ -743,13 +743,16 @@ function connectWebSocketAttempt(
     let settled = false;
     const cleanup = (): void => {
       socket.off('open', onOpen);
-      socket.off('error', onError);
       socket.off('close', onClose);
     };
     const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
       cleanup();
+      // A socket whose handshake lost the race still emits late 'error'
+      // events; leaving no listener would raise an uncaught exception and
+      // kill the reconnect loop.
+      socket.on('error', () => {});
       if (error === undefined) resolve(socket);
       else reject(error);
     };
@@ -787,6 +790,9 @@ function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<Rela
       socket.off('message', onMessage);
       socket.off('close', onClose);
       socket.off('error', onError);
+      // Same late-'error' guard as the handshake path: never leave the socket
+      // without an error listener once registration settled.
+      socket.on('error', () => {});
       if (error !== undefined) reject(error);
       else resolve(message!);
     };

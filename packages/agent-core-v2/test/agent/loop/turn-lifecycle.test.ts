@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentProfileService, IAgentUsageService } from '#/index';
 import type { generate as kosongGenerate } from '#/kosong/contract/generate';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 
 import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage } from './helpers';
@@ -219,7 +220,7 @@ describe('Agent loop — turn lifecycle', () => {
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
     await turnEnded;
 
-    expect(ctx.get(IAgentUsageService).status().total).toEqual({
+    expect(ctx.get(ISessionUsageService).status(ctx.agentContext).total).toEqual({
       inputOther: 74,
       output: 53,
       inputCacheRead: 11,

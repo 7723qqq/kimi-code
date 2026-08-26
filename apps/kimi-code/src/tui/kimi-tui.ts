@@ -10,6 +10,7 @@ import type {
   ApprovalResponse,
   BackgroundTaskInfo,
   CreateSessionOptions,
+  Event,
   KimiHarness,
   PermissionMode,
   PluginCommandDef,
@@ -17,8 +18,6 @@ import type {
   Session,
   SkillSummary,
   TokenUsage,
-  TurnEndedEvent,
-  TurnStartedEvent,
   WorkspaceTrustInfo,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
@@ -108,9 +107,9 @@ import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
 import {
-  LLM_NOT_SET_MESSAGE,
+  getLlmNotSetMessage,
   MAIN_AGENT_ID,
-  NO_ACTIVE_SESSION_MESSAGE,
+  getNoActiveSessionMessage,
   PRODUCT_NAME,
   SESSION_LIST_PAGE_SIZE,
   SESSIONLESS_STARTUP_NOTICE,
@@ -169,10 +168,26 @@ import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
 import { combineSteerInput } from './utils/steer-input';
 import { startupTrace } from '#/utils/startup-trace';
-import { REPLAY_FETCH_TURN_LIMIT } from './utils/message-replay';
+import { getLocale, t } from '#/i18n';
+import {
+  createMsys2PromptDeps,
+  installMsys2,
+  markPrompted,
+  setUserShellPath,
+  shouldPromptMsys2,
+} from '#/cli/msys2-prompt';
+import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
+import { REPLAY_TURN_LIMIT } from './utils/message-replay';
+import { computeSmoothedTokenSpeed, pickDecodeMs } from './utils/token-speed';
 import { hasPatchChanges } from './utils/object-patch';
 import { beginScreenTakeover, endScreenTakeover, type ScreenTakeover } from './utils/screen-takeover';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
+import {
+  accumulateStepCompleted,
+  accumulateToolDuration,
+  bumpTurnCount,
+  createEmptySessionStats,
+} from './utils/session-stats';
 import { formatStepRetryDetail, formatStepRetryLabel } from './utils/step-retry';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { thinkingEffortFromConfig } from './utils/thinking-config';
@@ -225,6 +240,8 @@ export interface KimiTUIStartupInput {
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
 type LoadingTipKind = 'moon' | 'composing';
+type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
+type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
   if (mode === 'waiting' || mode === 'tool') return 'moon';
@@ -264,6 +281,13 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    cacheReadTokens: 0,
+    cacheMissTokens: 0,
+    cacheOtherTokens: 0,
+    tokenSpeed: 0,
+    sessionStats: createEmptySessionStats(),
+    outputTokens: 0,
+    locale: getLocale(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -321,6 +345,7 @@ export class KimiTUI {
   private pluginCommands: readonly KimiSlashCommand[] = [];
   readonly pluginCommandMap = new Map<string, string>();
   private readonly imageStore = new ImageAttachmentStore();
+  private tokenSpeedEma: number | null = null;
   // Detected lazily in startBackgroundFdAutocomplete() — detection spawns
   // `fd --version`, which must not happen before the workspace trust gate:
   // on Windows a bare command name resolves into the (untrusted) cwd first.
@@ -611,12 +636,18 @@ export class KimiTUI {
       const trustPromptStartedLoop = await this.maybeRunWorkspaceTrustPrompt();
       startupTrace('trustPrompt:end');
 
+      // The one-time MSYS2 install gate (Windows only) runs after the trust
+      // gate: it spawns winget, which must never run before trust is granted.
+      startupTrace('msys2Prompt:begin');
+      const msys2PromptStartedLoop = await this.maybeRunMsys2Prompt(trustPromptStartedLoop);
+      startupTrace('msys2Prompt:end');
+
       if (this.migrationPlan !== null) {
         // Migration needs the event loop running first (pi-tui component).
         // When the trust prompt already started it, starting it again would
         // re-run pi-tui's terminal.start() — stacking a second Kitty
         // keyboard-protocol push and duplicate stdin listeners.
-        if (!trustPromptStartedLoop) this.startEventLoop();
+        if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
         try {
           const migrationResult = await this.runMigrationScreen(this.migrationPlan);
           if (this.migrateOnly) {
@@ -646,7 +677,7 @@ export class KimiTUI {
       // again would re-run pi-tui's terminal.start() — stacking a second
       // Kitty keyboard-protocol push (leaking CSI-u mode past exit) and
       // duplicate stdin listeners.
-      if (!trustPromptStartedLoop) this.startEventLoop();
+      if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
       startupTrace('eventLoop:started');
       try {
         this.startBackgroundFdAutocomplete();
@@ -896,7 +927,7 @@ export class KimiTUI {
           session = await this.harness.resumeSession({
             id: startup.sessionFlag,
             additionalDirs: createSessionOptions.additionalDirs,
-            replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+            replayTurnLimit: REPLAY_TURN_LIMIT,
           });
           shouldReplayHistory = true;
         } else {
@@ -908,7 +939,7 @@ export class KimiTUI {
             session = await this.harness.resumeSession({
               id: target.id,
               additionalDirs: createSessionOptions.additionalDirs,
-              replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+              replayTurnLimit: REPLAY_TURN_LIMIT,
             });
             shouldReplayHistory = true;
           } else {
@@ -1330,10 +1361,10 @@ export class KimiTUI {
   async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
     if (this.btwPanelController.sendUserInput(text)) return;
     if (this.state.appState.model.trim().length === 0) {
-      this.showError(LLM_NOT_SET_MESSAGE);
+      this.showError(getLlmNotSetMessage());
       return;
     }
-    let extraction: ReturnType<typeof extractMediaAttachments>;
+    let extraction: ExtractionResult;
     if (preExtracted === undefined) {
       // A just-pasted image/video may still be finishing its background
       // ingestion (compression/daemon upload): give it a bounded moment so
@@ -1352,7 +1383,13 @@ export class KimiTUI {
       // A cache-hint-swallowed resend passes its pre-dialog extraction back
       // in: the image store may already be cleared (e.g. after "Start a new
       // session"), so re-extracting from the text would lose the media.
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
+      // Bare image paths attach during extraction; their paste-time
+      // ingestion (compression/daemon upload) is awaited inside it.
+      extraction =
+        preExtracted ??
+        (await extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
+          this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        ));
       if (preExtracted !== undefined) {
         const parts = refreshExpiringImageFileRefs(
           extraction.parts,
@@ -1390,7 +1427,8 @@ export class KimiTUI {
     }
     // Idle cache-hint interception sits before session creation; it is
     // synchronous unless a hint actually fires. Aside from the bounded
-    // ingestion wait above, the send path stays await-free up to sendMessage.
+    // ingestion wait above and path-image ingestion inside extraction, the
+    // send path stays await-free up to sendMessage.
     if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) {
       // The stash owns the extraction from here: its resend re-leases inside
       // the re-entered send path, its restore goes through releaseRecalled
@@ -1401,7 +1439,7 @@ export class KimiTUI {
     let session = this.session;
     if (session === undefined) {
       if (!this.engineV2) {
-        this.showError(LLM_NOT_SET_MESSAGE);
+        this.showError(getLlmNotSetMessage());
         this.staging.release(stagingLease);
         return;
       }
@@ -1431,20 +1469,24 @@ export class KimiTUI {
     activations: readonly InlineSkillActivation[],
     preExtracted?: ExtractionResult,
   ): Promise<void> {
-    if (this.btwPanelController.sendUserInput(text, activations)) return;
+    if (this.btwPanelController.sendUserInput(text)) return;
     if (this.state.appState.model.trim().length === 0) {
-      this.showError(LLM_NOT_SET_MESSAGE);
+      this.showError(getLlmNotSetMessage());
       return;
     }
-    let extraction: ReturnType<typeof extractMediaAttachments>;
+    let extraction: ExtractionResult;
     try {
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
+      extraction =
+        preExtracted ??
+        (await extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
+          this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        ));
     } catch (error) {
       this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
     }
     if (!this.validateMediaCapabilities(extraction)) return;
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction, activations)) return;
+    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) return;
     let session = this.session;
     if (session === undefined) {
       // Dispatch only routes here on the v2 engine, so the session is created
@@ -1486,7 +1528,7 @@ export class KimiTUI {
     session: Session,
     text: string,
     activations: readonly InlineSkillActivation[],
-    extraction: ReturnType<typeof extractMediaAttachments>,
+    extraction: ExtractionResult,
   ): Promise<void> {
     const knownEntryIds = new Set(this.state.transcriptEntries.map((entry) => entry.id));
     await session.promptWithSkills(
@@ -2160,7 +2202,7 @@ export class KimiTUI {
 
   requireSession(): Session {
     if (this.session === undefined) {
-      throw new Error(NO_ACTIVE_SESSION_MESSAGE);
+      throw new Error(getNoActiveSessionMessage());
     }
     return this.session;
   }
@@ -2231,7 +2273,7 @@ export class KimiTUI {
     this.cacheHint.refreshConfigInBackground();
     const model = this.state.appState.model.trim();
     if (model.length === 0) {
-      throw new Error(LLM_NOT_SET_MESSAGE);
+      throw new Error(getLlmNotSetMessage());
     }
     // With an active session, carry the live plan state. Session-less (lazy
     // creation / `/new` before the first session) on v2, pass only the
@@ -2619,7 +2661,7 @@ export class KimiTUI {
     try {
       session = await this.harness.resumeSession({
         id: targetSessionId,
-        replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+        replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     } catch (error) {
       const msg = formatErrorMessage(error);
@@ -3496,7 +3538,7 @@ export class KimiTUI {
 
     const session = this.session;
     if (session === undefined) {
-      this.showError(NO_ACTIVE_SESSION_MESSAGE);
+      this.showError(getNoActiveSessionMessage());
       return;
     }
 
@@ -3586,8 +3628,10 @@ export class KimiTUI {
   }
 
   async applyTheme(themeName: ThemeName, resolved?: ResolvedTheme): Promise<void> {
-    const palette = await getColorPalette(themeName === 'auto' ? (resolved ?? 'dark') : themeName);
-    currentTheme.setPalette(palette);
+    const { palette, resolved: applied } = await getColorPalette(
+      themeName === 'auto' ? (resolved ?? 'dark') : themeName,
+    );
+    currentTheme.setPalette(palette, applied);
     this.setAppState({ theme: themeName });
     this.updateEditorBorderHighlight();
     // Force every historical message to re-render so Markdown/Text caches
@@ -3614,7 +3658,7 @@ export class KimiTUI {
     if (this.state.appState.theme !== 'auto') return;
     const palette = getBuiltInPalette(resolved);
     if (currentTheme.palette === palette) return;
-    currentTheme.setPalette(palette);
+    currentTheme.setPalette(palette, resolved);
     this.updateEditorBorderHighlight();
     // Repaint already-rendered transcript entries (status/markdown caches hold
     // old ANSI codes), matching applyTheme()'s behaviour.
@@ -3721,6 +3765,84 @@ export class KimiTUI {
     this.cacheHint.noteStepUsage(usage);
   }
 
+  /**
+   * Per-step cache-hit and output-speed accounting for the footer readout:
+   * accumulate cache hit/miss input tokens for the live hit rate, and fold
+   * the step's decode-window + output-token count into the EMA that backs
+   * `appState.tokenSpeed`.
+   */
+  noteStepCacheStats(
+    usage: TokenUsage | undefined,
+    streamDurationMs: number | undefined,
+    serverDecodeMs: number | undefined,
+  ): void {
+    const patch: Partial<AppState> = {};
+    if (usage !== undefined) {
+      const read = usage.inputCacheRead ?? 0;
+      // Cache miss = tokens written into the cache (cache_creation). Plain
+      // input (input_other) is not part of the cache system, so it must not
+      // dilute the hit rate: read/(read+creation) is the exact hit rate.
+      // OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) report no cache
+      // writes — their miss lands in input_other — so the gate also admits
+      // plain input to keep the footer's fallback readout populated.
+      const miss = usage.inputCacheCreation ?? 0;
+      if (read > 0 || miss > 0 || (usage.inputOther ?? 0) > 0) {
+        patch.cacheReadTokens = this.state.appState.cacheReadTokens + read;
+        patch.cacheMissTokens = this.state.appState.cacheMissTokens + miss;
+        // Keep plain input alongside so the footer can fall back to the
+        // share of total input when the provider never reports cache writes
+        // (otherwise read/(read+0) would always read 100%).
+        patch.cacheOtherTokens = this.state.appState.cacheOtherTokens + (usage.inputOther ?? 0);
+      }
+    }
+    // Prefer the provider-reported decode window over the wall-clock stream
+    // duration: a batched SSE response (or prompt-cache hit) collapses the
+    // wall-clock between first and last event to a few ms and would otherwise
+    // surface thousands of tok/s. Fall back to the stream duration only when
+    // the provider stream omitted the decode accounting split.
+    const decodeMs = pickDecodeMs(serverDecodeMs, streamDurationMs);
+    const next = computeSmoothedTokenSpeed(this.tokenSpeedEma, usage?.output ?? 0, decodeMs);
+    if (next !== null) {
+      this.tokenSpeedEma = next;
+      patch.tokenSpeed = next;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.setAppState(patch);
+    }
+  }
+
+  /** Session turn counter for the footer stats (user-facing turns only; the
+   *  event handler skips plugin-internal turns before calling this). */
+  noteSessionTurnStarted(): void {
+    this.setAppState({
+      sessionStats: bumpTurnCount(this.state.appState.sessionStats),
+    });
+  }
+
+  /** Fold one completed step (usage + timing) into the footer session stats. */
+  noteSessionStepCompleted(
+    usage: TokenUsage | undefined,
+    llmStreamDurationMs: number | undefined,
+    llmFirstTokenLatencyMs: number | undefined,
+  ): void {
+    this.setAppState({
+      sessionStats: accumulateStepCompleted(
+        this.state.appState.sessionStats,
+        usage,
+        llmStreamDurationMs,
+        llmFirstTokenLatencyMs,
+      ),
+    });
+  }
+
+  /** Accumulate one tool-call wall time (started→result, measured in the
+   *  event handler) into the footer session stats. */
+  noteSessionToolCompleted(deltaMs: number): void {
+    this.setAppState({
+      sessionStats: accumulateToolDuration(this.state.appState.sessionStats, deltaMs),
+    });
+  }
+
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
   noteCompactionFinished(): void {
     this.cacheHint.resetCacheBreakBaseline();
@@ -3770,6 +3892,52 @@ export class KimiTUI {
    * never-trusted. Returns true when the prompt started the event loop (the
    * caller must not start it again).
    */
+  /**
+   * One-time MSYS2 install gate (Windows only). Skipping or a successful
+   * install marks the prompt as shown so it never reappears; a failed install
+   * leaves it unmarked so the next launch can retry. Returns true when the
+   * prompt ran (the caller must not start the event loop again).
+   */
+  private async maybeRunMsys2Prompt(eventLoopStarted: boolean): Promise<boolean> {
+    const deps = createMsys2PromptDeps();
+    if (!(await shouldPromptMsys2(deps))) return false;
+    if (!eventLoopStarted) this.startEventLoop();
+    const choice = await new Promise<Msys2PromptChoice>((resolve) => {
+      this.state.activeDialog = 'msys2-prompt';
+      this.mountEditorReplacement(
+        new Msys2PromptComponent({
+          onSelect: (c) => {
+            resolve(c);
+          },
+          onCancel: () => {
+            resolve('skip');
+          },
+        }),
+      );
+    });
+    this.state.activeDialog = null;
+    if (choice === 'install') {
+      const spinner = this.showProgressSpinner(t('tui.msys2Prompt.installing'));
+      const result = await installMsys2(deps);
+      if (result.ok && result.bashPath !== undefined) {
+        const switched = setUserShellPath(result.bashPath, deps);
+        spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
+        this.showStatus(
+          switched ? t('tui.msys2Prompt.restartHint') : t('tui.msys2Prompt.installSuccessNoSwitch'),
+        );
+        await markPrompted(deps);
+      } else {
+        spinner.stop({ ok: false, label: t('tui.msys2Prompt.installFailed') });
+        this.showError(result.error ?? t('tui.msys2Prompt.installFailed'));
+        this.showStatus(t('tui.msys2Prompt.manualInstallHint'));
+      }
+    } else {
+      await markPrompted(deps);
+    }
+    this.restoreEditor();
+    return true;
+  }
+
   private async maybeRunWorkspaceTrustPrompt(): Promise<boolean> {
     if (!this.engineV2) return false;
     const workDir = this.state.appState.workDir;

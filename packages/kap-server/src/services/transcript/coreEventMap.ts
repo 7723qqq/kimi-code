@@ -1066,7 +1066,7 @@ export class AgentTranscriptProjector {
     readonly type: string;
     snapshot: {
       objective: string;
-      status: 'active' | 'paused' | 'blocked' | 'complete';
+      status: 'active' | 'paused' | 'blocked' | 'complete' | 'budget_limited' | 'usage_limited';
       completionCriterion?: string;
       tokensUsed: number;
       budget: { tokenBudget: number | null };
@@ -1077,12 +1077,16 @@ export class AgentTranscriptProjector {
     if (snapshot === null) {
       ops.push({ op: 'meta.merge', meta: { goal: null } });
     } else {
+      const status =
+        snapshot.status === 'budget_limited' || snapshot.status === 'usage_limited'
+          ? 'paused'
+          : snapshot.status;
       ops.push({
         op: 'meta.merge',
         meta: {
           goal: {
             objective: snapshot.objective,
-            status: snapshot.status,
+            status,
             completionCriterion: snapshot.completionCriterion,
             budgetUsed: snapshot.tokensUsed,
             budgetLimit: snapshot.budget.tokenBudget ?? undefined,

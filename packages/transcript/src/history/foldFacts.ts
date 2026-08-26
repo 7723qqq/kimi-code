@@ -105,14 +105,7 @@ const TASK_STATES = new Set<TranscriptTask['state']>([
   'lost',
 ]);
 
-const GOAL_STATUSES = new Set<GoalStatus>([
-  'active',
-  'paused',
-  'blocked',
-  'complete',
-  'budget_limited',
-  'usage_limited',
-]);
+const GOAL_STATUSES = new Set<GoalStatus>(['active', 'paused', 'blocked', 'complete']);
 
 function mapInteractionEndState(
   kind: TranscriptInteraction['interactionKind'],

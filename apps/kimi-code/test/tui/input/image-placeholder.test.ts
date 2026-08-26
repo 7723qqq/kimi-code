@@ -45,18 +45,18 @@ function makeTempDir(): string {
 type VideoUrlPart = { type: 'video_url'; videoUrl: { url: string } };
 
 describe('extractMediaAttachments', () => {
-  it('returns no parts and hasMedia=false for plain text', () => {
+  it('returns no parts and hasMedia=false for plain text', async () => {
     const store = new ImageAttachmentStore();
-    const r = extractMediaAttachments('hello world', store);
+    const r = await extractMediaAttachments('hello world', store);
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);
     expect(r.imageAttachmentIds).toEqual([]);
     expect(r.videoAttachmentIds).toEqual([]);
   });
 
-  it('extracts a single matching placeholder into an image content part', () => {
+  it('extracts a single matching placeholder into an image content part', async () => {
     const { store, placeholder } = storeWith(new Uint8Array([0xaa, 0xbb]));
-    const r = extractMediaAttachments(`describe ${placeholder} please`, store);
+    const r = await extractMediaAttachments(`describe ${placeholder} please`, store);
     expect(r.hasMedia).toBe(true);
     expect(r.imageAttachmentIds).toEqual([1]);
     expect(r.parts).toEqual([
@@ -66,12 +66,12 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('keeps matched-placeholder order with multiple images', () => {
+  it('keeps matched-placeholder order with multiple images', async () => {
     const store = new ImageAttachmentStore();
     const a = store.addImage(new Uint8Array([1]), 'image/png', 10, 10);
     const b = store.addImage(new Uint8Array([2]), 'image/png', 20, 20);
     const text = `first ${a.placeholder} then ${b.placeholder} end`;
-    const r = extractMediaAttachments(text, store);
+    const r = await extractMediaAttachments(text, store);
     expect(r.imageAttachmentIds).toEqual([1, 2]);
     expect(r.parts).toEqual([
       { type: 'text', text: 'first ' },
@@ -82,13 +82,13 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('keeps matched-placeholder order with mixed image and video attachments', () => {
+  it('keeps matched-placeholder order with mixed image and video attachments', async () => {
     const store = new ImageAttachmentStore();
     const img = store.addImage(new Uint8Array([1]), 'image/png', 10, 10);
     const vid = store.addVideo('video/quicktime', '/tmp/clip.mov');
     store.completeVideo(vid, { fileId: 'file-v1' });
     const text = `first ${img.placeholder} then ${vid.placeholder} end`;
-    const r = extractMediaAttachments(text, store);
+    const r = await extractMediaAttachments(text, store);
     expect(r.imageAttachmentIds).toEqual([1]);
     expect(r.videoAttachmentIds).toEqual([2]);
     expect(r.parts).toEqual([
@@ -100,17 +100,20 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('leaves unresolved (typed by hand) placeholders as literal text', () => {
+  it('leaves unresolved (typed by hand) placeholders as literal text', async () => {
     const store = new ImageAttachmentStore();
-    const r = extractMediaAttachments('try [image #999 (1×1)] and [video #42 clip.mov] now', store);
+    const r = await extractMediaAttachments(
+      'try [image #999 (1×1)] and [video #42 clip.mov] now',
+      store,
+    );
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);
   });
 
-  it('uses pasted image bytes in data URLs', () => {
+  it('uses pasted image bytes in data URLs', async () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     const { store, placeholder } = storeWith(bytes);
-    const r = extractMediaAttachments(placeholder, store);
+    const r = await extractMediaAttachments(placeholder, store);
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]).toEqual({
       type: 'image_url',
@@ -140,13 +143,13 @@ describe('extractMediaAttachments', () => {
     }
   });
 
-  it('emits a bare kimi-file video_url part for an uploaded video', () => {
+  it('emits a bare kimi-file video_url part for an uploaded video', async () => {
     const { cleanup } = setupTempCache();
     try {
       const store = new ImageAttachmentStore();
       const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
       store.completeVideo(att, { fileId: 'file-v1' });
-      const r = extractMediaAttachments(att.placeholder, store);
+      const r = await extractMediaAttachments(att.placeholder, store);
       expect(r.hasMedia).toBe(true);
       expect(r.videoAttachmentIds).toEqual([1]);
       expect(r.parts).toHaveLength(1);
@@ -162,22 +165,24 @@ describe('extractMediaAttachments', () => {
     }
   });
 
-  it('refuses a video whose upload is still in flight', () => {
+  it('refuses a video whose upload is still in flight', async () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
     att.pending = new Promise<void>(() => undefined); // never settles
-    expect(() => extractMediaAttachments(att.placeholder, store)).toThrow(/still uploading/);
+    await expect(extractMediaAttachments(att.placeholder, store)).rejects.toThrow(
+      /still uploading/,
+    );
   });
 
-  it('refuses a video whose upload failed or is missing', () => {
+  it('refuses a video whose upload failed or is missing', async () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
-    expect(() => extractMediaAttachments(att.placeholder, store)).toThrow(
+    await expect(extractMediaAttachments(att.placeholder, store)).rejects.toThrow(
       /could not be uploaded/,
     );
   });
 
-  it('inserts a compression caption before an image that was compressed at paste time', () => {
+  it('inserts a compression caption before an image that was compressed at paste time', async () => {
     const store = new ImageAttachmentStore();
     const att = store.addImage(new Uint8Array([1, 2, 3]), 'image/png', 2000, 2000, {
       path: '/tmp/kimi-code-original-images/abc.png',
@@ -189,7 +194,7 @@ describe('extractMediaAttachments', () => {
 
     // Extraction never authors captions; dispatch-time resolution does, once
     // the session (and its media-originals dir) is known.
-    const extracted = extractMediaAttachments(`look ${att.placeholder}`, store);
+    const extracted = await extractMediaAttachments(`look ${att.placeholder}`, store);
     const parts = resolveOriginalCaptions(
       extracted.parts,
       extracted.imageAttachmentIds,
@@ -211,7 +216,7 @@ describe('extractMediaAttachments', () => {
     });
   });
 
-  it('notes an unpreserved original when persistence failed at paste time', () => {
+  it('notes an unpreserved original when persistence failed at paste time', async () => {
     const store = new ImageAttachmentStore();
     const att = store.addImage(new Uint8Array([1]), 'image/png', 2000, 2000, {
       path: undefined,
@@ -221,7 +226,7 @@ describe('extractMediaAttachments', () => {
       mime: 'image/png',
     });
 
-    const extracted = extractMediaAttachments(att.placeholder, store);
+    const extracted = await extractMediaAttachments(att.placeholder, store);
     const parts = resolveOriginalCaptions(
       extracted.parts,
       extracted.imageAttachmentIds,
@@ -234,9 +239,9 @@ describe('extractMediaAttachments', () => {
     expect(caption.text).toMatch(/not preserved/i);
   });
 
-  it('adds no caption for an uncompressed image attachment', () => {
+  it('adds no caption for an uncompressed image attachment', async () => {
     const { store, placeholder } = storeWith(new Uint8Array([0xaa]));
-    const r = extractMediaAttachments(placeholder, store);
+    const r = await extractMediaAttachments(placeholder, store);
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]?.type).toBe('image_url');
   });
@@ -394,47 +399,105 @@ describe('extractMediaAttachments: bare image paths', () => {
     'base64',
   );
 
-  it('attaches an absolute POSIX image path and replaces it inline', () => {
+  it('attaches an absolute POSIX image path and replaces it inline', async () => {
     const dir = makeTempDir();
-    const file = join(dir, 'sample.png');
-    writeFileSync(file, PNG_1X1);
-    const store = new ImageAttachmentStore();
-    const r = extractMediaAttachments(`看这个 ${file} 谢谢`, store);
-    expect(r.hasMedia).toBe(true);
-    expect(r.imageAttachmentIds).toEqual([1]);
-    expect(r.parts.some((p) => p.type === 'image_url')).toBe(true);
-    expect(JSON.stringify(r.parts)).not.toContain('sample.png');
+    try {
+      const file = join(dir, 'sample.png');
+      writeFileSync(file, PNG_1X1);
+      const store = new ImageAttachmentStore();
+      const r = await extractMediaAttachments(`看这个 ${file} 谢谢`, store);
+      expect(r.hasMedia).toBe(true);
+      expect(r.imageAttachmentIds).toEqual([1]);
+      expect(r.parts.some((p) => p.type === 'image_url')).toBe(true);
+      expect(JSON.stringify(r.parts)).not.toContain('sample.png');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it('converts a quoted path containing spaces', () => {
+  it('converts a quoted path containing spaces', async () => {
     const dir = join(makeTempDir(), 'with space');
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, 'wx shot.png');
-    writeFileSync(file, PNG_1X1);
-    const store = new ImageAttachmentStore();
-    const r = extractMediaAttachments(`"${file}"`, store);
-    expect(r.hasMedia).toBe(true);
-    expect(r.imageAttachmentIds).toEqual([1]);
+    try {
+      const file = join(dir, 'wx shot.png');
+      writeFileSync(file, PNG_1X1);
+      const store = new ImageAttachmentStore();
+      const r = await extractMediaAttachments(`"${file}"`, store);
+      expect(r.hasMedia).toBe(true);
+      expect(r.imageAttachmentIds).toEqual([1]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it('leaves a Windows path with no backing file as literal text', () => {
+  it('leaves a Windows path with no backing file as literal text', async () => {
     const store = new ImageAttachmentStore();
     const text = String.raw`看 D:\微信聊天数据\temp\a7d0eaaa.png 这张图`;
-    const r = extractMediaAttachments(text, store);
+    const r = await extractMediaAttachments(text, store);
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);
     expect(text).toContain('D:\\微信聊天数据');
   });
 
-  it('reuses one attachment when the same path appears twice', () => {
+  it('reuses one attachment when the same path appears twice', async () => {
     const dir = makeTempDir();
-    const file = join(dir, 'dup.png');
-    writeFileSync(file, PNG_1X1);
-    const store = new ImageAttachmentStore();
-    const r = extractMediaAttachments(`对比 ${file} 和 ${file} 的差异`, store);
-    // Both spans resolve to the SAME stored attachment (dedupe) — two
-    // references, one set of bytes; without dedupe this would be [1, 2].
-    expect(r.imageAttachmentIds).toEqual([1, 1]);
-    expect(r.parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+    try {
+      const file = join(dir, 'dup.png');
+      writeFileSync(file, PNG_1X1);
+      const store = new ImageAttachmentStore();
+      const r = await extractMediaAttachments(`对比 ${file} 和 ${file} 的差异`, store);
+      // Both spans resolve to the SAME stored attachment (dedupe) — two
+      // references, one set of bytes; without dedupe this would be [1, 2].
+      expect(r.imageAttachmentIds).toEqual([1, 1]);
+      expect(r.parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('awaits the ingester and expands the ingested form of a path attachment', async () => {
+    const dir = makeTempDir();
+    try {
+      const file = join(dir, 'huge.png');
+      writeFileSync(file, PNG_1X1);
+      const store = new ImageAttachmentStore();
+      const r = await extractMediaAttachments(`看这个 ${file} 谢谢`, store, (attachment) => {
+        store.completeImage(attachment, {
+          bytes: new Uint8Array([9, 9, 9]),
+          mime: 'image/png',
+          width: 100,
+          height: 50,
+        });
+        return Promise.resolve();
+      });
+      expect(r.hasMedia).toBe(true);
+      expect(r.imageAttachmentIds).toEqual([1]);
+      // The placeholder is built after ingestion settles, so this submit
+      // expands to the compressed bytes and the completed dimensions.
+      expect(store.get(1)?.placeholder).toContain('100×50');
+      expect(r.parts[1]).toEqual({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,CQkJ' },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the path as literal text when ingestion rejects', async () => {
+    const dir = makeTempDir();
+    try {
+      const file = join(dir, 'boom.png');
+      writeFileSync(file, PNG_1X1);
+      const store = new ImageAttachmentStore();
+      const r = await extractMediaAttachments(`看这个 ${file}`, store, () =>
+        Promise.reject(new Error('ingest exploded')),
+      );
+      expect(r.hasMedia).toBe(false);
+      expect(r.parts).toEqual([]);
+      expect(store.size()).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

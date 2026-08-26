@@ -105,6 +105,7 @@ async function getSourceCheckoutLocation(): Promise<MarketplaceLocation | undefi
 export interface PluginsRouteOptions {
   readonly marketplaceUrl: () => string;
   readonly marketplaceIsDefault?: boolean;
+  readonly marketplaceHomeDir?: string;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -130,6 +131,7 @@ export function registerPluginsRoutes(
         read = await readPluginMarketplace({
           source: opts.marketplaceUrl(),
           workDir: process.cwd(),
+          homeDir: opts.marketplaceHomeDir,
           fetchImpl,
           sourceCheckoutLocation:
             opts.marketplaceIsDefault === true ? getSourceCheckoutLocation : undefined,
@@ -146,7 +148,7 @@ export function registerPluginsRoutes(
       }
       let marketplace: PluginMarketplace;
       try {
-        marketplace = parsePluginMarketplace(read.raw, read.location);
+        marketplace = parsePluginMarketplace(read.raw, read.location, opts.marketplaceHomeDir);
       } catch (error) {
         reply.send(
           errEnvelope(

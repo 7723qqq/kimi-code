@@ -1,9 +1,11 @@
-import {
-  BACKEND_CANNOT_COMBINE_WITH_FORK,
-  BACKEND_CANNOT_COMBINE_WITH_MODEL,
-  BACKEND_CANNOT_COMBINE_WITH_RESUME,
-  BACKEND_CANNOT_COMBINE_WITH_SUBAGENT_TYPE,
-} from '#/agent/tools/agent/agent';
+export const BACKEND_CANNOT_COMBINE_WITH_RESUME =
+  'Cannot use backend with resume — an external backend runs a fresh session in the external CLI; resume targets an existing in-process agent by id.';
+export const BACKEND_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
+  'Cannot use backend with subagent_type — external backends have no in-process agent profile. Omit subagent_type to use backend.';
+export const BACKEND_CANNOT_COMBINE_WITH_MODEL =
+  'Cannot use backend with model — external backends are configured through the [subagentBackend] config section instead of the model parameter.';
+export const BACKEND_CANNOT_COMBINE_WITH_FORK =
+  'Cannot use backend with fork — fork snapshots the in-process conversation history, which an external backend does not share.';
 
 export interface BackendCompatInputLike {
   readonly backend?: string;

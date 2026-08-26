@@ -16,21 +16,24 @@ import { OAuthTokenTransaction } from '@moonshot-ai/kimi-code-oauth';
 import { BugIndicatingError } from '#/errors';
 
 import { KIMI_MCP_CLIENT_NAME } from '../client-shared';
-import { canonicalMcpOAuthResource, mcpOAuthStoreKey, type McpOAuthStore } from './store';
+import {
+  canonicalMcpOAuthResource,
+  META_SUFFIX,
+  mcpOAuthStoreKey,
+  type McpOAuthStore,
+  type McpOAuthStoreMeta,
+} from './store';
 
 const TOKENS_SUFFIX = '-tokens.json';
 const CLIENT_SUFFIX = '-client.json';
 const DISCOVERY_SUFFIX = '-discovery.json';
-export const META_SUFFIX = '-meta.json';
 const PASSIVE_REDIRECT_URI = 'http://127.0.0.1:3118/callback';
+
+export { META_SUFFIX };
+export type { McpOAuthStoreMeta };
 
 export interface StoredMcpOAuthTokens extends OAuthTokens {
   readonly obtained_at?: number;
-}
-
-export interface McpOAuthStoreMeta {
-  readonly serverName: string;
-  readonly serverUrl: string;
 }
 
 export interface McpOAuthProviderOptions {

@@ -49,11 +49,41 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
 import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import type { McpOAuthStore } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 
 import { TEST_IDENTITY } from './test-identity';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
+
+/**
+ * File-backed OAuth credential store over `<homeDir>/credentials/mcp` — the
+ * same layout the engine's atomic-document store serves, so a standalone
+ * `McpOAuthService` built on it seeds and invalidates the credentials the
+ * harness reads.
+ */
+function homeMcpOAuthStore(homeDir: string): McpOAuthStore {
+  const dir = join(homeDir, 'credentials', 'mcp');
+  return {
+    async read<T>(key: string): Promise<T | undefined> {
+      try {
+        return JSON.parse(await readFile(join(dir, key), 'utf-8')) as T;
+      } catch {
+        return undefined;
+      }
+    },
+    async write(key: string, data: unknown): Promise<void> {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, key), JSON.stringify(data), 'utf-8');
+    },
+    async remove(key: string): Promise<void> {
+      await rm(join(dir, key), { force: true });
+    },
+    async list(suffix?: string): Promise<readonly string[]> {
+      const keys = await readdir(dir).catch(() => [] as string[]);
+      return suffix === undefined ? keys : keys.filter((entry) => entry.endsWith(suffix));
+    },
+  };
+}
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
 
@@ -144,7 +174,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const implicitOAuthUrl = 'https://implicit-oauth.example.test/mcp';
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
-    const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
+    const externalOAuth = new McpOAuthServiceV2({ store: homeMcpOAuthStore(homeDir) });
     await externalOAuth
       .getProvider('oauth-authorized', authorizedUrl)
       .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
@@ -1008,8 +1038,8 @@ key = "${titleOAuthRef.key}"
       const main = await manager.create({ agentId: 'main' });
       const todo = manager.resolve(main, AgentTodo);
       await todo.replace([
-        { title: 'write tests', status: 'in_progress' },
-        { title: 'ship it', status: 'pending' },
+        { id: 't1', parentId: null, kind: 'task', title: 'write tests', status: 'in_progress' },
+        { id: 't2', parentId: null, kind: 'task', title: 'ship it', status: 'pending' },
       ]);
 
       expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([

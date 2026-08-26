@@ -135,8 +135,6 @@ export interface IAgentProfileService {
   getActiveToolNames(): readonly string[] | undefined;
   addActiveTool(name: string): void;
   removeActiveTool(name: string): void;
-  /** Re-resolve the bound profile's default active tool names from the current catalog; no-op when a user overlay exists. */
-  refreshActiveTools(): Promise<void>;
 }
 
 export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');

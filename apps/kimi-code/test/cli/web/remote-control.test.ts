@@ -12,7 +12,14 @@ import {
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import type { RawData, WebSocket } from 'ws';
+import { createRequire } from 'node:module';
+
+const requireReal = createRequire(import.meta.url);
+const wsReal = requireReal(
+  requireReal.resolve('ws/package.json').replace(/package\.json$/, 'index.js'),
+) as typeof import('ws');
+const { WebSocketServer } = wsReal;
 
 import {
   buildRemoteControlUrl,
@@ -258,17 +265,22 @@ describe('Remote Control tunnel', () => {
       stderr: { write: () => true },
     });
 
-    expect(relay.requests.some((request) => request.protocol?.startsWith('kimi-code.bearer.'))).toBe(
-      true,
+    await vi.waitFor(
+      () => {
+        expect(
+          relay.requests.some((request) => request.protocol?.startsWith('kimi-code.bearer.')),
+        ).toBe(true);
+        expect(
+          relay.requests.some(
+            (request) =>
+              request.protocol === undefined &&
+              request.authorization === `Bearer ${TOKEN.refreshToken}`,
+          ),
+        ).toBe(true);
+      },
+      10_000,
     );
-    expect(
-      relay.requests.some(
-        (request) =>
-          request.protocol === undefined &&
-          request.authorization === `Bearer ${TOKEN.refreshToken}`,
-      ),
-    ).toBe(true);
-  });
+  }, 20_000);
 
   it('keeps the initial start pending through transient failures and recovers', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
@@ -302,8 +314,10 @@ describe('Remote Control tunnel', () => {
       stderr: { write: () => true },
     });
 
-    expect(relay.requests.length).toBeGreaterThanOrEqual(4);
-  }, 6000);
+    await vi.waitFor(() => {
+      expect(relay.requests.length).toBeGreaterThanOrEqual(4);
+    }, 10_000);
+  }, 20_000);
 
   it('registers, forwards HTTP and WS with local auth, then reconnects the pair', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kimi-rc-'));

@@ -32,6 +32,7 @@ import type {
   VideoAttachment,
 } from '../utils/image-attachment-store';
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
+import type { ExtractionResult } from '../utils/image-placeholder';
 import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
@@ -303,92 +304,8 @@ export class EditorKeyboardController {
       return true;
     };
 
-    editor.onCtrlS = () => {
-      if (
-        host.state.appState.streamingPhase === 'idle' ||
-        host.state.appState.streamingPhase === 'shell' ||
-        host.state.appState.isCompacting
-      )
-        return;
-      const text = editor.getText().trim();
-      const editorIsBash = editor.inputMode === 'bash';
-
-      // Bash commands (`! …`) are not steerable: keep them queued so they run
-      // after the current task instead of being injected into the turn as text.
-      const queued = host.state.queuedMessages;
-      const steerable = queued.filter((m) => m.mode !== 'bash');
-
-      const items: SteerInputItem[] = [];
-      for (const m of steerable) {
-        const trimmed = m.text.trim();
-        if (trimmed.length > 0) {
-          // Queued items carry the parts extracted when they were submitted
-          // (and were already capability-validated then).
-          items.push({
-            text: trimmed,
-            parts: m.parts,
-            imageAttachmentIds: m.imageAttachmentIds,
-            videoAttachmentIds: m.videoAttachmentIds,
-          });
-        }
-      }
-      let editorExtraction: ReturnType<typeof extractMediaAttachments> | undefined;
-      if (!editorIsBash && text.length > 0) {
-        try {
-          editorExtraction = extractMediaAttachments(text, this.imageStore);
-        } catch (error) {
-          // Media expansion failed (e.g. the pasted video's upload is still
-          // in flight) — leave the queue and the editor draft untouched.
-          host.showError(
-            t('tui.statusMessages.failedToPrepareMediaAttachment', {
-              error: formatErrorMessage(error),
-            }),
-          );
-          return;
-        }
-        items.push({
-          text,
-          parts: editorExtraction.hasMedia ? editorExtraction.parts : undefined,
-          imageAttachmentIds:
-            editorExtraction.imageAttachmentIds.length > 0
-              ? editorExtraction.imageAttachmentIds
-              : undefined,
-          videoAttachmentIds:
-            editorExtraction.videoAttachmentIds.length > 0
-              ? editorExtraction.videoAttachmentIds
-              : undefined,
-        });
-      }
-
-      if (items.length > 0) {
-        // The editor draft is fresh input: gate it on the model's media
-        // capabilities before splicing the queue, so a rejection leaves the
-        // queue and the draft untouched.
-        if (editorExtraction !== undefined && !host.validateMediaCapabilities(editorExtraction)) {
-          host.releaseStagingMedia([
-            ...editorExtraction.imageAttachmentIds,
-            ...editorExtraction.videoAttachmentIds,
-          ]);
-          return;
-        }
-        const session = host.session;
-        if (host.state.appState.model.trim().length === 0 || session === undefined) {
-          host.releaseStagingMedia([
-            ...(editorExtraction?.imageAttachmentIds ?? []),
-            ...(editorExtraction?.videoAttachmentIds ?? []),
-          ]);
-          host.showError(getLlmNotSetMessage());
-        } else {
-          // Mutate the queue/editor only after the guard passes, so an
-          // early-return here never drops the user's queued non-bash items or
-          // the draft text.
-          host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
-          if (!editorIsBash) editor.setText('');
-          host.steerMessage(session, items);
-        }
-      }
-      host.updateQueueDisplay();
-      host.state.ui.requestRender();
+    editor.onCtrlS = (): void => {
+      void this.steerWithEditorDraft();
     };
 
     editor.onCtrlB = (): boolean => {
@@ -435,6 +352,106 @@ export class EditorKeyboardController {
     editor.onDownArrowEmpty = () => host.btwPanelController.scroll('down');
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
+  }
+
+  /**
+   * Ctrl+S: steer the running turn with the editor draft (plus the queued
+   * non-bash items). Extraction is awaited so a bare image path in the draft
+   * attaches through the full paste-time ingestion before the parts are sent.
+   */
+  private async steerWithEditorDraft(): Promise<void> {
+    const { host } = this;
+    const editor = host.state.editor;
+    if (
+      host.state.appState.streamingPhase === 'idle' ||
+      host.state.appState.streamingPhase === 'shell' ||
+      host.state.appState.isCompacting
+    )
+      return;
+    const text = editor.getText().trim();
+    const editorIsBash = editor.inputMode === 'bash';
+
+    // Bash commands (`! …`) are not steerable: keep them queued so they run
+    // after the current task instead of being injected into the turn as text.
+    const queued = host.state.queuedMessages;
+    const steerable = queued.filter((m) => m.mode !== 'bash');
+
+    const items: SteerInputItem[] = [];
+    for (const m of steerable) {
+      const trimmed = m.text.trim();
+      if (trimmed.length > 0) {
+        // Queued items carry the parts extracted when they were submitted
+        // (and were already capability-validated then).
+        items.push({
+          text: trimmed,
+          parts: m.parts,
+          imageAttachmentIds: m.imageAttachmentIds,
+          videoAttachmentIds: m.videoAttachmentIds,
+        });
+      }
+    }
+    let editorExtraction: ExtractionResult | undefined;
+    if (!editorIsBash && text.length > 0) {
+      try {
+        editorExtraction = await extractMediaAttachments(
+          text,
+          this.imageStore,
+          (attachment, bytes, mime, width, height) =>
+            this.prepareImageAttachment(attachment, bytes, mime, width, height),
+        );
+      } catch (error) {
+        // Media expansion failed (e.g. the pasted video's upload is still
+        // in flight) — leave the queue and the editor draft untouched.
+        host.showError(
+          t('tui.statusMessages.failedToPrepareMediaAttachment', {
+            error: formatErrorMessage(error),
+          }),
+        );
+        return;
+      }
+      items.push({
+        text,
+        parts: editorExtraction.hasMedia ? editorExtraction.parts : undefined,
+        imageAttachmentIds:
+          editorExtraction.imageAttachmentIds.length > 0
+            ? editorExtraction.imageAttachmentIds
+            : undefined,
+        videoAttachmentIds:
+          editorExtraction.videoAttachmentIds.length > 0
+            ? editorExtraction.videoAttachmentIds
+            : undefined,
+      });
+    }
+
+    if (items.length > 0) {
+      // The editor draft is fresh input: gate it on the model's media
+      // capabilities before splicing the queue, so a rejection leaves the
+      // queue and the draft untouched.
+      if (editorExtraction !== undefined && !host.validateMediaCapabilities(editorExtraction)) {
+        host.releaseStagingMedia([
+          ...editorExtraction.imageAttachmentIds,
+          ...editorExtraction.videoAttachmentIds,
+        ]);
+        return;
+      }
+      const session = host.session;
+      if (host.state.appState.model.trim().length === 0 || session === undefined) {
+        host.releaseStagingMedia([
+          ...(editorExtraction?.imageAttachmentIds ?? []),
+          ...(editorExtraction?.videoAttachmentIds ?? []),
+        ]);
+        host.showError(getLlmNotSetMessage());
+      } else {
+        // Mutate the queue/editor only after the guard passes, so an
+        // early-return here never drops the user's queued non-bash items or
+        // the draft text.
+        host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
+        if (!editorIsBash) editor.setText('');
+        host.steerMessage(session, items);
+      }
+    }
+    host.updateQueueDisplay();
+    host.state.ui.requestRender();
   }
 
   clearPendingExit(): void {
@@ -564,86 +581,95 @@ export class EditorKeyboardController {
     this.host.state.ui.requestRender();
     this.host.track('shortcut_paste', { kind: 'image' });
 
-    attachment.pending = this.finishClipboardImagePaste(
+    attachment.pending = this.prepareImageAttachment(
       attachment,
       media.bytes,
       meta.mime,
       meta.width,
       meta.height,
-    ).catch((error: unknown) => {
-      // The raw attachment and its already-visible placeholder are still a
-      // valid inline fallback when optional ingestion work fails.
-      this.host.showError(
-        t('tui.statusMessages.failedToPrepareMediaAttachment', {
-          error: formatErrorMessage(error),
-        }),
-      );
-    });
+    );
     return true;
   }
 
-  private async finishClipboardImagePaste(
+  /**
+   * Ingest a registered image attachment the clipboard-paste way: capture-time
+   * compression, then the v2 daemon-file-store upload when active, then
+   * `completeImage`. Shared by the clipboard-paste flow and the bare-path
+   * attach flow (passed as the `extractMediaAttachments` ingester). Best
+   * effort: on failure the raw attachment and its already-visible placeholder
+   * remain a valid inline fallback, and the failure is surfaced here so
+   * callers never see a rejection.
+   */
+  async prepareImageAttachment(
     attachment: ImageAttachment,
     originalBytes: Uint8Array,
     originalMime: string,
     originalWidth: number,
     originalHeight: number,
   ): Promise<void> {
-    // Compress at ingestion — a pure data step while building the attachment, so
-    // the stored bytes, the inline thumbnail, the `[image #N (W×H)]` placeholder,
-    // and the submitted image all agree, and the agent core only ever sees an
-    // already-compressed image. Best effort: originals pass through on failure.
-    // When compression changed the bytes, the pre-compression original is kept
-    // on the attachment in memory: the session whose media-originals dir it
-    // belongs in may not exist yet at paste time, so dispatch-time caption
-    // resolution (`resolveOriginalCaptions`) persists it and announces the
-    // compression, pointing the model at the full-fidelity copy.
-    // The edge cap comes from the host harness's [image] config (resolved per
-    // paste so a config reload applies immediately); hosts without a harness
-    // use the env/built-in default.
-    const compressed = await compressImageForModel(originalBytes, originalMime, {
-      maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
-      telemetry: {
-        client: {
-          track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
-            this.host.track(event, properties as Record<string, unknown> | undefined);
+    try {
+      // Compress at ingestion — a pure data step while building the attachment, so
+      // the stored bytes, the inline thumbnail, the `[image #N (W×H)]` placeholder,
+      // and the submitted image all agree, and the agent core only ever sees an
+      // already-compressed image. Best effort: originals pass through on failure.
+      // When compression changed the bytes, the pre-compression original is kept
+      // on the attachment in memory: the session whose media-originals dir it
+      // belongs in may not exist yet at paste time, so dispatch-time caption
+      // resolution (`resolveOriginalCaptions`) persists it and announces the
+      // compression, pointing the model at the full-fidelity copy.
+      // The edge cap comes from the host harness's [image] config (resolved per
+      // paste so a config reload applies immediately); hosts without a harness
+      // use the env/built-in default.
+      const compressed = await compressImageForModel(originalBytes, originalMime, {
+        maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
+        telemetry: {
+          client: {
+            track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
+              this.host.track(event, properties as Record<string, unknown> | undefined);
+            },
           },
+          source: 'tui_paste',
         },
-        source: 'tui_paste',
-      },
-    });
-    // Dimensions come from the compression result, not parseImageMeta: the
-    // compressor reports display space (EXIF orientation applied) — the space
-    // the sent image, the caption, and Read region readback share —
-    // while parseImageMeta reads the raw pre-rotation header.
-    const original = compressed.changed
-      ? {
-          bytes: originalBytes,
-          width: compressed.originalWidth,
-          height: compressed.originalHeight,
-          byteLength: originalBytes.length,
-          mime: originalMime,
-        }
-      : undefined;
-    // v2 only: upload the final bytes to the daemon file store so submit-time
-    // expansion emits a `kimi-file://` reference instead of inline base64.
-    const uploaded = await this.uploadImageToDaemonFileStore(
-      compressed.changed ? compressed.data : originalBytes,
-      compressed.changed ? compressed.mimeType : originalMime,
-    );
-    const completed = this.imageStore.completeImage(attachment, {
-      bytes: compressed.changed ? compressed.data : originalBytes,
-      mime: compressed.changed ? compressed.mimeType : originalMime,
-      width: compressed.width || originalWidth,
-      height: compressed.height || originalHeight,
-      original,
-      fileId: uploaded?.id,
-      fileExpiresAt: parseExpiry(uploaded),
-    });
-    if (completed === undefined && uploaded !== undefined) {
-      await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
+      });
+      // Dimensions come from the compression result, not parseImageMeta: the
+      // compressor reports display space (EXIF orientation applied) — the space
+      // the sent image, the caption, and Read region readback share —
+      // while parseImageMeta reads the raw pre-rotation header.
+      const original = compressed.changed
+        ? {
+            bytes: originalBytes,
+            width: compressed.originalWidth,
+            height: compressed.originalHeight,
+            byteLength: originalBytes.length,
+            mime: originalMime,
+          }
+        : undefined;
+      // v2 only: upload the final bytes to the daemon file store so submit-time
+      // expansion emits a `kimi-file://` reference instead of inline base64.
+      const uploaded = await this.uploadImageToDaemonFileStore(
+        compressed.changed ? compressed.data : originalBytes,
+        compressed.changed ? compressed.mimeType : originalMime,
+      );
+      const completed = this.imageStore.completeImage(attachment, {
+        bytes: compressed.changed ? compressed.data : originalBytes,
+        mime: compressed.changed ? compressed.mimeType : originalMime,
+        width: compressed.width || originalWidth,
+        height: compressed.height || originalHeight,
+        original,
+        fileId: uploaded?.id,
+        fileExpiresAt: parseExpiry(uploaded),
+      });
+      if (completed === undefined && uploaded !== undefined) {
+        await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
+      }
+      this.host.state.ui.requestRender();
+    } catch (error) {
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
     }
-    this.host.state.ui.requestRender();
   }
 
   /**

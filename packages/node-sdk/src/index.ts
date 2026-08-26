@@ -78,7 +78,7 @@ export {
   buildMediaPathTag,
   isDaemonFileUrl,
   parseDaemonFileUrl,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
 // Host-side config helpers — the localized v1 config-document layer (see

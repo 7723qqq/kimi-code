@@ -346,16 +346,16 @@ describe('plugins selector dialogs', () => {
     const { panel } = makePanel({ installed: [superpowers] });
     const previous = currentTheme.palette;
     try {
-      currentTheme.setPalette(darkColors);
+      currentTheme.setPalette(darkColors, 'dark');
       const darkOut = renderRaw(panel);
-      currentTheme.setPalette(lightColors);
+      currentTheme.setPalette(lightColors, 'light');
       const lightOut = renderRaw(panel);
       // A palette snapshot cached at construction would render identically
       // after the switch; reading currentTheme.palette at render time must
       // produce different ANSI output for the same panel instance.
       expect(darkOut).not.toBe(lightOut);
     } finally {
-      currentTheme.setPalette(previous);
+      currentTheme.setPalette(previous, currentTheme.isLight ? 'light' : 'dark');
     }
   });
 

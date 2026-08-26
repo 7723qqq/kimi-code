@@ -13,6 +13,7 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IFlagService } from '#/app/flag/flag';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import {
   SESSION_INDEX_MANIFEST,
@@ -28,6 +29,7 @@ import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backen
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubFlag } from '../flag/stubs';
 import { stubLog } from '../../_base/log/stubs';
 
 const WORKSPACE = 'wd_test';
@@ -81,10 +83,11 @@ describe('SessionIndexMirror', () => {
     await queryStore.setCheckpoint(SESSION_INDEX_MANIFEST, { seq: GENERATION });
   }
 
-  function build(): ISessionIndexMirror {
+  function build(flagEnabled = true): ISessionIndexMirror {
     const host = createScopedTestHost([
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
+      stubPair(IFlagService, stubFlag(flagEnabled)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -141,10 +144,18 @@ describe('SessionIndexMirror', () => {
     expect(counters.get(WORKSPACE)).toEqual({ active: 0, archived: 1 });
   });
 
+  it('is a no-op when the read-model flag is off', async () => {
+    build(false);
+    mirror.record(summary('a'));
+    expect(mirror.pending()).toEqual([]);
+    await mirror.drain();
+  });
+
   it('never blocks record on the query store', async () => {
     const host = createScopedTestHost([
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
+      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();

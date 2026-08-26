@@ -5,7 +5,7 @@ import type { AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
@@ -52,6 +52,24 @@ import {
   startInProcessHttpMcpServer,
   stdioFixture,
 } from '../../mcpCore/stubs';
+
+const realFetch = globalThis.fetch;
+beforeAll(() => {
+  globalThis.fetch = (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('https://mcp.example.test')) {
+      throw new TypeError(`blocked external request to ${url}`);
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = realFetch;
+});
 
 function stdioServer(): McpServerConfig {
   return {

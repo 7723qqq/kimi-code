@@ -109,8 +109,15 @@ export interface IWaitUntil {
 
 export type IWaitUntilData<T> = Omit<T, 'waitUntil' | 'signal'>;
 
+interface AsyncDeliveryEntry<T> {
+  seq: number;
+  deliver: (event: T) => void;
+  data: IWaitUntilData<T>;
+}
+
 export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
-  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>]>;
+  private _asyncDeliveryQueue?: LinkedList<AsyncDeliveryEntry<T>>;
+  private _asyncDeliverySeq = 0;
 
   async fireAsyncConcurrent(data: IWaitUntilData<T>, signal: AbortSignal): Promise<void> {
     if (this.isDisposed || this._listeners === undefined || signal.aborted) {
@@ -137,17 +144,22 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
 
     this._asyncDeliveryQueue ??= new LinkedList();
     for (const entry of this._listeners) {
-      this._asyncDeliveryQueue.push([
-        (event) => {
-          entry.listener.call(entry.thisArg, event);
-        },
-        data,
-      ]);
+      const seq = ++this._asyncDeliverySeq;
+      const deliver = (event: T): void => {
+        entry.listener.call(entry.thisArg, event);
+      };
+      this._asyncDeliveryQueue.push({ seq, deliver, data });
     }
 
+    let watermark = Number.POSITIVE_INFINITY;
     while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
-      const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
-      await this.deliverAsync(deliver, eventData, signal);
+      const head = this._asyncDeliveryQueue.peek();
+      if (head === undefined || head.seq > watermark) {
+        break;
+      }
+      this._asyncDeliveryQueue.shift();
+      watermark = this._asyncDeliverySeq;
+      await this.deliverAsync(head.deliver, head.data, signal);
     }
   }
 

@@ -7,7 +7,6 @@ import { join, resolve, isAbsolute } from 'pathe';
 
 import type { ILogService } from '#/_base/log/log';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -287,7 +286,7 @@ async function spawnAgent(
     fullPrompt = `${prompt}\n\nYou MUST respond with a JSON object matching this schema:\n${JSON.stringify(opts.schema, null, 2)}\n\nReturn ONLY the JSON object, no markdown fences, no explanation.`;
   }
 
-  const callerHandle = deps.lifecycle.findAgentHandle(deps.callerAgentId);
+  const callerHandle = deps.lifecycle.handleOf(deps.callerAgentId);
   const callerData = callerHandle?.accessor.get(IAgentProfileService).data();
   const modelAlias = opts.model ?? callerData?.modelAlias;
   if (modelAlias === undefined) {
@@ -312,7 +311,7 @@ async function spawnAgent(
 
   try {
     const runHandle = await subagents.run(
-      agentContextOf(handle),
+      handle,
       { kind: 'prompt', prompt: fullPrompt },
       { signal },
     );
@@ -324,7 +323,7 @@ async function spawnAgent(
     }
     return summary;
   } finally {
-    await lifecycle.remove(agentContextOf(handle)).catch(() => {});
+    await lifecycle.remove(handle).catch(() => {});
   }
 }
 

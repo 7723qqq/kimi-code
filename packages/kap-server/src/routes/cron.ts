@@ -1,11 +1,13 @@
 
 import {
-  ISessionCronService,
-  cronToHuman,
-  parseCronExpression,
+  AgentCron,
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
   resumeSessionById,
+  ensureMainAgent,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { cronToHuman, parseCronExpression } from '@moonshot-ai/agent-core-v2/features/cron/internal/cron-expr';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -78,25 +80,31 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         );
         return;
       }
-      const cron = handle.accessor.get(ISessionCronService);
-      const tasks = cron.list().map((task) => {
-        const next = cron.getNextFireForTask(task.id);
-        let humanSchedule: string | undefined;
-        try {
-          humanSchedule = cronToHuman(parseCronExpression(task.cron));
-        } catch {
-        }
-        return {
-          id: task.id,
-          cron: task.cron,
-          ...(humanSchedule !== undefined ? { human_schedule: humanSchedule } : {}),
-          prompt: task.prompt,
-          created_at: task.createdAt,
-          ...(task.recurring !== undefined ? { recurring: task.recurring } : {}),
-          ...(task.lastFiredAt !== undefined ? { last_fired_at: task.lastFiredAt } : {}),
-          ...(next !== null ? { next_fire_at: next } : { next_fire_at: null }),
-        };
-      });
+      const manager = handle.accessor.get(IAgentLifecycleService);
+      const mainContext = manager.get(MAIN_AGENT_ID);
+      const cron =
+        mainContext === undefined ? undefined : manager.resolve(mainContext, AgentCron);
+      const tasks =
+        cron === undefined
+          ? []
+          : cron.list().map((task) => {
+              const next = cron.getNextFireForTask(task.id);
+              let humanSchedule: string | undefined;
+              try {
+                humanSchedule = cronToHuman(parseCronExpression(task.cron));
+              } catch {
+              }
+              return {
+                id: task.id,
+                cron: task.cron,
+                ...(humanSchedule !== undefined ? { human_schedule: humanSchedule } : {}),
+                prompt: task.prompt,
+                created_at: task.createdAt,
+                ...(task.recurring !== undefined ? { recurring: task.recurring } : {}),
+                ...(task.lastFiredAt !== undefined ? { last_fired_at: task.lastFiredAt } : {}),
+                ...(next !== null ? { next_fire_at: next } : { next_fire_at: null }),
+              };
+            });
       reply.send(okEnvelope({ tasks }, req.id));
     },
   );
@@ -143,7 +151,12 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
         return;
       }
-      const cronSvc = handle.accessor.get(ISessionCronService);
+      const manager = handle.accessor.get(IAgentLifecycleService);
+      let mainContext = manager.get(MAIN_AGENT_ID);
+      if (mainContext === undefined) {
+        mainContext = await ensureMainAgent(handle);
+      }
+      const cronSvc = manager.resolve(mainContext, AgentCron);
       const task = cronSvc.addTask({ cron, prompt, recurring: recurring ?? true });
       const next = cronSvc.getNextFireForTask(task.id);
       const taskWire = {
@@ -189,14 +202,17 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         );
         return;
       }
-      const cron = handle.accessor.get(ISessionCronService);
-      if (cron.getTask(task_id) === undefined) {
+      const manager = handle.accessor.get(IAgentLifecycleService);
+      const mainContext = manager.get(MAIN_AGENT_ID);
+      const cron =
+        mainContext === undefined ? undefined : manager.resolve(mainContext, AgentCron);
+      if (cron?.getTask(task_id) === undefined) {
         reply.send(
           errEnvelope(ErrorCode.TASK_NOT_FOUND, `cron task ${task_id} does not exist`, req.id),
         );
         return;
       }
-      const removed = cron.removeTasks([task_id]);
+      const removed = cron?.removeTasks([task_id]) ?? [];
       requestLog(req)?.info({ task_id }, 'cron task removed');
       reply.send(okEnvelope({ deleted: removed.length === 1 }, req.id));
     },

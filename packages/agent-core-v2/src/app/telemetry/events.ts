@@ -114,6 +114,7 @@ export interface ApiErrorEvent {
   request_kind?: string;
   step_no?: number;
   trace_id?: string;
+  estimated_request_bytes?: number;
 }
 
 export interface SkillInvokedEvent {
@@ -578,6 +579,8 @@ export const telemetryEventDefinitions = {
       step_no: 'Step index within the turn, when the request belongs to a turn step',
       trace_id:
         'Trace id of the failed request, from its response headers or its error response; absent when the failure happened before any response headers arrived (network errors, local aborts), and for non-Kimi protocols',
+      estimated_request_bytes:
+        'Estimated outgoing request body size in bytes; absent when the failure happened before a request body was assembled',
     },
   }),
   skill_invoked: defineAgentTelemetryEvent<SkillInvokedEvent>({

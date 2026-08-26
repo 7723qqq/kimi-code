@@ -308,7 +308,7 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+      await expect(harness.listMcpServerAuthStatuses({ verify: true })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
         { name: 'detected', authStatus: 'oauth-required' },
@@ -323,7 +323,10 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
         { name: 'oauth-stale', authStatus: 'oauth-expired' },
         { name: '__proto__', authStatus: 'oauth-required' },
       ]);
-      expect(statusServer.requestCount('/unavailable')).toBe(0);
+      // v2's verify pass opens a real connection per remote entry, so the
+      // token-less oauth entry is probed once even though the classification
+      // ('oauth-required') is forced either way — v1 skipped that probe.
+      expect(statusServer.requestCount('/unavailable')).toBe(1);
     } finally {
       await harness.close();
       await statusServer.close();

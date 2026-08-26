@@ -266,7 +266,11 @@ async function tickCron(
   runtime: AgentRuntimeContext<CronModelState>,
   state: CronEffectState,
 ): Promise<void> {
-  await configOf(runtime).ready;
+  try {
+    await configOf(runtime).ready;
+  } catch {
+    return;
+  }
   if (cronConfigOf(runtime).disabled || runtime.getState().size === 0) return;
   if (runtime.get(IAgentLoopService).status().state === 'running') return;
   const now = state.clocks.wallNow();

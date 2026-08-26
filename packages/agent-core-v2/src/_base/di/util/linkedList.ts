@@ -56,6 +56,10 @@ export class LinkedList<E> {
     return node.element;
   }
 
+  peek(): E | undefined {
+    return this._first === Node.Undefined ? undefined : (this._first as Node<E>).element;
+  }
+
   private _remove(node: Node<E>): void {
     if (node.prev !== Node.Undefined && node.next !== Node.Undefined) {
       const anchor = node.prev as Node<E>;

@@ -3,7 +3,7 @@
  * session-level MCP methods (`sdk-rpc-client-v2.ts`), which ride the
  * session's own connection manager and have no engine service behind them.
  * The validators keep v1's exact error text for the session RPC paths, and
- * validation keeps using v1's own `McpServerConfigSchema`.
+ * validation keeps using the SDK's localized `McpServerConfigSchema`.
  *
  * Persisting session-level adds to the user-level `mcp.json` no longer
  * happens here: `addSessionMcpServer`'s `persist: true` path writes through
@@ -12,13 +12,12 @@
  * inspection, OAuth orchestration) delegates to the engine's
  * `IMcpManagementService`.
  */
+import { ErrorCodes, KimiError } from '#/legacy';
 import {
-  ErrorCodes,
-  KimiError,
   McpServerConfigSchema,
   type GlobalMcpServerConfig,
   type McpServerConfig,
-} from '@moonshot-ai/agent-core';
+} from '#/config-local';
 
 /** Byte-identical port of v1's `mcpConfigWithoutName`. */
 export function mcpConfigWithoutName(server: GlobalMcpServerConfig): McpServerConfig {

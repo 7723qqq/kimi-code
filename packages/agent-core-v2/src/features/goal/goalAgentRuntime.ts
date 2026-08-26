@@ -33,11 +33,9 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { type UsageRecordedContext } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
 import type { GoalBudgetProperties } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
@@ -334,6 +332,8 @@ async function createGoal(context: GoalOperationContext, input: CreateGoalInput,
       objective,
       completionCriterion: normalizeCompletionCriterion(input.completionCriterion),
       wallClockResumedAt,
+      createdAt: wallClockResumedAt,
+      updatedAt: wallClockResumedAt,
     }),
   );
   context.effects.liveWallClockStartedAt = context.runtime.get(IGoalDeadlineScheduler).now();
@@ -753,7 +753,6 @@ async function settleGoalAfterContinuationFailure(context: GoalOperationContext,
 
 function isWaitForAvailable(context: GoalOperationContext): boolean {
   return (
-    context.runtime.get(IFlagService).enabled(WAIT_FOR_FLAG_ID) &&
     context.runtime.get(IAgentToolRegistryService).resolve('WaitFor') !== undefined &&
     context.runtime.get(IAgentToolPolicyService).isToolActive('WaitFor')
   );
@@ -982,9 +981,13 @@ function toSnapshot(context: GoalOperationContext, state: GoalState): GoalSnapsh
     status: state.status,
     turnsUsed: state.turnsUsed,
     tokensUsed: state.tokensUsed,
+    inputTokensUsed: state.inputTokensUsed,
+    outputTokensUsed: state.outputTokensUsed,
     wallClockMs,
     budget: computeBudgetReport(state, wallClockMs),
     terminalReason: state.terminalReason,
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
   };
 }
 
@@ -1057,6 +1060,8 @@ function computeBudgetReport(state: GoalState, wallClockMs: number): GoalBudgetR
     turnBudgetReached,
     wallClockBudgetReached,
     overBudget: tokenBudgetReached || turnBudgetReached || wallClockBudgetReached,
+    inputTokensUsed: state.inputTokensUsed,
+    outputTokensUsed: state.outputTokensUsed,
   };
 }
 
@@ -1351,9 +1356,13 @@ export const goalAgentRuntimeProvider = defineAgentRuntimeProvider<GoalRuntimeSt
           status: 'active',
           turnsUsed: 0,
           tokensUsed: 0,
+          inputTokensUsed: 0,
+          outputTokensUsed: 0,
           wallClockMs: 0,
           wallClockResumedAt: event.wallClockResumedAt,
           budgetLimits: {},
+          createdAt: event.createdAt ?? event.wallClockResumedAt ?? 0,
+          updatedAt: event.updatedAt ?? event.createdAt ?? 0,
         };
         state.forkNotice.goalPresent = true;
         return;
@@ -1361,19 +1370,32 @@ export const goalAgentRuntimeProvider = defineAgentRuntimeProvider<GoalRuntimeSt
       if (event instanceof GoalUpdate) {
         const s = state.goal;
         if (s !== null) {
+          let changed = false;
           if (event.status !== undefined && event.status !== s.status) {
             s.status = event.status;
             s.terminalReason = event.status === 'active' ? undefined : event.reason;
             s.wallClockResumedAt = event.status === 'active' ? event.wallClockResumedAt : undefined;
+            changed = true;
           }
           if (event.turnsUsed !== undefined && event.turnsUsed !== s.turnsUsed) {
             s.turnsUsed = event.turnsUsed;
+            changed = true;
           }
           if (event.tokensUsed !== undefined && event.tokensUsed !== s.tokensUsed) {
             s.tokensUsed = event.tokensUsed;
+            changed = true;
+          }
+          if (event.inputTokensUsed !== undefined && event.inputTokensUsed !== s.inputTokensUsed) {
+            s.inputTokensUsed = event.inputTokensUsed;
+            changed = true;
+          }
+          if (event.outputTokensUsed !== undefined && event.outputTokensUsed !== s.outputTokensUsed) {
+            s.outputTokensUsed = event.outputTokensUsed;
+            changed = true;
           }
           if (event.wallClockMs !== undefined && event.wallClockMs !== s.wallClockMs) {
             s.wallClockMs = event.wallClockMs;
+            changed = true;
           }
           if (
             event.wallClockResumedAt !== undefined &&
@@ -1381,10 +1403,13 @@ export const goalAgentRuntimeProvider = defineAgentRuntimeProvider<GoalRuntimeSt
             event.wallClockResumedAt !== s.wallClockResumedAt
           ) {
             s.wallClockResumedAt = event.wallClockResumedAt;
+            changed = true;
           }
           if (event.budgetLimits !== undefined && event.budgetLimits !== s.budgetLimits) {
             s.budgetLimits = event.budgetLimits;
+            changed = true;
           }
+          if (changed) s.updatedAt = event.updatedAt ?? Date.now();
         }
         return;
       }
