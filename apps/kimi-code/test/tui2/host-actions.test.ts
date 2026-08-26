@@ -10,6 +10,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
+import { renderPluginInfo, showPluginMcpPicker } from '../../src/tui2/commands/plugins'
+
 describe('tui2 host dialog actions', () => {
   it('pickModel calls session.setModel and setThinkingEffort', async () => {
     // Minimal mock harness — only the surface the host calls during the
@@ -70,6 +72,66 @@ describe('tui2 host dialog actions', () => {
     const next = (observed[0] as { installed: Array<{ id: string; enabled: boolean }> }).installed
     expect(next.find((p) => p.id === 'a')?.enabled).toBe(true)
     expect(next.find((p) => p.id === 'b')?.enabled).toBe(true)
+  })
+
+  it('pluginAction(mcp) opens the plugin-MCP picker dialog', async () => {
+    // The mcp branch delegates to showPluginMcpPicker: it fetches the
+    // plugin info, seeds `pluginMcpPicker`, and switches to the
+    // plugins-mcp dialog. A no-op here (the pre-wiring gap) swallows the
+    // user's MCP click, so pin the real delegation.
+    const setState = vi.fn()
+    const getPluginInfo = vi.fn(async () => ({ id: 'p1', displayName: 'p1' }))
+    const host = {
+      engineV2: true,
+      harness: { getPluginInfo },
+      session: undefined,
+      store: { setState, state: {} },
+      appendTranscriptEntry: vi.fn(),
+    } as never
+    await showPluginMcpPicker(host, 'p1')
+    expect(getPluginInfo).toHaveBeenCalledWith('p1')
+    expect(setState).toHaveBeenCalledWith('pluginMcpPicker', { info: { id: 'p1', displayName: 'p1' }, selectedServer: undefined, serverHint: undefined })
+    expect(setState).toHaveBeenCalledWith('activeDialog', 'plugins-mcp')
+  })
+
+  it('pluginAction(details) renders the plugin info into the transcript', async () => {
+    // The details branch delegates to renderPluginInfo: it fetches the
+    // plugin info and appends a status entry. A no-op here loses the
+    // user's Enter/details click entirely.
+    const pluginInfo = {
+      id: 'p1',
+      displayName: 'p1',
+      version: '1.0.0',
+      enabled: true,
+      skillCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      mcpServers: [],
+      enabledMcpServerCount: 0,
+      mcpServerCount: 0,
+      source: 'registry',
+      root: 'C:/plugins/p1',
+      installedAt: '2026-01-01T00:00:00.000Z',
+      state: 'enabled',
+      trust: 'untrusted',
+      diagnostics: [],
+    }
+    const appendTranscriptEntry = vi.fn()
+    const getPluginInfo = vi.fn(async () => pluginInfo)
+    const host = {
+      engineV2: true,
+      harness: { getPluginInfo },
+      session: undefined,
+      store: { setState: vi.fn(), state: {} },
+      appendTranscriptEntry,
+    } as never
+    await renderPluginInfo(host, 'p1')
+    expect(getPluginInfo).toHaveBeenCalledWith('p1')
+    expect(appendTranscriptEntry).toHaveBeenCalledTimes(1)
+    const entry = appendTranscriptEntry.mock.calls[0]?.[0] as { kind: string; content: string }
+    expect(entry.kind).toBe('status')
+    expect(entry.content).toContain('p1')
   })
 })
 

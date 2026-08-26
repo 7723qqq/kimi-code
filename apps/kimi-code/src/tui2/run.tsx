@@ -116,10 +116,6 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
     'tui2.sessions': () => void host.showSessionPicker(),
     'tui2.session.new': () => void host.showSessionPicker(),
     'tui2.help': () => host.showHelpPanel(),
-    'tui2.status': () => {
-      // Footer status-line toggling is not wired yet; kept as a no-op so
-      // the binding exists in the catalog.
-    },
   }
   useBindings(() => buildBaseLayer(handlers))
 

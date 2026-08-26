@@ -71,8 +71,18 @@ import {
 } from '../commands';
 import * as slashCommands from '../commands/dispatch';
 import type { SlashCommandHost } from '../commands/dispatch';
-import { currentTuiConfig, showExperimentsPanel, showModelPicker } from '../commands/config';
-import { handlePluginMcpSelection, resolvePluginConfirm } from '../commands/plugins';
+import {
+  currentTuiConfig,
+  handleGitHubTokenInput,
+  showExperimentsPanel,
+  showModelPicker,
+} from '../commands/config';
+import {
+  handlePluginMcpSelection,
+  renderPluginInfo,
+  resolvePluginConfirm,
+  showPluginMcpPicker,
+} from '../commands/plugins';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { defaultThinkingEffortFor } from '../components/dialogs/model-selector';
 import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
@@ -409,9 +419,13 @@ export class KimiTUI {
         await this.refreshPluginCommands();
         return;
       case 'details':
+        // Render the plugin's info into the transcript (the v1 flow uses
+        // renderPluginInfo; the panel itself stays driven by the store).
+        await renderPluginInfo(this as unknown as SlashCommandHost, action.id);
+        return;
       case 'mcp':
-        // The details / mcp sub-flows open additional modals; that wiring
-        // lands in a follow-up.
+        // Open the plugin-MCP sub-picker for the chosen plugin.
+        await showPluginMcpPicker(this as unknown as SlashCommandHost, action.id);
         return;
     }
   }
@@ -518,8 +532,9 @@ export class KimiTUI {
         this.store.setState('activeDialog', 'help');
         return;
       case 'github_token':
-        // External auth flow — opens the system browser. Stays dismiss-only
-        // until a follow-up lands the credential entry modal.
+        // Same prompt as the v1 /settings flow: collect the token and
+        // persist it to the config store.
+        await handleGitHubTokenInput(this as unknown as SlashCommandHost);
         return;
     }
   }

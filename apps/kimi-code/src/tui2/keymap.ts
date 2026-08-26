@@ -39,7 +39,6 @@ export const COMMANDS = {
   sessions: 'tui2.sessions',
   newSession: 'tui2.session.new',
   help: 'tui2.help',
-  status: 'tui2.status',
 } as const
 
 export type Tui2CommandName = (typeof COMMANDS)[keyof typeof COMMANDS]

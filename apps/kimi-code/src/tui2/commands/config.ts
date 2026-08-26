@@ -1139,7 +1139,7 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
   }
 }
 
-async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
+export async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
   const token = await promptApiKey(host, 'GitHub', [t('tui.messages.configGithubTokenInput')]);
   if (token === undefined) return;
   try {

@@ -357,7 +357,7 @@ async function loadMarketplaceCatalog(
   }
 }
 
-async function showPluginMcpPicker(
+export async function showPluginMcpPicker(
   host: SlashCommandHost,
   id: string,
   options?: ShowPluginMcpPickerOptions,
@@ -732,7 +732,7 @@ async function renderPluginsList(
   });
 }
 
-async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<void> {
+export async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<void> {
   const info = await (await resolvePluginApi(host)).getPluginInfo(id);
   host.appendTranscriptEntry({
     id: nextTranscriptId(),
