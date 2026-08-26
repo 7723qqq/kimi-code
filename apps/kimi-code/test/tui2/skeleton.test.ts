@@ -158,6 +158,7 @@ describe('tui2 skeleton', () => {
       'utils/token-speed.ts',
       'utils/transcript-component-metadata.ts',
       'utils/tip-rotation.ts',
+      'theme/gradient-text.ts',
     ]
 
     it('every tui/ .ts file has a tui2/ counterpart', async () => {
