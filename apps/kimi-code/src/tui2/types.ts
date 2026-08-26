@@ -8,6 +8,7 @@
  */
 
 import type {
+  CreateSessionOptions,
   GoalChange,
   GoalSnapshot,
   ModelAlias,
@@ -495,6 +496,19 @@ export interface QueuedMessage {
   readonly skillName?: string;
   readonly skillArgs?: string;
 }
+
+/** Options for a session send: extracted media parts and their attachment ids. */
+export interface SendMessageOptions {
+  readonly parts?: readonly PromptPart[];
+  readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
+  readonly hasMedia?: boolean;
+}
+
+/** CreateSessionOptions with the readonly modifiers stripped for mutation. */
+export type MutableCreateSessionOptions = {
+  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
+};
 
 export interface InlineSkillActivation {
   readonly skillName: string;

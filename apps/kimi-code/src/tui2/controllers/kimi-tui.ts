@@ -19,11 +19,9 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   BackgroundTaskInfo,
-  CreateSessionOptions,
   KimiHarness,
   PermissionMode,
   PluginCommandDef,
-  PromptPart,
   Session,
   SkillSummary,
   ThinkingEffort,
@@ -34,6 +32,9 @@ import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import { resolve } from 'pathe';
 
 import { deleteAllKittyImages, getCapabilities } from '../utils/terminal-image';
+import { loadingTipKind, sameStringArrays, type EffectiveActivityPaneMode, type LoadingTipKind } from '../utils/activity-pane';
+import { mainAgentPhaseLabel, subagentStatus } from '../utils/agent-pane-status';
+import { combineSteerInput } from '../utils/steer-input';
 
 import { BannerProvider } from '../banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from '../banner/state';
@@ -129,7 +130,9 @@ import {
   type KimiTUIOptions,
   type LivePaneState,
   type LoginProgressSpinnerHandle,
+  type MutableCreateSessionOptions,
   type QueuedMessage,
+  type SendMessageOptions,
   type SteerInputItem,
   type TasksBrowserState,
   type TranscriptEntry,
@@ -200,29 +203,10 @@ export interface KimiTUIStartupInput {
   readonly engineV2?: boolean;
 }
 
-type MutableCreateSessionOptions = {
-  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
-};
-
-interface SendMessageOptions {
-  readonly parts?: readonly PromptPart[];
-  readonly imageAttachmentIds?: readonly number[];
-  readonly videoAttachmentIds?: readonly number[];
-  readonly hasMedia?: boolean;
-}
-
 /**
  * Flatten steer items into the payload `session.steer` expects — see
  * `utils/steer-input.ts`.
  */
-import { combineSteerInput } from '../utils/steer-input';
-import { mainAgentPhaseLabel, subagentStatus } from '../utils/agent-pane-status';
-import {
-  loadingTipKind,
-  sameStringArrays,
-  type EffectiveActivityPaneMode,
-  type LoadingTipKind,
-} from '../utils/activity-pane';
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
