@@ -25,15 +25,12 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk'
 
-import { fuzzyFilter } from '../../utils/fuzzy'
-
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../../../constant/app'
 import { t } from '#/i18n'
 
-import { pageView } from '../../utils/paging'
 import { getCurrentMark, SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
-import { isPrintableChar, printableChar } from '../../utils/printable-key'
+import { createSearchableList } from '../../utils/searchable-list'
 import { wrapToVisualRows } from '../../utils/width'
 import { effortLabel } from './effort-label'
 
@@ -136,14 +133,25 @@ function wrapPlain(text: string, width: number): string[] {
 
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {
   const choices = createMemo(() => createModelChoices(props.models))
-  const initialIndex = (): number => {
-    const sel = props.selectedValue ?? props.currentValue
-    const idx = choices().findIndex((c) => c.alias === sel)
-    return Math.max(idx, 0)
-  }
-  const [cursor, setCursor] = createSignal(initialIndex())
-  const [query, setQuery] = createSignal('')
   const [overrides, setOverrides] = createSignal<Map<string, string>>(new Map())
+  const list = createSearchableList<ModelChoice>({
+    items: choices,
+    toSearchText: (c) => c.label,
+    pageSize: Math.max(1, props.pageSize ?? 8),
+    initialIndex: Math.max(
+      choices().findIndex((c) => c.alias === (props.selectedValue ?? props.currentValue)),
+      0,
+    ),
+    searchable: props.searchable,
+  })
+  const setCursor = list.setCursor
+  const query = list.query
+  const setQuery = list.setQuery
+  const filtered = list.filtered
+  const page = list.page
+  const selectedIndex = list.selectedIndex
+  const visible = list.visible
+  const selectedChoice = (): ModelChoice | undefined => list.selected()
 
   function draftFor(choice: ModelChoice): string {
     const override = overrides().get(choice.alias)
@@ -162,18 +170,6 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
     const segments = segmentsFor(choice.model)
     return segments.includes(draft) ? draft : segments[0]!
   }
-
-  const filtered = createMemo<readonly ModelChoice[]>(() => {
-    const all = choices()
-    const q = query()
-    if (q.length === 0) return all
-    return fuzzyFilter([...all], q, (c) => c.label)
-  })
-  const pageSize = (): number => Math.max(1, props.pageSize ?? 8)
-  const page = createMemo(() => pageView(filtered().length, cursor(), pageSize()))
-  const selectedIndex = createMemo(() => Math.min(cursor(), Math.max(0, filtered().length - 1)))
-  const visible = createMemo(() => filtered().slice(page().start, page().end))
-  const selectedChoice = (): ModelChoice | undefined => filtered()[selectedIndex()]
 
   function applyKey(event: KeyEvent): void {
     if (event.repeated === true) return
@@ -217,16 +213,11 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
         }
         return
       case 'up':
-        setCursor((c) => Math.max(0, c - 1))
-        return
       case 'down':
-        setCursor((c) => Math.min(Math.max(0, filtered().length - 1), c + 1))
-        return
       case 'pageup':
-        setCursor((c) => Math.max(0, c - pageSize()))
-        return
       case 'pagedown':
-        setCursor((c) => Math.min(Math.max(0, filtered().length - 1), c + pageSize()))
+      case 'backspace':
+        list.handleNavigationKey(event)
         return
       case 'return':
       case 'enter': {
@@ -236,12 +227,6 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
         props.onSelect({ alias: selected.alias, thinking: commitEffort(selected, effectiveEffort(selected)) })
         return
       }
-      case 'backspace':
-        if (query().length > 0) {
-          setQuery((q) => q.slice(0, -1))
-          setCursor(0)
-        }
-        return
     }
     // Alt+S session-only.
     if (
@@ -259,11 +244,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
       return
     }
     // Search printable.
-    const ch = printableChar(event.sequence ?? event.name)
-    if (isPrintableChar(ch)) {
-      setQuery((q) => q + ch)
-      setCursor(0)
-    }
+    list.handleNavigationKey(event)
   }
 
   useKeyboard(applyKey)

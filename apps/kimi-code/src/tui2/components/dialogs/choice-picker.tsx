@@ -36,18 +36,15 @@
  */
 
 import type { Component } from 'solid-js'
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { For, Show } from 'solid-js'
 import { useKeyboard } from '@opentui/solid'
 import type { ColorInput, KeyEvent } from '@opentui/core'
 
-import { fuzzyFilter } from '../../utils/fuzzy'
-
 import { t } from '#/i18n'
 
-import { pageView } from '../../utils/paging'
-import { isPrintableChar, printableChar } from '../../utils/printable-key'
 import { getCurrentMark, SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme, type ColorToken } from '../../theme'
+import { createSearchableList } from '../../utils/searchable-list'
 
 import { Box } from '../common/box'
 import { Clickable } from '../common/clickable'
@@ -88,27 +85,27 @@ export interface ChoicePickerProps {
 const DEFAULT_PAGE_SIZE = 8
 
 export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
-  const initialCursor = (): number => {
-    const idx = props.options.findIndex((o) => o.value === props.currentValue)
-    return Math.max(idx, 0)
-  }
-  const [cursor, setCursor] = createSignal(initialCursor())
-  const [query, setQuery] = createSignal('')
-
-  const filtered = createMemo<readonly ChoiceOption[]>(() => {
-    const opts = props.options
-    const q = query()
-    if (q.length === 0) return opts
-    return fuzzyFilter([...opts], q, (o) => `${o.label} ${o.description ?? ''}`)
+  const list = createSearchableList<ChoiceOption>({
+    items: () => props.options,
+    toSearchText: (o) => `${o.label} ${o.description ?? ''}`,
+    pageSize: props.pageSize,
+    initialIndex: Math.max(
+      props.options.findIndex((o) => o.value === props.currentValue),
+      0,
+    ),
+    searchable: props.searchable,
   })
-  const pageSize = (): number => props.pageSize ?? DEFAULT_PAGE_SIZE
-  const page = createMemo(() => pageView(filtered().length, cursor(), pageSize()))
-  const selectedIndex = createMemo(() => Math.min(cursor(), Math.max(0, filtered().length - 1)))
-  const visible = createMemo(() => filtered().slice(page().start, page().end))
+  const setCursor = list.setCursor
+  const query = list.query
+  const setQuery = list.setQuery
+  const filtered = list.filtered
+  const page = list.page
+  const selectedIndex = list.selectedIndex
+  const visible = list.visible
   const isSearchable = (): boolean => props.searchable === true
 
   function commit(): void {
-    const opt = filtered()[selectedIndex()]
+    const opt = list.selected()
     if (opt !== undefined) props.onSelect(opt.value)
   }
 
@@ -124,11 +121,11 @@ export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
         props.onCancel()
         return
       case 'left':
-        setCursor((c) => Math.max(0, c - pageSize()))
+        setCursor((c) => Math.max(0, c - (props.pageSize ?? DEFAULT_PAGE_SIZE)))
         return
       case 'right': {
         const len = filtered().length
-        setCursor((c) => Math.min(Math.max(0, len - 1), c + pageSize()))
+        setCursor((c) => Math.min(Math.max(0, len - 1), c + (props.pageSize ?? DEFAULT_PAGE_SIZE)))
         return
       }
       case 'return':
@@ -144,28 +141,6 @@ export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
         }
         // fall through: treat space as a search query character
         break
-      case 'up':
-        setCursor((c) => Math.max(0, c - 1))
-        return
-      case 'down': {
-        const len = filtered().length
-        setCursor((c) => Math.min(Math.max(0, len - 1), c + 1))
-        return
-      }
-      case 'pageup':
-        setCursor((c) => Math.max(0, c - pageSize()))
-        return
-      case 'pagedown': {
-        const len = filtered().length
-        setCursor((c) => Math.min(Math.max(0, len - 1), c + pageSize()))
-        return
-      }
-      case 'backspace':
-        if (isSearchable() && query().length > 0) {
-          setQuery((q) => q.slice(0, -1))
-          setCursor(0)
-        }
-        return
     }
     // Alt+S session-only select.
     if (
@@ -180,15 +155,8 @@ export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
       }
       return
     }
-    // Search printable: append to query, reset cursor.
-    if (isSearchable()) {
-      const raw = event.sequence !== undefined && event.sequence.length > 0 ? event.sequence : event.name
-      const ch = printableChar(raw)
-      if (isPrintableChar(ch)) {
-        setQuery((q) => q + ch)
-        setCursor(0)
-      }
-    }
+    // Shared navigation keys: ↑/↓, PgUp/PgDn, search editing.
+    list.handleNavigationKey(event)
   }
 
   useKeyboard(applyKey)
