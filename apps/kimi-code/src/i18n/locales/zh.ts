@@ -911,6 +911,17 @@ export default {
         onDescription: '在后台安装新版本。',
         offDescription: '显示安装提示。',
       },
+      diffReviewPane: {
+        title: '变更审查',
+      },
+    },
+    panes: {
+      agentPane: {
+        empty: '无智能体',
+      },
+      diffReviewPane: {
+        empty: '无文件变更',
+      },
     },
     statusMessages: {
       failedToSyncMcp: '同步 MCP 服务器状态失败：{{message}}',

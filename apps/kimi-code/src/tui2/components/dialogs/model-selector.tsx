@@ -37,6 +37,7 @@ import { isPrintableChar, printableChar } from '../../utils/printable-key'
 import { effortLabel } from './effort-label'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 interface ModelChoice {
@@ -350,20 +351,30 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
           const selected = (): boolean => realIndex() === selectedIndex()
           const isCurrent = (): boolean => choice.alias === props.currentValue
           return (
-            <Box flexDirection="row">
-              <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${selected() ? SELECT_POINTER : ' '} `}</Text>
-              <Text
-                fg={selected() ? titleFg() : textFg()}
-                attributes={selected() ? titleAttrs() : undefined}
-              >
-                {choice.name}
-              </Text>
-              <Text>{'  '}</Text>
-              <Text fg={textMutedFg()}>{choice.provider}</Text>
-              <Show when={isCurrent()}>
-                <Text fg={successFg()}>{` ${getCurrentMark()}`}</Text>
-              </Show>
-            </Box>
+            <Clickable
+              onClick={() =>
+                props.onSelect({
+                  alias: choice.alias,
+                  thinking: commitEffort(choice, effectiveEffort(choice)),
+                })
+              }
+              onHover={() => setCursor(realIndex())}
+            >
+              <Box flexDirection="row">
+                <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${selected() ? SELECT_POINTER : ' '} `}</Text>
+                <Text
+                  fg={selected() ? titleFg() : textFg()}
+                  attributes={selected() ? titleAttrs() : undefined}
+                >
+                  {choice.name}
+                </Text>
+                <Text>{'  '}</Text>
+                <Text fg={textMutedFg()}>{choice.provider}</Text>
+                <Show when={isCurrent()}>
+                  <Text fg={successFg()}>{` ${getCurrentMark()}`}</Text>
+                </Show>
+              </Box>
+            </Clickable>
           )
         }}
       </For>
@@ -429,13 +440,23 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
                       )
                     }
                     return (
-                      <Text
-                        fg={isActive() ? titleFg() : textFg()}
-                        attributes={isActive() ? titleAttrs() : undefined}
+                      <Clickable
+                        onClick={() => {
+                          setOverrides((prev) => {
+                            const updated = new Map(prev)
+                            updated.set(selected.alias, segment)
+                            return updated
+                          })
+                        }}
                       >
-                        {isActive() ? `[ ${effortLabel(segment)} ]` : `  ${effortLabel(segment)}  `}
-                        {i() < segments.length - 1 ? '  ' : ''}
-                      </Text>
+                        <Text
+                          fg={isActive() ? titleFg() : textFg()}
+                          attributes={isActive() ? titleAttrs() : undefined}
+                        >
+                          {isActive() ? `[ ${effortLabel(segment)} ]` : `  ${effortLabel(segment)}  `}
+                          {i() < segments.length - 1 ? '  ' : ''}
+                        </Text>
+                      </Clickable>
                     )
                   }}
                 </For>

@@ -125,11 +125,39 @@ describe('tui2 skeleton', () => {
   describe('mirror invariants', () => {
     // v1 files the tui2 tree has not mirrored yet — newer v1 features that
     // need an opentui/solid port or an unimplemented state slice (towerMode),
-    // not a verbatim copy. Kept explicit so the invariant check still guards
-    // the rest of the mirror.
+    // not a verbatim copy.
+    //
+    // The remaining entries are former verbatim mirrors removed by the
+    // dead-file sweep: zero importers anywhere (tui2 modules import their
+    // v1 twins directly), so keeping them would only fork live logic into
+    // unmaintained duplicates. Kept explicit so the invariant check still
+    // guards the rest of the mirror.
     const KNOWN_MIRROR_GAPS: readonly string[] = [
       'components/messages/tool-renderers/wait-for.ts',
       'commands/tower.ts',
+      'components/chrome/gutter-container.ts',
+      'components/dialogs/agent-activity-viewer.ts',
+      'components/dialogs/coding-plan-config.ts',
+      'components/editor/wrapping-select-list.ts',
+      'components/messages/agent-swarm-progress-estimator.ts',
+      'components/messages/goal-markers.ts',
+      'components/messages/shell-run.ts',
+      'components/messages/step-summary.ts',
+      'constant/media.ts',
+      'tui-state.ts',
+      'utils/component-capabilities.ts',
+      'utils/input-latency.ts',
+      'utils/osc133.ts',
+      'utils/progress-bar.ts',
+      'utils/render-cache.ts',
+      'utils/screen-takeover.ts',
+      'utils/searchable-list.ts',
+      'utils/steer-input.ts',
+      'utils/tab-strip.ts',
+      'utils/terminal-theme.ts',
+      'utils/token-speed.ts',
+      'utils/transcript-component-metadata.ts',
+      'utils/tip-rotation.ts',
     ]
 
     it('every tui/ .ts file has a tui2/ counterpart', async () => {

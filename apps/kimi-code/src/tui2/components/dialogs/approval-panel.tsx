@@ -38,6 +38,7 @@ import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 const ELLIPSIS = '…'
@@ -405,46 +406,53 @@ export const ApprovalPanel: Component<ApprovalPanelProps> = (props) => {
           const labelWithNum = (): string => `${String(num())}. ${option.label}`
           const buttonText = (): string => `[ ${labelWithNum()} ]`
           return (
-            <>
-              <Show
-                when={feedbackMode() && option.requires_feedback === true && selected()}
-                fallback={
-                  <Box flexDirection="row">
-                    <Text fg={selected() ? accentFg() : textFg()}>{`  ${selected() ? '▶ ' : '   '}`}</Text>
-                    <Text
-                      fg={selected() ? accentFg() : textStrongFg()}
-                      attributes={selected() ? currentTheme.attributes('bold') : undefined}
-                    >
-                      {buttonText()}
-                    </Text>
-                  </Box>
-                }
-              >
-                <Box flexDirection="row">
-                  <Text fg={accentFg()} attributes={currentTheme.attributes('bold')}>{'  ▶ '}</Text>
-                  <Text fg={accentFg()} attributes={currentTheme.attributes('bold')}>
-                    {labelWithNum()}
-                  </Text>
-                  <Text>{'  '}</Text>
-                  <Text fg={textFg()}>{feedback()}</Text>
-                </Box>
-              </Show>
-              <Show
-                when={
-                  option.description !== undefined &&
-                  option.description.length > 0 &&
-                  !(feedbackMode() && option.requires_feedback === true && selected())
-                }
-              >
-                <For each={wrapPlain(option.description ?? '', Math.max(20, props.width - 7))}>
-                  {(line) => (
-                    <Box>
-                      <Text fg={textDimFg()}>{`     ${line}`}</Text>
+            <Clickable
+              onClick={() => {
+                selectAndSubmit(idx())
+              }}
+              onHover={() => setSelectedIndex(idx())}
+            >
+              <Box flexDirection="column">
+                <Show
+                  when={feedbackMode() && option.requires_feedback === true && selected()}
+                  fallback={
+                    <Box flexDirection="row">
+                      <Text fg={selected() ? accentFg() : textFg()}>{`  ${selected() ? '▶ ' : '   '}`}</Text>
+                      <Text
+                        fg={selected() ? accentFg() : textStrongFg()}
+                        attributes={selected() ? currentTheme.attributes('bold') : undefined}
+                      >
+                        {buttonText()}
+                      </Text>
                     </Box>
-                  )}
-                </For>
-              </Show>
-            </>
+                  }
+                >
+                  <Box flexDirection="row">
+                    <Text fg={accentFg()} attributes={currentTheme.attributes('bold')}>{'  ▶ '}</Text>
+                    <Text fg={accentFg()} attributes={currentTheme.attributes('bold')}>
+                      {labelWithNum()}
+                    </Text>
+                    <Text>{'  '}</Text>
+                    <Text fg={textFg()}>{feedback()}</Text>
+                  </Box>
+                </Show>
+                <Show
+                  when={
+                    option.description !== undefined &&
+                    option.description.length > 0 &&
+                    !(feedbackMode() && option.requires_feedback === true && selected())
+                  }
+                >
+                  <For each={wrapPlain(option.description ?? '', Math.max(20, props.width - 7))}>
+                    {(line) => (
+                      <Box>
+                        <Text fg={textDimFg()}>{`     ${line}`}</Text>
+                      </Box>
+                    )}
+                  </For>
+                </Show>
+              </Box>
+            </Clickable>
           )
         }}
       </For>

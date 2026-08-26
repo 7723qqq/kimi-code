@@ -17,16 +17,16 @@ import { ChoicePicker, type ChoiceOption } from './choice-picker'
 
 export type Msys2PromptChoice = 'install' | 'skip'
 
-const MSYS2_OPTIONS: readonly ChoiceOption[] = [
+const MSYS2_OPTIONS = (): readonly ChoiceOption[] => [
   {
     value: 'install',
-    label: t('tui.msys2Prompt.install'),
-    description: t('tui.msys2Prompt.installDescription'),
+    label: t('tui.dialogs.msys2Prompt.install'),
+    description: t('tui.dialogs.msys2Prompt.installDescription'),
   },
   {
     value: 'skip',
-    label: t('tui.msys2Prompt.skip'),
-    description: t('tui.msys2Prompt.skipDescription'),
+    label: t('tui.dialogs.msys2Prompt.skip'),
+    description: t('tui.dialogs.msys2Prompt.skipDescription'),
   },
 ]
 
@@ -37,9 +37,9 @@ export interface Msys2PromptProps {
 
 export const Msys2Prompt: Component<Msys2PromptProps> = (props) => (
   <ChoicePicker
-    title={t('tui.msys2Prompt.title')}
-    hint={t('tui.msys2Prompt.hint')}
-    options={MSYS2_OPTIONS}
+    title={t('tui.dialogs.msys2Prompt.title')}
+    hint={t('tui.dialogs.msys2Prompt.hint')}
+    options={MSYS2_OPTIONS()}
     onSelect={(value) => {
       props.onSelect(value as Msys2PromptChoice)
     }}

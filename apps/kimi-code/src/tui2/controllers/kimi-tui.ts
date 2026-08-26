@@ -85,6 +85,7 @@ import {
   resolvePluginConfirm,
   showPluginMcpPicker,
 } from '../commands/plugins';
+import { setDeviceCodeCard } from '../components/chrome/device-code-box';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { defaultThinkingEffortFor } from '../components/dialogs/model-selector';
 import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
@@ -142,6 +143,7 @@ import { pickForegroundTasks } from '../utils/foreground-task';
 import { ImageAttachmentStore } from '../utils/image-attachment-store';
 import { extractMediaAttachments, rewriteMediaPlaceholders } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
+import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
 import { REPLAY_TURN_LIMIT } from '../utils/message-replay';
 import { hasPatchChanges } from '../utils/object-patch';
 import { sessionRowsForPicker } from '../utils/session-picker-rows';
@@ -320,6 +322,14 @@ export class KimiTUI {
   private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
     undefined;
   private lastHistoryContent: string | undefined;
+  /** Skill names bundled into the prompt currently being dispatched; the
+   *  activation cards they produce are grouped with that prompt. */
+  private readonly pendingBundledSkillNames = new Set<string>();
+  /** Transcript id of the user entry the current dispatch belongs to (bundled
+   *  activation grouping reads it). */
+  lastDispatchedUserEntryId: string | undefined;
+  /** Last measured main-loop step usage — backs `estimateSwitchLossTokens`. */
+  private switchLossBaseline: TokenUsage | undefined;
   /** Live `!` shell output entries, keyed by commandId. */
   private readonly shellOutputStreams = new Map<
     string,
@@ -722,7 +732,9 @@ export class KimiTUI {
         return;
       case 'help':
       case 'which-key':
-        // Display-only; close already happened above.
+        // Display-only; close already happened above. Drop the help-panel
+        // payload so a stale command list is not reused on the next open.
+        if (result.kind === 'help') this.store.setState('helpPanel', undefined);
         return;
       case 'tasks-browser':
         switch (result.action) {
@@ -1104,7 +1116,20 @@ export class KimiTUI {
     void this.loadBanner();
     this.setupAutocomplete();
     void this.loadPersistedInputHistory();
+    this.renderWelcome();
     return shouldReplayHistory;
+  }
+
+  /** Mount the welcome panel entry; idempotent across /clear and session
+   *  switches (mirrors the v1 `renderWelcome`). */
+  private renderWelcome(): void {
+    if (this.store.state.transcript.some((entry) => entry.kind === 'welcome')) return;
+    this.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'welcome',
+      renderMode: 'plain',
+      content: '',
+    });
   }
 
   private startClipboardImageHintController(): void {
@@ -1305,7 +1330,7 @@ export class KimiTUI {
     }
 
     if (!this.engineV2 && session === undefined) {
-      throw new Error(t('tui.statusMessages.startupSessionNotInitialized'));
+      throw new Error(t('tui.statusMessages.noActiveSession'));
     }
     if (session !== undefined) {
       await this.setSession(session);
@@ -1449,32 +1474,38 @@ export class KimiTUI {
 
   handleUserInput(text: string): void {
     const wasBashMode = this.store.state.inputMode === 'bash';
+    // In tui2 the `!` prefix stays in the editor buffer (the opentui input is
+    // not directly editable programmatically without an input focus, unlike
+    // v1's CustomEditor); strip it here so the command executes without the
+    // mode marker, mirroring v1's "`!` is the prompt symbol, not part of the
+    // command" contract.
+    const command = wasBashMode && text.startsWith('!') ? text.slice(1) : text;
     if (wasBashMode) {
       // A submit always exits bash mode (the `!` is consumed by this command).
       this.store.setState('inputMode', 'prompt');
       this.handleInputModeChange('prompt');
     }
-    if (text.trim().length === 0) return;
+    if (command.trim().length === 0) return;
     if (this.store.state.isReplaying) {
       this.showError(t('tui.statusMessages.cannotSendWhileReplaying'));
       return;
     }
     // Shell commands are stored with a leading `!` so ↑ recall can tell them
     // apart from prompts and restore bash mode.
-    const historyText = wasBashMode ? `!${text}` : text;
+    const historyText = wasBashMode ? `!${command}` : command;
     void this.persistInputHistory(historyText);
     if (wasBashMode) {
       // Only one foreground action at a time: queue the shell command while
       // another shell command is running or an agent turn is in progress.
       if (this.store.state.streamingPhase !== 'idle') {
-        this.enqueueMessage(text, undefined, 'bash');
+        this.enqueueMessage(command, undefined, 'bash');
         this.updateQueueDisplay();
         return;
       }
-      void this.runShellCommandFromInput(text);
+      void this.runShellCommandFromInput(command);
       return;
     }
-    slashCommands.dispatchInput(this as unknown as SlashCommandHost, text);
+    slashCommands.dispatchInput(this as unknown as SlashCommandHost, command);
   }
 
   /** Dispatch a slash command by name (used by leader-key chords). */
@@ -1775,6 +1806,15 @@ export class KimiTUI {
   }
 
   sendQueuedMessage(session: Session, item: QueuedMessage): void {
+    // A queued slash-skill activation re-enters through the activation path,
+    // not as a literal prompt (mirrors v1 `sendQueuedMessage`). Every manual
+    // drain funnels here (Ctrl+S / shell-finish via drainOneQueuedMessage,
+    // /init finalize); the event-driven drain routes identically inside
+    // session-event-handler.
+    if (item.skillName !== undefined) {
+      this.sendSkillActivation(session, item.skillName, item.skillArgs ?? '');
+      return;
+    }
     if (item.mode === 'bash') {
       void this.runShellCommandFromInput(item.text);
       return;
@@ -1796,8 +1836,10 @@ export class KimiTUI {
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
         ? options.imageAttachmentIds
         : undefined;
+    const userEntryId = nextTranscriptId();
+    this.lastDispatchedUserEntryId = userEntryId;
     this.appendTranscriptEntry({
-      id: nextTranscriptId(),
+      id: userEntryId,
       kind: 'user',
       turnId: undefined,
       renderMode: 'plain',
@@ -1824,10 +1866,37 @@ export class KimiTUI {
       });
       return;
     }
-    void session.prompt(sdkInput).catch((error: unknown) => {
+    // Inline `/skill` mentions ride the prompt as bundled activations (v2
+    // engine): validated up front and rendered ahead of the prompt in the
+    // same turn, so the whole submission undoes as one anchor.
+    const skills = this.engineV2
+      ? extractInlineSkillActivations(input, this.skillCommandMap, { includeLeading: true })
+      : [];
+    for (const s of skills) this.pendingBundledSkillNames.add(s.skillName);
+    void (
+      skills.length > 0 && typeof session.promptWithSkills === 'function'
+        ? session.promptWithSkills(
+            sdkInput,
+            skills.map((s) => ({ name: s.skillName })),
+          )
+        : session.prompt(sdkInput)
+    ).catch((error: unknown) => {
       const message = formatErrorMessage(error);
+      for (const s of skills) this.pendingBundledSkillNames.delete(s.skillName);
+      const userIndex = this.store.state.transcript.findIndex((e) => e.id === userEntryId);
+      if (userIndex !== -1) {
+        this.store.setState(
+          'transcript',
+          this.store.state.transcript.filter((e) => e.id !== userEntryId),
+        );
+      }
       this.failSessionRequest(`Failed to send: ${message}`);
     });
+  }
+
+  /** Whether `skillName` was bundled into the prompt currently dispatching. */
+  hasPendingBundledSkill(skillName: string): boolean {
+    return this.pendingBundledSkillNames.has(skillName);
   }
 
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void {
@@ -2353,6 +2422,9 @@ export class KimiTUI {
   resetSessionRuntime(): void {
     this.aborted = false;
     this.cacheHint.resetRuntime();
+    this.switchLossBaseline = undefined;
+    this.pendingBundledSkillNames.clear();
+    this.lastDispatchedUserEntryId = undefined;
     this.streamingUI.discardPending();
     this.store.setState('queuedMessages', []);
     this.store.setState('swarmModeEntry', undefined);
@@ -2589,6 +2661,7 @@ export class KimiTUI {
     this.clearTerminalInlineImages();
     this.store.setState('todoItems', []);
     this.imageStore.clear();
+    this.renderWelcome();
   }
 
   private isTurnBoundaryEntry(entry: TranscriptEntry): boolean {
@@ -2878,12 +2951,22 @@ export class KimiTUI {
 
   showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
     openUrl(auth.verificationUriComplete);
-    this.appendTranscriptEntry({
+    const entry = {
       id: nextTranscriptId(),
-      kind: 'status',
-      renderMode: 'notice',
+      kind: 'status' as const,
+      renderMode: 'notice' as const,
       content: t('tui.chrome.deviceCodeBox.title'),
       detail: `${auth.verificationUriComplete}\n${auth.userCode}`,
+    };
+    this.appendTranscriptEntry(entry);
+    // Rounded login card replaces the plain notice row for this entry
+    // (v1 mounted a `DeviceCodeBoxComponent` transcript child here).
+    setDeviceCodeCard({
+      entryId: entry.id,
+      title: t('tui.chrome.deviceCodeBox.title'),
+      url: auth.verificationUriComplete,
+      code: auth.userCode,
+      hint: t('tui.chrome.deviceCodeBox.hint'),
     });
     return this.showLoginProgressSpinner(t('tui.statusMessages.waitingForAuthorization'));
   }
@@ -2898,7 +2981,7 @@ export class KimiTUI {
     const phase = this.store.state.streamingPhase;
     items.push({
       id: 'main',
-      name: t('tui.panes.agentPane.mainAgent'),
+      name: t('tui.chrome.agentPane.mainAgent'),
       status: phase === 'idle' ? 'done' : 'active',
       detail: phase === 'idle' ? undefined : mainAgentPhaseLabel(phase),
     });
@@ -3228,13 +3311,19 @@ export class KimiTUI {
   // Dialogs / Selectors
   // =========================================================================
 
-  mountEditorReplacement(_panel: unknown): void {
-    // tui2: dialogs render from `store.state.activeDialog`; the shell's
-    // dialog components are mounted by the renderer.
+  mountEditorReplacement(panel: unknown): void {
+    if (panel === null || panel === undefined) {
+      this.store.setState('editorReplacement', undefined);
+      return;
+    }
+    if (typeof panel === 'object' && panel !== null && 'component' in panel) {
+      this.store.setState('editorReplacement', panel as never);
+    }
   }
 
   restoreEditor(): void {
     this.store.setState('activeDialog', null);
+    this.store.setState('editorReplacement', undefined);
   }
 
   restoreInputText(text: string): void {
@@ -3250,7 +3339,29 @@ export class KimiTUI {
 
   /** Per-step usage for the client-side cache-break detector. */
   noteStepUsage(usage: TokenUsage | undefined): void {
+    if (
+      usage !== undefined &&
+      !(usage.inputOther === 0 && usage.output === 0 && usage.inputCacheRead === 0 &&
+        usage.inputCacheCreation === 0)
+    ) {
+      this.switchLossBaseline = usage;
+    }
     this.cacheHint.noteStepUsage(usage);
+  }
+
+  /**
+   * Last measured step's full input size — what a model/effort switch would
+   * reprocess against the provider prompt cache. Mirrors the cache-hint
+   * controller's baseline rule; cleared on context cuts and compaction.
+   */
+  estimateSwitchLossTokens(): number | undefined {
+    const baseline = this.switchLossBaseline;
+    if (baseline === undefined) return undefined;
+    const total =
+      baseline.inputOther +
+      baseline.inputCacheRead +
+      baseline.inputCacheCreation;
+    return total > 0 ? total : undefined;
   }
 
   /**
@@ -3313,11 +3424,13 @@ export class KimiTUI {
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
   noteCompactionFinished(): void {
     this.cacheHint.resetCacheBreakBaseline();
+    this.switchLossBaseline = undefined;
   }
 
   /** /undo cut the context — the next step's cache drop is expected. */
   noteContextCut(): void {
     this.cacheHint.resetCacheBreakBaseline();
+    this.switchLossBaseline = undefined;
   }
 
   private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
@@ -3396,19 +3509,19 @@ export class KimiTUI {
     this.msys2PromptResolver = undefined;
     this.store.setState('activeDialog', null);
     if (choice === 'install') {
-      const spinner = this.showProgressSpinner(t('tui.msys2Prompt.installing'));
+      const spinner = this.showProgressSpinner(t('tui.dialogs.msys2Prompt.installing'));
       const result = await installMsys2(deps);
       if (result.ok && result.bashPath !== undefined) {
         const switched = setUserShellPath(result.bashPath, deps);
-        spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
+        spinner.stop({ ok: true, label: t('tui.dialogs.msys2Prompt.installSuccess') });
         this.showStatus(
-          switched ? t('tui.msys2Prompt.restartHint') : t('tui.msys2Prompt.installSuccessNoSwitch'),
+          switched ? t('tui.dialogs.msys2Prompt.restartHint') : t('tui.dialogs.msys2Prompt.installSuccessNoSwitch'),
         );
         await markPrompted(deps);
       } else {
-        spinner.stop({ ok: false, label: t('tui.msys2Prompt.installFailed') });
-        this.showError(result.error ?? t('tui.msys2Prompt.installFailed'));
-        this.showStatus(t('tui.msys2Prompt.manualInstallHint'));
+        spinner.stop({ ok: false, label: t('tui.dialogs.msys2Prompt.installFailed') });
+        this.showError(result.error ?? t('tui.dialogs.msys2Prompt.installFailed'));
+        this.showStatus(t('tui.dialogs.msys2Prompt.manualInstallHint'));
       }
     } else {
       await markPrompted(deps);
@@ -3422,10 +3535,15 @@ export class KimiTUI {
   }
 
   showHelpPanel(): void {
+    this.store.setState('helpPanel', {
+      commands: this.getSlashCommands(),
+      width: process.stdout.columns ?? 80,
+    });
     this.store.setState('activeDialog', 'help');
   }
 
   private hideHelpPanel(): void {
+    this.store.setState('helpPanel', undefined);
     this.store.setState('activeDialog', null);
   }
 
@@ -3607,13 +3725,13 @@ export class KimiTUI {
 function mainAgentPhaseLabel(phase: AppState['streamingPhase']): string | undefined {
   switch (phase) {
     case 'thinking':
-      return t('tui.panes.agentPane.phaseThinking');
+      return t('tui.chrome.agentPane.phaseThinking');
     case 'composing':
-      return t('tui.panes.agentPane.phaseComposing');
+      return t('tui.chrome.agentPane.phaseComposing');
     case 'shell':
-      return t('tui.panes.agentPane.phaseShell');
+      return t('tui.chrome.agentPane.phaseShell');
     case 'waiting':
-      return t('tui.panes.agentPane.phaseWaiting');
+      return t('tui.chrome.agentPane.phaseWaiting');
     case 'idle':
       return undefined;
   }

@@ -15,9 +15,11 @@ import { t } from '#/i18n';
 import { computeDiffLines } from '../../media/diff-preview';
 import type { ToolCallBlockData, ToolResultBlockData } from '../../../types';
 
+import { formatGoalElapsed } from '../goal-format';
 import { goalStatusChip } from './goal';
 import { readMediaChip } from './media';
 import { strArg } from './types';
+import { parseWaitForOutput } from './wait-for';
 
 export type ChipProvider = (toolCall: ToolCallBlockData, result: ToolResultBlockData) => string;
 
@@ -124,6 +126,13 @@ const webSearchChip: ChipProvider = (_toolCall, result) => {
 const goalStatusOutputChip: ChipProvider = (_toolCall, result) =>
   result.is_error ? '' : goalStatusChip(result.output);
 
+const waitForChip: ChipProvider = (_toolCall, result) => {
+  if (result.is_error === true) return '';
+  const view = parseWaitForOutput(result.output);
+  if (view === undefined || view.status === 'no_tasks') return '';
+  return formatGoalElapsed(view.waitedMs);
+};
+
 const REGISTRY: Record<string, ChipProvider> = {
   Edit: editChip,
   Write: writeChip,
@@ -135,6 +144,7 @@ const REGISTRY: Record<string, ChipProvider> = {
   WebSearch: webSearchChip,
   CreateGoal: goalStatusOutputChip,
   GetGoal: goalStatusOutputChip,
+  WaitFor: waitForChip,
 };
 
 export function pickChip(toolName: string): ChipProvider | undefined {

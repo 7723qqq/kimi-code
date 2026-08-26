@@ -19,8 +19,17 @@ import {
 import { t } from '#/i18n';
 import type { WhichKeyAction } from '../components/dialogs/which-key';
 import type { LeaderAction } from '../keybindings';
+import { parseGoalCommand } from '../commands/goal';
+import {
+  FileMentionProvider,
+  type SlashAutocompleteCommand,
+} from '../components/editor/file-mention-provider';
+import { getEditorInput } from '../components/editor/editor-input-ref';
+import { getPasteRegistry } from '../components/editor/paste-markers';
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
+import { loadInputHistory } from '#/utils/history/input-history';
 import { parseImageMeta } from '#/utils/image/image-mime';
+import { getInputHistoryFile } from '#/utils/paths';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 
 import {
@@ -41,6 +50,9 @@ import { createTranscriptNavController, type TranscriptNavController } from './t
 
 /** Todo panel overflow threshold (mirrors the v1 TodoPanelComponent). */
 const MAX_VISIBLE_TODOS = 5;
+
+/** Debounce window for live autocomplete requests while typing. */
+const AUTOCOMPLETE_DEBOUNCE_MS = 120;
 
 export interface EditorKeyboardHost {
   store: Tui2Store;
@@ -98,18 +110,44 @@ export interface EditorKeyboardHost {
   stopForExternalEditor(): void;
   /** Restore the terminal after the external editor exits. */
   startAfterExternalEditor(): void;
+  /**
+   * Test seam: supply persisted input-history entries directly. When absent
+   * the controller reads the shared JSONL history file for `workDir` — the
+   * same channel the host's load/persist helpers use.
+   */
+  loadInputHistoryEntries?(): Promise<readonly string[]>;
 }
 
 export class EditorKeyboardController {
   private pendingExit: PendingExit | null = null;
   private pendingUndoEsc: { readonly timer: ReturnType<typeof setTimeout> } | null = null;
   private readonly transcriptNav: TranscriptNavController;
+  /** Persisted input-history entries (chronological); loaded lazily once. */
+  private inputHistory: string[] | null = null;
+  /** Active ↑/↓ browse session over persisted history; null when idle. */
+  private historyBrowse: {
+    index: number;
+    savedDraft: string;
+    mode: 'prompt' | 'bash';
+  } | null = null;
+  /** Draft text written by the most recent recall, so the echo of the
+   *  programmatic write is not mistaken for a manual edit. */
+  private lastRecalledText: string | undefined;
+  private autocompleteProvider: FileMentionProvider | undefined;
+  private autocompleteCommands: unknown;
+  private autocompleteGeneration = 0;
+  private autocompleteDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private autocompleteAbort: AbortController | undefined;
+  private pasteImageInFlight = false;
+  private lastGoalHint: string | null = null;
 
   constructor(
     private readonly host: EditorKeyboardHost,
     private readonly imageStore: ImageAttachmentStore,
   ) {
     this.transcriptNav = createTranscriptNavController(host.store);
+    // Warm the history cache so the first ↑ press does not race the file read.
+    void this.ensureInputHistory();
   }
 
   // ---------------------------------------------------------------------------
@@ -117,16 +155,45 @@ export class EditorKeyboardController {
   // ---------------------------------------------------------------------------
 
   handleSubmit(text: string): void {
-    this.host.handleUserInput(text);
+    this.handleNonEscapeInput();
+    // Paste markers are expanded before dispatch so history, slash parsing
+    // and the send path all see the real content (v1 submitted expanded text).
+    const expanded = getPasteRegistry(this.host.store).expand(text);
+    this.exitHistoryBrowse();
+    this.closeAutocomplete();
+    this.rememberSubmittedInput(expanded);
+    this.host.handleUserInput(expanded);
   }
 
   handleChange(text: string): void {
     if (this.pendingExit) this.clearPendingExit();
+    // Any non-Esc input breaks the double-Esc undo window (v1 onNonEscapeInput).
+    this.clearPendingUndoEsc();
+    const { store } = this.host;
+    const mode = store.state.inputMode;
+    // Enter bash mode by typing `!` at the start of an empty prompt; leave it
+    // when the bash line is emptied again (backspace to zero) — mirrors the
+    // v1 CustomEditor's !-mode toggle.
+    if (mode === 'prompt' && text.startsWith('!')) {
+      this.host.handleInputModeChange('bash');
+    } else if (mode === 'bash' && text.length === 0) {
+      this.host.handleInputModeChange('prompt');
+    }
+    // Manual edits end an active ↑/↓ history browse session. The echo of a
+    // programmatic recall passes through here too; matching text keeps it.
+    if (this.historyBrowse !== null && text !== this.lastRecalledText) {
+      this.exitHistoryBrowse();
+    }
+    // Markers only live while the draft references them.
+    if (!text.includes('[paste #')) getPasteRegistry(store).clear();
+    this.updateAutocomplete(text);
+    this.updateGoalLengthHint(text);
     this.host.updateEditorBorderHighlight(text);
   }
 
   handleCtrlC(): void {
     const { host } = this;
+    this.handleNonEscapeInput();
     if (host.cancelInFlight !== undefined) {
       const cancel = host.cancelInFlight;
       host.cancelInFlight = undefined;
@@ -177,6 +244,7 @@ export class EditorKeyboardController {
   }
 
   handleCtrlD(): void {
+    this.handleNonEscapeInput();
     if (this.pendingExit?.kind === 'ctrl-d') {
       this.clearPendingExit();
       void this.host.stop();
@@ -188,6 +256,12 @@ export class EditorKeyboardController {
   handleEscape(): void {
     const { host } = this;
     if (this.pendingExit) this.clearPendingExit();
+    // An open autocomplete popup is the topmost layer: Esc closes it instead
+    // of cascading into dialog dismissal / stream cancel / undo-esc arming.
+    if (host.store.state.editorAutocomplete !== undefined) {
+      this.closeAutocomplete();
+      return;
+    }
     if (host.store.state.activeDialog === 'session-picker') {
       host.hideSessionPicker();
       this.clearPendingUndoEsc();
@@ -220,6 +294,7 @@ export class EditorKeyboardController {
 
   handleShiftTab(): void {
     const { host } = this;
+    this.handleNonEscapeInput();
     const togglePlan = (): void => {
       const next = !host.store.state.planMode;
       host.track('shortcut_plan_toggle', { enabled: next });
@@ -246,11 +321,13 @@ export class EditorKeyboardController {
   }
 
   handleOpenExternalEditor(): void {
+    this.handleNonEscapeInput();
     this.host.track('shortcut_editor');
     void this.openExternalEditor();
   }
 
   handleToggleToolExpand(): void {
+    this.handleNonEscapeInput();
     this.host.track('shortcut_expand');
     this.host.toggleToolOutputExpansion();
   }
@@ -267,6 +344,7 @@ export class EditorKeyboardController {
 
   handleCtrlS(): void {
     const { host } = this;
+    this.handleNonEscapeInput();
     if (
       host.store.state.streamingPhase === 'idle' ||
       host.store.state.streamingPhase === 'shell' ||
@@ -274,7 +352,9 @@ export class EditorKeyboardController {
     ) {
       return;
     }
-    const text = host.store.state.editorDraft.trim();
+    // Paste markers in the draft expand before extraction, so a steered
+    // image/video placeholder (or large paste) reaches the turn as content.
+    const text = getPasteRegistry(host.store).expand(host.store.state.editorDraft).trim();
     const editorIsBash = host.store.state.inputMode === 'bash';
 
     // Bash commands (`! …`) are not steerable: keep them queued so they run
@@ -339,6 +419,7 @@ export class EditorKeyboardController {
 
   handleCtrlB(): boolean {
     const { host } = this;
+    this.handleNonEscapeInput();
     // Shell command execution is treated as a streaming phase ('shell'), so
     // this gate already covers it; only idle + not-compacting falls through.
     if (host.store.state.streamingPhase === 'idle' || host.store.state.isCompacting) {
@@ -354,14 +435,25 @@ export class EditorKeyboardController {
   }
 
   handleTextPaste(): void {
+    this.handleNonEscapeInput();
     this.host.track('shortcut_paste', { kind: 'text' });
   }
 
   handleUpArrowEmpty(): boolean {
     const { host } = this;
+    this.handleNonEscapeInput();
+    // While the autocomplete popup is open the arrows navigate its list.
+    if (host.store.state.editorAutocomplete !== undefined) {
+      this.moveAutocompleteSelection(-1);
+      return true;
+    }
     if (host.btwPanelController.scroll('up')) return true;
     if (host.store.state.streamingPhase === 'idle' && !host.store.state.isCompacting) {
-      return false;
+      // Idle: ↑ recalls persisted input history (v1 editor history semantics)
+      // — entering requires an empty draft; an active browse session keeps
+      // stepping older entries even though the draft holds a recall.
+      if (host.store.state.editorDraft.length > 0 && this.historyBrowse === null) return false;
+      return this.recallHistory(-1);
     }
     const recalled = host.recallLastQueued();
     if (recalled !== undefined) {
@@ -380,10 +472,63 @@ export class EditorKeyboardController {
   }
 
   handleDownArrowEmpty(): boolean {
+    const { host } = this;
+    this.handleNonEscapeInput();
+    if (host.store.state.editorAutocomplete !== undefined) {
+      this.moveAutocompleteSelection(1);
+      return true;
+    }
+    if (this.historyBrowse !== null) return this.recallHistory(1);
     return this.host.btwPanelController.scroll('down');
   }
 
+  /**
+   * Apply the highlighted autocomplete suggestion to the draft (Enter / Tab
+   * while the popup is open). Returns false when no popup is open so the key
+   * can fall through.
+   */
+  acceptAutocomplete(): boolean {
+    const { host } = this;
+    this.handleNonEscapeInput();
+    const ac = host.store.state.editorAutocomplete;
+    if (ac === undefined) return false;
+    const item = ac.items[ac.selectedIndex];
+    this.closeAutocomplete();
+    if (item === undefined) return true;
+    const draft = host.store.state.editorDraft;
+    // Completion is driven from the trailing token of the single-line input;
+    // when the prefix is not the draft tail the popup is simply dismissed.
+    if (!draft.endsWith(ac.prefix)) return true;
+    // Slash-command completions gain a trailing space (mirrors the combined
+    // provider's command branch); file/mention values carry their own rules.
+    const isSlashCommand = ac.prefix.startsWith('/') && !ac.prefix.includes(' ');
+    let value = item.value;
+    if (isSlashCommand && !value.startsWith('/')) {
+      value = `/${value}`;
+    }
+    const replacement = value + (isSlashCommand ? ' ' : '');
+    host.store.setState(
+      'editorDraft',
+      draft.slice(0, draft.length - ac.prefix.length) + replacement,
+    );
+    return true;
+  }
+
   async handlePasteImage(): Promise<boolean> {
+    this.handleNonEscapeInput();
+    // Clipboard reads are slow; a second press while one is in flight would
+    // insert the attachment twice (v1 queued keys behind pasteInFlight —
+    // dropping the repeat is enough here since the first paste lands).
+    if (this.pasteImageInFlight) return true;
+    this.pasteImageInFlight = true;
+    try {
+      return await this.pasteClipboardMedia();
+    } finally {
+      this.pasteImageInFlight = false;
+    }
+  }
+
+  private async pasteClipboardMedia(): Promise<boolean> {
     let media;
     try {
       media = await readClipboardMedia();
@@ -462,6 +607,7 @@ export class EditorKeyboardController {
   }
 
   handleLeaderAction(action: LeaderAction): void {
+    this.handleNonEscapeInput();
     this.dispatchLeaderAction(action);
   }
 
@@ -475,6 +621,7 @@ export class EditorKeyboardController {
   }
 
   handleShowWhichKey(): void {
+    this.handleNonEscapeInput();
     this.host.showWhichKey();
   }
 
@@ -486,6 +633,7 @@ export class EditorKeyboardController {
 
   /** Execute a command picked from the which-key palette. */
   dispatchWhichKeyAction(action: WhichKeyAction): void {
+    this.handleNonEscapeInput();
     if (isLeaderAction(action)) {
       this.dispatchLeaderAction(action);
       return;
@@ -570,6 +718,15 @@ export class EditorKeyboardController {
     }
   }
 
+  /**
+   * Any non-Escape input that reaches the editor resets the double-Esc undo
+   * window (v1 `onNonEscapeInput`): Esc → <other key> → Esc must not open
+   * the undo selector. Every non-Esc editor entry point calls this first.
+   */
+  handleNonEscapeInput(): void {
+    this.clearPendingUndoEsc();
+  }
+
   clearPendingExit(): void {
     if (!this.pendingExit) return;
     clearTimeout(this.pendingExit.timer);
@@ -580,11 +737,207 @@ export class EditorKeyboardController {
   dispose(): void {
     this.clearPendingExit();
     this.clearPendingUndoEsc();
+    this.closeAutocomplete();
+    this.exitHistoryBrowse();
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * ↑/↓ recall over the persisted input history (v1 editor history semantics):
+   * bash mode only lands on `!` entries; the filter is locked to the mode
+   * captured when browse started, so landing on a shell entry mid-browse does
+   * not switch it. Recalling a `!` entry strips the marker and restores bash
+   * mode; stepping past the newest entry restores the pre-browse draft.
+   */
+  private recallHistory(direction: -1 | 1): boolean {
+    const { host } = this;
+    const entries = this.inputHistory;
+    if (entries === null || entries.length === 0) return false;
+    const entering = this.historyBrowse === null;
+    if (entering) {
+      this.historyBrowse = {
+        index: entries.length,
+        savedDraft: host.store.state.editorDraft,
+        mode: host.store.state.inputMode,
+      };
+    }
+    const browse = this.historyBrowse;
+    if (browse === null) return false;
+    let index = browse.index;
+    while (true) {
+      index += direction;
+      if (index >= entries.length) {
+        // Stepped past the newest entry: leave browse and restore the draft.
+        const savedDraft = browse.savedDraft;
+        const savedMode = browse.mode;
+        this.exitHistoryBrowse();
+        if (host.store.state.editorDraft !== savedDraft) {
+          host.store.setState('editorDraft', savedDraft);
+        }
+        if (host.store.state.inputMode !== savedMode) {
+          host.store.setState('inputMode', savedMode);
+          host.handleInputModeChange(savedMode);
+        }
+        return true;
+      }
+      if (index < 0) {
+        // Stepped past the oldest entry — a no-op, like v1.
+        if (entering) this.exitHistoryBrowse();
+        return false;
+      }
+      const candidate = entries[index] ?? '';
+      if (browse.mode === 'bash' && !candidate.startsWith('!')) continue;
+      break;
+    }
+    browse.index = index;
+    const entry = entries[index] ?? '';
+    this.lastRecalledText = entry;
+    const recalledMode = entry.startsWith('!') ? 'bash' : 'prompt';
+    if (host.store.state.inputMode !== recalledMode) {
+      host.store.setState('inputMode', recalledMode);
+      host.handleInputModeChange(recalledMode);
+    }
+    host.store.setState('editorDraft', recalledMode === 'bash' ? entry.slice(1) : entry);
+    this.closeAutocomplete();
+    return true;
+  }
+
+  private exitHistoryBrowse(): void {
+    this.historyBrowse = null;
+    this.lastRecalledText = undefined;
+  }
+
+  private rememberSubmittedInput(text: string): void {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    // Same consecutive-dedup rule as the host's persist channel. Before the
+    // cache has loaded there is nothing to append in memory; the entry is on
+    // disk already via the host's persistInputHistory.
+    if (this.inputHistory === null) return;
+    if (this.inputHistory.at(-1) === trimmed) return;
+    this.inputHistory.push(trimmed);
+  }
+
+  private async ensureInputHistory(): Promise<readonly string[]> {
+    if (this.inputHistory !== null) return this.inputHistory;
+    let contents: readonly string[];
+    if (this.host.loadInputHistoryEntries !== undefined) {
+      contents = await this.host.loadInputHistoryEntries();
+    } else {
+      try {
+        const file = getInputHistoryFile(this.host.store.state.workDir);
+        contents = (await loadInputHistory(file)).map((entry) => entry.content);
+      } catch {
+        contents = [];
+      }
+    }
+    this.inputHistory = [...contents];
+    return this.inputHistory;
+  }
+
+  private moveAutocompleteSelection(delta: number): void {
+    const ac = this.host.store.state.editorAutocomplete;
+    if (ac === undefined || ac.items.length === 0) return;
+    const next = Math.min(ac.items.length - 1, Math.max(0, ac.selectedIndex + delta));
+    this.host.store.setState('editorAutocomplete', { ...ac, selectedIndex: next });
+  }
+
+  private updateAutocomplete(text: string): void {
+    if (text.trim().length === 0) {
+      this.closeAutocomplete();
+      return;
+    }
+    this.autocompleteGeneration += 1;
+    const generation = this.autocompleteGeneration;
+    if (this.autocompleteDebounceTimer !== undefined) clearTimeout(this.autocompleteDebounceTimer);
+    this.autocompleteDebounceTimer = setTimeout(() => {
+      this.autocompleteDebounceTimer = undefined;
+      void this.requestAutocomplete(text, generation);
+    }, AUTOCOMPLETE_DEBOUNCE_MS);
+  }
+
+  private async requestAutocomplete(text: string, generation: number): Promise<void> {
+    const provider = this.ensureAutocompleteProvider();
+    if (provider === undefined) return;
+    this.autocompleteAbort?.abort();
+    const abort = new AbortController();
+    this.autocompleteAbort = abort;
+    let suggestions;
+    try {
+      suggestions = await provider.getSuggestions([text], 0, text.length, {
+        signal: abort.signal,
+        force: false,
+      });
+    } catch {
+      return;
+    }
+    if (generation !== this.autocompleteGeneration || abort.signal.aborted) return;
+    if (suggestions === null || suggestions.items.length === 0) {
+      this.closeAutocomplete();
+      return;
+    }
+    this.host.store.setState('editorAutocomplete', {
+      items: suggestions.items,
+      selectedIndex: 0,
+      prefix: suggestions.prefix,
+    });
+  }
+
+  private closeAutocomplete(): void {
+    this.autocompleteGeneration += 1;
+    if (this.autocompleteDebounceTimer !== undefined) {
+      clearTimeout(this.autocompleteDebounceTimer);
+      this.autocompleteDebounceTimer = undefined;
+    }
+    this.autocompleteAbort?.abort();
+    this.autocompleteAbort = undefined;
+    if (this.host.store.state.editorAutocomplete !== undefined) {
+      this.host.store.setState('editorAutocomplete', undefined);
+    }
+  }
+
+  private ensureAutocompleteProvider(): FileMentionProvider | undefined {
+    const { store } = this.host;
+    const commands = store.state.autocompleteProvider;
+    // Rebuild when the command catalog slice changes (/reload, skill refresh).
+    if (this.autocompleteProvider !== undefined && this.autocompleteCommands === commands) {
+      return this.autocompleteProvider;
+    }
+    if (!Array.isArray(commands)) return undefined;
+    this.autocompleteCommands = commands;
+    this.autocompleteProvider = new FileMentionProvider(
+      commands as SlashAutocompleteCommand[],
+      store.state.workDir,
+      null,
+      store.state.additionalDirs,
+      () => store.state.inputMode,
+    );
+    return this.autocompleteProvider;
+  }
+
+  /**
+   * Live pre-send warning while the typed `/goal` objective exceeds the
+   * length limit, surfaced through the footer's transient-hint slot (v1 kept
+   * a dedicated footer slot; tui2 reuses `footerTransientHint`, so a
+   * simultaneous exit-confirm / clipboard hint temporarily displaces it).
+   */
+  private updateGoalLengthHint(text: string): void {
+    if (this.host.store.state.inputMode === 'bash') {
+      this.setGoalLengthHint(null);
+      return;
+    }
+    const expanded = getPasteRegistry(this.host.store).expand(text);
+    this.setGoalLengthHint(goalLengthHintFor(expanded));
+  }
+
+  private setGoalLengthHint(hint: string | null): void {
+    if (hint === this.lastGoalHint) return;
+    this.lastGoalHint = hint;
+    this.host.store.setState('footerTransientHint', hint);
+  }
 
   private armPendingUndoEsc(): void {
     this.clearPendingUndoEsc();
@@ -618,6 +971,7 @@ export class EditorKeyboardController {
   private clearEditorTextIfPresent(): boolean {
     if (this.host.store.state.editorDraft.length === 0) return false;
     this.host.store.setState('editorDraft', '');
+    getPasteRegistry(this.host.store).clear();
     return true;
   }
 
@@ -642,7 +996,20 @@ export class EditorKeyboardController {
   }
 
   private insertTextAtCursor(text: string): void {
-    this.host.store.setState('editorDraft', this.host.store.state.editorDraft + text);
+    const { host } = this;
+    // True cursor-position insertion through opentui's edit buffer when the
+    // input renderable is mounted — `insertText` splices at the live cursor
+    // offset and leaves it just past the inserted text. The draft is synced
+    // from the buffer (the store echo is a no-op, so the cursor stays put).
+    // Without a mounted input (tests / unmounted editor), fall back to
+    // appending at the tail.
+    const input = getEditorInput(host.store);
+    if (input !== undefined) {
+      input.insertText(text);
+      host.store.setState('editorDraft', input.value);
+      return;
+    }
+    host.store.setState('editorDraft', host.store.state.editorDraft + text);
   }
 
   private async openExternalEditor(): Promise<void> {
@@ -700,4 +1067,19 @@ const SHORTCUT_ONLY_ACTIONS = new Set<WhichKeyAction>([
 
 function isLeaderAction(action: WhichKeyAction): action is LeaderAction {
   return !SHORTCUT_ONLY_ACTIONS.has(action);
+}
+
+/**
+ * Live `/goal` objective length check (v1 `goalObjectiveLengthWarning`).
+ * Reuses tui2's exported {@link parseGoalCommand} unchanged: an over-long
+ * objective is the one non-hint `error` it reports, every other error kind is
+ * a transient incomplete-input state that must not warn while typing.
+ */
+function goalLengthHintFor(text: string): string | null {
+  const trimmed = text.trimStart();
+  if (!(trimmed.startsWith('/goal') && (trimmed.length === 5 || trimmed.charAt(5) === ' '))) {
+    return null;
+  }
+  const parsed = parseGoalCommand(trimmed.slice('/goal'.length));
+  return parsed.kind === 'error' && parsed.severity === undefined ? parsed.message : null;
 }

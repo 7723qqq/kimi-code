@@ -18,6 +18,7 @@ import { t } from '#/i18n';
 import { modelDisplayName } from '../components/dialogs/model-selector';
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
 import type {
+  AgentSwarmMemberData,
   BackgroundAgentMetadata,
   ToolCallBlockData,
   ToolResultBlockData,
@@ -47,6 +48,18 @@ export interface SubAgentEventHandlerDependencies {
   readonly syncBackgroundAgentBadge: () => void;
 }
 
+/** Per-member live state inside the controller; the store sees the minimal
+ *  `AgentSwarmMemberData` projection published by `publishSwarmProgress`. */
+interface SwarmMemberState {
+  name: string;
+  status: AgentSwarmMemberData['status'];
+  phase?: string;
+  startedAt?: number;
+  endedAt?: number;
+  resultSummary?: string;
+  error?: string;
+}
+
 /** In-controller swarm progress state (rendered via `agentSwarmData`). */
 interface SwarmProgressState {
   readonly toolCallId: string;
@@ -57,7 +70,7 @@ interface SwarmProgressState {
   toolCallEnded: boolean;
   cancelled: boolean;
   failed: string | undefined;
-  members: Map<string, { status: string; resultSummary?: string; error?: string }>;
+  members: Map<string, SwarmMemberState>;
   modelDisplay?: string;
   effortDisplay?: string;
 }
@@ -241,8 +254,14 @@ export class SubAgentEventHandler {
   }
 
   markActiveAgentSwarmsCancelled(): void {
+    const now = Date.now();
     for (const progress of this.agentSwarmProgress.values()) {
       progress.cancelled = true;
+      for (const member of progress.members.values()) {
+        if (isTerminalSwarmMemberStatus(member.status)) continue;
+        member.status = 'cancelled';
+        member.endedAt = now;
+      }
       this.publishSwarmProgress(progress);
     }
   }
@@ -443,7 +462,10 @@ export class SubAgentEventHandler {
     const effortDisplay = this.subagentEffortDisplay(event.thinkingEffort);
     if (
       this.updateAgentSwarmProgress(event.parentToolCallId, (progress) => {
-        progress.members.set(event.subagentId, { status: 'queued' });
+        progress.members.set(event.subagentId, {
+          name: event.subagentName,
+          status: 'queued',
+        });
         if (modelDisplay !== undefined) progress.modelDisplay = modelDisplay;
         if (effortDisplay !== undefined) progress.effortDisplay = effortDisplay;
       })
@@ -485,7 +507,10 @@ export class SubAgentEventHandler {
     if (
       this.updateAgentSwarmProgress(info.parentToolCallId, (progress) => {
         const member = progress.members.get(event.subagentId);
-        if (member !== undefined) member.status = 'running';
+        if (member !== undefined) {
+          member.status = 'running';
+          if (member.startedAt === undefined) member.startedAt = Date.now();
+        }
       })
     ) {
       return;
@@ -519,6 +544,7 @@ export class SubAgentEventHandler {
         const member = progress.members.get(event.subagentId);
         if (member !== undefined) {
           member.status = 'completed';
+          member.endedAt = Date.now();
           member.resultSummary = event.resultSummary;
         }
       })
@@ -548,6 +574,7 @@ export class SubAgentEventHandler {
         const member = progress.members.get(event.subagentId);
         if (member !== undefined) {
           member.status = isUserCancelledSubagentError(event.error) ? 'cancelled' : 'failed';
+          member.endedAt = Date.now();
           member.error = event.error;
         }
       })
@@ -571,15 +598,9 @@ export class SubAgentEventHandler {
     subagentId: string,
   ): void {
     if (event.type === 'assistant.delta' || event.type === 'thinking.delta') {
-      const member = progress.members.get(subagentId);
-      if (member !== undefined) {
-        member.status = 'running';
-      }
+      this.markSwarmMemberRunning(progress, subagentId);
     } else if (event.type === 'tool.call.started') {
-      const member = progress.members.get(subagentId);
-      if (member !== undefined) {
-        member.status = 'running';
-      }
+      this.markSwarmMemberRunning(progress, subagentId, event.name);
     } else if (event.type === 'agent.status.updated' && event.model !== undefined) {
       // The bound model alias rides every child status update (emitted right
       // after spawn). Swarm members share one binding, so the panel shows it
@@ -593,6 +614,20 @@ export class SubAgentEventHandler {
       if (effortDisplay !== undefined) progress.effortDisplay = effortDisplay;
     }
     this.publishSwarmProgress(progress);
+  }
+
+  /** Child-agent activity keeps its row running (and records the current
+   *  tool as the phase); terminal rows stay converged. */
+  private markSwarmMemberRunning(
+    progress: SwarmProgressState,
+    subagentId: string,
+    phase?: string,
+  ): void {
+    const member = progress.members.get(subagentId);
+    if (member === undefined || isTerminalSwarmMemberStatus(member.status)) return;
+    member.status = 'running';
+    if (member.startedAt === undefined) member.startedAt = Date.now();
+    if (phase !== undefined) member.phase = phase;
   }
 
   private updateAgentSwarmProgress(
@@ -649,6 +684,17 @@ export class SubAgentEventHandler {
       if (member.status === 'completed') completedCount += 1;
       if (member.status === 'failed' || member.status === 'cancelled') failedCount += 1;
     }
+    const members: AgentSwarmMemberData[] = Array.from(
+      progress.members.entries(),
+      ([id, member]) => ({
+        id,
+        name: member.name,
+        status: member.status,
+        phase: member.phase,
+        startedAt: member.startedAt,
+        endedAt: member.endedAt,
+      }),
+    );
     this.host.store.setState('transcript', (entries) =>
       entries.map((entry) =>
         entry.id === entryId
@@ -665,6 +711,7 @@ export class SubAgentEventHandler {
                 memberCount: progress.members.size,
                 completedCount,
                 failedCount,
+                members,
               },
             }
           : entry,
@@ -729,6 +776,10 @@ function isSubagentLifecycleEvent(event: Event): event is SubagentLifecycleEvent
     event.type === 'subagent.completed' ||
     event.type === 'subagent.failed'
   );
+}
+
+function isTerminalSwarmMemberStatus(status: AgentSwarmMemberData['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 function isUserCancelledSubagentError(error: string): boolean {

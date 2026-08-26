@@ -16,7 +16,7 @@
 import type { Component } from 'solid-js'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import { useKeyboard } from '@opentui/solid'
-import type { ColorInput, KeyEvent } from '@opentui/core'
+import type { KeyEvent } from '@opentui/core'
 
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk'
 
@@ -25,6 +25,7 @@ import { t } from '#/i18n'
 import { currentTheme } from '../../theme'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 import {
@@ -115,39 +116,31 @@ export const TabbedModelSelector: Component<TabbedModelSelectorProps> = (props) 
   // Render
   // ---------------------------------------------------------------------------
 
-  const borderFg = (): ColorInput => currentTheme.color('primary')
-  const titleFg = (): ColorInput => currentTheme.color('primary')
-  const textFg = (): ColorInput => currentTheme.color('text')
-
   return (
     <Box flexDirection="column">
       {/* Tab strip */}
       <Show when={tabs().length > 1}>
-        <Box>
-          <Text fg={borderFg()}>─</Text>
-        </Box>
-        <Box>
-          <Text fg={titleFg()}>{` ${t('tui.dialogs.tabbedModelSelector.title')}`}</Text>
-        </Box>
-        <Box flexDirection="row">
+        <Box flexDirection="row" paddingBottom={1}>
           <For each={tabs()}>
             {(tab, i) => {
               const active = (): boolean => i() === activeIndex()
               return (
-                <Show
-                  when={active()}
-                  fallback={
-                    <Text fg={currentTheme.color('textMuted')}>{` ${tab.label} `}</Text>
-                  }
-                >
-                  <Text fg={textFg()}>{` ${tab.label} `}</Text>
-                </Show>
+                <Clickable onClick={() => setActiveIndex(i())}>
+                  <Show
+                    when={active()}
+                    fallback={
+                      <Text fg={currentTheme.color('textMuted')}>{` ${tab.label} `}</Text>
+                    }
+                  >
+                    <Text
+                      fg={currentTheme.color('primary')}
+                      attributes={currentTheme.attributes('bold')}
+                    >{` [${tab.label}] `}</Text>
+                  </Show>
+                </Clickable>
               )
             }}
           </For>
-        </Box>
-        <Box>
-          <Text>{''}</Text>
         </Box>
       </Show>
       {/* Active inner selector */}

@@ -4,15 +4,17 @@
  * progress / completion / cancellation row.
  *
  * Replaces the v1 `CompactionComponent` (a pi-tui `Container` with a blink
- * timer) with an opentui SolidJS view. Lifecycle:
- *  - construction → blinking white bullet + "Compacting context..." with
- *    optional custom instruction
- *  - `markDone()` → solid green bullet + "Compaction complete (X → Y tokens)"
- *  - `markCanceled()` → solid warning bullet + "Compaction cancelled"
+ * timer) with an opentui SolidJS view. The transcript entry's
+ * `compactionData` drives the phase (see `compactionViewPropsFromData`):
  *
- * The blink timer (500 ms) is local to this component; when the host mounts
- * it, it owns the lifecycle and calls `dispose()` on teardown so the timer
- * is cleared.
+ *  - no result/tokens yet → blinking white bullet + "Compacting context..."
+ *    with the optional custom instruction and working tip
+ *  - `tokensBefore`/`tokensAfter` present → solid green bullet +
+ *    "Compaction complete (X → Y tokens)"
+ *  - `result: 'cancelled'` → solid warning bullet + "Compaction cancelled"
+ *
+ * The blink timer (500 ms) runs only while the block is in the compacting
+ * phase and is disposed with the component.
  *
  * Status: REAL (tui2). Replaces the v1 stub.
  */
@@ -24,6 +26,7 @@ import type { ColorInput } from '@opentui/core'
 import { t } from '#/i18n'
 
 import { STATUS_BULLET } from '../../constant/symbols'
+import type { CompactionTranscriptData } from '../../types'
 import { currentTheme } from '../../theme'
 
 import { Box } from '../common/box'
@@ -33,48 +36,48 @@ const BLINK_INTERVAL = 500
 
 export interface CompactionViewProps {
   readonly instruction?: string
+  /** Working tip shown while the compaction is still running. */
   readonly tip?: string
+  readonly canceled?: boolean
+  readonly done?: boolean
+  readonly tokensBefore?: number
+  readonly tokensAfter?: number
+  readonly summary?: string
+  /** Render the finished compaction's summary body (entry `expanded` flag). */
+  readonly expanded?: boolean
 }
 
-interface CompactionState {
-  done: boolean
-  canceled: boolean
-  tokensBefore?: number
-  tokensAfter?: number
-  summary?: string
-  expanded: boolean
-  blinkOn: boolean
-  blinkTimer?: ReturnType<typeof setInterval>
+/**
+ * Map a transcript entry's `compactionData` onto `CompactionView` props.
+ *
+ * While the compaction runs, `summary` carries the working tip; once it
+ * finishes, `tokensBefore`/`tokensAfter` mark the done phase and `summary`
+ * becomes the (expandable) compaction summary.
+ */
+export function compactionViewPropsFromData(data: CompactionTranscriptData): CompactionViewProps {
+  if (data.result === 'cancelled') {
+    return { canceled: true, instruction: data.instruction };
+  }
+  if (data.tokensBefore !== undefined || data.tokensAfter !== undefined) {
+    return {
+      done: true,
+      tokensBefore: data.tokensBefore,
+      tokensAfter: data.tokensAfter,
+      summary: data.summary,
+      instruction: data.instruction,
+    };
+  }
+  // Still compacting: surface the working tip, if any.
+  return { tip: data.summary, instruction: data.instruction };
 }
 
 export const CompactionView: Component<CompactionViewProps> = (props) => {
-  const [state, setState] = createSignal<CompactionState>({
-    done: false,
-    canceled: false,
-    expanded: false,
-    blinkOn: true,
-  })
+  const [blinkOn, setBlinkOn] = createSignal(true)
 
-  function startBlink(): void {
-    if (state().blinkTimer !== undefined) return
-    const timer = setInterval(() => {
-      setState((prev) => ({ ...prev, blinkOn: !prev.blinkOn }))
-    }, BLINK_INTERVAL)
-    setState((prev) => ({ ...prev, blinkTimer: timer }))
-  }
-
-  function stopBlink(): void {
-    const timer = state().blinkTimer
-    if (timer !== undefined) {
-      clearInterval(timer)
-    }
-    setState((prev) => ({ ...prev, blinkTimer: undefined }))
-  }
-
-  // Auto-start blink on mount; clean up on dispose.
   createEffect(() => {
-    startBlink()
-    onCleanup(() => stopBlink())
+    if (props.done === true || props.canceled === true) return
+    const timer = setInterval(() => setBlinkOn((v) => !v), BLINK_INTERVAL)
+    onCleanup(() => clearInterval(timer))
   })
 
   // ---------------------------------------------------------------------------
@@ -87,9 +90,6 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
   const textDimFg = (): ColorInput => currentTheme.color('textDim')
   const titleFg = (): ColorInput => currentTheme.color('primary')
 
-  // Snapshot the signal once so <Show> children and chained
-  // accesses narrow correctly (repeated state() calls are not narrowed).
-  const s = state()
   return (
     <Box flexDirection="column">
       {/* Top margin */}
@@ -98,13 +98,13 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
       </Box>
       {/* Header */}
       <Show
-        when={s.done}
+        when={props.done === true}
         fallback={
           <Show
-            when={s.canceled}
+            when={props.canceled === true}
             fallback={
               <Box flexDirection="row">
-                <Text fg={s.blinkOn ? textFg() : textDimFg()}>{STATUS_BULLET}</Text>
+                <Text fg={blinkOn() ? textFg() : textDimFg()}>{STATUS_BULLET}</Text>
                 <Text fg={titleFg()} attributes={currentTheme.attributes('bold')}>
                   {` ${t('tui.dialogs.compaction.compacting')}`}
                 </Text>
@@ -128,20 +128,11 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
           <Text fg={successFg()} attributes={currentTheme.attributes('bold')}>
             {` ${t('tui.dialogs.compaction.complete')}`}
           </Text>
-          <Show when={s.tokensBefore !== undefined && s.tokensAfter !== undefined}>
+          <Show when={props.tokensBefore !== undefined && props.tokensAfter !== undefined}>
             <Text fg={textDimFg()}>
               {` ${t('tui.dialogs.compaction.detailTokens', {
-                before: s.tokensBefore ?? 0,
-                after: s.tokensAfter ?? 0,
-              })}`}
-            </Text>
-          </Show>
-          <Show when={s.summary !== undefined && s.summary.length > 0}>
-            <Text fg={textDimFg()}>
-              {` ${t('tui.dialogs.compaction.shortcutHint', {
-                action: s.expanded
-                  ? t('tui.dialogs.compaction.hide')
-                  : t('tui.dialogs.compaction.show'),
+                before: props.tokensBefore ?? 0,
+                after: props.tokensAfter ?? 0,
               })}`}
             </Text>
           </Show>
@@ -153,9 +144,9 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
           <Text fg={textDimFg()}>{`  ${props.instruction ?? ''}`}</Text>
         </Box>
       </Show>
-      {/* Optional summary (expanded) */}
-      <Show when={s.expanded && s.summary !== undefined && s.summary.length > 0}>
-        <For each={(s.summary ?? '').split('\n')}>
+      {/* Summary body (done + expanded entry flag) */}
+      <Show when={props.done === true && props.expanded === true && (props.summary ?? '').length > 0}>
+        <For each={(props.summary ?? '').split('\n')}>
           {(line) => (
             <Box>
               <Text fg={textDimFg()}>{`  ${line}`}</Text>

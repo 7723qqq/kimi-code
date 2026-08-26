@@ -74,6 +74,14 @@ export interface ColorPalette {
    *  echoed `$ command` line. Its own hue (violet), distinct from plan-mode
    *  (primary) and the user role (roleUser). */
   shellMode: string;
+
+  // ── Family ──
+  /** Which terminal-background family this palette targets. Not a colour —
+   *  a variant tag carried with the palette so consumers that swap
+   *  non-token artwork between families (e.g. the /dance rainbow) read the
+   *  theme system instead of comparing hex literals. Custom themes inherit
+   *  it from their base palette; it is not settable through `colors`. */
+  family: ResolvedTheme;
 }
 
 export const darkColors: ColorPalette = {
@@ -101,6 +109,8 @@ export const darkColors: ColorPalette = {
 
   roleUser: '#FFCB6B',
   shellMode: '#BD93F9',
+
+  family: 'dark',
 };
 
 export const lightColors: ColorPalette = {
@@ -128,6 +138,8 @@ export const lightColors: ColorPalette = {
 
   roleUser: '#9A4A00',
   shellMode: '#7C3AED',
+
+  family: 'light',
 };
 
 export type ResolvedTheme = 'dark' | 'light';

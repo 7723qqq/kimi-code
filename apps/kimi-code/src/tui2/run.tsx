@@ -27,14 +27,23 @@ import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/solid'
 import { createEffect, onCleanup } from 'solid-js'
 
 import { Tui2ProviderStack, useTui2Store } from './context'
-import { buildBaseLayer, createTui2Keymap, leaderCommand, type Tui2CommandHandlers, type Tui2Keymap } from './keymap'
+import {
+  buildBaseLayer,
+  COMMANDS,
+  createTui2Keymap,
+  leaderCommand,
+  type Tui2CommandHandlers,
+  type Tui2Keymap,
+} from './keymap'
 import { LEADER_CHORDS } from './keybindings'
 import type { Tui2Store } from './state'
+import type { KeyEvent } from '@opentui/core'
 import { showModelPicker } from './commands/config'
+import { dispatchInput, type SlashCommandHost } from './commands/dispatch'
 import { MainShell } from './components/main-shell'
+import type { EditorKeyboardController } from './controllers/editor-keyboard'
 import { KimiTUI } from './controllers/kimi-tui'
 import type { DialogDispatch, DialogResult } from './dispatch'
-import type { SlashCommandHost } from './commands/dispatch'
 
 import type { CliRenderer } from '@opentui/core'
 
@@ -79,14 +88,10 @@ function hostToDispatch(host: KimiTUI): DialogDispatch {
  * The default Shell wires the base keymap to the host's editor-keyboard
  * controller and mounts the MainShell with a host-bound dispatch. Editor
  * text lives in `store.state.editorDraft`; Enter (or the keymap send
- * command) routes through `editorKeyboard.handleSubmit`, which owns
- * history, image extraction, bash-mode and slash-command dispatch.
+ * binding) triggers `handleSubmit`.
  */
 export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const store = useTui2Store()
-  // Layout follows the live terminal size (opentui's useTerminalDimensions),
-  // so the input line and panes span the actual terminal width, not a fixed
-  // 80-column default.
   const dimensions = useTerminalDimensions()
   const dispatch = hostToDispatch(host)
   const editorKeyboard = host.editorKeyboard
@@ -135,7 +140,17 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
     },
     'tui2.editor.external': () => editorKeyboard.handleOpenExternalEditor(),
     'tui2.tool.output': () => editorKeyboard.handleToggleToolExpand(),
-    'tui2.queue.send': () => host.drainOneQueuedMessage(),
+    // Ctrl+S: steer — splice the queued messages + the editor draft into the
+    // running turn (the drain-oldest behaviour moved to queue completion).
+    'tui2.queue.send': () => editorKeyboard.handleCtrlS(),
+    // Alt+V (Windows) / Ctrl+V elsewhere: paste a clipboard image / video.
+    [COMMANDS.pasteImage]: () => {
+      void editorKeyboard.handlePasteImage()
+    },
+    // Ctrl+B: detach the current foreground task.
+    [COMMANDS.detachBackground]: () => {
+      editorKeyboard.handleCtrlB()
+    },
     'tui2.todo.expand': () => editorKeyboard.handleToggleTodoExpand(),
     'tui2.sessions': () => void host.showSessionPicker(),
     'tui2.session.new': () => void host.showSessionPicker(),
@@ -152,6 +167,13 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
     ),
   }
   useBindings(() => buildBaseLayer(handlers))
+
+  // Editor-scoped key routing (see createEditorKeyInterceptor below).
+  const offEditorKeyIntercept = keymap.intercept(
+    'key',
+    createEditorKeyInterceptor({ store, editorKeyboard }),
+  )
+  onCleanup(offEditorKeyIntercept)
 
   return (
     <MainShell
@@ -172,8 +194,86 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
         store.setState('editorDraft', '')
         editorKeyboard.handleSubmit(text)
       }}
+      onModelClick={() => {
+        showModelPicker(host as unknown as SlashCommandHost)
+      }}
+      onModeClick={() => {
+        dispatchInput(host as unknown as SlashCommandHost, '/permission')
+      }}
+      onTasksClick={() => {
+        void host.tasksBrowserController.show()
+      }}
+      onGoalClick={() => {
+        dispatchInput(host as unknown as SlashCommandHost, '/goal')
+      }}
     />
   )
+}
+
+/** Whether the main editor owns keyboard focus (no dialog / external editor). */
+function isEditorFocusState(store: Tui2Store): boolean {
+  return (
+    store.state.activeDialog === null &&
+    store.state.editorReplacement === undefined &&
+    !store.state.externalEditorRunning
+  )
+}
+
+/**
+ * Key-intercept handler for editor-scoped routing: armed only while the main
+ * editor owns the input focus (no dialog / editor replacement / external
+ * editor), ↑/↓ drive autocomplete navigation + input-history recall, and
+ * Enter/Tab select a highlighted suggestion instead of reaching the editor
+ * buffer (consumed only when a suggestion was actually applied). The
+ * single-line input has no ↑/↓ cursor semantics, so consuming them while the
+ * editor is focused loses nothing.
+ */
+export function createEditorKeyInterceptor(deps: {
+  readonly store: Tui2Store
+  readonly editorKeyboard: Pick<
+    EditorKeyboardController,
+    'handleUpArrowEmpty' | 'handleDownArrowEmpty' | 'acceptAutocomplete'
+  >
+}): (ctx: { event: KeyEvent; consume: () => void }) => void {
+  return (ctx) => {
+    if (!isEditorFocusState(deps.store)) return
+    const key = ctx.event
+    if (key.ctrl || key.meta || key.shift || key.super === true) return
+    switch (key.name) {
+      case 'up':
+        deps.editorKeyboard.handleUpArrowEmpty()
+        ctx.consume()
+        return
+      case 'down':
+        deps.editorKeyboard.handleDownArrowEmpty()
+        ctx.consume()
+        return
+      case 'tab':
+        if (
+          deps.store.state.editorAutocomplete !== undefined &&
+          deps.editorKeyboard.acceptAutocomplete()
+        ) {
+          ctx.consume()
+        }
+        return
+      case 'return':
+      case 'enter': {
+        const ac = deps.store.state.editorAutocomplete
+        if (ac !== undefined) {
+          const draft = deps.store.state.editorDraft.trim()
+          const isCompleteCommand =
+            draft.includes(' ') ||
+            ac.items.some((item) => item.value === draft || `/${item.value}` === draft)
+          if (!isCompleteCommand) {
+            if (deps.editorKeyboard.acceptAutocomplete()) {
+              ctx.consume()
+            }
+          }
+        }
+        return
+      }
+    }
+  }
 }
 
 export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiTui2Result> {
@@ -193,13 +293,30 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
 
   const host = new KimiTUI(options.harness, options.startupInput, terminal)
   host.exitForegroundTask = options.exitForegroundTask
+
+  let resolveDone!: (result: RunKimiTui2Result) => void
+  const donePromise = new Promise<RunKimiTui2Result>((resolve) => {
+    resolveDone = resolve
+  })
+
   const onExit = options.onExit
-  if (onExit !== undefined) {
-    host.onExit = (exitCode?: number) => onExit(host, exitCode)
+  host.onExit = async (exitCode?: number) => {
+    try {
+      if (onExit !== undefined) {
+        await onExit(host, exitCode)
+      }
+    } finally {
+      try {
+        renderer.destroy()
+      } catch {
+        /* ignore */
+      }
+      resolveDone({ renderer, store: host.store, keymap, host })
+    }
   }
 
   const ShellView = Shell(renderer, host)
-  const renderPromise = render(
+  await render(
     () => (
       <KeymapProvider keymap={keymap}>
         {/* The store provider must wrap every consumer (including the Shell's
@@ -213,18 +330,30 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
     renderer,
   )
 
+  const startPromise = host.start()
   if (process.env['KIMI_TUI2_BOOT_CHECK'] === '1') {
+    // Boot-check must tear down more than the renderer: the harness handles
+    // opened by start() would otherwise keep the process alive after the
+    // marker is written, hanging CI-style smoke runs.
+    void startPromise.catch(() => undefined)
     setTimeout(() => {
-      renderer.destroy()
+      try {
+        renderer.destroy()
+      } catch {
+        /* ignore */
+      }
       process.stdout.write('TUI2_ENTRY_BOOT_OK\n')
+      void options.harness.close().catch(() => undefined)
+      resolveDone({ renderer, store: host.store, keymap, host })
     }, 300)
+  } else {
+    // Kick off the host's start in parallel with rendering.
+    void startPromise.catch((err) => {
+      const msg = err instanceof Error ? (err.stack ?? err.message) : String(err)
+      process.stderr.write(`\n[tui2 startup error]\n${msg}\n`)
+      void host.stop(1)
+    })
   }
 
-  // Kick off the host's start in parallel with rendering. The host
-  // updates the store; the reconciler re-renders.
-  void host.start()
-
-  await renderPromise
-
-  return { renderer, store: host.store, keymap, host }
+  return donePromise
 }

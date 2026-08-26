@@ -57,6 +57,13 @@ export interface StatusReportOptions {
   readonly statusError?: string;
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
+  /** Whether the `/tower` command is usable (v2 engine + experiment on). */
+  readonly towerAvailable?: boolean;
+  /** Live tower mode; the runtime status wins when it carries one. */
+  readonly towerMode?: boolean;
+  /** How the running binary was packaged (`'sea'` = legacy staged-update
+   *  records); undefined when running from source. */
+  readonly packagedEngine?: 'sea' | 'bun';
   /**
    * Rust native tools availability, probed at report time
    * (`'rust'` = addon loaded, `'js'` = TypeScript fallback).
@@ -97,9 +104,16 @@ function contextValues(options: StatusReportOptions): {
   };
 }
 
+// v1 renders these two labels untranslated (`tui/components/messages/
+// status-panel.ts`); kept literal until an i18n pass covers them, same as
+// `commands/tower.ts`'s notices.
+const TOWER_MODE_LABEL = 'Tower mode';
+const RUNTIME_LABEL = 'Runtime';
+
 export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
+  const towerMode = options.status?.towerMode ?? options.towerMode;
   const sessionId =
     options.sessionId.trim().length > 0
       ? options.sessionId
@@ -114,15 +128,26 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
         ? t('tui.messages.statusPanel.planModeOn')
         : t('tui.messages.statusPanel.planModeOff'),
     },
-    {
-      label: t('tui.messages.statusPanel.nativeToolsLabel'),
-      value:
-        options.nativeTools === 'rust'
-          ? t('tui.messages.statusPanel.nativeToolsRust')
-          : t('tui.messages.statusPanel.nativeToolsJs'),
-    },
-    { label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId },
   ];
+  if (options.towerAvailable === true) {
+    rows.push({
+      label: TOWER_MODE_LABEL,
+      value: towerMode
+        ? t('tui.messages.statusPanel.planModeOn')
+        : t('tui.messages.statusPanel.planModeOff'),
+    });
+  }
+  rows.push({
+    label: t('tui.messages.statusPanel.nativeToolsLabel'),
+    value:
+      options.nativeTools === 'rust'
+        ? t('tui.messages.statusPanel.nativeToolsRust')
+        : t('tui.messages.statusPanel.nativeToolsJs'),
+  });
+  if (options.packagedEngine !== undefined) {
+    rows.push({ label: RUNTIME_LABEL, value: options.packagedEngine });
+  }
+  rows.push({ label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId });
   const title = options.sessionTitle?.trim();
   if (title !== undefined && title.length > 0)
     rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });

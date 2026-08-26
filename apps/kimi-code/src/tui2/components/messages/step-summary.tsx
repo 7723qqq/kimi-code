@@ -1,50 +1,38 @@
 /** @jsxImportSource @opentui/solid */
 /**
- * TUI2 step summary view — a collapsed summary of older content within a
- * turn.
+ * TUI2 StepSummaryView — collapsed summary of merged steps.
  *
- * Replaces `tui/components/messages/step-summary.ts`'s
- * `StepSummaryComponent`. Accumulates counts of merged steps (thinking
- * blocks and tool calls) and folded assistant messages, rendering them as a
- * single muted line, e.g. `… thinking 5 times, call 50 tools, 12 messages`.
- *
- * Status: REAL (tui2). Replaces the v1 stub.
+ * Status: REAL (tui2). SolidJS component.
  */
 
-import type { Component } from 'solid-js'
+import type { Component } from 'solid-js';
+import { Box } from '../common/box';
+import { Text } from '../common/text';
 
-import { currentTheme } from '../../theme'
-
-import { Box } from '../common/box'
-import { Text } from '../common/text'
-
-export interface StepSummaryCounts {
-  readonly thinking: number
-  readonly tool: number
-  readonly assistant: number
+export interface StepSummaryProps {
+  readonly thinkingCount?: number;
+  readonly toolCount?: number;
+  readonly messageCount?: number;
 }
 
-export interface StepSummaryViewProps {
-  readonly counts: StepSummaryCounts
-}
+export const StepSummaryView: Component<StepSummaryProps> = (props) => {
+  const parts = () => {
+    const list: string[] = [];
+    if (props.thinkingCount && props.thinkingCount > 0) {
+      list.push(`thinking ${props.thinkingCount} times`);
+    }
+    if (props.toolCount && props.toolCount > 0) {
+      list.push(`call ${props.toolCount} tools`);
+    }
+    if (props.messageCount && props.messageCount > 0) {
+      list.push(`${props.messageCount} messages`);
+    }
+    return list.join(', ');
+  };
 
-export const StepSummaryView: Component<StepSummaryViewProps> = (props) => {
-  const parts = (): string[] => {
-    const result: string[] = []
-    if (props.counts.thinking > 0) result.push(`thinking ${String(props.counts.thinking)} times`)
-    if (props.counts.tool > 0) result.push(`call ${String(props.counts.tool)} tools`)
-    if (props.counts.assistant > 0) result.push(`${String(props.counts.assistant)} messages`)
-    return result
-  }
-  const line = (): string => {
-    const items = parts()
-    return items.length === 0 ? '' : `… ${items.join(', ')}`
-  }
   return (
-    <Box flexDirection="column" paddingLeft={2}>
-      <Text fg={currentTheme.color('textDim')} attributes={currentTheme.attributes('dim')} wrapMode="word">
-        {line()}
-      </Text>
+    <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <Text fg="#666666">… {parts()}</Text>
     </Box>
-  )
-}
+  );
+};

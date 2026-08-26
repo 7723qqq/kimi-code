@@ -29,6 +29,9 @@ export interface ClickableProps {
   hoverBackgroundColor?: ColorInput
   backgroundColor?: ColorInput
   disabled?: boolean
+  flexShrink?: number
+  flexGrow?: number
+  flexDirection?: 'row' | 'column'
 }
 
 export const Clickable: ParentComponent<ClickableProps> = (props) => {
@@ -54,6 +57,9 @@ export const Clickable: ParentComponent<ClickableProps> = (props) => {
       backgroundColor={hovered() && !props.disabled && props.hoverBackgroundColor
         ? props.hoverBackgroundColor
         : props.backgroundColor}
+      flexShrink={props.flexShrink}
+      flexGrow={props.flexGrow}
+      flexDirection={props.flexDirection}
       onMouseUp={handleMouseUp}
       onMouseOver={handleMouseOver}
       onMouseOut={handleMouseOut}

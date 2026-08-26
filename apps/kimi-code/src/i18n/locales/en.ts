@@ -927,6 +927,17 @@ export default {
         onDescription: 'Install new versions in the background.',
         offDescription: 'Show the install prompt instead.',
       },
+      diffReviewPane: {
+        title: 'Diff Review',
+      },
+    },
+    panes: {
+      agentPane: {
+        empty: 'No agents',
+      },
+      diffReviewPane: {
+        empty: 'No file changes',
+      },
     },
     statusMessages: {
       failedToSyncMcp: 'Failed to sync MCP server status: {{message}}',

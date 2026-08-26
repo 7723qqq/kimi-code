@@ -36,6 +36,7 @@ interface StreamingUIMock {
   registerToolCall: ReturnType<typeof vi.fn>
   accumulateToolCallDelta: ReturnType<typeof vi.fn>
   getStreamingToolCallPreview: ReturnType<typeof vi.fn>
+  getActiveToolCall: ReturnType<typeof vi.fn>
   getToolComponent: ReturnType<typeof vi.fn>
   completeToolResult: ReturnType<typeof vi.fn>
   beginCompaction: ReturnType<typeof vi.fn>
@@ -48,6 +49,7 @@ interface StreamingUIMock {
 
 interface Harness {
   readonly handler: SessionEventHandler
+  readonly host: SessionEventHost
   readonly store: Tui2Store
   readonly streamingUI: StreamingUIMock
   readonly setAppState: ReturnType<typeof vi.fn>
@@ -91,6 +93,7 @@ function makeStreamingUI(): StreamingUIMock {
     registerToolCall: vi.fn(),
     accumulateToolCallDelta: vi.fn(),
     getStreamingToolCallPreview: vi.fn(() => undefined),
+    getActiveToolCall: vi.fn(() => undefined),
     getToolComponent: vi.fn(() => undefined),
     completeToolResult: vi.fn(() => undefined),
     beginCompaction: vi.fn(),
@@ -161,6 +164,9 @@ function setup(options?: { session?: Session }): Harness {
     updateTerminalTitle,
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage,
+    sendSkillActivation: vi.fn(),
+    hasPendingBundledSkill: vi.fn(() => false),
+    lastDispatchedUserEntryId: undefined,
     btwPanelController: { routeEvent: vi.fn(() => false) } as never,
     tasksBrowserController: { repaint, refreshOutputViewer } as never,
   }
@@ -168,6 +174,7 @@ function setup(options?: { session?: Session }): Harness {
   const handler = new SessionEventHandler(host)
   return {
     handler,
+    host,
     store,
     streamingUI,
     setAppState,
@@ -413,7 +420,18 @@ describe('SessionEventHandler tool calls', () => {
       args: { todos: [{ title: 'a', status: 'pending' }, { title: 'bad' }] },
     } as never)
     handle(h, { type: 'tool.result', toolCallId: 'c1', output: '', isError: false })
-    expect(h.streamingUI.setTodoList).toHaveBeenCalledWith([{ title: 'a', status: 'pending' }])
+    // Normalization keeps the tree fields (id/parentId/kind/progress) with
+    // defaults filled in, so the panel's milestone branch gets real data.
+    expect(h.streamingUI.setTodoList).toHaveBeenCalledWith([
+      {
+        id: undefined,
+        parentId: null,
+        kind: 'task',
+        title: 'a',
+        status: 'pending',
+        progress: undefined,
+      },
+    ])
   })
 })
 
@@ -628,5 +646,226 @@ describe('SessionEventHandler runtime reset', () => {
     expect(h.handler.renderedMcpServerStatusKeys.size).toBe(0)
     expect(h.handler.mcpServers.size).toBe(0)
     expect(h.handler.backgroundTasks.size).toBe(0)
+  })
+})
+
+describe('SessionEventHandler queued skill activations', () => {
+  it('routes a drained skill item through sendSkillActivation instead of the prompt path', async () => {
+    let capturedEmit: ((event: Event) => void) | undefined
+    const session = {
+      id: 's1',
+      onEvent: vi.fn((cb: (event: Event) => void) => {
+        capturedEmit = cb
+        return () => {}
+      }),
+      listMcpServers: vi.fn(async () => []),
+    } as unknown as Session
+    const h = setup({ session })
+    h.store.setState('sessionId', 's1')
+    h.handler.startSubscription()
+    await Promise.resolve()
+
+    const item = { text: '/review src/a.ts', skillName: 'review', skillArgs: 'src/a.ts' }
+    h.shiftQueuedMessage.mockReturnValue(item)
+    capturedEmit?.({ type: 'compaction.cancelled', sessionId: 's1', agentId: 'main' } as unknown as Event)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(h.host.sendSkillActivation).toHaveBeenCalledWith(session, 'review', 'src/a.ts')
+    expect(h.host.sendQueuedMessage).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tool-progress semantics + card data fidelity
+// ---------------------------------------------------------------------------
+
+interface ToolCardHarness {
+  h: Harness
+  entryId: string
+}
+
+/** Seed a live tool-call card: a transcript entry plus the streaming-UI
+ *  lookups (`getToolComponent` / `getActiveToolCall`) the handler relies on. */
+function setupToolCard(toolName: string, streamingArguments?: string): ToolCardHarness {
+  const h = setup()
+  const entryId = 'entry-1'
+  h.store.setState('transcript', [
+    {
+      id: entryId,
+      kind: 'tool_call',
+      renderMode: 'plain',
+      content: '',
+      toolCallData: { id: 'c1', name: toolName, args: {}, streamingArguments },
+    },
+  ])
+  h.streamingUI.getToolComponent.mockReturnValue(entryId)
+  h.streamingUI.getActiveToolCall.mockReturnValue({
+    id: 'c1',
+    name: toolName,
+    args: {},
+  } as never)
+  return { h, entryId }
+}
+
+const cardOf = (h: Harness, entryId: string) =>
+  h.store.state.transcript.find((entry) => entry.id === entryId)?.toolCallData
+
+describe('SessionEventHandler tool.progress dispatch', () => {
+  it('routes stdout into liveOutput and never into streamingArguments', () => {
+    const { h, entryId } = setupToolCard('Bash', '{"command": "l')
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'file-a\n' } })
+    const data = cardOf(h, entryId)
+    expect(data?.liveOutput).toBe('file-a\n')
+    // Regression: running output used to be appended onto the args preview,
+    // polluting the Bash command preview area.
+    expect(data?.streamingArguments).toBe('{"command": "l')
+    expect(data?.progressLines).toBeUndefined()
+  })
+
+  it('appends stderr chunks to the same live output buffer', () => {
+    const { h, entryId } = setupToolCard('Bash')
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'out' } })
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stderr', text: 'err' } })
+    expect(cardOf(h, entryId)?.liveOutput).toBe('outerr')
+  })
+
+  it('routes status updates into the progress block with replace support', () => {
+    const { h, entryId } = setupToolCard('Bash')
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'step 1\nstill going', replace: true } })
+    let data = cardOf(h, entryId)
+    expect(data?.progressLines).toEqual(['step 1', 'still going'])
+    expect(data?.progressStatusRows).toBe(2)
+
+    // A replacing update swaps the previous replaceable rows instead of piling up.
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'step 2', replace: true } })
+    data = cardOf(h, entryId)
+    expect(data?.progressLines).toEqual(['step 2'])
+    expect(data?.progressStatusRows).toBe(1)
+
+    // A non-replacing update appends below the replaceable block.
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'done bit' } })
+    data = cardOf(h, entryId)
+    expect(data?.progressLines).toEqual(['step 2', 'done bit'])
+    expect(data?.progressStatusRows).toBe(0)
+  })
+
+  it('caps progress lines and head-truncates oversized live output', () => {
+    const { h, entryId } = setupToolCard('Bash')
+    for (let i = 0; i < 30; i++) {
+      handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: `row-${i}` } })
+    }
+    const lines = cardOf(h, entryId)?.progressLines ?? []
+    expect(lines).toHaveLength(24)
+    expect(lines[0]).toBe('row-6')
+
+    handle(h, {
+      type: 'tool.progress',
+      toolCallId: 'c1',
+      update: { kind: 'stdout', text: 'x'.repeat(50_001) },
+    })
+    expect(cardOf(h, entryId)?.liveOutput?.startsWith('[...truncated]\n')).toBe(true)
+  })
+
+  it('marks foreground Bash/Agent cards with the detach hint on progress', () => {
+    const bash = setupToolCard('Bash')
+    handle(bash.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'working' } })
+    expect(cardOf(bash.h, bash.entryId)?.detachHint).toBe(true)
+
+    const agent = setupToolCard('Agent')
+    handle(agent.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'chunk' } })
+    expect(cardOf(agent.h, agent.entryId)?.detachHint).toBe(true)
+
+    const read = setupToolCard('Read')
+    handle(read.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'chunk' } })
+    expect(cardOf(read.h, read.entryId)?.detachHint).toBeUndefined()
+  })
+
+  it('ignores progress events for calls without a live card', () => {
+    const h = setup()
+    handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'orphan' } })
+    expect(h.store.state.transcript).toHaveLength(0)
+  })
+})
+
+describe('SessionEventHandler todo fidelity', () => {
+  it('keeps the TodoList tree fields instead of stripping them', () => {
+    const h = setup()
+    h.streamingUI.completeToolResult.mockReturnValue({
+      id: 'c1',
+      name: 'TodoList',
+      args: {
+        todos: [
+          { id: 'm1', kind: 'milestone', title: 'phase', status: 'in_progress', progress: 40 },
+          { id: 't1', parentId: 'm1', kind: 'task', title: 'task', status: 'pending', progress: 120 },
+          { title: 'legacy flat row', status: 'done' },
+          { title: '', status: 'done' },
+        ],
+      },
+    } as never)
+    handle(h, { type: 'tool.result', toolCallId: 'c1', output: '', isError: false })
+    expect(h.streamingUI.setTodoList).toHaveBeenCalledWith([
+      { id: 'm1', parentId: null, kind: 'milestone', title: 'phase', status: 'in_progress', progress: 40 },
+      { id: 't1', parentId: 'm1', kind: 'task', title: 'task', status: 'pending', progress: 100 },
+      { id: undefined, parentId: null, kind: 'task', title: 'legacy flat row', status: 'done', progress: undefined },
+    ])
+  })
+})
+
+describe('SessionEventHandler bundled skill cards', () => {
+  it('inserts a bundled activation before its prompt entry and flags it for undo', () => {
+    const h = setup()
+    h.host.hasPendingBundledSkill = () => true
+    h.host.lastDispatchedUserEntryId = 'u1'
+    h.store.setState('transcript', [
+      { id: 'before', kind: 'assistant', renderMode: 'markdown', content: 'earlier' },
+      { id: 'u1', kind: 'user', renderMode: 'plain', content: 'do things' },
+    ])
+
+    handle(h, { type: 'skill.activated', activationId: 'sk-1', skillName: 'review', trigger: 'user-slash' })
+
+    const kinds = h.store.state.transcript.map((entry) => entry.kind)
+    expect(kinds).toEqual(['assistant', 'skill_activation', 'user'])
+    expect(h.store.state.transcript[1]?.bundledWithPrompt).toBe(true)
+  })
+
+  it('keeps non-bundled activations appended at the tail without the undo flag', () => {
+    const h = setup()
+    h.store.setState('transcript', [
+      { id: 'u1', kind: 'user', renderMode: 'plain', content: 'do things' },
+    ])
+
+    handle(h, { type: 'skill.activated', activationId: 'sk-1', skillName: 'review', trigger: 'model-tool' })
+
+    // Non-bundled activations ride appendTranscriptEntry (the harness captures
+    // it separately from the store) and carry no grouping flag.
+    expect(h.entries).toHaveLength(1)
+    expect(h.entries[0]?.kind).toBe('skill_activation')
+    expect(h.entries[0]?.bundledWithPrompt).toBeUndefined()
+  })
+})
+
+describe('SessionEventHandler agent swarm cancellation', () => {
+  it('folds still-running swarm summaries to cancelled when the turn is cancelled', () => {
+    const h = setup()
+    const swarm = (status: 'streaming' | 'running' | 'ended') => ({
+      toolCallId: 'c1',
+      description: 'swarm',
+      status,
+      memberCount: 2,
+      completedCount: 0,
+      failedCount: 0,
+      members: [],
+    })
+    h.store.setState('transcript', [
+      { id: 'a', kind: 'tool_call', renderMode: 'plain', content: '', agentSwarmData: swarm('running') },
+      { id: 'b', kind: 'tool_call', renderMode: 'plain', content: '', agentSwarmData: swarm('streaming') },
+      { id: 'c', kind: 'tool_call', renderMode: 'plain', content: '', agentSwarmData: swarm('ended') },
+      { id: 'd', kind: 'assistant', renderMode: 'markdown', content: 'text' },
+    ])
+
+    handle(h, { type: 'turn.ended', turnId: 1, reason: 'cancelled' })
+
+    const statuses = h.store.state.transcript.map((entry) => entry.agentSwarmData?.status)
+    expect(statuses).toEqual(['cancelled', 'cancelled', 'ended', undefined])
   })
 })

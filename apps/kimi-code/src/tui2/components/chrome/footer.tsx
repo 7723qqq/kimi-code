@@ -68,6 +68,12 @@ import { Text } from '../common/text'
 export interface FooterViewProps {
   /** Fired when the model slot is clicked (host opens the model selector). */
   readonly onModelClick?: () => void
+  /** Fired when the mode/permission slot is clicked. */
+  readonly onModeClick?: () => void
+  /** Fired when the background tasks slot is clicked. */
+  readonly onTasksClick?: () => void
+  /** Fired when the goal slot is clicked. */
+  readonly onGoalClick?: () => void
 }
 
 const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
@@ -669,18 +675,19 @@ export const FooterView: Component<FooterViewProps> = (props) => {
     const tip = showTips ? (pair ?? primary) : '';
 
     return (
-      <Box flexDirection="row" gap={2}>
+      <Box flexDirection="row" gap={2} width="100%">
         {order.map((slot) => {
           if (slot === 'model' && modelDisplayName(store.state).length > 0) {
             return (
               <Clickable
+                flexShrink={0}
                 onClick={() => props.onModelClick?.()}
                 onHover={({ hovered }) => setModelHovered(hovered)}
                 hoverBackgroundColor={currentTheme.color('primary')}
               >
-                <Box flexDirection="row">
+                <Box flexDirection="row" flexShrink={0}>
                   {modelHovered() ? (
-                    <Text fg={currentTheme.color('text')} wrapMode="none">
+                    <Text fg={currentTheme.color('text')} wrapMode="none" flexShrink={0}>
                       {`[ ${modelLabel()} ]`}
                     </Text>
                   ) : (
@@ -692,15 +699,36 @@ export const FooterView: Component<FooterViewProps> = (props) => {
           }
           const pieces = slots[slot];
           if (pieces === undefined || pieces.length === 0) return null;
+          const clickHandler =
+            slot === 'mode'
+              ? props.onModeClick
+              : slot === 'tasks'
+                ? props.onTasksClick
+                : slot === 'goal'
+                  ? props.onGoalClick
+                  : undefined;
+          if (clickHandler !== undefined) {
+            return (
+              <Clickable
+                flexShrink={0}
+                onClick={() => clickHandler()}
+                hoverBackgroundColor={currentTheme.color('primary')}
+              >
+                <Box flexDirection="row" gap={1} flexShrink={0}>
+                  {pieces.map((piece) => renderPiece(piece))}
+                </Box>
+              </Clickable>
+            );
+          }
           return (
-            <Box flexDirection="row" gap={1}>
+            <Box flexDirection="row" gap={1} flexShrink={0}>
               {pieces.map((piece) => renderPiece(piece))}
             </Box>
           )
         })}
         <Box flexGrow={1} />
         {tip.length > 0 ? (
-          <Text fg={currentTheme.color('textMuted')} wrapMode="none" truncate>
+          <Text fg={currentTheme.color('textMuted')} wrapMode="none" truncate flexShrink={1}>
             {tip}
           </Text>
         ) : null}

@@ -163,6 +163,18 @@ export interface ToolCallBlockData {
   display?: ToolInputDisplay;
   streamingArguments?: string;
   streamingStartedAtMs?: number;
+  /** Live `tool.progress` status lines while the call runs (replace-aware:
+   *  `progressStatusRows` trailing rows form the swappable block). Never
+   *  mixed into `streamingArguments` — that field renders the command
+   *  preview, which running output must not pollute. */
+  progressLines?: readonly string[];
+  /** Number of trailing `progressLines` rows that a replacing status update
+   *  (`update.replace === true`) swaps out. */
+  progressStatusRows?: number;
+  /** Combined live stdout/stderr of the running call; capped by the writer. */
+  liveOutput?: string;
+  /** Foreground Bash/Agent card advertising Ctrl+B while running. */
+  detachHint?: boolean;
   result?: ToolResultBlockData;
   subagent?: SubagentReplayBlockData;
   step?: number;
@@ -227,6 +239,33 @@ export interface BackgroundAgentStatusData {
   readonly phase: BackgroundAgentStatusPhase;
   readonly headline: string;
   readonly detail?: string;
+}
+
+/** Minimal per-member state of a live AgentSwarm, published incrementally by
+ *  the subagent event handler and converged at terminal lifecycle events. */
+export interface AgentSwarmMemberData {
+  readonly id: string;
+  readonly name: string;
+  status: 'queued' | 'running' | 'suspended' | 'completed' | 'failed' | 'cancelled';
+  /** Latest activity phase (current tool-call name); absent until observed. */
+  phase?: string;
+  /** Epoch ms when the member started running; absent while queued. */
+  startedAt?: number;
+  /** Epoch ms when the member reached a terminal state; freezes its elapsed time. */
+  endedAt?: number;
+}
+
+/** Live AgentSwarm progress summary carried by a tool-call transcript entry
+ *  (see `controllers/subagent-event-handler.ts` `publishSwarmProgress`). */
+export interface AgentSwarmProgressData {
+  toolCallId: string;
+  description: string;
+  status: 'streaming' | 'running' | 'ended' | 'cancelled';
+  memberCount: number;
+  completedCount: number;
+  failedCount: number;
+  /** Per-member minimal state in spawn order; empty until members spawn. */
+  members: readonly AgentSwarmMemberData[];
 }
 
 export interface CompactionTranscriptData {
@@ -312,19 +351,14 @@ export interface TranscriptEntry {
   /** Swarm-mode entry/exit marker data. */
   swarmData?: { state: 'active' | 'inactive' | 'ended' };
   /** Live AgentSwarm progress summary for a tool-call entry. */
-  agentSwarmData?: {
-    toolCallId: string;
-    description: string;
-    status: 'streaming' | 'running' | 'ended';
-    memberCount: number;
-    completedCount: number;
-    failedCount: number;
-  };
+  agentSwarmData?: AgentSwarmProgressData;
   imageAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;
   skillArgs?: string;
   skillTrigger?: SkillActivationTrigger;
+  /** Card belongs to the following prompt's bundled submission: undo removes them together. */
+  bundledWithPrompt?: boolean;
   pluginCommandData?: PluginCommandTranscriptData;
 }
 
@@ -346,6 +380,14 @@ export const MAX_VISIBLE_RUNS = 5;
 export interface TodoItem {
   readonly title: string;
   readonly status: 'pending' | 'in_progress' | 'done';
+  /** Tree node id from the TodoList tool; absent for legacy flat lists. */
+  readonly id?: string;
+  /** Parent node id; null/undefined for top-level rows. */
+  readonly parentId?: string | null;
+  /** Milestone rows group their children into a progress-summarized branch. */
+  readonly kind?: 'milestone' | 'task';
+  /** Leaf progress (0..100) for in-progress rows. */
+  readonly progress?: number;
 }
 
 /** Background task counts for the footer badge. */
@@ -440,8 +482,13 @@ export interface QueuedMessage {
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
   /** `bash` for a `!` shell command queued while another command is running;
-   *  undefined (=`prompt`) for a normal message. */
+   *  undefined (=`prompt`) for a normal message. A queued skill activation
+   *  keeps `prompt` mode and is recognized by its `skillName` payload. */
   readonly mode?: 'prompt' | 'bash';
+  /** Skill activation payload; a queued item carrying these re-enters
+   *  through `sendSkillActivation` when the queue drains (v1 behavior). */
+  readonly skillName?: string;
+  readonly skillArgs?: string;
 }
 
 export interface InlineSkillActivation {

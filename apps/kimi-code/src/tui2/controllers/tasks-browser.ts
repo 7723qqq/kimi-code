@@ -523,7 +523,7 @@ function formatPreviewToolResult(call: SubToolCallActivity): string[] {
   const output = call.result.output;
   if (output === undefined || output.length === 0) {
     return call.result.is_error === true
-      ? [`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.errorTag')}`]
+      ? [`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.failedColon')}`]
       : [];
   }
   const all = output.split('\n');
@@ -537,7 +537,7 @@ function formatPreviewToolResult(call: SubToolCallActivity): string[] {
     );
   }
   if (call.result.is_error === true) {
-    out.push(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.errorTag')}`);
+    out.push(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.failedColon')}`);
   }
   return out;
 }

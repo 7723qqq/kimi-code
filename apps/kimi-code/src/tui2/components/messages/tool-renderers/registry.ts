@@ -15,7 +15,7 @@
 
 import { shellExecutionResultRenderer } from '../shell-execution';
 import { goalSummary } from './goal';
-import { readMediaSummary } from './media';
+import { parseReadMediaOutput, readMediaSummary } from './media';
 import {
   editSummary,
   fetchSummary,
@@ -28,6 +28,7 @@ import {
 } from './summary';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
+import { waitForSummary } from './wait-for';
 
 /**
  * True when a tool has no dedicated renderer and falls back to the generic
@@ -39,10 +40,17 @@ export function isGenericToolResult(toolName: string): boolean {
   return pickResultRenderer(toolName) === renderTruncated;
 }
 
+/** Read falls through to the media summary when the output is a media
+ *  envelope (image/video content parts), so the card never dumps base64. */
+const readResultRenderer: ResultRenderer = (toolCall, result, ctx) =>
+  result.is_error !== true && parseReadMediaOutput(result.output) !== null
+    ? readMediaSummary(toolCall, result, ctx)
+    : readSummary(toolCall, result, ctx);
+
 export function pickResultRenderer(toolName: string): ResultRenderer {
   switch (toolName) {
     case 'Read':
-      return readSummary;
+      return readResultRenderer;
     case 'ReadMediaFile':
       return readMediaSummary;
     case 'Grep':
@@ -66,6 +74,8 @@ export function pickResultRenderer(toolName: string): ResultRenderer {
     case 'SetGoalBudget':
     case 'UpdateGoal':
       return goalSummary;
+    case 'WaitFor':
+      return waitForSummary;
     default:
       return renderTruncated;
   }

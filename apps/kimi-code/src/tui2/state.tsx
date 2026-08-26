@@ -126,6 +126,20 @@ export interface TuiRuntimeState {
   editorBorderToken: 'shellMode' | 'primary' | 'border'
   /** Autocomplete provider (slash commands + file mentions). */
   autocompleteProvider: unknown
+  /** Live editor autocomplete popup state; undefined when closed.
+   *  Written by the editor's autocomplete controller, rendered by the
+   *  CustomEditor popup, and consulted by the keymap's enter/tab/Esc to
+   *  decide whether a key selects / dismisses a suggestion instead of
+   *  falling through to the editor. `prefix` is the draft tail the items
+   *  were computed from; selecting a suggestion replaces it. */
+  editorAutocomplete:
+    | {
+        readonly items: readonly { readonly value: string; readonly label: string; readonly description?: string }[]
+        readonly selectedIndex: number
+        /** Draft-tail prefix (e.g. `/mod`, `@src/edi`) this list completes. */
+        readonly prefix: string
+      }
+    | undefined
   /** Right-side agent pane visibility. */
   agentPaneVisible: boolean
   /** Right-side diff review pane visibility. */
@@ -375,6 +389,7 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   editorBorderHighlighted: false,
   editorBorderToken: 'border',
   autocompleteProvider: undefined,
+  editorAutocomplete: undefined,
   agentPaneVisible: true,
   diffReviewPaneVisible: false,
   todoPanelExpanded: false,

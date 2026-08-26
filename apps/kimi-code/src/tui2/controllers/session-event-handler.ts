@@ -69,6 +69,7 @@ import type {
   LivePaneState,
   QueuedMessage,
   SkillActivationTrigger,
+  TodoItem,
   ToolCallBlockData,
   ToolResultBlockData,
   TranscriptEntry,
@@ -140,6 +141,15 @@ export interface SessionEventHost {
   updateTerminalTitle(): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
+  /** Activate a skill directly; queued skill activations dispatch here when
+   *  the queue drains (mirrors v1 `sendQueuedMessage`). */
+  sendSkillActivation?(session: Session, skillName: string, skillArgs: string): void;
+  /** Whether `skillName` was bundled into the prompt currently dispatching
+   *  (v2 `promptWithSkills`); drives the skill card's prompt grouping. */
+  hasPendingBundledSkill?(skillName: string): boolean;
+  /** Transcript id of the user entry dispatched with the running prompt —
+   *  the grouping window for cards bundled into that submission. */
+  lastDispatchedUserEntryId?: string;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserControllerLike;
 }
@@ -157,6 +167,69 @@ function estimateTokensFromText(text: string): number {
     else nonAscii++;
   }
   return Math.ceil(ascii / 4 + nonAscii);
+}
+
+// Caps mirrored from v1 ToolCallComponent so a chatty tool can't grow the
+// stored card data without bound.
+const MAX_PROGRESS_LINES = 24;
+const MAX_LIVE_OUTPUT_CHARS = 50_000;
+
+/** Append a `tool.progress` status line to the card's progress block. With
+ *  `replace`, the previous replaceable status rows are swapped out first
+ *  (periodic "still working" updates would otherwise pile up stale rows);
+ *  oldest rows drop once the buffer passes {@link MAX_PROGRESS_LINES}. */
+function appendToolProgressLine(
+  data: ToolCallBlockData,
+  text: string,
+  replace: boolean,
+): void {
+  const lines = data.progressLines ?? [];
+  const kept =
+    replace && (data.progressStatusRows ?? 0) > 0
+      ? lines.slice(0, lines.length - Math.min(data.progressStatusRows ?? 0, lines.length))
+      : [...lines];
+  const appended = text.split('\n');
+  kept.push(...appended);
+  while (kept.length > MAX_PROGRESS_LINES) kept.shift();
+  data.progressLines = kept;
+  data.progressStatusRows = replace ? appended.length : 0;
+}
+
+/** Append a live stdout/stderr chunk, head-truncating past
+ *  {@link MAX_LIVE_OUTPUT_CHARS} with v1's marker. */
+function appendToolLiveOutput(data: ToolCallBlockData, text: string): void {
+  const combined = `${data.liveOutput ?? ''}${text}`;
+  data.liveOutput =
+    combined.length > MAX_LIVE_OUTPUT_CHARS
+      ? `[...truncated]\n${combined.slice(combined.length - MAX_LIVE_OUTPUT_CHARS)}`
+      : combined;
+}
+
+/** Normalize a TodoList tool result into store items, keeping the tool's tree
+ *  fields (id/parentId/kind/progress) so the panel's milestone branch gets
+ *  real data; only title/status-carrying rows are accepted. */
+function normalizeTranscriptTodos(raw: readonly unknown[]): TodoItem[] {
+  const items: TodoItem[] = [];
+  for (const entry of raw) {
+    if (!isTodoItemShape(entry)) continue;
+    const rec = entry as unknown as Record<string, unknown>;
+    const progressRaw = rec['progress'];
+    items.push({
+      id: typeof rec['id'] === 'string' && rec['id'].length > 0 ? rec['id'] : undefined,
+      parentId:
+        typeof rec['parentId'] === 'string' && rec['parentId'].length > 0
+          ? rec['parentId']
+          : null,
+      kind: rec['kind'] === 'milestone' ? 'milestone' : 'task',
+      title: entry.title,
+      status: entry.status,
+      progress:
+        typeof progressRaw === 'number' && Number.isFinite(progressRaw)
+          ? Math.min(100, Math.max(0, Math.round(progressRaw)))
+          : undefined,
+    });
+  }
+  return items;
 }
 
 export class SessionEventHandler {
@@ -241,6 +314,12 @@ export class SessionEventHandler {
     const { host } = this;
     const session = host.requireSession();
     const sendQueued = (item: QueuedMessage): void => {
+      // A queued slash-skill activation re-enters through the activation path,
+      // not as a literal prompt (mirrors v1 `sendQueuedMessage`).
+      if (item.skillName !== undefined) {
+        host.sendSkillActivation?.(session, item.skillName, item.skillArgs ?? '');
+        return;
+      }
       host.sendQueuedMessage(session, item);
     };
     host.sessionEventUnsubscribe?.();
@@ -605,6 +684,18 @@ export class SessionEventHandler {
 
   private markActiveAgentSwarmsCancelled(): void {
     this.subAgentEventHandler.markActiveAgentSwarmsCancelled();
+    // Data-side gap recorded in plan/tui2-full-replacement.md: the sub-agent
+    // handler only flips its internal `cancelled` flag — its publisher never
+    // emits a cancelled status. Fold still-running swarm summaries here so
+    // the stored transcript reflects the aborted turn.
+    this.host.store.setState('transcript', (entries) =>
+      entries.map((entry) => {
+        const swarm = entry.agentSwarmData;
+        if (swarm === undefined) return entry;
+        if (swarm.status !== 'streaming' && swarm.status !== 'running') return entry;
+        return { ...entry, agentSwarmData: { ...swarm, status: 'cancelled' } };
+      }),
+    );
   }
 
   private isAnthropicSessionActive(): boolean {
@@ -775,15 +866,26 @@ export class SessionEventHandler {
     if (text === undefined || text.length === 0) return;
     const entryId = this.host.streamingUI.getToolComponent(event.toolCallId);
     if (entryId === undefined) return;
+    const toolName = this.host.streamingUI.getActiveToolCall(event.toolCallId)?.name;
+    // A progress event is evidence the call is still running in the
+    // foreground; eligible tools advertise Ctrl+B from here on (v1 drove the
+    // same hint with a per-card timer inside ToolCallComponent).
+    const detachEligible = toolName === 'Bash' || toolName === 'Agent';
+
+    // Semantic dispatch — progress must never land in `streamingArguments`:
+    // that field renders the command preview, which running output would
+    // pollute (v1 kept the same separation via appendProgress/appendLiveOutput).
     if (event.update.kind === 'status') {
       this.patchToolCallEntry(entryId, (data) => {
-        data.streamingArguments = text;
+        appendToolProgressLine(data, text, event.update.replace === true);
+        if (detachEligible) data.detachHint = true;
       });
       return;
     }
     if (event.update.kind === 'stdout' || event.update.kind === 'stderr') {
       this.patchToolCallEntry(entryId, (data) => {
-        data.streamingArguments = `${data.streamingArguments ?? ''}${text}`;
+        appendToolLiveOutput(data, text);
+        if (detachEligible) data.detachHint = true;
       });
     }
   }
@@ -817,12 +919,7 @@ export class SessionEventHandler {
     if (matchedCall !== undefined && matchedCall.name === 'TodoList' && !event.isError) {
       const rawTodos = (matchedCall.args as { todos?: unknown }).todos;
       if (Array.isArray(rawTodos)) {
-        const sanitized = rawTodos
-          .filter((todo): todo is { title: string; status: 'pending' | 'in_progress' | 'done' } =>
-            isTodoItemShape(todo),
-          )
-          .map((todo) => ({ title: todo.title, status: todo.status }));
-        streamingUI.setTodoList(sanitized);
+        streamingUI.setTodoList(normalizeTranscriptTodos(rawTodos));
       }
     }
     this.host.patchLivePane({ mode: 'waiting' });
@@ -1202,7 +1299,13 @@ export class SessionEventHandler {
   private handleSkillActivated(event: SkillActivatedEvent): void {
     if (this.renderedSkillActivationIds.has(event.activationId)) return;
     this.renderedSkillActivationIds.add(event.activationId);
-    this.host.appendTranscriptEntry({
+    const isBundled = this.host.hasPendingBundledSkill?.(event.skillName) ?? false;
+    // Group with the prompt only while the transcript still ends with the user
+    // message this activation was bundled into; otherwise append plainly.
+    const lastEntry = this.host.store.state.transcript.at(-1);
+    const beforeUserPrompt =
+      isBundled && lastEntry !== undefined && lastEntry.id === this.host.lastDispatchedUserEntryId;
+    const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'skill_activation',
       turnId: undefined,
@@ -1214,6 +1317,19 @@ export class SessionEventHandler {
       // v2 declares `trigger` as a plain string; the engine only ever emits
       // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
       skillTrigger: event.trigger as SkillActivationTrigger,
+      bundledWithPrompt: beforeUserPrompt || undefined,
+    };
+    if (!beforeUserPrompt) {
+      this.host.appendTranscriptEntry(entry);
+      return;
+    }
+    const userEntryId = this.host.lastDispatchedUserEntryId;
+    this.host.store.setState('transcript', (entries) => {
+      const idx = entries.findIndex((candidate) => candidate.id === userEntryId);
+      // The prompt's group window closed while the activation was in flight —
+      // keep it, but as a plain trailing card.
+      if (idx === -1) return [...entries, entry];
+      return [...entries.slice(0, idx), entry, ...entries.slice(idx)];
     });
   }
 

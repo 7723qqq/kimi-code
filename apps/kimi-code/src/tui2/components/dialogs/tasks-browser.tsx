@@ -33,6 +33,7 @@ import { printableChar } from '../../utils/printable-key'
 import { sanitizeShellOutput } from '../../utils/shell-output'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 const ELLIPSIS = '…'
@@ -274,22 +275,24 @@ export const TasksBrowser: Component<TasksBrowserProps> = (props) => {
               const selected = (): boolean => i() === Math.min(cursor(), list.length - 1)
               const active = (): boolean => t_.status === 'running'
               return (
-                <Box flexDirection="row">
-                  <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${selected() ? SELECT_POINTER : ' '} `}</Text>
-                  <Text
-                    fg={selected() ? titleFg() : textFg()}
-                    attributes={selected() ? titleAttrs() : undefined}
-                  >
-                    {t_.description.length > 0 ? t_.description : t_.taskId.slice(0, 12)}
-                  </Text>
-                  <Text>{'  '}</Text>
-                  <Text fg={currentTheme.color(statusColorToken(t_.status))}>
-                    {statusLabel(t_.status)}
-                  </Text>
-                  <Show when={active()}>
-                    <Text>{' ●'}</Text>
-                  </Show>
-                </Box>
+                <Clickable onClick={() => props.onSelect(t_.taskId)}>
+                  <Box flexDirection="row">
+                    <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${selected() ? SELECT_POINTER : ' '} `}</Text>
+                    <Text
+                      fg={selected() ? titleFg() : textFg()}
+                      attributes={selected() ? titleAttrs() : undefined}
+                    >
+                      {t_.description.length > 0 ? t_.description : t_.taskId.slice(0, 12)}
+                    </Text>
+                    <Text>{'  '}</Text>
+                    <Text fg={currentTheme.color(statusColorToken(t_.status))}>
+                      {statusLabel(t_.status)}
+                    </Text>
+                    <Show when={active()}>
+                      <Text>{' ●'}</Text>
+                    </Show>
+                  </Box>
+                </Clickable>
               )
             }}
           </For>

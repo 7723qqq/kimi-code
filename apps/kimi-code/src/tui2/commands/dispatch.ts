@@ -25,6 +25,7 @@ import type { Tui2Store } from '../state';
 import type { ResolvedTheme } from '../theme/colors';
 import type { ActiveDialog, AppState, LoginProgressSpinnerHandle, QueuedMessage, TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import { handleAddDirCommand } from './add-dir';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
@@ -56,7 +57,12 @@ import {
   type BuiltinSlashCommandName,
 } from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
-import { resolveSlashCommandInput, slashBusyMessage, slashCommandBusyReason } from './resolve';
+import {
+  canRestoreSubmittedInput,
+  resolveSlashCommandInput,
+  slashBusyMessage,
+  slashCommandBusyReason,
+} from './resolve';
 import {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -66,6 +72,7 @@ import {
 } from './session';
 import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
+import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
 import { handleWorkflowCommand } from './workflow';
@@ -96,6 +103,7 @@ export {
 export { handleSwarmCommand } from './swarm';
 export { handleWorkflowCommand } from './workflow';
 export { handleTeamCommand } from './team';
+export { handleTowerCommand } from './tower';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
@@ -182,6 +190,12 @@ export interface SlashCommandHost {
   /** Reset the client-side cache-break baseline after the context was cut
    *  (/undo): the next step's cache-read drop is expected, not a break. */
   noteContextCut?(): void;
+  /**
+   * Last measured step's full input size — what a model/effort switch would
+   * reprocess against the provider prompt cache. Undefined when there is no
+   * measurable baseline (fresh session, post-compaction, or missing usage).
+   */
+  estimateSwitchLossTokens?(): number | undefined;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
@@ -228,11 +242,63 @@ export interface SlashCommandHost {
 // ---------------------------------------------------------------------------
 
 export function dispatchInput(host: SlashCommandHost, text: string): void {
+  if (dispatchInlineSkillCombo(host, text)) return;
   if (parseSlashInput(text) !== null) {
     void executeSlashCommand(host, text);
     return;
   }
   host.sendNormalUserInput(text);
+}
+
+/**
+ * Handle a leading-slash input that may be a bundled submission. Returns true
+ * when the input was claimed, false when it should fall through to the
+ * regular single-skill slash path.
+ *
+ * Bundle rule: two or more known skill tokens with the first one leading the
+ * input make the whole input one bundled prompt in which every token
+ * activates with NO args — the mention is the whole interface, and args stay
+ * a standalone-activation concept (`/skill:a some args` with no other tokens
+ * keeps its single-skill path). Tokenization is whitespace-generic, so
+ * space- and newline-separated bundles behave identically. A recognized
+ * builtin or plugin command always keeps its own path, no matter how many
+ * skill tokens its arguments mention.
+ */
+function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean {
+  // The intent is parsed without the busy flags on purpose: submissions
+  // through sendNormalUserInput queue while busy — only genuine
+  // single-skill commands reject.
+  const intent = resolveSlashCommandInput({
+    input: text,
+    skillCommandMap: host.skillCommandMap,
+    pluginCommandMap: host.pluginCommandMap,
+    isStreaming: false,
+    isCompacting: false,
+    engineV2: host.engineV2,
+  });
+  if (intent.kind !== 'skill' && intent.kind !== 'message') return false;
+
+  const tokens = findInlineSkillTokens(text, {
+    isKnownSkill: (commandName) =>
+      host.skillCommandMap.has(commandName) || host.skillCommandMap.has(`skill:${commandName}`),
+    includeLeading: true,
+  });
+  // The 'message' kind joins the bundle rule because parseSlashInput only
+  // splits on a literal space: a newline after a leading skill resolves to
+  // 'message' instead of 'skill', and must not silently drop the leading
+  // activation.
+  if (tokens.length >= 2 && tokens[0]!.start === 0) {
+    host.sendNormalUserInput(text);
+    return true;
+  }
+
+  // An unrecognized leading slash token makes the whole input a plain
+  // message; scan it for inline skills like any other plain prompt.
+  if (intent.kind !== 'message') return false;
+  const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+  if (activations.length === 0) return false;
+  host.sendNormalUserInput(text);
+  return true;
 }
 
 async function executeSlashCommand(host: SlashCommandHost, input: string): Promise<void> {
@@ -243,6 +309,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
+    engineV2: host.engineV2,
   });
 
   switch (intent.kind) {
@@ -251,6 +318,9 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     case 'blocked':
       host.track('input_command_invalid', { reason: 'blocked', command: intent.commandName });
       host.showError(slashBusyMessage(intent.commandName, intent.reason));
+      // The editor buffer was already cleared on submit; give the rejected
+      // command line back so hand-typed input is not lost.
+      host.restoreInputText(input);
       return;
     case 'invalid':
       host.track('input_command_invalid', {
@@ -264,19 +334,27 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         host.showError(getLlmNotSetMessage());
         return;
       }
+      // Skill commands are never busy-rejected: while a turn runs or a
+      // compaction is in flight they queue behind it (v1 behavior) and
+      // dispatch through sendSkillActivation when the queue drains.
+      if (isSkillDispatchBusy(host)) {
+        queueOrRejectSkillActivation(host, intent.commandName, intent.skillName, intent.args, input);
+        return;
+      }
       let session = host.session;
       if (session === undefined) {
         session = await ensureSessionForCommand(host);
         if (session === undefined) return;
         // A first prompt may have started a turn while the session was being
-        // created; skill commands are always busy-gated, so re-check the gate
-        // resolved before the await.
-        const busyReason = slashCommandBusyReason({
-          isStreaming: host.state.appState.streamingPhase !== 'idle',
-          isCompacting: host.state.appState.isCompacting,
-        });
-        if (busyReason !== undefined) {
-          host.showError(slashBusyMessage(intent.commandName, busyReason));
+        // created; queue behind it instead of rejecting.
+        if (isSkillDispatchBusy(host)) {
+          queueOrRejectSkillActivation(
+            host,
+            intent.commandName,
+            intent.skillName,
+            intent.args,
+            input,
+          );
           return;
         }
       }
@@ -326,12 +404,57 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         host.track('clear');
       }
       try {
-        await handleBuiltInSlashCommand(host, intent.name, intent.args);
+        await handleBuiltInSlashCommand(host, intent.name, intent.args, input);
       } catch (error) {
         host.showError(formatErrorMessage(error));
       }
       return;
   }
+}
+
+/** Busy gate for skill dispatch: v1 queues on defer/streaming/compacting. */
+function isSkillDispatchBusy(host: SlashCommandHost): boolean {
+  return (
+    host.deferUserMessages ||
+    host.state.appState.streamingPhase !== 'idle' ||
+    host.state.appState.isCompacting
+  );
+}
+
+/**
+ * Queue a skill activation behind the running turn: the item rides
+ * `queuedMessages` with a `skill` payload and re-enters through
+ * `sendSkillActivation` when the queue drains. Falls back to the historical
+ * busy rejection only when the host has no response store (legacy/test
+ * shapes), so the command line is never silently dropped.
+ */
+function queueOrRejectSkillActivation(
+  host: SlashCommandHost,
+  commandName: string,
+  skillName: string,
+  args: string,
+  input: string,
+): void {
+  const store = host.store;
+  if (store === undefined) {
+    const busyReason = slashCommandBusyReason({
+      isStreaming: host.state.appState.streamingPhase !== 'idle',
+      isCompacting: host.state.appState.isCompacting,
+    });
+    host.track('input_command_invalid', { reason: 'blocked', command: commandName });
+    host.showError(slashBusyMessage(commandName, busyReason ?? 'streaming'));
+    host.restoreInputText(input);
+    return;
+  }
+  store.setState('queuedMessages', [
+    ...store.state.queuedMessages,
+    {
+      text: args.length > 0 ? `/${skillName} ${args}` : `/${skillName}`,
+      skillName,
+      skillArgs: args,
+    },
+  ]);
+  host.track('input_queue');
 }
 
 /**
@@ -367,10 +490,16 @@ async function handleBuiltInSlashCommand(
   host: SlashCommandHost,
   name: BuiltinSlashCommandName,
   args: string,
+  input: string,
 ): Promise<void> {
   if (host.session === undefined && SESSION_REQUIRING_COMMANDS.has(name)) {
     const session = await ensureSessionForCommand(host);
-    if (session === undefined) return;
+    if (session === undefined) {
+      // Creation failed after submit cleared the buffer; give the input
+      // back unless the user moved on — a newer draft or an opened panel.
+      if (canRestoreSubmittedInput(host.store)) host.restoreInputText(input);
+      return;
+    }
     // A first prompt may have started a turn while the session was being
     // created; re-check the availability gate that was resolved before the
     // await (idle-only commands are blocked while a turn is active).
@@ -385,6 +514,9 @@ async function handleBuiltInSlashCommand(
       resolveSlashCommandAvailability(command, args) === 'idle-only'
     ) {
       host.showError(slashBusyMessage(name, busyReason));
+      // Same as the dispatch blocked branch: give the cleared input back,
+      // guarded the same way — session creation awaited above.
+      if (canRestoreSubmittedInput(host.store)) host.restoreInputText(input);
       return;
     }
   }
@@ -498,6 +630,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'swarm':
       await handleSwarmCommand(host, args);
+      return;
+    case 'tower':
+      await handleTowerCommand(host, args);
       return;
     case 'workflow':
       await handleWorkflowCommand(host, args);

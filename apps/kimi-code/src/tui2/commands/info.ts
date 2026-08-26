@@ -9,6 +9,7 @@ import { release as osRelease, type as osType } from 'node:os';
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { detectNativeInstall } from '#/cli/update/source';
 import { nativeToolsStatus } from '#/native/native-require';
 import { openUrl } from '#/utils/open-url';
 
@@ -36,6 +37,7 @@ import {
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
+import { isExperimentalFlagEnabled } from './experimental-flags';
 import { formatErrorMessage } from '../utils/event-payload';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
@@ -188,6 +190,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     loadManagedUsageReport(host),
   ]);
   const appState = host.state.appState;
+  const install = detectNativeInstall();
   const reportArgs = {
     version: appState.version,
     model: appState.model,
@@ -197,11 +200,14 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     thinkingEffort: appState.thinkingEffort,
     permissionMode: appState.permissionMode,
     planMode: appState.planMode,
+    towerMode: runtimeStatus.status?.towerMode ?? false,
+    towerAvailable: host.engineV2 && isExperimentalFlagEnabled('tower'),
     contextUsage: appState.contextUsage,
     contextTokens: appState.contextTokens,
     maxContextTokens: appState.maxContextTokens,
     availableModels: appState.availableModels,
     nativeTools: nativeToolsStatus(),
+    packagedEngine: install.native ? install.kind : undefined,
     status: runtimeStatus.status,
     statusError: runtimeStatus.error,
     managedUsage: managedUsage?.usage,

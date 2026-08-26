@@ -31,7 +31,7 @@
  */
 
 import type { Component } from 'solid-js';
-import { For, Show } from 'solid-js';
+import { createEffect, createSignal, For, Show } from 'solid-js';
 
 import type { ColorInput } from '@opentui/core';
 
@@ -41,11 +41,22 @@ import type { TuiRuntimeState } from '../state';
 import { currentTheme } from '../theme';
 import type { TranscriptEntry } from '../types';
 import { BannerComponent } from './chrome/banner';
+import {
+  activeDeviceCodeCard,
+  DeviceCodeBoxView,
+  type ActiveDeviceCodeCard,
+} from './chrome/device-code-box';
 import { FooterView } from './chrome/footer';
+import { TodoPanelView } from './chrome/todo-panel';
+import { WelcomeView } from './chrome/welcome';
+import { WorkflowPanelView } from './chrome/workflow-panel';
 import { Box } from './common/box';
+import { Clickable } from './common/clickable';
 import { Text } from './common/text';
 import { ApprovalPanel } from './dialogs/approval-panel';
+import { ApprovalPreviewViewer, type ApprovalPreviewBlock } from './dialogs/approval-preview';
 import { CacheHintDialog } from './dialogs/cache-hint-dialog';
+import { CompactionView, compactionViewPropsFromData } from './dialogs/compaction';
 import { EditorSelector } from './dialogs/editor-selector';
 import { EffortSelector } from './dialogs/effort-selector';
 import { GoalQueueEditDialog, GoalQueueManagerDialog } from './dialogs/goal-queue-manager';
@@ -74,15 +85,23 @@ import { UndoSelector } from './dialogs/undo-selector';
 import { UpdatePreferenceSelector } from './dialogs/update-preference-selector';
 import { WhichKey } from './dialogs/which-key';
 import { CustomEditor } from './editor/custom-editor';
+import { AgentGroupView } from './messages/agent-group';
 import { AssistantMessageView } from './messages/assistant-message';
+import { BackgroundAgentStatusView } from './messages/background-agent-status';
 import { CronMessageView } from './messages/cron-message';
 import { GoalSetMessageView } from './messages/goal-panel';
-import { PlanBoxView } from './messages/plan-box';
 import { PluginCommandView } from './messages/plugin-command';
+import { ReadGroupView } from './messages/read-group';
 import { SkillActivationView } from './messages/skill-activation';
 import { StatusMessageView } from './messages/status-message';
+import { SwarmModeMarkerView } from './messages/swarm-markers';
 import { ThinkingView } from './messages/thinking';
 import { ToolCallView } from './messages/tool-call';
+import {
+  groupTranscriptEntries,
+  type TranscriptDisplayItem,
+  type TranscriptGroupMember,
+} from './messages/transcript-groups';
 import { UserMessageView } from './messages/user-message';
 import { ActivityPane, type ActivityPaneMode } from './panes/activity-pane';
 import { AgentPane } from './panes/agent-pane';
@@ -116,6 +135,13 @@ export interface MainShellProps {
    *  controller owns the send path. */
   readonly onEditorSubmit?: (text: string) => void;
   readonly onEditorChange?: (value: string) => void;
+  readonly onModelClick?: () => void;
+  readonly onModeClick?: () => void;
+  readonly onTasksClick?: () => void;
+  readonly onGoalClick?: () => void;
+  /** Ctrl+O while a dialog owns input (approval panel / question dialog):
+   *  toggle tool-output expansion. Host-owned; the shell only forwards. */
+  readonly onToggleToolOutput?: () => void;
 }
 
 const leftWidth = (total: number): number => Math.floor(total * LEFT_COL_RATIO);
@@ -126,6 +152,9 @@ export const MainShell: Component<MainShellProps> = (props) => {
   const borderFg = (): ColorInput => currentTheme.color('border');
 
   const transcript = (): readonly TranscriptEntry[] => store.state.transcript;
+  /** Consecutive same-`groupKey` tool calls fold into single group rows. */
+  const displayItems = (): readonly TranscriptDisplayItem[] =>
+    groupTranscriptEntries(transcript());
   const showRightPane = (): boolean => {
     const dialog = store.state.activeDialog;
     return dialog === null || !FULLSCREEN_DIALOGS.has(dialog as DialogKind);
@@ -139,7 +168,9 @@ export const MainShell: Component<MainShellProps> = (props) => {
 
       <Box flexDirection="row" flexGrow={1}>
         <Box flexDirection="column" flexGrow={1} width={leftWidth(props.width)}>
-          <For each={transcript()}>{(entry) => <TranscriptEntryView entry={entry} />}</For>
+          <For each={displayItems()}>
+            {(item) => <TranscriptDisplayItemView item={item} workspaceDir={store.state.workDir} />}
+          </For>
         </Box>
 
         <Show when={showRightPane()}>
@@ -171,6 +202,8 @@ export const MainShell: Component<MainShellProps> = (props) => {
                 width={rightWidth(props.width)}
               />
             </Show>
+            <TodoPanelView />
+            <WorkflowPanelView />
           </Box>
         </Show>
       </Box>
@@ -185,7 +218,12 @@ export const MainShell: Component<MainShellProps> = (props) => {
         <WhichKey focusable={false} />
       </Show>
 
-      <ActiveDialogSlot dispatch={props.dispatch} width={props.width} height={props.height} />
+      <ActiveDialogSlot
+        dispatch={props.dispatch}
+        width={props.width}
+        height={props.height}
+        onToggleToolOutput={props.onToggleToolOutput}
+      />
 
       <Show
         when={store.state.editorReplacement === undefined}
@@ -200,7 +238,12 @@ export const MainShell: Component<MainShellProps> = (props) => {
         />
       </Show>
 
-      <FooterView />
+      <FooterView
+        onModelClick={props.onModelClick}
+        onModeClick={props.onModeClick}
+        onTasksClick={props.onTasksClick}
+        onGoalClick={props.onGoalClick}
+      />
     </Box>
   );
 };
@@ -228,7 +271,59 @@ const EditorReplacementSlot: Component = () => {
 // Transcript entry dispatcher
 // ---------------------------------------------------------------------------
 
-const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
+const TranscriptDisplayItemView: Component<{
+  item: TranscriptDisplayItem
+  workspaceDir: string
+}> = (props) => {
+  const store = useTui2Store();
+  const toggleSingle = (entry: TranscriptEntry): void => {
+    const list = store.state.transcript;
+    const idx = list.indexOf(entry);
+    if (idx === -1) return;
+    const updated = [...list];
+    updated[idx] = { ...entry, expanded: !entry.expanded };
+    store.setState('transcript', updated);
+  };
+  const toggleGroup = (entryIds: ReadonlySet<string>): void => {
+    const list = store.state.transcript;
+    const anyExpanded = list.some((e) => entryIds.has(e.id) && e.expanded === true);
+    const updated = list.map((e) => {
+      if (entryIds.has(e.id)) {
+        return { ...e, expanded: !anyExpanded };
+      }
+      return e;
+    });
+    store.setState('transcript', updated);
+  };
+
+  const item = props.item;
+  if (item.kind === 'single') {
+    return (
+      <TranscriptEntryView
+        entry={item.entry}
+        workspaceDir={props.workspaceDir}
+        onToggleExpanded={() => toggleSingle(item.entry)}
+      />
+    );
+  }
+  const members = (): readonly (TranscriptGroupMember & { readonly workspaceDir: string })[] =>
+    item.members.map((member) => ({ ...member, workspaceDir: props.workspaceDir }));
+  return (
+    <Clickable onClick={() => toggleGroup(new Set(item.members.map((m) => m.entryId)))}>
+      {item.tool === 'read' ? (
+        <ReadGroupView members={members()} />
+      ) : (
+        <AgentGroupView members={members()} />
+      )}
+    </Clickable>
+  );
+};
+
+const TranscriptEntryView: Component<{
+  entry: TranscriptEntry
+  workspaceDir: string
+  onToggleExpanded?: () => void
+}> = (props) => {
   const entry = props.entry;
   switch (entry.kind) {
     case 'user':
@@ -241,16 +336,17 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
           content={entry.content}
           mode="finalized"
           expanded={entry.expanded}
+          onToggle={props.onToggleExpanded}
         />
       );
     case 'status':
-      return <StatusMessageView content={entry.content} color={entry.color} />;
+      return <StatusEntryView entry={entry} />;
     case 'goal':
       if (entry.goalData === undefined) return null;
       if (entry.goalData.kind === 'created') return <GoalSetMessageView />;
       return <StatusMessageView content={entry.content} />;
     case 'welcome':
-      return <PlanBoxView plan={entry.content} borderHex={currentTheme.hex('border')} />;
+      return <WelcomeEntryView />;
     case 'tool_call':
       if (entry.toolCallData === undefined) return null;
       return (
@@ -259,6 +355,11 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
           result={entry.toolCallData.result}
           expanded={entry.expanded}
           navigated={entry.navigated}
+          workspaceDir={props.workspaceDir}
+          progressLines={entry.toolCallData.progressLines}
+          liveOutput={entry.toolCallData.liveOutput}
+          detachHint={entry.toolCallData.detachHint}
+          onToggle={props.onToggleExpanded}
         />
       );
     case 'skill_activation':
@@ -286,6 +387,56 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
   }
 };
 
+/**
+ * Status rows carry several payloads: compaction progress/result, swarm
+ * enter/exit markers, background-agent cards, the pending OAuth device-code
+ * login card, or plain status text.
+ */
+const StatusEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
+  const entry = props.entry;
+  if (entry.compactionData !== undefined) {
+    const viewProps = compactionViewPropsFromData(entry.compactionData);
+    return <CompactionView {...viewProps} expanded={entry.expanded} />;
+  }
+  if (entry.swarmData !== undefined) {
+    return <SwarmModeMarkerView state={entry.swarmData.state} />;
+  }
+  if (entry.backgroundAgentStatus !== undefined) {
+    return <BackgroundAgentStatusView data={entry.backgroundAgentStatus} />;
+  }
+  // Reactive: the card arrives via signal while the entry stays untouched.
+  const deviceCard = (): ActiveDeviceCodeCard | undefined => {
+    const card = activeDeviceCodeCard();
+    return card !== undefined && card.entryId === entry.id ? card : undefined;
+  };
+  return (
+    <Show
+      when={deviceCard()}
+      keyed
+      fallback={<StatusMessageView content={entry.content} color={entry.color} />}
+    >
+      {(card: ActiveDeviceCodeCard) => (
+        <DeviceCodeBoxView title={card.title} url={card.url} code={card.code} hint={card.hint} />
+      )}
+    </Show>
+  );
+};
+
+/** The startup welcome panel rendered for the `welcome` transcript entry. */
+const WelcomeEntryView: Component = () => {
+  const store = useTui2Store();
+  return (
+    <WelcomeView
+      model={store.state.model}
+      availableModels={store.state.availableModels}
+      workDir={store.state.workDir}
+      sessionId={store.state.sessionId}
+      version={store.state.version}
+      mcpServersSummary={store.state.mcpServersSummary}
+    />
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Active dialog slot
 // ---------------------------------------------------------------------------
@@ -294,12 +445,27 @@ const ActiveDialogSlot: Component<{
   readonly dispatch: DialogDispatch;
   readonly width: number;
   readonly height: number;
+  readonly onToggleToolOutput?: () => void;
 }> = (props) => {
   const store = useTui2Store();
   const dialog = (): DialogKind | null => store.state.activeDialog as DialogKind | null;
   const dispatch = props.dispatch;
   const select = (result: DialogResult): void => dispatch.select(result);
   const cancel = (kind: DialogKind): void => dispatch.cancel(kind);
+
+  // Ctrl+E full-content preview (v1 `ApprovalPreviewViewer` takeover): while
+  // set, the viewer replaces the approval panel in this slot; Esc / Ctrl+E
+  // returns to the panel. Cleared when the approval resolves or the dialog
+  // changes.
+  const [previewBlock, setPreviewBlock] = createSignal<ApprovalPreviewBlock | undefined>(
+    undefined,
+  );
+  createEffect(() => {
+    if (dialog() !== 'approval-panel' || store.state.livePane.pendingApproval === null) {
+      setPreviewBlock(undefined);
+    }
+  });
+
   const editingGoal = (): import('../goal-queue-store').UpcomingGoal | undefined => {
     const qm = store.state.goalQueueManager;
     if (qm === undefined || qm.editingGoalId === undefined) return undefined;
@@ -503,16 +669,31 @@ const ActiveDialogSlot: Component<{
         />
       </Show>
       <Show when={dialog() === 'approval-panel' && store.state.livePane.pendingApproval !== null}>
-        <ApprovalPanel
-          request={store.state.livePane.pendingApproval!}
-          width={props.width}
-          onResponse={(response) => select({ kind: 'approval-panel', response })}
-        />
+        <Show
+          when={previewBlock() !== undefined}
+          fallback={
+            <ApprovalPanel
+              request={store.state.livePane.pendingApproval!}
+              width={props.width}
+              onResponse={(response) => select({ kind: 'approval-panel', response })}
+              onToggleToolOutput={props.onToggleToolOutput}
+              onOpenPreview={setPreviewBlock}
+            />
+          }
+        >
+          <ApprovalPreviewViewer
+            block={previewBlock()!}
+            viewRows={Math.max(6, props.height - 10)}
+            width={props.width}
+            onClose={() => setPreviewBlock(undefined)}
+          />
+        </Show>
       </Show>
       <Show when={dialog() === 'question-dialog' && store.state.livePane.pendingQuestion !== null}>
         <QuestionDialog
           request={store.state.livePane.pendingQuestion!}
           width={props.width}
+          onToggleToolOutput={props.onToggleToolOutput}
           onAnswer={(r) =>
             select({ kind: 'question-dialog', method: r.method, answers: r.answers })
           }

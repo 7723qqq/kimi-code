@@ -95,28 +95,63 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
     return false;
   }
   host.noteContextCut?.();
+  await refreshTodoPanel(host);
 
-  const preservedEntries = entries
-    .slice(lastUserIndex)
-    .filter((entry) => !isUndoContextEntry(entry));
+  // When the anchor is a bundled prompt, its skill activation cards sit
+  // before it (contiguous, marked at submission/replay time) and are removed
+  // together with it.
+  const groupEntryIndices = new Set<number>();
+  for (let i = lastUserIndex - 1; i >= 0; i--) {
+    const prev: UndoTranscriptEntry | undefined = entries[i];
+    if (prev?.bundledWithPrompt === true) {
+      groupEntryIndices.add(i);
+      continue;
+    }
+    break;
+  }
+  const preservedEntries = entries.filter(
+    (entry, index) =>
+      !((index >= lastUserIndex || groupEntryIndices.has(index)) && isUndoContextEntry(entry)),
+  );
   if (host.store !== undefined) {
-    host.store.setState('transcript', [
-      ...entries.slice(0, lastUserIndex),
-      ...preservedEntries,
-    ]);
+    host.store.setState('transcript', preservedEntries);
   } else {
     host.state.transcriptEntries.splice(
-      lastUserIndex,
-      host.state.transcriptEntries.length - lastUserIndex,
+      0,
+      host.state.transcriptEntries.length,
       ...preservedEntries,
     );
   }
 
-  if (entries.length === 0) {
+  if (preservedEntries.length === 0) {
     renderWelcome(host);
   }
 
   return true;
+}
+
+/**
+ * Transcript entry plus the bundled-submission marker. The marker itself is
+ * stamped by the session-event handler when a bundled activation lands; the
+ * field lives on the shared entry type once that wiring lands.
+ */
+type UndoTranscriptEntry = TranscriptEntry & { readonly bundledWithPrompt?: boolean };
+
+/** Push the session's current todos back into the panel after a rollback. */
+async function refreshTodoPanel(host: SlashCommandHost): Promise<void> {
+  const session = host.session;
+  if (session === undefined) return;
+  try {
+    const todos = await session.getTodos();
+    if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
+      host.streamingUI.setTodoList([]);
+      return;
+    }
+    host.streamingUI.setTodoList(todos);
+  } catch {
+    // No todo read surface: keep the panel as-is.
+    return;
+  }
 }
 
 async function showUndoSelector(host: SlashCommandHost): Promise<void> {
@@ -354,9 +389,14 @@ function undoLimitFromError(
 }
 
 function isUndoAnchorEntry(entry: TranscriptEntry): boolean {
+  const undoEntry: UndoTranscriptEntry = entry;
   return (
     entry.kind === 'user' ||
-    (entry.kind === 'skill_activation' && entry.skillTrigger === 'user-slash') ||
+    // A bundled activation card is part of its prompt submission, not a
+    // standalone anchor — only the prompt itself undoes.
+    (entry.kind === 'skill_activation' &&
+      entry.skillTrigger === 'user-slash' &&
+      undoEntry.bundledWithPrompt !== true) ||
     entry.kind === 'plugin_command'
   );
 }

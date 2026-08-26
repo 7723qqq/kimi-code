@@ -11,7 +11,8 @@
  *
  * Keyboard: ↑/↓ navigates options, Enter selects (or focuses the "Other"
  * text field), number keys 1-9 shortcut, Tab moves to the next question
- * (or Submit on the last), Esc cancels the whole dialog.
+ * (or Submit on the last), Ctrl+O toggles tool output (delegated to the
+ * host), Esc cancels the whole dialog.
  *
  * Status: REAL (tui2). Replaces the v1 stub.
  */
@@ -33,6 +34,7 @@ import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 const ELLIPSIS = '…'
@@ -68,6 +70,8 @@ export interface QuestionDialogProps {
   readonly width: number
   readonly maxVisibleOptions?: number
   readonly onAnswer: (response: QuestionPanelResponse) => void
+  /** Ctrl+O: toggle tool output expansion behind the dialog (host-owned). */
+  readonly onToggleToolOutput?: () => void
 }
 
 export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
@@ -219,6 +223,11 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
       cancel()
       return
     }
+    if (event.ctrl && event.name === 'o') {
+      event.stopPropagation()
+      props.onToggleToolOutput?.()
+      return
+    }
     if (event.name === 'tab') {
       event.stopPropagation()
       selectNextTab()
@@ -297,7 +306,7 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
   const borderFg = (): ColorInput => currentTheme.color('primary')
   const titleFg = (): ColorInput => currentTheme.color('primary')
   const titleAttrs = (): number => currentTheme.attributes('bold')
-  const textFg = (): ColorInput => currentTheme.color('text')
+  const _textFg = (): ColorInput => currentTheme.color('text')
   const _textDimFg = (): ColorInput => currentTheme.color('textDim')
   const textMutedFg = (): ColorInput => currentTheme.color('textMuted')
   const _accentFg = (): ColorInput => currentTheme.color('accent')
@@ -321,12 +330,17 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
             const label = (): string =>
               i() < questionCount() ? `Q${String(i() + 1)}` : t('tui.dialogs.questionDialog.submitTab')
             return (
-              <Show
-                when={active()}
-                fallback={<Text fg={textMutedFg()}>{` ${label()} `}</Text>}
-              >
-                <Text fg={textFg()}>{` ${label()} `}</Text>
-              </Show>
+              <Clickable onClick={() => setCurrentTab(i())}>
+                <Show
+                  when={active()}
+                  fallback={<Text fg={textMutedFg()}>{` ${label()} `}</Text>}
+                >
+                  <Text
+                    fg={currentTheme.color('primary')}
+                    attributes={currentTheme.attributes('bold')}
+                  >{` [${label()}] `}</Text>
+                </Show>
+              </Clickable>
             )
           }}
         </For>
@@ -354,6 +368,9 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
               editingOther={editingOther()}
               maxVisibleOptions={props.maxVisibleOptions ?? 6}
               width={props.width}
+              onSelectOption={(optIdx) => {
+                commitOption(qIdx, optIdx)
+              }}
             />
           )
         })()}
@@ -376,6 +393,11 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
           width={props.width}
           submitActionIdx={submitActionIdx()}
           reviewMessage={reviewMessage()}
+          onSubmit={() => {
+            setLastMethod('enter')
+            submitAll('enter')
+          }}
+          onCancel={cancel}
         />
       </Show>
       {/* Hint */}
@@ -403,6 +425,7 @@ interface QuestionBodyProps {
   readonly editingOther: boolean
   readonly maxVisibleOptions: number
   readonly width: number
+  readonly onSelectOption: (idx: number) => void
 }
 
 const QuestionBody: Component<QuestionBodyProps> = (props) => {
@@ -436,7 +459,7 @@ const QuestionBody: Component<QuestionBodyProps> = (props) => {
           {(opt, i) => {
             const selectedHere = (): boolean => selected().includes(i())
             return (
-              <>
+              <Clickable onClick={() => props.onSelectOption(i())}>
                 <Box flexDirection="row">
                   <Text fg={cursorIdx() === i() ? titleFg() : textDimFg()}>{`  ${cursorIdx() === i() ? '❯' : ' '} `}</Text>
                   <Show
@@ -449,23 +472,25 @@ const QuestionBody: Component<QuestionBodyProps> = (props) => {
                     <Text fg={textMutedFg()}>{`  ${opt.description ?? ''}`}</Text>
                   </Show>
                 </Box>
-              </>
+              </Clickable>
             )
           }}
         </For>
         {/* Other option */}
-        <Box flexDirection="row">
-          <Text fg={cursorIdx() === props.question.options.length ? titleFg() : textDimFg()}>{`  ${cursorIdx() === props.question.options.length ? '❯' : ' '} `}</Text>
-          <Show
-            when={props.editingOther}
-            fallback={
-              <Text fg={textFg()}>{`${String(props.question.options.length + 1)}. ${t('tui.dialogs.questionDialog.defaultOtherLabel')}`}</Text>
-            }
-          >
-            <Text fg={accentFg()}>{`${String(props.question.options.length + 1)}. `}</Text>
-            <Text>{props.otherText.length > 0 ? props.otherText : ' '}</Text>
-          </Show>
-        </Box>
+        <Clickable onClick={() => props.onSelectOption(props.question.options.length)}>
+          <Box flexDirection="row">
+            <Text fg={cursorIdx() === props.question.options.length ? titleFg() : textDimFg()}>{`  ${cursorIdx() === props.question.options.length ? '❯' : ' '} `}</Text>
+            <Show
+              when={props.editingOther}
+              fallback={
+                <Text fg={textFg()}>{`${String(props.question.options.length + 1)}. ${t('tui.dialogs.questionDialog.defaultOtherLabel')}`}</Text>
+              }
+            >
+              <Text fg={accentFg()}>{`${String(props.question.options.length + 1)}. `}</Text>
+              <Text>{props.otherText.length > 0 ? props.otherText : ' '}</Text>
+            </Show>
+          </Box>
+        </Clickable>
       </Box>
     )
 }
@@ -480,6 +505,8 @@ interface SubmitTabProps {
   readonly width: number
   readonly submitActionIdx: number
   readonly reviewMessage?: string
+  readonly onSubmit: () => void
+  readonly onCancel: () => void
 }
 
 const SubmitTab: Component<SubmitTabProps> = (props) => {
@@ -516,17 +543,23 @@ const SubmitTab: Component<SubmitTabProps> = (props) => {
           <Text>{''}</Text>
         </Box>
         {/* Submit / cancel actions */}
-        <Box flexDirection="row">
-          <Show
-            when={props.submitActionIdx === 0}
-            fallback={
-              <Text fg={textFg()}>{`  [ ${t('common.submit')} ]  ${t('common.cancel')} `}</Text>
-            }
-          >
-            <Text fg={accentFg()} attributes={titleAttrs()}>{`  [ ${t('common.submit')} ]`}</Text>
-            <Text>{'  '}</Text>
-            <Text fg={textFg()}>{t('common.cancel')}</Text>
-          </Show>
+        <Box flexDirection="row" gap={2}>
+          <Clickable onClick={props.onSubmit}>
+            <Text
+              fg={props.submitActionIdx === 0 ? accentFg() : textFg()}
+              attributes={props.submitActionIdx === 0 ? titleAttrs() : undefined}
+            >
+              {`  [ ${t('common.submit')} ]`}
+            </Text>
+          </Clickable>
+          <Clickable onClick={props.onCancel}>
+            <Text
+              fg={props.submitActionIdx === 1 ? accentFg() : textFg()}
+              attributes={props.submitActionIdx === 1 ? titleAttrs() : undefined}
+            >
+              {`[ ${t('common.cancel')} ]`}
+            </Text>
+          </Clickable>
         </Box>
         <Show when={props.reviewMessage !== undefined && (props.reviewMessage ?? '').length > 0}>
           <Box>

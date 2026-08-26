@@ -34,8 +34,12 @@ export const COMMANDS = {
   externalEditor: 'tui2.editor.external',
   /** Ctrl+O: toggle tool output expansion. */
   toggleToolOutput: 'tui2.tool.output',
-  /** Ctrl+S: send the oldest queued message (steer / drain). */
+  /** Ctrl+S: steer — splice the queue + draft into the running turn. */
   sendQueued: 'tui2.queue.send',
+  /** Alt+V (Windows) / Ctrl+V: paste a clipboard image / video attachment. */
+  pasteImage: 'tui2.editor.pasteImage',
+  /** Ctrl+B: detach the current foreground task to the background. */
+  detachBackground: 'tui2.editor.detach',
   /** Ctrl+T: toggle the todo panel expansion. */
   toggleTodoExpand: 'tui2.todo.expand',
   switchModel: 'tui2.model.switch',
@@ -90,6 +94,11 @@ export function buildBaseBindings(): Bindings<Renderable, KeyEvent> {
     { key: 'ctrl+m', cmd: COMMANDS.switchModel },
     { key: 'ctrl+o', cmd: COMMANDS.toggleToolOutput },
     { key: 'ctrl+s', cmd: COMMANDS.sendQueued },
+    // Paste image — platform-aware (mirrors v1 custom-editor.ts): Windows
+    // terminals reserve Ctrl+V for their own paste handling, so Windows
+    // listens for Alt+V; elsewhere Ctrl+V pastes.
+    { key: process.platform === 'win32' ? 'alt+v' : 'ctrl+v', cmd: COMMANDS.pasteImage },
+    { key: 'ctrl+b', cmd: COMMANDS.detachBackground },
     { key: 'ctrl+t', cmd: COMMANDS.toggleTodoExpand },
     { key: 'ctrl+l', cmd: COMMANDS.sessions },
     { key: 'ctrl+n', cmd: COMMANDS.newSession },

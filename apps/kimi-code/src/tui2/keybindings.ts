@@ -17,6 +17,10 @@ export const KIMI_KEYBINDINGS = {
   'kimi.editor.ctrlO': { defaultKeys: 'ctrl+o', description: 'Toggle tool output' },
   'kimi.editor.ctrlS': { defaultKeys: 'ctrl+s', description: 'Steer / send queued' },
   'kimi.editor.ctrlB': { defaultKeys: 'ctrl+b', description: 'Detach background task' },
+  'kimi.editor.pasteImage': {
+    defaultKeys: process.platform === 'win32' ? 'alt+v' : 'ctrl+v',
+    description: 'Paste clipboard image',
+  },
   'kimi.editor.ctrlT': { defaultKeys: 'ctrl+t', description: 'Toggle todo expand' },
   'kimi.editor.shiftTab': { defaultKeys: 'shift+tab', description: 'Toggle plan mode' },
   'kimi.editor.undo': { defaultKeys: 'ctrl+-', description: 'Undo' },

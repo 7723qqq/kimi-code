@@ -198,3 +198,134 @@ export function truncateToWidth(
   if (pad) out += ' '.repeat(Math.max(0, maxWidth - keptWidth - ellipsisWidth));
   return out;
 }
+
+// ── Preview width resolution & visual-row folding ───────────────────────
+
+/**
+ * Conservative column budget when neither a caller-provided width nor the
+ * live terminal width is available (same 80-column fallback the banner and
+ * the kimi-tui controller use).
+ */
+export const DEFAULT_PREVIEW_WIDTH = 80;
+
+/**
+ * Column budget for preview truncation: an explicit caller value wins,
+ * then the live terminal width (the banner's `process.stdout.columns`
+ * source), then the conservative default. Callers that know their actual
+ * layout column (e.g. a transcript pane narrower than the terminal)
+ * should pass it explicitly.
+ */
+export function resolvePreviewWidth(explicit: number | undefined): number {
+  if (explicit !== undefined && Number.isFinite(explicit) && explicit >= 1) {
+    return Math.floor(explicit);
+  }
+  const columns = process.stdout.columns;
+  if (typeof columns === 'number' && Number.isFinite(columns) && columns >= 1) {
+    return Math.floor(columns);
+  }
+  return DEFAULT_PREVIEW_WIDTH;
+}
+
+/** One measurable unit of a line: a grapheme (with any pending ANSI codes
+ * glued on) or a trailing ANSI-only run. Zero-width by construction. */
+interface WidthAtom {
+  text: string;
+  width: number;
+  space: boolean;
+}
+
+function lineAtoms(line: string): WidthAtom[] {
+  const atoms: WidthAtom[] = [];
+  let i = 0;
+  while (i < line.length) {
+    const ansi = extractAnsiCode(line, i);
+    if (ansi) {
+      // Zero-width atom keeps the escape at its original position, so a
+      // style open/close right before a wrapped-away gap still lands on
+      // the correct side of the break.
+      atoms.push({ text: ansi.code, width: 0, space: false });
+      i += ansi.length;
+      continue;
+    }
+    let end = i;
+    while (end < line.length && !extractAnsiCode(line, end)) end++;
+    for (const { segment } of graphemeSegmenter.segment(line.slice(i, end))) {
+      atoms.push({
+        text: segment,
+        width: graphemeWidth(segment),
+        space: /\s/.test(segment),
+      });
+    }
+    i = end;
+  }
+  return atoms;
+}
+
+/**
+ * Fold one logical line into word-wrapped visual rows, each within
+ * `maxWidth` visible columns — the same folding the layout applies with
+ * `wrapMode="word"`, computed synchronously so previews can cap by what
+ * the user actually sees instead of by logical line count. Words wider
+ * than a full row hard-break; ANSI escapes ride along without consuming
+ * width; leading indentation is preserved on the first row; an empty
+ * line yields one empty row.
+ */
+export function wrapToVisualRows(line: string, maxWidth: number): string[] {
+  if (maxWidth <= 0 || visibleWidth(line) <= maxWidth) return [line];
+
+  const rows: string[] = [];
+  let row = '';
+  let rowWidth = 0;
+  let word: WidthAtom[] = [];
+  let wordWidth = 0;
+  let gap = '';
+  let gapWidth = 0;
+
+  // Place the pending word on the current row, flushing the row first when
+  // the word (plus its separating gap) would overflow. A wrapped row drops
+  // the gap; the line's original leading indentation is kept.
+  const commitWord = (): void => {
+    if (word.length === 0) return;
+    if (rowWidth > 0 && rowWidth + gapWidth + wordWidth > maxWidth) {
+      rows.push(row);
+      row = '';
+      rowWidth = 0;
+    }
+    if (rowWidth > 0 || rows.length === 0) {
+      row += gap;
+      rowWidth += gapWidth;
+    }
+    gap = '';
+    gapWidth = 0;
+    if (wordWidth <= maxWidth) {
+      for (const atom of word) row += atom.text;
+      rowWidth += wordWidth;
+    } else {
+      for (const atom of word) {
+        if (rowWidth > 0 && atom.width > 0 && rowWidth + atom.width > maxWidth) {
+          rows.push(row);
+          row = '';
+          rowWidth = 0;
+        }
+        row += atom.text;
+        rowWidth += atom.width;
+      }
+    }
+    word = [];
+    wordWidth = 0;
+  };
+
+  for (const atom of lineAtoms(line)) {
+    if (atom.space) {
+      commitWord();
+      gap += atom.text;
+      gapWidth += atom.width;
+    } else {
+      word.push(atom);
+      wordWidth += atom.width;
+    }
+  }
+  commitWord();
+  rows.push(row);
+  return rows;
+}

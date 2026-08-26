@@ -18,6 +18,7 @@
  */
 
 import type { Component } from 'solid-js'
+import { For, Show } from 'solid-js'
 import { effectiveModelAlias, type ModelAlias } from '@moonshot-ai/kimi-code-sdk'
 import type { ColorInput } from '@opentui/core'
 
@@ -43,18 +44,21 @@ const DANCE_TITLE = 'Welcome to Kimi Code!';
 /** Per-character rainbow text built from the shared dance palette. */
 function RainbowText(props: { text: string; offset: number; bold?: boolean }) {
   const palette = getDanceRainbowPalette()
-  let colorIndex = props.offset
-  const spans = Array.from(props.text).map((char) => {
-    if (char === ' ') return <Text>{char}</Text>
-    const color = palette[colorIndex % palette.length] ?? palette[0]
-    colorIndex++
-    return (
-      <Text fg={color} attributes={props.bold === true ? currentTheme.attributes('bold') : undefined}>
-        {char}
-      </Text>
-    )
-  })
-  return <>{spans}</>
+  return (
+    <Box flexDirection="row">
+      <For each={Array.from(props.text)}>
+        {(char, index) => {
+          if (char === ' ') return <Text>{' '}</Text>
+          const color = palette[(props.offset + index()) % palette.length] ?? palette[0]
+          return (
+            <Text fg={color} attributes={props.bold === true ? currentTheme.attributes('bold') : undefined}>
+              {char}
+            </Text>
+          )
+        }}
+      </For>
+    </Box>
+  )
 }
 
 export const WelcomeView: Component<WelcomeViewProps> = (props) => {
@@ -91,60 +95,75 @@ export const WelcomeView: Component<WelcomeViewProps> = (props) => {
     >
       <Box flexDirection="row" gap={2}>
         <Box flexDirection="column">
-          {dancing() ? (
+          <Show
+            when={dancing()}
+            fallback={
+              <>
+                <Text fg={primary()}>{LOGO[0]}</Text>
+                <Text fg={primary()}>{LOGO[1]}</Text>
+              </>
+            }
+          >
             <RainbowText text={LOGO[0]} offset={dancePhase()} />
-          ) : (
-            <Text fg={primary()}>{LOGO[0]}</Text>
-          )}
-          {dancing() ? (
             <RainbowText text={LOGO[1]} offset={dancePhase() + 3} />
-          ) : (
-            <Text fg={primary()}>{LOGO[1]}</Text>
-          )}
+          </Show>
         </Box>
         <Box flexDirection="column">
-          {dancing() ? (
+          <Show
+            when={dancing()}
+            fallback={
+              <Text fg={textStrong()} attributes={currentTheme.attributes('bold')}>
+                {t('tui.chrome.welcome.title')}
+              </Text>
+            }
+          >
             <RainbowText text={DANCE_TITLE} offset={dancePhase() + 2} bold />
-          ) : (
-            <Text fg={textStrong()} attributes={currentTheme.attributes('bold')}>
-              {t('tui.chrome.welcome.title')}
-            </Text>
-          )}
+          </Show>
           <Text fg={promptFg()}>{prompt()}</Text>
         </Box>
       </Box>
-      <Text fg={text()}>
+
+      {/* Directory */}
+      <Box flexDirection="row">
         <Text fg={textDim()} attributes={currentTheme.attributes('bold')}>
-          {t('tui.chrome.welcome.directory')}
+          {`${t('tui.chrome.welcome.directory')} `}
         </Text>
-        {props.workDir}
-      </Text>
-      <Text fg={text()}>
+        <Text fg={text()}>{props.workDir ?? ''}</Text>
+      </Box>
+
+      {/* Session */}
+      <Box flexDirection="row">
         <Text fg={textDim()} attributes={currentTheme.attributes('bold')}>
-          {t('tui.chrome.welcome.session')}
+          {`${t('tui.chrome.welcome.session')} `}
         </Text>
-        {props.sessionId}
-      </Text>
-      <Text fg={text()}>
+        <Text fg={text()}>{props.sessionId ?? ''}</Text>
+      </Box>
+
+      {/* Model */}
+      <Box flexDirection="row">
         <Text fg={textDim()} attributes={currentTheme.attributes('bold')}>
-          {t('tui.chrome.welcome.model')}
+          {`${t('tui.chrome.welcome.model')} `}
         </Text>
-        {modelValue()}
-      </Text>
-      <Text fg={text()}>
+        <Text fg={text()}>{modelValue() ?? ''}</Text>
+      </Box>
+
+      {/* Version */}
+      <Box flexDirection="row">
         <Text fg={textDim()} attributes={currentTheme.attributes('bold')}>
-          {t('tui.chrome.welcome.version')}
+          {`${t('tui.chrome.welcome.version')} `}
         </Text>
-        {props.version}
-      </Text>
-      {props.mcpServersSummary !== null && props.mcpServersSummary.length > 0 ? (
-        <Text fg={text()}>
+        <Text fg={text()}>{props.version ?? ''}</Text>
+      </Box>
+
+      {/* MCP Servers summary */}
+      <Show when={Boolean(props.mcpServersSummary && props.mcpServersSummary.length > 0)}>
+        <Box flexDirection="row">
           <Text fg={textDim()} attributes={currentTheme.attributes('bold')}>
-            {t('tui.chrome.welcome.mcp')}
+            {`${t('tui.chrome.welcome.mcp')} `}
           </Text>
-          {props.mcpServersSummary}
-        </Text>
-      ) : null}
+          <Text fg={text()}>{props.mcpServersSummary ?? ''}</Text>
+        </Box>
+      </Show>
     </Box>
   )
 }

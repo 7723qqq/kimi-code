@@ -16,7 +16,7 @@ import { createTui2Store, type Tui2Store } from '@/tui2/state'
 import { TERMINAL_FOCUS_IN } from '@/tui2/utils/terminal-focus'
 
 // Replace the real OS-clipboard reader so tests never touch the environment.
-const { clipboardHasImage } = vi.hoisted(() => ({ clipboardHasImage: vi.fn() }))
+const clipboardHasImage = vi.fn()
 vi.mock('@/utils/clipboard/clipboard-has-image', () => ({ clipboardHasImage }))
 
 function setup(options?: { modelSupportsImage?: boolean }): {
@@ -52,8 +52,10 @@ afterEach(() => {
 })
 
 /** Wait for the mocked clipboard promise and any scheduled timer to settle. */
-async function settle(): Promise<void> {
-  await vi.advanceTimersByTimeAsync(0)
+async function settle(ms = 0): Promise<void> {
+  vi.advanceTimersByTime(ms)
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 describe('createClipboardImageHintController', () => {
@@ -68,7 +70,7 @@ describe('createClipboardImageHintController', () => {
     // A focus event re-checks; now the clipboard holds an image.
     clipboardHasImage.mockResolvedValue(true)
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
 
     expect(store.state.footerTransientHint).not.toBeNull()
     expect(store.state.footerTransientHint).toContain('V')
@@ -82,10 +84,10 @@ describe('createClipboardImageHintController', () => {
 
     clipboardHasImage.mockResolvedValue(true)
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
     expect(store.state.footerTransientHint).not.toBeNull()
 
-    await vi.advanceTimersByTimeAsync(HINT_DISPLAY_MS)
+    await settle(HINT_DISPLAY_MS)
     expect(store.state.footerTransientHint).toBeNull()
   })
 
@@ -98,25 +100,25 @@ describe('createClipboardImageHintController', () => {
     // First image appears -> hint.
     clipboardHasImage.mockResolvedValue(true)
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
     expect(store.state.footerTransientHint).not.toBeNull()
     // Clear the display timer so we observe the disarm, not the expiry below.
-    await vi.advanceTimersByTimeAsync(HINT_DISPLAY_MS)
+    await settle(HINT_DISPLAY_MS)
 
     // Same image still present: focus again must NOT re-hint while disarmed.
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
     expect(store.state.footerTransientHint).toBeNull()
 
     // Clipboard becomes empty -> re-arm.
     clipboardHasImage.mockResolvedValue(false)
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
 
     // A brand-new image now notifies again.
     clipboardHasImage.mockResolvedValue(true)
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
     expect(store.state.footerTransientHint).not.toBeNull()
   })
 
@@ -127,7 +129,7 @@ describe('createClipboardImageHintController', () => {
     await settle()
 
     emit(TERMINAL_FOCUS_IN)
-    await vi.advanceTimersByTimeAsync(FOCUS_DEBOUNCE_MS)
+    await settle(FOCUS_DEBOUNCE_MS)
 
     expect(clipboardHasImage).not.toHaveBeenCalled()
     expect(store.state.footerTransientHint).toBeNull()

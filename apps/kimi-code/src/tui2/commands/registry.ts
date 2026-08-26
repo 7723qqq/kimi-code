@@ -45,6 +45,13 @@ function swarmSubcommandSpecs(): readonly ArgCompletionSpec[] {
   ];
 }
 
+const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'status', description: 'Report tower status' },
+  { value: 'teardown', description: 'Tear down the tower' },
+  { value: 'on', description: 'Turn tower mode on' },
+  { value: 'off', description: 'Turn tower mode off' },
+] as const;
+
 function addDirSubcommandSpecs(): readonly ArgCompletionSpec[] {
   return [{ value: 'list', description: t('tui.messages.registryAddDirShow') }];
 }
@@ -66,6 +73,11 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 /** Argument autocompletion for the `/swarm` command (subcommands). */
 export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(swarmSubcommandSpecs(), argumentPrefix);
+}
+
+/** Argument autocompletion for the `/tower` command (subcommands). */
+export function towerArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(TOWER_ARG_COMPLETIONS, argumentPrefix);
 }
 
 /** Argument autocompletion for the `/add-dir` command. */
@@ -209,6 +221,25 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'idle-only',
   },
   {
+    name: 'tower',
+    aliases: [],
+    description: 'Report tower status, toggle tower mode, or set the tower objective',
+    priority: 100,
+    argumentHint: '[status|teardown|on|off] | <objective>',
+    completeArgs: towerArgumentCompletions,
+    availability: (args) => {
+      const sub = args.trim().toLowerCase();
+      // Objective args enable the mode and queue the prompt: they must wait
+      // for idle so the running turn is not hijacked mid-flight. Pure reads
+      // (status/teardown) and deliberate toggles stay always-available.
+      return sub === '' || sub === 'on' || sub === 'off' || sub === 'status' || sub === 'teardown'
+        ? 'always'
+        : 'idle-only';
+    },
+    experimentalFlag: 'tower',
+    requiresEngineV2: true,
+  },
+  {
     name: 'team',
     aliases: [],
     description: t('tui.slashCommands.team'),
@@ -229,7 +260,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: t('tui.slashCommands.secondaryModel'),
     priority: 90,
     availability: 'always',
-    experimentalFlag: 'secondary-model',
+    experimentalFlag: 'secondary_model',
   },
   {
     name: 'effort',

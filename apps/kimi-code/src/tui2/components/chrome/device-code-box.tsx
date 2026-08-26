@@ -9,13 +9,22 @@
  * of the chrome; all colors flow through the active palette so theme
  * switches take effect on the next render.
  *
+ * The host (`controllers/kimi-tui.ts` → `showLoginAuthorizationPrompt`)
+ * records the pending login as an *active card* (see `setDeviceCodeCard`)
+ * keyed by the transcript entry id it appended. MainShell swaps that entry's
+ * plain status row for this view while the entry is on screen — the store
+ * slice for a full transcript-borne payload would need `state.tsx`, which is
+ * outside this feature's boundary, so the holder lives next to the view.
+ *
  * Status: REAL (tui2). Replaces the v1 stub.
  */
 
 import type { Component } from 'solid-js'
+import { createSignal } from 'solid-js'
 import type { ColorInput } from '@opentui/core'
 
 import { t } from '#/i18n'
+
 import { currentTheme } from '../../theme'
 
 import { Box } from '../common/box'
@@ -27,6 +36,30 @@ export interface DeviceCodeBoxParams {
   readonly code: string
   readonly hint?: string
 }
+
+/** The login card currently rendered over its status entry, if any. */
+export interface ActiveDeviceCodeCard extends DeviceCodeBoxParams {
+  /** Transcript entry id whose plain status row this card replaces. */
+  readonly entryId: string
+}
+
+const [cardSignal, setCardSignal] = createSignal<ActiveDeviceCodeCard | undefined>(undefined)
+
+/** Record the device-code card to render for a freshly appended entry. */
+export function setDeviceCodeCard(card: ActiveDeviceCodeCard): void {
+  setCardSignal(card)
+}
+
+/** Drop the active card (login finished / transcript cleared). */
+export function clearDeviceCodeCard(): void {
+  setCardSignal(undefined)
+}
+
+/** Reactive accessor — call inside JSX tracking scopes. */
+export function activeDeviceCodeCard(): ActiveDeviceCodeCard | undefined {
+  return cardSignal()
+}
+
 
 export const DeviceCodeBoxView: Component<DeviceCodeBoxParams> = (props) => {
   const borderColor = (): ColorInput => currentTheme.color('primary')

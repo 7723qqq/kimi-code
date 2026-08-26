@@ -21,14 +21,33 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Ensure native module is built if running on Windows.
+set "NODE_FILE=%~dp0packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node"
+if not exist "%NODE_FILE%" (
+    if exist "%~dp0packages\kimi-native-tools\Cargo.toml" (
+        where cargo >nul 2>nul
+        if not errorlevel 1 (
+            echo Building native tools...
+            cd /d "%~dp0\packages\kimi-native-tools"
+            cargo build --release 2>&1
+            if not errorlevel 1 (
+                copy /y "target\release\kimi_native_tools.dll" "kimi-native-tools.win32-x64-msvc.node" >nul
+            )
+            cd /d "%~dp0"
+        )
+    )
+)
+
 REM Launch the full interactive CLI under Bun with the v2 TUI.
 echo Starting Kimi Code - tui2 opentui...
 bun apps\kimi-code\src\main.ts %*
 
 set "EXIT=%ERRORLEVEL%"
 if not "%EXIT%"=="0" (
-    echo.
-    echo [tui2] Exited with code %EXIT%.
-    pause
+    if not "%EXIT%"=="130" (
+        echo.
+        echo [tui2] Exited with code %EXIT%.
+        pause
+    )
 )
 endlocal & exit /b %EXIT%

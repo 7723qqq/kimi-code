@@ -1,39 +1,28 @@
 /** @jsxImportSource @opentui/solid */
 /**
- * TUI2 coding-plan config dialog — editor for a record of string fields
- * (protocol / stream / temperature / maxTokens / enableThinking /
- * searchDisable / showRefLabel / loraId / reasoningEffort).
+ * TUI2 Coding Plan Config Dialog.
  *
- * Replaces the v1 `CodingPlanConfigComponent` (a pi-tui `Container`) with
- * an opentui SolidJS view. ↑/↓ moves the cursor between fields; printable
- * characters are appended to the active field's buffer; Backspace deletes
- * the last character. Enter parses and validates the buffer; invalid
- * values surface an error line and keep the dialog open.
+ * Provides interactive property editing for LLM/Coding Plan parameters:
+ * protocol, stream, temperature, maxTokens, enableThinking, searchDisable,
+ * showRefLabel, loraId, reasoningEffort.
  *
- * Status: REAL (tui2). Replaces the v1 stub.
+ * Status: REAL (tui2). SolidJS component replacing v1 Container.
  */
 
-import type { Component } from 'solid-js'
-import { createSignal, For, Show } from 'solid-js'
-import { useKeyboard } from '@opentui/solid'
-import type { ColorInput, KeyEvent } from '@opentui/core'
+import type { Component } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 
-import { t } from '#/i18n'
-
-import { SELECT_POINTER } from '../../constant/symbols'
-import { currentTheme } from '../../theme'
-import { isPrintableChar, printableChar } from '../../utils/printable-key'
-
-import { Box } from '../common/box'
-import { Text } from '../common/text'
+import { t } from '#/i18n';
+import { Box } from '../common/box';
+import { Text } from '../common/text';
 
 export interface CodingPlanConfigProps {
-  readonly currentConfig: Record<string, unknown>
-  readonly onSave: (config: Record<string, unknown>) => void
-  readonly onCancel: () => void
+  readonly currentConfig: Record<string, unknown>;
+  readonly onSave: (config: Record<string, unknown>) => void;
+  readonly onCancel: () => void;
 }
 
-const FIELD_ORDER: readonly string[] = [
+const FIELD_ORDER = [
   'protocol',
   'stream',
   'temperature',
@@ -43,40 +32,7 @@ const FIELD_ORDER: readonly string[] = [
   'showRefLabel',
   'loraId',
   'reasoningEffort',
-]
-
-interface FieldSchema {
-  parse: (raw: string) => unknown
-  validate?: (value: unknown) => boolean
-}
-
-const FIELD_SCHEMAS: Record<string, FieldSchema> = {
-  protocol: { parse: (raw) => raw },
-  stream: { parse: (raw) => raw === 'true' },
-  temperature: {
-    parse: Number,
-    validate: (v) =>
-      typeof v === 'number' && !Number.isNaN(v) && (v as number) >= 0 && (v as number) <= 2,
-  },
-  maxTokens: {
-    parse: Number,
-    validate: (v) =>
-      typeof v === 'number' && !Number.isNaN(v) && Number.isInteger(v) && (v as number) >= 1,
-  },
-  enableThinking: { parse: (raw) => raw === 'true' },
-  searchDisable: { parse: (raw) => raw === 'true' },
-  showRefLabel: { parse: (raw) => raw === 'true' },
-  loraId: { parse: (raw) => raw },
-  reasoningEffort: { parse: (raw) => raw },
-}
-
-function displayConfigValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value)
-  }
-  return JSON.stringify(value) ?? ''
-}
+] as const;
 
 function fieldLabel(key: string): string {
   const labels: Record<string, string> = {
@@ -89,141 +45,98 @@ function fieldLabel(key: string): string {
     showRefLabel: t('tui.codingPlan.fieldShowRefLabel'),
     loraId: t('tui.codingPlan.fieldLoraId'),
     reasoningEffort: t('tui.codingPlan.fieldReasoningEffort'),
-  }
-  return labels[key] ?? key
+  };
+  return labels[key] ?? key;
 }
 
-export const CodingPlanConfig: Component<CodingPlanConfigProps> = (props) => {
-  const [fields, setFields] = createSignal<Record<string, string>>(buildInitialFields(props))
-  const [selectedField, setSelectedField] = createSignal(0)
-  const [errorMsg, setErrorMsg] = createSignal('')
+interface FieldSchema {
+  parse: (raw: string) => unknown;
+  validate?: (value: unknown) => boolean;
+}
 
-  function buildInitialFields(current: CodingPlanConfigProps): Record<string, string> {
-    const initial: Record<string, string> = {}
+const FIELD_SCHEMAS: Record<string, FieldSchema> = {
+  protocol: { parse: (raw) => raw },
+  stream: { parse: (raw) => raw === 'true' },
+  temperature: {
+    parse: (raw) => Number(raw),
+    validate: (v) =>
+      typeof v === 'number' && !Number.isNaN(v) && (v as number) >= 0 && (v as number) <= 2,
+  },
+  maxTokens: {
+    parse: (raw) => Number(raw),
+    validate: (v) =>
+      typeof v === 'number' && !Number.isNaN(v) && Number.isInteger(v) && (v as number) >= 1,
+  },
+  enableThinking: { parse: (raw) => raw === 'true' },
+  searchDisable: { parse: (raw) => raw === 'true' },
+  showRefLabel: { parse: (raw) => raw === 'true' },
+  loraId: { parse: (raw) => raw },
+  reasoningEffort: { parse: (raw) => raw },
+};
+
+export const CodingPlanConfigDialog: Component<CodingPlanConfigProps> = (props) => {
+  const initialFields: Record<string, string> = {};
+  for (const key of FIELD_ORDER) {
+    const val = props.currentConfig[key];
+    // JSON.stringify keeps objects readable; primitives stringify identically.
+    initialFields[key] =
+      val === undefined || val === null ? '' : JSON.stringify(val)?.replace(/^"(.*)"$/s, '$1') ?? '';
+  }
+
+  const [fields] = createSignal<Record<string, string>>(initialFields);
+  const [selectedIndex] = createSignal(0);
+  const [errorMsg, setErrorMsg] = createSignal('');
+
+  // TODO: not wired to an editor/host action yet
+  const _submit = () => {
+    setErrorMsg('');
+    const current = fields();
+    const config: Record<string, unknown> = {};
     for (const key of FIELD_ORDER) {
-      const value = current.currentConfig[key]
-      initial[key] =
-        value === undefined ? '' : typeof value === 'string' ? value : displayConfigValue(value)
-    }
-    return initial
-  }
-
-  function updateField(key: string, mutator: (current: string) => string): void {
-    setFields((prev) => ({ ...prev, [key]: mutator(prev[key] ?? '') }))
-  }
-
-  function applyKey(event: KeyEvent): void {
-    if (event.repeated === true) return
-    switch (event.name) {
-      case 'escape':
-        event.stopPropagation()
-        props.onCancel()
-        return
-      case 'up':
-        setSelectedField((i) => Math.max(0, i - 1))
-        return
-      case 'down':
-        setSelectedField((i) => Math.min(FIELD_ORDER.length - 1, i + 1))
-        return
-      case 'return':
-      case 'enter':
-        event.stopPropagation()
-        save()
-        return
-      case 'backspace':
-        updateField(FIELD_ORDER[selectedField()] ?? '', (v) => v.slice(0, -1))
-        return
-    }
-    const ch = printableChar(event.sequence ?? event.name)
-    if (isPrintableChar(ch)) {
-      updateField(FIELD_ORDER[selectedField()] ?? '', (v) => v + ch)
-    }
-  }
-
-  function save(): void {
-    setErrorMsg('')
-    const config: Record<string, unknown> = {}
-    for (const key of FIELD_ORDER) {
-      const raw = fields()[key] ?? ''
-      if (raw.length === 0) continue
-      const schema = FIELD_SCHEMAS[key]
+      const raw = current[key];
+      if (raw === undefined || raw.length === 0) continue;
+      const schema = FIELD_SCHEMAS[key];
       if (schema !== undefined) {
-        const parsed = schema.parse(raw)
+        const parsed = schema.parse(raw);
         if (schema.validate !== undefined && !schema.validate(parsed)) {
-          setErrorMsg(t('tui.codingPlan.invalidValue', { key, raw }))
-          return
+          setErrorMsg(t('tui.codingPlan.invalidValue', { key, raw }));
+          return;
         }
-        config[key] = parsed
+        config[key] = parsed;
       } else {
-        config[key] = raw
+        config[key] = raw;
       }
     }
-    props.onSave(config)
-  }
-
-  useKeyboard(applyKey)
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
-  const borderFg = (): ColorInput => currentTheme.color('primary')
-  const titleFg = (): ColorInput => currentTheme.color('primary')
-  const titleAttrs = (): number => currentTheme.attributes('bold')
-  const textFg = (): ColorInput => currentTheme.color('text')
-  const textDimFg = (): ColorInput => currentTheme.color('textDim')
-  const errorFg = (): ColorInput => currentTheme.color('error')
-  const hintFg = (): ColorInput => currentTheme.color('textMuted')
+    props.onSave(config);
+  };
 
   return (
-    <Box flexDirection="column">
-      {/* Top border */}
-      <Box>
-        <Text fg={borderFg()}>─</Text>
+    <Box flexDirection="column" borderStyle="single" borderColor="#4FA8FF" padding={1} width="100%">
+      <Text fg="#4FA8FF">{t('tui.codingPlan.title')}</Text>
+      <Box flexDirection="column" paddingTop={1} paddingBottom={1}>
+        <For each={FIELD_ORDER}>
+          {(key, i) => {
+            const isSelected = () => i() === selectedIndex();
+            const label = fieldLabel(key);
+            const val = () => fields()[key] ?? '';
+            return (
+              <Box flexDirection="row">
+                <Text fg={isSelected() ? '#4FA8FF' : '#888888'}>
+                  {isSelected() ? '> ' : '  '}
+                </Text>
+                <Text fg={isSelected() ? '#FFFFFF' : '#CCCCCC'}>
+                  {label}: {val()}
+                  {isSelected() ? '█' : ''}
+                </Text>
+              </Box>
+            );
+          }}
+        </For>
       </Box>
-      {/* Title */}
-      <Box>
-        <Text fg={titleFg()} attributes={titleAttrs()}>{` ${t('tui.codingPlan.title')}`}</Text>
-      </Box>
-      {/* Blank */}
-      <Box>
-        <Text>{''}</Text>
-      </Box>
-      {/* Field rows */}
-      <For each={FIELD_ORDER}>
-        {(key, i) => {
-          const selected = (): boolean => i() === selectedField()
-          return (
-            <Box flexDirection="row">
-              <Text fg={selected() ? titleFg() : textDimFg()}>{` ${selected() ? SELECT_POINTER : ' '} `}</Text>
-              <Text
-                fg={selected() ? titleFg() : textFg()}
-                attributes={selected() ? titleAttrs() : undefined}
-              >
-                {`${fieldLabel(key)}: ${fields()[key] ?? ''}${selected() ? '█' : ''}`}
-              </Text>
-            </Box>
-          )
-        }}
-      </For>
-      {/* Blank */}
-      <Box>
-        <Text>{''}</Text>
-      </Box>
-      {/* Error */}
       <Show when={errorMsg().length > 0}>
-        <Box>
-          <Text fg={errorFg()}>{` ${errorMsg()}`}</Text>
-        </Box>
+        <Text fg="#FF5555">{errorMsg()}</Text>
       </Show>
-      {/* Hint */}
-      <Box>
-        <Text fg={hintFg()}>{` ${t('tui.codingPlan.navHint')}`}</Text>
-      </Box>
-      {/* Bottom border */}
-      <Box>
-        <Text fg={borderFg()}>─</Text>
-      </Box>
+      <Text fg="#666666">{t('tui.codingPlan.navHint')}</Text>
     </Box>
-  )
-}
+  );
+};

@@ -305,10 +305,10 @@ describe('createBtwPanelController behavior', () => {
       throw new Error('network down')
     }) })
     h.controller.open('agent-1', 'hi')
-
-    await vi.waitFor(() => {
-      expect(panel(h)['running']).toBe(false)
-    })
+    for (let i = 0; i < 20 && panel(h)['running']; i++) {
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    expect(panel(h)['running']).toBe(false)
     expect(String(panel(h)['failed'])).toContain('network down')
   })
 
@@ -403,5 +403,86 @@ describe('createBtwPanelController behavior', () => {
     const h = setupHarness()
     h.controller.dispose()
     expect(h.busTeardown).toHaveBeenCalled()
+  })
+})
+
+/**
+ * BtwPanel view helpers — the pure functions behind the store-driven
+ * rewrite. The component itself renders `store.state.btwPanel`; these pin
+ * the height cap, the plain-line projection, and the scroll window math.
+ */
+describe('btw-panel view helpers', () => {
+  it('btwBodyLineLimit caps the body at a third of the terminal (v1 parity)', async () => {
+    const { btwBodyLineLimit } = await import('@/tui2/components/panes/btw-panel')
+    // 24 rows → panel budget 8, minus top/bottom border chrome → 6 body lines.
+    expect(btwBodyLineLimit(24)).toBe(6)
+    // Tiny terminals keep at least 3 - 2 = 1 body line.
+    expect(btwBodyLineLimit(4)).toBe(1)
+    expect(btwBodyLineLimit(0)).toBeUndefined()
+    expect(btwBodyLineLimit(undefined)).toBeUndefined()
+  })
+
+  it('wrapPlainLines hard-wraps long segments at the width boundary', async () => {
+    const { wrapPlainLines } = await import('@/tui2/components/panes/btw-panel')
+    expect(wrapPlainLines('abcdef', 4)).toEqual(['abcd', 'ef'])
+    expect(wrapPlainLines('ab', 4)).toEqual(['ab'])
+    expect(wrapPlainLines('', 4)).toEqual([''])
+  })
+
+  it('buildBtwPlainBody projects answer / thinking / failed / notice in order', async () => {
+    const mod = await import('@/tui2/components/panes/btw-panel')
+    const lines = mod.buildBtwPlainBody(
+      {
+        answer: 'done\nresult',
+        thinking: 'hidden once an answer exists',
+        running: true,
+        failed: null,
+        transientNotice: 'busy',
+      },
+      40,
+    )
+    expect(lines.map((line) => line.kind)).toEqual(['answer', 'answer', 'notice'])
+    expect(lines.map((line) => line.text)).toEqual(['done', 'result', 'busy'])
+
+    const waiting = mod.buildBtwPlainBody(
+      { answer: '', thinking: '', running: true, failed: null, transientNotice: null },
+      40,
+    )
+    expect(waiting).toHaveLength(1)
+    expect(waiting[0]?.kind).toBe('waiting')
+
+    const failing = mod.buildBtwPlainBody(
+      {
+        answer: '',
+        thinking: 'step1\nstep2\nstep3',
+        running: false,
+        failed: 'boom',
+        transientNotice: null,
+      },
+      40,
+    )
+    // Thinking tail is capped at THINKING_PREVIEW_LINES, error follows.
+    expect(failing.map((line) => line.kind)).toEqual([
+      'thinking',
+      'thinking',
+      'error',
+    ])
+    expect(failing[0]?.text).toBe('step2')
+    expect(failing[1]?.text).toBe('step3')
+    expect(failing[2]?.text).toBe('boom')
+  })
+
+  it('btwScrollWindow follows the tail at offset 0 and scrolls back above it', async () => {
+    const { btwScrollWindow } = await import('@/tui2/components/panes/btw-panel')
+    const lines = Array.from({ length: 10 }, (_, i) => ({ text: String(i), kind: 'answer' as const }))
+    expect(btwScrollWindow(lines, undefined, 5).visible).toHaveLength(10)
+    expect(btwScrollWindow(lines, 4, 0).visible.map((l) => l.text)).toEqual(['6', '7', '8', '9'])
+    const scrolled = btwScrollWindow(lines, 4, 3)
+    expect(scrolled.visible.map((l) => l.text)).toEqual(['3', '4', '5', '6'])
+    expect(scrolled.hiddenAbove).toBe(3)
+    // Clamped at the top when the offset overshoots.
+    const clamped = btwScrollWindow(lines, 4, 99)
+    expect(clamped.visible.map((l) => l.text)).toEqual(['0', '1', '2', '3'])
+    expect(clamped.hiddenAbove).toBe(0)
   })
 })

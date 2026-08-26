@@ -50,6 +50,7 @@ import { getCurrentMark, SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme, type ColorToken } from '../../theme'
 
 import { Box } from '../common/box'
+import { Clickable } from '../common/clickable'
 import { Text } from '../common/text'
 
 export interface ChoiceOption {
@@ -293,24 +294,29 @@ export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
             const isCurrent = (): boolean => opt.value === props.currentValue
             const pointer = (): string => (selected() ? SELECT_POINTER : ' ')
             return (
-              <>
-                <Box flexDirection="row">
-                  <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${pointer()} `}</Text>
-                  <Text fg={labelFg(opt, selected())} attributes={labelAttrs(opt, selected())}>
-                    {opt.label}
-                  </Text>
-                  <Show when={isCurrent()}>
-                    <Text fg={successFg()}>{` ${getCurrentMark()}`}</Text>
+              <Clickable
+                onClick={() => props.onSelect(opt.value)}
+                onHover={() => setCursor(realIndex())}
+              >
+                <Box flexDirection="column">
+                  <Box flexDirection="row">
+                    <Text fg={selected() ? titleFg() : textDimFg()}>{`  ${pointer()} `}</Text>
+                    <Text fg={labelFg(opt, selected())} attributes={labelAttrs(opt, selected())}>
+                      {opt.label}
+                    </Text>
+                    <Show when={isCurrent()}>
+                      <Text fg={successFg()}>{` ${getCurrentMark()}`}</Text>
+                    </Show>
+                  </Box>
+                  <Show when={opt.description !== undefined && opt.description.length > 0}>
+                    <Box>
+                      <Text fg={descriptionFg(opt, selected())} wrapMode="word">
+                        {`    ${opt.description}`}
+                      </Text>
+                    </Box>
                   </Show>
                 </Box>
-                <Show when={opt.description !== undefined && opt.description.length > 0}>
-                  <Box>
-                    <Text fg={descriptionFg(opt, selected())} wrapMode="word">
-                      {`    ${opt.description}`}
-                    </Text>
-                  </Box>
-                </Show>
-              </>
+              </Clickable>
             )
           }}
         </For>

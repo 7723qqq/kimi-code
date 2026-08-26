@@ -7,6 +7,7 @@
  */
 import { t } from '#/i18n';
 
+import type { Tui2Store } from '../state';
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { parseSlashInput } from './parse';
 import {
@@ -55,6 +56,7 @@ export interface ResolveSlashCommandInput {
   readonly pluginCommandMap: ReadonlyMap<string, string>;
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
+  readonly engineV2?: boolean;
 }
 
 export function resolveSlashCommandInput(options: ResolveSlashCommandInput): SlashCommandIntent {
@@ -62,10 +64,12 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
   if (parsed === null) return { kind: 'not-command' };
 
   const command = findBuiltInSlashCommand(parsed.name);
-  // `command` is a literal union where only some members carry `experimentalFlag`; widen to read it.
+  // `command` is a literal union where only some members carry `experimentalFlag`
+  // / `requiresEngineV2`; widen to read them.
   if (
     command !== undefined &&
-    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)
+    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag) &&
+    (!(command as KimiSlashCommand).requiresEngineV2 || options.engineV2 === true)
   ) {
     const busyReason = slashCommandBusyReason(options);
     if (
@@ -88,14 +92,9 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
 
   const skillName = resolveSkillCommand(options.skillCommandMap, parsed.name);
   if (skillName !== undefined) {
-    const busyReason = slashCommandBusyReason(options);
-    if (busyReason !== undefined) {
-      return {
-        kind: 'blocked',
-        commandName: parsed.name,
-        reason: busyReason,
-      };
-    }
+    // Skill activations are never blocked by a busy session: the TUI queues
+    // them behind the running turn exactly like normal messages (see the
+    // dispatch layer), so skill commands can be issued any time.
     return {
       kind: 'skill',
       commandName: parsed.name,
@@ -150,4 +149,14 @@ export function slashBusyMessage(commandName: string, reason: SlashCommandBusyRe
     return t('tui.messages.resolveCannotWhileStreaming', { name: commandName });
   }
   return t('tui.messages.resolveCannotWhileCompacting', { name: commandName });
+}
+
+/**
+ * Whether a delayed input restore is still safe: the editor draft must be
+ * empty (no newer draft) and no editor-replacement dialog opened meanwhile.
+ * Restores that run synchronously with submit do not need this.
+ */
+export function canRestoreSubmittedInput(store: Tui2Store | undefined): boolean {
+  if (store === undefined) return true;
+  return store.state.editorDraft.length === 0 && store.state.activeDialog === null;
 }
