@@ -75,10 +75,14 @@ import { UpdatePreferenceSelector } from './dialogs/update-preference-selector';
 import { WhichKey } from './dialogs/which-key';
 import { CustomEditor } from './editor/custom-editor';
 import { AssistantMessageView } from './messages/assistant-message';
+import { CronMessageView } from './messages/cron-message';
 import { GoalSetMessageView } from './messages/goal-panel';
 import { PlanBoxView } from './messages/plan-box';
+import { PluginCommandView } from './messages/plugin-command';
+import { SkillActivationView } from './messages/skill-activation';
 import { StatusMessageView } from './messages/status-message';
 import { ThinkingView } from './messages/thinking';
+import { ToolCallView } from './messages/tool-call';
 import { UserMessageView } from './messages/user-message';
 import { ActivityPane, type ActivityPaneMode } from './panes/activity-pane';
 import { AgentPane } from './panes/agent-pane';
@@ -175,7 +179,7 @@ export const MainShell: Component<MainShellProps> = (props) => {
         <Text fg={borderFg()}>─</Text>
       </Box>
 
-      <ActiveDialogSlot dispatch={props.dispatch} />
+      <ActiveDialogSlot dispatch={props.dispatch} width={props.width} height={props.height} />
 
       <Show
         when={store.state.editorReplacement === undefined}
@@ -219,27 +223,58 @@ const EditorReplacementSlot: Component = () => {
 // ---------------------------------------------------------------------------
 
 const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
-  switch (props.entry.kind) {
+  const entry = props.entry;
+  switch (entry.kind) {
     case 'user':
-      return <UserMessageView content={props.entry.content} bullet={props.entry.bullet} />;
+      return <UserMessageView content={entry.content} bullet={entry.bullet} />;
     case 'assistant':
-      return <AssistantMessageView content={props.entry.content} />;
+      return <AssistantMessageView content={entry.content} />;
     case 'thinking':
       return (
         <ThinkingView
-          content={props.entry.content}
+          content={entry.content}
           mode="finalized"
-          expanded={props.entry.expanded}
+          expanded={entry.expanded}
         />
       );
     case 'status':
-      return <StatusMessageView content={props.entry.content} color={props.entry.color} />;
+      return <StatusMessageView content={entry.content} color={entry.color} />;
     case 'goal':
-      if (props.entry.goalData === undefined) return null;
-      if (props.entry.goalData.kind === 'created') return <GoalSetMessageView />;
-      return <StatusMessageView content={props.entry.content} />;
+      if (entry.goalData === undefined) return null;
+      if (entry.goalData.kind === 'created') return <GoalSetMessageView />;
+      return <StatusMessageView content={entry.content} />;
     case 'welcome':
-      return <PlanBoxView plan={props.entry.content} borderHex={currentTheme.hex('border')} />;
+      return <PlanBoxView plan={entry.content} borderHex={currentTheme.hex('border')} />;
+    case 'tool_call':
+      if (entry.toolCallData === undefined) return null;
+      return (
+        <ToolCallView
+          toolCall={entry.toolCallData}
+          result={entry.toolCallData.result}
+          expanded={entry.expanded}
+          navigated={entry.navigated}
+        />
+      );
+    case 'skill_activation':
+      return (
+        <SkillActivationView
+          name={entry.skillName ?? entry.content}
+          args={entry.skillArgs}
+          trigger={entry.skillTrigger}
+        />
+      );
+    case 'plugin_command':
+      if (entry.pluginCommandData === undefined) return null;
+      return (
+        <PluginCommandView
+          pluginId={entry.pluginCommandData.pluginId}
+          commandName={entry.pluginCommandData.commandName}
+          args={entry.pluginCommandData.args}
+        />
+      );
+    case 'cron':
+      if (entry.cronData === undefined) return null;
+      return <CronMessageView prompt={entry.content} data={entry.cronData} />;
     default:
       return null;
   }
@@ -249,7 +284,11 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
 // Active dialog slot
 // ---------------------------------------------------------------------------
 
-const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
+const ActiveDialogSlot: Component<{
+  readonly dispatch: DialogDispatch;
+  readonly width: number;
+  readonly height: number;
+}> = (props) => {
   const store = useTui2Store();
   const dialog = (): DialogKind | null => store.state.activeDialog as DialogKind | null;
   const dispatch = props.dispatch;
@@ -435,7 +474,7 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
       <Show when={dialog() === 'help'}>
         <HelpPanel
           commands={store.state.helpPanel?.commands ?? []}
-          width={store.state.helpPanel?.width ?? 80}
+          width={store.state.helpPanel?.width ?? props.width}
           onClose={() => cancel('help')}
         />
       </Show>
@@ -460,14 +499,14 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
       <Show when={dialog() === 'approval-panel' && store.state.livePane.pendingApproval !== null}>
         <ApprovalPanel
           request={store.state.livePane.pendingApproval!}
-          width={80}
+          width={props.width}
           onResponse={(response) => select({ kind: 'approval-panel', response })}
         />
       </Show>
       <Show when={dialog() === 'question-dialog' && store.state.livePane.pendingQuestion !== null}>
         <QuestionDialog
           request={store.state.livePane.pendingQuestion!}
-          width={80}
+          width={props.width}
           onAnswer={(r) =>
             select({ kind: 'question-dialog', method: r.method, answers: r.answers })
           }
@@ -513,14 +552,14 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
             const info = browser.tasks.find((task) => task.taskId === browser.viewer!.taskId);
             return (
               <TaskOutputViewer
-                taskId={browser.viewer.taskId}
-                info={info}
-                output={browser.viewer.output}
-                viewRows={24}
-                width={80}
-                onClose={() => select({ kind: 'tasks-browser', action: 'close-viewer' })}
-              />
-            );
+              taskId={browser.viewer.taskId}
+              info={info}
+              output={browser.viewer.output}
+              viewRows={24}
+              width={props.width}
+              onClose={() => select({ kind: 'tasks-browser', action: 'close-viewer' })}
+            />
+          );
           }
           return (
             <TasksBrowser
@@ -530,8 +569,8 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
               tailOutput={browser.tailOutput}
               tailLoading={browser.tailLoading}
               flashMessage={browser.flashMessage}
-              width={80}
-              height={24}
+              width={props.width}
+              height={props.height}
               onSelect={(taskId) => select({ kind: 'tasks-browser', action: 'select', taskId })}
               onToggleFilter={() => select({ kind: 'tasks-browser', action: 'toggle-filter' })}
               onRefresh={() => select({ kind: 'tasks-browser', action: 'refresh' })}

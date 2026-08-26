@@ -18,9 +18,6 @@ import { batch } from 'solid-js'
 
 import type { Event, Session } from '@moonshot-ai/kimi-code-sdk'
 
-import type { Tui2Store } from './state'
-import { produce } from './state'
-
 export type EventHandler<T extends Event['type']> = (
   event: Extract<Event, { type: T }>,
 ) => void
@@ -72,48 +69,10 @@ export function createEventBus(session: Session): Tui2EventBus {
       }
       set.add(handler)
       return () => set?.delete(handler)
-    },    dispose() {
+    },
+    dispose() {
       unsubscribe()
       subscriptions.clear()
     },
   }
 }
-
-/** Reducer helpers used by the default wiring below. */
-
-/**
- * Track live streaming buffers for a turn's assistant/thinking text and
- * tool-call arguments, keyed by turnId. The store slice it mutates is
- * `store.state.streams`.
- */
-export function registerStreamingReducers(
-  bus: Tui2EventBus,
-  store: Tui2Store,
-): () => void {
-  const off = [
-    bus.on('assistant.delta', (event) => {
-      store.setState('streams', String(event.turnId), produce((turn) => {
-        turn.assistantText = (turn.assistantText ?? '') + event.delta
-      }))
-    }),
-    bus.on('thinking.delta', (event) => {
-      store.setState('streams', String(event.turnId), produce((turn) => {
-        turn.thinkingText = (turn.thinkingText ?? '') + event.delta
-      }))
-    }),
-    bus.on('tool.call.delta', (event) => {
-      store.setState('streams', String(event.turnId), 'toolCalls', event.toolCallId, produce((call) => {
-        if (event.name !== undefined) call.name = event.name
-        if (event.argumentsPart !== undefined) {
-          call.argumentsText = (call.argumentsText ?? '') + event.argumentsPart
-        }
-      }))
-    }),
-  ]
-
-  return () => {
-    for (const fn of off) fn()
-  }
-}
-
-export { produce }

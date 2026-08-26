@@ -61,24 +61,6 @@ import type {
   WorkflowRunData,
 } from './types'
 
-/** A turn's streaming buffers, keyed by turnId. */
-export interface TurnStream {
-  /** Accumulated assistant text from `assistant.delta`. */
-  assistantText: string
-  /** Accumulated thinking text from `thinking.delta`. */
-  thinkingText: string
-  /** Tool calls keyed by toolCallId, live arguments merged from `tool.call.delta`. */
-  toolCalls: Record<string, StreamToolCall>
-}
-
-export interface StreamToolCall {
-  id: string
-  name?: string
-  /** Accumulated partial JSON arguments. */
-  argumentsText: string
-  finished?: boolean
-}
-
 export interface TuiRuntimeState {
   /** Current session id (empty until a session exists). */
   sessionId: string
@@ -105,8 +87,6 @@ export interface TuiRuntimeState {
   streamingStartTime: number
   /** Transcript entries in display order. */
   transcript: TranscriptEntry[]
-  /** Live streaming buffers for the active turn. */
-  streams: Record<string, TurnStream>
   /** Live activity-pane mode + pending reverse-RPC modals. */
   livePane: {
     mode: LivePaneMode
@@ -372,7 +352,6 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   streamingPhase: 'idle',
   streamingStartTime: 0,
   transcript: [],
-  streams: {},
   livePane: {
     mode: 'idle',
     pendingApproval: null,

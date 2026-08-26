@@ -41,7 +41,6 @@ function SessionShell() {
           modelText: false,
         },
       ])
-      store.setState('streams', '1', { assistantText: `echo: ${text}`, thinkingText: '', toolCalls: {} })
       setDraft('')
     },
     'tui2.cancel': () => setDraft(''),

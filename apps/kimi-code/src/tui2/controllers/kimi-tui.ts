@@ -35,6 +35,10 @@ import { resolve } from 'pathe';
 
 import { deleteAllKittyImages, getCapabilities } from '../utils/terminal-image';
 
+import { BannerProvider } from '../banner/banner-provider';
+import { readBannerDisplayState, writeBannerDisplayState } from '../banner/state';
+import { runMigrationFlow } from '../commands/migration-screen';
+
 import {
   createMsys2PromptDeps,
   installMsys2,
@@ -349,7 +353,9 @@ export class KimiTUI {
 
   /** Switch to the chosen session (closes the picker, kicks the switch). */
   public async pickSession(sessionId: string): Promise<void> {
-    const list = this.store.state.sessionPicker?.sessions ?? [];
+    // The picker list lives in `store.state.sessions` (fetched by
+    // `fetchSessions`); there is no separate `sessionPicker` slice.
+    const list = this.store.state.sessions;
     const target = list.find((s) => s.id === sessionId);
     if (target === undefined) return;
     const session = await this.harness.resumeSession({
@@ -1053,8 +1059,24 @@ export class KimiTUI {
   }
 
   private async loadBanner(): Promise<void> {
-    // Banner loading is owned by the tui2 shell (banner-provider); the store
-    // `banner` slice is populated by the shell after startup.
+    if (this.store.state.version.length === 0) return;
+    const provider = new BannerProvider(this.store.state.version);
+    const displayState = await readBannerDisplayState();
+    const now = new Date();
+    const banner = await provider.load({ state: displayState, now });
+    this.store.setState('banner', banner);
+    if (banner === null || banner.display === 'always') return;
+    try {
+      await writeBannerDisplayState({
+        version: 1,
+        shown: {
+          ...displayState.shown,
+          [banner.key]: { lastShownAt: now.toISOString() },
+        },
+      });
+    } catch {
+      // Best-effort: banner display state should never block startup.
+    }
   }
 
   private async initMainTui(): Promise<boolean> {
@@ -3278,12 +3300,16 @@ export class KimiTUI {
     this.cacheHint.resetCacheBreakBaseline();
   }
 
-  private async runMigrationScreen(_plan: MigrationPlan): Promise<MigrationScreenResult> {
-    // The migration screen is a tui2 dialog (stage D); for now run the
-    // migration decision synchronously with a default of "later".
-    this.store.setState('activeDialog', 'migration');
-    const result: MigrationScreenResult = { decision: 'later', migrated: false };
-    this.store.setState('activeDialog', null);
+  private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
+    // opentui migration flow: ask → progress → result, driven through the
+    // editor-replacement slot (see commands/migration-screen.tsx).
+    const result = await runMigrationFlow({
+      host: this,
+      plan,
+      sourceHome: plan.sourceHome,
+      targetHome: this.harness.homeDir,
+      skipDecisionStep: this.migrateOnly,
+    });
     if (result.decision === 'never') {
       // Persist the skip marker `detectPendingMigration` checks, so "Never ask
       // again" actually stops the prompt from reappearing every launch.
