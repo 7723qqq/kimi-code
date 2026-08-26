@@ -132,7 +132,6 @@ import {
   type QueuedMessage,
   type SteerInputItem,
   type TasksBrowserState,
-  type ToolCallBlockData,
   type TranscriptEntry,
   type TUIStartupOptions,
   type TUIStartupState,
@@ -231,42 +230,11 @@ interface SendMessageOptions {
 }
 
 /**
- * Flatten steer items into the payload `session.steer` expects: the
- * historical `'\n\n'`-joined string when nothing carries media, or a
- * merged part list when any item has extracted media parts (queued image
- * messages, or the editor draft after placeholder extraction).
+ * Flatten steer items into the payload `session.steer` expects — see
+ * `utils/steer-input.ts`.
  */
-function combineSteerInput(items: readonly SteerInputItem[]): string | PromptPart[] {
-  const hasMedia = items.some((item) => item.parts !== undefined && item.parts.length > 0);
-  if (!hasMedia) return items.map((item) => item.text).join('\n\n');
-  const parts: PromptPart[] = [];
-  for (const item of items) {
-    const startsWithMedia =
-      item.parts !== undefined && item.parts.length > 0 && item.parts[0]?.type !== 'text';
-    const lastIsMedia = parts.length > 0 && parts.at(-1)?.type !== 'text';
-    if (parts.length > 0 && !(lastIsMedia && startsWithMedia)) {
-      appendSteerText(parts, '\n\n');
-    }
-    if (item.parts !== undefined && item.parts.length > 0) {
-      for (const part of item.parts) {
-        if (part.type === 'text') appendSteerText(parts, part.text);
-        else parts.push(part);
-      }
-    } else {
-      appendSteerText(parts, item.text);
-    }
-  }
-  return parts;
-}
-
-function appendSteerText(parts: PromptPart[], text: string): void {
-  const last = parts.at(-1);
-  if (last?.type === 'text') {
-    parts[parts.length - 1] = { type: 'text', text: last.text + text };
-    return;
-  }
-  parts.push({ type: 'text', text });
-}
+import { combineSteerInput } from '../utils/steer-input';
+import { mainAgentPhaseLabel, subagentStatus } from '../utils/agent-pane-status';
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
@@ -3735,33 +3703,6 @@ export class KimiTUI {
   private hideQuestionDialog(): void {
     this.patchLivePane({ pendingQuestion: null });
   }
-}
-
-function mainAgentPhaseLabel(phase: AppState['streamingPhase']): string | undefined {
-  switch (phase) {
-    case 'thinking':
-      return t('tui.chrome.agentPane.phaseThinking');
-    case 'composing':
-      return t('tui.chrome.agentPane.phaseComposing');
-    case 'shell':
-      return t('tui.chrome.agentPane.phaseShell');
-    case 'waiting':
-      return t('tui.chrome.agentPane.phaseWaiting');
-    case 'idle':
-      return undefined;
-  }
-}
-
-function subagentStatus(data: ToolCallBlockData): AgentPaneItem['status'] {
-  if (data.backgroundStatus !== undefined) {
-    if (data.backgroundStatus.status === 'completed') return 'done';
-    return 'error';
-  }
-  if (data.backgrounded === true) return 'waiting';
-  if (data.result !== undefined) {
-    return data.result.is_error === true ? 'error' : 'done';
-  }
-  return 'active';
 }
 
 export type {
