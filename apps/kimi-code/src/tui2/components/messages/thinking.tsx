@@ -28,7 +28,7 @@
  */
 
 import type { Component } from 'solid-js'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { ColorInput } from '@opentui/core'
 
 import { t } from '#/i18n'
@@ -86,13 +86,16 @@ export const ThinkingView: Component<ThinkingViewProps> = (props) => {
   const collapsed = (): boolean => props.expanded !== true;
   /** Logical lines folded into word-wrapped visual rows against the
    * available columns (left padding excluded) — the unit the preview caps
-   * count, so a long single line cannot stretch it. */
-  const visualRows = (): readonly string[] => {
+   * count, so a long single line cannot stretch it. Memoized: word-wrapping
+   * runs per codepoint via Intl.Segmenter, so recomputing on every read of
+   * visibleContent/hasMore/expandHint (each hitting the full history block)
+   * is the hot path in long sessions. */
+  const visualRows = createMemo<readonly string[]>(() => {
     const width = Math.max(1, resolvePreviewWidth(props.width) - PREVIEW_INDENT);
     const rows: string[] = [];
     for (const line of lines()) rows.push(...wrapToVisualRows(line, width));
     return rows;
-  };
+  });
   const visibleContent = (): string => {
     if (collapsed()) {
       return visualRows().slice(0, THINKING_PREVIEW_LINES).join('\n');

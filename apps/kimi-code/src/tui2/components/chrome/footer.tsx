@@ -822,12 +822,24 @@ function pulseHexColor(fromHex: string, toHex: string, t: number): string {
   return `#${mix(from.red, to.red)}${mix(from.green, to.green)}${mix(from.blue, to.blue)}`;
 }
 
+const PULSE_RGB_CACHE = new Map<string, { red: number; green: number; blue: number } | undefined>();
+
 function parseHexColor(hex: string): { red: number; green: number; blue: number } | undefined {
+  // Theme tokens repeat every tick; the regex parse is the hot half of the
+  // pulse path, so memoize per hex string.
+  let parsed = PULSE_RGB_CACHE.get(hex);
+  if (parsed !== undefined) return parsed;
   const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
-  if (match === null) return undefined;
-  return {
-    red: Number.parseInt(match[1]!, 16),
-    green: Number.parseInt(match[2]!, 16),
-    blue: Number.parseInt(match[3]!, 16),
-  };
+  if (match === null) {
+    parsed = undefined;
+  } else {
+    parsed = {
+      red: Number.parseInt(match[1]!, 16),
+      green: Number.parseInt(match[2]!, 16),
+      blue: Number.parseInt(match[3]!, 16),
+    };
+  }
+  if (PULSE_RGB_CACHE.size > 64) PULSE_RGB_CACHE.clear();
+  PULSE_RGB_CACHE.set(hex, parsed);
+  return parsed;
 }

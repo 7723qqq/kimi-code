@@ -22,7 +22,7 @@
  */
 
 import type { Component, JSX } from 'solid-js'
-import { For, Show } from 'solid-js'
+import { createMemo, For, Show } from 'solid-js'
 import type { ColorInput } from '@opentui/core'
 
 import { t } from '#/i18n'
@@ -98,7 +98,9 @@ export const ShellExecutionView: Component<ShellExecutionOptions> = (props) => {
     return props.commandPreviewLines === undefined ? all : all.slice(0, props.commandPreviewLines);
   };
 
-  const resultPreview = (): TruncatedOutputLines | undefined => {
+  /** Memoized: the JSX reads `resultPreview()` three times per render; each
+   *  unmemoized call split the full output string anew. */
+  const resultPreview = createMemo<TruncatedOutputLines | undefined>(() => {
     const result = props.result;
     if (result === undefined || result.output.length === 0) return undefined;
     if (props.expanded === true) {
@@ -109,7 +111,7 @@ export const ShellExecutionView: Component<ShellExecutionOptions> = (props) => {
       tail: props.tailOutput ?? false,
       expandHint: props.expandHint ?? true,
     });
-  };
+  });
 
   const resultFg = (): ColorInput =>
     props.result?.is_error === true ? currentTheme.color('error') : currentTheme.color('textMuted')
