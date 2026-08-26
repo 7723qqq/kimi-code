@@ -90,6 +90,13 @@ describe('StreamingUIController', () => {
     const assistants = store.state.transcript.filter((e) => e.kind === 'assistant')
     expect(assistants.length).toBe(1)
     expect(assistants[0]?.content).toBe('hello world')
+    // The still-streaming entry is flagged so views bound re-lexing to a tail.
+    expect(assistants[0]?.streaming).toBe(true)
+
+    controller.finalizeAssistantStream()
+    expect(
+      store.state.transcript.find((e) => e.kind === 'assistant')?.streaming,
+    ).toBeUndefined()
   })
 
   it('registers a tool call, streams its arguments, and completes it with a result', () => {

@@ -334,7 +334,12 @@ const TranscriptEntryView: Component<{
     case 'user':
       return <UserMessageView content={entry.content} bullet={entry.bullet} />;
     case 'assistant':
-      return <AssistantMessageView content={entry.content} />;
+      return (
+        <AssistantMessageView
+          content={entry.content}
+          transient={entry.streaming === true}
+        />
+      );
     case 'thinking':
       return (
         <ThinkingView

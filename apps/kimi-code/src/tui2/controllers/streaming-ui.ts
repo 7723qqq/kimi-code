@@ -585,7 +585,7 @@ export class StreamingUIController {
       modelText: true,
     };
     this._streamingBlock = { entryId: entry.id };
-    this.host.pushTranscriptEntry(entry);
+    this.host.pushTranscriptEntry({ ...entry, streaming: true });
   }
 
   onStreamingTextUpdate(fullText: string): void {
@@ -596,7 +596,16 @@ export class StreamingUIController {
   }
 
   onStreamingTextEnd(): void {
+    const block = this._streamingBlock;
     this._streamingBlock = null;
+    // Drop the streaming flag so the view renders the full text (and stops
+    // bounding re-lexing to the tail window) on its final pass.
+    if (block !== null) {
+      const entry = this.findEntry(block.entryId);
+      if (entry?.streaming === true) {
+        this.patchEntry(block.entryId, { streaming: undefined });
+      }
+    }
   }
 
   onThinkingUpdate(fullText: string): void {

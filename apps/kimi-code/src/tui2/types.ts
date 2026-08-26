@@ -332,6 +332,10 @@ export interface TranscriptEntry {
   expanded?: boolean;
   /** Transcript-navigation mode: whether this entry is the focused one. */
   navigated?: boolean;
+  /** Set while the assistant stream is still appending to this entry's
+   *  content; cleared when the stream ends. View layers use it to bound
+   *  re-lexing to a tail window (see STREAMING_MARKDOWN_TAIL_CHARS). */
+  streaming?: boolean;
   /** Grouping key for tool-call entries (Agent/Read groups); entries sharing
    *  a key render as one group. */
   groupKey?: string;
