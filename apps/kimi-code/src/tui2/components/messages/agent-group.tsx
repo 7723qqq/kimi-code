@@ -57,7 +57,10 @@ export const AgentGroupView: Component<AgentGroupViewProps> = (props) => {
     )
 
   // Refresh the elapsed tail once a second while any member is still live.
-  const [, setTick] = createSignal(0)
+  // The snapshot's elapsedSeconds is Date.now()-derived, so re-rendering the
+  // header requires actually reading this signal — a write-only signal would
+  // tick forever without repainting anything.
+  const [tick, setTick] = createSignal(0)
   createEffect(() => {
     const live = snapshots().some(
       (snap) =>
@@ -74,9 +77,15 @@ export const AgentGroupView: Component<AgentGroupViewProps> = (props) => {
   const anyLive = (): boolean =>
     snapshots().some((s) => s.phase === 'running' || s.phase === 'queued' || s.phase === 'spawning' || s.phase === undefined)
 
+  /** Header build re-run on the elapsed tick so `…m ss` stays live. */
+  const headerChunks = (): StyledText => {
+    tick();
+    return buildHeaderChunks(snapshots());
+  }
+
   return (
     <Box flexDirection="column" paddingLeft={2}>
-      <text wrapMode="word" content={buildHeaderChunks(snapshots())} />
+      <text wrapMode="word" content={headerChunks()} />
       <For each={snapshots()}>
         {(snap, index) => (
           <GroupMemberRows snap={snap} isLast={index() === snapshots().length - 1} />
