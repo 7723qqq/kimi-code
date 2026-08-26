@@ -16,6 +16,7 @@
  * Status: REAL (tui2). Replaces the v1 chalk-backed stub.
  */
 
+import { createSignal } from 'solid-js';
 import { RGBA, TextAttributes } from '@opentui/core';
 import type { ColorInput } from '@opentui/core';
 
@@ -36,33 +37,41 @@ const STYLE_TO_ATTRIBUTE: Readonly<Record<TextStyle, number>> = {
 };
 
 export class Theme {
-  private _palette: ColorPalette;
+  /**
+   * Palette behind a SolidJS signal: component call sites read
+   * `currentTheme.color(...)` inside their render functions, so the read
+   * subscribes them to the palette. `setPalette` (theme switch / auto
+   * terminal-theme tracking) then re-renders every themed component in one
+   * pass — without the signal, switching themes updated the singleton but
+   * nothing repainted.
+   */
+  private readonly paletteSignal: [() => ColorPalette, (next: ColorPalette) => void];
 
   constructor(palette: ColorPalette) {
-    this._palette = palette;
+    this.paletteSignal = createSignal<ColorPalette>(palette);
   }
 
   get palette(): ColorPalette {
-    return this._palette;
+    return this.paletteSignal[0]();
   }
 
   setPalette(palette: ColorPalette): void {
-    this._palette = palette;
+    this.paletteSignal[1](palette);
   }
 
   /** Hex `ColorInput` for a semantic token — safe to pass to opentui props. */
   color(token: ColorToken): ColorInput {
-    return this._palette[token];
+    return this.paletteSignal[0]()[token];
   }
 
   /** Hex string (not RGBA) for token — convenient when building lookup tables. */
   hex(token: ColorToken): string {
-    return this._palette[token];
+    return this.paletteSignal[0]()[token];
   }
 
   /** RGBA instance for a token — for direct opentui manipulation. */
   rgba(token: ColorToken): RGBA {
-    return RGBA.fromHex(this._palette[token]);
+    return RGBA.fromHex(this.paletteSignal[0]()[token]);
   }
 
   /** opentui attribute bits for a v1-style text style (or a combination). */
