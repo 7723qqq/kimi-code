@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createTranscriptGrouper,
   groupTranscriptEntries,
   type TranscriptDisplayItem,
 } from '@/tui2/components/messages/transcript-groups'
@@ -114,5 +115,78 @@ describe('groupTranscriptEntries', () => {
     const group = items[0];
     if (group?.kind !== 'group') return;
     expect(group.members[0]?.result?.output).toBe('x');
+  });
+});
+
+describe('createTranscriptGrouper', () => {
+  it('reuses single wrappers for unchanged entry references across calls', () => {
+    const grouper = createTranscriptGrouper();
+    const a = toolEntry('Bash');
+    const b = statusEntry();
+    const first = grouper.group([a, b]);
+
+    // Same entries → same wrapper references (Solid <For> keeps rows mounted).
+    const second = grouper.group([a, b, toolEntry('Bash')]);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it('invalidates a single wrapper when the entry is replaced by a patch', () => {
+    const grouper = createTranscriptGrouper();
+    const original = toolEntry('Bash');
+    grouper.group([original]);
+    const patched = { ...original, expanded: true };
+
+    const items = grouper.group([patched]);
+    expect(items).toHaveLength(1);
+    if (items[0]?.kind !== 'single') return;
+    expect(items[0].entry).toBe(patched);
+  });
+
+  it('keeps the group item while its member entry references are stable', () => {
+    const grouper = createTranscriptGrouper();
+    const g1 = toolEntry('Read', 'read:t1:1');
+    const g2 = toolEntry('Read', 'read:t1:1');
+    const first = grouper.group([g1, g2]);
+    expect(first[0]?.kind).toBe('group');
+
+    const second = grouper.group([g1, g2, toolEntry('Read', 'read:t1:2')]);
+    expect(second[0]).toBe(first[0]);
+  });
+
+  it('rebuilds the group item when any member entry changes', () => {
+    const grouper = createTranscriptGrouper();
+    const g1 = toolEntry('Read', 'read:t1:1');
+    const g2 = toolEntry('Read', 'read:t1:1');
+    const first = grouper.group([g1, g2]);
+
+    const patched = {
+      ...g1,
+      toolCallData: { ...g1.toolCallData!, result: undefined },
+    };
+    const second = grouper.group([patched, g2]);
+    expect(second[0]?.kind).toBe('group');
+    expect(second[0]).not.toBe(first[0]);
+    if (second[0]?.kind !== 'group') return;
+    expect(second[0].members.map((m) => m.entryId)).toEqual([patched.id, g2.id]);
+  });
+
+  it('rebuilds rather than resurrects after a run drops below the threshold', () => {
+    const grouper = createTranscriptGrouper();
+    const g1 = toolEntry('Read', 'read:t1:1');
+    const g2 = toolEntry('Read', 'read:t1:1');
+    const first = grouper.group([g1, g2]);
+    expect(first[0]?.kind).toBe('group');
+
+    // Down to one member → flushed as singles, cache aged out.
+    const alone = grouper.group([g1]);
+    expect(alone.every((item) => item.kind === 'single')).toBe(true);
+
+    // Regrowing with a different second member must build from the current
+    // entries, not resurrect the stale cached group.
+    const fresh2 = toolEntry('Read', 'read:t1:1');
+    const again = grouper.group([g1, fresh2]);
+    if (again[0]?.kind !== 'group') return expect.fail('expected a group');
+    expect(again[0].members.map((m) => m.entryId)).toEqual([g1.id, fresh2.id]);
   });
 });

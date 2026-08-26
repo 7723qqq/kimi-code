@@ -31,7 +31,7 @@
  */
 
 import type { Component } from 'solid-js';
-import { createEffect, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 
 import type { ColorInput } from '@opentui/core';
 
@@ -98,7 +98,7 @@ import { SwarmModeMarkerView } from './messages/swarm-markers';
 import { ThinkingView } from './messages/thinking';
 import { ToolCallView } from './messages/tool-call';
 import {
-  groupTranscriptEntries,
+  createTranscriptGrouper,
   type TranscriptDisplayItem,
   type TranscriptGroupMember,
 } from './messages/transcript-groups';
@@ -152,9 +152,14 @@ export const MainShell: Component<MainShellProps> = (props) => {
   const borderFg = (): ColorInput => currentTheme.color('border');
 
   const transcript = (): readonly TranscriptEntry[] => store.state.transcript;
-  /** Consecutive same-`groupKey` tool calls fold into single group rows. */
-  const displayItems = (): readonly TranscriptDisplayItem[] =>
-    groupTranscriptEntries(transcript());
+  /** Consecutive same-`groupKey` tool calls fold into single group rows.
+   *
+   * Memoized, and grouped through an identity-stable grouper: wrappers are
+   * reused whenever their entry did not change, so `<For>`'s referential
+   * diff re-renders only the rows a store update actually touched instead
+   * of rebuilding the whole transcript tree on every patch. */
+  const transcriptGrouper = createTranscriptGrouper();
+  const displayItems = createMemo(() => transcriptGrouper.group(transcript()));
   const showRightPane = (): boolean => {
     const dialog = store.state.activeDialog;
     return dialog === null || !FULLSCREEN_DIALOGS.has(dialog as DialogKind);
