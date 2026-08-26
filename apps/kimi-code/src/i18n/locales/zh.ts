@@ -335,6 +335,7 @@ export default {
         searchHint: '（输入以搜索）',
         noMatches: '无匹配项',
         page: '第 {{page}}/{{pageCount}} 页',
+        more: '▼ 还有 {{count}} 项',
       },
       compaction: {
         compacting: '正在压缩上下文…',

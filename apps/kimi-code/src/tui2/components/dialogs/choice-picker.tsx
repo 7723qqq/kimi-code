@@ -325,10 +325,18 @@ export const ChoicePicker: Component<ChoicePickerProps> = (props) => {
       <Box>
         <Text>{''}</Text>
       </Box>
-      {/* Page indicator — only when paging */}
+      {/* Page indicator — only when paging; a non-query "N more" hint when
+          the list overflows without paging (model-selector parity). */}
       <Show when={pageLabel().length > 0}>
         <Box>
           <Text fg={hintFg()}>{` ${pageLabel()}`}</Text>
+        </Box>
+      </Show>
+      <Show when={query().length === 0 && filtered().length > page().end}>
+        <Box>
+          <Text fg={hintFg()}>
+            {` ${t('tui.dialogs.choicePicker.more', { count: filtered().length - page().end })}`}
+          </Text>
         </Box>
       </Show>
       {/* Bottom border */}

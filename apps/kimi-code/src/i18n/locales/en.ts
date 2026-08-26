@@ -340,6 +340,7 @@ export default {
         searchHint: '(type to search)',
         noMatches: 'No matches',
         page: 'Page {{page}}/{{pageCount}}',
+        more: '▼ {{count}} more',
       },
       compaction: {
         compacting: 'Compacting context...',
