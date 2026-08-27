@@ -15,11 +15,13 @@ import {
 	detectCapabilities,
 	encodeITerm2,
 	encodeKitty,
+	encodeSixel,
 	getKittyImageMetadata,
 	getKittyImagePlacement,
 	hyperlink,
 	imageFallback,
 	isImageLine,
+	parseImageCapabilityResponse,
 	registerKittyImageMetadata,
 	renderImage,
 	resetCapabilitiesCache,
@@ -42,6 +44,7 @@ const ENV_KEYS = [
 	"CMUX_WORKSPACE_ID",
 	"WARP_SESSION_ID",
 	"WARP_TERMINAL_SESSION_UUID",
+	"MLTERM",
 ] as const;
 
 function withEnv(overrides: Record<string, string | undefined>, fn: () => void): void {
@@ -339,6 +342,46 @@ describe("detectCapabilities", () => {
 		});
 	});
 
+	it("enables sixel images for Alacritty", () => {
+		withEnv({ TERM_PROGRAM: "alacritty" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.images, "sixel");
+			assert.strictEqual(caps.trueColor, true);
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables sixel images for foot via TERM", () => {
+		withEnv({ TERM: "foot" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.images, "sixel");
+		});
+	});
+
+	it("enables sixel images for mlterm via TERM and MLTERM", () => {
+		withEnv({ TERM: "mlterm" }, () => {
+			assert.strictEqual(detectCapabilities().images, "sixel");
+		});
+		withEnv({ MLTERM: "1" }, () => {
+			assert.strictEqual(detectCapabilities().images, "sixel");
+		});
+	});
+
+	it("enables sixel images for yaft, contour, and rio via TERM", () => {
+		for (const term of ["yaft-256color", "contour", "rio"]) {
+			withEnv({ TERM: term }, () => {
+				assert.strictEqual(detectCapabilities().images, "sixel", `TERM=${term}`);
+			});
+		}
+	});
+
+	it("keeps sixel images disabled under tmux even for sixel terminals", () => {
+		withEnv({ TERM: "foot", TMUX: "/tmp/tmux-1000/default,1234,0" }, () => {
+			const caps = detectCapabilities(() => true);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
 	it("enables truecolor and hyperlinks for Windows Terminal outside multiplexers", () => {
 		withEnv({ WT_SESSION: "session", TERM: "xterm-256color" }, () => {
 			const caps = detectCapabilities();
@@ -380,6 +423,137 @@ describe("iTerm2 image encoding", () => {
 	it("includes the decoded payload size in OSC 1337 metadata", () => {
 		const sequence = encodeITerm2("AAAA", { width: 2, height: "auto" });
 		assert.strictEqual(sequence, "\x1b]1337;File=inline=1;size=3;width=2;height=auto:AAAA\x07");
+	});
+});
+
+describe("sixel encoding", () => {
+	it("wraps the palette and pixel data in a DCS sequence", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4).fill(255); // 2x2 opaque white
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			assert.ok(sequence.startsWith("\x1bPq"), "must open with DCS");
+			assert.ok(sequence.endsWith("\x1b\\"), "must close with ST");
+			assert.ok(sequence.includes("#0;2;0;0;0"), "must define palette entry 0");
+			assert.ok(sequence.includes("#239;2;93;93;93"), "must define the last grayscale entry");
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("quantizes pure red to the 6x6x6 cube corner and emits one char per 6 bits", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4);
+			for (let i = 0; i < 4; i++) {
+				pixels[i * 4] = 255; // R
+				pixels[i * 4 + 3] = 255; // A
+			}
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			// Pure red -> cube index 36*5+0+0 = 180; six pixels of index 180
+			// pack into 6 chars: 180 * (64^0..64^5) = 196341362100 -> "suuuuu".
+			assert.ok(sequence.includes("#180;2;100;0;0"), "palette must define the red cube corner");
+			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
+			assert.ok(pixelPart.startsWith("suuuuu"), `expected packed red group, got ${JSON.stringify(pixelPart.slice(0, 6))}`);
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("prefers the grayscale ramp for neutral pixels", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4);
+			for (let i = 0; i < 4; i++) {
+				pixels[i * 4] = 128;
+				pixels[i * 4 + 1] = 128;
+				pixels[i * 4 + 2] = 128;
+				pixels[i * 4 + 3] = 255;
+			}
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			// lum=128 -> gray step round((128-8)/10)=12 -> index 228, 50%.
+			assert.ok(sequence.includes("#228;2;50;50;50"), "palette must define the matched gray step");
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("separates pixel groups with $ and pixel rows with -", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4).fill(255); // 2x2 white
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
+			// 2 cells x 10px = 20 target px per pixel row -> 4 groups (3 x $);
+			// 20 pixel rows -> 19 x - separators.
+			const dollars = (pixelPart.match(/\$/g) ?? []).length;
+			const dashes = (pixelPart.match(/-/g) ?? []).length;
+			assert.strictEqual(dollars, 60, "20 pixel rows x 3 group separators");
+			assert.strictEqual(dashes, 19, "20 pixel rows emit 19 row separators");
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("downscales wide images to the requested cell box", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(100 * 10 * 4).fill(255); // 100x10
+			const sequence = encodeSixel(pixels, 100, 10, { maxWidthCells: 2 });
+			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
+			// 2 cells x 10px = 20 target px per pixel row -> 4 groups (3 x $);
+			// 10 pixel rows -> 9 x - separators.
+			const dollars = (pixelPart.match(/\$/g) ?? []).length;
+			const dashes = (pixelPart.match(/-/g) ?? []).length;
+			assert.strictEqual(dollars, 30, "10 pixel rows x 3 group separators");
+			assert.strictEqual(dashes, 9, "10 pixel rows emit 9 row separators");
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("renders pre-decoded pixels through the Image component with row padding", () => {
+		setCapabilities({ images: "sixel", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4).fill(255);
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 2, pixels, pixelWidth: 2, pixelHeight: 2 },
+				{ widthPx: 2, heightPx: 2 },
+			);
+			const lines = image.render(4);
+			assert.strictEqual(lines.length, 2, "2 rows -> 1 empty pad line + 1 sequence line");
+			assert.strictEqual(lines[0], "");
+			assert.ok(lines[1].startsWith("\x1b[1A\x1bPq"), "sequence line must move up then open DCS");
+			assert.ok(lines[1].endsWith("\x1b\\"));
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("falls back to text when sixel is active but no pixels are provided", () => {
+		setCapabilities({ images: "sixel", trueColor: true, hyperlinks: true });
+		try {
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 2 },
+				{ widthPx: 2, heightPx: 2 },
+			);
+			const lines = image.render(40);
+			assert.strictEqual(lines.length, 1);
+			assert.ok(lines[0].includes("[Image:"), "must fall back to the text marker");
+		} finally {
+			resetCapabilitiesCache();
+		}
 	});
 });
 
@@ -551,6 +725,44 @@ describe("Kitty image cursor movement", () => {
 		} finally {
 			resetCapabilitiesCache();
 		}
+	});
+});
+
+describe("parseImageCapabilityResponse", () => {
+	it("detects kitty from the graphics query OK reply", () => {
+		assert.deepStrictEqual(parseImageCapabilityResponse("\x1b_Gi=1;OK\x1b\\"), {
+			kind: "detected",
+			protocol: "kitty",
+		});
+	});
+
+	it("reports unsupported for the kitty ENOENT reply", () => {
+		assert.deepStrictEqual(parseImageCapabilityResponse("\x1b_Gi=1;ENOENT\x1b\\"), {
+			kind: "unsupported",
+		});
+	});
+
+	it("detects sixel from a DA1 reply carrying param 62", () => {
+		assert.deepStrictEqual(parseImageCapabilityResponse("\x1b[?1;2;62c"), {
+			kind: "detected",
+			protocol: "sixel",
+		});
+		assert.deepStrictEqual(parseImageCapabilityResponse("\x1b[?62c"), {
+			kind: "detected",
+			protocol: "sixel",
+		});
+	});
+
+	it("reports unsupported for a DA1 reply without param 62", () => {
+		assert.deepStrictEqual(parseImageCapabilityResponse("\x1b[?1;2;4;22c"), {
+			kind: "unsupported",
+		});
+	});
+
+	it("returns null for unrelated input", () => {
+		assert.strictEqual(parseImageCapabilityResponse("q"), null);
+		assert.strictEqual(parseImageCapabilityResponse("\x1b[6;20;10t"), null);
+		assert.strictEqual(parseImageCapabilityResponse("\x1b[?2004h"), null);
 	});
 });
 
