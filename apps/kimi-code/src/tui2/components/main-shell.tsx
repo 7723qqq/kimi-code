@@ -37,6 +37,7 @@ import type { ColorInput } from '@opentui/core';
 
 import { useTui2Store } from '../context';
 import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch';
+import type { UpcomingGoal } from '../goal-queue-store';
 import type { TuiRuntimeState } from '../state';
 import { currentTheme } from '../theme';
 import type { TranscriptEntry } from '../types';
@@ -493,7 +494,7 @@ const ActiveDialogSlot: Component<{
     }
   });
 
-  const editingGoal = (): import('../goal-queue-store').UpcomingGoal | undefined => {
+  const editingGoal = (): UpcomingGoal | undefined => {
     const qm = store.state.goalQueueManager;
     if (qm === undefined || qm.editingGoalId === undefined) return undefined;
     return qm.goals.find((goal) => goal.id === qm.editingGoalId);

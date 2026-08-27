@@ -16,17 +16,22 @@
  * Status: REAL (tui2). New file — no v1 counterpart to re-export.
  */
 
-import { createContext, Show, useContext, type ParentProps } from 'solid-js'
+import { createContext, Show, useContext, type JSX, type ParentProps } from 'solid-js'
 import { createStore, produce, reconcile, type SetStoreFunction } from 'solid-js/store'
 
 import type {
+  CapabilityStatus,
   GoalSnapshot,
   ModelAlias,
   PermissionMode,
+  PluginInfo,
+  PluginSummary,
   ProviderConfig,
   ThinkingEffort,
   WorkspaceTrustMcpServerInfo,
 } from '@moonshot-ai/kimi-code-sdk'
+
+import type { UpcomingGoal } from './goal-queue-store'
 
 import type {
   NotificationsConfig,
@@ -116,7 +121,7 @@ export interface TuiRuntimeState {
    *  the command's onSelect / onCancel callbacks. */
   editorReplacement:
     | {
-        readonly component: (props: Record<string, unknown>) => import('solid-js').JSX.Element
+        readonly component: (props: Record<string, unknown>) => JSX.Element
         readonly props: Record<string, unknown>
       }
     | undefined
@@ -274,16 +279,16 @@ export interface TuiRuntimeState {
   /** Goal-queue manager dialog state; undefined when closed. */
   goalQueueManager:
     | {
-        goals: readonly import('./goal-queue-store').UpcomingGoal[]
+        goals: readonly UpcomingGoal[]
         selectedGoalId?: string
         editingGoalId?: string
       }
     | undefined
   /** Plugins panel dialog state; null when closed. */
   pluginsPanel: {
-    installed: readonly import('@moonshot-ai/kimi-code-sdk').PluginSummary[]
+    installed: readonly PluginSummary[]
     installedIds: ReadonlySet<string>
-    capabilities: readonly import('@moonshot-ai/kimi-code-sdk').CapabilityStatus[]
+    capabilities: readonly CapabilityStatus[]
     catalogIsDefault: boolean
     initialTab?: PluginsPanelTabId
     selectedId?: string
@@ -295,7 +300,7 @@ export interface TuiRuntimeState {
   } | null
   /** Plugin MCP picker dialog state; null when closed. */
   pluginMcpPicker: {
-    info: import('@moonshot-ai/kimi-code-sdk').PluginInfo
+    info: PluginInfo
     selectedServer?: string
     serverHint?: { server: string; text: string }
   } | null
