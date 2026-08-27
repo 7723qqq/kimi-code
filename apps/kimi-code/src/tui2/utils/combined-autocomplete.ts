@@ -19,7 +19,7 @@ import type {
 const PATH_DELIMITERS = new Set([' ', '\t', '"', "'", '=']);
 
 function toDisplayPath(value: string): string {
-  return value.replaceAll(/\\/g, '/');
+  return value.replaceAll('\\\\', '/');
 }
 
 function escapeRegex(value: string): string {

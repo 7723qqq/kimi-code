@@ -242,14 +242,10 @@ check('prefer-string-replace-all warnings', () => {
     ['apps/kimi-code/src/tui2'],
   );
   const count = (r.stdout.match(/unicorn\(prefer-string-replace-all\)/g) ?? []).length;
-  // The 2 currently-remaining cases are the prefer-literal-regex secondary
-  // warnings (the linter thinks \\t and \\\\ are trivial enough to
-  // inline as literal strings). Run-away guard: any increase past 2 is
-  // suspicious; the audit will tell you about it.
-  if (count > 2) {
-    throw new Error(`prefer-string-replace-all reports ${count} warnings; expected ≤ 2 (the two known prefer-literal-regex tail warnings); investigate the regression`);
+  if (count > 0) {
+    throw new Error(`prefer-string-replace-all reports ${count} warnings; the secondary "prefer-literal-regex" tail findings were folded into literal-string forms — if this re-fires, the inlining step regressed`);
   }
-  return count === 0 ? '0 warnings' : `${count} warnings (tail of prefer-literal-regex; flagged soft)`;
+  return '0 warnings';
 });
 
 check('prefer-at warnings', () => {
