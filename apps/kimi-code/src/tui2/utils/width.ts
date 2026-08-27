@@ -33,7 +33,7 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
   if (next === '[') {
     let j = pos + 2;
     while (j < str.length && !/[mGKHJ]/.test(str[j]!)) j++;
-    if (j < str.length) return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+    if (j < str.length) return { code: str.slice(pos, j + 1), length: j + 1 - pos };
     return null;
   }
 
@@ -41,9 +41,9 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
   if (next === ']') {
     let j = pos + 2;
     while (j < str.length) {
-      if (str[j] === '\u0007') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+      if (str[j] === '\u0007') return { code: str.slice(pos, j + 1), length: j + 1 - pos };
       if (str[j] === '\u001B' && str[j + 1] === '\\') {
-        return { code: str.substring(pos, j + 2), length: j + 2 - pos };
+        return { code: str.slice(pos, j + 2), length: j + 2 - pos };
       }
       j++;
     }
@@ -54,9 +54,9 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
   if (next === '_') {
     let j = pos + 2;
     while (j < str.length) {
-      if (str[j] === '\u0007') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+      if (str[j] === '\u0007') return { code: str.slice(pos, j + 1), length: j + 1 - pos };
       if (str[j] === '\u001B' && str[j + 1] === '\\') {
-        return { code: str.substring(pos, j + 2), length: j + 2 - pos };
+        return { code: str.slice(pos, j + 2), length: j + 2 - pos };
       }
       j++;
     }
