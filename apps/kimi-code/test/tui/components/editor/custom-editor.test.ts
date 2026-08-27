@@ -788,3 +788,75 @@ describe('CustomEditor bash mode file completion', () => {
     expect(calls.every((call) => call.force === true)).toBe(true);
   });
 });
+
+describe('CustomEditor drag & drop image path', () => {
+  it('attaches a quoted image path and consumes the input', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('"C:\\Users\\me\\img.png"');
+
+    expect(onPasteImagePath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
+    expect(editor.getText()).toBe('');
+  });
+
+  it('attaches a bare image path without quotes', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('C:\\Users\\me\\img.png');
+    expect(onPasteImagePath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
+    expect(editor.getText()).toBe('');
+  });
+
+  it('attaches a POSIX image path', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('/home/user/img.png');
+    expect(onPasteImagePath).toHaveBeenCalledWith('/home/user/img.png');
+  });
+
+  it('leaves non-image input as plain text', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('hello world');
+    expect(onPasteImagePath).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('hello world');
+  });
+
+  it('leaves a non-image extension as plain text', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('C:\\Users\\me\\notes.txt');
+    expect(onPasteImagePath).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('C:\\Users\\me\\notes.txt');
+  });
+
+  it('leaves an unquoted path with spaces as plain text', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => true);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('C:\\Users\\me\\My Image.png');
+    expect(onPasteImagePath).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('C:\\Users\\me\\My Image.png');
+  });
+
+  it('falls through to text insertion when the handler rejects the path', () => {
+    const editor = makeEditor();
+    const onPasteImagePath = vi.fn(() => false);
+    editor.onPasteImagePath = onPasteImagePath;
+
+    editor.handleInput('C:\\Users\\me\\img.png');
+    expect(onPasteImagePath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
+    expect(editor.getText()).toBe('C:\\Users\\me\\img.png');
+  });
+});

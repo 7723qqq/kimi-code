@@ -185,7 +185,7 @@ describe('QuestionDialogComponent', () => {
 
     dialog.handleInput('\r');
     expect(collected).toHaveLength(1);
-    expect(collected[0]?.[0]).toBeUndefined();
+    expect(collected[0]?.[0]).toBe('');
     expect(collected[0]?.[1]).toBe('B2');
   });
 

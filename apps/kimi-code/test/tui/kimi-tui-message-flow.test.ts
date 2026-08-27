@@ -7884,6 +7884,11 @@ command = "vim"
     }
   });
 
+  const expectedForkResumeCommand =
+    process.platform === 'win32'
+      ? 'pushd "/tmp/proj-a" && kimi --resume "ses-fork"'
+      : "cd '/tmp/proj-a' && kimi --resume 'ses-fork'";
+
   it('forks the active session and stays in the source session', async () => {
     const originalTitle = process.title;
     const source = makeSession({
@@ -7911,12 +7916,10 @@ command = "vim"
           'Session forked (ses-fork). Still in the original session; switch to the fork via /sessions.',
         );
       });
-      expect(copyTextToClipboard).toHaveBeenCalledWith(
-        "cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
-      );
+      expect(copyTextToClipboard).toHaveBeenCalledWith(expectedForkResumeCommand);
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        `To enter the fork in a new process, run: ${expectedForkResumeCommand}`,
       );
       expect(transcript).toContain('Command copied to clipboard');
       expect(driver.getCurrentSessionId()).toBe('ses-source');
@@ -7943,7 +7946,7 @@ command = "vim"
     await vi.waitFor(() => {
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        `To enter the fork in a new process, run: ${expectedForkResumeCommand}`,
       );
       expect(transcript).toContain('Failed to copy command to clipboard');
     });
