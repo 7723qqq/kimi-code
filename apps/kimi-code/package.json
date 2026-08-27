@@ -84,10 +84,10 @@
   "dependencies": {
     "@moonshot-ai/kimi-agent": "workspace:^",
     "@opentui/core": "0.5.8",
-    "@opentui/solid": "0.5.8",
-    "solid-js": "^1.9.7",
     "@opentui/keymap": "0.5.8",
-    "opentui-spinner": "0.0.7"
+    "@opentui/solid": "0.5.8",
+    "opentui-spinner": "0.0.7",
+    "solid-js": "^1.9.7"
   },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",

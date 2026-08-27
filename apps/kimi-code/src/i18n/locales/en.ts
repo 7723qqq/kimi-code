@@ -1450,6 +1450,8 @@ export default {
           failed: 'Failed',
           cancelled: 'Aborted',
         },
+        membersCount: '{{completed}}/{{total}} agents',
+        failedCount: '{{count}} failed',
       },
       backgroundAgentStatus: {
         detail: ' ({{detail}})',

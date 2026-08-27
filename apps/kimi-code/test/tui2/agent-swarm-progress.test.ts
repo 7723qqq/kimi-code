@@ -1,17 +1,26 @@
 /**
- * Tests for the tui2 AgentSwarm result-summary parsing layer.
+ * Tests for the tui2 AgentSwarm result-summary parsing layer and the
+ * pure tone/label helpers shared by the tui2 view.
  *
  * The tui2 tree consumes swarm progress through
- * `agentSwarmResultSummaryFromOutput` (the component-level rendering of
- * the v1 module has no tui2 counterpart). These tests pin the parsing
- * contract: XML `<subagent outcome=...>` blocks win over the legacy
- * `[agent N]` / `status:` format, and the counters split completed /
- * failed / aborted.
+ * `agentSwarmResultSummaryFromOutput`. The view's status→tone and
+ * status→label mappings live in `agent-swarm-progress-view.tsx` as
+ * pure helpers; mounted-component tests are blocked by opentui's
+ * renderer context (see `tool-renderers.test.ts`), so tone/label are
+ * pinned here instead.
+ *
+ * Parsing contract pinned below: XML `<subagent outcome=...>` blocks
+ * win over the legacy `[agent N]` / `status:` format, and the counters
+ * split completed / failed / aborted.
  */
 
 import { describe, expect, it } from 'vitest'
 
 import { agentSwarmResultSummaryFromOutput } from '@/tui2/components/messages/agent-swarm-progress'
+import {
+  swarmStatusLabel,
+  swarmStatusTone,
+} from '@/tui2/components/messages/agent-swarm-progress-view'
 
 describe('agentSwarmResultSummaryFromOutput', () => {
   it('parses XML subagent outcomes into counters', () => {
@@ -129,5 +138,33 @@ describe('agentSwarmResultSummaryFromOutput', () => {
       aborted: 0,
       parsed: false,
     })
+  })
+})
+
+describe('swarmStatusTone', () => {
+  it('maps cancelled to warning', () => {
+    expect(swarmStatusTone('cancelled')).toBe('warning')
+  })
+  it('maps ended to success', () => {
+    expect(swarmStatusTone('ended')).toBe('success')
+  })
+  it('maps streaming and running to primary', () => {
+    expect(swarmStatusTone('streaming')).toBe('primary')
+    expect(swarmStatusTone('running')).toBe('primary')
+  })
+})
+
+describe('swarmStatusLabel', () => {
+  it('uses the cancelled label for cancelled status', () => {
+    expect(swarmStatusLabel('cancelled')).toMatch(/cancel/i)
+  })
+  it('uses the completed label for ended status', () => {
+    expect(swarmStatusLabel('ended')).toMatch(/completed/i)
+  })
+  it('uses the working label for running status', () => {
+    expect(swarmStatusLabel('running')).toMatch(/working|run/i)
+  })
+  it('falls back to orchestrating for streaming status', () => {
+    expect(swarmStatusLabel('streaming')).toMatch(/orchestrating/i)
   })
 })

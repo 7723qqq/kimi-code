@@ -86,6 +86,7 @@ import { UpdatePreferenceSelector } from './dialogs/update-preference-selector';
 import { WhichKey } from './dialogs/which-key';
 import { CustomEditor } from './editor/custom-editor';
 import { AgentGroupView } from './messages/agent-group';
+import { AgentSwarmProgressView } from './messages/agent-swarm-progress-view';
 import { AssistantMessageView } from './messages/assistant-message';
 import { BackgroundAgentStatusView } from './messages/background-agent-status';
 import { CronMessageView } from './messages/cron-message';
@@ -369,17 +370,24 @@ const TranscriptEntryView: Component<{
     case 'tool_call':
       if (entry.toolCallData === undefined) return null;
       return (
-        <ToolCallView
-          toolCall={entry.toolCallData}
-          result={entry.toolCallData.result}
-          expanded={entry.expanded}
-          navigated={entry.navigated}
-          workspaceDir={props.workspaceDir}
-          progressLines={entry.toolCallData.progressLines}
-          liveOutput={entry.toolCallData.liveOutput}
-          detachHint={entry.toolCallData.detachHint}
-          onToggle={props.onToggleExpanded}
-        />
+        <>
+          <Show when={entry.agentSwarmData} keyed>
+            {(swarm: NonNullable<typeof entry.agentSwarmData>) => (
+              <AgentSwarmProgressView data={swarm} />
+            )}
+          </Show>
+          <ToolCallView
+            toolCall={entry.toolCallData}
+            result={entry.toolCallData.result}
+            expanded={entry.expanded}
+            navigated={entry.navigated}
+            workspaceDir={props.workspaceDir}
+            progressLines={entry.toolCallData.progressLines}
+            liveOutput={entry.toolCallData.liveOutput}
+            detachHint={entry.toolCallData.detachHint}
+            onToggle={props.onToggleExpanded}
+          />
+        </>
       );
     case 'skill_activation':
       return (

@@ -1327,7 +1327,9 @@
           "completed": "已完成",
           "failed": "失败",
           "cancelled": "已中止"
-        }
+        },
+        "membersCount": "{{completed}}/{{total}} 智能体",
+        "failedCount": "{{count}} 失败"
       },
       "backgroundAgentStatus": {
         "detail": "（{{detail}}）"
