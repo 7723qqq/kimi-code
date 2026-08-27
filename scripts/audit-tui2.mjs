@@ -320,6 +320,18 @@ check('import(first) warnings', () => {
   return '0 warnings';
 });
 
+check('prefer-code-point warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(prefer-code-point\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`prefer-code-point reports ${count} warnings — prefer \`codePointAt\` over \`charCodeAt\` (use \`?? 0\` fallback to keep the type \`number\` at call sites that index a known non-empty string)`);
+  }
+  return '0 warnings';
+});
+
 check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);

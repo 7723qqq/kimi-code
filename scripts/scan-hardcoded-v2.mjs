@@ -230,6 +230,32 @@ async function extractLocaleValues(modInfo) {
 
 // ── Scanner ────────────────────────────────────────────────────────────────
 
+// Data sentinels and comments that must stay literal. Localizing them would
+// break behavior or is meaningless:
+// - 'Sub Agent' placeholders pair with `PLACEHOLDER_SUBAGENT_DESCRIPTION`
+//   (eventReducer.ts), a state-comparison sentinel — localizing the value
+//   would break the comparison the moment the locale changes.
+// - 'Document is unavailable' is an internal environment error, not UI text.
+// - The remaining entries are explanatory comments (e.g. "Show more" in a CSS
+//   comment) that only look like display strings.
+const HARDCODED_ALLOWLIST = [
+  { module: 'kimi-web', file: 'api/daemon/agentEventProjector.ts', text: 'Sub Agent' },
+  { module: 'kimi-web', file: 'api/daemon/eventReducer.ts', text: 'Sub Agent' },
+  { module: 'kimi-web', file: 'composables/client/useWorkspaceState.ts', text: 'Document is unavailable' },
+  { module: 'kimi-web', file: 'composables/useKimiWebClient.ts', text: 'all workspaces' },
+  { module: 'kimi-web', file: 'views/DesignSystemView.vue', text: 'Show less' },
+  { module: 'kimi-web', file: 'views/DesignSystemView.vue', text: 'Load more' },
+  { module: 'kimi-web', file: 'components/chat/ActivityNotice.vue', text: 'Compacting context…' },
+  { module: 'kimi-web', file: 'components/chat/ChatPane.vue', text: 'Context compacted' },
+  { module: 'kimi-web', file: 'components/mobile/MobileSwitcherSheet.vue', text: 'Show more' },
+];
+
+function isAllowedHardcoded(moduleName, relPath, text) {
+  return HARDCODED_ALLOWLIST.some(
+    (entry) => entry.module === moduleName && relPath.includes(entry.file) && text === entry.text,
+  );
+}
+
 function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
   const findings = [];
   const lines = content.split('\n');
@@ -281,6 +307,8 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
         // Skip if it's a type/interface property definition
         if (/\w+\??:\s*string/.test(trimmed)) continue;
 
+        if (isAllowedHardcoded(moduleInfo.name, relPath, normalizedValue)) continue;
+
         findings.push({
           file: relPath,
           line: lineNum,
@@ -301,6 +329,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
       // Check if this string exists in locale values
       const normalized = str.replaceAll(/\{\{(\w+)\}\}/g, '*');
       if (valueToKeys.has(normalized)) {
+        if (isAllowedHardcoded(moduleInfo.name, relPath, str)) continue;
         findings.push({
           file: relPath,
           line: lineNum,
@@ -310,6 +339,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
           context: trimmed.slice(0, 100),
         });
       } else if (looksLikeUserFacing(str)) {
+        if (isAllowedHardcoded(moduleInfo.name, relPath, str)) continue;
         findings.push({
           file: relPath,
           line: lineNum,
