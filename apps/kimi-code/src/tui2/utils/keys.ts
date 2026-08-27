@@ -794,7 +794,7 @@ function parseKeyId(
   keyId: string,
 ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; super: boolean } | null {
   const parts = keyId.toLowerCase().split('+');
-  const key = parts[parts.length - 1];
+  const key = parts.at(-1);
   if (!key) return null;
   return {
     key,

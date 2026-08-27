@@ -428,9 +428,11 @@ function buildSingleSubagentHeader(ctx: ToolHeaderContext): StyledText {
     ])
   }
 
-  const parts: TextPart[] = [run(marker, 'primary')]
-  parts.push(run(labelText, 'primary', 'bold'))
-  parts.push(run(formatSingleSubagentStatus(phase), phase === 'failed' ? 'error' : phase === 'backgrounded' ? 'textDim' : 'primary'))
+  const parts: TextPart[] = [
+    run(marker, 'primary'),
+    run(labelText, 'primary', 'bold'),
+    run(formatSingleSubagentStatus(phase), phase === 'failed' ? 'error' : phase === 'backgrounded' ? 'textDim' : 'primary'),
+  ]
   if (description.length > 0) parts.push(run(` (${description})`, 'textDim'))
   parts.push(run(statsText, 'textDim'))
   return lineToStyled(parts)

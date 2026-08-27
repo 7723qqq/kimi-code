@@ -21,7 +21,7 @@
  * Status: REAL (tui2). New file — no v1 counterpart.
  */
 
-import { createCliRenderer } from '@opentui/core'
+import { createCliRenderer, type CliRenderer, type KeyEvent } from '@opentui/core'
 import { render, useTerminalDimensions } from '@opentui/solid'
 import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/solid'
 import { createEffect, onCleanup } from 'solid-js'
@@ -37,7 +37,6 @@ import {
 } from './keymap'
 import { LEADER_CHORDS } from './keybindings'
 import type { Tui2Store } from './state'
-import type { KeyEvent } from '@opentui/core'
 import { showModelPicker } from './commands/config'
 import { dispatchInput, type SlashCommandHost } from './commands/dispatch'
 import { MainShell } from './components/main-shell'
@@ -45,8 +44,6 @@ import type { EditorKeyboardController } from './controllers/editor-keyboard'
 import { KimiTUI } from './controllers/kimi-tui'
 import type { DialogDispatch, DialogResult } from './dispatch'
 import { printableChar } from './utils/printable-key'
-
-import type { CliRenderer } from '@opentui/core'
 
 export interface RunKimiTui2Options {
   readonly harness: ConstructorParameters<typeof KimiTUI>[0]

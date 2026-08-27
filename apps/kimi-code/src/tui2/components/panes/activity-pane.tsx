@@ -17,8 +17,11 @@ import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 
 import { t } from '#/i18n'
 
-import { ACTIVITY_DETAIL_INDENT } from '../../constant/rendering'
-import { BRAILLE_SPINNER_FRAMES, BRAILLE_SPINNER_INTERVAL_MS } from '../../constant/rendering'
+import {
+  ACTIVITY_DETAIL_INDENT,
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_INTERVAL_MS,
+} from '../../constant/rendering'
 import { currentTheme } from '../../theme'
 import type { ColorInput } from '@opentui/core'
 

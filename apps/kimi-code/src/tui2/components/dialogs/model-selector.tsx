@@ -203,11 +203,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
           if (next !== idx) {
             const segment = segments[next]
             if (segment !== undefined) {
-              setOverrides((prev) => {
-                const updated = new Map(prev)
-                updated.set(selected.alias, segment)
-                return updated
-              })
+              setOverrides((prev) => new Map(prev).set(selected.alias, segment))
             }
           }
         }
@@ -413,11 +409,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
                     return (
                       <Clickable
                         onClick={() => {
-                          setOverrides((prev) => {
-                            const updated = new Map(prev)
-                            updated.set(selected.alias, segment)
-                            return updated
-                          })
+                          setOverrides((prev) => new Map(prev).set(selected.alias, segment))
                         }}
                       >
                         <Text

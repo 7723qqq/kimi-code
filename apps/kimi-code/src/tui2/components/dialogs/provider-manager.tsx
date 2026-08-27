@@ -137,13 +137,14 @@ function buildRows(props: ProviderManagerProps): readonly Row[] {
     }
     bySource.set(row.id, row)
   }
-  const rows: Row[] = [...bySource.values()]
-  rows.push({
-    kind: 'add',
-    id: '__add__',
-    label: t('tui.dialogs.providerManager.addNewPlatform'),
-  })
-  return rows
+  return [
+    ...bySource.values(),
+    {
+      kind: 'add',
+      id: '__add__',
+      label: t('tui.dialogs.providerManager.addNewPlatform'),
+    },
+  ]
 }
 
 export const ProviderManager: Component<ProviderManagerProps> = (props) => {

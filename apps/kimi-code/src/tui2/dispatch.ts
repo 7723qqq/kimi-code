@@ -33,9 +33,11 @@ import type { ApprovalPanelResponse } from './components/dialogs/approval-panel'
 import type { GoalQueueEditResult, GoalQueueManagerAction } from './components/dialogs/goal-queue-manager'
 import type { GoalStartPermissionChoice } from './components/dialogs/goal-start-permission-prompt'
 import type { QuestionPanelResponse as QDialogResponse } from './components/dialogs/question-dialog'
-import type { PluginRemoveConfirmResult } from './components/dialogs/plugins-selector'
-import type { PluginInstallTrustConfirmResult } from './components/dialogs/plugins-selector'
-import type { PluginMcpSelection } from './components/dialogs/plugins-selector'
+import type {
+  PluginInstallTrustConfirmResult,
+  PluginMcpSelection,
+  PluginRemoveConfirmResult,
+} from './components/dialogs/plugins-selector'
 
 /** The full set of dialogs the shell can render. */
 export type DialogKind =

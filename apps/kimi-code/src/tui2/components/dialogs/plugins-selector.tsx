@@ -647,7 +647,7 @@ export const PluginsPanel: Component<PluginsPanelOptions> = (props) => {
   const marketplaceEntries = (): readonly PluginMarketplaceEntry[] => {
     const m = market()
     if (m.status !== 'loaded') return []
-    return [...m.entries].sort((a, b) => {
+    return [...m.entries].toSorted((a, b) => {
       return Number(isMarketplaceEntryInstalled(b)) - Number(isMarketplaceEntryInstalled(a))
     })
   }
