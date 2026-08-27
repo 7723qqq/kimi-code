@@ -200,6 +200,59 @@ check('trace AgentSwarmProgressView wiring', () => {
   return 'import + render + export + i18n keys all present';
 });
 
+check('escape-case warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(escape-case\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`unicorn(escape-case) reports ${count} warnings (run \`bun scripts/audit-tui2.mjs\` after \`bun scripts/escape-fix.mjs\` or the previous mechanical uppercase pass)`);
+  }
+  return '0 warnings';
+});
+
+check('consistent-type-imports warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/consistent-type-imports/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`consistent-type-imports reports ${count} warnings; inline \`import()\` type annotations leaked back in`);
+  }
+  return '0 warnings';
+});
+
+check('lint-staged leftover stashes', () => {
+  const r = run('git', ['stash', 'list']);
+  if (!r.ok) throw new Error(r.stderr || r.stdout);
+  const lines = r.stdout.split('\n').filter((line) => line.trim().length > 0);
+  const lintStaged = lines.filter((line) => line.includes('lint-staged automatic backup'));
+  if (lintStaged.length > 0) {
+    throw new Error(
+      `${lintStaged.length} lint-staged backup stash(es) lingering:\n  ${lintStaged.join('\n  ')}\n` +
+        `drop them with: git stash drop 'stash@{N}' for each, or \`git stash clear\` if none are needed.`,
+    );
+  }
+  return `${lines.length} stash(es), none from lint-staged`;
+});
+
+check('napi-rs retired tmp files', () => {
+  const r = run(
+    'bash',
+    ['-lc', `ls -1 "${join(REPO_ROOT, 'packages', 'kimi-native-tools')}" 2>/dev/null | grep -cE '\\.retired\\.tmp\\.|\\.prepared\\.tmp\\.|\\.0\\.rollback\\.tmp\\.|\\.napi-rs-swp-bak-' || true`],
+    { shell: false },
+  );
+  const count = Number((r.stdout || '0').trim()) || 0;
+  // napi-rs tmp files are gitignored; warn on accumulation but don't fail
+  // the build because they're harmless when the native pipeline isn't run.
+  if (count > 20) {
+    return `${count} tmp file(s) (consider \`rm\` of retired ones)`;
+  }
+  return `${count} tmp file(s)`;
+});
+
 const WIDTH = Math.max(...checks.map((c) => c.name.length));
 
 let failures = 0;
