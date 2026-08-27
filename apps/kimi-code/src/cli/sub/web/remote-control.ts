@@ -1,6 +1,6 @@
+import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
-import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import {
@@ -9,12 +9,14 @@ import {
   KIMI_CODE_PROVIDER_NAME,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
-import { WebSocket, type RawData } from 'ws';
 import chalk from 'chalk';
+import { WebSocket, type RawData } from 'ws';
 
-import { getVersion } from '../../version';
+import { t } from '#/i18n';
+
 import { darkColors } from '../../../tui/theme/colors';
 import { supportsHyperlinks, toTerminalHyperlink } from '../../../utils/terminal-hyperlink';
+import { getVersion } from '../../version';
 import { acquireRemoteControlLock } from './remote-control-lock';
 
 export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.kimi.com';
@@ -291,14 +293,14 @@ export async function startRemoteControl(
   options: RemoteControlOptions,
 ): Promise<RemoteControlHandle> {
   if (options.localServerToken.length === 0) {
-    throw new Error('Remote Control requires local server authentication.');
+    throw new Error(t('tui.statusMessages.rcRequiresLocalServerAuth'));
   }
   const storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
   const token = await storage.load(
     resolveKimiTokenStorageName({ providerName: KIMI_CODE_PROVIDER_NAME }),
   );
   if (token?.refreshToken === undefined || token.refreshToken.length === 0) {
-    throw new Error('Remote Control requires a Kimi login. Run `kimi login` first.');
+    throw new Error(t('tui.statusMessages.rcRequiresKimiLogin'));
   }
   const relayOrigin = options.relayOrigin ?? REMOTE_CONTROL_RELAY_ORIGIN;
   const deviceId = createKimiDeviceId(options.homeDir);
@@ -585,9 +587,19 @@ class RemoteControlClient {
   private async openStream(payload: Record<string, unknown>): Promise<void> {
     const streamId = stringField(payload, 'stream_id');
     const path = stringField(payload, 'path');
-    if (streamId === undefined || path === undefined || !path.startsWith('/') || path.startsWith('//')) {
+    if (
+      streamId === undefined ||
+      path === undefined ||
+      !path.startsWith('/') ||
+      path.startsWith('//')
+    ) {
       if (streamId !== undefined) {
-        this.sendOpenStreamResult(streamId, false, 'LOCAL_WS_FAILED', 'invalid local WebSocket path');
+        this.sendOpenStreamResult(
+          streamId,
+          false,
+          'LOCAL_WS_FAILED',
+          'invalid local WebSocket path',
+        );
       }
       return;
     }
@@ -773,7 +785,10 @@ function isWebSocketProtocolToken(value: string): boolean {
 
 function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<RelayMessage> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Remote Control registration timed out')), timeoutMs);
+    const timer = setTimeout(
+      () => finish(new Error('Remote Control registration timed out')),
+      timeoutMs,
+    );
     const onMessage = (data: RawData): void => {
       try {
         finish(undefined, parseRelayMessage(data));
@@ -831,11 +846,7 @@ function requestLocalHttp(
         port: origin.port,
         method: parsed.method,
         path: parsed.path,
-        headers: [
-          ...filterForwardRequestHeaders(parsed.headers, serverToken),
-          'Host',
-          origin.host,
-        ],
+        headers: [...filterForwardRequestHeaders(parsed.headers, serverToken), 'Host', origin.host],
         timeout: HTTP_REQUEST_TIMEOUT_MS,
       },
       (response) => {
@@ -857,7 +868,9 @@ function requestLocalHttp(
           const statusMessage = response.statusMessage ?? 'Bad Gateway';
           resolve(
             Buffer.concat([
-              Buffer.from(`HTTP/1.1 ${statusCode} ${statusMessage}\r\n${headerLines(headers)}\r\n\r\n`),
+              Buffer.from(
+                `HTTP/1.1 ${statusCode} ${statusMessage}\r\n${headerLines(headers)}\r\n\r\n`,
+              ),
               body,
             ]),
           );
@@ -986,10 +999,7 @@ function buildErrorResponse(status: number): Buffer {
   return Buffer.from(`HTTP/1.1 ${status} ${reason}\r\nContent-Length: 0\r\n\r\n`);
 }
 
-function stringField(
-  value: Record<string, unknown> | undefined,
-  key: string,
-): string | undefined {
+function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
   const field = value?.[key];
   return typeof field === 'string' ? field : undefined;
 }
