@@ -224,18 +224,61 @@ check('consistent-type-imports warnings', () => {
   return '0 warnings';
 });
 
-check('lint-staged leftover stashes', () => {
+check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);
   const lines = r.stdout.split('\n').filter((line) => line.trim().length > 0);
-  const lintStaged = lines.filter((line) => line.includes('lint-staged automatic backup'));
-  if (lintStaged.length > 0) {
-    throw new Error(
-      `${lintStaged.length} lint-staged backup stash(es) lingering:\n  ${lintStaged.join('\n  ')}\n` +
-        `drop them with: git stash drop 'stash@{N}' for each, or \`git stash clear\` if none are needed.`,
+  if (lines.length === 0) {
+    return 'no stashes';
+  }
+  // For each stash, compare ONLY its files against each ref. This avoids
+  // the "4014 files changed" noise from a tree-vs-branch whole-repo diff
+  // and tells us whether the stash content is reachable elsewhere.
+  const refs = ['HEAD', 'main', 'origin/main', 'tui2/rebased', 'origin/tui2/rebased'];
+  const anchoredRefs = refs.filter(
+    (ref) => run('git', ['rev-parse', '--verify', '--quiet', ref], { shell: false }).ok,
+  );
+  const reports = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const idx = `stash@{${i}}`;
+    const subject = (lines[i] ?? '').replace(/^stash@\{\d+\}: /, '');
+    const fileList = run(
+      'git',
+      ['-c', 'diff.mnemonicPrefix=false', 'stash', 'show', '--name-only', idx],
+      { shell: false },
+    )
+      .stdout.split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const summaries = [];
+    for (const ref of anchoredRefs) {
+      let diffedAny = false;
+      let filesUnchanged = 0;
+      for (const file of fileList) {
+        const r2 = run(
+          'git',
+          ['diff', '--quiet', `${idx}^{tree}`, ref, '--', file],
+          { shell: false },
+        );
+        if (!r2.ok) {
+          diffedAny = true;
+          break;
+        }
+        filesUnchanged += 1;
+      }
+      if (!diffedAny) {
+        summaries.push(`${ref}: identical (${filesUnchanged}/${fileList.length} files match)`);
+      } else {
+        summaries.push(`${ref}: unique content`);
+      }
+    }
+    reports.push(
+      `  ${idx}  ${subject}\n    files: ${fileList.length}\n    ${summaries.join('\n    ')}`,
     );
   }
-  return `${lines.length} stash(es), none from lint-staged`;
+  throw new Error(
+    `${lines.length} stash(es) — review reachability before any drop:\n${reports.join('\n')}`,
+  );
 });
 
 check('napi-rs retired tmp files', () => {
