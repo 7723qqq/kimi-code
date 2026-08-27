@@ -190,6 +190,7 @@ export function resolveUndoSelectorChoice(
       return;
     }
     host.restoreEditor();
+    return;
   });
 }
 

@@ -420,6 +420,7 @@ export class TasksBrowserController {
         if (current !== browser || current.tailRequestId !== requestId) return;
         if (current.selectedTaskId !== taskId) return;
         this.patchTasksBrowser({ tailOutput: output, tailLoading: false });
+        return;
       })
       .catch(() => {
         const current = this.host.store.state.tasksBrowser;

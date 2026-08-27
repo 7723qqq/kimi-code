@@ -222,6 +222,7 @@ function runWithProgress(
         latest.failed = false;
         update();
         void promptResult(host, latest).then((r) => resolve(r));
+        return;
       },
       (error) => {
         latest.failed = true;

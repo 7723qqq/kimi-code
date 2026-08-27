@@ -300,6 +300,18 @@ check('no-duplicates import warnings', () => {
   return '0 warnings';
 });
 
+check('always-return warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/promise\(always-return\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`promise(always-return) reports ${count} warnings — every \`.then()\` callback must return explicitly (added \`return;\` to close out the body in 7 callbacks)`);
+  }
+  return '0 warnings';
+});
+
 check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);

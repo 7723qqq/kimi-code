@@ -1145,6 +1145,7 @@ export class SessionEventHandler {
             return;
           }
           this.goalCompletionTurnEnded = false;
+          return;
         })
         .catch((error) => {
           // An unexpected failure must not surface as an unhandled rejection;

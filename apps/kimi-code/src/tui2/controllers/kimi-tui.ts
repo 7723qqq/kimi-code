@@ -1096,6 +1096,7 @@ export class KimiTUI {
         if (fdPath === null) return;
         this.fdPath = fdPath;
         this.setupAutocomplete();
+        return;
       })
       .catch(() => {
         // Best-effort background bootstrap: autocomplete keeps using the filesystem fallback.
@@ -1504,6 +1505,7 @@ export class KimiTUI {
     void session.runShellCommand(command, { commandId }).then(
       ({ stdout, stderr, isError, backgrounded }) => {
         this.finishShellOutput(commandId, stdout, stderr, isError, backgrounded);
+        return;
       },
       (error: unknown) => {
         const message = formatErrorMessage(error);

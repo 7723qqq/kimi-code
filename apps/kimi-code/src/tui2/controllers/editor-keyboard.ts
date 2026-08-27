@@ -310,6 +310,7 @@ export class EditorKeyboardController {
       // path /plan takes.
       void host.ensureSession().then((session) => {
         if (session !== undefined) togglePlan();
+        return;
       });
       return;
     }
