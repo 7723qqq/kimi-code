@@ -15,9 +15,10 @@
 
 import type { Component } from '@moonshot-ai/pi-tui';
 import { Text } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { InlineImage } from '#/tui/components/media/inline-image';
+import { currentTheme } from '#/tui/theme';
 
 import type { ChipProvider } from './chip';
 import { renderTruncated } from './truncated';
@@ -29,6 +30,12 @@ export interface ReadMediaSummary {
   mimeType?: string;
   bytes?: number;
   url?: string;
+  /**
+   * Inline base64 payload for images delivered as data URLs. Kept out of
+   * the chip/summary text (never dumped into the transcript); used to
+   * render the actual thumbnail.
+   */
+  base64?: string;
 }
 
 const PATH_TAG_RE = /^<(image|video)\s+path="([^"]+)">$/;
@@ -55,6 +62,7 @@ export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
   let mimeType: string | undefined;
   let bytes: number | undefined;
   let url: string | undefined;
+  let base64: string | undefined;
   let foundMedia = false;
 
   for (const raw of parsed) {
@@ -83,6 +91,7 @@ export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
           if (data && data[1] !== undefined && data[2] !== undefined) {
             mimeType = data[1];
             bytes = bytesFromBase64(data[2]);
+            if (kind === 'image') base64 = data[2];
           } else {
             url = u;
           }
@@ -98,6 +107,7 @@ export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
   if (mimeType !== undefined) summary.mimeType = mimeType;
   if (bytes !== undefined) summary.bytes = bytes;
   if (url !== undefined) summary.url = url;
+  if (base64 !== undefined) summary.base64 = base64;
   return summary;
 }
 
@@ -133,8 +143,18 @@ export const readMediaSummary: ResultRenderer = (toolCall, result, ctx) => {
   if (summary === null) return renderTruncated(toolCall, result, ctx);
   if (!ctx.expanded) return [];
 
-  const dim = chalk.dim;
+  const dim = (text: string) => currentTheme.fg('textDim', text);
   const out: Component[] = [];
+  if (summary.kind === 'image' && summary.base64 !== undefined) {
+    out.push(
+      new InlineImage({
+        base64: summary.base64,
+        mime: summary.mimeType ?? 'image/png',
+        label: 'image',
+        byteLength: summary.bytes,
+      }),
+    );
+  }
   if (summary.path !== undefined) {
     out.push(new Text(`  ${dim(summary.path)}`, 0, 0));
   }

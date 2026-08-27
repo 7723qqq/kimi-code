@@ -23,8 +23,9 @@ export const MAIN_AGENT_ID = 'main';
 export function getOauthLoginRequiredStartupNotice(): string {
   return t('tui.chrome.hints.oauthLoginExpired');
 }
-export const SESSIONLESS_STARTUP_NOTICE =
-  'No session yet — one will be created on your first message.';
+export function getSessionlessStartupNotice(): string {
+  return t('tui.chrome.hints.sessionlessStartup');
+}
 export const TOWER_STATUS_PROMPT =
   'Report the current tower status: call TowerStatus and give a compact summary.';
 export const TOWER_TEARDOWN_PROMPT =

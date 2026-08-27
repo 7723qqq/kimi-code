@@ -13,6 +13,7 @@ import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { homedir } from 'node:os';
 
 import { t } from '#/i18n';
 import { getAllTips } from '#/tui/constant/tips';
@@ -142,13 +143,17 @@ function modelDisplayName(state: AppState): string {
 
 function shortenCwd(path: string): string {
   if (!path) return path;
-  const home = process.env['HOME'] ?? '';
-  let work = path;
-  if (home && path === home) {
+  // Windows processes launched from cmd/PowerShell often have no HOME; use
+  // the OS homedir and normalize separators so `~` abbreviation and the
+  // segment cap work for backslash paths too.
+  const home = homedir().replaceAll('\\', '/');
+  const work0 = path.replaceAll('\\', '/');
+  let work = work0;
+  if (home.length > 0 && work0 === home) {
     return '~';
   }
-  if (home && path.startsWith(home + '/')) {
-    work = '~' + path.slice(home.length);
+  if (home.length > 0 && work0.startsWith(home + '/')) {
+    work = '~' + work0.slice(home.length);
   }
 
   const segments = work.split('/').filter((s) => s.length > 0);
@@ -668,6 +673,8 @@ export class FooterComponent implements Component {
       clearInterval(this.pulseTimer);
       this.pulseTimer = null;
     }
+    this.statusLineRunner?.dispose();
+    this.statusLineRunner = null;
   }
 
   private goalWallClockMs(goal: AppState['goal']): number | undefined {

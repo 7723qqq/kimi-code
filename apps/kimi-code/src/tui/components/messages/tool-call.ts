@@ -991,7 +991,7 @@ export class ToolCallComponent extends Container {
       name,
       args,
       phase,
-      ...(output !== undefined ? { output } : {}),
+      output,
       orderSeq: ++this.subToolOrderSeq,
     });
   }
@@ -1347,9 +1347,7 @@ export class ToolCallComponent extends Container {
     this.ongoingSubCalls.set(call.id, {
       name: call.name,
       args: call.args,
-      ...(existing?.streamingArguments !== undefined
-        ? { streamingArguments: existing.streamingArguments }
-        : {}),
+      streamingArguments: existing?.streamingArguments,
     });
     this.upsertSubToolActivity(call.id, call.name, call.args, 'ongoing');
     if (
@@ -2066,7 +2064,7 @@ export class ToolCallComponent extends Container {
       const filePath = str(this.toolCall.args['file_path'] ?? this.toolCall.args['path']);
       const lines = renderDiffLinesClustered(oldStr, newStr, filePath, {
         contextLines: 3,
-        ...(shouldCap ? { maxLines: COMMAND_PREVIEW_LINES } : {}),
+        maxLines: shouldCap ? COMMAND_PREVIEW_LINES : undefined,
       });
       for (const line of lines) {
         this.addChild(new Text(line, 2, 0));
