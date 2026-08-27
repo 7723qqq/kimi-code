@@ -58,12 +58,12 @@ const FIELD_SCHEMAS: Record<string, FieldSchema> = {
   protocol: { parse: (raw) => raw },
   stream: { parse: (raw) => raw === 'true' },
   temperature: {
-    parse: (raw) => Number(raw),
+    parse: Number,
     validate: (v) =>
       typeof v === 'number' && !Number.isNaN(v) && (v as number) >= 0 && (v as number) <= 2,
   },
   maxTokens: {
-    parse: (raw) => Number(raw),
+    parse: Number,
     validate: (v) =>
       typeof v === 'number' && !Number.isNaN(v) && Number.isInteger(v) && (v as number) >= 1,
   },
