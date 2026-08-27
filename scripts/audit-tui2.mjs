@@ -252,6 +252,54 @@ check('prefer-string-replace-all warnings', () => {
   return count === 0 ? '0 warnings' : `${count} warnings (tail of prefer-literal-regex; flagged soft)`;
 });
 
+check('prefer-at warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(prefer-at\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`prefer-at reports ${count} warnings — \`arr[arr.length - 1]\` leaked back in`);
+  }
+  return '0 warnings';
+});
+
+check('no-array-sort warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(no-array-sort\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`no-array-sort reports ${count} warnings — use \`.toSorted()\` instead of \`.sort()\` for non-mutating order`);
+  }
+  return '0 warnings';
+});
+
+check('no-immediate-mutation warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(no-immediate-mutation\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`no-immediate-mutation reports ${count} warnings — fold \`push()\` / \`Map.set()\` calls into the literal initializer or chain expression`);
+  }
+  return '0 warnings';
+});
+
+check('no-duplicates import warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/import\(no-duplicates\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`import(no-duplicates) reports ${count} warnings — same module imported twice in one file (probably via a hoisted type-only import and a value import below it)`);
+  }
+  return '0 warnings';
+});
+
 check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);
