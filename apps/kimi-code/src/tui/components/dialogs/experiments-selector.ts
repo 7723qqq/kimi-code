@@ -1,18 +1,12 @@
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
-import {
-  Container,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  visibleWidth,
-  type Focusable,
-} from '@moonshot-ai/pi-tui';
+import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
+import { wrapText } from '#/tui/utils/wrap-text';
 
 const ELLIPSIS = '…';
 
@@ -243,27 +237,4 @@ function featureDescription(feature: ExperimentalFeatureState): string {
   const key = `tui.dialogs.experimentsSelector.features.${feature.id}.description` as const;
   const translated = t(key);
   return translated === key ? feature.description : translated;
-}
-
-function wrapText(text: string, width: number): string[] {
-  const maxWidth = Math.max(1, width);
-  const words = text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (visibleWidth(candidate) <= maxWidth) {
-      current = candidate;
-      continue;
-    }
-    if (current.length > 0) lines.push(current);
-    current = visibleWidth(word) <= maxWidth ? word : truncateToWidth(word, maxWidth, ELLIPSIS);
-  }
-
-  if (current.length > 0) lines.push(current);
-  return lines;
 }

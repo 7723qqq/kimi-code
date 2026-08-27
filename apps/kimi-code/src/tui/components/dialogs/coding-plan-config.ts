@@ -2,7 +2,7 @@ import { Container, Key, matchesKey, type Focusable } from '@moonshot-ai/pi-tui'
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { printableChar } from '#/tui/utils/printable-key';
+import { printableChar, isPrintableText } from '#/tui/utils/printable-key';
 
 export interface CodingPlanConfigOptions {
   readonly currentConfig: Record<string, unknown>;
@@ -93,7 +93,7 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
       // Accept printable input only (including paste): arrow keys, Tab and
       // Ctrl combos must not leak escape bytes into the field value.
       const ch = printableChar(data);
-      if (ch.length > 0) {
+      if (isPrintableText(ch)) {
         const current = this.fields[field] ?? '';
         this.fields[field] = current + ch;
       }

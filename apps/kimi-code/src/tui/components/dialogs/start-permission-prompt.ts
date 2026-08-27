@@ -2,7 +2,6 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
-  visibleWidth,
   type Component,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
@@ -10,6 +9,7 @@ import {
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
 
@@ -111,21 +111,4 @@ function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
       return currentTheme.fg(baseToken, part);
     })
     .join('');
-}
-
-function wrapPlain(text: string, width: number): string[] {
-  const words = text.split(/\s+/).filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (visibleWidth(candidate) <= width) {
-      current = candidate;
-      continue;
-    }
-    if (current.length > 0) lines.push(current);
-    current = visibleWidth(word) <= width ? word : truncateToWidth(word, width, '…');
-  }
-  if (current.length > 0) lines.push(current);
-  return lines.length > 0 ? lines : [''];
 }

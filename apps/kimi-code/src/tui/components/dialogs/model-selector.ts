@@ -22,7 +22,6 @@ import { SearchableList } from '#/tui/utils/searchable-list';
 import type { ChoiceOption } from './choice-picker';
 
 type ThinkingAvailabilityKind = 'toggle' | 'always-on' | 'unsupported';
-type ThinkingAvailability = string;
 
 interface ModelChoice {
   readonly alias: string;
@@ -112,18 +111,6 @@ export function thinkingAvailabilityKind(model: ModelAlias): ThinkingAvailabilit
   return 'unsupported';
 }
 
-export function thinkingAvailability(model: ModelAlias): ThinkingAvailability {
-  const kind = thinkingAvailabilityKind(model);
-  switch (kind) {
-    case 'always-on':
-      return t('tui.dialogs.modelSelector.thinkingAlwaysOn');
-    case 'toggle':
-      return t('tui.dialogs.modelSelector.thinkingToggle');
-    case 'unsupported':
-      return t('tui.dialogs.modelSelector.thinkingUnsupported');
-  }
-}
-
 export function effortsOf(model: ModelAlias): readonly string[] {
   return model.supportEfforts ?? [];
 }
@@ -156,7 +143,7 @@ export function effortLabel(effort: string): string {
  * thinking is unsupported.
  */
 export function defaultThinkingEffortFor(model: ModelAlias): ThinkingEffort {
-  if (thinkingAvailability(model) === 'unsupported') return 'off';
+  if (thinkingAvailabilityKind(model) === 'unsupported') return 'off';
   const efforts = effortsOf(model);
   if (efforts.length > 0) {
     return model.defaultEffort ?? efforts[Math.floor(efforts.length / 2)]!;

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 import type {
@@ -352,6 +353,8 @@ export class EditorKeyboardController {
     editor.onDownArrowEmpty = () => host.btwPanelController.scroll('down');
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
+
+    editor.onPasteImagePath = (path: string) => this.handlePastedImagePath(path);
   }
 
   /**
@@ -522,6 +525,38 @@ export class EditorKeyboardController {
       const message = formatErrorMessage(error);
       this.host.showError(t('tui.statusMessages.compactionCancelFailed', { message }));
     });
+  }
+
+  /**
+   * Drag & drop / pasted image path: attach the file immediately (same
+   * ingestion as clipboard paste) and put its placeholder in the editor.
+   * Returns false when the path is not a readable image, so the caller
+   * falls through to plain-text insertion.
+   */
+  private handlePastedImagePath(path: string): boolean {
+    if (this.host.state.editor.inputMode === 'bash') return false;
+    let bytes: Uint8Array;
+    try {
+      bytes = readFileSync(path);
+    } catch {
+      return false;
+    }
+    if (bytes.length === 0) return false;
+    const meta = parseImageMeta(bytes);
+    if (meta === null) return false;
+
+    const attachment = this.imageStore.addImage(bytes, meta.mime, meta.width, meta.height);
+    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+    this.host.state.ui.requestRender();
+    this.host.track('shortcut_paste', { kind: 'image' });
+    attachment.pending = this.prepareImageAttachment(
+      attachment,
+      bytes,
+      meta.mime,
+      meta.width,
+      meta.height,
+    );
+    return true;
   }
 
   private async handleClipboardImagePaste(): Promise<boolean> {

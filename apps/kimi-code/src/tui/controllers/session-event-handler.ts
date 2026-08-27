@@ -1084,7 +1084,8 @@ export class SessionEventHandler {
     try {
       const queue = await readGoalQueue(session);
       hasQueuedGoal = queue.goals.length > 0;
-    } catch {
+    } catch (error) {
+      log.warn('failed to read goal queue for blocked notice', { error: String(error) });
       return;
     }
     if (!hasQueuedGoal || host.session !== session || host.aborted) return;

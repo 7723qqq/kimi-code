@@ -8,6 +8,8 @@ import {
   type SelectListTheme,
 } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 // Mirror pi-tui's private select-list layout constants
 // (dist/components/select-list.js); keep in sync when bumping pi-tui.
 const DEFAULT_PRIMARY_COLUMN_WIDTH = 32;
@@ -52,7 +54,7 @@ export class WrappingSelectList extends SelectList {
   override render(width: number): string[] {
     const { filteredItems, selectedIndex, maxVisible, theme } = this.internals();
     if (filteredItems.length === 0) {
-      return [theme.noMatch('  No matching commands')];
+      return [theme.noMatch(`  ${t('tui.dialogs.wrappingSelectList.noMatchingCommands')}`)];
     }
 
     const primaryColumnWidth = this.primaryColumnWidth();

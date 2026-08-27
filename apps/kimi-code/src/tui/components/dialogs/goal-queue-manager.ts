@@ -17,7 +17,7 @@ import type {
   UpcomingGoal,
 } from '#/tui/goal-queue-store';
 import { currentTheme } from '#/tui/theme';
-import { printableChar } from '#/tui/utils/printable-key';
+import { isPrintableText, printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
@@ -535,17 +535,6 @@ function sanitizePastedText(text: string): string {
     i += code > 0xffff ? 2 : 1;
   }
   return out;
-}
-
-function isPrintableText(text: string): boolean {
-  if (text.length === 0) return false;
-  for (let i = 0; i < text.length;) {
-    const code = text.codePointAt(i);
-    if (code === undefined) return false;
-    if (code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return false;
-    i += code > 0xffff ? 2 : 1;
-  }
-  return true;
 }
 
 function lineStarts(text: string): number[] {

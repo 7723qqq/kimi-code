@@ -166,7 +166,10 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
 
     const customSource = readCustomRegistrySource(cfg);
     if (customSource !== undefined) {
-      const key = `${customSource.url}${customSource.apiKey}`;
+      // NUL separator keeps `url="…/to" + key="ken"` from colliding with
+      // `url="…/t" + key="oken"` — merged groups would delete each other's
+      // providers on removal.
+      const key = `${customSource.url}\u0000${customSource.apiKey}`;
       const existingIdx = customRegistryIndex.get(key);
       if (existingIdx !== undefined) {
         const existing = sources[existingIdx];
