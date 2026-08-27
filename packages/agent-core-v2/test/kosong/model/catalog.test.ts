@@ -6,7 +6,7 @@ import { isError2 } from '#/_base/errors/errors';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
 import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
-import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
+import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/kosong/contract/capability';
 import type { ChatProvider } from '#/kosong/contract/provider';
 import { emptyUsage } from '#/kosong/contract/usage';
 import '#/kosong/provider/bases/anthropic/index';
@@ -289,6 +289,41 @@ describe('Model assembly (pure data)', () => {
       expect(model.supportEfforts).toEqual(['low', 'medium', 'high']);
       expect(model.defaultEffort).toBe('high');
       expect(model.capabilities.thinking).toBe(true);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('keeps the unknown-capability marker when declared capabilities omit media input', () => {
+    const { host, catalog } = createHost({
+      providers: { openai: { type: 'openai', apiKey: 'sk-o' } },
+      models: {
+        // 'glm-5.3-flash' matches no static capability table, so the detected
+        // set is UNKNOWN; the declaration only speaks about thinking.
+        relay: {
+          provider: 'openai',
+          model: 'glm-5.3-flash',
+          maxContextSize: 1000000,
+          capabilities: ['thinking'],
+        },
+        // A declaration that does speak about media input is authoritative.
+        relayVision: {
+          provider: 'openai',
+          model: 'glm-5.3-flash',
+          maxContextSize: 1000000,
+          capabilities: ['thinking', 'image_in'],
+        },
+      },
+    });
+    try {
+      const unknownMedia = catalog.get('relay').capabilities;
+      expect(unknownMedia.thinking).toBe(true);
+      expect(unknownMedia.image_in).toBe(false);
+      expect(isUnknownCapability(unknownMedia)).toBe(true);
+
+      const declaredVision = catalog.get('relayVision').capabilities;
+      expect(declaredVision.image_in).toBe(true);
+      expect(isUnknownCapability(declaredVision)).toBe(false);
     } finally {
       host.dispose();
     }
