@@ -65,7 +65,7 @@ const ELLIPSIS = '…'
 const BRACKET_PASTE_START = '\u001B[200~'
 const BRACKET_PASTE_END = '\u001B[201~'
 const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-// ESC (\x1B) is required to strip terminal control sequences pasted in.
+// ESC (\u001B) is required to strip terminal control sequences pasted in.
 // oxlint-disable-next-line no-control-regex
 const ANSI_CSI = /\u001B\[[0-?]*[ -/]*[@-~]/g
 

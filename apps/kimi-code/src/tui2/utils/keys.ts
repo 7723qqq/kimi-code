@@ -368,118 +368,118 @@ function normalizeShiftedLetterIdentityCodepoint(codepoint: number, modifier: nu
 }
 
 const LEGACY_KEY_SEQUENCES = {
-  up: ['\x1B[A', '\x1BOA'],
-  down: ['\x1B[B', '\x1BOB'],
-  right: ['\x1B[C', '\x1BOC'],
-  left: ['\x1B[D', '\x1BOD'],
-  home: ['\x1B[H', '\x1BOH', '\x1B[1~', '\x1B[7~'],
-  end: ['\x1B[F', '\x1BOF', '\x1B[4~', '\x1B[8~'],
-  insert: ['\x1B[2~'],
-  delete: ['\x1B[3~'],
-  pageUp: ['\x1B[5~', '\x1B[[5~'],
-  pageDown: ['\x1B[6~', '\x1B[[6~'],
-  clear: ['\x1B[E', '\x1BOE'],
-  f1: ['\x1BOP', '\x1B[11~', '\x1B[[A'],
-  f2: ['\x1BOQ', '\x1B[12~', '\x1B[[B'],
-  f3: ['\x1BOR', '\x1B[13~', '\x1B[[C'],
-  f4: ['\x1BOS', '\x1B[14~', '\x1B[[D'],
-  f5: ['\x1B[15~', '\x1B[[E'],
-  f6: ['\x1B[17~'],
-  f7: ['\x1B[18~'],
-  f8: ['\x1B[19~'],
-  f9: ['\x1B[20~'],
-  f10: ['\x1B[21~'],
-  f11: ['\x1B[23~'],
-  f12: ['\x1B[24~'],
+  up: ['\u001B[A', '\u001BOA'],
+  down: ['\u001B[B', '\u001BOB'],
+  right: ['\u001B[C', '\u001BOC'],
+  left: ['\u001B[D', '\u001BOD'],
+  home: ['\u001B[H', '\u001BOH', '\u001B[1~', '\u001B[7~'],
+  end: ['\u001B[F', '\u001BOF', '\u001B[4~', '\u001B[8~'],
+  insert: ['\u001B[2~'],
+  delete: ['\u001B[3~'],
+  pageUp: ['\u001B[5~', '\u001B[[5~'],
+  pageDown: ['\u001B[6~', '\u001B[[6~'],
+  clear: ['\u001B[E', '\u001BOE'],
+  f1: ['\u001BOP', '\u001B[11~', '\u001B[[A'],
+  f2: ['\u001BOQ', '\u001B[12~', '\u001B[[B'],
+  f3: ['\u001BOR', '\u001B[13~', '\u001B[[C'],
+  f4: ['\u001BOS', '\u001B[14~', '\u001B[[D'],
+  f5: ['\u001B[15~', '\u001B[[E'],
+  f6: ['\u001B[17~'],
+  f7: ['\u001B[18~'],
+  f8: ['\u001B[19~'],
+  f9: ['\u001B[20~'],
+  f10: ['\u001B[21~'],
+  f11: ['\u001B[23~'],
+  f12: ['\u001B[24~'],
 } as const;
 
 const LEGACY_SHIFT_SEQUENCES = {
-  up: ['\x1B[a'],
-  down: ['\x1B[b'],
-  right: ['\x1B[c'],
-  left: ['\x1B[d'],
-  clear: ['\x1B[e'],
-  insert: ['\x1B[2$'],
-  delete: ['\x1B[3$'],
-  pageUp: ['\x1B[5$'],
-  pageDown: ['\x1B[6$'],
-  home: ['\x1B[7$'],
-  end: ['\x1B[8$'],
+  up: ['\u001B[a'],
+  down: ['\u001B[b'],
+  right: ['\u001B[c'],
+  left: ['\u001B[d'],
+  clear: ['\u001B[e'],
+  insert: ['\u001B[2$'],
+  delete: ['\u001B[3$'],
+  pageUp: ['\u001B[5$'],
+  pageDown: ['\u001B[6$'],
+  home: ['\u001B[7$'],
+  end: ['\u001B[8$'],
 } as const;
 
 const LEGACY_CTRL_SEQUENCES = {
-  up: ['\x1BOa'],
-  down: ['\x1BOb'],
-  right: ['\x1BOc'],
-  left: ['\x1BOd'],
-  clear: ['\x1BOe'],
-  insert: ['\x1B[2^'],
-  delete: ['\x1B[3^'],
-  pageUp: ['\x1B[5^'],
-  pageDown: ['\x1B[6^'],
-  home: ['\x1B[7^'],
-  end: ['\x1B[8^'],
+  up: ['\u001BOa'],
+  down: ['\u001BOb'],
+  right: ['\u001BOc'],
+  left: ['\u001BOd'],
+  clear: ['\u001BOe'],
+  insert: ['\u001B[2^'],
+  delete: ['\u001B[3^'],
+  pageUp: ['\u001B[5^'],
+  pageDown: ['\u001B[6^'],
+  home: ['\u001B[7^'],
+  end: ['\u001B[8^'],
 } as const;
 
 const LEGACY_SEQUENCE_KEY_IDS: Record<string, KeyId> = {
-  '\x1BOA': 'up',
-  '\x1BOB': 'down',
-  '\x1BOC': 'right',
-  '\x1BOD': 'left',
-  '\x1BOH': 'home',
-  '\x1BOF': 'end',
-  '\x1B[E': 'clear',
-  '\x1BOE': 'clear',
-  '\x1BOe': 'ctrl+clear',
-  '\x1B[e': 'shift+clear',
-  '\x1B[2~': 'insert',
-  '\x1B[2$': 'shift+insert',
-  '\x1B[2^': 'ctrl+insert',
-  '\x1B[3$': 'shift+delete',
-  '\x1B[3^': 'ctrl+delete',
-  '\x1B[[5~': 'pageUp',
-  '\x1B[[6~': 'pageDown',
-  '\x1B[a': 'shift+up',
-  '\x1B[b': 'shift+down',
-  '\x1B[c': 'shift+right',
-  '\x1B[d': 'shift+left',
-  '\x1BOa': 'ctrl+up',
-  '\x1BOb': 'ctrl+down',
-  '\x1BOc': 'ctrl+right',
-  '\x1BOd': 'ctrl+left',
-  '\x1B[5$': 'shift+pageUp',
-  '\x1B[6$': 'shift+pageDown',
-  '\x1B[7$': 'shift+home',
-  '\x1B[8$': 'shift+end',
-  '\x1B[5^': 'ctrl+pageUp',
-  '\x1B[6^': 'ctrl+pageDown',
-  '\x1B[7^': 'ctrl+home',
-  '\x1B[8^': 'ctrl+end',
-  '\x1BOP': 'f1',
-  '\x1BOQ': 'f2',
-  '\x1BOR': 'f3',
-  '\x1BOS': 'f4',
-  '\x1B[11~': 'f1',
-  '\x1B[12~': 'f2',
-  '\x1B[13~': 'f3',
-  '\x1B[14~': 'f4',
-  '\x1B[[A': 'f1',
-  '\x1B[[B': 'f2',
-  '\x1B[[C': 'f3',
-  '\x1B[[D': 'f4',
-  '\x1B[[E': 'f5',
-  '\x1B[15~': 'f5',
-  '\x1B[17~': 'f6',
-  '\x1B[18~': 'f7',
-  '\x1B[19~': 'f8',
-  '\x1B[20~': 'f9',
-  '\x1B[21~': 'f10',
-  '\x1B[23~': 'f11',
-  '\x1B[24~': 'f12',
-  '\x1Bb': 'alt+left',
-  '\x1Bf': 'alt+right',
-  '\x1Bp': 'alt+up',
-  '\x1Bn': 'alt+down',
+  '\u001BOA': 'up',
+  '\u001BOB': 'down',
+  '\u001BOC': 'right',
+  '\u001BOD': 'left',
+  '\u001BOH': 'home',
+  '\u001BOF': 'end',
+  '\u001B[E': 'clear',
+  '\u001BOE': 'clear',
+  '\u001BOe': 'ctrl+clear',
+  '\u001B[e': 'shift+clear',
+  '\u001B[2~': 'insert',
+  '\u001B[2$': 'shift+insert',
+  '\u001B[2^': 'ctrl+insert',
+  '\u001B[3$': 'shift+delete',
+  '\u001B[3^': 'ctrl+delete',
+  '\u001B[[5~': 'pageUp',
+  '\u001B[[6~': 'pageDown',
+  '\u001B[a': 'shift+up',
+  '\u001B[b': 'shift+down',
+  '\u001B[c': 'shift+right',
+  '\u001B[d': 'shift+left',
+  '\u001BOa': 'ctrl+up',
+  '\u001BOb': 'ctrl+down',
+  '\u001BOc': 'ctrl+right',
+  '\u001BOd': 'ctrl+left',
+  '\u001B[5$': 'shift+pageUp',
+  '\u001B[6$': 'shift+pageDown',
+  '\u001B[7$': 'shift+home',
+  '\u001B[8$': 'shift+end',
+  '\u001B[5^': 'ctrl+pageUp',
+  '\u001B[6^': 'ctrl+pageDown',
+  '\u001B[7^': 'ctrl+home',
+  '\u001B[8^': 'ctrl+end',
+  '\u001BOP': 'f1',
+  '\u001BOQ': 'f2',
+  '\u001BOR': 'f3',
+  '\u001BOS': 'f4',
+  '\u001B[11~': 'f1',
+  '\u001B[12~': 'f2',
+  '\u001B[13~': 'f3',
+  '\u001B[14~': 'f4',
+  '\u001B[[A': 'f1',
+  '\u001B[[B': 'f2',
+  '\u001B[[C': 'f3',
+  '\u001B[[D': 'f4',
+  '\u001B[[E': 'f5',
+  '\u001B[15~': 'f5',
+  '\u001B[17~': 'f6',
+  '\u001B[18~': 'f7',
+  '\u001B[19~': 'f8',
+  '\u001B[20~': 'f9',
+  '\u001B[21~': 'f10',
+  '\u001B[23~': 'f11',
+  '\u001B[24~': 'f12',
+  '\u001Bb': 'alt+left',
+  '\u001Bf': 'alt+right',
+  '\u001Bp': 'alt+up',
+  '\u001Bn': 'alt+down',
 } as const;
 
 type LegacyModifierKey = keyof typeof LEGACY_SHIFT_SEQUENCES;
@@ -530,13 +530,13 @@ export function isKeyRelease(data: string): boolean {
   // Don't treat bracketed paste content as key release, even if it contains
   // patterns like ":3F" (e.g., bluetooth MAC addresses like "90:62:3F:A5").
   // Terminal.ts re-wraps paste content with bracketed paste markers before
-  // passing to TUI, so pasted data will always contain \x1B[200~.
-  if (data.includes('\x1B[200~')) {
+  // passing to TUI, so pasted data will always contain \u001B[200~.
+  if (data.includes('\u001B[200~')) {
     return false;
   }
 
   // Quick check: release events with flag 2 contain ":3"
-  // Format: \x1B[<codepoint>;<modifier>:3u
+  // Format: \u001B[<codepoint>;<modifier>:3u
   if (
     data.includes(':3u') ||
     data.includes(':3~') ||
@@ -559,7 +559,7 @@ export function isKeyRelease(data: string): boolean {
 export function isKeyRepeat(data: string): boolean {
   // Don't treat bracketed paste content as key repeat, even if it contains
   // patterns like ":2F". See isKeyRelease() for details.
-  if (data.includes('\x1B[200~')) {
+  if (data.includes('\u001B[200~')) {
     return false;
   }
 
@@ -588,16 +588,16 @@ function parseEventType(eventTypeStr: string | undefined): KeyEventType {
 
 function parseKittySequence(data: string): ParsedKittySequence | null {
   // CSI u format with alternate keys (flag 4):
-  // \x1B[<codepoint>u
-  // \x1B[<codepoint>;<mod>u
-  // \x1B[<codepoint>;<mod>:<event>u
-  // \x1B[<codepoint>:<shifted>;<mod>u
-  // \x1B[<codepoint>:<shifted>:<base>;<mod>u
-  // \x1B[<codepoint>::<base>;<mod>u (no shifted key, only base)
+  // \u001B[<codepoint>u
+  // \u001B[<codepoint>;<mod>u
+  // \u001B[<codepoint>;<mod>:<event>u
+  // \u001B[<codepoint>:<shifted>;<mod>u
+  // \u001B[<codepoint>:<shifted>:<base>;<mod>u
+  // \u001B[<codepoint>::<base>;<mod>u (no shifted key, only base)
   //
   // With flag 2, event type is appended after modifier colon: 1=press, 2=repeat, 3=release
   // With flag 4, alternate keys are appended after codepoint with colons
-  const csiUMatch = data.match(/^\x1B\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$/);
+  const csiUMatch = data.match(/^\u001B\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$/);
   if (csiUMatch) {
     const codepoint = parseInt(csiUMatch[1]!, 10);
     const shiftedKey = csiUMatch[2] && csiUMatch[2].length > 0 ? parseInt(csiUMatch[2], 10) : undefined;
@@ -608,8 +608,8 @@ function parseKittySequence(data: string): ParsedKittySequence | null {
     return { codepoint, shiftedKey, baseLayoutKey, modifier: modValue - 1, eventType };
   }
 
-  // Arrow keys with modifier: \x1B[1;<mod>A/B/C/D or \x1B[1;<mod>:<event>A/B/C/D
-  const arrowMatch = data.match(/^\x1B\[1;(\d+)(?::(\d+))?([ABCD])$/);
+  // Arrow keys with modifier: \u001B[1;<mod>A/B/C/D or \u001B[1;<mod>:<event>A/B/C/D
+  const arrowMatch = data.match(/^\u001B\[1;(\d+)(?::(\d+))?([ABCD])$/);
   if (arrowMatch) {
     const modValue = parseInt(arrowMatch[1]!, 10);
     const eventType = parseEventType(arrowMatch[2]);
@@ -618,8 +618,8 @@ function parseKittySequence(data: string): ParsedKittySequence | null {
     return { codepoint: arrowCodes[arrowMatch[3]!]!, modifier: modValue - 1, eventType };
   }
 
-  // Functional keys: \x1B[<num>~ or \x1B[<num>;<mod>~ or \x1B[<num>;<mod>:<event>~
-  const funcMatch = data.match(/^\x1B\[(\d+)(?:;(\d+))?(?::(\d+))?~$/);
+  // Functional keys: \u001B[<num>~ or \u001B[<num>;<mod>~ or \u001B[<num>;<mod>:<event>~
+  const funcMatch = data.match(/^\u001B\[(\d+)(?:;(\d+))?(?::(\d+))?~$/);
   if (funcMatch) {
     const keyNum = parseInt(funcMatch[1]!, 10);
     const modValue = funcMatch[2] ? parseInt(funcMatch[2], 10) : 1;
@@ -639,8 +639,8 @@ function parseKittySequence(data: string): ParsedKittySequence | null {
     }
   }
 
-  // Home/End with modifier: \x1B[1;<mod>H/F or \x1B[1;<mod>:<event>H/F
-  const homeEndMatch = data.match(/^\x1B\[1;(\d+)(?::(\d+))?([HF])$/);
+  // Home/End with modifier: \u001B[1;<mod>H/F or \u001B[1;<mod>:<event>H/F
+  const homeEndMatch = data.match(/^\u001B\[1;(\d+)(?::(\d+))?([HF])$/);
   if (homeEndMatch) {
     const modValue = parseInt(homeEndMatch[1]!, 10);
     const eventType = parseEventType(homeEndMatch[2]);
@@ -696,7 +696,7 @@ function matchesKittySequence(data: string, expectedCodepoint: number, expectedM
 }
 
 function parseModifyOtherKeysSequence(data: string): ParsedModifyOtherKeysSequence | null {
-  const match = data.match(/^\x1B\[27;(\d+);(\d+)~$/);
+  const match = data.match(/^\u001B\[27;(\d+);(\d+)~$/);
   if (!match) return null;
   const modValue = parseInt(match[1]!, 10);
   const codepoint = parseInt(match[2]!, 10);
@@ -733,8 +733,8 @@ function isWindowsTerminalSession(): boolean {
  * available. Fall back to a Windows Terminal heuristic only for raw BS bytes.
  */
 function matchesRawBackspace(data: string, expectedModifier: number): boolean {
-  if (data === '\x7F') return expectedModifier === 0;
-  if (data !== '\x08') return false;
+  if (data === '\u007F') return expectedModifier === 0;
+  if (data !== '\u0008') return false;
   return isWindowsTerminalSession() ? expectedModifier === MODIFIERS.ctrl : expectedModifier === 0;
 }
 
@@ -838,17 +838,17 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case 'esc':
       if (modifier !== 0) return false;
       return (
-        data === '\x1B' ||
+        data === '\u001B' ||
         matchesKittySequence(data, CODEPOINTS.escape, 0) ||
         matchesModifyOtherKeys(data, CODEPOINTS.escape, 0)
       );
 
     case 'space':
       if (!_kittyProtocolActive) {
-        if (modifier === MODIFIERS.ctrl && data === '\x00') {
+        if (modifier === MODIFIERS.ctrl && data === '\u0000') {
           return true;
         }
-        if (modifier === MODIFIERS.alt && data === '\x1B ') {
+        if (modifier === MODIFIERS.alt && data === '\u001B ') {
           return true;
         }
       }
@@ -867,7 +867,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case 'tab':
       if (modifier === MODIFIERS.shift) {
         return (
-          data === '\x1B[Z' ||
+          data === '\u001B[Z' ||
           matchesKittySequence(data, CODEPOINTS.tab, MODIFIERS.shift) ||
           matchesModifyOtherKeys(data, CODEPOINTS.tab, MODIFIERS.shift)
         );
@@ -895,10 +895,10 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
           return true;
         }
         // When Kitty protocol is active, legacy sequences are custom terminal mappings
-        // \x1B\r = Kitty's "map shift+enter send_text all \e\r"
+        // \u001B\r = Kitty's "map shift+enter send_text all \e\r"
         // \n = Ghostty's "keybind = shift+enter=text:\n"
         if (_kittyProtocolActive) {
-          return data === '\x1B\r' || data === '\n';
+          return data === '\u001B\r' || data === '\n';
         }
         return false;
       }
@@ -914,10 +914,10 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
         if (matchesModifyOtherKeys(data, CODEPOINTS.enter, MODIFIERS.alt)) {
           return true;
         }
-        // \x1B\r is alt+enter only in legacy mode (no Kitty protocol)
+        // \u001B\r is alt+enter only in legacy mode (no Kitty protocol)
         // When Kitty protocol is active, alt+enter comes as CSI u sequence
         if (!_kittyProtocolActive) {
-          return data === '\x1B\r';
+          return data === '\u001B\r';
         }
         return false;
       }
@@ -925,7 +925,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
         return (
           data === '\r' ||
           (!_kittyProtocolActive && data === '\n') ||
-          data === '\x1BOM' || // SS3 M (numpad enter in some terminals)
+          data === '\u001BOM' || // SS3 M (numpad enter in some terminals)
           matchesKittySequence(data, CODEPOINTS.enter, 0) ||
           matchesKittySequence(data, CODEPOINTS.kpEnter, 0)
         );
@@ -938,7 +938,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 
     case 'backspace':
       if (modifier === MODIFIERS.alt) {
-        if (data === '\x1B\x7F' || data === '\x1B\b') {
+        if (data === '\u001B\u007F' || data === '\u001B\b') {
           return true;
         }
         return (
@@ -1048,7 +1048,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 
     case 'up':
       if (modifier === MODIFIERS.alt) {
-        return data === '\x1Bp' || matchesKittySequence(data, ARROW_CODEPOINTS.up, MODIFIERS.alt);
+        return data === '\u001Bp' || matchesKittySequence(data, ARROW_CODEPOINTS.up, MODIFIERS.alt);
       }
       if (modifier === 0) {
         return (
@@ -1063,7 +1063,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 
     case 'down':
       if (modifier === MODIFIERS.alt) {
-        return data === '\x1Bn' || matchesKittySequence(data, ARROW_CODEPOINTS.down, MODIFIERS.alt);
+        return data === '\u001Bn' || matchesKittySequence(data, ARROW_CODEPOINTS.down, MODIFIERS.alt);
       }
       if (modifier === 0) {
         return (
@@ -1079,15 +1079,15 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case 'left':
       if (modifier === MODIFIERS.alt) {
         return (
-          data === '\x1B[1;3D' ||
-          (!_kittyProtocolActive && data === '\x1BB') ||
-          data === '\x1Bb' ||
+          data === '\u001B[1;3D' ||
+          (!_kittyProtocolActive && data === '\u001BB') ||
+          data === '\u001Bb' ||
           matchesKittySequence(data, ARROW_CODEPOINTS.left, MODIFIERS.alt)
         );
       }
       if (modifier === MODIFIERS.ctrl) {
         return (
-          data === '\x1B[1;5D' ||
+          data === '\u001B[1;5D' ||
           matchesLegacyModifierSequence(data, 'left', MODIFIERS.ctrl) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.left, MODIFIERS.ctrl)
         );
@@ -1106,15 +1106,15 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case 'right':
       if (modifier === MODIFIERS.alt) {
         return (
-          data === '\x1B[1;3C' ||
-          (!_kittyProtocolActive && data === '\x1BF') ||
-          data === '\x1Bf' ||
+          data === '\u001B[1;3C' ||
+          (!_kittyProtocolActive && data === '\u001BF') ||
+          data === '\u001Bf' ||
           matchesKittySequence(data, ARROW_CODEPOINTS.right, MODIFIERS.alt)
         );
       }
       if (modifier === MODIFIERS.ctrl) {
         return (
-          data === '\x1B[1;5C' ||
+          data === '\u001B[1;5C' ||
           matchesLegacyModifierSequence(data, 'right', MODIFIERS.ctrl) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.right, MODIFIERS.ctrl)
         );
@@ -1161,12 +1161,12 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       // Legacy: ctrl+alt+key is ESC followed by the control character.
       // If that legacy form does not match, continue so CSI-u and
       // modifyOtherKeys sequences from tmux can still be recognized.
-      if (data === `\x1B${rawCtrl}`) return true;
+      if (data === `\u001B${rawCtrl}`) return true;
     }
 
     if (modifier === MODIFIERS.alt && !_kittyProtocolActive && (isLetter || isDigit || SYMBOL_KEYS.has(key))) {
       // Legacy: alt+printable key is ESC followed by the key
-      if (data === `\x1B${key}`) return true;
+      if (data === `\u001B${key}`) return true;
     }
 
     if (modifier === MODIFIERS.ctrl) {
@@ -1266,37 +1266,37 @@ export function parseKey(data: string): string | undefined {
 
   // Mode-aware legacy sequences
   // When Kitty protocol is active, ambiguous sequences are interpreted as custom terminal mappings:
-  // - \x1B\r = shift+enter (Kitty mapping), not alt+enter
+  // - \u001B\r = shift+enter (Kitty mapping), not alt+enter
   // - \n = shift+enter (Ghostty mapping)
   if (_kittyProtocolActive) {
-    if (data === '\x1B\r' || data === '\n') return 'shift+enter';
+    if (data === '\u001B\r' || data === '\n') return 'shift+enter';
   }
 
   const legacySequenceKeyId = LEGACY_SEQUENCE_KEY_IDS[data];
   if (legacySequenceKeyId) return legacySequenceKeyId;
 
   // Legacy sequences (used when Kitty protocol is not active, or for unambiguous sequences)
-  if (data === '\x1B') return 'escape';
-  if (data === '\x1C') return 'ctrl+\\';
-  if (data === '\x1D') return 'ctrl+]';
-  if (data === '\x1F') return 'ctrl+-';
-  if (data === '\x1B\x1B') return 'ctrl+alt+[';
-  if (data === '\x1B\x1C') return 'ctrl+alt+\\';
-  if (data === '\x1B\x1D') return 'ctrl+alt+]';
-  if (data === '\x1B\x1F') return 'ctrl+alt+-';
+  if (data === '\u001B') return 'escape';
+  if (data === '\u001C') return 'ctrl+\\';
+  if (data === '\u001D') return 'ctrl+]';
+  if (data === '\u001F') return 'ctrl+-';
+  if (data === '\u001B\u001B') return 'ctrl+alt+[';
+  if (data === '\u001B\u001C') return 'ctrl+alt+\\';
+  if (data === '\u001B\u001D') return 'ctrl+alt+]';
+  if (data === '\u001B\u001F') return 'ctrl+alt+-';
   if (data === '\t') return 'tab';
-  if (data === '\r' || (!_kittyProtocolActive && data === '\n') || data === '\x1BOM') return 'enter';
-  if (data === '\x00') return 'ctrl+space';
+  if (data === '\r' || (!_kittyProtocolActive && data === '\n') || data === '\u001BOM') return 'enter';
+  if (data === '\u0000') return 'ctrl+space';
   if (data === ' ') return 'space';
-  if (data === '\x7F') return 'backspace';
-  if (data === '\x08') return isWindowsTerminalSession() ? 'ctrl+backspace' : 'backspace';
-  if (data === '\x1B[Z') return 'shift+tab';
-  if (!_kittyProtocolActive && data === '\x1B\r') return 'alt+enter';
-  if (!_kittyProtocolActive && data === '\x1B ') return 'alt+space';
-  if (data === '\x1B\x7F' || data === '\x1B\b') return 'alt+backspace';
-  if (!_kittyProtocolActive && data === '\x1BB') return 'alt+left';
-  if (!_kittyProtocolActive && data === '\x1BF') return 'alt+right';
-  if (!_kittyProtocolActive && data.length === 2 && data[0] === '\x1B') {
+  if (data === '\u007F') return 'backspace';
+  if (data === '\u0008') return isWindowsTerminalSession() ? 'ctrl+backspace' : 'backspace';
+  if (data === '\u001B[Z') return 'shift+tab';
+  if (!_kittyProtocolActive && data === '\u001B\r') return 'alt+enter';
+  if (!_kittyProtocolActive && data === '\u001B ') return 'alt+space';
+  if (data === '\u001B\u007F' || data === '\u001B\b') return 'alt+backspace';
+  if (!_kittyProtocolActive && data === '\u001BB') return 'alt+left';
+  if (!_kittyProtocolActive && data === '\u001BF') return 'alt+right';
+  if (!_kittyProtocolActive && data.length === 2 && data[0] === '\u001B') {
     const code = data.charCodeAt(1);
     if (code >= 1 && code <= 26) {
       return `ctrl+alt+${String.fromCodePoint(code + 96)}`;
@@ -1307,15 +1307,15 @@ export function parseKey(data: string): string | undefined {
       return `alt+${key}`;
     }
   }
-  if (data === '\x1B[A') return 'up';
-  if (data === '\x1B[B') return 'down';
-  if (data === '\x1B[C') return 'right';
-  if (data === '\x1B[D') return 'left';
-  if (data === '\x1B[H' || data === '\x1BOH') return 'home';
-  if (data === '\x1B[F' || data === '\x1BOF') return 'end';
-  if (data === '\x1B[3~') return 'delete';
-  if (data === '\x1B[5~') return 'pageUp';
-  if (data === '\x1B[6~') return 'pageDown';
+  if (data === '\u001B[A') return 'up';
+  if (data === '\u001B[B') return 'down';
+  if (data === '\u001B[C') return 'right';
+  if (data === '\u001B[D') return 'left';
+  if (data === '\u001B[H' || data === '\u001BOH') return 'home';
+  if (data === '\u001B[F' || data === '\u001BOF') return 'end';
+  if (data === '\u001B[3~') return 'delete';
+  if (data === '\u001B[5~') return 'pageUp';
+  if (data === '\u001B[6~') return 'pageDown';
 
   // Raw Ctrl+letter
   if (data.length === 1) {
@@ -1335,7 +1335,7 @@ export function parseKey(data: string): string | undefined {
 // Kitty CSI-u Printable Decoding
 // =============================================================================
 
-const KITTY_CSI_U_REGEX = /^\x1B\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$/;
+const KITTY_CSI_U_REGEX = /^\u001B\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$/;
 const KITTY_PRINTABLE_ALLOWED_MODIFIERS = MODIFIERS.shift | LOCK_MASK;
 
 /**

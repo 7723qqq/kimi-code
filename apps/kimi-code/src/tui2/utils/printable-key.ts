@@ -5,7 +5,7 @@
  * comparable printable character. When a terminal (e.g. the VSCode
  * integrated terminal) enables the Kitty keyboard protocol disambiguate
  * flag, ordinary printable keys are sent as CSI-u sequences: pressing `r`
- * arrives as "\x1B[114u". A bare `data === 'q'` comparison therefore never
+ * arrives as "\u001B[114u". A bare `data === 'q'` comparison therefore never
  * matches under Kitty-mode terminals.
  *
  * Status: REAL (tui2). Mirrors `tui/utils/printable-key.ts`.
