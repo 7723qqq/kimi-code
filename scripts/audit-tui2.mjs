@@ -312,6 +312,18 @@ check('always-return warnings', () => {
   return '0 warnings';
 });
 
+check('import(first) warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/import\(first\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`import(first) reports ${count} warnings — non-import code between import statements (type-alias blocks should sit after all imports, not in the middle)`);
+  }
+  return '0 warnings';
+});
+
 check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);

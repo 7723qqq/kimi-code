@@ -20,32 +20,6 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
-/** Narrowed event shapes consumed by the private handlers below. */
-type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
-type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
-type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
-type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
-type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
-type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
-type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
-type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
-type ErrorEvent = Extract<Event, { type: 'error' }>;
-type WarningEvent = Extract<Event, { type: 'warning' }>;
-type GoalUpdatedEvent = Extract<Event, { type: 'goal.updated' }>;
-type HookResultEvent = Extract<Event, { type: 'hook.result' }>;
-type SkillActivatedEvent = Extract<Event, { type: 'skill.activated' }>;
-type PluginCommandActivatedEvent = Extract<Event, { type: 'plugin_command.activated' }>;
-type ThinkingDeltaEvent = Extract<Event, { type: 'thinking.delta' }>;
-type AssistantDeltaEvent = Extract<Event, { type: 'assistant.delta' }>;
-type ToolCallDeltaEvent = Extract<Event, { type: 'tool.call.delta' }>;
-type ToolCallStartedEvent = Extract<Event, { type: 'tool.call.started' }>;
-type ToolProgressEvent = Extract<Event, { type: 'tool.progress' }>;
-type ToolResultEvent = Extract<Event, { type: 'tool.result' }>;
-type CompactionStartedEvent = Extract<Event, { type: 'compaction.started' }>;
-type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>;
-type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
-type BackgroundTaskEvent = Extract<Event, { type: 'task.started' | 'task.terminated' }>;
-
 import { t } from '#/i18n';
 import type { ColorToken } from '../theme';
 import { openUrl } from '#/utils/open-url';
@@ -97,6 +71,32 @@ import type { BtwPanelController } from './btw-panel';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
 import { SubAgentEventHandler } from './subagent-event-handler';
+
+/** Narrowed event shapes consumed by the private handlers below. */
+type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
+type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
+type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
+type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
+type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
+type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
+type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
+type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
+type ErrorEvent = Extract<Event, { type: 'error' }>;
+type WarningEvent = Extract<Event, { type: 'warning' }>;
+type GoalUpdatedEvent = Extract<Event, { type: 'goal.updated' }>;
+type HookResultEvent = Extract<Event, { type: 'hook.result' }>;
+type SkillActivatedEvent = Extract<Event, { type: 'skill.activated' }>;
+type PluginCommandActivatedEvent = Extract<Event, { type: 'plugin_command.activated' }>;
+type ThinkingDeltaEvent = Extract<Event, { type: 'thinking.delta' }>;
+type AssistantDeltaEvent = Extract<Event, { type: 'assistant.delta' }>;
+type ToolCallDeltaEvent = Extract<Event, { type: 'tool.call.delta' }>;
+type ToolCallStartedEvent = Extract<Event, { type: 'tool.call.started' }>;
+type ToolProgressEvent = Extract<Event, { type: 'tool.progress' }>;
+type ToolResultEvent = Extract<Event, { type: 'tool.result' }>;
+type CompactionStartedEvent = Extract<Event, { type: 'compaction.started' }>;
+type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>;
+type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
+type BackgroundTaskEvent = Extract<Event, { type: 'task.started' | 'task.terminated' }>;
 
 /** The slice of the tasks-browser controller the event handler drives. */
 export interface TasksBrowserControllerLike {
