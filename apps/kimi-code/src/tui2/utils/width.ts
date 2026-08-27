@@ -101,7 +101,7 @@ export function visibleWidth(str: string): number {
 
   let clean = str;
   if (str.includes('\t')) {
-    clean = clean.replace(/\t/g, '   ');
+    clean = clean.replaceAll(/\t/g, '   ');
   }
   if (clean.includes('\u001B')) {
     let stripped = '';
