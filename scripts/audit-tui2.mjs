@@ -224,6 +224,34 @@ check('consistent-type-imports warnings', () => {
   return '0 warnings';
 });
 
+check('prefer-string-slice warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(prefer-string-slice\)/g) ?? []).length;
+  if (count > 0) {
+    throw new Error(`prefer-string-slice reports ${count} warnings — \`.substring(...)\` leaked back into tui2`);
+  }
+  return '0 warnings';
+});
+
+check('prefer-string-replace-all warnings', () => {
+  const r = run(
+    `${BUN} --bun ${join(REPO_ROOT, 'node_modules', '.bin', 'oxlint')}`,
+    ['apps/kimi-code/src/tui2'],
+  );
+  const count = (r.stdout.match(/unicorn\(prefer-string-replace-all\)/g) ?? []).length;
+  // The 2 currently-remaining cases are the prefer-literal-regex secondary
+  // warnings (the linter thinks \\t and \\\\ are trivial enough to
+  // inline as literal strings). Run-away guard: any increase past 2 is
+  // suspicious; the audit will tell you about it.
+  if (count > 2) {
+    throw new Error(`prefer-string-replace-all reports ${count} warnings; expected ≤ 2 (the two known prefer-literal-regex tail warnings); investigate the regression`);
+  }
+  return count === 0 ? '0 warnings' : `${count} warnings (tail of prefer-literal-regex; flagged soft)`;
+});
+
 check('orphan stash survey', () => {
   const r = run('git', ['stash', 'list']);
   if (!r.ok) throw new Error(r.stderr || r.stdout);
