@@ -71,8 +71,8 @@ describe('wrapToVisualRows', () => {
   });
 
   it('carries ANSI escapes along without counting their width', () => {
-    const rows = wrapToVisualRows('\x1b[31maaa bbb\x1b[0m ccc', 7);
-    expect(rows).toEqual(['\x1b[31maaa bbb\x1b[0m', 'ccc']);
+    const rows = wrapToVisualRows('\x1B[31maaa bbb\x1B[0m ccc', 7);
+    expect(rows).toEqual(['\x1B[31maaa bbb\x1B[0m', 'ccc']);
   });
 
   it('preserves leading indentation on the first row', () => {

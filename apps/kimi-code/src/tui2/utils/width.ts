@@ -25,7 +25,7 @@ const wideRegex =
  * number of source chars it covers, or null when `str[pos]` is not ESC.
  */
 function extractAnsiCode(str: string, pos: number): { code: string; length: number } | null {
-  if (pos >= str.length || str[pos] !== '\x1b') return null;
+  if (pos >= str.length || str[pos] !== '\x1B') return null;
 
   const next = str[pos + 1];
 
@@ -42,7 +42,7 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
     let j = pos + 2;
     while (j < str.length) {
       if (str[j] === '\x07') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
-      if (str[j] === '\x1b' && str[j + 1] === '\\') {
+      if (str[j] === '\x1B' && str[j + 1] === '\\') {
         return { code: str.substring(pos, j + 2), length: j + 2 - pos };
       }
       j++;
@@ -55,7 +55,7 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
     let j = pos + 2;
     while (j < str.length) {
       if (str[j] === '\x07') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
-      if (str[j] === '\x1b' && str[j + 1] === '\\') {
+      if (str[j] === '\x1B' && str[j + 1] === '\\') {
         return { code: str.substring(pos, j + 2), length: j + 2 - pos };
       }
       j++;
@@ -68,7 +68,7 @@ function extractAnsiCode(str: string, pos: number): { code: string; length: numb
 
 /** Remove ANSI, OSC, and APC control sequences while preserving visible text. */
 export function stripTerminalSequences(str: string): string {
-  if (!str.includes('\x1b')) return str;
+  if (!str.includes('\x1B')) return str;
   let result = '';
   let i = 0;
   while (i < str.length) {
@@ -103,7 +103,7 @@ export function visibleWidth(str: string): number {
   if (str.includes('\t')) {
     clean = clean.replace(/\t/g, '   ');
   }
-  if (clean.includes('\x1b')) {
+  if (clean.includes('\x1B')) {
     let stripped = '';
     let i = 0;
     while (i < clean.length) {
@@ -193,7 +193,7 @@ export function truncateToWidth(
     return ellipsis + (pad ? ' '.repeat(maxWidth - ellipsisWidth) : '');
   }
 
-  const reset = '\x1b[0m';
+  const reset = '\x1B[0m';
   let out = `${result}${reset}${ellipsis}`;
   if (pad) out += ' '.repeat(Math.max(0, maxWidth - keptWidth - ellipsisWidth));
   return out;

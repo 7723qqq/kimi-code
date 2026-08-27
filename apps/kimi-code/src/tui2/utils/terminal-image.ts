@@ -139,5 +139,5 @@ export function setCapabilities(caps: TerminalCapabilities): void {
  * Uses uppercase 'A' to also free the image data.
  */
 export function deleteAllKittyImages(): string {
-  return '\x1b_Ga=d,d=A,q=2\x1b\\';
+  return '\x1B_Ga=d,d=A,q=2\x1B\\';
 }
