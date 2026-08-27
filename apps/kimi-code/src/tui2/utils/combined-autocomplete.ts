@@ -19,11 +19,11 @@ import type {
 const PATH_DELIMITERS = new Set([' ', '\t', '"', "'", '=']);
 
 function toDisplayPath(value: string): string {
-  return value.replace(/\\/g, '/');
+  return value.replaceAll(/\\/g, '/');
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function buildFdPathQuery(query: string): string {
@@ -33,7 +33,7 @@ function buildFdPathQuery(query: string): string {
   }
 
   const hasTrailingSeparator = normalized.endsWith('/');
-  const trimmed = normalized.replace(/^\/+|\/+$/g, '');
+  const trimmed = normalized.replaceAll(/^\/+|\/+$/g, '');
   if (!trimmed) {
     return normalized;
   }

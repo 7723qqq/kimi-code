@@ -62,7 +62,7 @@ interface CommandEntry {
 }
 
 function leaderActionLabelKey(action: LeaderAction): string {
-  return `tui.dialogs.whichKey.actions.${action.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`
+  return `tui.dialogs.whichKey.actions.${action.replaceAll(/-([a-z])/g, (_, c) => c.toUpperCase())}`
 }
 
 function shortcutLabelKey(action: ShortcutAction): string {
