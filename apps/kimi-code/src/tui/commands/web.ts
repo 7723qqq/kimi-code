@@ -61,7 +61,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
         onReady: async (origin) => {
           const dataDir = getDataDir();
           const token = tryResolveServerToken(dataDir);
-          if (token === undefined) throw new Error('Unable to read the local server token.');
+          if (token === undefined) throw new Error(t('tui.statusMessages.unableToReadServerToken'));
           let outputReady = false;
           const pendingStatuses: string[] = [];
           const onStatus = (status: RemoteControlStatus): void => {

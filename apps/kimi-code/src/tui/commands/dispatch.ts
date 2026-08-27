@@ -67,9 +67,11 @@ import {
 } from './session';
 import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
+import { handleTeamCommand } from './team';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
+import { handleWorkflowCommand } from './workflow';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
@@ -586,8 +588,14 @@ async function handleBuiltInSlashCommand(
     case 'swarm':
       await handleSwarmCommand(host, args);
       return;
+    case 'team':
+      await handleTeamCommand(host, args);
+      return;
     case 'tower':
       await handleTowerCommand(host, args);
+      return;
+    case 'workflow':
+      await handleWorkflowCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);

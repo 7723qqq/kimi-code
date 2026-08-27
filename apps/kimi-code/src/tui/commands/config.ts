@@ -977,12 +977,6 @@ export async function applyExperimentalFeatureChanges(
       // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice('Tower mode takes effect after restarting Kimi Code.');
     }
-    if (changes.some((change) => change.id === 'tower')) {
-      // TowerFeature assembles its tool/profile contributions once at App
-      // scope construction, so a live flag flip cannot install or retract
-      // them; only the mode machinery (enter/injection/guards) reacts live.
-      host.showNotice('Tower mode takes effect after restarting Kimi Code.');
-    }
     host.track('experimental_features_apply', { changed: changes.length });
   } catch (error) {
     host.showError(
