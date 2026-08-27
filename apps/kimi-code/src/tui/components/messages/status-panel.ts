@@ -14,6 +14,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { PRODUCT_NAME } from '#/constant/app';
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import {
   formatTokenCount,
@@ -67,7 +68,7 @@ function displayModelName(alias: string, models: Record<string, ModelAlias>): st
 
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
-  if (model.trim().length === 0) return 'not set';
+  if (model.trim().length === 0) return t('tui.messages.statusPanel.modelNotSet');
 
   const effort = options.status?.thinkingEffort ?? options.thinkingEffort;
   return `${displayModelName(model, options.availableModels)} (thinking ${effort})`;
@@ -115,7 +116,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
     { label: 'Permissions', value: permission },
-    { label: 'Plan mode', value: planMode ? 'on' : 'off' },
+    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
     rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
@@ -127,10 +128,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     rows.push({ label: 'Warning', value: options.statusError, severity: 'error' });
   }
 
-  const lines: string[] = [
-    `${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`,
-    '',
-  ];
+  const lines: string[] = [`${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`, ''];
   addFieldRows(lines, rows, muted, value, errorStyle);
 
   const { ratio, tokens, maxTokens } = contextValues(options);
@@ -145,7 +143,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
         muted(`(${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)})`),
     );
   } else {
-    lines.push(`  ${muted('No context window data available.')}`);
+    lines.push(`  ${muted(t('tui.messages.statusPanel.noContextData'))}`);
   }
 
   const managedSection = buildManagedUsageReportLines({

@@ -14,6 +14,7 @@ import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
+import { wrapText as wrap } from '#/tui/utils/wrap-text';
 
 const HEAD_INDENT = '  ';
 const DETAIL_INDENT = '    ';
@@ -173,21 +174,4 @@ function resumedHeadline(actor: GoalMarkerActor | undefined): string {
 
 function lowercaseFirst(text: string): string {
   return text.length === 0 ? text : `${text[0]!.toLowerCase()}${text.slice(1)}`;
-}
-
-function wrap(text: string, width: number): string[] {
-  const words = text.replaceAll(/\s+/g, ' ').trim().split(' ');
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (candidate.length > width && current.length > 0) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current.length > 0) lines.push(current);
-  return lines.length > 0 ? lines : [''];
 }

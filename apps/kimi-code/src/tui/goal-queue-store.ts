@@ -158,13 +158,24 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
     );
   }
 
-  if (!isGoalQueueFile(parsed)) {
-    const empty = emptyQueueFile();
-    await writeQueueFile(session, empty);
-    return empty;
+  if (!isRecord(parsed)) {
+    throw new KimiError(
+      ErrorCodes.CONFIG_INVALID,
+      `Goal queue file has an unexpected shape: ${filePath}`,
+    );
   }
-
-  return parsed;
+  if (parsed['version'] !== GOAL_QUEUE_VERSION) {
+    // Never overwrite a file we do not understand — the queued goals belong
+    // to the user. Fail loudly and leave the file untouched instead.
+    throw new KimiError(
+      ErrorCodes.CONFIG_INVALID,
+      `Unsupported goal queue version ${String(parsed['version'])} in ${filePath}`,
+    );
+  }
+  // Drop only the entries that fail validation; a single corrupted goal
+  // must not destroy the rest of the queue.
+  const goals = Array.isArray(parsed['goals']) ? parsed['goals'].filter(isUpcomingGoal) : [];
+  return { version: GOAL_QUEUE_VERSION, goals };
 }
 
 async function writeQueueFile(session: GoalQueueSession, file: GoalQueueFile): Promise<void> {
@@ -227,15 +238,6 @@ function findGoalIndex(file: GoalQueueFile, goalId: string): number {
     throw new KimiError(ErrorCodes.GOAL_NOT_FOUND, t('tui.messages.goalQueueNotFound'));
   }
   return index;
-}
-
-function isGoalQueueFile(value: unknown): value is GoalQueueFile {
-  if (!isRecord(value)) return false;
-  return (
-    value['version'] === GOAL_QUEUE_VERSION &&
-    Array.isArray(value['goals']) &&
-    value['goals'].every(isUpcomingGoal)
-  );
 }
 
 function isUpcomingGoal(value: unknown): value is UpcomingGoal {

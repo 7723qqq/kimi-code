@@ -1,8 +1,8 @@
 import { Container, Text } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { SHELL_OUTPUT_PREVIEW_LINES } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
-
 import { formatBashOutputForDisplay, sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
@@ -150,7 +150,7 @@ export class ShellRunComponent extends Container {
   private renderText(): string {
     try {
       if (this.backgrounded) {
-        return `  ${currentTheme.fg('textDim', 'Moved to background.')}`;
+        return `  ${currentTheme.fg('textDim', t('tui.messages.shellRun.backgrounded'))}`;
       }
       const elapsed = Math.floor((Date.now() - this.startedAt) / 1000);
       const dim = (s: string): string => currentTheme.fg('textDim', s);
@@ -174,7 +174,7 @@ export class ShellRunComponent extends Container {
         body = tail.map((line) => `  ${dim(line)}`).join('\n');
       }
       const timing = `  ${dim(`${extra > 0 ? `+${extra} lines ` : ''}(${elapsed}s)`)}`;
-      const hint = `  ${dim('(ctrl+b to run in background)')}`;
+      const hint = `  ${dim(t('tui.messages.shellRun.hint'))}`;
       return `${body}\n${timing}\n${hint}`;
     } catch {
       return '  (output unavailable)';
