@@ -10,11 +10,11 @@ Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开
 - **理解项目**：探索陌生的代码库，解答架构和实现层面的问题
 - **自动化任务**：批量处理文件、运行构建与测试、串联多个脚本
 
-整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Node.js 之上。
+整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Bun 之上。
 
 ## 安装
 
-提供两种安装方式：官方安装脚本（推荐，无需预装 Node.js）和 npm 全局安装。
+提供两种安装方式：官方安装脚本（推荐，无需预装任何运行时）和通过 npm 或 Bun 全局安装。
 
 ::: tip 安装之前
 Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
@@ -38,12 +38,12 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 脚本会自动下载最新版本、校验 checksum，并把 `kimi` 可执行文件放到你的 `PATH` 中。
 
-### npm 安装
+### 包管理器安装
 
-需要 Node.js 22.19.0 或更高版本：
+需要 Bun 1.4.0 或更高版本：
 
 ```sh
-node --version
+bun --version
 ```
 
 ::: code-group
@@ -57,6 +57,8 @@ bun add -g @moonshot-ai/kimi-code
 ```
 
 :::
+
+> CLI 本体运行在 Bun 上，而非 Node.js。用 npm 安装没有问题，但运行 `kimi` 时 `PATH` 中必须存在 Bun >= 1.4。尚未安装的请见 [bun.sh](https://bun.sh)。
 
 ## 第一次启动
 

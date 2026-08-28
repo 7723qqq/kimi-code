@@ -102,10 +102,10 @@ curl -s -X POST http://127.0.0.1:58627/api/v1/sessions \
 
 返回的 `data.id`（形如 `session_...`）就是后续所有请求要用的会话 id。
 
-3. 连接 WebSocket 并订阅会话事件。任何 WebSocket 客户端都可以；下面是一个零依赖的 Node.js 脚本（Node.js 22+ 内置 `WebSocket` 客户端）：
+3. 连接 WebSocket 并订阅会话事件。任何 WebSocket 客户端都可以；下面是一个零依赖的 Bun 脚本（Bun 内置 `WebSocket` 客户端）：
 
 ```js
-// subscribe.mjs —— 用法：TOKEN=... node subscribe.mjs session_...
+// subscribe.mjs —— 用法：TOKEN=... bun subscribe.mjs session_...
 const ws = new WebSocket('ws://127.0.0.1:58627/api/v1/ws', [
   `kimi-code.bearer.${process.env.TOKEN}`,
 ]);

@@ -1,14 +1,14 @@
 # Migrating from kimi-cli
 
 ::: info
-Kimi Code CLI has gone through a major version upgrade — moving from Python/uv to Node.js, bringing a simpler install experience, faster startup, and a redesigned terminal UI. The legacy version will gradually be phased out, so we recommend upgrading as soon as possible.
+Kimi Code CLI has gone through a major version upgrade — rewritten from Python/uv into TypeScript, and the current release runs on Bun — bringing a simpler install experience, faster startup, and a redesigned terminal UI. The legacy version will gradually be phased out, so we recommend upgrading as soon as possible.
 :::
 
 If you are migrating from the legacy version, follow the steps below — a single command migrates your config, MCP servers, and session history to the new version.
 
 ## What's new
 
-- **No more Python / uv**: Rebuilt on Node.js — no Python environment needed, simpler to install
+- **No more Python / uv**: Rewritten in TypeScript — no Python environment needed, simpler to install
 - **Native binary, works out of the box**: Faster startup, lighter footprint
 - **Redesigned terminal UI**: Smoother, more responsive experience
 - **Full data migration**: Config, MCP servers, and session history all carry over seamlessly

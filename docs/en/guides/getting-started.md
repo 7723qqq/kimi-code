@@ -10,11 +10,11 @@ It fits scenarios such as:
 - **Understanding a project**: exploring an unfamiliar codebase and answering questions about architecture and implementation
 - **Automating tasks**: batch-processing files, running builds and tests, chaining multiple scripts together
 
-The CLI is written in TypeScript, distributed via npm, and runs on Node.js.
+The CLI is written in TypeScript, distributed via npm, and runs on Bun.
 
 ## Installation
 
-Two installation options are available: the official install script (recommended, no pre-installed Node.js required) and a global npm install.
+Two installation options are available: the official install script (recommended, no pre-installed runtime required) and a global install via npm or Bun.
 
 ::: tip Before you install
 Kimi Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
@@ -38,12 +38,12 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 The script automatically downloads the latest release, verifies the checksum, and places the `kimi` executable on your `PATH`.
 
-### npm installation
+### Package manager installation
 
-Requires Node.js 22.19.0 or later:
+Requires Bun 1.4.0 or later:
 
 ```sh
-node --version
+bun --version
 ```
 
 ::: code-group
@@ -57,6 +57,8 @@ bun add -g @moonshot-ai/kimi-code
 ```
 
 :::
+
+> The CLI itself runs on Bun, not Node.js. Installing with npm works fine, but Bun >= 1.4 must be present on your `PATH` to run `kimi`. If you don't have it yet, see [bun.sh](https://bun.sh).
 
 ## First launch
 

@@ -205,7 +205,6 @@ plugins/
 
 ```
 scripts/
-  fix-node-pty-perms.mjs        — Postinstall: fix node-pty permissions
   generate-locale-json.cjs      — Generate locale JSON from translation source
   check-locale-keys.mjs         — Check locale key coverage
   check-locale-placeholders.cjs — Validate i18n placeholder consistency

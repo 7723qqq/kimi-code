@@ -102,10 +102,10 @@ curl -s -X POST http://127.0.0.1:58627/api/v1/sessions \
 
 The returned `data.id` (shaped like `session_...`) is the session id used by every subsequent request.
 
-3. Connect to the WebSocket and subscribe to session events. Any WebSocket client works; below is a dependency-free Node.js script (Node.js 22+ ships a built-in `WebSocket` client):
+3. Connect to the WebSocket and subscribe to session events. Any WebSocket client works; below is a dependency-free Bun script (Bun ships a built-in `WebSocket` client):
 
 ```js
-// subscribe.mjs — usage: TOKEN=... node subscribe.mjs session_...
+// subscribe.mjs — usage: TOKEN=... bun subscribe.mjs session_...
 const ws = new WebSocket('ws://127.0.0.1:58627/api/v1/ws', [
   `kimi-code.bearer.${process.env.TOKEN}`,
 ]);

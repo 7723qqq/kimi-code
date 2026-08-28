@@ -187,7 +187,7 @@ Bun bytecode is disabled by default: it measured no startup gain on this pipelin
 
 Runtime integration notes:
 
-- Packaged builds resolve node-pty (with its PTY bindings) and pi-tui's platform helper from the extracted asset cache at load time, through the unified loader in `apps/kimi-code/src/native/node-pty.ts`. The release smoke dlopens the PTY binding on every target CI runs.
+- Packaged builds resolve pi-tui's platform helper from the extracted asset cache at load time.
 - Built-in URL-fetch keeps SSRF guard semantics identical by defaulting to the bundled `undici` fetch (Bun's global fetch silently ignores its pinned-DNS dispatcher option).
 - Self-update is engine-aware: the native manifest carries a single Bun section, a Bun packaged binary downloads the release's matching Bun artifact, and refuses to fall back to any other engine's binary.
 - `/status` reports the packaging engine and native-tools implementation (`Runtime  bun · rust`).

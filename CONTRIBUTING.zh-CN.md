@@ -85,7 +85,7 @@ Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节�
 运行时集成说明：
 
 - 与 pnpm 时代的一个开发行为差异：Bun 会自动加载 `.env`（pnpm 不会）。需要旧行为时给 `bun` 加 `--no-env-file`。
-- 打包产物在加载时从提取的资产缓存解析 node-pty（含 PTY bindings）与 pi-tui 平台 helper，统一入口是 `apps/kimi-code/src/native/node-pty.ts`。release 冒烟测试会在 CI 运行的每个目标上 dlopen PTY binding。
+- 打包产物在加载时从提取的资产缓存解析 pi-tui 平台 helper。
 - 内置 URL-fetch 默认走捆绑的 `undici` fetch，保证 SSRF 防护语义一致。
 - 自更新感知引擎：native manifest 只携带 Bun 段，Bun 打包的二进制下载发布中对应的 Bun 产物，拒绝回退到任何其他引擎的二进制。
 - `/status` 报告打包引擎与原生工具实现（`Runtime  bun · rust`）。
