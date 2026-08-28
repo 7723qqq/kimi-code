@@ -14,6 +14,10 @@ import {
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
+import {
+  DEFAULT_ENGINE_OVERRIDE_PROVIDER,
+  IEngineOverrideService,
+} from '#/agent/loop/engineOverride';
 
 export interface HostArgs {
   readonly agentFiles?: readonly string[];
@@ -125,6 +129,9 @@ export function bootstrapSeed(input: BootstrapInput): ScopeSeed {
       IBootstrapOptions as ServiceIdentifier<unknown>,
       resolveBootstrapOptions(input),
     ],
+    // Default: no external turn engine. The CLI/SDK overrides this via
+    // `bootstrap(input, extraSeeds)` when config selects the Rust engine.
+    [IEngineOverrideService as ServiceIdentifier<unknown>, DEFAULT_ENGINE_OVERRIDE_PROVIDER],
   ];
 }
 

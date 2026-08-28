@@ -11,7 +11,7 @@ import { abortError, isAbortError, isUserCancellation, userCancellationReason } 
 import { toErrorMessage } from '#/_base/errors/errorMessage';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { type FinishReason } from '#/kosong/contract/provider';
@@ -21,6 +21,10 @@ import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } 
 import { OrderedHookSlot } from '#/hooks';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
+import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -70,6 +74,12 @@ import {
   type TurnInterruptReason,
 } from './turnEvents';
 import { TurnCancel, TurnEnded, turnKey, TurnPrompt } from './turnOps';
+import {
+  IEngineOverrideService,
+  type EngineOverrideProvider,
+  type TurnEngine,
+  type TurnEngineInput,
+} from './engineOverride';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
@@ -113,6 +123,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IEngineOverrideService private readonly engineOverride: EngineOverrideProvider,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
   ) {
     super();
     this.states.contributeState(turnKey);
@@ -639,6 +653,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           const begun = this.beginLoopStep(runtime);
           if ('result' in begun) return begun.result;
           runtime.current = begun.step;
+          // An external engine (e.g. the Rust kimi-agent engine) drives the
+          // whole turn in place of the JS loop. The override runs once per
+          // turn on the first step; the engine consumes the turn to
+          // completion and reports events back through the engine input.
+          const engine = this.engineOverride.getEngine();
+          if (engine !== undefined && runtime.steps === 1) {
+            const stepResult = await this.executeTurnViaEngine(runtime, engine, begun.step, options.onStarted);
+            const completed = this.completeLoopStep(runtime, stepResult);
+            if (completed !== undefined) return completed;
+            return {
+              type: 'completed',
+              steps: runtime.steps,
+              truncated: stepResult.stopReason === 'truncated',
+            };
+          }
           const result = await this.executeLoopStep(
             runtime.turnId,
             begun.step.signal,
@@ -886,6 +915,130 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         });
       }
       throw error;
+    }
+  }
+
+  /**
+   * External-engine turn drive. The engine runs the whole turn and reports
+   * transcript events back through `dispatchEvent`; this method only wraps
+   * the call with the step lifecycle UI events (started/completed) that the
+   * JS path would have produced in `beginStep`/`finishStep`. The engine is
+   * responsible for dispatching its own `step.begin`/`step.end` into the
+   * context, so `beginStep` is intentionally not called.
+   */
+  private async executeTurnViaEngine(
+    runtime: LoopRuntime,
+    engine: TurnEngine,
+    step: StepRuntime,
+    onStarted: ((step: number) => void) | undefined,
+  ): Promise<StepExecutionResult> {
+    const turnId = runtime.turnId;
+    const signal = step.signal;
+    signal.throwIfAborted();
+    void this.dispatcher.dispatch(
+      new TurnStepStarted({
+        agentId: this.scopeContext.agentId,
+        turnId,
+        step: step.number,
+        stepId: step.uuid,
+      }),
+    );
+    onStarted?.(step.number);
+    const input = this.buildEngineInput(turnId, signal, step.number);
+    const result = await engine(input);
+    void this.dispatcher.dispatch(
+      new TurnStepCompleted({
+        agentId: this.scopeContext.agentId,
+        turnId,
+        step: step.number,
+        stepId: step.uuid,
+        usage: result.usage,
+        finishReason: normalizeFinishReason(result.stopReason),
+        providerFinishReason: result.stopReason,
+      }),
+    );
+    return { stopReason: result.stopReason, hookStopTurn: false };
+  }
+
+  private buildEngineInput(
+    turnId: number,
+    signal: AbortSignal,
+    step: number,
+  ): TurnEngineInput {
+    return {
+      turnId,
+      signal,
+      llm: {
+        modelName: this.profile.resolveModelContext().modelAlias,
+        systemPrompt: this.profile.getSystemPrompt(),
+        chat: async (chatInput) => {
+          const finish = await this.llmRequester.request(
+            {
+              messages: [...chatInput.messages],
+              tools: [...chatInput.tools],
+              source: { type: 'turn', turnId, step },
+            },
+            (part) => {
+              if (part.type === 'text') return chatInput.onTextPart?.(part);
+              if (part.type === 'think') return chatInput.onThinkPart?.(part);
+              return undefined;
+            },
+            chatInput.signal ?? signal,
+          );
+          return {
+            toolCalls: finish.message.toolCalls,
+            providerFinishReason: finish.providerFinishReason,
+            usage: finish.usage,
+          };
+        },
+      },
+      maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
+      buildMessages: async () => [...this.projector.project(this.context.get())],
+      buildTools: () =>
+        this.toolRegistry.list().map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters ?? {},
+        })),
+      dispatchEvent: (event) => {
+        this.context.appendLoopEvent(event);
+        this.dispatchEngineUIBridge(turnId, event);
+      },
+      executeTool: async (call, options) => {
+        const results: ToolExecutionResult[] = [];
+        for await (const toolResult of this.toolExecutor.execute([call], {
+          signal: options.signal,
+          turnId: options.turnId,
+          trace: options.trace,
+          onToolCall: (payload) => {
+            options.onToolCall?.(payload);
+          },
+        })) {
+          results.push(toolResult);
+        }
+        const last = results[results.length - 1];
+        if (last === undefined) return { output: '', isError: true };
+        return {
+          output: last.result.output,
+          isError: last.result.isError,
+          note: last.result.note,
+          stopTurn: last.result.stopTurn,
+        };
+      },
+    };
+  }
+
+  private dispatchEngineUIBridge(turnId: number, event: LoopRecordedEvent): void {
+    if (event.type !== 'content.part') return;
+    const part = event.part;
+    if (part.type === 'text') {
+      void this.dispatcher.dispatch(
+        new AssistantDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.text }),
+      );
+    } else if (part.type === 'think') {
+      void this.dispatcher.dispatch(
+        new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.think }),
+      );
     }
   }
 

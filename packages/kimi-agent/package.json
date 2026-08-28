@@ -15,6 +15,9 @@
   "scripts": {
     "build": "napi build --platform --release --dts target/napi-generated.d.ts"
   },
+  "napi": {
+    "binaryName": "kimi_agent"
+  },
   "devDependencies": {
     "@moonshot-ai/agent-core-v2": "workspace:*",
     "@napi-rs/cli": "^3.0.0"
