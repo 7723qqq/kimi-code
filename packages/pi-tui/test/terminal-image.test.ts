@@ -119,6 +119,24 @@ describe("isImageLine", () => {
 		});
 	});
 
+	describe("Sixel image protocol", () => {
+		it("should detect a sixel DCS sequence at start of line", () => {
+			const sixelImageLine = "\x1bPq#0;2;0;0;0#1;2;100;100;0#1~~-\x1b\\";
+			assert.strictEqual(isImageLine(sixelImageLine), true);
+		});
+
+		it("should detect a sixel sequence after a cursor-up prefix (multi-row layout)", () => {
+			// The Image component emits (rows-1) empty lines, then a cursor-up
+			// CSI followed by the sixel payload on the last line.
+			const multiRowSixelLine = "\x1b[5A\x1bPq#1;2;0;0;100;100#1~~-\x1b\\";
+			assert.strictEqual(isImageLine(multiRowSixelLine), true);
+		});
+
+		it("should not flag plain text that merely mentions sixel", () => {
+			assert.strictEqual(isImageLine("sixel images are supported here"), false);
+		});
+	});
+
 	describe("Bug regression tests", () => {
 		it("should detect image sequences in very long lines (304k+ chars)", () => {
 			// This simulates the crash scenario: a line with 304,401 chars
@@ -257,6 +275,15 @@ describe("detectCapabilities", () => {
 		});
 	});
 
+	it("enables sixel for Windows Terminal (WT_SESSION)", () => {
+		withEnv({ WT_SESSION: "{ffef530f-4fa0-4339-9fbb-2e3eadf21604}", TERM: "dumb" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.images, "sixel");
+			assert.strictEqual(caps.trueColor, true);
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
 	it("enables hyperlinks for Ghostty", () => {
 		withEnv({ TERM_PROGRAM: "ghostty" }, () => {
 			const caps = detectCapabilities();
@@ -382,12 +409,12 @@ describe("detectCapabilities", () => {
 		});
 	});
 
-	it("enables truecolor and hyperlinks for Windows Terminal outside multiplexers", () => {
+	it("enables sixel, truecolor and hyperlinks for Windows Terminal outside multiplexers", () => {
 		withEnv({ WT_SESSION: "session", TERM: "xterm-256color" }, () => {
 			const caps = detectCapabilities();
 			assert.strictEqual(caps.trueColor, true);
 			assert.strictEqual(caps.hyperlinks, true);
-			assert.strictEqual(caps.images, null);
+			assert.strictEqual(caps.images, "sixel");
 		});
 	});
 

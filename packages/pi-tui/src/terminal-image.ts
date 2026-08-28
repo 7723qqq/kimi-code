@@ -108,7 +108,10 @@ export function detectCapabilities(tmuxForwardsHyperlink: () => boolean = probeT
 	}
 
 	if (process.env['WT_SESSION']) {
-		return { images: null, trueColor: true, hyperlinks: true };
+		// Windows Terminal 1.22+ renders sixel and its ConPTY passes the DCS
+		// through from client applications. Older terminals on Windows fall
+		// through to the platform default below.
+		return { images: "sixel", trueColor: true, hyperlinks: true };
 	}
 
 	if (termProgram === "vscode") {
@@ -212,14 +215,21 @@ export function isCapabilitiesExplicitlySet(): boolean {
 
 const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
+const SIXEL_DCS = "\x1bPq";
 
 export function isImageLine(line: string): boolean {
 	// Fast path: sequence at line start (single-row images)
-	if (line.startsWith(KITTY_PREFIX) || line.startsWith(ITERM2_PREFIX)) {
+	if (
+		line.startsWith(KITTY_PREFIX) ||
+		line.startsWith(ITERM2_PREFIX) ||
+		line.startsWith(SIXEL_DCS)
+	) {
 		return true;
 	}
 	// Slow path: sequence elsewhere (multi-row images have cursor-up prefix)
-	return line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX);
+	return (
+		line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || line.includes(SIXEL_DCS)
+	);
 }
 
 /**

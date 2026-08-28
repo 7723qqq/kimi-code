@@ -110,6 +110,7 @@ export {
 	type ImageRenderOptions,
 	imageFallback,
 	isCapabilitiesExplicitlySet,
+	isImageLine,
 	parseImageCapabilityResponse,
 	renderImage,
 	resetCapabilitiesCache,
