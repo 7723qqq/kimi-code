@@ -49,7 +49,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (kimi-web, vis-web, vscode webview) |
-| **Cargo** | Rust build for `kimi-native-tools` and `kimi-agent` (napi-rs) |
+| **Cargo** | Rust build for `kimi-native-tools` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
 ### Quality Tooling
@@ -160,7 +160,6 @@ packages/
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
-  kimi-agent/          — Rust agent engine (experimental)
   kimi-native-tools/   — Rust native Node addon (napi-rs)
   klient/              — Client SDK (contract-driven facade over agent-core-v2)
   kosong/              — LLM / provider abstraction layer
@@ -260,9 +259,6 @@ make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
 make test             # vitest
-make rust-build       # cargo build --release -p kimi-agent
-make rust-check       # cargo check
-make rust-test        # cargo test + kimi-agent --test
 ```
 
 ### Package-specific commands

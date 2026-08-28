@@ -75,9 +75,6 @@ jobs:
       - name: Build kimi-native-tools (.node for embedded assets)
         run: cd packages/kimi-native-tools && bun run build
 
-      - name: Build kimi-agent (.node for embedded assets)
-        run: cd packages/kimi-agent && bun run build
-
       - name: Warn when Apple signing secrets are missing
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
         shell: bash

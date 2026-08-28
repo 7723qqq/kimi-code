@@ -217,31 +217,24 @@ export const AgentConfigSchema = z.object({
   /**
    * Which agent engine to use.
    * - `"js"` (default): the existing TypeScript agent engine
-   * - `"rust"`: the Rust agent engine (kimi-agent binary via stdio JSON-RPC)
+   * - `"rust"`: legacy value. The Rust agent engine (kimi-agent) was removed;
+   *   kept in the enum so configs written for it still validate on migration.
    */
   engine: z.enum(['js', 'rust']).default('js'),
   /**
    * MultiLLM: list of provider names to use for concurrent execution.
-   * When set and `engine === "rust"`, the Rust engine sends the same prompt
-   * to all listed providers concurrently and returns the first response
-   * ("first past the post").
+   * Unused since the Rust engine was removed.
    */
   multiLlm: z.array(z.string()).optional(),
   /**
-   * Native HTTP LLM transport (Rust engine only). Names a provider from
-   * `providers` that the Rust engine should call directly over HTTP with
-   * SSE streaming, instead of proxying each LLM call back through the JS
-   * host. Only `openai`/`kimi` (Chat Completions) and `anthropic`
-   * (Messages) provider types are supported; other types fall back to the
-   * host proxy.
+   * Native HTTP LLM transport (Rust engine only, removed). Names a provider
+   * from `providers` that the Rust engine called directly over HTTP with
+   * SSE streaming. Kept only so legacy configs still validate.
    */
   nativeLlmProvider: z.string().optional(),
   /**
-   * Native tool execution (Rust engine only). When true, read-only tools
-   * (Read/Grep/Glob) execute inside the Rust engine process, sandboxed to
-   * the workspace root — skipping the host round-trip. Anything outside
-   * the sandbox or not natively supported still executes on the JS host
-   * under the full permission system.
+   * Native tool execution (Rust engine only, removed). Kept only so legacy
+   * configs still validate.
    */
   nativeTools: z.boolean().optional(),
 });

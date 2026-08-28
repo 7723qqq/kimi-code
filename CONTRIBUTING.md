@@ -201,7 +201,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix build
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus cargo vendor directories for both napi packages (`kimi-native-tools`, `kimi-agent`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus the cargo vendor directory for the napi package (`kimi-native-tools`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
 
 - There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` and the napi CLI through `node <js-entry>` instead of their bin shims.
 - FOD outputs must not contain `/nix/store/...` strings: never let `cargo vendor` write its suggested config into the output, and never interpolate store paths into the install script.
