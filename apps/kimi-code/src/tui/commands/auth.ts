@@ -3,6 +3,7 @@ import {
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
+  OAuthAccessDeniedError,
   OpenPlatformApiError,
   type KimiRegion,
   type ManagedKimiCodeModelInfo,
@@ -89,21 +90,27 @@ async function handleKimiCodeOAuthLogin(host: SlashCommandHost, region: KimiRegi
     }
   } catch (error) {
     const cancelled = controller.signal.aborted;
+    const denied = error instanceof OAuthAccessDeniedError;
     spinner?.stop({
       ok: false,
-      label: cancelled
-        ? t('tui.commands.auth.loginCancelled')
-        : t('tui.commands.auth.loginFailedLabel'),
+      label:
+        cancelled || denied
+          ? t('tui.commands.auth.loginCancelled')
+          : t('tui.commands.auth.loginFailedLabel'),
     });
     spinner = undefined;
     if (cancelled) return;
+    const message = formatErrorMessage(error);
+    if (denied) {
+      host.showError(`Login cancelled: ${message}`);
+      return;
+    }
     log.warn('login failed', {
       providerName: DEFAULT_OAUTH_PROVIDER_NAME,
       alreadyLoggedIn,
       sessionId: host.session?.id,
       error,
     });
-    const message = formatErrorMessage(error);
     host.showError(t('tui.commands.auth.loginFailed', { error: message }));
   } finally {
     if (host.cancelInFlight === cancelLogin) {

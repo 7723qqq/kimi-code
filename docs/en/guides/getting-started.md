@@ -22,17 +22,17 @@ Kimi Code CLI is a fully interactive TUI application. For the best visual experi
 
 ### Install script (recommended)
 
-- **macOS / Linux**:
+::: code-group
 
-```sh
+```sh [macOS / Linux]
 curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 ```
 
-- **Windows (PowerShell)**:
-
-```powershell
+```powershell [Windows (PowerShell)]
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
+
+:::
 
 > On Windows, the CLI has built-in shell detection: it prefers PowerShell 7, then Windows PowerShell, then Git Bash or MSYS2 bash (if installed). To pin a specific shell (for example `bash.exe`, `pwsh.exe`, or `cmd.exe`), set `KIMI_SHELL_PATH` to its absolute path. If no bash shell is found on first launch, the CLI offers to install MSYS2 (a full Linux command-line environment) and switch to it automatically.
 
@@ -44,34 +44,19 @@ Requires Node.js 22.19.0 or later:
 
 ```sh
 node --version
+```
+
+::: code-group
+
+```sh [npm]
 npm install -g @moonshot-ai/kimi-code
 ```
 
-Or with Bun:
-
-```sh
+```sh [Bun]
 bun add -g @moonshot-ai/kimi-code
 ```
 
-## Upgrade and uninstall
-
-After installation, verify that the executable is ready:
-
-```sh
-kimi --version
-```
-
-**Upgrade**: run `kimi upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
-
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**Uninstall**: if you installed via the script, delete the `kimi` executable. If you installed via npm:
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+:::
 
 ## First launch
 
@@ -162,6 +147,26 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 ## Where data is stored
 
 Kimi Code CLI stores its local data under `~/.kimi-code/` by default — config files, session records, logs, and the update cache. To move it elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+
+## Upgrade and uninstall
+
+After installation, verify that the executable is ready:
+
+```sh
+kimi --version
+```
+
+**Upgrade**: run `kimi upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
+
+```sh
+npm install -g @moonshot-ai/kimi-code@latest
+```
+
+**Uninstall**: if you installed via the script, delete the `kimi` executable. If you installed via npm:
+
+```sh
+npm uninstall -g @moonshot-ai/kimi-code
+```
 
 ## Next steps
 

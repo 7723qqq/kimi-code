@@ -29,7 +29,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "0.38.0",
+      "version": "0.39.0",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -144,11 +144,12 @@
     },
     "apps/vscode": {
       "name": "kimi-code",
-      "version": "0.7.2",
+      "version": "0.7.3",
       "dependencies": {
         "@base-ui/react": "^1.0.0",
         "@fontsource-variable/inter": "5.2.8",
         "@moonshot-ai/i18n-shared": "workspace:^",
+        "@moonshot-ai/kimi-code-oauth": "workspace:^",
         "@moonshot-ai/kimi-code-sdk": "workspace:^",
         "@moonshot-ai/migration-legacy": "workspace:^",
         "@radix-ui/react-accordion": "^1.2.12",
@@ -223,7 +224,7 @@
     },
     "packages/agent-core-v2": {
       "name": "@moonshot-ai/agent-core-v2",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "@antfu/utils": "^9.3.0",
         "@anthropic-ai/sdk": "^0.95.2",
@@ -253,7 +254,7 @@
         "socks": "^2.8.9",
         "tar": "^7.5.13",
         "ulid": "^3.0.1",
-        "undici": "^7.27.1",
+        "undici": "^8.5.0",
         "xstate": "^5.32.5",
         "yauzl": "^3.3.0",
         "yazl": "^3.3.1",
@@ -298,7 +299,7 @@
     },
     "packages/kap-server": {
       "name": "@moonshot-ai/kap-server",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "dependencies": {
         "@fastify/multipart": "^10.0.0",
         "@fastify/swagger": "^9.7.0",
@@ -388,7 +389,7 @@
     },
     "packages/node-sdk": {
       "name": "@moonshot-ai/kimi-code-sdk",
-      "version": "0.19.1",
+      "version": "0.19.2",
       "dependencies": {
         "@antfu/utils": "^9.3.0",
         "smol-toml": "^1.6.1",
@@ -445,7 +446,7 @@
     },
     "packages/transcript": {
       "name": "@moonshot-ai/transcript",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "zod": "catalog:",
       },
