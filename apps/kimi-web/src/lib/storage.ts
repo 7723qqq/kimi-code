@@ -134,6 +134,55 @@ export function saveUnread(changes: Record<string, boolean>): void {
 }
 
 /**
+ * Generic per-session boolean mode map (plan / swarm / goal toggles). Each is
+ * persisted as a compact map of only the `true` entries (cleared sessions are
+ * dropped), keyed by session id — mirroring the unread map. The legacy global
+ * format (a bare 'true'/'false' string) is not an object and parses to an
+ * empty map, so it is discarded on first load rather than misapplied to every
+ * session.
+ */
+export function loadModeMap(key: string): Record<string, boolean> {
+  const raw = safeGetString(key);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (value === true) out[id] = true;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveModeMap(key: string, map: Record<string, boolean>): void {
+  const out: Record<string, true> = {};
+  for (const [id, value] of Object.entries(map)) {
+    if (value) out[id] = true;
+  }
+  safeSetString(key, JSON.stringify(out));
+}
+
+/**
+ * Workspace roots the user removed from the sidebar. "Remove workspace" must
+ * hide a workspace even when it still has sessions (the daemon DELETE is
+ * registry-only and mergedWorkspaces would otherwise re-derive it from those
+ * sessions' cwds). History is untouched — only the sidebar entry is hidden —
+ * so this is persisted per browser, keyed by root path.
+ */
+export function loadHiddenWorkspaces(): string[] {
+  const parsed = safeGetJson<unknown>(STORAGE_KEYS.hiddenWorkspaces);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((root): root is string => typeof root === 'string');
+}
+
+export function saveHiddenWorkspaces(roots: Iterable<string>): void {
+  safeSetJson(STORAGE_KEYS.hiddenWorkspaces, Array.from(roots));
+}
+
+/**
  * Collapsed workspace ids in the sidebar. Persisted as a JSON array of ids so
  * the fold state of each workspace group survives a page refresh. There is no
  * server-side source of truth for this UI-only state.

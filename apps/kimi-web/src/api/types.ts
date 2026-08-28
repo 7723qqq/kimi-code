@@ -189,6 +189,19 @@ export type ImageSource =
   | { kind: 'base64'; mediaType: string; data: string }
   | { kind: 'file'; fileId: string };
 
+/** An uploaded attachment to send with a prompt. `kind` drives the content-block
+    type: images/videos become media parts; any other kind becomes a file part
+    the server materializes and hands to the model as a path reference.
+    name/mediaType/size feed the wire file shape (the server's file-store meta
+    stays authoritative, so a chip reloaded from history may omit them). */
+export type PromptAttachment = {
+  fileId: string;
+  kind: 'image' | 'video' | 'file';
+  name?: string;
+  mediaType?: string;
+  size?: number;
+};
+
 export interface AppMessage {
   id: string;
   sessionId: string;

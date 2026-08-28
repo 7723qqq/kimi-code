@@ -46,6 +46,12 @@ import type {
 } from '../../types';
 import { useConfirmDialog } from '../useConfirmDialog';
 import type { ExtendedState, PromptAttachment } from '../useKimiWebClient';
+import {
+  buildPromptContent,
+  createOptimisticUserMessage,
+  stampPromptId,
+  withoutOptimisticMessage,
+} from '../../lib/promptContent';
 import type { UseModelProviderState } from './useModelProviderState';
 import type { UseSideChat } from './useSideChat';
 import type { UseTaskPoller } from './useTaskPoller';
@@ -260,7 +266,7 @@ export interface UseWorkspaceStateDeps {
   draftModes: { planMode: boolean; swarmMode: boolean; goalMode: boolean };
   saveUnread: (changes: Record<string, boolean>) => void;
   saveActiveWorkspaceToStorage: (id: string) => void;
-  saveHiddenWorkspacesToStorage: (roots: string[]) => void;
+  saveHiddenWorkspaces: (roots: Iterable<string>) => void;
   goalErrorMessage: (err: unknown) => string | undefined;
   resetFastMoon: () => void;
   initialized: Ref<boolean>;
@@ -308,7 +314,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     draftModes,
     saveUnread,
     saveActiveWorkspaceToStorage,
-    saveHiddenWorkspacesToStorage,
+    saveHiddenWorkspaces,
     goalErrorMessage,
     resetFastMoon,
     initialized,
@@ -991,7 +997,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.hiddenWorkspaceRoots = rawState.hiddenWorkspaceRoots.filter(
         (r) => workspaceRootKey(r) !== wsKey,
       );
-      saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
+      saveHiddenWorkspaces(rawState.hiddenWorkspaceRoots);
     }
     const index = rawState.workspaces.findIndex((w) => w.id === ws.id || w.root === ws.root);
     if (index === -1) {
@@ -1022,7 +1028,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const root = rawState.workspaces.find((w) => w.id === event.workspaceId)?.root ?? event.root;
     if (root && !rawState.hiddenWorkspaceRoots.includes(root)) {
       rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
-      saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
+      saveHiddenWorkspaces(rawState.hiddenWorkspaceRoots);
     }
     rawState.workspaces = rawState.workspaces.filter(
       (w) => w.id !== event.workspaceId && w.root !== root,
@@ -1476,21 +1482,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const tempId = nextOptimisticMsgId();
     try {
       const api = getKimiWebApi();
-      const content: import('../../api/types').AppMessageContent[] = [];
-      if (text) content.push({ type: 'text', text });
-      for (const att of attachments ?? []) {
-        if (att.kind === 'video')
-          content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
-        else if (att.kind === 'file') {
-          content.push({
-            type: 'file',
-            fileId: att.fileId,
-            name: att.name ?? '',
-            mediaType: att.mediaType || 'application/octet-stream',
-            size: att.size ?? 0,
-          });
-        } else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
-      }
+      const content = buildPromptContent(text, attachments);
       if (content.length === 0) {
         rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
         return 'rejected';
@@ -1499,15 +1491,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // OPTIMISTICALLY add the user message to local state BEFORE awaiting the
       // submit.  The real daemon does NOT emit a user-message event over WS, so
       // without this the user's own text never appears in the transcript.
-      const optimisticMsg: AppMessage = {
-        id: tempId,
-        sessionId: sid,
-        role: 'user',
-        content,
-        createdAt: new Date().toISOString(),
-        metadata: { 'kimiWeb.optimisticUserMessage': true },
-      };
-      updateSessionMessages(sid, (msgs) => [...msgs, optimisticMsg]);
+      updateSessionMessages(sid, (msgs) => [
+        ...msgs,
+        createOptimisticUserMessage(tempId, sid, content),
+      ]);
 
       // The daemon now requires `model` + `thinking` on every prompt. Resolve the
       // model from the session (falls back to the daemon's default_model) and the
@@ -1567,13 +1554,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // so replacing msg_opt_* with userMessageId remounts the bubble and flickers.
       // If a daemon/stub later echoes the user message, the reducer merges it into
       // this optimistic entry instead of appending a duplicate.
-      updateSessionMessages(sid, (msgs) => {
-        const idx = msgs.findIndex((m) => m.id === tempId);
-        if (idx === -1) return msgs;
-        const updated = [...msgs];
-        updated[idx] = { ...updated[idx]!, promptId: updated[idx]!.promptId ?? result.promptId };
-        return updated;
-      });
+      updateSessionMessages(sid, stampPromptId(tempId, result.promptId));
 
       // Bind the real daemon prompt_id into the event projector so the upcoming
       // turn.started stamps this turn's messages with it (instead of a synthetic
@@ -1596,9 +1577,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // definitive refusal; anything else (network, truncated response) is
       // ambiguous — the prompt may already sit in the server's queue.
       rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
-      updateSessionMessages(sid, (msgs) =>
-        msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
-      );
+      updateSessionMessages(sid, withoutOptimisticMessage(tempId));
       pushOperationFailure('sendPrompt', error, { sessionId: sid });
       return isDaemonApiError(error) ? 'rejected' : 'uncertain';
     } finally {
@@ -1685,31 +1664,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
 
     // Optimistic transcript echo (the daemon emits no user-message WS event).
-    const content: import('../../api/types').AppMessageContent[] = [];
-    if (merged) content.push({ type: 'text', text: merged });
-    for (const att of mergedAttachments) {
-      if (att.kind === 'video')
-        content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
-      else if (att.kind === 'file') {
-        content.push({
-          type: 'file',
-          fileId: att.fileId,
-          name: att.name ?? '',
-          mediaType: att.mediaType || 'application/octet-stream',
-          size: att.size ?? 0,
-        });
-      } else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
-    }
+    const content = buildPromptContent(merged, mergedAttachments);
     const tempId = nextOptimisticMsgId();
-    const optimisticMsg: AppMessage = {
-      id: tempId,
-      sessionId: sid,
-      role: 'user',
-      content,
-      createdAt: new Date().toISOString(),
-      metadata: { 'kimiWeb.optimisticUserMessage': true },
-    };
-    updateSessionMessages(sid, (msgs) => [...msgs, optimisticMsg]);
+    updateSessionMessages(sid, (msgs) => [
+      ...msgs,
+      createOptimisticUserMessage(tempId, sid, content),
+    ]);
 
     const localTurnToken = beginLocalTurn(sid);
     try {
@@ -1734,13 +1694,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // a steered prompt IS echoed back by the daemon as a messageCreated user
       // event; matching that echo by prompt_id (instead of content) is what keeps
       // an image steer from rendering two user bubbles.
-      updateSessionMessages(sid, (msgs) => {
-        const idx = msgs.findIndex((m) => m.id === tempId);
-        if (idx === -1) return msgs;
-        const updated = [...msgs];
-        updated[idx] = { ...updated[idx]!, promptId: updated[idx]!.promptId ?? result.promptId };
-        return updated;
-      });
+      updateSessionMessages(sid, stampPromptId(tempId, result.promptId));
 
       if (result.status !== 'queued') {
         // The turn ended while the user was typing — the prompt started a turn
@@ -1759,7 +1713,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     } catch (error) {
       // Submit failed: drop the optimistic echo so the transcript doesn't show
       // a delivered-looking message the daemon never received.
-      updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
+      updateSessionMessages(sid, withoutOptimisticMessage(tempId));
       // Restore the merged queue entries ONLY on a definitive daemon rejection
       // (a structured API error means nothing was accepted). On an ambiguous
       // failure — dropped response, network error — the merged prompt may
@@ -2362,7 +2316,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     );
     if (root && !rawState.hiddenWorkspaceRoots.includes(root)) {
       rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
-      saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
+      saveHiddenWorkspaces(rawState.hiddenWorkspaceRoots);
     }
     // Best-effort registry cleanup; ignore failures (the hide already took effect).
     try {
