@@ -210,6 +210,7 @@ interface NapiRunTurnResult {
 interface KimiAgentNativeModule {
   getCallbackPayload(id: number): string | null;
   resolveCallback(id: number, error: string | null, result: string | null): void;
+  cancelTurn(turnId: string): void;
   runTurnRust(
     params: unknown,
     llmChatCb: (callbackId: number) => void,
@@ -410,6 +411,11 @@ class NapiEngine {
       makeCallbackHandler(executeToolCb),
       eventHandler,
     );
+  }
+
+  /** Ask a running turn to stop at the next step boundary. */
+  cancel(turnId: string): void {
+    this.nativeModule?.cancelTurn(turnId);
   }
 }
 
@@ -630,6 +636,18 @@ class AgentProcess {
     }
     this.ready = false;
   }
+
+  /** Ask the server to cancel a running turn (fire-and-forget). */
+  cancel(turnId: string): void {
+    if (!this.process || !this.ready) return;
+    const request = {
+      jsonrpc: '2.0' as const,
+      id: this.nextId++,
+      method: 'agent/cancel_turn',
+      params: { turn_id: turnId },
+    };
+    this.process.stdin!.write(JSON.stringify(request) + '\n');
+  }
 }
 
 // ── Engine selection ──────────────────────────────────────────────────────
@@ -743,6 +761,18 @@ export function createRunTurnOverride(
     // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
     // use a string, so normalize once per turn.
     const turnIdStr = String(input.turnId);
+
+    // Propagate host cancellation to the Rust engine: on abort, ask the
+    // active transport to stop the turn at the next step boundary so a
+    // Ctrl+C / stop doesn't leave the engine burning LLM/tool work.
+    const onAbort = (): void => {
+      if (mode === 'napi') {
+        getNapiEngine()?.cancel(turnIdStr);
+      } else if (mode === 'stdio') {
+        getAgent()?.cancel(turnIdStr);
+      }
+    };
+    input.signal.addEventListener('abort', onAbort, { once: true });
 
     // Resolve nativeLlm fresh per turn: when a function is provided it
     // re-reads the config file so TUI model switches are reflected.

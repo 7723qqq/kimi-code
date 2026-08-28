@@ -23,7 +23,7 @@
 //! callbacks.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use napi::{
@@ -74,6 +74,24 @@ const PAYLOAD_REGISTRY_MAX_ENTRIES: usize = 1000;
 /// Monotonically increasing callback ID. Wrapping is fine because the ID
 /// space is large enough that collisions are impossible in practice.
 static NEXT_CALLBACK_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Active-turn cancellation flags keyed by `turn_id`. `run_turn_rust`
+/// registers a flag before running and removes it afterwards; `cancel_turn`
+/// sets the flag of a running turn from the JS side so the loop can observe
+/// the cancellation at the next step boundary.
+static CANCEL_MAP: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Ask a running turn (identified by `turn_id`) to stop. The flag is
+/// observed by the turn loop between LLM/tool steps; if the turn has already
+/// finished this is a no-op.
+#[napi]
+pub fn cancel_turn(turn_id: String) -> napi::Result<()> {
+    if let Some(flag) = CANCEL_MAP.lock().unwrap().get(&turn_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
 
 /// Called by JS to fetch the payload for a given callback ID.
 /// Returns the JSON-serialized request payload, or null if not found.
@@ -478,8 +496,12 @@ async fn run_turn_rust_impl(
         turns_used: g.turns_used,
     });
 
+    let turn_id = params.turn_id.clone();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    CANCEL_MAP.lock().unwrap().insert(turn_id.clone(), cancellation.clone());
+
     let input = RunTurnInput {
-        turn_id: params.turn_id,
+        turn_id: turn_id.clone(),
         llm: &*llm,
         messages,
         tools: &[],
@@ -487,12 +509,14 @@ async fn run_turn_rust_impl(
         hooks: None,
         max_steps: params.max_steps.unwrap_or(10),
         goal,
-        cancellation: None,
+        cancellation: Some(cancellation),
     };
 
     let result = run_turn(input, &callbacks)
         .await
         .map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
+
+    CANCEL_MAP.lock().unwrap().remove(&turn_id);
 
     Ok(JsRunTurnResult {
         stop_reason: format!("{:?}", result.stop_reason),
