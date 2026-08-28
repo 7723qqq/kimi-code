@@ -1,10 +1,10 @@
 /// Rust agent engine adapter (experimental).
 ///
-/// Not wired into the app in this build: the `agent.engine = "rust"`
-/// configuration key does not exist and `createRunTurnOverride` has no
-/// importers, so the JS turn loop always runs. Kept as the integration
-/// surface for the planned Rust engine. Two transport modes are
-/// supported, selected automatically at startup:
+/// Wired into the agent-core-v2 turn loop through the
+/// `IEngineOverrideService` extension point: when `agent.engine = "rust"`
+/// is set in config.toml, `createRunTurnOverride` produces a `TurnEngine`
+/// that drives the whole turn in place of the JS loop. Two transport modes
+/// are supported, selected automatically at startup:
 ///
 /// 1. **napi-rs** (preferred): The native `kimi_agent.node` addon is
 ///    loaded directly into the Node.js process. Host callbacks are
@@ -35,31 +35,13 @@ function tryNativeWorkspaceIndexPredictRead(_path: string): NativeReadPrediction
 }
 
 /**
- * Local structural stand-ins for the v1 `RunTurnOverride` contract
- * (agent-core is removed; the Rust engine adapter keeps its own copies of the
- * input/output shapes it actually touches).
+ * The v2 engine override contract this adapter implements. Imported
+ * type-only from agent-core-v2 so the shape stays in sync without a
+ * runtime dependency. `createRunTurnOverride` returns this type.
  */
-interface RunTurnOverrideInput {
-  readonly turnId: string;
-  readonly signal: AbortSignal;
-  readonly llm: { readonly modelName: string };
-  readonly maxSteps?: number;
-  readonly buildMessages: unknown;
-  readonly buildTools: unknown;
-  readonly describeMissingTool: unknown;
-  readonly dispatchEvent: unknown;
-  readonly hooks: unknown;
-  readonly replaceToolResult?: unknown;
-  readonly tools: unknown;
-}
-
-interface RunTurnOverrideResult {
-  stopReason: string;
-  steps: number;
-  usage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
-}
-
-type RunTurnOverride = (input: RunTurnOverrideInput) => Promise<RunTurnOverrideResult>;
+export type TurnEngineAdapter = import('@moonshot-ai/agent-core-v2').TurnEngine;
+export type TurnEngineInputAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineInput;
+export type TurnEngineToolResultAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineToolResult;
 
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
@@ -729,19 +711,20 @@ export async function runTurnRust(
 }
 
 /**
- * Create a `RunTurnOverride` function compatible with the agent-core turn loop.
+ * Create a `TurnEngine` adapter wired into the agent-core-v2 loop through
+ * `IEngineOverrideService`.
  *
- * This adapter bridges the JS `RunTurnInput` (from agent-core) and the Rust
- * kimi-agent binary. The host stays authoritative: Rust drives control flow
- * and calls back per step/tool, while the host owns the message history and
+ * This adapter bridges the v2 `TurnEngineInput` and the Rust kimi-agent
+ * engine. The host stays authoritative: Rust drives control flow and calls
+ * back per step/tool, while the host owns the message history and
  * transcript. It:
  * 1. Sends `agent/run_turn` to the Rust binary (no message content — see below)
  * 2. Handles `host/llm_chat` by rebuilding messages from `context` and calling
  *    `input.llm.chat()`, dispatching step/content events as it goes
- * 3. Handles `host/execute_tool` by running the full tool lifecycle
- *    (prepare -> resolve -> authorize permission gate -> execute -> finalize)
- *    and dispatching tool.call / tool.result
- * 4. Maps the Rust response back to the JS `TurnResult` type
+ * 3. Handles `host/execute_tool` by delegating to `input.executeTool`
+ *    (the host's toolExecutor runs the permission gate and lifecycle) and
+ *    dispatching tool.call / tool.result
+ * 4. Maps the Rust response back to the v2 `TurnEngineResult` type
  *
  * Returns `undefined` when the Rust binary is not available (falls back to JS).
  */
@@ -749,22 +732,18 @@ export function createRunTurnOverride(
   providers?: LlmProviderDef[],
   workspaceRoot?: string,
   options?: RustEngineOptions,
-): RunTurnOverride | undefined {
+): TurnEngineAdapter | undefined {
   const mode = initEngine();
   if (mode === 'js') return undefined;
 
   const nativeLlmOpt = options?.nativeLlm;
   const nativeTools = options?.nativeTools === true;
 
-  // Build a lightweight workspace predictor for the Read prediction fast-path.
-  // When the Rust engine calls host/execute_tool with force_precise=false for
-  // a Read call, we return a prediction (first few lines + metadata) so the
-  // LLM can continue immediately. The Rust engine then spawns a background
-  // force_precise=true call, which executes the full read and replaces the
-  // prediction in the transcript via input.replaceToolResult.
-  const predictor = workspaceRoot ? new WorkspacePredictor(workspaceRoot) : undefined;
-
   return async (input) => {
+    // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
+    // use a string, so normalize once per turn.
+    const turnIdStr = String(input.turnId);
+
     // Resolve nativeLlm fresh per turn: when a function is provided it
     // re-reads the config file so TUI model switches are reflected.
     const resolvedNativeLlm = typeof nativeLlmOpt === 'function' ? nativeLlmOpt() : nativeLlmOpt;
@@ -779,10 +758,8 @@ export function createRunTurnOverride(
         ? undefined
         : resolvedNativeLlm;
 
-    // The prediction fast-path requires transcript replacement. If the host
-    // doesn't provide replaceToolResult, predictions are disabled and all
-    // reads execute precisely on the first call.
-    const predictionEnabled = predictor !== undefined && input.replaceToolResult !== undefined;
+    // The prediction fast-path is disabled (see header note): all reads
+    // execute precisely on the first call.
 
     // Step lifecycle. The host owns the transcript AND the message history:
     // Rust drives control flow and calls back per LLM step and per tool. We
@@ -796,7 +773,7 @@ export function createRunTurnOverride(
       if (openStep === undefined) return;
       const { uuid, step, usage } = openStep;
       openStep = undefined;
-      await input.dispatchEvent({ type: 'step.end', uuid, turnId: input.turnId, step, usage });
+      await input.dispatchEvent({ type: 'step.end', uuid, turnId: turnIdStr, step, usage });
     };
     const outputToContent = (output: unknown): string =>
       typeof output === 'string' ? output : JSON.stringify(output);
@@ -816,7 +793,7 @@ export function createRunTurnOverride(
           await input.dispatchEvent({
             type: 'step.begin',
             uuid: stepUuid,
-            turnId: input.turnId,
+            turnId: turnIdStr,
             step: currentStep,
           });
           openStep = { uuid: stepUuid, step: currentStep, usage: { ...ZERO_USAGE } };
@@ -827,7 +804,7 @@ export function createRunTurnOverride(
           await input.dispatchEvent({
             type: 'content.part',
             uuid: randomUUID(),
-            turnId: input.turnId,
+            turnId: turnIdStr,
             step: openStep.step,
             stepUuid: openStep.uuid,
             part: event['part'] as never,
@@ -857,7 +834,7 @@ export function createRunTurnOverride(
           await input.dispatchEvent({
             type: 'tool.call',
             uuid: toolCallId,
-            turnId: input.turnId,
+            turnId: turnIdStr,
             step: openStep.step,
             stepUuid: openStep.uuid,
             toolCallId,
@@ -927,7 +904,7 @@ export function createRunTurnOverride(
       return messages.map(toWireMessage);
     };
     const buildWireTools = (): { name: string; description: string; parameters: unknown }[] => {
-      const stepTools = input.buildTools?.() ?? input.tools ?? [];
+      const stepTools = input.buildTools();
       return stepTools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -944,13 +921,13 @@ export function createRunTurnOverride(
       await input.dispatchEvent({
         type: 'step.begin',
         uuid: stepUuid,
-        turnId: input.turnId,
+        turnId: turnIdStr,
         step: stepNum,
       });
       openStep = { uuid: stepUuid, step: stepNum, usage: { ...ZERO_USAGE } };
 
       const messages = await input.buildMessages();
-      const stepTools = input.buildTools?.() ?? input.tools ?? [];
+      const stepTools = input.buildTools();
 
       const response = await input.llm.chat({
         messages,
@@ -960,7 +937,7 @@ export function createRunTurnOverride(
           await input.dispatchEvent({
             type: 'content.part',
             uuid: randomUUID(),
-            turnId: input.turnId,
+            turnId: turnIdStr,
             step: stepNum,
             stepUuid,
             part,
@@ -970,7 +947,7 @@ export function createRunTurnOverride(
           await input.dispatchEvent({
             type: 'content.part',
             uuid: randomUUID(),
-            turnId: input.turnId,
+            turnId: turnIdStr,
             step: stepNum,
             stepUuid,
             part,
@@ -997,8 +974,6 @@ export function createRunTurnOverride(
 
     // ── Tool execution handler ────────────────────────────────────────
     const toolExecuteHandler = async (req: ToolExecuteRequest): Promise<ToolExecuteResponse> => {
-      const stepTools = input.buildTools?.() ?? input.tools ?? [];
-      const tool = stepTools.find((t) => t.name === req.tool_name);
       const toolCallId = req.tool_call_id;
       const stepUuid = openStep?.uuid;
       const stepNum = openStep?.step ?? currentStep;
@@ -1009,164 +984,42 @@ export function createRunTurnOverride(
         arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
       };
 
-      const isPreciseReplacement = req.force_precise && predictionEnabled;
-
-      let callDispatched = false;
-      const emitCall = async (callArgs: unknown): Promise<void> => {
-        if (callDispatched || stepUuid === undefined || isPreciseReplacement) return;
-        callDispatched = true;
-        await input.dispatchEvent({
-          type: 'tool.call',
-          uuid: toolCallId,
-          turnId: input.turnId,
-          step: stepNum,
-          stepUuid,
-          toolCallId,
-          name: req.tool_name,
-          args: callArgs,
-        });
-      };
-      const settle = async (
-        toolResult: { output: unknown; isError?: boolean | undefined; note?: string | undefined },
-        callArgs: unknown,
-      ): Promise<ToolExecuteResponse> => {
-        if (isPreciseReplacement) {
-          input.replaceToolResult(toolCallId, toolResult);
-          return {
-            content: outputToContent(toolResult.output),
-            is_error: toolResult.isError === true,
-          };
-        }
-        await emitCall(callArgs);
-        if (stepUuid !== undefined) {
-          await input.dispatchEvent({
-            type: 'tool.result',
-            parentUuid: toolCallId,
-            toolCallId,
-            result: toolResult as never,
-          });
-        }
-        return {
-          content: outputToContent(toolResult.output),
-          is_error: toolResult.isError === true,
-        };
-      };
-
-      // ── Prediction fast-path ────────────────────────────────────────
-      if (!req.force_precise && predictionEnabled && req.tool_name === 'read') {
-        const args = req.arguments as { path?: string } | null;
-        const filePath = args?.path;
-        if (filePath) {
-          const prediction = predictor.predictRead(filePath);
-          if (prediction !== null) {
-            await emitCall(req.arguments);
-            if (stepUuid !== undefined) {
-              await input.dispatchEvent({
-                type: 'tool.result',
-                parentUuid: toolCallId,
-                toolCallId,
-                result: { output: prediction } as never,
-              });
-            }
-            return { content: prediction, is_error: false, is_prediction: true };
-          }
-        }
-      }
-
-      if (!tool) {
-        const missing =
-          input.describeMissingTool?.(req.tool_name) ?? `Tool "${req.tool_name}" not found`;
-        return settle({ output: missing, isError: true }, req.arguments);
-      }
-
-      const hookCtxBase = {
-        toolCall,
-        toolCalls: [toolCall],
-        tool,
-        turnId: input.turnId,
-        stepNumber: stepNum,
+      // Delegate the full tool lifecycle (prepare, permission gate, execute,
+      // finalize) to the host's toolExecutor — the exact same path the JS
+      // loop uses. The host owns permission and the execution; we only bridge
+      // tool.call / tool.result into the transcript via dispatchEvent.
+      const outcome = await input.executeTool(toolCall, {
         signal: input.signal,
-        llm: input.llm,
-      };
-
-      let effectiveArgs: unknown = req.arguments;
-      const prep = await input.hooks?.prepareToolExecution?.({
-        ...hookCtxBase,
-        args: effectiveArgs,
+        turnId: input.turnId,
+        step: stepNum,
+        stepUuid,
+        onToolCall: (payload) => {
+          if (stepUuid === undefined) return;
+          void input.dispatchEvent({
+            type: 'tool.call',
+            uuid: payload.toolCallId,
+            turnId: turnIdStr,
+            step: stepNum,
+            stepUuid,
+            toolCallId: payload.toolCallId,
+            name: payload.name,
+            args: payload.args,
+          });
+        },
       });
-      if (prep?.updatedArgs !== undefined) effectiveArgs = prep.updatedArgs;
-      if (prep?.block === true) {
-        return settle(
-          { output: prep.reason ?? `Tool call "${req.tool_name}" was blocked`, isError: true },
-          effectiveArgs,
-        );
-      }
-      if (prep?.syntheticResult !== undefined) {
-        return settle(prep.syntheticResult, effectiveArgs);
-      }
-      let executionMetadata = prep?.executionMetadata;
 
-      let execution;
-      try {
-        execution = await tool.resolveExecution(effectiveArgs);
-      } catch (error) {
-        return settle(
-          { output: error instanceof Error ? error.message : String(error), isError: true },
-          effectiveArgs,
-        );
-      }
-
-      if ('isError' in execution && execution.isError === true) {
-        return settle(execution, effectiveArgs);
-      }
-      if (!('execute' in execution)) {
-        return settle(
-          { output: 'Tool execution resolved without executable', isError: true },
-          effectiveArgs,
-        );
-      }
-
-      const auth = await input.hooks?.authorizeToolExecution?.({
-        ...hookCtxBase,
-        args: effectiveArgs,
-        execution,
-      });
-      if (auth?.block === true) {
-        return settle(
-          { output: auth.reason ?? `Tool call "${req.tool_name}" was blocked`, isError: true },
-          effectiveArgs,
-        );
-      }
-      if (auth?.syntheticResult !== undefined) {
-        return settle(auth.syntheticResult, effectiveArgs);
-      }
-      executionMetadata = auth?.executionMetadata ?? executionMetadata;
-
-      await emitCall(effectiveArgs);
-
-      let rawResult: { output: unknown; isError?: boolean | undefined; note?: string | undefined };
-      try {
-        rawResult = await execution.execute({
-          turnId: req.turn_id,
+      if (stepUuid !== undefined) {
+        await input.dispatchEvent({
+          type: 'tool.result',
+          parentUuid: toolCallId,
           toolCallId,
-          metadata: executionMetadata,
-          signal: input.signal,
+          result: { output: outcome.output, isError: outcome.isError, note: outcome.note },
         });
-      } catch (error) {
-        rawResult = {
-          output: error instanceof Error ? error.message : String(error),
-          isError: true,
-        };
       }
-
-      const finalized =
-        (await input.hooks?.finalizeToolResult?.({
-          ...hookCtxBase,
-          args: effectiveArgs,
-          result: rawResult as never,
-        })) ?? rawResult;
-
-      return settle(finalized, effectiveArgs);
+      return {
+        content: outputToContent(outcome.output),
+        is_error: outcome.isError === true,
+      };
     };
 
     // ── Drive the turn ────────────────────────────────────────────────
@@ -1185,7 +1038,7 @@ export function createRunTurnOverride(
         // Napi callbacks use JSON-serialized payloads (string → string)
         const napiResult = await engine.runTurn(
           {
-            turnId: input.turnId,
+            turnId: turnIdStr,
             systemPrompt: input.llm.systemPrompt,
             modelName: input.llm.modelName,
             messages: wireMessages.map((m) => ({
@@ -1243,7 +1096,7 @@ export function createRunTurnOverride(
         agent.setEventHandler(handleEngineEvent);
 
         const result = await agent.request('agent/run_turn', {
-          turn_id: input.turnId,
+          turn_id: turnIdStr,
           system_prompt: input.llm.systemPrompt,
           model_name: input.llm.modelName,
           messages: wireMessages,
@@ -1286,24 +1139,22 @@ export function createRunTurnOverride(
 }
 
 /**
- * Map Rust-style stop reason to JS LoopTurnStopReason.
+ * Map Rust-style stop reason to the agent-core-v2 `FinishReason`.
  */
-export function mapStopReason(reason: string): RunTurnOverrideResult['stopReason'] {
+export function mapStopReason(reason: string): import('@moonshot-ai/agent-core-v2').FinishReason {
   switch (reason) {
     case 'EndTurn':
-      return 'end_turn' as never;
+      return 'completed';
     case 'MaxTokens':
-      return 'max_tokens' as never;
+      return 'truncated';
     case 'Filtered':
-      return 'filtered' as never;
+      return 'filtered';
     case 'Paused':
-      return 'paused' as never;
+      return 'paused';
     case 'Aborted':
-      return 'aborted' as never;
     case 'BudgetLimited':
-      return 'budget_limited' as never;
     default:
-      return 'unknown' as never;
+      return 'other';
   }
 }
 

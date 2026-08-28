@@ -48,12 +48,12 @@ describe('classifyRpcMessage', () => {
 });
 
 describe('mapStopReason', () => {
-  it('maps EndTurn to end_turn', () => {
-    expect(mapStopReason('EndTurn')).toBe('end_turn');
+  it('maps EndTurn to completed', () => {
+    expect(mapStopReason('EndTurn')).toBe('completed');
   });
 
-  it('maps MaxTokens to max_tokens', () => {
-    expect(mapStopReason('MaxTokens')).toBe('max_tokens');
+  it('maps MaxTokens to truncated', () => {
+    expect(mapStopReason('MaxTokens')).toBe('truncated');
   });
 
   it('maps Filtered to filtered', () => {
@@ -64,20 +64,20 @@ describe('mapStopReason', () => {
     expect(mapStopReason('Paused')).toBe('paused');
   });
 
-  it('maps Aborted to aborted', () => {
-    expect(mapStopReason('Aborted')).toBe('aborted');
+  it('maps Aborted to other', () => {
+    expect(mapStopReason('Aborted')).toBe('other');
   });
 
-  it('maps BudgetLimited to budget_limited', () => {
-    expect(mapStopReason('BudgetLimited')).toBe('budget_limited');
+  it('maps BudgetLimited to other', () => {
+    expect(mapStopReason('BudgetLimited')).toBe('other');
   });
 
-  it('maps unknown reason to unknown', () => {
-    expect(mapStopReason('SomethingElse')).toBe('unknown');
+  it('maps unknown reason to other', () => {
+    expect(mapStopReason('SomethingElse')).toBe('other');
   });
 
-  it('maps empty string to unknown', () => {
-    expect(mapStopReason('')).toBe('unknown');
+  it('maps empty string to other', () => {
+    expect(mapStopReason('')).toBe('other');
   });
 });
 
