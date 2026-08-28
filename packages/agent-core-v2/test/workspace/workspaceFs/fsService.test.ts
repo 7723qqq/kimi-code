@@ -1,4 +1,5 @@
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'pathe';
+import { win32 as win32Path } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -62,6 +63,7 @@ function fakeFs(
   files: Record<string, string | Buffer>,
   symlinks: readonly string[] = [],
   symlinkTargets: Record<string, string> = {},
+  mtimes: Record<string, number> = {},
 ): IHostFileSystem {
   const fileMap = new Map<string, string | Buffer>();
   const dirSet = new Set<string>([WORK_DIR]);
@@ -108,11 +110,12 @@ function fakeFs(
   const lstatImpl = async (p: string) => {
     if (fileMap.has(p)) {
       const c = fileMap.get(p)!;
+      const rel = p.startsWith(`${WORK_DIR}/`) ? p.slice(WORK_DIR.length + 1) : p;
       return {
         isFile: true,
         isDirectory: false,
         size: Buffer.isBuffer(c) ? c.length : Buffer.byteLength(c),
-        mtimeMs: 1000,
+        mtimeMs: mtimes[rel] ?? 1000,
         ino: 1,
       };
     }
@@ -373,6 +376,7 @@ function makeSession(
   symlinkTargets: Record<string, string> = {},
   additionalDirs: readonly string[] = [],
   pathClass: 'posix' | 'win32' = 'posix',
+  mtimes: Record<string, number> = {},
 ): IWorkspaceFsService {
   host = createScopedTestHost([
     stubPair(IHostEnvironment, {
@@ -397,7 +401,7 @@ function makeSession(
   const workspace = host.child('program', 'w1', [
     stubPair(IWorkspaceContext, stubWorkspaceContext()),
     stubPair(IWorkspaceDirs, stubWorkspaceDirs(additionalDirs)),
-    stubPair(IHostFileSystem, fakeFs(files, symlinks, symlinkTargets)),
+    stubPair(IHostFileSystem, fakeFs(files, symlinks, symlinkTargets, mtimes)),
     stubPair(IHostProcessService, runner ?? fakeRunner(handler)),
     stubPair(ITelemetryService, telemetryStub(events)),
     stubPair(IWorkspaceGitService, workspaceGitStub(git)),
@@ -1014,7 +1018,19 @@ describe('WorkspaceFsService.suggest', () => {
       (args) => {
         if (args[0] === 'rg' && args[1] === '--version') return { stdout: 'ripgrep 15.0.0', exitCode: 0 };
         if (args[0] === 'rg' && args.includes('--files')) {
-          return { stdout: '/repo\\src\\a.ts\n/extra\\lib\\util.ts\n', exitCode: 0 };
+          const rootDirs = args.filter(
+            (a) =>
+              a !== '--files' &&
+              a !== '--no-require-git' &&
+              a !== '--no-ignore' &&
+              a !== '--hidden' &&
+              a !== '-g' &&
+              !a.startsWith('!'),
+          );
+          const lines = rootDirs.map((dir) =>
+            dir.endsWith('repo') ? `${dir}\\src\\a.ts` : `${dir}\\lib\\util.ts`,
+          );
+          return { stdout: `${lines.join('\n')}\n`, exitCode: 0 };
         }
         return { stdout: '', exitCode: 0 };
       },
@@ -1029,7 +1045,8 @@ describe('WorkspaceFsService.suggest', () => {
     const primary = await fs.suggest({ query: 'a.ts', limit: 50, follow_gitignore: true, show_hidden: false });
     expect(primary.items.map((i) => i.path)).toContain('src/a.ts');
     const extra = await fs.suggest({ query: 'util', limit: 50, follow_gitignore: true, show_hidden: false });
-    expect(extra.items.map((i) => i.path)).toContain('/extra/lib/util.ts');
+    const extraPrefix = win32Path.resolve('/extra').split('\\').join('/');
+    expect(extra.items.map((i) => i.path)).toContain(`${extraPrefix}/lib/util.ts`);
   });
 
   it('parses single-root rg output joined with the windows path separator', async () => {
@@ -1358,6 +1375,45 @@ describe('WorkspaceFsService.list', () => {
       'a.ts',
       'sub',
     ]);
+  });
+
+  it('sorts children by mtime descending', async () => {
+    const fs = makeSession(
+      { 'a.txt': 'x', 'b.txt': 'x', 'c.txt': 'x' },
+      emptyHandler,
+      [],
+      defaultGitStub(),
+      [],
+      undefined,
+      {},
+      [],
+      'posix',
+      { 'a.txt': 3000, 'b.txt': 1000, 'c.txt': 2000 },
+    );
+    const result = await fs.list({
+      path: '.',
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'mtime_desc',
+      include_git_status: false,
+    });
+    expect(result.items.map((i) => i.name)).toEqual(['a.txt', 'c.txt', 'b.txt']);
+  });
+
+  it('sorts children by size descending', async () => {
+    const fs = makeSession({ 'a.txt': 'x', 'z.txt': 'xxxxxxxxxx' }, emptyHandler);
+    const result = await fs.list({
+      path: '.',
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'size_desc',
+      include_git_status: false,
+    });
+    expect(result.items.map((i) => i.name)).toEqual(['z.txt', 'a.txt']);
   });
 
   it('rejects paths that escape the workspace', async () => {
