@@ -13,12 +13,16 @@ For any list dialog, selector, input box, or status/toggle list, the interaction
 
 `KimiTUI` is a **coordinator** that wires state, layout, session, and dialogs together and delegates heavy logic to controllers.
 
-- `src/tui/kimi-tui.ts` — the `KimiTUI` coordinator. Holds `state`, owns startup/shutdown order, layout/editor wiring, user-input entry, sending/queueing, session lifecycle, and the slash-command handler dispatch. It should **not** accumulate event-routing or rendering logic — those live in controllers.
+- `src/tui/kimi-tui.ts` — the `KimiTUI` coordinator. Holds `state`, owns startup/shutdown order, layout/editor wiring, user-input entry, session lifecycle, and the slash-command handler dispatch. It should **not** accumulate event-routing or rendering logic — those live in controllers. The send path (sending/queueing) lives in `controllers/message-dispatch.ts`.
 - `src/tui/tui-state.ts` — `TUIState`, `createTUIState`, `createInitialAppState`. The single global UI state shape. Before adding a new global field, decide whether it truly belongs here vs. local component state.
 - `src/tui/controllers/` — the independently-testable responsibilities. Each controller owns one slice:
   - `session-event-handler.ts` — routes SDK session events (`handleEvent` dispatch + the per-event `handleXxx`). Concrete event handling goes here, not in `KimiTUI`.
   - `streaming-ui.ts` — streaming render: assistant delta, thinking, tool call / result, compaction, subagent, background agent, transcript aggregation.
   - `session-replay.ts` — resume/replay orchestration; drives replay records through the same live render hooks. Stateless replay parsing/limiting/projection helpers belong in `src/tui/utils/message-replay.ts`.
+  - `message-dispatch.ts` — the send path: user-input submission, media extraction + staging-lease hand-off, queueing/draining, prompt/steer/skill/plugin dispatch, and the session-request lifecycle (`beginSessionRequest`/`failSessionRequest`).
+  - `transcript-renderer.ts` — transcript rendering: entry→component factory, container lifecycle (append/clear/dispose), and the trim/fold/merge windowing that keeps long sessions bounded.
+  - `dialog-host.ts` — the editor-replacement lifecycle: mount/restore primitives plus the help panel, session picker, approval panel + full-screen preview, and question dialog.
+  - `activity-pane.ts` — the activity-pane mode machine: resolves the effective mode, mounts spinner/tip panes, syncs terminal progress and the agent-swarm spinner.
   - `tasks-browser.ts` — the tasks browser controller.
   - `editor-keyboard.ts` — editor keyboard handling, exit shortcuts, external editor, clipboard image.
   - `auth-flow.ts` — login/auth orchestration (`refreshConfigAfterLogin`, etc.).

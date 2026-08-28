@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -6,15 +5,12 @@ import { join } from 'node:path';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import { effectiveModelAlias, log } from '@moonshot-ai/kimi-code-sdk';
 import type {
-  ApprovalRequest,
-  ApprovalResponse,
   BackgroundTaskInfo,
   CreateSessionOptions,
   Event,
   KimiHarness,
   PermissionMode,
   PluginCommandDef,
-  PromptPart,
   Session,
   SkillSummary,
   TokenUsage,
@@ -22,10 +18,8 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import {
-  deleteAllKittyImages,
   type Component,
   type Focusable,
-  getCapabilities,
   Spacer,
   TuiAltScreen,
   TuiMainScreen,
@@ -68,82 +62,52 @@ import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
-import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
+import { MoonLoader } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
-import { pickRandomWorkingTip } from './components/chrome/working-tips';
-import {
-  ApprovalPanelComponent,
-  type ApprovalPanelResponse,
-} from './components/dialogs/approval-panel';
-import {
-  ApprovalPreviewViewer,
-  type ApprovalPreviewBlock,
-} from './components/dialogs/approval-preview';
-import { CompactionComponent } from './components/dialogs/compaction';
-import { HelpPanelComponent } from './components/dialogs/help-panel';
 import { defaultThinkingEffortFor } from './components/dialogs/model-selector';
 import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
-import { QuestionDialogComponent } from './components/dialogs/question-dialog';
-import { SessionPickerComponent, type SessionRow } from './components/dialogs/session-picker';
+import { type SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
 import {
   FileMentionProvider,
   type SlashAutocompleteCommand,
 } from './components/editor/file-mention-provider';
-import { AssistantMessageComponent } from './components/messages/assistant-message';
-import { BackgroundAgentStatusComponent } from './components/messages/background-agent-status';
-import { CronMessageComponent } from './components/messages/cron-message';
-import { buildGoalMarker } from './components/messages/goal-markers';
-import {
-  GoalCompletionMessageComponent,
-  GoalSetMessageComponent,
-} from './components/messages/goal-panel';
-import { PluginCommandComponent } from './components/messages/plugin-command';
 import { ShellRunComponent } from './components/messages/shell-run';
-import { SkillActivationComponent } from './components/messages/skill-activation';
 import {
   NoticeMessageComponent,
   StatusMessageComponent,
 } from './components/messages/status-message';
-import { StepSummaryComponent } from './components/messages/step-summary';
-import { ThinkingComponent } from './components/messages/thinking';
-import { ToolCallComponent } from './components/messages/tool-call';
-import {
-  ReplayTurnBoundaryComponent,
-  UserMessageComponent,
-} from './components/messages/user-message';
-import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
 import {
   getLlmNotSetMessage,
-  MAIN_AGENT_ID,
   getNoActiveSessionMessage,
   PRODUCT_NAME,
   SESSION_LIST_PAGE_SIZE,
   getSessionlessStartupNotice,
 } from './constant/kimi-tui';
-import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from './constant/media';
 import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
+import { ActivityPaneController } from './controllers/activity-pane';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
 import { CacheHintController } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
+import { DialogHostController } from './controllers/dialog-host';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
+import { MessageDispatchController } from './controllers/message-dispatch';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
-import { StagingLeaseTracker, type StagingLease } from './controllers/staging-leases';
+import { StagingLeaseTracker } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
 import { TasksBrowserController } from './controllers/tasks-browser';
+import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { installRainbowDance } from './easter-eggs/dance';
-import { adaptPanelResponse } from './reverse-rpc/approval/adapter';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
 import { registerReverseRPCHandlers } from './reverse-rpc/index';
 import { QuestionController } from './reverse-rpc/question/controller';
 import { createQuestionAskHandler } from './reverse-rpc/question/handler';
-import type { ApprovalPanelData, QuestionPanelData } from './reverse-rpc/types';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
@@ -156,33 +120,19 @@ import {
   type LoginProgressSpinnerHandle,
   type QueuedMessage,
   type SteerInputItem,
-  type StepRetryState,
   type TranscriptEntry,
   type TUIStartupOptions,
   type TUIStartupState,
 } from './types';
-import { hasDispose, isExpandable } from './utils/component-capabilities';
+import { isExpandable } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
-import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attachment-store';
-import {
-  extractMediaAttachments,
-  originalsDirForSession,
-  pendingMediaIngestions,
-  refreshExpiringImageFileRefs,
-  resolveOriginalCaptions,
-  rewriteMediaPlaceholders,
-} from './utils/image-placeholder';
+import { ImageAttachmentStore } from './utils/image-attachment-store';
 import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
-import {
-  beginScreenTakeover,
-  endScreenTakeover,
-  type ScreenTakeover,
-} from './utils/screen-takeover';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
 import {
   accumulateStepCompleted,
@@ -192,30 +142,14 @@ import {
 } from './utils/session-stats';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
-import { combineSteerInput } from './utils/steer-input';
-import { formatStepRetryDetail, formatStepRetryLabel } from './utils/step-retry';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
-import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import { computeSmoothedTokenSpeed, pickDecodeMs } from './utils/token-speed';
-import {
-  getTranscriptComponentEntry,
-  markTranscriptComponent,
-} from './utils/transcript-component-metadata';
+import { markTranscriptComponent } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
-import {
-  TRANSCRIPT_EXPAND_TURNS,
-  TRANSCRIPT_HYSTERESIS,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
-  TRANSCRIPT_KEEP_RECENT_STEPS,
-  TRANSCRIPT_MAX_TURNS,
-  TRANSCRIPT_WINDOW_ENABLED,
-  groupTurns,
-  turnsToTrim,
-} from './utils/transcript-window';
+import { TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
 
 export type { TUIState } from './tui-state';
 export { createTUIState } from './tui-state';
@@ -242,20 +176,8 @@ export interface KimiTUIStartupInput {
   readonly engineV2?: boolean;
 }
 
-type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
-type LoadingTipKind = 'moon' | 'composing';
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
 type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
-
-function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
-  if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing') return 'composing';
-  return undefined;
-}
-
-function waitingSpinnerLabel(retry: StepRetryState | null): string {
-  return retry === null ? '' : formatStepRetryLabel(retry);
-}
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -315,19 +237,6 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
   };
 }
 
-interface SendMessageOptions {
-  readonly parts?: readonly PromptPart[];
-  readonly imageAttachmentIds?: readonly number[];
-  readonly videoAttachmentIds?: readonly number[];
-  readonly hasMedia?: boolean;
-  /**
-   * Lease pre-created at extraction time by `sendNormalUserInput`. Dispatch
-   * reuses it (carrying its exact-binding submission id); enqueueing defers
-   * it — the queue item owns the raw ids and re-leases at dequeue.
-   */
-  readonly lease?: StagingLease;
-}
-
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
 
@@ -338,7 +247,7 @@ export class KimiTUI {
   state: TUIState;
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
-  private readonly cacheHint = new CacheHintController(this);
+  readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly approvalController = new ApprovalController();
@@ -371,9 +280,6 @@ export class KimiTUI {
   /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
   readonly engineV2: boolean;
   private startupNotice: string | undefined;
-  private lastActivityMode: string | undefined;
-  private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
-    undefined;
   private lastHistoryContent: string | undefined;
   // Live `!` shell output entries, keyed by commandId so concurrent commands
   // each update their own card and stale events are dropped. Mutated in place
@@ -390,24 +296,16 @@ export class KimiTUI {
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
   readonly editorKeyboard: EditorKeyboardController;
+  readonly messageDispatch: MessageDispatchController;
+  readonly transcriptRenderer: TranscriptRendererController;
+  readonly dialogController: DialogHostController;
+  readonly activityPaneController: ActivityPaneController;
 
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
   private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // The currently-mounted approval panel, if any. Kept so the full-screen
-  // preview viewer can restore focus to the exact same instance (and its
-  // selection / feedback state) when it closes.
-  private activeApprovalPanel: ApprovalPanelComponent | undefined;
-  // Active full-screen approval preview. While set, the previous screen is
-  // stashed in `takeover` (root children in regular mode, the layout root in
-  // fullscreen); closing restores it.
-  private approvalPreview:
-    | {
-        component: ApprovalPreviewViewer;
-        takeover: ScreenTakeover;
-        panel: ApprovalPanelComponent;
-      }
-    | undefined;
+  /** In-flight session-picker "load more" page fetch (see fetchMoreSessions). */
+  private sessionsPageFetchInFlight: Promise<boolean> | undefined;
 
   public onExit?: (exitCode?: number) => Promise<void>;
 
@@ -469,16 +367,16 @@ export class KimiTUI {
     this.reverseRpcDisposers.push(
       ...registerReverseRPCHandlers(this.approvalController, this.questionController, {
         showApprovalPanel: (payload) => {
-          this.showApprovalPanel(payload);
+          this.dialogController.showApprovalPanel(payload);
         },
         hideApprovalPanel: () => {
-          this.hideApprovalPanel();
+          this.dialogController.hideApprovalPanel();
         },
         showQuestionDialog: (payload) => {
-          this.showQuestionDialog(payload);
+          this.dialogController.showQuestionDialog(payload);
         },
         hideQuestionDialog: () => {
-          this.hideQuestionDialog();
+          this.dialogController.hideQuestionDialog();
         },
       }),
     );
@@ -490,6 +388,14 @@ export class KimiTUI {
     this.tasksBrowserController = new TasksBrowserController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
+    this.messageDispatch = new MessageDispatchController(this, this.staging, this.imageStore);
+    this.transcriptRenderer = new TranscriptRendererController(this, this.imageStore, this.staging);
+    this.dialogController = new DialogHostController(
+      this,
+      this.approvalController,
+      this.questionController,
+    );
+    this.activityPaneController = new ActivityPaneController(this);
     this.buildLayout();
   }
 
@@ -497,7 +403,7 @@ export class KimiTUI {
   // Autocomplete & Skill Commands
   // =========================================================================
 
-  private getSlashCommands(): readonly KimiSlashCommand[] {
+  getSlashCommands(): readonly KimiSlashCommand[] {
     const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
       (command) =>
         isExperimentalFlagEnabled(command.experimentalFlag) &&
@@ -754,7 +660,7 @@ export class KimiTUI {
 
     // Mount only after init() succeeds; see mountFooter().
     this.mountFooter();
-    this.renderWelcome();
+    this.transcriptRenderer.renderWelcome();
     void this.loadBanner();
     this.setupAutocomplete();
     void this.loadPersistedInputHistory();
@@ -778,7 +684,7 @@ export class KimiTUI {
     this.clipboardImageHintController = new ClipboardImageHintController({
       ui: this.state.ui,
       footer: this.state.footer,
-      getModelSupportsImage: () => this.supportsCurrentModelCapability('image_in'),
+      getModelSupportsImage: () => this.messageDispatch.supportsCurrentModelCapability('image_in'),
       requestRender: () => {
         this.state.ui.requestRender();
       },
@@ -833,7 +739,7 @@ export class KimiTUI {
     // stderr for non-interactive runs.
     void this.showConfigWarningsIfAny();
     if (this.state.startupState === 'picker') {
-      void this.bootstrapFromPicker();
+      void this.dialogController.bootstrapFromPicker();
       return;
     }
     if (shouldReplayHistory) {
@@ -1020,10 +926,10 @@ export class KimiTUI {
     // stop() returns (or leak when stop() runs without process.exit).
     this.tasksBrowserController.close();
     this.btwPanelController.clear();
-    this.stopActivitySpinner();
+    this.activityPaneController.stopActivitySpinner();
     this.streamingUI.disposeActiveCompactionBlock();
     this.streamingUI.resetToolUi();
-    this.disposeTranscriptChildren();
+    this.transcriptRenderer.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
@@ -1228,7 +1134,7 @@ export class KimiTUI {
       // Only one foreground action at a time: queue the shell command while
       // another shell command is running or an agent turn is in progress.
       if (this.state.appState.streamingPhase !== 'idle') {
-        this.enqueueMessage(text, undefined, 'bash');
+        this.messageDispatch.enqueueMessage(text, undefined, 'bash');
         this.updateQueueDisplay();
         this.state.ui.requestRender();
         return;
@@ -1239,7 +1145,7 @@ export class KimiTUI {
     slashCommands.dispatchInput(this, text);
   }
 
-  private async runShellCommandFromInput(command: string): Promise<void> {
+  async runShellCommandFromInput(command: string): Promise<void> {
     let session = this.session;
     if (session === undefined) {
       if (!this.engineV2) {
@@ -1253,7 +1159,7 @@ export class KimiTUI {
       // honor the busy gate here, like handleUserInput does before the await,
       // instead of running the shell command concurrently with an agent turn.
       if (this.state.appState.streamingPhase !== 'idle') {
-        this.enqueueMessage(command, undefined, 'bash');
+        this.messageDispatch.enqueueMessage(command, undefined, 'bash');
         this.updateQueueDisplay();
         this.state.ui.requestRender();
         return;
@@ -1372,253 +1278,6 @@ export class KimiTUI {
     this.updateQueueDisplay();
   }
 
-  async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
-    if (this.btwPanelController.sendUserInput(text)) return;
-    if (this.state.appState.model.trim().length === 0) {
-      this.showError(getLlmNotSetMessage());
-      return;
-    }
-    let extraction: ExtractionResult;
-    if (preExtracted === undefined) {
-      // A just-pasted image/video may still be finishing its background
-      // ingestion (compression/daemon upload): give it a bounded moment so
-      // the submit can use the daemon-ref form — a slower image ingestion
-      // extracts to the inline fallback instead, a slower video upload
-      // refuses the submission below. Undefined when nothing is pending,
-      // keeping the media-free send path synchronous.
-      const ingestionWait = pendingMediaIngestions(
-        text,
-        this.imageStore,
-        MEDIA_INGESTION_SUBMIT_WAIT_MS,
-      );
-      if (ingestionWait !== undefined) await ingestionWait;
-    }
-    try {
-      // A cache-hint-swallowed resend passes its pre-dialog extraction back
-      // in: the image store may already be cleared (e.g. after "Start a new
-      // session"), so re-extracting from the text would lose the media.
-      // Bare image paths attach during extraction; their paste-time
-      // ingestion (compression/daemon upload) is awaited inside it.
-      extraction =
-        preExtracted ??
-        (await extractMediaAttachments(
-          text,
-          this.imageStore,
-          (attachment, bytes, mime, width, height) =>
-            this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
-        ));
-      if (preExtracted !== undefined) {
-        const parts = refreshExpiringImageFileRefs(
-          extraction.parts,
-          extraction.imageAttachmentIds,
-          this.imageStore,
-        );
-        if (parts !== extraction.parts) extraction = { ...extraction, parts };
-      }
-    } catch (error) {
-      // A pasted video's daemon upload was unusable (still in flight,
-      // failed, expired); nothing was dispatched.
-      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-      return;
-    }
-    // Create the staging lease right after extraction, so every exit below
-    // releases through the tracker instead of open-coding ids — a
-    // forgotten exit degrades to an unclaimed lease (swept by `releaseAll`)
-    // instead of a permanently retained upload. The lease carries the
-    // exact-binding submission id: the consuming turn's `turn.started` echoes
-    // it as `promptId`. A goal-active submission is steered and binds its
-    // lease explicitly in sendMessageInternal, so it gets no id.
-    const stagingLease = this.staging.create(
-      // One retain per unique id per extraction: dedupe repeated placeholder
-      // occurrences so the lease's id multiplicity matches the retain count.
-      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
-      [],
-      'user',
-      extraction.hasMedia && this.state.appState.goal?.status !== 'active'
-        ? randomUUID()
-        : undefined,
-    );
-    if (!this.validateMediaCapabilities(extraction)) {
-      this.staging.release(stagingLease);
-      return;
-    }
-    // Idle cache-hint interception sits before session creation; it is
-    // synchronous unless a hint actually fires. Aside from the bounded
-    // ingestion wait above and path-image ingestion inside extraction, the
-    // send path stays await-free up to sendMessage.
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) {
-      // The stash owns the extraction from here: its resend re-leases inside
-      // the re-entered send path, its restore goes through releaseRecalled
-      // (see CacheHintController). Detach so the stash is not double-owned.
-      this.staging.defer(stagingLease);
-      return;
-    }
-    let session = this.session;
-    if (session === undefined) {
-      if (!this.engineV2) {
-        this.showError(getLlmNotSetMessage());
-        this.staging.release(stagingLease);
-        return;
-      }
-      session = await this.ensureSession();
-      if (session === undefined) {
-        this.staging.release(stagingLease);
-        return;
-      }
-    }
-    if (extraction.hasMedia) {
-      this.sendMessage(session, text, {
-        hasMedia: true,
-        parts: extraction.parts,
-        imageAttachmentIds: extraction.imageAttachmentIds,
-        videoAttachmentIds: extraction.videoAttachmentIds,
-        lease: stagingLease,
-      });
-    } else {
-      this.sendMessage(session, text);
-    }
-    this.updateQueueDisplay();
-    this.state.ui.requestRender();
-  }
-
-  async sendInlineSkillUserInput(
-    text: string,
-    activations: readonly InlineSkillActivation[],
-    preExtracted?: ExtractionResult,
-  ): Promise<void> {
-    if (this.btwPanelController.sendUserInput(text)) return;
-    if (this.state.appState.model.trim().length === 0) {
-      this.showError(getLlmNotSetMessage());
-      return;
-    }
-    let extraction: ExtractionResult;
-    try {
-      extraction =
-        preExtracted ??
-        (await extractMediaAttachments(
-          text,
-          this.imageStore,
-          (attachment, bytes, mime, width, height) =>
-            this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
-        ));
-    } catch (error) {
-      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-      return;
-    }
-    if (!this.validateMediaCapabilities(extraction)) return;
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) return;
-    let session = this.session;
-    if (session === undefined) {
-      // Dispatch only routes here on the v2 engine, so the session is created
-      // lazily on first use exactly like a normal prompt.
-      session = await this.ensureSession();
-      if (session === undefined) return;
-    }
-    if (
-      this.deferUserMessages ||
-      this.state.appState.goal?.status === 'active' ||
-      this.state.appState.streamingPhase !== 'idle' ||
-      this.state.appState.isCompacting
-    ) {
-      this.enqueueMessage(
-        text,
-        extraction.hasMedia
-          ? {
-              hasMedia: true,
-              parts: extraction.parts,
-              imageAttachmentIds: extraction.imageAttachmentIds,
-              videoAttachmentIds: extraction.videoAttachmentIds,
-              inlineSkillActivations: activations,
-            }
-          : { inlineSkillActivations: activations },
-      );
-      this.updateQueueDisplay();
-      this.state.ui.requestRender();
-      return;
-    }
-    this.beginSessionRequest();
-    void this.runInlineSkillActivations(session, text, activations, extraction).catch(
-      (error: unknown) => {
-        this.failSessionRequest(`Skill activation failed: ${formatErrorMessage(error)}`);
-      },
-    );
-  }
-
-  private async runInlineSkillActivations(
-    session: Session,
-    text: string,
-    activations: readonly InlineSkillActivation[],
-    extraction: ExtractionResult,
-  ): Promise<void> {
-    const knownEntryIds = new Set(this.state.transcriptEntries.map((entry) => entry.id));
-    await session.promptWithSkills(
-      extraction.hasMedia
-        ? resolveOriginalCaptions(
-            extraction.parts,
-            extraction.imageAttachmentIds,
-            this.imageStore,
-            originalsDirForSession(session),
-          )
-        : text,
-      activations.map((activation) => ({ name: activation.skillName, args: activation.args })),
-    );
-    // The engine bundles the activations into the prompt's own message, and
-    // the `skill.activated` events land synchronously during the call — so
-    // the cards appended for this submission are the skill_activation entries
-    // with fresh ids (the window trim may replace the entries array mid-call,
-    // so membership is decided by id, not by index into a captured array).
-    // Appending the user entry afterwards keeps the live transcript in the
-    // same order as a resumed replay (skill cards first, prompt last).
-    // Marking only happens once the submission was accepted: a rejected
-    // bundle leaves no cards and must not leave a local undo anchor the
-    // engine never recorded.
-    for (const entry of this.state.transcriptEntries) {
-      if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
-        entry.bundledWithPrompt = true;
-      }
-    }
-    this.appendTranscriptEntry({
-      id: nextTranscriptId(),
-      kind: 'user',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: text,
-      imageAttachmentIds:
-        extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
-    });
-  }
-
-  validateMediaCapabilities(extraction: {
-    hasMedia: boolean;
-    imageAttachmentIds: readonly number[];
-    videoAttachmentIds: readonly number[];
-    imageSnapshots?: readonly unknown[];
-  }): boolean {
-    if (!extraction.hasMedia) return true;
-    if (
-      (extraction.imageAttachmentIds.length > 0 || (extraction.imageSnapshots?.length ?? 0) > 0) &&
-      !this.supportsCurrentModelCapability('image_in')
-    ) {
-      this.showError(t('tui.statusMessages.modelNoImageInput'));
-      return false;
-    }
-    if (
-      extraction.videoAttachmentIds.length > 0 &&
-      !this.supportsCurrentModelCapability('video_in')
-    ) {
-      this.showError(t('tui.statusMessages.modelNoVideoInput'));
-      return false;
-    }
-    return true;
-  }
-
-  private supportsCurrentModelCapability(capability: string): boolean {
-    const capabilities =
-      this.state.appState.availableModels[this.state.appState.model]?.capabilities;
-    if (capabilities === undefined) return true;
-    return capabilities.includes(capability);
-  }
-
   private async loadPersistedInputHistory(): Promise<void> {
     try {
       const file = getInputHistoryFile(this.state.appState.workDir);
@@ -1647,137 +1306,65 @@ export class KimiTUI {
   }
 
   recallLastQueued(): QueuedMessage | undefined {
-    if (this.state.queuedMessages.length === 0) return undefined;
-    const last = this.state.queuedMessages.at(-1)!;
-    this.state.queuedMessages = this.state.queuedMessages.slice(0, -1);
-    // A recall restores the draft into the editor — it is not a discard:
-    // consumes the retains only, keeping the staged daemon uploads alive
-    // (see `releaseRecalled`) so the restored draft resubmits them.
-    this.staging.releaseRecalled([
-      ...(last.imageAttachmentIds ?? []),
-      ...(last.videoAttachmentIds ?? []),
-    ]);
-    return last;
+    return this.messageDispatch.recallLastQueued();
   }
 
-  /**
-   * Cache-hint restore: a dismissed/hand-back interception returns its draft
-   * to the editor — same semantics as a queue recall (consume the stash
-   * extraction's retains; the staged daemon uploads stay alive for the
-   * restored draft).
-   */
   recallStashedMedia(extraction: ExtractionResult | undefined): void {
-    if (extraction === undefined) return;
-    this.staging.releaseRecalled([
-      ...extraction.imageAttachmentIds,
-      ...extraction.videoAttachmentIds,
-    ]);
+    this.messageDispatch.recallStashedMedia(extraction);
   }
 
   // =========================================================================
   // Session Requests / Queues
   // =========================================================================
 
-  private enqueueMessage(
+  sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
+    return this.messageDispatch.sendNormalUserInput(text, preExtracted);
+  }
+
+  sendInlineSkillUserInput(
     text: string,
-    options?: SendMessageOptions & {
-      readonly inlineSkillActivations?: readonly InlineSkillActivation[];
-    },
-    mode?: 'prompt' | 'bash',
-  ): void {
-    this.state.queuedMessages.push({
-      text,
-      agentId: this.harness.interactiveAgentId,
-      parts: options?.parts,
-      imageAttachmentIds:
-        options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
-          ? options.imageAttachmentIds
-          : undefined,
-      videoAttachmentIds:
-        options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
-          ? options.videoAttachmentIds
-          : undefined,
-      mode,
-      inlineSkillActivations: options?.inlineSkillActivations,
-    });
-    this.track('input_queue');
+    activations: readonly InlineSkillActivation[],
+    preExtracted?: ExtractionResult,
+  ): Promise<void> {
+    return this.messageDispatch.sendInlineSkillUserInput(text, activations, preExtracted);
+  }
+
+  validateMediaCapabilities(extraction: {
+    hasMedia: boolean;
+    imageAttachmentIds: readonly number[];
+    videoAttachmentIds: readonly number[];
+    imageSnapshots?: readonly unknown[];
+  }): boolean {
+    return this.messageDispatch.validateMediaCapabilities(extraction);
   }
 
   beginSessionRequest(): void {
-    this.cacheHint.onTurnBegin();
-    this.streamingUI.setTurnId(undefined);
-    this.streamingUI.resetLiveText();
-    this.streamingUI.resetToolUi();
-    this.streamingUI.resetToolCallState();
-
-    this.patchLivePane({
-      mode: 'waiting',
-      pendingApproval: null,
-      pendingQuestion: null,
-    });
-    this.setAppState({
-      streamingPhase: 'waiting',
-      streamingStartTime: Date.now(),
-    });
+    this.messageDispatch.beginSessionRequest();
   }
 
   failSessionRequest(message: string): void {
-    this.setAppState({ streamingPhase: 'idle' });
-    this.resetLivePane();
-    this.showError(message);
+    this.messageDispatch.failSessionRequest(message);
   }
 
   sendQueuedMessage(session: Session, item: QueuedMessage): void {
-    if (item.mode === 'bash') {
-      this.staging.releaseQueued([item]);
-      void this.runShellCommandFromInput(item.text);
-      return;
-    }
-    if (item.mode === 'skill' && item.skillName !== undefined) {
-      // sendSkillActivation re-checks the busy state, so a premature drain
-      // re-queues at the tail instead of racing the running turn.
-      this.sendSkillActivation(session, item.skillName, item.skillArgs ?? '');
-      return;
-    }
-    if (item.inlineSkillActivations !== undefined && item.inlineSkillActivations.length > 0) {
-      // Media was extracted and validated at enqueue time; reuse the queued
-      // parts rather than re-extracting from a possibly-cleared image store.
-      // Expiring daemon refs refresh at dispatch, same as the plain tail below.
-      const refreshed =
-        item.parts === undefined
-          ? []
-          : [
-              ...refreshExpiringImageFileRefs(
-                item.parts,
-                item.imageAttachmentIds ?? [],
-                this.imageStore,
-              ),
-            ];
-      this.beginSessionRequest();
-      void this.runInlineSkillActivations(session, item.text, item.inlineSkillActivations, {
-        parts: refreshed,
-        hasMedia: refreshed.length > 0,
-        imageAttachmentIds:
-          item.imageAttachmentIds !== undefined ? [...item.imageAttachmentIds] : [],
-        videoAttachmentIds:
-          item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
-        imageSnapshots: [],
-      }).catch((error: unknown) => {
-        this.failSessionRequest(`Skill activation failed: ${formatErrorMessage(error)}`);
-      });
-      return;
-    }
-    const parts =
-      item.parts === undefined
-        ? undefined
-        : refreshExpiringImageFileRefs(item.parts, item.imageAttachmentIds ?? [], this.imageStore);
-    this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
-      this.sendMessageInternal(session, item.text, {
-        parts,
-        imageAttachmentIds: item.imageAttachmentIds,
-        videoAttachmentIds: item.videoAttachmentIds,
-      });
-    });
+    this.messageDispatch.sendQueuedMessage(session, item);
+  }
+
+  sendSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    this.messageDispatch.sendSkillActivation(session, skillName, skillArgs);
+  }
+
+  activatePluginCommand(
+    session: Session,
+    pluginId: string,
+    commandName: string,
+    args: string,
+  ): void {
+    this.messageDispatch.activatePluginCommand(session, pluginId, commandName, args);
+  }
+
+  steerMessage(session: Session, input: readonly SteerInputItem[]): void {
+    this.messageDispatch.steerMessage(session, input);
   }
 
   handleTurnStarted(event: TurnStartedEvent): void {
@@ -1794,323 +1381,6 @@ export class KimiTUI {
 
   requestQueuedGoalPromotion(): void {
     this.sessionEventHandler.requestQueuedGoalPromotion();
-  }
-
-  private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {
-    const imageAttachmentIds =
-      options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
-        ? options.imageAttachmentIds
-        : undefined;
-    this.appendTranscriptEntry({
-      id: nextTranscriptId(),
-      kind: 'user',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: input,
-      imageAttachmentIds,
-    });
-    // A goal-active steer is buffered into the running goal turn — no new
-    // turn.started will fire for handleTurnStarted to claim the lease — so
-    // bind it to that turn here. The turn context must be read BEFORE
-    // beginSessionRequest resets it, and only while a turn is actually live
-    // (finalizeTurn clears the id at turn end; a queued dispatch can land
-    // while the goal driver's next continuation turn is already streaming).
-    const runningTurnId =
-      this.state.appState.streamingPhase === 'idle' ||
-      this.state.appState.streamingPhase === 'shell'
-        ? undefined
-        : this.streamingUI.getTurnContext().turnId;
-    this.beginSessionRequest();
-
-    // Compression captions for pasted images are authored here — not at
-    // extraction — because only now is the session (and its media-originals
-    // dir) known: extraction runs before a first session exists.
-    const sdkInput =
-      options?.parts !== undefined
-        ? resolveOriginalCaptions(
-            options.parts,
-            options.imageAttachmentIds ?? [],
-            this.imageStore,
-            originalsDirForSession(session),
-          )
-        : input;
-    const goalActive = this.state.appState.goal?.status === 'active';
-    // The lease normally arrives pre-created by sendNormalUserInput (carrying
-    // its exact-binding submission id). Queued dispatches and steer batches
-    // arrive with raw ids instead: a prompt submission carrying staged
-    // media gets a client-chosen prompt id minted here — the engine echoes it
-    // on the consuming turn's `turn.started` (`promptId`), so the lease binds
-    // exactly instead of through the origin heuristic. The goal-steer path
-    // binds its lease explicitly below, so it gets no id.
-    const stagingIds = [
-      ...(options?.imageAttachmentIds ?? []),
-      ...(options?.videoAttachmentIds ?? []),
-    ];
-    const stagingLease =
-      options?.lease ??
-      this.staging.create(
-        // One retain per unique id per extraction: dedupe repeated placeholder
-        // occurrences so the lease's id multiplicity matches the retain count.
-        [...new Set(stagingIds)],
-        [],
-        'user',
-        !goalActive && stagingIds.length > 0 ? randomUUID() : undefined,
-      );
-    const submissionId = stagingLease?.submissionId;
-    // While a goal is being pursued the engine holds its active turn across the
-    // whole continuation loop, so a fresh prompt races the goal driver at every
-    // continuation boundary and is rejected with `turn.agent_busy`, dropping
-    // the message. Steer instead: the engine buffers it into the running goal
-    // turn, or launches a turn of its own if the loop just ended.
-    if (goalActive) {
-      if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
-      this.staging.trackDispatch(stagingLease, session.steer(sdkInput), (error) => {
-        // Same reset as the prompt path: beginSessionRequest already moved the
-        // TUI to the waiting phase, and no turn events may follow a failed
-        // steer (e.g. the session is gone), which would leave the UI stuck
-        // queueing input behind a request that never completes.
-        this.failSessionRequest(`Failed to steer: ${formatErrorMessage(error)}`);
-      });
-      return;
-    }
-    this.staging.trackDispatch(
-      stagingLease,
-      session.prompt(sdkInput, { promptId: submissionId }),
-      (error) => {
-        this.failSessionRequest(`Failed to send: ${formatErrorMessage(error)}`);
-      },
-    );
-  }
-
-  sendSkillActivation(session: Session, skillName: string, skillArgs: string): void {
-    // Args are a plain-text channel, so pasted media can't ride along as
-    // inline parts. Skill args are XML-escaped on render (renderSkillAttributes
-    // + expandSkillParameters), so rewrite placeholders into escape-proof
-    // plain-text file references the model can open with ReadMediaFile.
-    let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
-    try {
-      rewrite = rewriteMediaPlaceholders(skillArgs, this.imageStore, 'plain');
-    } catch (error) {
-      // Cache copy failed (unwritable cache dir, vanished video source…);
-      // nothing has been dispatched yet, so just report and keep the input.
-      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-      return;
-    }
-    if (!this.validateMediaCapabilities(rewrite)) {
-      this.staging.releaseMedia(rewrite.imageAttachmentIds, rewrite.stagingPaths);
-      return;
-    }
-    // Compacting (or deferred input): queue behind it — visible and recallable.
-    // Slash-skill items steer like any queued input on Ctrl-S (the activation
-    // fires into the running turn instead of the literal text) — see
-    // editor-keyboard.ts.
-    // A running turn queues the activation too: every skill behaves like
-    // plain input — queued by default, steered on demand — because the engine
-    // steers activations into a running turn exactly like a steered user
-    // message (v2 `prompt.inject`, v1 `SkillManager.recordActivation`).
-    // The rewritten args reference the staging cache copies by plain path,
-    // never the daemon uploads, so queueing takes recall semantics: the
-    // retains are consumed and the copies retire to session lifetime — they
-    // must stay readable until the item drains.
-    const turnRunning = this.state.appState.streamingPhase !== 'idle';
-    if (this.deferUserMessages || this.state.appState.isCompacting || turnRunning) {
-      const args = rewrite.text.trim();
-      this.state.queuedMessages.push({
-        text: `/${skillName}${args.length > 0 ? ` ${args}` : ''}`,
-        agentId: this.harness.interactiveAgentId,
-        mode: 'skill',
-        skillName,
-        skillArgs: rewrite.text,
-      });
-      this.staging.releaseRecalled([...rewrite.imageAttachmentIds], rewrite.stagingPaths);
-      this.track('input_queue');
-      this.updateQueueDisplay();
-      this.state.ui.requestRender();
-      return;
-    }
-    const stagingLease = this.staging.create(
-      [...new Set(rewrite.imageAttachmentIds)],
-      rewrite.stagingPaths,
-      'skill_activation',
-    );
-    this.beginSessionRequest();
-    this.staging.trackDispatch(
-      stagingLease,
-      session.activateSkill(skillName, rewrite.text),
-      (error) => {
-        this.failSessionRequest(`Skill "${skillName}" failed: ${formatErrorMessage(error)}`);
-      },
-    );
-  }
-
-  activatePluginCommand(
-    session: Session,
-    pluginId: string,
-    commandName: string,
-    args: string,
-  ): void {
-    // Plugin command args are expanded verbatim (no XML escaping), so the
-    // standard <image|video path> tag convention works — see
-    // sendSkillActivation for the escaped-channel variant.
-    let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
-    try {
-      rewrite = rewriteMediaPlaceholders(args, this.imageStore, 'tag');
-    } catch (error) {
-      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-      return;
-    }
-    const stagingLease = this.staging.create(
-      [...new Set(rewrite.imageAttachmentIds)],
-      rewrite.stagingPaths,
-      'plugin_command',
-    );
-    if (!this.validateMediaCapabilities(rewrite)) {
-      this.staging.release(stagingLease);
-      return;
-    }
-    this.beginSessionRequest();
-    this.staging.trackDispatch(
-      stagingLease,
-      session.activatePluginCommand(pluginId, commandName, rewrite.text),
-      (error) => {
-        this.failSessionRequest(
-          `Command "${pluginId}:${commandName}" failed: ${formatErrorMessage(error)}`,
-        );
-      },
-    );
-  }
-
-  private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
-    const phase = this.state.appState.streamingPhase;
-    // Tower mode keeps the main agent as a long-lived coordinator: while its
-    // turn is live, new input steers into that turn instead of queueing
-    // behind it, so consecutive /tower objectives are accepted immediately
-    // rather than serialized one turn at a time. A foreground shell command
-    // ('shell') has no turn to steer into and keeps queue semantics, as do
-    // input deferral and compaction.
-    const steerIntoCoordinator =
-      this.state.appState.towerMode &&
-      phase !== 'idle' &&
-      phase !== 'shell' &&
-      !this.deferUserMessages &&
-      !this.state.appState.isCompacting;
-    // Submission order must survive a mid-turn compaction: objectives queued
-    // while compacting stay queued when the turn outlives the compaction, so
-    // steering this input ahead of them would reorder the conversation.
-    // Prompt-only backlog rides along in the same steer batch, ahead of the
-    // new input; a non-steerable backlog (bash, slash-skill, inline-skill
-    // bundle) cannot, and then this input queues behind it instead.
-    const backlog = this.state.queuedMessages;
-    const backlogSteerable = backlog.every(
-      (m) => m.inlineSkillActivations === undefined && m.mode !== 'bash' && m.mode !== 'skill',
-    );
-    if (steerIntoCoordinator && backlogSteerable) {
-      // Same lease hand-off as the queue path below: the pre-dispatch lease
-      // defers to the raw ids on the steer item, which re-leases inside
-      // steerMessage and binds to the running turn.
-      this.staging.defer(options?.lease);
-      const items: SteerInputItem[] = [
-        ...backlog.map((m) => ({
-          text: m.text,
-          parts: m.parts,
-          imageAttachmentIds: m.imageAttachmentIds,
-          videoAttachmentIds: m.videoAttachmentIds,
-        })),
-        {
-          text: input,
-          parts: options?.parts,
-          imageAttachmentIds: options?.imageAttachmentIds,
-          videoAttachmentIds: options?.videoAttachmentIds,
-        },
-      ];
-      if (backlog.length > 0) {
-        this.state.queuedMessages = [];
-        this.updateQueueDisplay();
-      }
-      this.steerMessage(session, items);
-      return;
-    }
-    if (
-      this.deferUserMessages ||
-      this.state.appState.streamingPhase !== 'idle' ||
-      this.state.appState.isCompacting
-    ) {
-      // A queued message re-leases its staged media at dequeue dispatch; the
-      // pre-dispatch lease defers to the queue item's raw ids.
-      this.staging.defer(options?.lease);
-      this.enqueueMessage(input, options);
-      return;
-    }
-    this.sendMessageInternal(session, input, options);
-  }
-
-  steerMessage(session: Session, input: readonly SteerInputItem[]): void {
-    if (this.deferUserMessages || this.state.appState.isCompacting) {
-      for (const item of input) {
-        this.enqueueMessage(item.text, item);
-      }
-      return;
-    }
-    if (this.state.appState.streamingPhase === 'idle') {
-      for (const item of input) {
-        this.sendMessageInternal(session, item.text, item);
-      }
-      return;
-    }
-
-    for (const item of input) {
-      this.appendTranscriptEntry({
-        id: nextTranscriptId(),
-        kind: 'user',
-        turnId: this.streamingUI.getTurnContext().turnId,
-        renderMode: 'plain',
-        content: item.text,
-        imageAttachmentIds:
-          item.imageAttachmentIds !== undefined && item.imageAttachmentIds.length > 0
-            ? item.imageAttachmentIds
-            : undefined,
-      });
-    }
-
-    // Dedupe per item, not across the batch: each queued message retained a
-    // shared medium once, so the batch's id multiplicity is the retain count.
-    const mediaAttachmentIds = input.flatMap((item) => [
-      ...new Set([...(item.imageAttachmentIds ?? []), ...(item.videoAttachmentIds ?? [])]),
-    ]);
-    const stagingLease = this.staging.create(mediaAttachmentIds, [], 'user');
-    const currentTurnId = this.streamingUI.getTurnContext().turnId;
-    if (currentTurnId !== undefined) this.staging.bindToTurn(stagingLease, currentTurnId);
-    // Same dispatch-time caption resolution as sendMessageInternal — the
-    // running turn's session owns the persisted originals.
-    const resolvedInput = input.map((item) =>
-      item.parts === undefined
-        ? item
-        : {
-            ...item,
-            parts: resolveOriginalCaptions(
-              item.parts,
-              item.imageAttachmentIds ?? [],
-              this.imageStore,
-              originalsDirForSession(session),
-            ),
-          },
-    );
-    this.staging.trackDispatch(
-      stagingLease,
-      session.steer(combineSteerInput(resolvedInput)),
-      (error) => {
-        this.showError(`Failed to steer: ${formatErrorMessage(error)}`);
-      },
-    );
-  }
-
-  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void {
-    // Ctrl-S on a queued slash-skill item: the activation fires into the
-    // running turn (the engine steers it there, never the literal text). No
-    // beginSessionRequest — the live pane belongs to the running turn.
-    void session.activateSkill(skillName, skillArgs).catch((error: unknown) => {
-      this.showError(`Skill "${skillName}" failed: ${formatErrorMessage(error)}`);
-    });
   }
 
   // =========================================================================
@@ -2447,7 +1717,7 @@ export class KimiTUI {
   // session may already be in plan mode from its persisted records, and
   // re-entering plan mode throws, so only enable it when it is not active yet.
   // setPermission is idempotent and needs no such guard.
-  private async applyStartupModesToResumedSession(session: Session): Promise<void> {
+  async applyStartupModesToResumedSession(session: Session): Promise<void> {
     const { startup } = this.options;
     if (startup.auto) {
       await session.setPermission('auto');
@@ -2465,7 +1735,7 @@ export class KimiTUI {
   // Re-apply startup flags that the user explicitly passed on the command line.
   // syncRuntimeState and session-replay hydration can both read stale persisted
   // values, so this guarantees the footer reflects the CLI intent.
-  private applyStartupPermissionAndPlanToAppState(): void {
+  applyStartupPermissionAndPlanToAppState(): void {
     const { startup } = this.options;
     if (startup.auto) {
       this.setAppState({ permissionMode: 'auto' });
@@ -2516,7 +1786,7 @@ export class KimiTUI {
   private registerSessionHandlers(session: Session): void {
     session.setApprovalHandler(
       createApprovalRequestHandler(this.approvalController, (request, response) => {
-        this.appendApprovalTranscriptEntry(request, response);
+        this.transcriptRenderer.appendApprovalTranscriptEntry(request, response);
       }),
     );
     session.setQuestionHandler(createQuestionAskHandler(this.questionController));
@@ -2558,16 +1828,16 @@ export class KimiTUI {
    * continue with the next page, so a query typed mid-fetch still ends up
    * covering every session.
    */
-  private async fetchMoreSessions(waitForInFlight = false): Promise<boolean> {
+  async fetchMoreSessions(waitForInFlight = false): Promise<boolean> {
     while (this.sessionsPageFetchInFlight !== undefined) {
       if (!waitForInFlight) return false;
       await this.sessionsPageFetchInFlight;
     }
     const cursor = this.state.sessionsNextCursor;
     if (cursor === undefined) return false;
-    const requestToken = this.sessionPickerScopeRequestToken;
+    const requestToken = this.dialogController.sessionPickerRequestToken;
     this.state.sessionsLoadingMore = true;
-    this.sessionPickerComponent?.setPaging(true, true);
+    this.dialogController.setSessionPickerPaging(true, true);
     this.state.ui.requestRender();
     const run = this.appendNextSessionPage(cursor, requestToken);
     this.sessionsPageFetchInFlight = run;
@@ -2585,7 +1855,7 @@ export class KimiTUI {
         limit: SESSION_LIST_PAGE_SIZE,
         before: cursor,
       });
-      if (requestToken !== this.sessionPickerScopeRequestToken) return false;
+      if (requestToken !== this.dialogController.sessionPickerRequestToken) return false;
       this.state.sessionsNextCursor = page.nextCursor;
       const rows = sessionRowsForPicker(
         page.items,
@@ -2593,16 +1863,19 @@ export class KimiTUI {
         this.hasSessionContent(),
       );
       this.state.sessions = [...this.state.sessions, ...rows];
-      this.sessionPickerComponent?.appendSessions(rows);
-      this.sessionPickerComponent?.setPaging(page.nextCursor !== undefined, false);
+      this.dialogController.appendSessionPickerRows(rows);
+      this.dialogController.setSessionPickerPaging(page.nextCursor !== undefined, false);
       return true;
     } catch (error) {
       log.warn('failed to fetch more sessions for picker', { error: String(error) });
       return false;
     } finally {
-      if (requestToken === this.sessionPickerScopeRequestToken) {
+      if (requestToken === this.dialogController.sessionPickerRequestToken) {
         this.state.sessionsLoadingMore = false;
-        this.sessionPickerComponent?.setPaging(this.state.sessionsNextCursor !== undefined, false);
+        this.dialogController.setSessionPickerPaging(
+          this.state.sessionsNextCursor !== undefined,
+          false,
+        );
         this.state.ui.requestRender();
       }
     }
@@ -2613,11 +1886,11 @@ export class KimiTUI {
    * all remaining pages, drained one at a time in the background. A failed or
    * superseded fetch stops the drain (the next fresh query re-triggers it).
    */
-  private async drainSessionsForSearch(): Promise<void> {
-    const requestToken = this.sessionPickerScopeRequestToken;
+  async drainSessionsForSearch(): Promise<void> {
+    const requestToken = this.dialogController.sessionPickerRequestToken;
     while (
       this.state.sessionsNextCursor !== undefined &&
-      requestToken === this.sessionPickerScopeRequestToken
+      requestToken === this.dialogController.sessionPickerRequestToken
     ) {
       if (!(await this.fetchMoreSessions(true))) return;
     }
@@ -2649,7 +1922,7 @@ export class KimiTUI {
     this.updateQueueDisplay();
   }
 
-  private async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
+  async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
     this.hideSessionPicker();
     const command = `cd ${quoteShellArg(session.work_dir)} && kimi --resume ${quoteShellArg(session.id)}`;
     const message = `Current session is in a different working directory.\n  To resume, run: ${command}`;
@@ -2661,7 +1934,7 @@ export class KimiTUI {
     }
   }
 
-  private async resumeSession(targetSessionId: string): Promise<boolean> {
+  async resumeSession(targetSessionId: string): Promise<boolean> {
     // A first-use lazy creation may still be in flight: wait it out so the
     // checks below see settled state — the pending prompt would otherwise
     // replace the resumed session when creation completes.
@@ -2706,7 +1979,7 @@ export class KimiTUI {
     } catch {
       /* keep the switched session usable even if dynamic skills fail */
     }
-    this.clearTranscriptAndRedraw();
+    this.transcriptRenderer.clearTranscriptAndRedraw();
     try {
       await this.sessionReplay.hydrateFromReplay(session);
     } catch (error) {
@@ -2788,7 +2061,7 @@ export class KimiTUI {
       /* keep the new session usable even if dynamic skills fail */
     }
     this.sessionEventHandler.startSubscription();
-    this.clearTranscriptAndRedraw();
+    this.transcriptRenderer.clearTranscriptAndRedraw();
     this.showStatus(`Started a new session (${session.id}).`);
     void this.showSessionWarnings(session);
     void this.showConfigWarningsIfAny();
@@ -2810,470 +2083,20 @@ export class KimiTUI {
   // Transcript Rendering
   // =========================================================================
 
-  private createTranscriptComponent(entry: TranscriptEntry): Component | null {
-    if (entry.compactionData !== undefined) {
-      const data = entry.compactionData;
-      const block = new CompactionComponent(this.state.ui, data.instruction);
-      if (data.result === 'cancelled') {
-        block.markCanceled();
-      } else {
-        block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
-        if (this.state.toolOutputExpanded) {
-          block.setExpanded(true);
-        }
-      }
-      return block;
-    }
-
-    switch (entry.kind) {
-      case 'user': {
-        const images = entry.imageAttachmentIds
-          ?.map((id) => this.imageStore.get(id))
-          .filter((a): a is ImageAttachment => a?.kind === 'image');
-        return new UserMessageComponent(entry.content, images, entry.bullet);
-      }
-      case 'skill_activation':
-        return new SkillActivationComponent(
-          entry.skillName ?? entry.content,
-          entry.skillArgs,
-          entry.skillTrigger,
-        );
-      case 'plugin_command': {
-        const data = entry.pluginCommandData;
-        if (data === undefined) return null;
-        return new PluginCommandComponent(data.pluginId, data.commandName, data.args);
-      }
-      case 'cron':
-        return new CronMessageComponent(entry.content, entry.cronData ?? {});
-      case 'goal':
-        if (entry.goalData?.kind === 'created') {
-          return new GoalSetMessageComponent();
-        }
-        if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded);
-        }
-        return null;
-      case 'assistant': {
-        if (entry.goalCompletionData === true) {
-          return new GoalCompletionMessageComponent(entry.content);
-        }
-        const component = new AssistantMessageComponent();
-        component.updateContent(entry.content);
-        return component;
-      }
-      case 'thinking': {
-        const thinking = new ThinkingComponent(entry.content, true);
-        if (this.state.toolOutputExpanded) thinking.setExpanded(true);
-        return thinking;
-      }
-      case 'tool_call':
-        if (entry.toolCallData) {
-          const tc = new ToolCallComponent(
-            entry.toolCallData,
-            entry.toolCallData.result,
-            this.state.ui,
-            this.state.appState.workDir,
-          );
-          if (this.state.toolOutputExpanded) tc.setExpanded(true);
-          return tc;
-        }
-        if (entry.backgroundAgentStatus !== undefined) {
-          return new BackgroundAgentStatusComponent(entry.backgroundAgentStatus);
-        }
-        return entry.renderMode === 'notice'
-          ? new NoticeMessageComponent(entry.content, entry.detail)
-          : new StatusMessageComponent(entry.content, entry.color);
-      case 'status':
-        if (entry.backgroundAgentStatus !== undefined) {
-          return new BackgroundAgentStatusComponent(entry.backgroundAgentStatus);
-        }
-        return entry.renderMode === 'notice'
-          ? new NoticeMessageComponent(entry.content, entry.detail)
-          : new StatusMessageComponent(entry.content, entry.color);
-      case 'welcome':
-        return null;
-      default:
-        return null;
-    }
-  }
-
   appendTranscriptEntry(entry: TranscriptEntry): void {
-    this.state.transcriptEntries.push(entry);
-    const component = this.createTranscriptComponent(entry);
-    if (component) {
-      markTranscriptComponent(component, entry);
-      this.state.transcriptContainer.addChild(component);
-    }
-    const trimmed = this.trimTranscriptWindow();
-    const merged = this.mergeCurrentTurnSteps();
-    if (component || trimmed || merged) {
-      this.state.ui.requestRender();
-    }
-  }
-
-  private appendApprovalTranscriptEntry(
-    request: ApprovalRequest,
-    response: ApprovalResponse,
-  ): void {
-    if (
-      request.toolName === 'ExitPlanMode' ||
-      request.display.kind === 'plan_review' ||
-      request.display.kind === 'goal_start'
-    )
-      return;
-    const parts: string[] = [];
-    switch (response.decision) {
-      case 'approved':
-        parts.push(
-          response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : 'Approved',
-        );
-        break;
-      case 'rejected':
-        parts.push('Rejected');
-        break;
-      case 'cancelled':
-        parts.push('Cancelled');
-        break;
-    }
-    parts.push(`: ${request.action}`);
-    if (response.feedback !== undefined && response.feedback.length > 0) {
-      parts.push(` — "${response.feedback}"`);
-    }
-    this.appendTranscriptEntry({
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: request.turnId === undefined ? undefined : String(request.turnId),
-      renderMode: 'notice',
-      content: parts.join(''),
-    });
-  }
-
-  private renderWelcome(): void {
-    if (
-      this.state.transcriptContainer.children.some((child) => child instanceof WelcomeComponent)
-    ) {
-      return;
-    }
-    const welcome = new WelcomeComponent(this.state.appState);
-    this.state.transcriptContainer.addChild(welcome);
-  }
-
-  private clearTerminalInlineImages(): void {
-    if (getCapabilities().images !== 'kitty') return;
-    this.state.terminal.write(deleteAllKittyImages());
-  }
-
-  private disposeTranscriptChildren(): void {
-    // Dispose disposable children (e.g. ShellRunComponent's 1s timer,
-    // ThinkingComponent's spinner) before dropping them, so a /clear, session
-    // switch, or shutdown can't leak intervals that keep firing requestRender
-    // on a removed component.
-    for (const child of this.state.transcriptContainer.children) {
-      if (hasDispose(child)) child.dispose();
-    }
-  }
-
-  private clearTranscriptAndRedraw(): void {
-    this.streamingUI.discardPending();
-    this.state.transcriptEntries = [];
-    this.streamingUI.disposeActiveCompactionBlock();
-    this.streamingUI.resetLiveText();
-    this.streamingUI.resetToolUi();
-    this.sessionEventHandler.stopAllMcpServerStatusSpinners();
-    this.disposeTranscriptChildren();
-    this.state.transcriptContainer.clear();
-    this.btwPanelController.clear();
-    this.clearTerminalInlineImages();
-    this.state.todoPanel.clear();
-    this.state.todoPanelContainer.clear();
-    const stagingFileIds = this.imageStore.clear();
-    this.staging.deleteStaged(stagingFileIds);
-    this.renderWelcome();
-    // No forced full render on session reset: let the differential renderer
-    // converge on its own (a mass change above the viewport still makes the
-    // engine repaint everything, but nothing is forced destructively here).
-    this.state.ui.requestRender();
-  }
-
-  private isTurnBoundaryComponent(child: Component): boolean {
-    if (
-      !(child instanceof UserMessageComponent) &&
-      !(child instanceof SkillActivationComponent) &&
-      !(child instanceof PluginCommandComponent) &&
-      !(child instanceof ReplayTurnBoundaryComponent)
-    ) {
-      return false;
-    }
-    const entry = getTranscriptComponentEntry(child);
-    if (entry === undefined) return false;
-    // Live user messages / slash activations have an undefined turnId; replayed
-    // ones get a `replay:N` turnId. Both start a new turn. Steer messages carry
-    // a defined non-replay turnId and are not boundaries.
-    return entry.turnId === undefined || entry.turnId.startsWith('replay:');
-  }
-
-  /**
-   * Fold-segment boundary: everything {@link isTurnBoundaryComponent} counts,
-   * plus the cron card. A cron-fired turn mounts no user message, so without
-   * the card as a boundary its output would share the previous user turn's
-   * fold segment — and the completed-turn assistant cap would fold that turn's
-   * final answer into the step summary.
-   */
-  private isFoldSegmentBoundaryComponent(child: Component): boolean {
-    return this.isTurnBoundaryComponent(child) || child instanceof CronMessageComponent;
-  }
-
-  private trimTranscriptWindow(): boolean {
-    if (!TRANSCRIPT_WINDOW_ENABLED || TRANSCRIPT_MAX_TURNS <= 0) return false;
-    // Session replay already caps history to its own turn limit; trimming during
-    // replay would shrink it further and fight that limit.
-    if (this.state.appState.isReplaying) return false;
-
-    const children = this.state.transcriptContainer.children;
-
-    const turns = groupTurns(this.state.transcriptEntries);
-
-    const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
-    if (toRemove.size === 0) return false;
-
-    // Reclaim image bytes referenced by trimmed user messages. The transcript
-    // renders historical thumbnails via imageStore.get(id), so an attachment can
-    // only be dropped once its owning user message leaves the transcript.
-    for (const entry of toRemove) {
-      if (entry.kind === 'user' && entry.imageAttachmentIds !== undefined) {
-        const stagingFileIds = this.imageStore.removeMany(entry.imageAttachmentIds);
-        this.staging.deleteStaged(stagingFileIds);
-      }
-    }
-
-    let boundariesToRemove = 0;
-    for (const entry of toRemove) {
-      if (
-        (entry.kind === 'user' ||
-          entry.kind === 'skill_activation' ||
-          entry.kind === 'plugin_command') &&
-        entry.turnId === undefined
-      ) {
-        boundariesToRemove++;
-      }
-    }
-    if (boundariesToRemove === 0) {
-      this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
-      return true;
-    }
-
-    // Trim whole turns by *position* in the child list rather than by entry
-    // lookup — otherwise only the (registered) user message would be removed and
-    // the rest of the turn would be left behind.
-    let boundariesSeen = 0;
-    let cutoff = 0;
-    for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
-        if (boundariesSeen === boundariesToRemove) {
-          cutoff = i;
-          break;
-        }
-        boundariesSeen++;
-      }
-    }
-
-    const componentsToRemove: Component[] = [];
-    for (let i = 0; i < cutoff; i++) {
-      const child = children[i]!;
-      if (child instanceof WelcomeComponent) continue;
-      componentsToRemove.push(child);
-    }
-    for (const child of componentsToRemove) {
-      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
-      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
-      this.state.transcriptContainer.removeChild(child);
-      if (hasDispose(child)) child.dispose();
-    }
-
-    this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
-    return true;
+    this.transcriptRenderer.appendTranscriptEntry(entry);
   }
 
   mergeCurrentTurnSteps(): boolean {
-    return this.foldCurrentTurnContent(
-      TRANSCRIPT_KEEP_RECENT_STEPS,
-      TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-    );
+    return this.transcriptRenderer.mergeCurrentTurnSteps();
   }
 
-  /**
-   * Fold the just-finished turn's assistant messages down to the completed-turn
-   * cap: while a turn is live it may keep TRANSCRIPT_KEEP_RECENT_ASSISTANT
-   * messages mounted, but once it ends only the conclusion-bearing tail stays.
-   * Called when a turn finishes; the finished turn is still the current one at
-   * that point (no newer boundary exists yet).
-   */
   mergeCompletedTurnAssistants(): boolean {
-    return this.foldCurrentTurnContent(
-      TRANSCRIPT_KEEP_RECENT_STEPS,
-      TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
-    );
-  }
-
-  private foldCurrentTurnContent(keepSteps: number, keepAssistants: number): boolean {
-    if (keepSteps <= 0 && keepAssistants <= 0) return false;
-    const children = this.state.transcriptContainer.children;
-
-    // Find the start of the current fold segment.
-    let turnStart = -1;
-    for (let i = children.length - 1; i >= 0; i--) {
-      if (this.isFoldSegmentBoundaryComponent(children[i]!)) {
-        turnStart = i;
-        break;
-      }
-    }
-    if (turnStart < 0) return false;
-
-    // Locate an existing summary, the assistant messages, and the mergeable steps.
-    let summaryIndex = -1;
-    const stepIndices: number[] = [];
-    const assistantIndices: number[] = [];
-    for (let i = turnStart + 1; i < children.length; i++) {
-      const child = children[i]!;
-      if (child instanceof StepSummaryComponent) {
-        summaryIndex = i;
-        continue;
-      }
-      if (child instanceof AssistantMessageComponent) {
-        assistantIndices.push(i);
-        continue;
-      }
-      stepIndices.push(i);
-    }
-
-    // Fold the oldest steps / assistant messages beyond their respective caps;
-    // the most recent ones stay mounted. Children are chronological, so the
-    // oldest of each kind sit at the front of their index lists.
-    const stepMergeCount = keepSteps > 0 ? Math.max(0, stepIndices.length - keepSteps) : 0;
-    const assistantMergeCount =
-      keepAssistants > 0 ? Math.max(0, assistantIndices.length - keepAssistants) : 0;
-    if (stepMergeCount === 0 && assistantMergeCount === 0) return false;
-    const toMergeIndices = [
-      ...stepIndices.slice(0, stepMergeCount),
-      ...assistantIndices.slice(0, assistantMergeCount),
-    ];
-
-    let thinkingCount = 0;
-    let toolCount = 0;
-    for (const idx of toMergeIndices) {
-      const child = children[idx]!;
-      if (child instanceof ThinkingComponent) thinkingCount++;
-      else if (child instanceof ToolCallComponent) toolCount++;
-    }
-    if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
-
-    let summary: StepSummaryComponent;
-    if (summaryIndex >= 0) {
-      summary = children[summaryIndex] as StepSummaryComponent;
-      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
-    } else {
-      summary = new StepSummaryComponent();
-      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
-    }
-
-    // Rebuild children: keep everything except the merged steps, with the summary
-    // sitting right after the user message.
-    const toMergeSet = new Set(toMergeIndices);
-    const newChildren: Component[] = [];
-    for (let i = 0; i <= turnStart; i++) newChildren.push(children[i]!);
-    newChildren.push(summary);
-    for (let i = turnStart + 1; i < children.length; i++) {
-      if (i === summaryIndex) continue;
-      if (toMergeSet.has(i)) continue;
-      newChildren.push(children[i]!);
-    }
-
-    for (const idx of toMergeIndices) {
-      const child = children[idx]!;
-      if (hasDispose(child)) child.dispose();
-    }
-
-    children.splice(0, children.length, ...newChildren);
-    return true;
+    return this.transcriptRenderer.mergeCompletedTurnAssistants();
   }
 
   mergeAllTurnSteps(): void {
-    if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0 && TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED <= 0)
-      return;
-    const children = this.state.transcriptContainer.children;
-
-    const boundaries: number[] = [];
-    for (let i = 0; i < children.length; i++) {
-      if (this.isFoldSegmentBoundaryComponent(children[i]!)) boundaries.push(i);
-    }
-    if (boundaries.length === 0) return;
-
-    const newChildren: Component[] = [];
-    const toDispose: Component[] = [];
-    for (let i = 0; i < boundaries[0]!; i++) newChildren.push(children[i]!);
-
-    for (let t = 0; t < boundaries.length; t++) {
-      const turnStart = boundaries[t]!;
-      const turnEnd = t + 1 < boundaries.length ? boundaries[t + 1]! : children.length;
-      newChildren.push(children[turnStart]!);
-
-      let summaryIndex = -1;
-      const stepIndices: number[] = [];
-      const assistantIndices: number[] = [];
-      for (let i = turnStart + 1; i < turnEnd; i++) {
-        const child = children[i]!;
-        if (child instanceof StepSummaryComponent) summaryIndex = i;
-        else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
-        else stepIndices.push(i);
-      }
-
-      const stepMergeCount =
-        TRANSCRIPT_KEEP_RECENT_STEPS > 0
-          ? Math.max(0, stepIndices.length - TRANSCRIPT_KEEP_RECENT_STEPS)
-          : 0;
-      // Replayed turns are all completed turns, so the stricter completed-turn
-      // assistant cap applies (matching what live turns fold to on turn end).
-      const assistantMergeCount =
-        TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED > 0
-          ? Math.max(0, assistantIndices.length - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED)
-          : 0;
-      if (stepMergeCount > 0 || assistantMergeCount > 0) {
-        const toMergeIndices = [
-          ...stepIndices.slice(0, stepMergeCount),
-          ...assistantIndices.slice(0, assistantMergeCount),
-        ];
-        let thinkingCount = 0;
-        let toolCount = 0;
-        for (const idx of toMergeIndices) {
-          const child = children[idx]!;
-          if (child instanceof ThinkingComponent) thinkingCount++;
-          else if (child instanceof ToolCallComponent) toolCount++;
-        }
-        let summary: StepSummaryComponent;
-        if (summaryIndex >= 0) {
-          summary = children[summaryIndex] as StepSummaryComponent;
-          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
-        } else {
-          summary = new StepSummaryComponent();
-          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
-        }
-        newChildren.push(summary);
-        for (const idx of toMergeIndices) toDispose.push(children[idx]!);
-        const toMergeSet = new Set(toMergeIndices);
-        for (let i = turnStart + 1; i < turnEnd; i++) {
-          if (i === summaryIndex) continue;
-          if (toMergeSet.has(i)) continue;
-          newChildren.push(children[i]!);
-        }
-      } else {
-        for (let i = turnStart + 1; i < turnEnd; i++) newChildren.push(children[i]!);
-      }
-    }
-
-    for (const child of toDispose) {
-      if (hasDispose(child)) child.dispose();
-    }
-    children.splice(0, children.length, ...newChildren);
+    this.transcriptRenderer.mergeAllTurnSteps();
   }
 
   showStatus(message: string, color?: ColorToken): void {
@@ -3333,136 +2156,7 @@ export class KimiTUI {
   // =========================================================================
 
   updateActivityPane(): void {
-    const effectiveMode = this.resolveActivityPaneMode();
-    const tipKind = loadingTipKind(effectiveMode);
-    // Pick a fresh loading tip when the loading kind changes. The same kind
-    // covers waiting/tool (both moon spinners) and any intermediate thinking
-    // phase, so a continuous burst of tool calls does not flip tips. Clear the
-    // cache only when there is no loading UI at all.
-    if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
-      this.currentLoadingTip = undefined;
-    } else if (
-      tipKind !== undefined &&
-      (this.currentLoadingTip === undefined || this.currentLoadingTip.kind !== tipKind)
-    ) {
-      const previousTip = this.currentLoadingTip?.tip;
-      this.currentLoadingTip = {
-        kind: tipKind,
-        tip: pickRandomWorkingTip(previousTip)?.text,
-      };
-    }
-    this.syncTerminalProgress(this.shouldShowTerminalProgress(effectiveMode));
-    const placeSpinnerInAgentSwarm = this.shouldPlaceActivitySpinnerInAgentSwarm(effectiveMode);
-    // Carry the retry state in the mode key so an incoming/cleared
-    // `turn.step.retrying` rebuilds the waiting pane with fresh label and
-    // detail instead of hitting the cached-pane early return below.
-    const retry = effectiveMode === 'waiting' ? this.state.appState.stepRetry : null;
-    const retryKey =
-      retry === null ? '' : `${formatStepRetryLabel(retry)}|${formatStepRetryDetail(retry)}`;
-    const activityModeKey = `${effectiveMode}:${placeSpinnerInAgentSwarm ? 'swarm' : 'pane'}:${retryKey}`;
-
-    if (
-      activityModeKey === this.lastActivityMode &&
-      (effectiveMode === 'waiting' ||
-        effectiveMode === 'thinking' ||
-        effectiveMode === 'composing' ||
-        effectiveMode === 'tool')
-    ) {
-      if (placeSpinnerInAgentSwarm) {
-        this.syncAgentSwarmActivitySpinner(this.state.activitySpinner?.instance);
-      }
-      return;
-    }
-
-    this.lastActivityMode = activityModeKey;
-    this.state.activityContainer.clear();
-
-    switch (effectiveMode) {
-      case 'hidden':
-        this.stopActivitySpinner();
-        this.syncAgentSwarmActivitySpinner(undefined);
-        this.state.ui.requestRender();
-        return;
-      case 'waiting': {
-        const stepRetry = this.state.appState.stepRetry;
-        const spinner = this.ensureActivitySpinner('moon', waitingSpinnerLabel(stepRetry));
-        this.syncAgentSwarmActivitySpinner(placeSpinnerInAgentSwarm ? spinner : undefined);
-        if (placeSpinnerInAgentSwarm) break;
-        this.state.activityContainer.addChild(
-          new ActivityPaneComponent({
-            mode: 'waiting',
-            spinner,
-            tip: stepRetry === null ? this.currentLoadingTip?.tip : undefined,
-            detail: stepRetry === null ? undefined : formatStepRetryDetail(stepRetry),
-          }),
-        );
-        break;
-      }
-      case 'thinking': {
-        this.stopActivitySpinner();
-        this.syncAgentSwarmActivitySpinner(undefined);
-        break;
-      }
-      case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working...', (s) =>
-          currentTheme.fg('primary', s),
-        );
-        this.syncAgentSwarmActivitySpinner(undefined);
-        this.state.activityContainer.addChild(
-          new ActivityPaneComponent({
-            mode: 'composing',
-            spinner,
-            tip: this.currentLoadingTip?.tip,
-          }),
-        );
-        break;
-      }
-      case 'tool': {
-        const spinner = this.ensureActivitySpinner('moon');
-        this.syncAgentSwarmActivitySpinner(placeSpinnerInAgentSwarm ? spinner : undefined);
-        if (placeSpinnerInAgentSwarm) break;
-        this.state.activityContainer.addChild(
-          new ActivityPaneComponent({
-            mode: 'tool',
-            spinner,
-            tip: this.currentLoadingTip?.tip,
-          }),
-        );
-        break;
-      }
-      case 'idle':
-      case 'session': {
-        this.stopActivitySpinner();
-        this.syncAgentSwarmActivitySpinner(undefined);
-        // Keep a placeholder row so the activity area does not fully shrink
-        // when the spinner is removed at the end of streaming; combined with
-        // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
-        this.state.activityContainer.addChild(new Spacer(1));
-        break;
-      }
-    }
-    this.state.ui.requestRender();
-  }
-
-  private resolveActivityPaneMode(): EffectiveActivityPaneMode {
-    if (this.state.activeDialog === 'session-picker') return 'hidden';
-    if (this.state.livePane.pendingApproval !== null) return 'hidden';
-    if (this.state.appState.isCompacting) return 'hidden';
-    if (this.state.livePane.pendingQuestion !== null) return 'hidden';
-
-    const streamingPhase = this.state.appState.streamingPhase;
-
-    // A running `!` shell command shows the moon spinner (same as `waiting`)
-    // until it finishes, signalling that input is busy / queued.
-    if (streamingPhase === 'shell') return 'waiting';
-
-    if (this.state.livePane.mode === 'idle') {
-      if (streamingPhase === 'thinking' || streamingPhase === 'composing') {
-        return streamingPhase;
-      }
-    }
-
-    return this.state.livePane.mode;
+    this.activityPaneController.updateActivityPane();
   }
 
   updateQueueDisplay(): void {
@@ -3490,7 +2184,7 @@ export class KimiTUI {
     // components that have no entry in the metadata map.
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      if (this.transcriptRenderer.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
     }
     const expandCutoff =
       TRANSCRIPT_EXPAND_TURNS <= 0
@@ -3693,93 +2387,20 @@ export class KimiTUI {
     this.state.ui.requestRender(true);
   }
 
-  private shouldShowTerminalProgress(effectiveMode: EffectiveActivityPaneMode): boolean {
-    if (this.state.appState.isCompacting) return true;
-    return (
-      effectiveMode === 'waiting' ||
-      effectiveMode === 'thinking' ||
-      effectiveMode === 'composing' ||
-      effectiveMode === 'tool'
-    );
-  }
-
-  private shouldPlaceActivitySpinnerInAgentSwarm(
-    effectiveMode: EffectiveActivityPaneMode,
-  ): boolean {
-    return (
-      this.sessionEventHandler.hasActiveAgentSwarmToolCall() &&
-      (effectiveMode === 'waiting' || effectiveMode === 'tool')
-    );
-  }
-
-  private syncAgentSwarmActivitySpinner(spinner: MoonLoader | undefined): void {
-    this.sessionEventHandler.syncAgentSwarmActivitySpinner(spinner);
-  }
-
-  private syncTerminalProgress(active: boolean): void {
-    if (!this.state.terminalState.supportsProgress) return;
-    if (this.state.terminalState.progressActive === active) return;
-    this.state.terminal.setProgress(active);
-    this.state.terminalState.progressActive = active;
-  }
-
-  private ensureActivitySpinner(
-    style: SpinnerStyle,
-    label = '',
-    colorFn?: (s: string) => string,
-  ): MoonLoader {
-    if (this.state.activitySpinner?.style !== style) {
-      this.stopActivitySpinner();
-    }
-
-    if (this.state.activitySpinner === null) {
-      const instance = new MoonLoader(this.state.ui, style, colorFn, label);
-      this.state.activitySpinner = { instance, style };
-      return instance;
-    }
-
-    this.state.activitySpinner.instance.setLabel(label);
-    if (colorFn !== undefined) {
-      this.state.activitySpinner.instance.setColorFn(colorFn);
-    }
-    return this.state.activitySpinner.instance;
-  }
-
-  private stopActivitySpinner(): void {
-    if (this.state.activitySpinner !== null) {
-      this.state.activitySpinner.instance.stop();
-      this.state.activitySpinner = null;
-    }
-  }
-
   // =========================================================================
   // Dialogs / Selectors
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable): void {
-    this.state.editorReplacementMounted = true;
-    this.state.editorContainer.clear();
-    this.state.editorContainer.addChild(panel);
-    this.state.ui.setFocus(panel);
-    this.state.ui.requestRender();
+    this.dialogController.mountEditorReplacement(panel);
   }
 
   restoreEditor(): void {
-    this.state.editorReplacementMounted = false;
-    this.state.editorContainer.clear();
-    this.state.editorContainer.addChild(this.state.editor);
-    this.state.ui.setFocus(this.state.editor);
-    // Differential render only: closing a tall panel leaves the editor a few
-    // rows above the bottom (blank tail) until the next append, but avoids a
-    // destructive full redraw on every dialog close.
-    this.state.ui.requestRender();
+    this.dialogController.restoreEditor();
   }
 
   restoreInputText(text: string): void {
-    this.restoreEditor();
-    this.state.editor.setText(text);
-    this.updateEditorBorderHighlight(text);
-    this.state.ui.requestRender();
+    this.dialogController.restoreInputText(text);
   }
 
   /** Latest in-process LLM round-trip; feeds the idle cache-hint scenario. */
@@ -4007,262 +2628,18 @@ export class KimiTUI {
   }
 
   showHelpPanel(): void {
-    this.state.activeDialog = 'help';
-    this.mountEditorReplacement(
-      new HelpPanelComponent({
-        commands: this.getSlashCommands(),
-        onClose: () => {
-          this.hideHelpPanel();
-        },
-      }),
-    );
+    this.dialogController.showHelpPanel();
   }
 
-  private hideHelpPanel(): void {
-    this.state.activeDialog = null;
-    this.restoreEditor();
-  }
-
-  private sessionPickerOptions: {
-    readonly applyStartupModes: boolean;
-    readonly closeOnCancel: boolean;
-    readonly forwardEditorExit: boolean;
-  } = {
-    applyStartupModes: false,
-    closeOnCancel: false,
-    forwardEditorExit: false,
-  };
-  private sessionPickerScopeRequestToken = 0;
-  private sessionPickerComponent: SessionPickerComponent | undefined;
-  private sessionsPageFetchInFlight: Promise<boolean> | undefined;
-
-  async showSessionPicker(): Promise<void> {
-    await this.openSessionPicker({
-      applyStartupModes: false,
-      closeOnCancel: false,
-      forwardEditorExit: false,
-    });
-  }
-
-  private async bootstrapFromPicker(): Promise<void> {
-    await this.openSessionPicker({
-      applyStartupModes: true,
-      closeOnCancel: true,
-      forwardEditorExit: true,
-    });
-  }
-
-  private async openSessionPicker(options: {
-    readonly applyStartupModes: boolean;
-    readonly closeOnCancel: boolean;
-    readonly forwardEditorExit: boolean;
-  }): Promise<void> {
-    this.sessionPickerOptions = options;
-    await this.fetchSessions('cwd');
-    this.mountSessionPicker({
-      applyStartupModes: options.applyStartupModes,
-      onCancel: () => {
-        this.hideSessionPicker();
-        if (options.closeOnCancel) void this.stop();
-      },
-      onCtrlC: options.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlC?.();
-          }
-        : undefined,
-      onCtrlD: options.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlD?.();
-          }
-        : undefined,
-    });
-  }
-
-  private async toggleSessionPickerScope(selectedSessionId: string): Promise<void> {
-    const requestToken = ++this.sessionPickerScopeRequestToken;
-    const nextScope = this.state.sessionsScope === 'cwd' ? 'all' : 'cwd';
-    await this.fetchSessions(nextScope);
-    if (requestToken !== this.sessionPickerScopeRequestToken) return;
-    if (this.state.activeDialog !== 'session-picker') return;
-    this.mountSessionPicker({
-      initialSelectedSessionId: selectedSessionId,
-      applyStartupModes: this.sessionPickerOptions.applyStartupModes,
-      onCancel: () => {
-        this.hideSessionPicker();
-        if (this.sessionPickerOptions.closeOnCancel) void this.stop();
-      },
-      onCtrlC: this.sessionPickerOptions.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlC?.();
-          }
-        : undefined,
-      onCtrlD: this.sessionPickerOptions.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlD?.();
-          }
-        : undefined,
-    });
+  showSessionPicker(): Promise<void> {
+    return this.dialogController.showSessionPicker();
   }
 
   hideSessionPicker(): void {
-    this.sessionPickerScopeRequestToken += 1;
-    this.sessionPickerComponent = undefined;
-    this.editorKeyboard.clearPendingExit();
-    this.state.activeDialog = null;
-    this.restoreEditor();
+    this.dialogController.hideSessionPicker();
   }
 
   openUndoSelector(): void {
     void slashCommands.handleUndoCommand(this, '');
-  }
-
-  private mountSessionPicker(options: {
-    readonly onCancel: () => void;
-    readonly onCtrlC?: () => void;
-    readonly onCtrlD?: () => void;
-    readonly initialSelectedSessionId?: string;
-    // CLI mode flags (--auto/--yolo/--plan) target the session picked at
-    // startup (bare --session); later /sessions switches keep the picked
-    // session's own persisted modes.
-    readonly applyStartupModes?: boolean;
-  }): void {
-    this.state.activeDialog = 'session-picker';
-    const picker = new SessionPickerComponent({
-      sessions: this.state.sessions,
-      loading: this.state.loadingSessions,
-      currentSessionId: this.state.appState.sessionId,
-      scope: this.state.sessionsScope,
-      initialSelectedSessionId: options.initialSelectedSessionId,
-      pageSize: SESSION_LIST_PAGE_SIZE,
-      hasMore: this.state.sessionsNextCursor !== undefined,
-      loadingMore: this.state.sessionsLoadingMore,
-      onLoadMore: () => {
-        void this.fetchMoreSessions();
-      },
-      onSearchDrain: () => {
-        void this.drainSessionsForSearch();
-      },
-      onSelect: (session: SessionRow) => {
-        void this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
-          (error) => {
-            this.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
-          },
-        );
-      },
-      onCancel: options.onCancel,
-      onCtrlC: options.onCtrlC,
-      onCtrlD: options.onCtrlD,
-      onToggleScope: (selectedSessionId: string) => {
-        void this.toggleSessionPickerScope(selectedSessionId);
-      },
-    });
-    this.sessionPickerComponent = picker;
-    this.mountEditorReplacement(picker);
-  }
-
-  private async handleSessionPickerSelect(
-    session: SessionRow,
-    applyStartupModes: boolean,
-  ): Promise<void> {
-    if (resolve(session.work_dir) !== resolve(this.state.appState.workDir)) {
-      await this.showResumeOtherWorkDirHint(session);
-      if (applyStartupModes) await this.stop(0);
-      return;
-    }
-
-    const switched = await this.resumeSession(session.id);
-    if (!switched) return;
-    if (applyStartupModes) {
-      await this.applyStartupModesToResumedSession(this.requireSession());
-      this.applyStartupPermissionAndPlanToAppState();
-    }
-    this.hideSessionPicker();
-  }
-
-  private showApprovalPanel(payload: ApprovalPanelData): void {
-    this.patchLivePane({ pendingApproval: { data: payload } });
-    notifyTerminalOnce(this.state, `approval:${payload.id}`, {
-      title: t('tui.messages.kimiTuiApprovalRequired'),
-      body: payload.tool_name,
-    });
-    const panel = new ApprovalPanelComponent(
-      { data: payload },
-      (response: ApprovalPanelResponse) => {
-        this.approvalController.respond(adaptPanelResponse(response));
-      },
-      () => {
-        this.toggleToolOutputExpansion();
-      },
-      (block) => {
-        this.openApprovalPreview(panel, block);
-      },
-    );
-    this.activeApprovalPanel = panel;
-    this.mountEditorReplacement(panel);
-  }
-
-  private hideApprovalPanel(): void {
-    // If the full-screen preview is open, fold it back first so the saved-
-    // children stack stays consistent with what mountEditorReplacement set up.
-    if (this.approvalPreview !== undefined) this.closeApprovalPreview();
-    this.activeApprovalPanel = undefined;
-    this.patchLivePane({ pendingApproval: null });
-    this.restoreEditor();
-  }
-
-  // Mounts the full-screen approval preview viewer on top of the current
-  // approval panel. Uses the same nested-takeover pattern as
-  // openTaskOutputViewer: beginScreenTakeover swaps the viewer in (root
-  // children in regular mode, layout root in fullscreen) and closing restores
-  // it. The approval panel instance is
-  // kept around in `activeApprovalPanel` so its selection state survives.
-  private openApprovalPreview(panel: ApprovalPanelComponent, block: ApprovalPreviewBlock): void {
-    if (this.approvalPreview !== undefined) return;
-    const viewer = new ApprovalPreviewViewer(
-      {
-        block,
-        onClose: () => {
-          this.closeApprovalPreview();
-        },
-      },
-      this.state.terminal,
-    );
-    const takeover = beginScreenTakeover(this.state.ui, viewer);
-    this.state.ui.setFocus(viewer);
-    this.state.ui.requestRender(true);
-    this.approvalPreview = { component: viewer, takeover, panel };
-  }
-
-  private closeApprovalPreview(): void {
-    const preview = this.approvalPreview;
-    if (preview === undefined) return;
-    this.approvalPreview = undefined;
-    endScreenTakeover(this.state.ui, preview.takeover);
-    this.state.ui.setFocus(preview.panel);
-    this.state.ui.requestRender(true);
-  }
-
-  private showQuestionDialog(payload: QuestionPanelData): void {
-    this.patchLivePane({ pendingQuestion: { data: payload } });
-    notifyTerminalOnce(this.state, `question:${payload.id}`, {
-      title: t('tui.messages.kimiTuiNeedsAnswer'),
-      body: payload.questions[0]?.question,
-    });
-    const dialog = new QuestionDialogComponent(
-      { data: payload },
-      (response) => {
-        this.questionController.respond(response);
-      },
-      6,
-      () => {
-        this.toggleToolOutputExpansion();
-      },
-    );
-    this.mountEditorReplacement(dialog);
-  }
-
-  private hideQuestionDialog(): void {
-    this.patchLivePane({ pendingQuestion: null });
-    this.restoreEditor();
   }
 }

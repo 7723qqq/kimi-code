@@ -948,7 +948,11 @@ describe('KimiTUI startup', () => {
 
     await (driver as unknown as { initMainTui(): Promise<boolean> }).initMainTui();
     expect(driver.state.startupState).toBe('picker');
-    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
+    await (
+      driver as unknown as {
+        dialogController: { bootstrapFromPicker(): Promise<void> };
+      }
+    ).dialogController.bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\r');
@@ -988,7 +992,11 @@ describe('KimiTUI startup', () => {
 
     await (driver as unknown as { initMainTui(): Promise<boolean> }).initMainTui();
     expect(driver.state.startupState).toBe('picker');
-    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
+    await (
+      driver as unknown as {
+        dialogController: { bootstrapFromPicker(): Promise<void> };
+      }
+    ).dialogController.bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\r');
@@ -1094,7 +1102,11 @@ describe('KimiTUI startup', () => {
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions });
     const driver = makeDriver(harness, makeStartupInput());
     const mountSessionPicker = vi.spyOn(
-      driver as unknown as { mountSessionPicker(options: unknown): void },
+      (
+        driver as unknown as {
+          dialogController: { mountSessionPicker(options: unknown): void };
+        }
+      ).dialogController,
       'mountSessionPicker',
     );
     await expect(driver.init()).resolves.toBe(false);
@@ -1376,7 +1388,11 @@ describe('KimiTUI startup', () => {
     copyTextToClipboardMock.mockClear();
 
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
-    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
+    await (
+      driver as unknown as {
+        dialogController: { bootstrapFromPicker(): Promise<void> };
+      }
+    ).dialogController.bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
@@ -1441,7 +1457,11 @@ describe('KimiTUI startup', () => {
     const stop = vi.spyOn(driver, 'stop').mockResolvedValue();
 
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
-    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
+    await (
+      driver as unknown as {
+        dialogController: { bootstrapFromPicker(): Promise<void> };
+      }
+    ).dialogController.bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0003');
