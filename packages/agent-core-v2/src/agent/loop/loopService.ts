@@ -25,6 +25,7 @@ import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -125,6 +126,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentStateService private readonly states: IAgentStateService,
     @IEngineOverrideService private readonly engineOverride: EngineOverrideProvider,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
   ) {
@@ -995,7 +997,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
       buildMessages: async () => [...this.projector.project(this.context.get())],
       buildTools: () =>
-        this.toolRegistry.list().map((tool) => ({
+        this.toolSelect.shapeTools(this.toolRegistry.list()).map((tool) => ({
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters ?? {},
