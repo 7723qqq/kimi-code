@@ -1,0 +1,49 @@
+[package]
+name = "kimi-agent"
+version = "0.1.0"
+edition = "2024"
+description = "Kimi Agent engine (Rust) — stateless turn loop, napi-rs native addon"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "kimi_agent"
+
+# The CLI binary links the napi bindings statically and cannot resolve NAPI
+# symbols outside a Node process, so it is excluded from default builds
+# (`napi build` / asset packaging) and built explicitly with `--features cli`.
+[[bin]]
+name = "kimi-agent-cli"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+cli = []
+
+[dependencies]
+napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"] }
+napi-derive = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fastrand = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "io-util", "io-std", "process", "time"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json"] }
+eventsource-stream = "0.2"
+regex = "1"
+globset = "0.4"
+ignore = "0.4"
+
+[build-dependencies]
+napi-build = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = "symbols"

@@ -18,6 +18,7 @@ const optionalRuntimeRequires = new Set([
   'utf-8-validate',
   '@moonshot-ai/kimi-native-tools',
   '@moonshot-ai/kimi-i18n',
+  '@moonshot-ai/kimi-agent',
 ]);
 const optionalRelativeRuntimeRequires = new Set(['./crypto/build/Release/sshcrypto.node']);
 

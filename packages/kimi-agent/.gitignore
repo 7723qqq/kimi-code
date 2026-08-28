@@ -1,0 +1,10 @@
+# Rust build output
+/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+# napi build artifacts
+*.node

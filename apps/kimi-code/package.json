@@ -79,6 +79,7 @@
     "postinstall": "bun scripts/postinstall.mjs"
   },
   "dependencies": {
+    "@moonshot-ai/kimi-agent": "workspace:^",
     "qrcode": "^1.5.4",
     "ws": "^8.18.0"
   },
