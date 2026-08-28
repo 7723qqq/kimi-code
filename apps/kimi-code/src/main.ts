@@ -146,7 +146,10 @@ const MIGRATE_CLI_OPTIONS: CLIOptions = {
 };
 
 export function main(): void {
-  if (typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
+  // The Bun runtime check only applies when running as the entry binary.
+  // Importing `main` (tests, the ACP host, embedders) must not hard-exit the
+  // caller's process even if it happens to run under a non-Bun runtime.
+  if (import.meta.main && typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
     process.stderr.write(`${t('tui.statusMessages.bunRuntimeRequired')}\n`);
     process.exit(1);
   }
