@@ -721,6 +721,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -730,6 +736,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -854,6 +866,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -863,6 +881,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
@@ -919,6 +943,12 @@ export interface AgentStateSnapshot {
           readonly skillPath?: string;
           readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
         }[];
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -928,6 +958,12 @@ export interface AgentStateSnapshot {
         readonly skillType?: string;
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly name: string;
+          readonly mediaType: string;
+          readonly size: number;
+          readonly path: string;
+        }[];
       } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'plugin_command';
         readonly activationId: string;
@@ -1062,6 +1098,12 @@ export interface AgentStateSnapshot {
         readonly skillPath?: string;
         readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
       }[];
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -1071,6 +1113,12 @@ export interface AgentStateSnapshot {
       readonly skillType?: string;
       readonly skillPath?: string;
       readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      readonly attachments?: readonly /* PromptFileAttachment — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly name: string;
+        readonly mediaType: string;
+        readonly size: number;
+        readonly path: string;
+      }[];
     } | /* PluginCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'plugin_command';
       readonly activationId: string;
