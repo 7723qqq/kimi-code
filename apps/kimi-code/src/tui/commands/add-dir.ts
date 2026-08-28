@@ -25,10 +25,6 @@ export async function handleAddDirCommand(host: SlashCommandHost, args: string):
   }
 
   if (session === undefined) {
-    if (!host.engineV2) {
-      host.showError(getNoActiveSessionMessage());
-      return;
-    }
     // The path-adding form needs a live session; lazy-create it on first use
     // (the read-only `list`/bare forms above tolerate a missing session).
     session = await host.ensureSession();

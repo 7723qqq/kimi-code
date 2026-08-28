@@ -55,8 +55,6 @@ export interface SendMessageOptions {
 export interface MessageDispatchHost {
   readonly harness: KimiHarness;
   readonly state: TUIState;
-  /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
-  readonly engineV2: boolean;
   deferUserMessages: boolean;
   session: Session | undefined;
   readonly cacheHint: CacheHintController;
@@ -183,11 +181,6 @@ export class MessageDispatchController {
     }
     let session = this.host.session;
     if (session === undefined) {
-      if (!this.host.engineV2) {
-        this.host.showError(getLlmNotSetMessage());
-        this.staging.release(stagingLease);
-        return;
-      }
       session = await this.host.ensureSession();
       if (session === undefined) {
         this.staging.release(stagingLease);

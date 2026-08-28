@@ -49,7 +49,6 @@ export interface ResolveSlashCommandInput {
   readonly pluginCommandMap: ReadonlyMap<string, string>;
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
-  readonly engineV2: boolean;
 }
 
 export function resolveSlashCommandInput(options: ResolveSlashCommandInput): SlashCommandIntent {
@@ -60,8 +59,7 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
   // `command` is a literal union where only some members carry `experimentalFlag`; widen to read it.
   if (
     command !== undefined &&
-    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag) &&
-    (!(command as KimiSlashCommand).requiresEngineV2 || options.engineV2)
+    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)
   ) {
     const busyReason = slashCommandBusyReason(options);
     if (

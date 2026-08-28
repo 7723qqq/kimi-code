@@ -230,7 +230,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     // commands never wait for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
-    requiresEngineV2: true,
   },
   {
     name: 'model',

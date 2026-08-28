@@ -172,8 +172,6 @@ export interface KimiTUIStartupInput {
   readonly migrationPlan?: MigrationPlan | null;
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
-  /** agent-core-v2 engine; enables the startup workspace-trust prompt. */
-  readonly engineV2?: boolean;
 }
 
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
@@ -277,8 +275,6 @@ export class KimiTUI {
   private backgroundRefreshPromise: Promise<void> | undefined;
   private readonly migrationPlan: MigrationPlan | null;
   private readonly migrateOnly: boolean;
-  /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
-  readonly engineV2: boolean;
   private startupNotice: string | undefined;
   private lastHistoryContent: string | undefined;
   // Live `!` shell output entries, keyed by commandId so concurrent commands
@@ -357,7 +353,6 @@ export class KimiTUI {
     this.options = tuiOptions;
     this.migrationPlan = startupInput.migrationPlan ?? null;
     this.migrateOnly = startupInput.migrateOnly ?? false;
-    this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.uninstallRainbowDance = installRainbowDance(() => {
@@ -404,10 +399,8 @@ export class KimiTUI {
   // =========================================================================
 
   getSlashCommands(): readonly KimiSlashCommand[] {
-    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
-      (command) =>
-        isExperimentalFlagEnabled(command.experimentalFlag) &&
-        (!command.requiresEngineV2 || this.engineV2),
+    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
+      isExperimentalFlagEnabled(command.experimentalFlag),
     );
     return [...builtins, ...this.skillCommands, ...this.pluginCommands];
   }
@@ -453,23 +446,17 @@ export class KimiTUI {
 
   async refreshSkillCommands(session?: SkillListSession): Promise<void> {
     if (session === undefined) {
-      // v2 engine: skills live on the workspace handler, not the session, so
-      // they are available before the first (lazy) session is created — the
-      // workspace catalog is the same merged view a session would serve.
-      if (this.engineV2) {
-        try {
-          const skills = await this.harness.listWorkspaceSkills(this.state.appState.workDir);
-          this.applySkillCommands(skills);
-          return;
-        } catch (error) {
-          log.warn('failed to list workspace skills', { error: String(error) });
-          return;
-        }
+      // Skills live on the workspace handler, not the session, so they are
+      // available before the first (lazy) session is created — the workspace
+      // catalog is the same merged view a session would serve.
+      try {
+        const skills = await this.harness.listWorkspaceSkills(this.state.appState.workDir);
+        this.applySkillCommands(skills);
+        return;
+      } catch (error) {
+        log.warn('failed to list workspace skills', { error: String(error) });
+        return;
       }
-      this.skillCommands = [];
-      this.skillCommandMap.clear();
-      this.setupAutocomplete();
-      return;
     }
 
     let skills;
@@ -494,22 +481,16 @@ export class KimiTUI {
 
   async refreshPluginCommands(session?: Session): Promise<void> {
     if (session === undefined) {
-      // v2 engine: the enabled plugin commands are an app-global live view,
-      // available before the first (lazy) session is created.
-      if (this.engineV2) {
-        try {
-          const defs = await this.harness.listPluginCommands();
-          this.applyPluginCommands(defs);
-          return;
-        } catch (error) {
-          log.warn('failed to list plugin commands', { error: String(error) });
-          return;
-        }
+      // The enabled plugin commands are an app-global live view, available
+      // before the first (lazy) session is created.
+      try {
+        const defs = await this.harness.listPluginCommands();
+        this.applyPluginCommands(defs);
+        return;
+      } catch (error) {
+        log.warn('failed to list plugin commands', { error: String(error) });
+        return;
       }
-      this.pluginCommands = [];
-      this.pluginCommandMap.clear();
-      this.setupAutocomplete();
-      return;
     }
 
     let defs;
@@ -863,16 +844,14 @@ export class KimiTUI {
             );
           }
         }
-      } else if (this.engineV2) {
-        // Lazy session creation (v2 engine): start session-less and create the
-        // session on the first message. Startup flags are carried in appState
-        // and applied when that session is created; until then the footer
-        // shows the config defaults the engine would apply at createSession
-        // time (model, permission, plan mode, thinking effort, context cap).
+      } else {
+        // Lazy session creation: start session-less and create the session on
+        // the first message. Startup flags are carried in appState and applied
+        // when that session is created; until then the footer shows the config
+        // defaults the engine would apply at createSession time (model,
+        // permission, plan mode, thinking effort, context cap).
         await this.hydrateLazyConfigDefaults();
         this.appendStartupNotice(getSessionlessStartupNotice());
-      } else {
-        session = await this.harness.createSession(createSessionOptions);
       }
       if (session !== undefined && shouldReplayHistory) {
         await this.applyStartupModesToResumedSession(session);
@@ -886,9 +865,6 @@ export class KimiTUI {
       return false;
     }
 
-    if (!this.engineV2 && session === undefined) {
-      throw new Error(t('tui.statusMessages.startupSessionNotInit'));
-    }
     if (session !== undefined) {
       await this.setSession(session);
       try {
@@ -1148,10 +1124,6 @@ export class KimiTUI {
   async runShellCommandFromInput(command: string): Promise<void> {
     let session = this.session;
     if (session === undefined) {
-      if (!this.engineV2) {
-        this.showError(t('tui.statusMessages.noActiveSessionShell'));
-        return;
-      }
       session = await this.ensureSession();
       if (session === undefined) return;
       // A concurrent first message may have started a prompt while this lazy
@@ -1568,13 +1540,12 @@ export class KimiTUI {
       throw new Error(getLlmNotSetMessage());
     }
     // With an active session, carry the live plan state. Session-less (lazy
-    // creation / `/new` before the first session) on v2, pass only the
-    // explicit CLI --plan intent — and only when the engine is not already
-    // applying `defaultPlanMode` at create time (sessionLifecycleService),
-    // since re-entering an active plan mode throws. On v1 (which never
-    // pre-fills plan mode from config), keep the historical appState value.
+    // creation / `/new` before the first session), pass only the explicit CLI
+    // --plan intent — and only when the engine is not already applying
+    // `defaultPlanMode` at create time (sessionLifecycleService), since
+    // re-entering an active plan mode throws.
     const explicitPlanMode =
-      this.session !== undefined || !this.engineV2
+      this.session !== undefined
         ? this.state.appState.planMode
         : this.options.startup.plan && this.state.appState.configDefaultPlanMode !== true;
     const options: MutableCreateSessionOptions = {
@@ -2587,7 +2558,6 @@ export class KimiTUI {
   }
 
   private async maybeRunWorkspaceTrustPrompt(): Promise<boolean> {
-    if (!this.engineV2) return false;
     const workDir = this.state.appState.workDir;
     let info: WorkspaceTrustInfo;
     try {
