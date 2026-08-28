@@ -3,9 +3,9 @@
  * text file reads/writes through the ACP client (`fs.readTextFile` /
  * `fs.writeTextFile`, keyed by this session's `sessionId`) and delegates every
  * other operation (binary IO, stat/realpath/readdir/mkdir/remove, exclusive
- * create) to a node-local inner backend.
+ * create) to a host inner backend.
  *
- * Registered at Session scope so it shadows the App-scope node-local
+ * Registered at Session scope so it shadows the App-scope host
  * `IHostFileSystem` for Session- and Agent-scope consumers (the os file tools),
  * while App-scope consumers (persistence, skill loading, workspace registry)
  * keep using the real local disk.

@@ -9,7 +9,7 @@ import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
+import { HostFsWatchService } from '#/os/backends/host/hostFsWatchService';
 import type {
   HostFsChange,
   IHostFsWatchHandle,

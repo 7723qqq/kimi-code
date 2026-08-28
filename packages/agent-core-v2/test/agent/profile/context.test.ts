@@ -4,7 +4,7 @@ import { join, normalize } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   extractAgentsMdPathsFromSystemPrompt,

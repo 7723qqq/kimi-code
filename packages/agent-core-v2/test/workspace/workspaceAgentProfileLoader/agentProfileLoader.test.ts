@@ -31,8 +31,8 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostFsWatchService } from '#/os/backends/host/hostFsWatchService';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {

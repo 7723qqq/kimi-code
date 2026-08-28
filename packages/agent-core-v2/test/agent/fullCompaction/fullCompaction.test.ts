@@ -41,7 +41,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 

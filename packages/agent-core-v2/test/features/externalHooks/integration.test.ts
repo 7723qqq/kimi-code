@@ -59,7 +59,7 @@ import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService'
 import { IPluginService } from '#/app/plugin/plugin';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import {
   type SessionCloseReason,
   type SessionCreatedEvent,

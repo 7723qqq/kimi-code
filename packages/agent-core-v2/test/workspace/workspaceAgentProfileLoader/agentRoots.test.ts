@@ -9,7 +9,7 @@ import {
   projectAgentRoots,
   userAgentRoots,
 } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();

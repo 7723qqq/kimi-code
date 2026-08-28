@@ -52,7 +52,7 @@ import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
 import { ILogService } from '#/_base/log/log';
-import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
+import { HostFsWatchService } from '#/os/backends/host/hostFsWatchService';
 
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
 import { stubFlag } from '../../../app/flag/stubs';

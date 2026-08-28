@@ -12,7 +12,7 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { SessionProcessRunner } from '#/session/process/processRunnerService';

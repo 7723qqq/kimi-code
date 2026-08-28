@@ -22,7 +22,7 @@ import { EventBusService } from '#/app/event/eventBusService';
 import type { ToolCall } from '#/kosong/contract/message';
 import { IStaleGuardService } from '#/features/staleGuard/staleGuard';
 import { StaleGuardService } from '#/features/staleGuard/staleGuardService';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { EventDispatcherService } from '#/state/eventDispatcherService';

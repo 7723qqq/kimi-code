@@ -12,7 +12,7 @@ import { sniffImageDimensions } from '#/agent/media/file-type';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import type { ContentPart } from '#/kosong/contract/message';
 import { StdioMcpClient } from '#/mcpCore/client-stdio';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 import type { ToolExecution } from '#/tool/toolContract';
