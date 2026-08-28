@@ -1,4 +1,8 @@
 import { collectGitContext } from './gitContext';
+import {
+  GITHUB_MUTATING_TOOL_NAMES,
+  GITHUB_READONLY_TOOL_NAMES,
+} from '#/agent/tools/github/github-tools';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
@@ -39,6 +43,8 @@ const AGENT_TOOLS = [
   'TowerInit',
   'TowerStatus',
   'TowerTeardown',
+  ...GITHUB_READONLY_TOOL_NAMES,
+  ...GITHUB_MUTATING_TOOL_NAMES,
   'mcp__*',
 ] as const;
 
