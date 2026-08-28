@@ -185,8 +185,7 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
 
   for (const file of files) {
     const sourceBytes = await readFile(file);
-    // Preserve the POSIX mode so extracted executables (e.g. node-pty's
-    // darwin spawn-helper) stay executable after extraction.
+    // Preserve the POSIX mode so extracted executables stay executable after extraction.
     const mode = (await stat(file)).mode & 0o777;
     const packageRelativePath = toPosixPath(relative(packageRoot, file));
     const relativePath = `${root}/${packageRelativePath}`;
