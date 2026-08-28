@@ -1345,7 +1345,8 @@
       "minidbWorkerSearchResultIncorrect": "MiniDb worker 构建的文本索引返回了错误的搜索结果",
       "nativeManifestNotAvailable": "原生资源清单不可用。",
       "noClipboardCommandAvailable": "没有可用的剪贴板命令。",
-      "fdDownloadEmptyResponse": "下载 fd 失败：响应体为空"
+      "fdDownloadEmptyResponse": "下载 fd 失败：响应体为空",
+      "bunRuntimeRequired": "@moonshot-ai/kimi-code 需要 Bun >= 1.4。请前往 https://bun.sh 安装"
     },
     "messages": {
       "agentGroup": {

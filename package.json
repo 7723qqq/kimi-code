@@ -25,7 +25,7 @@
   },
   "type": "module",
   "scripts": {
-    "postinstall": "bun scripts/fix-node-pty-perms.mjs",
+    "postinstall": "bunx simple-git-hooks",
     "build": "bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
     "build:packages": "bun run --filter './packages/*' build",
     "dev:cli": "cd apps/kimi-code && bun run dev",
@@ -52,10 +52,10 @@
     "version": "changeset version",
     "version:release": "changeset version",
     "publish": "bun run typecheck && bun run lint && bun run sherif && bun run test && bun run build && bun run lint:pkg && changeset publish",
-    "bench:prompt": "tsx scripts/prompt-optimizer/src/cli.ts bench",
-    "bench:prompt:compare": "tsx scripts/prompt-optimizer/src/cli.ts bench --compare",
-    "bench:prompt:prune": "tsx scripts/prompt-optimizer/src/cli.ts prune",
-    "bench:prompt:probe": "tsx scripts/prompt-optimizer/src/cli.ts probe",
+    "bench:prompt": "bun scripts/prompt-optimizer/src/cli.ts bench",
+    "bench:prompt:compare": "bun scripts/prompt-optimizer/src/cli.ts bench --compare",
+    "bench:prompt:prune": "bun scripts/prompt-optimizer/src/cli.ts prune",
+    "bench:prompt:probe": "bun scripts/prompt-optimizer/src/cli.ts probe",
     "prepare": "simple-git-hooks"
   },
   "devDependencies": {
@@ -66,7 +66,6 @@
     "@types/node": "^22.15.3",
     "@vitest/coverage-v8": "4.1.10",
     "lint-staged": "16.4.0",
-    "node-gyp": "11.4.0",
     "oxfmt": "^0.63.0",
     "oxlint": "1.59.0",
     "oxlint-tsgolint": "0.20.0",
@@ -79,30 +78,6 @@
     "typescript": "6.0.2",
     "vite": "^6.4.3",
     "vitest": "4.1.10"
-  },
-  "trustedDependencies": [
-    "esbuild",
-    "node-pty",
-    "protobufjs",
-    "simple-git-hooks",
-    "ssh2"
-  ],
-  "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
-  },
-  "lint-staged": {
-    "concurrent": "false",
-    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
-      "oxlint --quiet",
-      "oxlint --type-aware --quiet"
-    ]
-  },
-  "packageManager": "bun@1.4.0",
-  "engines": {
-    "node": ">=24.15.0"
-  },
-  "patchedDependencies": {
-    "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
   },
   "overrides": {
     "@babel/core": ">=7.29.6",
@@ -129,11 +104,31 @@
     "react-router": ">=7.15.1 <8.0.0",
     "serialize-javascript": ">=7.0.3",
     "shell-quote": ">=1.8.4",
+    "ssh2@1.17.0>cpu-features": "-",
+    "ssh2@1.17.0>nan": "-",
     "tar": ">=7.5.22",
     "undici": ">=7.28.0",
     "vite": ">=6.4.3 <8.0.0",
-    "ws": ">=8.21.0",
-    "ssh2@1.17.0>cpu-features": "-",
-    "ssh2@1.17.0>nan": "-"
-  }
+    "ws": ">=8.21.0"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bunx lint-staged"
+  },
+  "lint-staged": {
+    "concurrent": "false",
+    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
+      "oxlint --quiet",
+      "oxlint --type-aware --quiet"
+    ]
+  },
+  "packageManager": "bun@1.4.0",
+  "patchedDependencies": {
+    "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
+  },
+  "trustedDependencies": [
+    "esbuild",
+    "protobufjs",
+    "simple-git-hooks",
+    "ssh2"
+  ]
 }

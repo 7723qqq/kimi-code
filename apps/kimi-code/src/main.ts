@@ -146,6 +146,10 @@ const MIGRATE_CLI_OPTIONS: CLIOptions = {
 };
 
 export function main(): void {
+  if (typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
+    process.stderr.write(`${t('tui.statusMessages.bunRuntimeRequired')}\n`);
+    process.exit(1);
+  }
   process.title = PROCESS_NAME;
   installCrashHandlers();
   // A staged native update is swapped in and re-exec'd here, before any other

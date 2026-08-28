@@ -252,9 +252,6 @@
               pkgs.cargo
               pkgs.rustc
             ]
-            # node-gyp (node-pty's install script) compiles against the
-            # headers shipped with the pinned Node instead of downloading
-            # them from nodejs.org (no network outside the FOD).
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.darwin.sigtool
             ];
@@ -307,22 +304,9 @@ EOF
               # asset embedded in the Bun binary (collected by assets.mjs
               # below). Invoke napi's JS entry directly — its bin shim uses
               # `#!/usr/bin/env`, absent in the sandbox.
-              (cd packages/kimi-native-tools && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
+              (cd packages/kimi-native-tools && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # kimi-agent is the second napi addon embedded as an asset.
-              (cd packages/kimi-agent && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
-              # Run the one lifecycle script whose output the artifact
-              # needs: node-pty's prebuild/native build (the FOD installed
-              # with --ignore-scripts). node-gyp compiles against the
-              # pinned Node's own headers and comes from the hoisted root
-              # node_modules/.bin. esbuild resolves its binary from the
-              # hoisted @esbuild/<platform> package without a script;
-              # protobufjs/ssh2 work scriptless.
-              export PATH="$PWD/node_modules/.bin:$PATH"
-              # Call node-gyp's JS entry directly: its bin shim uses
-              # `#!/usr/bin/env node`, and /usr/bin/env does not exist in
-              # the sandbox.
-              (cd node_modules/node-pty && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild)
-              (cd node_modules/node-pty && node scripts/post-install.js)
+              (cd packages/kimi-agent && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # The Bun build step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app

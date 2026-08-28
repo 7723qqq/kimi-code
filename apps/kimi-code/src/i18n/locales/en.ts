@@ -1492,6 +1492,9 @@ export default {
       noClipboardCommandAvailable: 'No clipboard command is available.',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
+      // main.ts
+      bunRuntimeRequired:
+        '@moonshot-ai/kimi-code requires Bun >= 1.4. Install Bun: https://bun.sh',
     },
     messages: {
       agentGroup: {

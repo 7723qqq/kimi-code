@@ -86,23 +86,7 @@ export interface TerminalProcess {
   kill(): void;
 }
 
-/** The subset of Bun's global used by the Bun.Terminal PTY path. */
-export interface HostTerminalBunTerminal {
-  write(data: string | Uint8Array): void;
-  resize(cols: number, rows: number): void;
-  close(): void;
-}
-
-/** A Bun subprocess carrying an interactive {@link HostTerminalBunTerminal}. */
-export interface HostTerminalBunSubprocess {
-  readonly terminal: HostTerminalBunTerminal;
-  readonly exited: Promise<number | null>;
-  kill(): void;
-}
-
-/** Shape of the host `Bun` global relevant to terminal spawning. */
 export interface HostTerminalBunRuntime {
-  readonly Terminal?: unknown;
   spawn(
     command: readonly string[],
     options: {
@@ -118,20 +102,24 @@ export interface HostTerminalBunRuntime {
   ): HostTerminalBunSubprocess;
 }
 
+interface HostTerminalBunTerminal {
+  write(data: string | Uint8Array): void;
+  resize(cols: number, rows: number): void;
+  close(): void;
+}
+
+interface HostTerminalBunSubprocess {
+  readonly terminal: HostTerminalBunTerminal;
+  readonly exited: Promise<number | null>;
+  kill(): void;
+}
+
 export interface IHostTerminalService {
   readonly _serviceBrand: undefined;
 
-  /**
-   * Spawn an interactive terminal process.
-   *
-   * @param bunOverride Backend selection seam for tests and embedders: a
-   * Bun-like runtime object routes through Bun.Terminal when it carries one,
-   * `null` forces the node-pty path regardless of host runtime, and omission
-   * auto-detects from `globalThis.Bun`.
-   */
   spawn(
     options: TerminalSpawnOptions,
-    bunOverride?: HostTerminalBunRuntime | null,
+    bunOverride?: HostTerminalBunRuntime,
   ): Promise<TerminalProcess>;
 }
 

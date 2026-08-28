@@ -1446,6 +1446,8 @@ export default {
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
+      // main.ts
+      bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4。请前往 https://bun.sh 安装',
     },
     messages: {
       agentGroup: {

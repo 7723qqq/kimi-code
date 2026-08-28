@@ -1345,7 +1345,8 @@
       "minidbWorkerSearchResultIncorrect": "MiniDb worker-built text index returned an incorrect search result",
       "nativeManifestNotAvailable": "Native asset manifest is not available.",
       "noClipboardCommandAvailable": "No clipboard command is available.",
-      "fdDownloadEmptyResponse": "Failed to download fd: empty response body"
+      "fdDownloadEmptyResponse": "Failed to download fd: empty response body",
+      "bunRuntimeRequired": "@moonshot-ai/kimi-code requires Bun >= 1.4. Install Bun: https://bun.sh"
     },
     "messages": {
       "agentGroup": {
