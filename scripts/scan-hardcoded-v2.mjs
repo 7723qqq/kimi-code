@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * scan-hardcoded-v2.mjs — Enhanced hardcoded string scanner.
  *
