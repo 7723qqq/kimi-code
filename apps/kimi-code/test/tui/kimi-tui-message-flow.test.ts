@@ -2217,15 +2217,21 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(harness.exportSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'ses-1',
-          includeGlobalLog: true,
-          version: '0.0.0-test',
-        }),
-      );
-    });
+    await vi.waitFor(
+      () => {
+        expect(harness.exportSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'ses-1',
+            includeGlobalLog: true,
+            version: '0.0.0-test',
+          }),
+        );
+      },
+      // The command performs real fs work (archive path creation, install
+      // detection) before reaching exportSession; the default 1s window is
+      // too tight under full-suite parallel load.
+      { timeout: 10_000 },
+    );
     expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'useful feedback' }),
     );
@@ -2287,9 +2293,12 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(uploadArchive).toHaveBeenCalledTimes(2);
-    });
+    await vi.waitFor(
+      () => {
+        expect(uploadArchive).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 10_000 },
+    );
     expect(settled).toBe(false);
 
     resolveCodebaseUpload();
