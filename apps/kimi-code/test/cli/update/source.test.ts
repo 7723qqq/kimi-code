@@ -18,24 +18,6 @@ describe('classifyByPathHeuristic', () => {
     expect(classifyByPathHeuristic('/usr/local/lib/node_modules/@moonshot-ai/kimi-code')).toBeNull();
   });
 
-  it('detects pnpm global on macOS', () => {
-    expect(
-      classifyByPathHeuristic('/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code'),
-    ).toBe('pnpm-global');
-  });
-
-  it('detects pnpm global on Linux', () => {
-    expect(
-      classifyByPathHeuristic('/home/me/.local/share/pnpm/global/5/node_modules/@moonshot-ai/kimi-code'),
-    ).toBe('pnpm-global');
-  });
-
-  it('detects pnpm global on Windows (normalized backslashes)', () => {
-    expect(
-      classifyByPathHeuristic('C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\@moonshot-ai/kimi-code'),
-    ).toBe('pnpm-global');
-  });
-
   it('detects yarn classic global', () => {
     expect(
       classifyByPathHeuristic('/Users/me/.config/yarn/global/node_modules/@moonshot-ai/kimi-code'),
@@ -92,18 +74,6 @@ describe('classifyInstallSource (npm prefix matching)', () => {
 });
 
 describe('detectInstallSource', () => {
-  it('returns pnpm-global when packageRoot matches pnpm heuristic', async () => {
-    await expect(
-      detectInstallSource({
-        getPackageRoot: () =>
-          '/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
-        getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => ({ native: false }),
-        platform: 'darwin',
-      }),
-    ).resolves.toBe('pnpm-global');
-  });
-
   it('returns yarn-global when packageRoot matches yarn heuristic', async () => {
     await expect(
       detectInstallSource({

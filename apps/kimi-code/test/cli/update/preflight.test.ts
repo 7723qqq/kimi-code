@@ -436,47 +436,6 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('pnpm-global: spawns pnpm add -g', async () => {
-    await withPosixPlatform(async () => {
-      disableAutoInstall();
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('pnpm-global');
-      mocks.promptForInstallChoice.mockResolvedValue('install');
-      mockSpawnExit(0);
-      const { options } = captureOutput();
-      await runUpdatePreflight('0.4.0', options);
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^pnpm(\.cmd)?$/),
-        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { stdio: 'inherit' },
-      );
-    });
-  });
-
-  it('pnpm-global on win32: spawns pnpm.cmd through a shell', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'win32' });
-    try {
-      const { options } = captureOutput();
-      await runUpdatePreflight('0.4.0', options);
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        // Resolved to an absolute path and quoted for the cmd.exe shell.
-        '"pnpm.cmd"',
-        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { stdio: 'inherit', shell: true },
-      );
-    } finally {
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
-    }
-  });
-
   it('yarn-global: spawns yarn global add', async () => {
     await withPosixPlatform(async () => {
       disableAutoInstall();

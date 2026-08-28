@@ -5,7 +5,6 @@ export { NPM_PACKAGE_NAME };
 /** Where the running CLI was installed from. Drives update command + spawn. */
 export type InstallSource =
   | 'npm-global'
-  | 'pnpm-global'
   | 'yarn-global'
   | 'bun-global'
   | 'homebrew'
