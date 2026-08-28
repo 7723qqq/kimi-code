@@ -52,12 +52,6 @@ graphify-out/
 # Workbuddy session scratch (agent working memory)
 .workbuddy/
 
-# Cargo build output for the kimi-build helper package
-packages/kimi-build/target/
-
-# Bun single-file compile output dropped next to tui2 source
-apps/kimi-code/src/tui2/entry.exe
-
 # napi-rs build leftovers
 packages/kimi-native-tools/.*.tmp.*
 packages/kimi-native-tools/.*.rollback.tmp
