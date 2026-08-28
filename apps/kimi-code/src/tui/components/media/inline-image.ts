@@ -17,9 +17,17 @@
  * viewport; pi-tui handles proportional scaling internally.
  */
 
-import { Container, Image, Text, type ImageTheme, getCapabilities, type ImageProtocol } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Image,
+  Text,
+  type ImageTheme,
+  getCapabilities,
+  type ImageProtocol,
+} from '@moonshot-ai/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
+import { formatBytes } from '#/tui/utils/format-bytes';
 import { decodeImagePixels, type DecodedImagePixels } from '#/tui/utils/image-pixels';
 
 const MAX_IMAGE_ROWS = 12;
@@ -36,6 +44,13 @@ export interface InlineImageOptions {
   readonly label: string;
   /** Encoded byte size for the fallback marker. */
   readonly byteLength?: number;
+  /**
+   * Called when this component's output changes outside of a parent-driven
+   * render (the async sixel pixel swap). Parents that render this component
+   * manually — rather than mounting it in the component tree — must use it to
+   * drop their own render caches, or the swap stays invisible.
+   */
+  readonly onInvalidate?: () => void;
 }
 
 const MIME_SHORT: Readonly<Record<string, string>> = {
@@ -48,12 +63,6 @@ const MIME_SHORT: Readonly<Record<string, string>> = {
 
 function shortMime(mime: string): string {
   return MIME_SHORT[mime.trim().toLowerCase()] ?? mime;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export class InlineImage extends Container {
@@ -113,9 +122,7 @@ export class InlineImage extends Container {
         pixelWidth: pixels?.width,
         pixelHeight: pixels?.height,
       },
-      widthPx !== undefined && heightPx !== undefined
-        ? { widthPx, heightPx }
-        : undefined,
+      widthPx !== undefined && heightPx !== undefined ? { widthPx, heightPx } : undefined,
     );
   }
 
@@ -159,6 +166,7 @@ export class InlineImage extends Container {
   }
 
   override invalidate(): void {
+    this.options.onInvalidate?.();
     this.buildChildren(this.lastRenderWidth);
     super.invalidate();
   }

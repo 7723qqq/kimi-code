@@ -2,7 +2,7 @@
  * Renders a user message in the transcript.
  */
 
-import { Spacer, Text, truncateToWidth, visibleWidth, type Component } from '@moonshot-ai/pi-tui';
+import { Spacer, Text, isImageLine, truncateToWidth, visibleWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { ImageThumbnail } from '#/tui/components/media/image-thumbnail';
 import { USER_MESSAGE_BULLET } from '#/tui/constant/symbols';
@@ -23,7 +23,11 @@ export class UserMessageComponent implements Component {
     this.text = text;
     this.bullet = bullet;
     this.spacerComponent = new Spacer(1);
-    this.imageThumbnails = images?.map((img) => new ImageThumbnail(img)) ?? [];
+    // The thumbnails are rendered manually inside render(), so their async
+    // sixel pixel swap must poke this component's render cache — a child
+    // invalidate() alone never reaches it.
+    this.imageThumbnails =
+      images?.map((img) => new ImageThumbnail(img, () => this.markRenderDirty())) ?? [];
   }
 
   private markRenderDirty(): void {
@@ -80,11 +84,12 @@ export class UserMessageComponent implements Component {
 
     const rendered = markOsc133Zone(
       lines.map((line) => {
-        // Inline image sequences (Kitty / iTerm2) carry their own placement
-        // information and have zero visible width, but pi-tui's truncateToWidth
-        // treats the embedded base64 payload as visible text and would chop the
-        // escape sequence in half, leaving garbage like "0m...". Skip truncation
-        // for those lines; the image itself already respects maxWidthCells.
+        // Inline image sequences (Kitty / iTerm2 / sixel) carry their own
+        // placement information and have zero visible width, but pi-tui's
+        // truncateToWidth treats the embedded base64 payload as visible text
+        // and would chop the escape sequence in half, leaving garbage like
+        // "0m...". Skip truncation for those lines; the image itself already
+        // respects maxWidthCells.
         if (isImageLine(line)) return line;
         return truncateToWidth(line, safeWidth, '…');
       }),
@@ -94,10 +99,6 @@ export class UserMessageComponent implements Component {
     }
     return rendered;
   }
-}
-
-function isImageLine(line: string): boolean {
-  return line.includes('\u001B_G') || line.includes('\u001B]1337;File=');
 }
 
 /**

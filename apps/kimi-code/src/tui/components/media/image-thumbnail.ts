@@ -13,7 +13,7 @@ import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
 import { InlineImage } from './inline-image';
 
 export class ImageThumbnail extends Container {
-  constructor(attachment: ImageAttachment) {
+  constructor(attachment: ImageAttachment, onInvalidate?: () => void) {
     super();
     this.addChild(
       new InlineImage({
@@ -23,6 +23,7 @@ export class ImageThumbnail extends Container {
         height: attachment.height,
         label: `image #${String(attachment.id)}`,
         byteLength: attachment.bytes.length,
+        onInvalidate,
       }),
     );
   }

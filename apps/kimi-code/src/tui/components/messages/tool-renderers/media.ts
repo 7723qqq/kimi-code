@@ -19,6 +19,7 @@ import { Text } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { InlineImage } from '#/tui/components/media/inline-image';
 import { currentTheme } from '#/tui/theme';
+import { formatBytes } from '#/tui/utils/format-bytes';
 
 import type { ChipProvider } from './chip';
 import { renderTruncated } from './truncated';
@@ -109,12 +110,6 @@ export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
   if (url !== undefined) summary.url = url;
   if (base64 !== undefined) summary.base64 = base64;
   return summary;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function metaSegments(summary: ReadMediaSummary): string[] {
