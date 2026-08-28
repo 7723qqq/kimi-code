@@ -135,7 +135,9 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import type { AgentContextData, ExperimentalFeatureState, TurnEngine } from '@moonshot-ai/agent-core-v2';
+import { IEngineOverrideService } from '@moonshot-ai/agent-core-v2';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import { readConfigFile } from '#/config-local';
 import { getRootLogger } from '#/legacy/logging';
 import { ImageLimits } from '#/image-limits';
@@ -358,6 +360,11 @@ export interface SDKRpcClientV2Options {
   readonly telemetry?: TelemetryClient;
   readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
   readonly uiMode?: string;
+  /**
+   * External turn-engine override (the Rust kimi-agent engine). When set,
+   * every turn is driven by this engine instead of the JS loop.
+   */
+  readonly engineOverride?: TurnEngine;
 }
 
 /**
@@ -366,6 +373,12 @@ export interface SDKRpcClientV2Options {
  * `timeoutOutcome` clamps to.
  */
 const MAX_TIMER_DELAY_MS = 0x7fffffff;
+
+/** Bootstrap extra seed wiring the external turn engine, or nothing. */
+function engineOverrideSeed(engine: TurnEngine | undefined): ScopeSeed {
+  if (engine === undefined) return [];
+  return [[IEngineOverrideService, { getEngine: () => engine }]];
+}
 
 export class SDKRpcClientV2 extends SDKRpcClientBase {
   readonly homeDir: string;
@@ -459,7 +472,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           skillDirs: options.skillDirs,
         },
       },
-      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
+      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env })),
+      // External engine override: when set (config `agent.engine = "rust"`),
+      // turns are driven by the Rust engine instead of the JS loop. Appended
+      // last so it overrides the bootstrapSeed default no-op provider.
+      ...engineOverrideSeed(options.engineOverride),
+      ],
     );
     void getRootLogger().configure(
       resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }),

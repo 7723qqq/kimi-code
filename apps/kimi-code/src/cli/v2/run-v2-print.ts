@@ -29,6 +29,7 @@ import {
   IAuthSummaryService,
   IBootstrapService,
   IConfigService,
+  IEngineOverrideService,
   IEventBus,
   IOAuthToolkit,
   ISessionIndex,
@@ -56,7 +57,9 @@ import {
   type LoopRunResult,
   type PrintBackgroundMode,
   type Scope,
+  type TurnEngine,
 } from '@moonshot-ai/agent-core-v2';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import type {
   AssistantDelta,
   ThinkingDelta,
@@ -79,7 +82,14 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
+import { maybeLoadRustEngine } from '#/cli/rust-engine';
 import { t } from '#/i18n';
+
+/** Bootstrap extra seed wiring the external turn engine, or nothing. */
+function engineOverrideSeed(engine: TurnEngine | undefined): ScopeSeed {
+  if (engine === undefined) return [];
+  return [[IEngineOverrideService, { getEngine: () => engine }]];
+}
 
 import {
   formatGoalSummaryText,
@@ -141,6 +151,9 @@ export async function runV2Print(
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
   const identity = createKimiCodeHostIdentity(version);
   const hostHeaders = createKimiDefaultHeaders({ homeDir, ...identity });
+  // Rust engine override: when `agent.engine = "rust"` is configured the
+  // turn is driven by the Rust engine; otherwise the JS engine stays active.
+  const engineOverride = await maybeLoadRustEngine(homeDir);
 
   const { app } = bootstrap(
     {
@@ -158,7 +171,12 @@ export async function runV2Print(
         agentFiles: opts.agentFiles,
       },
     },
-    [...logSeed(logging)],
+    [
+      ...logSeed(logging),
+      // Engine override seed appended last so it wins over the bootstrapSeed
+      // default no-op provider.
+      ...engineOverrideSeed(engineOverride),
+    ],
   );
   const auth = app.accessor.get(IOAuthToolkit);
 

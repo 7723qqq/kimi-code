@@ -21,6 +21,7 @@ import {
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { setLocale, t } from '#/i18n';
+import { maybeLoadRustEngine } from '#/cli/rust-engine';
 import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
@@ -65,6 +66,9 @@ export async function runShell(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
+  // Rust engine override: when `agent.engine = "rust"` is configured the
+  // whole TUI runs on the Rust engine; otherwise the JS engine stays active.
+  const engineOverride = await maybeLoadRustEngine(telemetryBootstrap.homeDir);
   const harnessOptions: KimiHarnessOptions = {
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
@@ -81,6 +85,7 @@ export async function runShell(
       });
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
+    ...(engineOverride !== undefined ? { engineOverride } : {}),
   };
   // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
   // the harness is the SDK's v2-backed client, so the whole TUI runs on the

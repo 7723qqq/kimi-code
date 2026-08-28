@@ -23,6 +23,7 @@ import type {
   PluginInfo,
   PluginMcpServerInfo,
   PluginSource,
+  TurnEngine,
   PluginSummary,
   PromptOrigin,
   ReloadSummary,
@@ -250,6 +251,12 @@ export interface KimiHarnessOptions {
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
   readonly imageLimits?: ImageLimits | undefined;
+  /**
+   * External turn-engine override (the Rust kimi-agent engine). When set,
+   * every turn is driven by this engine instead of the JS loop. `undefined`
+   * keeps the default JS engine.
+   */
+  readonly engineOverride?: TurnEngine | undefined;
 }
 
 export interface CreateSessionOptions {
