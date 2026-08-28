@@ -648,10 +648,65 @@ export default {
         lockedBy: 'locked by {{env}}',
         lockedByMasterEnv: 'locked by KIMI_CODE_EXPERIMENTAL_FLAG',
         features: {
+          auto_session_title: {
+            title: 'AI session titles',
+            description:
+              'Generate concise session titles from the conversation through the managed chat_title tool: clients auto-generate once the first turn completes and offer on-demand regeneration in the rename field.',
+          },
+          lsp: {
+            title: 'LSP tool',
+            description:
+              'Expose the lsp tool for go-to-definition, find-references, implementation, and hover queries through language servers configured in the [lsp] config section.',
+          },
+          micro_compaction: {
+            title: 'Micro compaction (cache-miss tool-result truncation)',
+            description:
+              'After a prompt-cache miss, replace old oversized tool results in the outgoing request with a marker so the rebuilt prefix stays small.',
+          },
+          persistence_minidb_readmodel: {
+            title: 'minidb read model',
+            description:
+              'Use the minidb-backed IQueryStore as a derived read model for session indexing and wire replay.',
+          },
+          'remote-control': {
+            title: 'Remote Control',
+            description:
+              'Expose the local web UI through Kimi Remote Control (`kimi web --remote-control`, `/remote-control`).',
+          },
+          search_worker: {
+            title: 'search worker isolation',
+            description:
+              'Run the global search-index MiniDB (open, WAL replay, sync, queries) in a dedicated worker thread instead of the server main thread.',
+          },
+          'secondary-model': {
+            title: 'Secondary model for subagents',
+            description:
+              'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+          },
+          subagent_backends: {
+            title: 'External subagent backends',
+            description:
+              'Enables the claude-code / codex / acp backends for the Agent tool, which spawn external agent CLIs instead of in-process subagents.',
+          },
+          subagent_fork: {
+            title: 'Fork context for subagents',
+            description:
+              "Let the Agent and AgentSwarm tools start a subagent with a snapshot of the calling agent's conversation history via the fork parameter.",
+          },
           tool_select: {
             title: 'Tool select (progressive tool disclosure)',
             description:
               'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+          },
+          tower: {
+            title: 'Tower mode',
+            description:
+              'Enable tower mode: coordinate multiple agents on a shared objective, toggled with the /tower command.',
+          },
+          xunfei_coding_plan: {
+            title: 'Astron (Xunfei coding plan)',
+            description:
+              'Show the Astron provider settings in /settings and enable the Astron login flow. The astron entry under [providers] stays functional regardless of this flag.',
           },
         },
       },

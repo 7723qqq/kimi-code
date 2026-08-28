@@ -90,4 +90,24 @@ describe('mergeRefreshedModelAlias', () => {
     expect(merged.supportEfforts).toBeUndefined();
     expect(merged.defaultEffort).toBeUndefined();
   });
+
+  it('unions existing custom capabilities with refreshed capabilities', () => {
+    const merged = mergeRefreshedModelAlias(
+      {
+        provider: 'managed:kimi-code',
+        model: 'kimi-k2',
+        maxContextSize: 262144,
+        capabilities: ['thinking', 'tool_use', 'image_in'],
+      },
+      {
+        provider: 'managed:kimi-code',
+        model: 'kimi-k2',
+        maxContextSize: 262144,
+        capabilities: ['thinking'],
+      },
+      MANAGED_KIMI_MODEL_FIELDS,
+    );
+
+    expect(merged.capabilities).toEqual(['thinking', 'tool_use', 'image_in']);
+  });
 });

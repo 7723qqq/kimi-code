@@ -468,7 +468,7 @@ describe("sixel encoding", () => {
 		}
 	});
 
-	it("quantizes pure red to the 6x6x6 cube corner and emits one char per 6 bits", () => {
+	it("quantizes pure red to the 6x6x6 cube corner and paints full columns", () => {
 		setCellDimensions({ widthPx: 10, heightPx: 10 });
 		try {
 			const pixels = new Uint8Array(2 * 2 * 4);
@@ -477,12 +477,14 @@ describe("sixel encoding", () => {
 				pixels[i * 4 + 3] = 255; // A
 			}
 			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
-			// Pure red -> cube index 36*5+0+0 = 180; six pixels of index 180
-			// pack into 6 chars: 180 * (64^0..64^5) = 196341362100 -> "suuuuu".
 			assert.ok(sequence.includes("#180;2;100;0;0"), "palette must define the red cube corner");
 			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
-			assert.ok(pixelPart.startsWith("suuuuu"), `expected packed red group, got ${JSON.stringify(pixelPart.slice(0, 6))}`);
+			// targetW = 2 cells x 10px = 20 columns; every pixel is red, so each
+			// band emits `#180` followed by 20 chars of 63+63 ('~': all 6 rows lit).
+			const firstBand = pixelPart.split("-")[0]!;
+			assert.ok(firstBand.startsWith("#180"), `expected a color selector, got ${JSON.stringify(firstBand.slice(0, 6))}`);
+			assert.strictEqual(firstBand.slice("#180".length), "~".repeat(20), "every column must paint all 6 rows red");
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}
@@ -506,19 +508,19 @@ describe("sixel encoding", () => {
 		}
 	});
 
-	it("separates pixel groups with $ and pixel rows with -", () => {
+	it("emits one band per 6 pixel rows separated by -", () => {
 		setCellDimensions({ widthPx: 10, heightPx: 10 });
 		try {
 			const pixels = new Uint8Array(2 * 2 * 4).fill(255); // 2x2 white
 			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
 			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
-			// 2 cells x 10px = 20 target px per pixel row -> 4 groups (3 x $);
-			// 20 pixel rows -> 19 x - separators.
+			// targetH = 2 cells x 10px = 20 pixel rows -> ceil(20/6) = 4 bands
+			// (3 x - separator); sixel chars carry the geometry, so no $ CRs.
 			const dollars = (pixelPart.match(/\$/g) ?? []).length;
 			const dashes = (pixelPart.match(/-/g) ?? []).length;
-			assert.strictEqual(dollars, 60, "20 pixel rows x 3 group separators");
-			assert.strictEqual(dashes, 19, "20 pixel rows emit 19 row separators");
+			assert.strictEqual(dollars, 0, "column geometry lives in the chars, not CRs");
+			assert.strictEqual(dashes, 3, "4 bands emit 3 band separators");
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}
@@ -531,12 +533,12 @@ describe("sixel encoding", () => {
 			const sequence = encodeSixel(pixels, 100, 10, { maxWidthCells: 2 });
 			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
-			// 2 cells x 10px = 20 target px per pixel row -> 4 groups (3 x $);
-			// 10 pixel rows -> 9 x - separators.
+			// targetW = 2 cells x 10px = 20 columns; targetH = 1 cell x 10px
+			// = 10 pixel rows -> 2 bands (1 x - separator).
 			const dollars = (pixelPart.match(/\$/g) ?? []).length;
 			const dashes = (pixelPart.match(/-/g) ?? []).length;
-			assert.strictEqual(dollars, 30, "10 pixel rows x 3 group separators");
-			assert.strictEqual(dashes, 9, "10 pixel rows emit 9 row separators");
+			assert.strictEqual(dollars, 0, "column geometry lives in the chars, not CRs");
+			assert.strictEqual(dashes, 1, "2 bands emit 1 band separator");
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}

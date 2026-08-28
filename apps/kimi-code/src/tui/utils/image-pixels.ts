@@ -34,10 +34,7 @@ const cache = new Map<string, Promise<DecodedImagePixels | null>>();
  * `MAX_DECODE_EDGE_PX` first. Returns null when the payload is not a
  * decodable image (the caller keeps its placeholder).
  */
-export function decodeImagePixels(
-  base64: string,
-  _mime: string,
-): Promise<DecodedImagePixels | null> {
+export function decodeImagePixels(base64: string): Promise<DecodedImagePixels | null> {
   const key = cacheKey(base64);
   const cached = cache.get(key);
   if (cached !== undefined) {

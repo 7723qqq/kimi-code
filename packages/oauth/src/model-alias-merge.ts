@@ -43,6 +43,25 @@ function userExtras(
   return out;
 }
 
+function mergeCapabilities(
+  existingCaps: unknown,
+  remoteCaps: readonly string[] | undefined,
+): string[] | undefined {
+  if (!Array.isArray(existingCaps) && remoteCaps === undefined) return undefined;
+  const set = new Set<string>();
+  if (Array.isArray(existingCaps)) {
+    for (const c of existingCaps) {
+      if (typeof c === 'string' && c.trim().length > 0) set.add(c.trim());
+    }
+  }
+  if (Array.isArray(remoteCaps)) {
+    for (const c of remoteCaps) {
+      if (typeof c === 'string' && c.trim().length > 0) set.add(c.trim());
+    }
+  }
+  return set.size > 0 ? [...set] : undefined;
+}
+
 export function mergeRefreshedModelAlias(
   existing: unknown,
   remote: ManagedKimiModelAlias,
@@ -54,9 +73,11 @@ export function mergeRefreshedModelAlias(
       ? (current['overrides'] as ManagedKimiModelAliasOverrides)
       : undefined,
   );
+  const mergedCapabilities = mergeCapabilities(current['capabilities'], remote.capabilities);
   return {
     ...userExtras(current, remoteOwnedFields),
     ...remote,
+    ...(mergedCapabilities !== undefined ? { capabilities: mergedCapabilities } : {}),
     ...(overrides !== undefined ? { overrides } : {}),
   };
 }

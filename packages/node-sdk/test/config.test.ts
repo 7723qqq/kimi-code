@@ -225,8 +225,12 @@ max_context_size = "large"
     const config = parseConfigString(`
 [github]
 token = "ghp_example_token"
+base_url = "https://github.example.com/api/v3"
 `, 'github.toml');
-    expect(config.github).toEqual({ token: 'ghp_example_token' });
+    expect(config.github).toEqual({
+      token: 'ghp_example_token',
+      baseUrl: 'https://github.example.com/api/v3',
+    });
     expect(config.experimental).toBeUndefined();
 
     const dir = await makeTempDir();
@@ -236,9 +240,13 @@ token = "ghp_example_token"
     const text = await readFile(configPath, 'utf-8');
     expect(text).toContain('[github]');
     expect(text).toContain('token = "ghp_example_token"');
+    expect(text).toContain('base_url = "https://github.example.com/api/v3"');
 
     const reloaded = readConfigFile(configPath);
-    expect(reloaded.github).toEqual({ token: 'ghp_example_token' });
+    expect(reloaded.github).toEqual({
+      token: 'ghp_example_token',
+      baseUrl: 'https://github.example.com/api/v3',
+    });
   });
 
   it('accepts camelCase aliases without keeping unknown fields in typed config', () => {

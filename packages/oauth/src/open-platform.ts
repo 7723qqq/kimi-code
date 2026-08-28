@@ -86,18 +86,28 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   const displayName = item['display_name'];
   const normalizedDisplayName =
     typeof displayName === 'string' && displayName.length > 0 ? displayName : undefined;
+  const rawCaps = Array.isArray(item['capabilities'])
+    ? item['capabilities'].filter((c): c is string => typeof c === 'string')
+    : undefined;
   const supportsToolUse = Object.hasOwn(item, 'supports_tool_use')
     ? Boolean(item['supports_tool_use'])
-    : true;
+    : (rawCaps !== undefined ? rawCaps.includes('tool_use') : true);
   // Effort levels come from the nested `think_efforts` object
   // ({ support, valid_efforts, default_effort }) returned by /models.
   const thinkEfforts = parseThinkEfforts(item['think_efforts']);
   return {
     id: item['id'],
     contextLength,
-    supportsReasoning: Boolean(item['supports_reasoning']),
-    supportsImageIn: Boolean(item['supports_image_in']),
-    supportsVideoIn: Boolean(item['supports_video_in']),
+    supportsReasoning:
+      Boolean(item['supports_reasoning']) ||
+      (rawCaps?.includes('thinking') ?? false) ||
+      (rawCaps?.includes('always_thinking') ?? false),
+    supportsImageIn:
+      Boolean(item['supports_image_in']) ||
+      (rawCaps?.includes('image_in') ?? false),
+    supportsVideoIn:
+      Boolean(item['supports_video_in']) ||
+      (rawCaps?.includes('video_in') ?? false),
     supportsToolUse,
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
     supportEfforts: thinkEfforts.supportEfforts,

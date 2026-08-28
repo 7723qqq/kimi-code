@@ -2,9 +2,7 @@ import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolResultBuilder } from '#/tool/result-builder';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
@@ -15,9 +13,8 @@ import {
   type ToolExecution,
 } from '#/tool/toolContract';
 
-import { GITHUB_CONFIG_SECTION, GITHUB_TOOLS_FLAG_ID } from './flag';
-import type { IGitHubTool } from './github';
-import { type GitHubToolSpec } from './github';
+import { hasGitHubToken, resolveGitHubBaseUrl, resolveGitHubToken } from './configSection';
+import type { GitHubToolSpec, IGitHubTool } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
 
 const owner = z.string().min(1).describe('Repository owner (user or organization login).');
@@ -27,7 +24,6 @@ const page = z.number().int().min(1).optional().describe('Page number (1-based).
 
 export interface GitHubToolDeps {
   readonly config: IConfigService;
-  readonly getEnv: (name: string) => string | undefined;
   readonly fetchImpl: typeof fetch;
 }
 
@@ -73,17 +69,18 @@ export abstract class GitHubToolBase implements IGitHubTool {
   ): Promise<ExecutableToolResult> {
     const query = spec.query?.(args);
     const body = spec.body !== undefined ? spec.body(args) : undefined;
-    const token = this.configToken();
+    const token = resolveGitHubToken(this.deps.config);
+    const baseUrl = resolveGitHubBaseUrl(this.deps.config);
     const options: GitHubRequestOptions = {
       ...(query !== undefined ? { query } : {}),
       ...(body !== undefined ? { body } : {}),
       ...(spec.accept !== undefined ? { accept: spec.accept } : {}),
       ...(token !== undefined ? { token } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
     };
 
     const res = await githubRequest(spec.method, spec.path(args), options, {
       fetchImpl: this.deps.fetchImpl,
-      getEnv: this.deps.getEnv,
       signal: ctx.signal,
     });
     if (!res.ok) {
@@ -102,30 +99,15 @@ export abstract class GitHubToolBase implements IGitHubTool {
     builder.write((res.body || '(empty response)') + rate);
     return builder.ok();
   }
-
-  /** Config token takes precedence; otherwise the transport falls back to env. */
-  private configToken(): string | undefined {
-    const token = this.deps.config.get<{ token?: string }>(GITHUB_CONFIG_SECTION)?.token;
-    return token !== undefined && token.length > 0 ? token : undefined;
-  }
 }
 
-/**
- * Build the Agent-tool class for one spec. The generated class injects the
- * App-scope config / bootstrap services via decorators and forwards them to
- * the shared base.
- */
 export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
   spec: GitHubToolSpec<Input>,
-): new (config: IConfigService, bootstrap: IBootstrapService) => GitHubToolBase {
+): new (config: IConfigService) => GitHubToolBase {
   class GitHubAgentTool extends GitHubToolBase {
-    constructor(
-      @IConfigService config: IConfigService,
-      @IBootstrapService bootstrap: IBootstrapService,
-    ) {
+    constructor(@IConfigService config: IConfigService) {
       super(spec, {
         config,
-        getEnv: (name) => bootstrap.getEnv(name),
         fetchImpl: globalThis.fetch.bind(globalThis),
       });
     }
@@ -696,6 +678,6 @@ for (const spec of GITHUB_SPECS) {
   registerAgentToolService(id, makeGitHubToolCtor(spec), {
     name: spec.name,
     domain: 'github',
-    when: (accessor) => accessor.get(IFlagService).enabled(GITHUB_TOOLS_FLAG_ID),
+    when: (accessor) => hasGitHubToken(accessor.get(IConfigService)),
   });
 }

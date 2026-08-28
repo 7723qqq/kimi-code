@@ -99,6 +99,18 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 `KIMI_CODE_BASE_URL`（OAuth 托管服务，指向 `kimi.com`）和 `KIMI_BASE_URL`（API 密钥直连，指向 `moonshot.ai`）是两个不同的变量，请按场景区分。
 :::
 
+## GitHub 凭证
+
+与上面的供应商凭证键不同，这三个变量确实从真实的 shell 环境读取：内置 GitHub 工具只有在拿到 token 时才会出现在 Agent 的工具列表里，而 token 可以不写进配置文件、改由环境提供。
+
+| 变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | 内置 GitHub 工具使用的个人访问令牌 | 无 |
+| `GH_TOKEN` | 与 `GITHUB_TOKEN` 等价的另一种写法，即 `gh` 命令行工具使用的名字；两者同时存在时以 `GITHUB_TOKEN` 为准 | 无 |
+| `GITHUB_API_URL` | 指向 GitHub 企业版（GitHub Enterprise Server）实例的 REST API 基地址 | `https://api.github.com` |
+
+写在 `config.toml` 的 `[github]` 段里的 `token` 或 `base_url` 始终优先；环境只补齐配置文件没有给出的字段，并且来自环境的值永远不会写回 `config.toml`。这一段配置本身、以及会话中途补上 token 何时生效，见[配置文件](./config-files.md#github)。
+
 ## 用环境变量定义模型（`KIMI_MODEL_*`）
 
 测试时想换个模型但不想动 `config.toml`？设置 `KIMI_MODEL_NAME` 后，CLI 会从 `KIMI_MODEL_*` 系列变量在内存里合成出一个临时供应商和模型别名，不写回配置文件。优先级高于 `config.toml` 的 `default_model`，但低于启动时 `-m <alias>` 选项。
@@ -137,6 +149,7 @@ kimi
 | 环境变量 | 用途 | 合法值 |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`yes`、`y`（不区分大小写） |
+| `KIMI_LANG` | 固定启动时自动探测的终端界面语言；只有探测这一步读它，`tui.toml` 里写了 `locale` 时仍以文件为准 | `zh`、`en` |
 | `KIMI_CODE_PASSWORD` | 为 `kimi web` 本地服务设置并列鉴权密码，与 bearer token 同时有效；把服务绑定到非本机地址时建议设置，见 [在网页中使用：安全注意](../guides/web.md#安全注意) | 任意非空字符串；未设置时仅 token 有效 |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | 会话关闭时是否保留后台任务，优先级高于 `config.toml`。默认会在退出时停止后台任务 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[background] max_running_tasks`（不设置表示无上限） | 正整数；非法值被忽略 |

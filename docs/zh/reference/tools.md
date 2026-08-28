@@ -136,8 +136,63 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 
 **`CronDelete`** 只接受一个 `id`。对周期任务，未来所有触发立即停止；对一次性任务，挂起的那次触发会被取消。已触发的一次性任务会自动删除，因此对已触发过的一次性任务调用 `CronDelete` 会返回 `No cron job with id ...`。删除不可撤销，需要还原时只能再次 `CronCreate`。`CronDelete` 在 Plan 模式下同样会被拦截。
 
+## GitHub
+
+GitHub 工具直连 GitHub REST API，Agent 因此可以开 PR、读 diff、整理 issue，你不用离开终端。这些工具**只在配好 token 时**才出现在工具列表里——在 `config.toml` 的 `[github]` 段设置 `token`，或导出 `GITHUB_TOKEN` / `GH_TOKEN`，详见[配置文件](../configuration/config-files.md#github)。没有 token 时，下面这些工具一个都不存在，Agent 也无从访问 GitHub。
+
+要把工具指向 GitHub 企业版（GitHub Enterprise Server）实例而不是 GitHub 公网 API，用 `base_url`（`config.toml` 的 `[github]` 段）或 `GITHUB_API_URL`。
+
+下面「只读」表里的工具全部自动放行，和 `Read`、`FetchURL` 一样；「写入」表里的工具除自动模式外都需要你审批，包括那些只添加一条评论的工具。
+
+**只读** —— 22 个工具，自动放行：
+
+| 工具 | 说明 |
+| --- | --- |
+| `GitHubGetRepo` | 仓库元信息（描述、默认分支、star 数、可见性） |
+| `GitHubListBranches` | 列出仓库的分支 |
+| `GitHubListCommits` | 列出仓库的提交，可按分支/sha 或路径过滤 |
+| `GitHubGetCommit` | 单个提交，含 diff 统计与变更文件 |
+| `GitHubGetFileContents` | 文件或目录列表；文件内容以 base64 编码放在 `content` 字段里 |
+| `GitHubGetRef` | 取 Git 引用（分支或 tag 的头），形如 `heads/main` 的引用名返回当前 SHA |
+| `GitHubListIssues` | 列出仓库的 issue（不含 PR，除非与搜索配合使用），可按状态和标签过滤 |
+| `GitHubGetIssue` | 按编号取单个 issue |
+| `GitHubListIssueComments` | 列出 issue 或 PR 的评论 |
+| `GitHubListPRs` | 列出仓库的 PR |
+| `GitHubGetPR` | 按编号取单个 PR |
+| `GitHubGetPRDiff` | 取 PR 的 unified diff |
+| `GitHubGetPRFiles` | 列出 PR 改动的文件 |
+| `GitHubListPRReviewComments` | 列出 PR 的 review 评论（行内代码评论） |
+| `GitHubSearchCode` | 跨仓库搜索代码，支持 `repo:owner/name`、`path:`、`language:` 等限定符 |
+| `GitHubSearchRepos` | 搜索仓库，支持 `language:`、`stars:>100`、`user:` 等限定符 |
+| `GitHubSearchIssues` | 搜索 issue 和 PR，支持 `repo:`、`is:pr`、`author:`、`state:` 等限定符 |
+| `GitHubListWorkflowRuns` | 列出仓库的 GitHub Actions workflow run |
+| `GitHubGetWorkflowRun` | 取单个 GitHub Actions workflow run |
+| `GitHubListReleases` | 列出仓库的 release |
+| `GitHubGetLatestRelease` | 取仓库最新发布的 release |
+| `GitHubGetMe` | 当前鉴权用户——可用来验证配置的 token 是否可用 |
+
+**写入** —— 12 个工具，逐个需要审批：
+
+| 工具 | 说明 |
+| --- | --- |
+| `GitHubCreateIssue` | 新建 issue |
+| `GitHubUpdateIssue` | 更新 issue（标题、正文、状态、标签、指派人） |
+| `GitHubAddIssueComment` | 给 issue 或 PR 添加评论 |
+| `GitHubCreatePR` | 新建 PR |
+| `GitHubUpdatePR` | 更新 PR（标题、正文、状态、目标分支） |
+| `GitHubCreatePRReview` | 提交 PR review（`APPROVE`、`REQUEST_CHANGES` 或 `COMMENT`） |
+| `GitHubMergePR` | 合并 PR |
+| `GitHubCreateOrUpdateFile` | 创建或更新文件，`content` 传纯文本（自动帮你做 base64 编码）；更新已有文件时要传 `sha` |
+| `GitHubCreateTree` | 由文件条目创建 Git tree |
+| `GitHubCreateCommit` | 为一个 tree SHA 连同父提交 SHA 创建 commit 对象 |
+| `GitHubUpdateRef` | 把 Git 引用移动到新的提交 SHA |
+| `GitHubCreateBranch` | 新建分支，指向已有的提交 SHA |
+
+`GitHubCreateTree`、`GitHubCreateCommit`、`GitHubUpdateRef` 是底层的 Git Data API 三件套：合起来可以在没有本地克隆的情况下，通过 API 推一个多文件提交，`GitHubCreateBranch` 则覆盖只移动一个引用的常见情形。日常的本地改动仍优先用 `Bash` 调 `git`——这几个工具是为没有克隆可用的场景准备的。
+
 ## 下一步
 
 - [Agent 与 subagent](../customization/agents.md) — `Agent` 工具的调度机制与上下文隔离
 - [Hooks](../customization/hooks.md) — 在工具调用前后触发本地脚本
 - [斜杠命令](./slash-commands.md) — TUI 内置控制命令速查
+- [配置文件](../configuration/config-files.md#github) — 设置 `[github]` 的 token 与 API 基地址

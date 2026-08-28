@@ -3843,7 +3843,7 @@ describe('Agent tools', () => {
     };
 
     beforeEach(async () => {
-      ctx = createTestAgent();
+      ctx = createTestAgent({ initialConfig: { github: { token: 'ghp_test_not_real' } } });
       await ctx.rpc.setPermission({ mode: 'auto' });
       await ctx.rpc.registerTool({
         name: 'Lookup',

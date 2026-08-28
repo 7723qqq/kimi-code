@@ -6,8 +6,9 @@ import { join, relative } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { createServices } from '#/_base/di/test';
+import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   IMcpConfigStore,
@@ -76,7 +77,10 @@ describe('McpRegistryService', () => {
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>(_scope: string, key: string) => {
-            if (!trusted || (trustedKey !== undefined && key !== encodeWorkDirKey(trustedKey))) {
+            if (
+              !trusted ||
+              (trustedKey !== undefined && key !== encodeWorkDirKey(canonicalWorkspaceRoot(trustedKey)))
+            ) {
               return undefined;
             }
             return {} as T;

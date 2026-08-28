@@ -234,6 +234,14 @@ async function flushBackgroundInstall(): Promise<void> {
   });
 }
 
+function withPosixPlatform(run: () => Promise<void>): Promise<void> {
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  return run().finally(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+}
+
 describe('runUpdatePreflight', () => {
   beforeEach(() => {
     // Pin the experimental flag off so rollout gating is deterministic
@@ -284,25 +292,27 @@ describe('runUpdatePreflight', () => {
   });
 
   it('starts an automatic update from the first fresh check when the cache is empty', async () => {
-    mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
+    await withPosixPlatform(async () => {
+      mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
 
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
 
-    expect(readUpdateCache).toHaveBeenCalledTimes(1);
-    expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(detectInstallSource).toHaveBeenCalledTimes(1);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
-    );
+      expect(readUpdateCache).toHaveBeenCalledTimes(1);
+      expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
+      expect(promptForInstallChoice).not.toHaveBeenCalled();
+      expect(detectInstallSource).toHaveBeenCalledTimes(1);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^npm(\.cmd)?$/),
+        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { detached: true, stdio: 'ignore' },
+      );
+    });
   });
 
   it('does not start a fresh-check background install when automatic updates are disabled', async () => {
@@ -348,53 +358,57 @@ describe('runUpdatePreflight', () => {
   });
 
   it('npm-global: prompts and spawns npm install -g when automatic updates are disabled', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { stdout, options } = captureOutput();
+    await withPosixPlatform(async () => {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
+      mockSpawnExit(0);
+      const { stdout, options } = captureOutput();
 
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.5.0',
-        installSource: 'npm-global',
-      }),
-    );
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
-    );
-    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installCommand: 'npm install -g @moonshot-ai/kimi-code@0.5.0',
+          installSource: 'npm-global',
+        }),
+      );
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^npm(\.cmd)?$/),
+        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { stdio: 'inherit' },
+      );
+      expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
+    });
   });
 
   it('refreshes a stale cached target before showing the foreground install prompt', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { stdout, options } = captureOutput();
+    await withPosixPlatform(async () => {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
+      mockSpawnExit(0);
+      const { stdout, options } = captureOutput();
 
-    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('exit');
+      await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('exit');
 
-    expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: { version: '0.7.0' },
-        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.7.0',
-      }),
-    );
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
-      { stdio: 'inherit' },
-    );
-    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
+      expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: { version: '0.7.0' },
+          installCommand: 'npm install -g @moonshot-ai/kimi-code@0.7.0',
+        }),
+      );
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^npm(\.cmd)?$/),
+        ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
+        { stdio: 'inherit' },
+      );
+      expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
+    });
   });
 
   it('falls back to the cached foreground prompt target when the refresh hangs', async () => {
@@ -423,19 +437,21 @@ describe('runUpdatePreflight', () => {
   });
 
   it('pnpm-global: spawns pnpm add -g', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-    await runUpdatePreflight('0.4.0', options);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^pnpm(\.cmd)?$/),
-      ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
-    );
+    await withPosixPlatform(async () => {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('pnpm-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
+      await runUpdatePreflight('0.4.0', options);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^pnpm(\.cmd)?$/),
+        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { stdio: 'inherit' },
+      );
+    });
   });
 
   it('pnpm-global on win32: spawns pnpm.cmd through a shell', async () => {
@@ -462,35 +478,39 @@ describe('runUpdatePreflight', () => {
   });
 
   it('yarn-global: spawns yarn global add', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('yarn-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-    await runUpdatePreflight('0.4.0', options);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^yarn(\.cmd)?$/),
-      ['global', 'add', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
-    );
+    await withPosixPlatform(async () => {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('yarn-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
+      await runUpdatePreflight('0.4.0', options);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^yarn(\.cmd)?$/),
+        ['global', 'add', '@moonshot-ai/kimi-code@0.5.0'],
+        { stdio: 'inherit' },
+      );
+    });
   });
 
   it('bun-global: spawns bun add -g', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('bun-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-    await runUpdatePreflight('0.4.0', options);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^bun(\.exe)?$/),
-      ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
-    );
+    await withPosixPlatform(async () => {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('bun-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
+      await runUpdatePreflight('0.4.0', options);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^bun(\.exe)?$/),
+        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { stdio: 'inherit' },
+      );
+    });
   });
 
   it('homebrew: prints manual brew upgrade command, does not spawn', async () => {
@@ -831,22 +851,24 @@ describe('runUpdatePreflight', () => {
   });
 
   it('defaults to automatic background updates when client preferences cannot be loaded', async () => {
-    mocks.loadTuiConfig.mockRejectedValue(new Error('broken tui.toml'));
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
+    await withPosixPlatform(async () => {
+      mocks.loadTuiConfig.mockRejectedValue(new Error('broken tui.toml'));
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
 
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
 
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
-    );
+      expect(promptForInstallChoice).not.toHaveBeenCalled();
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^npm(\.cmd)?$/),
+        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { detached: true, stdio: 'ignore' },
+      );
+    });
   });
 
   it('starts only one background update when two sessions preflight concurrently', async () => {

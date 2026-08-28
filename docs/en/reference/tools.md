@@ -136,8 +136,63 @@ To prevent all users from firing at the same time on the hour, the scheduler app
 
 **`CronDelete`** accepts a single `id`. For recurring tasks, all future fires stop immediately; for one-time tasks, the pending fire is cancelled. One-time tasks that have already fired are auto-deleted, so calling `CronDelete` on an already-fired one-time task returns `No cron job with id ...`. Deletion is irreversible — use `CronCreate` again to restore. `CronDelete` is also blocked in Plan mode.
 
+## GitHub
+
+The GitHub tools talk to the GitHub REST API directly, so the agent can open a pull request, read a diff, or triage issues without you leaving the terminal. They appear in the tool list **only when a token is configured** — set `token` in the `[github]` section of `config.toml`, or export `GITHUB_TOKEN` / `GH_TOKEN`; see [Configuration files](../configuration/config-files.md#github). Without a token, none of the tools below exist and the agent has no way to reach GitHub.
+
+Point the tools at a GitHub Enterprise Server instance instead of GitHub's public API with `base_url` (`[github]` in `config.toml`) or `GITHUB_API_URL`.
+
+Every read-only tool below is auto-approved, like `Read` and `FetchURL`. Every write tool needs your approval in any permission mode other than auto, including the ones that only add a comment.
+
+**Read-only** — 22 tools, auto-approved:
+
+| Tool | Description |
+| --- | --- |
+| `GitHubGetRepo` | Repository metadata (description, default branch, stars, visibility) |
+| `GitHubListBranches` | List branches in a repository |
+| `GitHubListCommits` | List commits, optionally filtered by branch/sha or path |
+| `GitHubGetCommit` | A single commit, including diff stats and changed files |
+| `GitHubGetFileContents` | A file or directory listing; file content comes back base64-encoded in `content` |
+| `GitHubGetRef` | A Git reference (branch or tag head) as a SHA, for ref names like `heads/main` |
+| `GitHubListIssues` | List issues (excludes pull requests unless combined with search), filterable by state and labels |
+| `GitHubGetIssue` | A single issue by number |
+| `GitHubListIssueComments` | Comments on an issue or pull request |
+| `GitHubListPRs` | List pull requests in a repository |
+| `GitHubGetPR` | A single pull request by number |
+| `GitHubGetPRDiff` | The unified diff for a pull request |
+| `GitHubGetPRFiles` | The files changed in a pull request |
+| `GitHubListPRReviewComments` | Review comments (inline code comments) on a pull request |
+| `GitHubSearchCode` | Search code across GitHub; supports qualifiers like `repo:owner/name`, `path:`, `language:` |
+| `GitHubSearchRepos` | Search repositories; supports qualifiers like `language:`, `stars:>100`, `user:` |
+| `GitHubSearchIssues` | Search issues and pull requests; supports `repo:`, `is:pr`, `author:`, `state:` |
+| `GitHubListWorkflowRuns` | List GitHub Actions workflow runs for a repository |
+| `GitHubGetWorkflowRun` | A single GitHub Actions workflow run |
+| `GitHubListReleases` | List releases for a repository |
+| `GitHubGetLatestRelease` | The latest published release for a repository |
+| `GitHubGetMe` | The authenticated user — useful for verifying the configured token |
+
+**Write** — 12 tools, each requiring approval:
+
+| Tool | Description |
+| --- | --- |
+| `GitHubCreateIssue` | Open a new issue |
+| `GitHubUpdateIssue` | Update an issue (title, body, state, labels, assignees) |
+| `GitHubAddIssueComment` | Add a comment to an issue or pull request |
+| `GitHubCreatePR` | Open a new pull request |
+| `GitHubUpdatePR` | Update a pull request (title, body, state, base branch) |
+| `GitHubCreatePRReview` | Submit a review on a pull request (`APPROVE`, `REQUEST_CHANGES`, or `COMMENT`) |
+| `GitHubMergePR` | Merge a pull request |
+| `GitHubCreateOrUpdateFile` | Create or update a file from plain-text `content` (base64-encoded for you); pass `sha` when updating an existing file |
+| `GitHubCreateTree` | Create a Git tree from file entries |
+| `GitHubCreateCommit` | Create a commit object for a tree SHA with parent commit SHAs |
+| `GitHubUpdateRef` | Move a Git reference to a new commit SHA |
+| `GitHubCreateBranch` | Create a new branch pointing at an existing commit SHA |
+
+`GitHubCreateTree`, `GitHubCreateCommit`, and `GitHubUpdateRef` are the low-level Git Data API trio: together they push a multi-file commit through the API without a local clone, and `GitHubCreateBranch` covers the common single-ref case. Prefer `Bash` with `git` for ordinary local work — these tools exist for the cases where there is no clone to work in.
+
 ## Next steps
 
 - [Agent & Sub-Agents](../customization/agents.md) — Scheduling mechanics and context isolation for the `Agent` tool
 - [Hooks](../customization/hooks.md) — Trigger local scripts before and after tool calls
 - [Slash Commands](./slash-commands.md) — Quick reference for TUI built-in control commands
+- [Configuration files](../configuration/config-files.md#github) — Set the `[github]` token and base URL

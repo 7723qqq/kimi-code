@@ -718,31 +718,48 @@ export function encodeSixel(
 	);
 	const targetW = Math.max(1, size.columns * cell.widthPx);
 	const targetH = Math.max(1, size.rows * cell.heightPx);
+	const bands = Math.ceil(targetH / 6);
 
 	const parts: string[] = ["\x1bPq", buildSixelPalette()];
-	for (let ty = 0; ty < targetH; ty++) {
-		const sy = Math.min(heightPx - 1, Math.floor((ty * heightPx) / targetH));
-		let line = "";
-		for (let tx = 0; tx < targetW; tx += 6) {
-			// Six pixels per group, 6 bits each -> 36 bits -> 6 sixel chars.
-			let value = 0;
+	for (let band = 0; band < bands; band++) {
+		if (band > 0) parts.push("-");
+		// Sample the band: one quantized color per (column, row-in-band).
+		// Row colors are stored column-major so the emit pass below can read
+		// a full pixel column contiguously.
+		const colors: number[] = [];
+		const colorsPresent = new Set<number>();
+		for (let tx = 0; tx < targetW; tx++) {
+			const sx = Math.min(widthPx - 1, Math.floor((tx * widthPx) / targetW));
 			for (let bit = 0; bit < 6; bit++) {
-				const px = tx + bit;
-				if (px >= targetW) break;
-				const sx = Math.min(widthPx - 1, Math.floor((px * widthPx) / targetW));
+				const ty = band * 6 + bit;
+				if (ty >= targetH) {
+					colors.push(-1);
+					continue;
+				}
+				const sy = Math.min(heightPx - 1, Math.floor((ty * heightPx) / targetH));
 				const offset = (sy * widthPx + sx) * 4;
-				const r = pixels[offset] ?? 0;
-				const g = pixels[offset + 1] ?? 0;
-				const b = pixels[offset + 2] ?? 0;
-				value += quantizeSixelColor(r, g, b) * 64 ** bit;
+				const color = quantizeSixelColor(
+					pixels[offset] ?? 0,
+					pixels[offset + 1] ?? 0,
+					pixels[offset + 2] ?? 0,
+				);
+				colors.push(color);
+				colorsPresent.add(color);
 			}
-			for (let i = 0; i < 6; i++) {
-				line += String.fromCharCode(63 + (Math.floor(value / 64 ** i) % 64));
-			}
-			if (tx + 6 < targetW) line += "$";
 		}
-		parts.push(line);
-		if (ty + 1 < targetH) parts.push("-");
+		// One sixel char paints one pixel column across the band's 6 rows in
+		// the currently selected color (bit 0 = topmost row), so emit one
+		// `#<color>` run over all columns per color present in the band.
+		for (const color of colorsPresent) {
+			parts.push(`#${color}`);
+			for (let tx = 0; tx < targetW; tx++) {
+				let bits = 0;
+				for (let bit = 0; bit < 6; bit++) {
+					if (colors[tx * 6 + bit] === color) bits |= 1 << bit;
+				}
+				parts.push(String.fromCharCode(63 + bits));
+			}
+		}
 	}
 	parts.push("\x1b\\");
 	return parts.join("");

@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (29 sections · 2 overlay(s))
+# Index (29 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -17,7 +17,7 @@
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
-#   github                   src/agent/tools/github/flag.ts
+#   github                   src/agent/tools/github/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
@@ -38,6 +38,7 @@
 #   thinking                 src/app/kosongConfig/configSection.ts
 #   tokenCounting            src/agent/tokenCounting/configSection.ts
 #   tools                    src/agent/toolPolicy/configSection.ts
+#   (overlay) githubEnvOverlay  src/agent/tools/github/envOverlay.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
 
@@ -139,12 +140,13 @@ extra_skill_dirs = []
 
 # ##########################################################################
 # github
-#   owner: src/agent/tools/github/flag.ts
+#   owner: src/agent/tools/github/configSection.ts
 #   scope: core
 # ##########################################################################
 
 [github]
 # token: string
+# base_url: string
 
 # ##########################################################################
 # hooks

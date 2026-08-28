@@ -8,19 +8,18 @@ export const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 export const GITHUB_MAX_RESPONSE_BODY_BYTES = 5 * 1024 * 1024;
 
 export const GITHUB_NO_TOKEN_ERROR =
-  'No GitHub token found. Set the GITHUB_TOKEN (or GH_TOKEN) environment variable.';
+  'No GitHub token configured. Set token in the [github] section of config.toml, or set the GITHUB_TOKEN (or GH_TOKEN) environment variable.';
 
 export interface GitHubRequestOptions {
   readonly query?: Record<string, unknown>;
   readonly body?: unknown;
   readonly accept?: string;
-  /** Explicit per-request token; when set, takes precedence over the env. */
   readonly token?: string;
+  readonly baseUrl?: string;
 }
 
 export interface GitHubRequestDeps {
   readonly fetchImpl?: typeof fetch;
-  readonly getEnv?: (name: string) => string | undefined;
   readonly signal?: AbortSignal;
 }
 
@@ -39,14 +38,12 @@ export async function githubRequest(
   deps: GitHubRequestDeps = {},
 ): Promise<GitHubRequestResult> {
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const getEnv = deps.getEnv ?? ((name: string) => process.env[name]);
-  const token = firstNonEmpty(options.token, getEnv('GITHUB_TOKEN'), getEnv('GH_TOKEN'));
+  const token = firstNonEmpty(options.token);
   if (token === undefined) {
     return { status: 0, ok: false, body: '', error: GITHUB_NO_TOKEN_ERROR };
   }
 
-  const baseUrl =
-    firstNonEmpty(getEnv('GITHUB_API_URL'), GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
+  const baseUrl = firstNonEmpty(options.baseUrl, GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
   const url = `${buildGitHubUrl(baseUrl, path)}${buildGitHubQuery(options.query)}`;
 
   const headers: Record<string, string> = {

@@ -1,6 +1,7 @@
 // apps/kimi-web/src/lib/parseSwarmResult.ts
 // Parse the `<agent_swarm_result>` payload returned by the AgentSwarm tool
-// (see packages/agent-core/.../agent-swarm.ts renderSwarmResults). The result
+// (emitted inline by packages/agent-core-v2/src/features/swarm/tools/
+// agent-swarm/agentSwarmTool.ts). The result
 // arrives as a plain string inside the toolResult output; the swarm card turns
 // it into a structured aggregate view. Defensive: never throws.
 

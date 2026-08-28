@@ -87,7 +87,13 @@ describe('Workspace MCP initialization', () => {
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         const runtime = Object.assign(
-          new FakeRuntime({ workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' }, { capabilities: ['process'] }),
+          new FakeRuntime(
+            { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
+            {
+              capabilities: ['process'],
+              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+            },
+          ),
           { process: new HostProcessService() },
         );
         reg.defineInstance(IRuntimeResolver, { _serviceBrand: undefined, inspect: () => runtime, acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }) });

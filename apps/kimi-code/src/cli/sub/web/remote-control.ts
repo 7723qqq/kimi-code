@@ -1,4 +1,9 @@
-import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
+import {
+  request as httpRequest,
+  validateHeaderName,
+  validateHeaderValue,
+  type IncomingMessage,
+} from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -40,6 +45,9 @@ const REGISTER_TIMEOUT_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RELAY_PING_INTERVAL_MS = 30_000;
 const RELAY_SILENCE_TIMEOUT_MS = 300_000;
+const HANDSHAKE_REJECTION_TIMEOUT_MS = 2000;
+const HANDSHAKE_REJECTION_BODY_BYTES = 512;
+const HANDSHAKE_REJECTION_TEXT_LIMIT = 200;
 const BLOCKED_REQUEST_HEADERS = new Set([
   'authorization',
   'cookie',
@@ -793,6 +801,7 @@ function connectWebSocketAttempt(
     const cleanup = (): void => {
       socket.off('open', onOpen);
       socket.off('close', onClose);
+      socket.off('unexpected-response', onUnexpectedResponse);
     };
     const finish = (error?: Error): void => {
       if (settled) return;
@@ -806,18 +815,57 @@ function connectWebSocketAttempt(
       else reject(error);
     };
     const onOpen = (): void => finish();
-    const onError = (error: Error): void => finish(error);
+    const onError = (error: unknown): void => finish(toError(error));
     const onClose = (code: number, reason: Buffer): void => {
       finish(new Error(`WebSocket closed during handshake (${code} ${reason.toString()})`));
+    };
+    // Without this listener `ws` reports a rejected upgrade as a bare error,
+    // and Bun's built-in `ws` shim drops the status entirely. The relay also
+    // explains itself in the response body, which `ws` discards either way.
+    const onUnexpectedResponse = (_request: unknown, response: IncomingMessage): void => {
+      const status = response.statusCode ?? 0;
+      void (async (): Promise<void> => {
+        const detail = await readHandshakeRejection(response);
+        finish(new Error(`WebSocket handshake rejected (HTTP ${status})${detail}`));
+        socket.terminate();
+      })();
     };
     socket.once('open', onOpen);
     socket.once('error', onError);
     socket.once('close', onClose);
+    socket.once('unexpected-response', onUnexpectedResponse);
   });
 }
 
 function isWebSocketProtocolToken(value: string): boolean {
   return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
+}
+
+/**
+ * Read the body the relay sends with a rejected upgrade — it carries the only
+ * machine-written reason (`{"error":{"message":...,"type":...}}`). Bun's `ws`
+ * shim hands the body over without decoding chunked framing, so collapse
+ * whitespace and cap the length rather than printing it raw. A body that never
+ * ends is cut off by the timeout, keeping whatever arrived.
+ */
+async function readHandshakeRejection(response: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const timer = setTimeout(() => response.destroy(), HANDSHAKE_REJECTION_TIMEOUT_MS);
+  timer.unref();
+  try {
+    for await (const chunk of response) {
+      chunks.push(chunk as Buffer);
+      size += (chunk as Buffer).length;
+      if (size >= HANDSHAKE_REJECTION_BODY_BYTES) break;
+    }
+  } catch {
+  } finally {
+    clearTimeout(timer);
+    response.resume();
+  }
+  const text = Buffer.concat(chunks).toString('utf8').replaceAll(/\s+/g, ' ').trim();
+  return text.length === 0 ? '' : `: ${text.slice(0, HANDSHAKE_REJECTION_TEXT_LIMIT)}`;
 }
 
 function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<RelayMessage> {
@@ -1057,6 +1105,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function toError(value: unknown): Error {
+  if (value instanceof Error) return value;
+  // Bun's built-in `ws` shim emits browser-style ErrorEvent objects instead of
+  // Node Errors; stringifying one yields a useless `[object ErrorEvent]`.
+  if (isRecord(value)) {
+    const inner = value['error'];
+    if (inner instanceof Error) return inner;
+    const message = value['message'];
+    if (typeof message === 'string' && message.length > 0) return new Error(message);
+  }
+  return new Error(String(value));
+}
+
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return toError(error).message;
 }

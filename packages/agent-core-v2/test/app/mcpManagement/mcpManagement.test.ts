@@ -103,7 +103,10 @@ describe('McpManagementService', () => {
     const runtime = Object.assign(
       new FakeRuntime(
         { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
-        { capabilities: ['process'] },
+        {
+          capabilities: ['process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
       ),
       { process: hostProcess },
     );
@@ -126,7 +129,7 @@ describe('McpManagementService', () => {
           osVersion: 'test',
           shellName: 'bash',
           shellPath: '/bin/bash',
-          pathClass: 'posix',
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
           homeDir: home,
           ready: Promise.resolve(),
         });

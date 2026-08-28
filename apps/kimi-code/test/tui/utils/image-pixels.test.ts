@@ -8,7 +8,7 @@ const PNG_B64 =
 
 describe('decodeImagePixels', () => {
   it('decodes a PNG payload to RGBA pixels with dimensions', async () => {
-    const decoded = await decodeImagePixels(PNG_B64, 'image/png');
+    const decoded = await decodeImagePixels(PNG_B64);
     expect(decoded).not.toBeNull();
     expect(decoded?.width).toBe(1);
     expect(decoded?.height).toBe(1);
@@ -16,22 +16,22 @@ describe('decodeImagePixels', () => {
   });
 
   it('returns null for undecodable payloads', async () => {
-    const decoded = await decodeImagePixels('bm90LWFuLWltYWdl', 'image/png');
+    const decoded = await decodeImagePixels('bm90LWFuLWltYWdl');
     expect(decoded).toBeNull();
   });
 
   it('caches by payload so repeated decodes share one promise', async () => {
-    const first = decodeImagePixels(PNG_B64, 'image/png');
-    const second = decodeImagePixels(PNG_B64, 'image/png');
+    const first = decodeImagePixels(PNG_B64);
+    const second = decodeImagePixels(PNG_B64);
     expect(second).toBe(first);
     await expect(first).resolves.not.toBeNull();
   });
 
   it('does not cache failed decodes', async () => {
     const bad = 'bm90LWFuLWltYWdl';
-    const first = decodeImagePixels(bad, 'image/png');
+    const first = decodeImagePixels(bad);
     await expect(first).resolves.toBeNull();
-    const retry = decodeImagePixels(bad, 'image/png');
+    const retry = decodeImagePixels(bad);
     expect(retry).not.toBe(first);
   });
 });

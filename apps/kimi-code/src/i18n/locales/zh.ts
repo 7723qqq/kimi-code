@@ -643,10 +643,63 @@ export default {
         lockedBy: '被 {{env}} 锁定',
         lockedByMasterEnv: '被 KIMI_CODE_EXPERIMENTAL_FLAG 锁定',
         features: {
+          auto_session_title: {
+            title: 'AI 会话标题',
+            description:
+              '通过托管的 chat_title 工具从对话内容生成简洁的会话标题：客户端在第一轮结束后自动生成，并在重命名输入框中提供按需重新生成。',
+          },
+          lsp: {
+            title: 'LSP 工具',
+            description:
+              '暴露 lsp 工具，通过 [lsp] 配置段中配置的语言服务器执行跳转到定义、查找引用、查找实现和悬停查询。',
+          },
+          micro_compaction: {
+            title: '微压缩（缓存未命中时截断工具结果）',
+            description:
+              '在 prompt 缓存未命中后，将请求中过大的旧工具结果替换为占位标记，使重建的前缀保持精简。',
+          },
+          persistence_minidb_readmodel: {
+            title: 'minidb 读模型',
+            description: '使用基于 minidb 的 IQueryStore 作为派生读模型，用于会话索引和 wire 回放。',
+          },
+          'remote-control': {
+            title: '远程控制',
+            description:
+              '通过 Kimi 远程控制暴露本机 Web UI（`kimi web --remote-control`、`/remote-control`）。',
+          },
+          search_worker: {
+            title: '搜索 worker 隔离',
+            description:
+              '在独立的 worker 线程中运行全局搜索索引 MiniDB（打开、WAL 回放、同步、查询），而不是在服务器主线程中运行。',
+          },
+          'secondary-model': {
+            title: '子代理副模型',
+            description:
+              '让新启动的子代理默认使用单独配置的副模型，并可显式指定 primary 模型以应对质量敏感的任务。',
+          },
+          subagent_backends: {
+            title: '外部子代理后端',
+            description:
+              '为 Agent 工具启用 claude-code / codex / acp 后端，改为启动外部 agent CLI 而非进程内子代理。',
+          },
+          subagent_fork: {
+            title: '子代理上下文分叉',
+            description:
+              '让 Agent 和 AgentSwarm 工具通过 fork 参数，以调用方对话历史的快照来启动子代理。',
+          },
           tool_select: {
             title: '工具选择（渐进式工具披露）',
             description:
               '将 MCP 工具架构从不可变的顶层 tools[] 中移出；模型通过 select_tools 工具按需加载。仅在模型能力目录声明了动态加载工具时生效。',
+          },
+          tower: {
+            title: 'Tower 模式',
+            description: '启用 tower 模式：让多个 agent 围绕同一目标协同工作，通过 /tower 命令切换。',
+          },
+          xunfei_coding_plan: {
+            title: 'Astron（讯飞编程套餐）',
+            description:
+              '在 /settings 中显示 Astron provider 设置并启用 Astron 登录流程。无论此开关如何，[providers] 下的 astron 条目都保持可用。',
           },
         },
       },

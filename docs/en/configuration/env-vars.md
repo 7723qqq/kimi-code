@@ -99,6 +99,18 @@ This group of variables redirects OAuth authentication and managed service endpo
 `KIMI_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `KIMI_BASE_URL` (direct API key connection, targeting `moonshot.ai`) are two distinct variables. Use each one in its appropriate context.
 :::
 
+## GitHub credentials
+
+Unlike the provider key names above, these three are read from the real shell environment: the built-in GitHub tools appear in the agent's tool list only when a token is available, and a token can come from the environment instead of the config file.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | Personal access token for the built-in GitHub tools | None |
+| `GH_TOKEN` | Equal alternative to `GITHUB_TOKEN`, the name the `gh` CLI uses; `GITHUB_TOKEN` wins when both are set | None |
+| `GITHUB_API_URL` | REST API base URL for a GitHub Enterprise Server instance | `https://api.github.com` |
+
+A `token` or `base_url` written in the `[github]` section of `config.toml` always wins; the environment only fills a field the file leaves unset, and an env-sourced value is never written back to `config.toml`. See [Configuration files](./config-files.md#github) for the section itself and for when a token added mid-session takes effect.
+
 ## Define a model from environment variables (`KIMI_MODEL_*`)
 
 Want to switch models for testing without touching `config.toml`? When `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider and model alias from the `KIMI_MODEL_*` variables in memory — nothing is written back to the config file. These variables take priority over `default_model` in `config.toml`, but the `-m <alias>` option at startup still has the highest priority.
@@ -137,6 +149,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | Variable | Purpose | Valid values |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `yes`, `y` (case-insensitive) |
+| `KIMI_LANG` | Pin the auto-detected UI language of the terminal at startup; only the detection step reads it, so a `locale` written in `tui.toml` still wins | `zh`, `en` |
 | `KIMI_CODE_PASSWORD` | Set a parallel auth credential for the `kimi web` local server, valid alongside the bearer token; recommended when binding the server beyond loopback — see [Using Kimi Code in the browser: Security notes](../guides/web.md#security-notes) | Any non-empty string; when unset, only the token is valid |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | Whether to keep background tasks when the session closes; takes higher priority than `config.toml`. The default is to stop them on exit | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[background] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |

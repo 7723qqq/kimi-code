@@ -45,6 +45,8 @@ const TOKEN: TokenInfo = {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
+const REJECTION_BODY = '{"error":{"message":"relay unavailable","type":"service_unavailable_error"}}';
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   while (cleanups.length > 0) await cleanups.pop()!();
@@ -285,6 +287,7 @@ describe('Remote Control tunnel', () => {
   it('keeps the initial start pending through transient failures and recovers', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ rejectUpgrades: 2 });
+    const errors: string[] = [];
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
 
@@ -293,11 +296,19 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
-      stderr: { write: () => true },
+      stderr: {
+        write: (chunk: string | Uint8Array) => {
+          errors.push(String(chunk));
+          return true;
+        },
+      },
     });
 
     expect(relay.requests.length).toBeGreaterThanOrEqual(4);
     expect(handle.url).toContain('?rc=1&from=kimi_code_cli');
+    expect(errors.join('')).toContain(
+      `Remote Control disconnected: WebSocket handshake rejected (HTTP 503): ${REJECTION_BODY}`,
+    );
   }, 6000);
 
   it('reconnects when management closes during the HTTP tunnel handshake', async () => {
@@ -745,7 +756,7 @@ async function startAuthRelay(
     if (remainingRejections > 0) {
       remainingRejections -= 1;
       socket.end(
-        'HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
+        `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${REJECTION_BODY.length}\r\n\r\n${REJECTION_BODY}`,
       );
       return;
     }

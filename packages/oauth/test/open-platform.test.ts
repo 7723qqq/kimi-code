@@ -102,6 +102,41 @@ describe('fetchOpenPlatformModels', () => {
     );
   });
 
+  it('parses capabilities array when present in model item', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'glm-5.3-flash',
+                context_length: 1000000,
+                capabilities: ['thinking', 'tool_use', 'image_in'],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    const platform = getOpenPlatformById('moonshot-cn')!;
+
+    const models = await fetchOpenPlatformModels(
+      platform,
+      'sk-test',
+      fetchMock as unknown as typeof fetch,
+    );
+
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: 'glm-5.3-flash',
+      contextLength: 1000000,
+      supportsReasoning: true,
+      supportsImageIn: true,
+      supportsToolUse: true,
+    });
+    expect(capabilitiesForModel(models[0]!)).toEqual(['thinking', 'image_in', 'tool_use']);
+  });
+
   it('surfaces API error messages and status on HTTP error', async () => {
     const fetchMock = vi.fn(
       async () =>

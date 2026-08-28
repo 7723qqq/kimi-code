@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,7 +94,9 @@ describe('PluginManager', () => {
       const record = await manager.install(sourceRoot);
 
       expect(record.id).toBe('other');
-      expect(record.root).toContain(join(home, 'plugins', 'managed', 'other'));
+      expect(record.root).toContain(
+        await realpath(join(home, 'plugins', 'managed', 'other')),
+      );
       expect(manager.get('other')?.manifest?.name).toBe('other');
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });

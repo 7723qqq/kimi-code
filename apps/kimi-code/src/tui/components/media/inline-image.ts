@@ -13,14 +13,17 @@
  * decodes asynchronously with jimp (`decodeImagePixels`) and swaps the
  * placeholder for the image once the pixels are ready.
  *
- * Height is capped at ~12 rows so a single screenshot can't monopolize the
- * viewport; pi-tui handles proportional scaling internally.
+ * Width adapts to the available columns: narrow terminals fill the usable
+ * width, wide terminals cap at `MAX_IMAGE_WIDTH`. Height is capped at ~16
+ * rows so a single screenshot can't monopolize the viewport; pi-tui handles
+ * proportional scaling internally.
  */
 
 import {
   Container,
   Image,
   Text,
+  truncateToWidth,
   type ImageTheme,
   getCapabilities,
   type ImageProtocol,
@@ -30,8 +33,14 @@ import { currentTheme } from '#/tui/theme';
 import { formatBytes } from '#/tui/utils/format-bytes';
 import { decodeImagePixels, type DecodedImagePixels } from '#/tui/utils/image-pixels';
 
-const MAX_IMAGE_ROWS = 12;
-const MAX_IMAGE_WIDTH = 40;
+/** Image height cap in terminal rows — keeps a screenshot from owning the viewport. */
+const MAX_IMAGE_ROWS = 16;
+/** Absolute image width cap in terminal columns (wide terminals). */
+const MAX_IMAGE_WIDTH = 60;
+/** Image never shrinks below this many columns once the picture is shown. */
+const MIN_IMAGE_WIDTH = 20;
+/** Fraction of usable width the image may occupy (clamped into the min/max range). */
+const IMAGE_WIDTH_RATIO = 0.6;
 
 export interface InlineImageOptions {
   /** Base64-encoded image payload. */
@@ -88,7 +97,7 @@ export class InlineImage extends Container {
       if (this.pixels !== undefined) {
         this.addChild(this.buildImage(width, this.pixels));
       } else {
-        this.addChild(new Text(this.fallbackText(), 0, 0));
+        this.addChild(new Text(this.truncatedFallbackText(width), 0, 0));
         this.requestPixels();
       }
       this.lastBuiltWidth = width;
@@ -96,13 +105,24 @@ export class InlineImage extends Container {
     }
 
     if (caps.images !== 'kitty' && caps.images !== 'iterm2') {
-      this.addChild(new Text(this.fallbackText(), 0, 0));
+      this.addChild(new Text(this.truncatedFallbackText(width), 0, 0));
       this.lastBuiltWidth = width;
       return;
     }
 
     this.addChild(this.buildImage(width));
     this.lastBuiltWidth = width;
+  }
+
+  /**
+   * Picture width in terminal columns for a given usable width: fill a
+   * fraction of the available columns, clamped so narrow terminals never
+   * drop below `MIN_IMAGE_WIDTH` and wide ones never exceed `MAX_IMAGE_WIDTH`.
+   */
+  private imageWidthCells(width: number): number {
+    const available = Math.max(1, width - 2);
+    const target = Math.floor(available * IMAGE_WIDTH_RATIO);
+    return Math.max(MIN_IMAGE_WIDTH, Math.min(MAX_IMAGE_WIDTH, target));
   }
 
   private buildImage(width: number, pixels?: DecodedImagePixels): Image {
@@ -116,7 +136,7 @@ export class InlineImage extends Container {
       theme,
       {
         maxHeightCells: MAX_IMAGE_ROWS,
-        maxWidthCells: Math.max(1, Math.min(MAX_IMAGE_WIDTH, width - 2)),
+        maxWidthCells: this.imageWidthCells(width),
         filename: this.options.label,
         pixels: pixels?.pixels,
         pixelWidth: pixels?.width,
@@ -130,8 +150,14 @@ export class InlineImage extends Container {
     if (this.pixelsRequested) return;
     this.pixelsRequested = true;
     void (async () => {
-      const decoded = await decodeImagePixels(this.options.base64, this.options.mime);
-      if (decoded === null) return; // undecodable — keep the placeholder
+      const decoded = await decodeImagePixels(this.options.base64);
+      if (decoded === null) {
+        // Undecodable payload — release the in-flight guard so a later
+        // re-render (e.g. after a transcript reload or width change) gets a
+        // chance to decode again instead of being stuck on the placeholder.
+        this.pixelsRequested = false;
+        return;
+      }
       this.pixels = decoded;
       this.invalidate();
     })();
@@ -150,12 +176,19 @@ export class InlineImage extends Container {
     return currentTheme.fg('accent', `[${parts.join(', ')}]`);
   }
 
+  /** Fallback marker truncated to the usable width, so it never wraps. */
+  private truncatedFallbackText(width: number): string {
+    return truncateToWidth(this.fallbackText(), Math.max(0, width - 2));
+  }
+
   override render(width: number): string[] {
     const safeWidth = Math.max(0, width);
     this.lastRenderWidth = safeWidth;
 
-    if (safeWidth < MAX_IMAGE_WIDTH + 2) {
-      return new Text(this.fallbackText(), 0, 0).render(safeWidth);
+    if (safeWidth < MIN_IMAGE_WIDTH + 2) {
+      // Too narrow to show the picture — a single-line marker (truncated to
+      // the available width rather than wrapped into a multi-line blob).
+      return [truncateToWidth(this.fallbackText(), safeWidth)];
     }
 
     const caps = getCapabilities();
