@@ -7,6 +7,7 @@ import { parseHTML as rawParseHTML } from 'linkedom';
 import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 
 import { isBlockedIpAddress } from '#/_base/utils/private-address';
+import { isNativeToolsLoaded, tryNativeFetchUrl } from '#/_base/native-tools';
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -89,6 +90,18 @@ export class LocalFetchURLProvider implements UrlFetcher {
     url: string,
     options?: { toolCallId?: string; signal?: AbortSignal },
   ): Promise<UrlFetchResult> {
+    // Native fast path: the Rust HTTP client fetches and extracts in one
+    // hop. It runs its own per-hop SSRF validation, but lacks the host's
+    // DNS pinning and proxy routing, so it is only used when those guards
+    // are not needed: no proxy configured, and the (resolved) host passes
+    // the same private/loopback refusal. Any native failure falls back to
+    // the TS path, which keeps the stronger guarantees. A caller-supplied
+    // AbortSignal is honored on the TS path only.
+    if (!isProxyConfigured(process.env)) {
+      const native = await this.tryNativeFetch(url);
+      if (native !== undefined) return native;
+    }
+
     const dispatchers: Dispatcher[] = [];
     try {
       const response = await this.requestWithValidatedRedirects(
@@ -105,6 +118,39 @@ export class LocalFetchURLProvider implements UrlFetcher {
         ),
       );
     }
+  }
+
+  /**
+   * Try the Rust native fetch. Returns `undefined` when the native module
+   * is unavailable, the URL fails the shared SSRF pre-check, or the native
+   * call reports an error — the caller then runs the full TS path.
+   */
+  private async tryNativeFetch(url: string): Promise<UrlFetchResult | undefined> {
+    // Skip everything (including the DNS pre-check) when the native module
+    // cannot run — otherwise the TS path would resolve the host twice.
+    if (!isNativeToolsLoaded()) return undefined;
+
+    try {
+      await resolveSafeFetchTarget(url, this.allowPrivateAddresses);
+    } catch {
+      // Invalid URL or private address — let the TS path raise the
+      // canonical error.
+      return undefined;
+    }
+
+    const native = await tryNativeFetchUrl(url, {
+      userAgent: this.userAgent,
+      maxBytes: this.maxBytes,
+      allowPrivate: this.allowPrivateAddresses,
+      timeoutMs: this.timeoutMs,
+    });
+    if (native === undefined) return undefined;
+    if (native.error !== undefined) return undefined;
+    if (native.status >= 400) {
+      throw new HttpFetchError(native.status, `HTTP ${String(native.status)}`);
+    }
+    if (native.content.length === 0) return undefined;
+    return { content: native.content, kind: native.kind };
   }
 
   private async readResponse(response: Response): Promise<UrlFetchResult> {

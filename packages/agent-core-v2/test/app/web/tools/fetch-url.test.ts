@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
@@ -12,6 +12,13 @@ vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
 beforeEach(() => {
   (lookup as unknown as Mock).mockReset();
   (lookup as unknown as Mock).mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+  // These tests exercise the TS fetch path with a fake fetchImpl; disable
+  // the native fast path so it cannot short-circuit the mocks.
+  vi.stubEnv('KIMI_NATIVE_TOOLS_FORCE_JS', '1');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {

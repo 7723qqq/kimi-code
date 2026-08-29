@@ -32,6 +32,15 @@ function getNativeFn(name: string): ((...args: unknown[]) => unknown) | undefine
   return typeof fn === 'function' ? (fn as (...args: unknown[]) => unknown) : undefined;
 }
 
+/**
+ * Whether the native module is loaded (and not force-disabled). Callers
+ * that must avoid side effects (e.g. a DNS pre-check) before invoking a
+ * native function can gate on this first.
+ */
+export function isNativeToolsLoaded(): boolean {
+  return getNativeModule() !== undefined;
+}
+
 function callNativeSync<T>(
   name: string,
   args: unknown[],
@@ -473,6 +482,9 @@ export interface NativeFetchUrlResult {
  * Fetch a URL via Rust native HTTP client with SSRF protection and HTML
  * extraction. Returns `undefined` when the native module is unavailable.
  * A native call that throws is a final error verdict (never re-run in TS).
+ *
+ * NOTE: the native export is the index.js wrapper taking `(url, options)`
+ * and unpacking into the binding's positional parameters.
  */
 export function tryNativeFetchUrl(
   url: string,
@@ -506,6 +518,9 @@ export interface NativeWebSearchResult {
  * Search DuckDuckGo via Rust native HTTP + HTML scraping.
  * Returns `undefined` when the native module is unavailable.
  * A native call that throws is a final error verdict (never re-run in TS).
+ *
+ * NOTE: the native export is the index.js wrapper taking `(query, options)`
+ * and unpacking into the binding's positional parameters.
  */
 export function tryNativeWebSearch(
   query: string,

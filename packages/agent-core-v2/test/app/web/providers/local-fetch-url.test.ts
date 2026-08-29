@@ -19,6 +19,9 @@ beforeEach(() => {
   for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
     vi.stubEnv(key, '');
   }
+  // These tests exercise the TS fetch path with a fake fetchImpl; disable
+  // the native fast path so it cannot short-circuit the mocks.
+  vi.stubEnv('KIMI_NATIVE_TOOLS_FORCE_JS', '1');
 });
 
 afterEach(() => {
