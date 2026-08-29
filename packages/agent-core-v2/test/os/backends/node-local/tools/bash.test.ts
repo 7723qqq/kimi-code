@@ -1,6 +1,6 @@
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -748,6 +748,15 @@ function bashTool(
 }
 
 describe('BashTool', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // These tests exercise the host spawn path (the fake IHostProcessService);
+  // disable the native fast path so it cannot short-circuit the mocks.
+  beforeEach(() => {
+    vi.stubEnv('KIMI_NATIVE_TOOLS_FORCE_JS', '1');
+  });
   it('exposes current metadata and schema', () => {
     const { runner } = createTestRunner(processWithOutput());
     const tool = bashTool(runner);

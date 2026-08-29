@@ -3,6 +3,7 @@ import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { tryNativeBashSpawn } from '#/_base/native-tools';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
@@ -25,6 +26,7 @@ import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { userCancellationReason } from '#/_base/utils/abort';
 import bashDescriptionTemplate from './bash.md?raw';
+import { NativeBashProcess } from './native-bash-process';
 import { ProcessTask } from './process-task';
 import {
   type BashInput,
@@ -169,7 +171,45 @@ export class BashTool implements IBashTool {
       SHELL: env.shellPath,
     };
 
+    // Native fast path: the Rust engine spawns the process and streams
+    // output back over the callback channel. The native timeout is a hard
+    // kill, which conflicts with the host's foreground-timeout-to-background
+    // orchestration, so it is never armed here — the host owns timing and
+    // cancellation via `kill`/`dispose` on the returned handle.
+    const nativeProc = this.tryNativeSpawn(env, effectiveCwd, shellCommand, noninteractiveEnv);
+    if (nativeProc !== undefined) return Promise.resolve(nativeProc);
+
     return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
+  }
+
+  /**
+   * Try the native (Rust) process spawn. Returns `undefined` when the native
+   * module is unavailable or the spawn fails — the caller falls back to the
+   * host spawn.
+   */
+  private tryNativeSpawn(
+    env: HostEnvironmentInfo,
+    effectiveCwd: string,
+    shellCommand: string,
+    envOverlay: Record<string, string>,
+  ): IHostProcess | undefined {
+    let nativeProc: NativeBashProcess | undefined;
+    const result = tryNativeBashSpawn(
+      {
+        argv: [env.shellPath, '-c', shellCommand],
+        cwd: effectiveCwd,
+        env: envOverlay,
+      },
+      (event) => {
+        nativeProc?.handleEvent(event);
+      },
+    );
+    if (result === undefined) return undefined;
+    // Events are delivered asynchronously (ThreadsafeFunction), so wiring
+    // the handle after spawn is safe — no event can arrive before this
+    // assignment completes.
+    nativeProc = new NativeBashProcess(result.id, result.pid);
+    return nativeProc;
   }
 
   private async execution(
