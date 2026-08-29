@@ -751,6 +751,7 @@ class AgentProcess {
           reject(new Error(`Agent process exited with code ${code}`));
           this.pending.delete(id);
         }
+        onAgentProcessExit(this);
       });
 
       this.ready = true;
@@ -927,6 +928,29 @@ type EngineMode = 'napi' | 'stdio' | 'js';
 let engineMode: EngineMode = 'js';
 let agentProcess: AgentProcess | null = null;
 let napiEngine: NapiEngine | null = null;
+
+/**
+ * Crash accounting for the stdio engine.
+ *
+ * A crash used to be terminal: `engineMode` stayed `'stdio'` while the
+ * process handle went null, so every later turn failed with "Agent process
+ * is not running" and the only way out was restarting the CLI. Dropping back
+ * to `'js'` lets the next turn re-run `initEngine` and spawn a replacement —
+ * but only a few times, since a binary that crashes every turn is broken and
+ * respawning it is churn.
+ */
+let stdioCrashes = 0;
+const MAX_STDIO_RESTARTS = 3;
+
+function onAgentProcessExit(agent: AgentProcess): void {
+  // A stale process exiting — one already replaced or shut down — must not
+  // disturb the mode of the process now in use.
+  if (agentProcess !== agent) return;
+  stdioCrashes += 1;
+  if (stdioCrashes <= MAX_STDIO_RESTARTS) {
+    engineMode = 'js';
+  }
+}
 
 /**
  * Test seam: when set, `initEngine` uses this transport instead of the
@@ -1511,6 +1535,7 @@ export function shutdownRustEngine() {
   napiEngine = null;
   engineMode = 'js';
   forcedTransport = undefined;
+  stdioCrashes = 0;
 }
 
 /**
@@ -1521,5 +1546,13 @@ export function shutdownRustEngine() {
  */
 export function forceEngineTransport(mode: 'napi' | 'stdio'): void {
   forcedTransport = mode;
+}
+
+/**
+ * Test seam: the live stdio engine process, if one is running. Killing it
+ * lets a test exercise crash recovery without reaching into module state.
+ */
+export function activeAgentProcessForTests(): { stop(): void } | null {
+  return agentProcess;
 }
 

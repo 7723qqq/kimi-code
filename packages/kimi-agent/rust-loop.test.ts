@@ -187,6 +187,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
   async function driveWriteTurn(
     workspace: string,
     permission: { decision: 'allow' | 'deny'; reason?: string },
+    opts: { resetEngine?: boolean } = {},
   ): Promise<{
     events: unknown[];
     permissionCalls: Array<{ name: string; arguments: unknown }>;
@@ -196,8 +197,13 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     result: unknown;
   }> {
     const mod = await import('./rust-loop');
-    mod.shutdownRustEngine();
-    mod.forceEngineTransport('stdio');
+    // The engine's mode is sticky, so tests reset it to re-select a transport.
+    // The crash-recovery test skips this: it needs the state left behind by
+    // the crash it just induced.
+    if (opts.resetEngine !== false) {
+      mod.shutdownRustEngine();
+      mod.forceEngineTransport('stdio');
+    }
     const engine = mod.createRunTurnOverride(undefined, workspace, {
       nativeTools: true,
       shellPath: undefined,
@@ -322,7 +328,40 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(toolResultEvents[0].result?.isError).toBe(true);
   });
 
-  it('aborts a running turn at the next step boundary', async () => {
+  it('recovers after the stdio engine process crashes', async () => {
+    // A crash used to be terminal: the mode stayed 'stdio' with a null
+    // process handle, so every later turn failed with "Agent process is not
+    // running" until the CLI was restarted.
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-crash-'));
+    tempDirs.push(workspace);
+
+    const first = await driveWriteTurn(workspace, { decision: 'allow' });
+    expect(first.fileExisted).toBe(true);
+
+    const pidBefore = (
+      mod.activeAgentProcessForTests() as unknown as { process?: { pid?: number } } | null
+    )?.process?.pid;
+    expect(pidBefore).toBeDefined();
+
+    mod.activeAgentProcessForTests()?.stop();
+    // Give the 'exit' handler a tick to run and reset the engine mode.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const second = await driveWriteTurn(workspace, { decision: 'allow' }, { resetEngine: false });
+    expect(second.fileExisted).toBe(true, 'a turn after a crash must still complete');
+
+    const pidAfter = (
+      mod.activeAgentProcessForTests() as unknown as { process?: { pid?: number } } | null
+    )?.process?.pid;
+    expect(pidAfter).toBeDefined();
+    expect(pidAfter).not.toBe(pidBefore, 'a replacement process must have been spawned');
+  });
+
+  it('aborts a running turn at the next step boundary', { timeout: 15_000 }, async () => {
     const mod = await import('./rust-loop');
     mod.shutdownRustEngine();
     mod.forceEngineTransport('stdio');
