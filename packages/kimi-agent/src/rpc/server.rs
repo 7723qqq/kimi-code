@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::oneshot;
@@ -86,13 +87,18 @@ impl RpcServer {
     ///
     /// Multiple concurrent `call_host` calls are supported — responses are
     /// matched by their unique request ID.
+    ///
+    /// `timeout` bounds how long the host may take to answer; `None` waits
+    /// indefinitely, which is right for a permission check answered by a
+    /// human.
     pub async fn call_host(
         &self,
         method: &str,
         params: &impl serde::Serialize,
+        timeout: Option<Duration>,
     ) -> Result<serde_json::Value, String> {
         let params = serde_json::to_value(params).map_err(|e| e.to_string())?;
-        self.call_host_value(method, params).await
+        self.call_host_value(method, params, timeout).await
     }
 
     /// Directly invoke a locally-registered handler by method name.
@@ -121,6 +127,7 @@ impl RpcServer {
         &self,
         method: &str,
         params: serde_json::Value,
+        timeout: Option<Duration>,
     ) -> Result<serde_json::Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
@@ -142,7 +149,27 @@ impl RpcServer {
             serde_json::to_string(&request).map_err(|e| e.to_string())?
         );
 
-        rx.await.map_err(|_| "response channel closed".to_string())?
+        // A host that never answers would otherwise park the turn forever and
+        // leak the pending entry. Give up instead, and drop the entry so a
+        // late response has nowhere to land.
+        let outcome = match timeout {
+            Some(limit) => match tokio::time::timeout(limit, rx).await {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    self.pending
+                        .lock()
+                        .map_err(|e| format!("lock error: {e}"))?
+                        .remove(&id);
+                    return Err(format!(
+                        "{method} timed out after {}s with no host response",
+                        limit.as_secs()
+                    ));
+                }
+            },
+            None => rx.await,
+        };
+
+        outcome.map_err(|_| "response channel closed".to_string())?
     }
 
     /// Invoke a method, preferring a locally-registered handler and falling
@@ -153,10 +180,14 @@ impl RpcServer {
     ///     dispatches directly to them without needing a running stdio loop.
     ///   - In production, no local handler is registered for `host/*` methods,
     ///     so `invoke` transparently falls back to `call_host` (stdio round-trip).
+    ///
+    /// `timeout` bounds the host round-trip when the call has to go over
+    /// stdio; it is ignored when a local handler serves the method.
     pub async fn invoke(
         &self,
         method: &str,
         params: serde_json::Value,
+        timeout: Option<Duration>,
     ) -> Result<serde_json::Value, JsonRpcError> {
         let handler = {
             self.methods
@@ -169,7 +200,7 @@ impl RpcServer {
             return h(params).await;
         }
         // Fall back to host call over stdio.
-        self.call_host_value(method, params)
+        self.call_host_value(method, params, timeout)
             .await
             .map_err(JsonRpcError::internal_error)
     }
@@ -548,5 +579,25 @@ mod tests {
         assert_eq!(err.jsonrpc, "2.0");
         assert_eq!(err.error.code, -32700);
         assert_eq!(err.error.message, "parse error");
+    }
+
+    /// A host that never answers must not park the turn forever, and the
+    /// pending entry must not be left behind for a late response to land on.
+    #[tokio::test]
+    async fn test_call_host_value_times_out_without_leaking() {
+        let server = RpcServer::new();
+        let err = server
+            .call_host_value(
+                "host/llm_chat",
+                serde_json::json!({}),
+                Some(Duration::from_millis(50)),
+            )
+            .await
+            .expect_err("an unanswered call must fail rather than hang");
+        assert!(err.contains("timed out"), "unexpected error: {err}");
+        assert!(
+            server.pending.lock().unwrap().is_empty(),
+            "the pending entry must be removed on timeout"
+        );
     }
 }

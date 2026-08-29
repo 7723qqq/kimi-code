@@ -59,6 +59,15 @@ pub trait HostCallbacks: Send + Sync {
     }
 }
 
+/// Outer bound on a host LLM call. Generous on purpose — a long generation on
+/// a slow provider must still fit — but a host that never answers must not
+/// hang the turn forever.
+pub const HOST_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
+
+/// Outer bound on a host tool call. Tools carry their own timeouts (native
+/// Bash caps at 300s); this covers a stalled host.
+pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
 pub struct RpcHostCallbacks {
@@ -75,7 +84,11 @@ impl HostCallbacks for RpcHostCallbacks {
             let params = serde_json::to_value(&request)
                 .map_err(|e| format!("LLM chat serialize error: {e}"))?;
             let response_value = server
-                .invoke(crate::rpc::types::methods::HOST_LLM_CHAT, params)
+                .invoke(
+                    crate::rpc::types::methods::HOST_LLM_CHAT,
+                    params,
+                    Some(HOST_LLM_TIMEOUT),
+                )
                 .await
                 .map_err(|e| format!("LLM chat error: {e}"))?;
             serde_json::from_value(response_value)
@@ -92,7 +105,11 @@ impl HostCallbacks for RpcHostCallbacks {
             let params = serde_json::to_value(&request)
                 .map_err(|e| format!("Tool execute serialize error: {e}"))?;
             let response_value = server
-                .invoke(crate::rpc::types::methods::HOST_EXECUTE_TOOL, params)
+                .invoke(
+                    crate::rpc::types::methods::HOST_EXECUTE_TOOL,
+                    params,
+                    Some(HOST_TOOL_TIMEOUT),
+                )
                 .await
                 .map_err(|e| format!("Tool execute error: {e}"))?;
             serde_json::from_value(response_value)
@@ -108,8 +125,10 @@ impl HostCallbacks for RpcHostCallbacks {
         Box::pin(async move {
             let params = serde_json::to_value(&request)
                 .map_err(|e| format!("Permission check serialize error: {e}"))?;
+            // No timeout: a permission check is answered by a human, and
+            // giving up would discard an approval the user already granted.
             let response_value = server
-                .invoke(crate::rpc::types::methods::HOST_CHECK_PERMISSION, params)
+                .invoke(crate::rpc::types::methods::HOST_CHECK_PERMISSION, params, None)
                 .await
                 .map_err(|e| format!("Permission check error: {e}"))?;
             serde_json::from_value(response_value)

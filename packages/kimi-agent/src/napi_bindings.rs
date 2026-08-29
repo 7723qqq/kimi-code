@@ -22,9 +22,10 @@
 //! This avoids `call_async` entirely and works with both sync and async JS
 //! callbacks.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use napi::{
     bindgen_prelude::{Env, JsFunction},
@@ -37,8 +38,11 @@ use napi::{
 use napi_derive::napi;
 use tokio::sync::oneshot;
 
-use crate::callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks};
+use crate::callbacks::{
+    CountingCallbacks, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks, NativeToolCallbacks,
+};
 use crate::llm::http::NativeHttpLlm;
+use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
@@ -63,16 +67,34 @@ static CALLBACK_REGISTRY: LazyLock<Mutex<HashMap<u32, PendingCallback>>> =
 /// receiving the callback ID via TSFN.
 ///
 /// To prevent unbounded growth from unfetched event payloads, the registry
-/// is pruned when it exceeds `PAYLOAD_REGISTRY_MAX_ENTRIES`. Pruning removes
+/// is pruned when it exceeds [`PAYLOAD_REGISTRY_MAX_ENTRIES`]. Pruning drops
 /// the oldest entries (lowest IDs) first, since IDs are monotonically
-/// increasing.
-static PAYLOAD_REGISTRY: LazyLock<Mutex<HashMap<u32, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// increasing — which is why this is a `BTreeMap`: iterating a `HashMap`
+/// yields IDs in arbitrary order and would drop payloads JS has not fetched
+/// yet.
+static PAYLOAD_REGISTRY: LazyLock<Mutex<BTreeMap<u32, String>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
 /// Maximum number of entries in the payload registry before pruning kicks in.
 /// Each entry is a small JSON string; 1000 entries is a generous ceiling that
 /// prevents unbounded growth without affecting normal operation.
 const PAYLOAD_REGISTRY_MAX_ENTRIES: usize = 1000;
+
+/// Store a payload for JS to collect, pruning the oldest entries when the
+/// registry is full.
+fn store_payload(id: u32, payload: String) {
+    let mut registry = PAYLOAD_REGISTRY.lock().unwrap();
+    registry.insert(id, payload);
+    let excess = registry.len().saturating_sub(PAYLOAD_REGISTRY_MAX_ENTRIES);
+    if excess == 0 {
+        return;
+    }
+    let oldest: Vec<u32> = registry.keys().take(excess).copied().collect();
+    for id in oldest {
+        registry.remove(&id);
+    }
+}
+
 
 /// Monotonically increasing callback ID. Wrapping is fine because the ID
 /// space is large enough that collisions are impossible in practice.
@@ -183,7 +205,9 @@ impl HostCallbacks for NapiHostCallbacks {
             format!(r#"{{"error":"serialize: {}"}}"#, e)
         });
         Box::pin(async move {
-            let output = invoke_via_registry(&tsfn, input, "check_permission").await?;
+            // No timeout: this one waits on a human, and giving up would
+            // discard an approval the user has already granted.
+            let output = invoke_via_registry(&tsfn, input, "check_permission", None).await?;
             serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
         })
     }
@@ -193,7 +217,9 @@ impl HostCallbacks for NapiHostCallbacks {
         let Ok(payload) = serde_json::to_string(&event) else { return };
         let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
         // Payload-only registration: no oneshot — JS fetches and forgets.
-        PAYLOAD_REGISTRY.lock().unwrap().insert(id, payload);
+        // Pruning matters here too: an event the host never collects would
+        // otherwise accumulate for the life of the process.
+        store_payload(id, payload);
         let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
         if status != napi::Status::Ok {
             PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
@@ -206,30 +232,21 @@ impl HostCallbacks for NapiHostCallbacks {
 /// and await the result.
 ///
 /// Returns the JSON-serialized response string, or an error message.
+///
+/// `timeout` bounds how long the host may take to answer. `None` waits
+/// indefinitely, which is right for a permission check: that one is
+/// answered by a human, and a timeout would land after the user approved.
 async fn invoke_via_registry(
     tsfn: &Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
     label: &str,
+    timeout: Option<Duration>,
 ) -> std::result::Result<std::string::String, std::string::String> {
     let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = oneshot::channel();
 
     // Store the payload so JS can fetch it via getCallbackPayload(id).
-    // Prune stale entries to prevent unbounded growth from unfetched events.
-    {
-        let mut reg = PAYLOAD_REGISTRY.lock().unwrap();
-        if reg.len() >= PAYLOAD_REGISTRY_MAX_ENTRIES {
-            // Remove oldest entries (lowest IDs) to stay under the limit.
-            let to_remove: Vec<u32> = reg.keys()
-                .copied()
-                .take(reg.len().saturating_sub(PAYLOAD_REGISTRY_MAX_ENTRIES - 1))
-                .collect();
-            for id in to_remove {
-                reg.remove(&id);
-            }
-        }
-        reg.insert(id, input);
-    }
+    store_payload(id, input);
 
     // Register the sender so resolve_callback can find it.
     CALLBACK_REGISTRY.lock().unwrap().insert(id, tx);
@@ -245,8 +262,22 @@ async fn invoke_via_registry(
     }
 
     // Await the oneshot receiver. The sender is triggered by resolve_callback.
-    rx.await
-        .map_err(|e| format!("{label} closed: {e}"))?
+    let outcome = match timeout {
+        Some(limit) => match tokio::time::timeout(limit, rx).await {
+            Ok(outcome) => outcome,
+            Err(_) => {
+                // Leave nothing behind: the late resolve_callback would find
+                // no sender, and the payload would sit in the registry until
+                // it was pruned.
+                PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
+                CALLBACK_REGISTRY.lock().unwrap().remove(&id);
+                return Err(format!("{label} timed out after {}s", limit.as_secs()));
+            }
+        },
+        None => rx.await,
+    };
+
+    outcome.map_err(|e| format!("{label} closed: {e}"))?
 }
 
 /// Standalone async function for LLM chat via callback registry.
@@ -254,7 +285,7 @@ async fn napi_llm_chat(
     tsfn: Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
 ) -> std::result::Result<LlmChatResponse, std::string::String> {
-    let output = invoke_via_registry(&tsfn, input, "llm_chat").await?;
+    let output = invoke_via_registry(&tsfn, input, "llm_chat", Some(HOST_LLM_TIMEOUT)).await?;
     serde_json::from_str(&output).map_err(|e| format!("llm_chat parse: {e}"))
 }
 
@@ -263,7 +294,8 @@ async fn napi_execute_tool(
     tsfn: Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
 ) -> std::result::Result<ToolExecuteResponse, std::string::String> {
-    let output = invoke_via_registry(&tsfn, input, "execute_tool").await?;
+    let output =
+        invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT)).await?;
     serde_json::from_str(&output).map_err(|e| format!("execute_tool parse: {e}"))
 }
 
@@ -277,11 +309,17 @@ pub struct JsRunTurnParams {
     pub model_name: String,
     pub messages: Vec<JsMessage>,
     pub tools: Vec<JsToolDef>,
+    /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
     pub goal: Option<JsGoalContext>,
     /// Native HTTP LLM transport. When present, Rust calls the provider
     /// directly (SSE streaming) instead of proxying through the host.
     pub native_llm: Option<JsNativeLlmConfig>,
+    /// Concurrent MultiLLM providers (first-past-the-post race). When
+    /// non-empty, the loop dispatches every step to all providers in
+    /// parallel and accepts the first successful response. Wins over
+    /// `native_llm` only when set.
+    pub providers: Option<Vec<JsLlmProviderDef>>,
     /// Workspace root used to sandbox native tool execution.
     pub workspace_root: Option<String>,
     /// When true (with `workspace_root`), Read/Grep/Glob run in-process.
@@ -289,6 +327,17 @@ pub struct JsRunTurnParams {
     /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
     /// Absent on Windows → native Bash stays with the host.
     pub shell_path: Option<String>,
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsLlmProviderDef {
+    /// Provider label surfaced in events/telemetry for debugging.
+    pub name: String,
+    /// Per-provider model identifier (free-form string).
+    pub model: String,
+    /// Per-provider system prompt override.
+    pub system_prompt: String,
 }
 
 #[napi(object)]
@@ -350,6 +399,10 @@ pub struct JsRunTurnResult {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,
+    /// Prompt tokens served from the provider's cache.
+    pub input_cache_read: u32,
+    /// Prompt tokens written into the provider's cache by this turn.
+    pub input_cache_creation: u32,
     /// Host-visible engine events emitted during the turn.
     pub events_emitted: u32,
     /// LLM retries performed during the turn (attempts beyond the first).
@@ -493,28 +546,45 @@ async fn run_turn_rust_impl(
         _ => base_callbacks.clone(),
     };
 
-    // Native HTTP LLM (streaming) when configured; host proxy otherwise.
-    let llm: Box<dyn LLM> = match params.native_llm {
-        Some(cfg) => {
-            let sink_callbacks = callbacks.clone();
-            let native = NativeHttpLlm::new(
-                NativeLlmConfig {
-                    protocol: cfg.protocol,
-                    base_url: cfg.base_url,
-                    api_key: cfg.api_key,
-                    model: cfg.model,
-                    max_tokens: cfg.max_tokens,
-                    custom_headers: Default::default(),
-                },
-                params.system_prompt.clone(),
-            )
-            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-            Box::new(native)
+    // LLM selection — priority order:
+    //   1. providers (concurrent MultiLLM race) — when set, all providers
+    //      run in parallel and the first success wins
+    //   2. native_llm — Rust calls a single provider directly via HTTP/SSE
+    //   3. host proxy — caller (napi host) handles the actual LLM call
+    let llm: Box<dyn LLM> = if let Some(providers) = params.providers.as_ref().filter(|p| !p.is_empty()) {
+        let rust_providers: Vec<LlmProvider> = providers
+            .iter()
+            .map(|p| LlmProvider {
+                name: p.name.clone(),
+                system_prompt: p.system_prompt.clone(),
+                model: p.model.clone(),
+                callbacks: callbacks.clone(),
+            })
+            .collect();
+        Box::new(MultiLLM::new(rust_providers))
+    } else {
+        match params.native_llm {
+            Some(cfg) => {
+                let sink_callbacks = callbacks.clone();
+                let native = NativeHttpLlm::new(
+                    NativeLlmConfig {
+                        protocol: cfg.protocol,
+                        base_url: cfg.base_url,
+                        api_key: cfg.api_key,
+                        model: cfg.model,
+                        max_tokens: cfg.max_tokens,
+                        custom_headers: Default::default(),
+                    },
+                    params.system_prompt.clone(),
+                )
+                .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+                Box::new(native)
+            }
+            None => Box::new(
+                HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
+                    .with_callbacks(callbacks.clone()),
+            ),
         }
-        None => Box::new(
-            HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
-                .with_callbacks(callbacks.clone()),
-        ),
     };
 
     let messages: Vec<LLMMessage> = params
@@ -577,8 +647,9 @@ async fn run_turn_rust_impl(
         messages,
         tools: &[],
         tool_defs,
-        hooks: None,
-        max_steps: params.max_steps.unwrap_or(10),
+        // None = unbounded, mirroring the JS loop (which only stops on a
+        // configured `maxStepsPerTurn`).
+        max_steps: params.max_steps.unwrap_or(u32::MAX),
         goal,
         cancellation: Some(cancellation),
     };
@@ -595,8 +666,34 @@ async fn run_turn_rust_impl(
         input_tokens: result.usage.input_tokens as u32,
         output_tokens: result.usage.output_tokens as u32,
         total_tokens: result.usage.total_tokens as u32,
+        input_cache_read: result.usage.input_cache_read as u32,
+        input_cache_creation: result.usage.input_cache_creation as u32,
         events_emitted: turn_event_count.load(std::sync::atomic::Ordering::Relaxed),
         llm_retries: result.llm_retries,
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pruning must drop the OLDEST payloads. Iterating a HashMap yields ids
+    /// in arbitrary order, which used to let the prune discard payloads JS had
+    /// not collected yet while keeping long-dead ones.
+    #[test]
+    fn payload_registry_prunes_oldest_first() {
+        let base = NEXT_CALLBACK_ID.fetch_add(2_000, Ordering::SeqCst);
+        let total = PAYLOAD_REGISTRY_MAX_ENTRIES as u32 + 50;
+        for offset in 0..total {
+            store_payload(base + offset, format!("p{offset}"));
+        }
+
+        let registry = PAYLOAD_REGISTRY.lock().unwrap();
+        assert!(registry.len() <= PAYLOAD_REGISTRY_MAX_ENTRIES, "registry must stay bounded");
+        assert!(!registry.contains_key(&base), "the oldest payload must go first");
+        assert!(
+            registry.contains_key(&(base + total - 1)),
+            "the newest payload must survive"
+        );
+    }
+}
