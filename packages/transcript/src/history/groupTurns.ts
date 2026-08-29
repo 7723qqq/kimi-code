@@ -67,12 +67,14 @@ export function groupMessagesIntoSnapshot(
   messages: readonly HistoryMessage[],
   options?: {
     readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
-    readonly steeredContents?: ReadonlyMap<string, number>;
+    readonly steeredContents?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   },
 ): AgentTranscriptSnapshot {
   const items: TranscriptItem[] = [];
   const attachments: TranscriptAttachment[] = [];
-  const steeredContents = new Map(options?.steeredContents ?? []);
+  const steeredContents = new Map(
+    [...(options?.steeredContents ?? [])].map(([key, byKind]) => [key, new Map(byKind)]),
+  );
   let turn: TurnDraft | undefined;
   let pendingNotificationFrames: {
     text: string;
@@ -135,6 +137,16 @@ export function groupMessagesIntoSnapshot(
         attachments.push(entity);
         ids.push(entity.attachmentId);
       }
+    }
+    for (const attachment of originFileAttachments(message)) {
+      const entity: TranscriptAttachment = {
+        attachmentId: `att_${attachments.length + 1}`,
+        mediaType: attachment.mediaType,
+        name: attachment.name,
+        size: attachment.size,
+      };
+      attachments.push(entity);
+      ids.push(entity.attachmentId);
     }
     return { text: texts.join(''), attachmentIds: ids.length > 0 ? ids : undefined };
   };
@@ -207,10 +219,17 @@ export function groupMessagesIntoSnapshot(
         }
         continue;
       }
+      const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
+      if (markerKey !== undefined && !isUserSlashPrompt(message)) {
+        pushMarker(markerKey, { text: textOf(message), origin: message.origin });
+        continue;
+      }
       const contentKey = JSON.stringify(message.content ?? []);
-      const steeredRemaining = steeredContents.get(contentKey) ?? 0;
-      if (steeredRemaining > 0) {
-        steeredContents.set(contentKey, steeredRemaining - 1);
+      const steerKind = originKind ?? 'user';
+      const steeredByKind = steeredContents.get(contentKey);
+      const steeredRemaining = steeredByKind?.get(steerKind) ?? 0;
+      if (steeredByKind !== undefined && steeredRemaining > 0) {
+        steeredByKind.set(steerKind, steeredRemaining - 1);
         const bundled = bundledSkillActivations(message);
         const parts = message.content ?? [];
         bundled.forEach((activation, index) => {
@@ -229,7 +248,6 @@ export function groupMessagesIntoSnapshot(
         });
         continue;
       }
-      const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
       if (markerKey !== undefined) {
         const opening = isUserSlashPrompt(message) ? foldTurnOpeningInput(message) : undefined;
         pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
@@ -435,6 +453,28 @@ function bundledSkillActivations(message: HistoryMessage): readonly BundledSkill
       activation !== null &&
       typeof (activation as { activationId?: unknown }).activationId === 'string' &&
       typeof (activation as { skillName?: unknown }).skillName === 'string',
+  );
+}
+
+interface OriginFileAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly path: string;
+}
+
+function originFileAttachments(message: HistoryMessage): readonly OriginFileAttachment[] {
+  if (message.origin?.kind !== 'user' && message.origin?.kind !== 'skill_activation') return [];
+  const attachments = (message.origin as { readonly attachments?: unknown }).attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.filter(
+    (attachment): attachment is OriginFileAttachment =>
+      typeof attachment === 'object' &&
+      attachment !== null &&
+      typeof (attachment as { name?: unknown }).name === 'string' &&
+      typeof (attachment as { mediaType?: unknown }).mediaType === 'string' &&
+      typeof (attachment as { size?: unknown }).size === 'number' &&
+      typeof (attachment as { path?: unknown }).path === 'string',
   );
 }
 

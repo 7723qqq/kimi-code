@@ -105,10 +105,10 @@ vi.mock('#/i18n', () => {
     'tui.statusMessages.chipNoResults': 'no results',
     'tui.statusMessages.chipWebResult': 'web result',
     // ── truncated.ts ──
-    'tui.statusMessages.truncatedEarlierLines': '... ({{remaining}} earlier lines)',
-    'tui.statusMessages.truncatedMoreLines': '... ({{remaining}} more lines)',
+    'tui.statusMessages.truncatedEarlierLines': '… ({{remaining}} earlier lines)',
+    'tui.statusMessages.truncatedMoreLines': '… ({{remaining}} more lines)',
     'tui.statusMessages.truncatedMoreLinesExpandable':
-      '... ({{remaining}} more lines, ctrl+o to expand)',
+      '… ({{remaining}} more lines, ctrl+o to expand)',
     // ── plan-box.ts ──
     'tui.messages.planBox.fallback': ' plan ',
     'tui.messages.planBox.titlePrefix': ' plan: ',
@@ -283,7 +283,7 @@ describe('ToolCallComponent', () => {
     expect(collapsed).toContain('line2');
     expect(collapsed).toContain('line3');
     expect(collapsed).not.toContain('line4');
-    expect(collapsed).toContain('... (2 more lines, ctrl+o to expand)');
+    expect(collapsed).toContain('… (2 more lines, ctrl+o to expand)');
 
     component.setExpanded(true);
 

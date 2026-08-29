@@ -628,6 +628,20 @@ export interface ConfigChangedEvent {
   readonly config: ConfigResponse;
 }
 
+export interface ConfigWarningItem {
+  readonly domain?: string;
+  readonly message: string;
+}
+
+/**
+ * Pushed when the daemon's config validation produces warnings (deprecated
+ * keys, unknown fields). Bare global fan-out alongside `event.config.changed`.
+ */
+export interface ConfigWarningEvent {
+  readonly type: 'event.config.warning';
+  readonly warnings: readonly ConfigWarningItem[];
+}
+
 /**
  * Pushed when the daemon refreshes provider model metadata (manual or
  * scheduled) and the effective catalog changed. Carries the per-provider
@@ -700,6 +714,17 @@ export interface WarningEvent {
   readonly code?: string;
 }
 
+/** A prompt-carried transcript attachment: a session-media reference or a typed file attachment. */
+export type TurnPromptAttachment =
+  | { readonly kind: 'image' | 'video' | 'audio'; readonly fileId: string }
+  | {
+      readonly kind: 'file';
+      readonly name: string;
+      readonly mediaType: string;
+      readonly size: number;
+      readonly path: string;
+    };
+
 export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
@@ -707,8 +732,8 @@ export interface TurnStartedEvent {
   readonly prompt?: string;
   /** The prompt record id when the turn was opened by a prompt submission. */
   readonly promptId?: string;
-  /** Session-media references carried by the prompt (transcript attachments). */
-  readonly promptAttachments?: readonly { kind: 'image' | 'video' | 'audio'; fileId: string }[];
+  /** Session-media references and file attachments carried by the prompt (transcript attachments). */
+  readonly promptAttachments?: readonly TurnPromptAttachment[];
 }
 
 export interface TurnEndedEvent {
@@ -1032,6 +1057,7 @@ export type AgentEvent =
   | SessionWorkChangedEvent
   | SessionStatusChangedEvent
   | ConfigChangedEvent
+  | ConfigWarningEvent
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
@@ -1661,6 +1687,16 @@ export const configChangedEventSchema = z.object({
   config: configResponseSchema,
 }) satisfies z.ZodType<ConfigChangedEvent>;
 
+export const configWarningEventSchema = z.object({
+  type: z.literal('event.config.warning'),
+  warnings: z.array(
+    z.object({
+      domain: z.string().optional(),
+      message: z.string(),
+    }),
+  ),
+}) satisfies z.ZodType<ConfigWarningEvent>;
+
 export const modelCatalogChangedEventSchema = z.object({
   type: z.literal('event.model_catalog.changed'),
   changed: z.array(providerRefreshChangeSchema),
@@ -1726,7 +1762,18 @@ export const turnStartedEventSchema = z.object({
   prompt: z.string().optional(),
   promptId: z.string().optional(),
   promptAttachments: z
-    .array(z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }))
+    .array(
+      z.union([
+        z.object({ kind: z.enum(['image', 'video', 'audio']), fileId: z.string() }),
+        z.object({
+          kind: z.literal('file'),
+          name: z.string(),
+          mediaType: z.string(),
+          size: z.number(),
+          path: z.string(),
+        }),
+      ]),
+    )
     .optional(),
 }) satisfies z.ZodType<TurnStartedEvent>;
 
@@ -2015,6 +2062,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
   configChangedEventSchema,
+  configWarningEventSchema,
   modelCatalogChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,

@@ -161,6 +161,7 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
   const state: { rewritten?: readonly WireRecord[] } = {};
   const store: IAppendLogStore = {
     _serviceBrand: undefined,
+    onDidWrite: Event.None as IAppendLogStore['onDidWrite'],
     append: <R>(scope: string, key: string, record: R) => {
       const persisted = record as unknown as WireRecord;
       bucketOf(scope, key).push(persisted);

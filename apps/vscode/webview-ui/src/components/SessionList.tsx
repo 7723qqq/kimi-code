@@ -210,7 +210,7 @@ export function SessionList({ onClose }: SessionListProps) {
           <div className="relative">
             <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search conversations..."
+              placeholder="Search conversations…"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -222,7 +222,7 @@ export function SessionList({ onClose }: SessionListProps) {
         <div className="overflow-y-auto flex-1 min-h-0">
           <div className="p-1.5 space-y-1">
             {loading ? (
-              <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading...</div>
+              <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading…</div>
             ) : filteredSessions.length === 0 ? (
               <div className="px-3 py-8 text-center text-xs text-muted-foreground">
                 {searchQuery ? 'No conversations found' : 'No conversations yet'}

@@ -25,8 +25,6 @@ export interface AgentProfileContext {
   readonly shellName?: string;
   readonly shellPath?: string;
   readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
-  readonly now?: string;
-  readonly timeZone?: string;
   readonly skills?: string;
   readonly skillActive?: boolean;
   readonly pluginSections?: string;
@@ -37,9 +35,6 @@ export interface AgentProfileContext {
 
 export interface EnvironmentDisclosureSnapshot {
   readonly cwd: string;
-  readonly date:
-    | { readonly disclosed: true; readonly value: { readonly localDate: string; readonly timeZone: string } }
-    | { readonly disclosed: false };
 }
 
 export interface SystemPromptRenderResult {
@@ -91,7 +86,7 @@ export function normalizeAgentProfile(input: AgentProfileInput): AgentProfile {
       systemPrompt,
       renderSystemPrompt: (context) => ({
         text: systemPrompt(context),
-        environment: { cwd: context.cwd ?? '', date: { disclosed: false } },
+        environment: { cwd: context.cwd ?? '' },
       }),
     };
   }

@@ -17,7 +17,7 @@ export function CompactionCard() {
         )}
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-foreground">
-            {isCompacting ? 'Compacting context...' : 'Context compacted'}
+            {isCompacting ? 'Compacting context…' : 'Context compacted'}
           </div>
         </div>
       </div>

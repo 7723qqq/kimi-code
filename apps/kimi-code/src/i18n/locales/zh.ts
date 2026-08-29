@@ -302,7 +302,7 @@ export default {
         installIncomplete: '{{label}} 安装未完成。请查看日志，然后从 /plugins 重新安装。',
         installed: '{{label}} 已安装。',
         installCancelledLabel: '已取消安装：{{label}}。',
-        installingFromMarketplace: '正在从 marketplace 安装或更新 {{label}}...',
+        installingFromMarketplace: '正在从 marketplace 安装或更新 {{label}}…',
         mcpDisabledHint:
           ' 部分 MCP server 已禁用；可运行 /plugins mcp enable {{id}} <server> 重新启用。',
         toggled: '{{action}} {{id}}。运行 /reload 或 /new 以生效。{{mcpHint}}',
@@ -842,7 +842,7 @@ export default {
         submitTab: '提交',
         title: ' 问题 ',
         typeAnswerHint: '输入答案，然后按 Enter 保存。',
-        moreLines: '... 还有 {{count}} 行',
+        moreLines: '… 还有 {{count}} 行',
         showing: '显示 {{from}}-{{to}} / 共 {{total}} 项',
         questionPrefix: 'Q{{number}}',
         hintEdit: {
@@ -998,8 +998,8 @@ export default {
         hintAfterTask: '  ↑ 编辑 · 当前任务完成后发送',
       },
       btwPanel: {
-        readyForSideQuestion: '准备进行旁路提问...',
-        waitingForAnswer: '等待回答...',
+        readyForSideQuestion: '准备进行旁路提问…',
+        waitingForAnswer: '等待回答…',
         title: ' BTW ',
         closeHint: 'Esc 关闭 ',
         scrollHint: 'Esc 关闭 · ↑↓ 滚动 ',
@@ -1416,9 +1416,9 @@ export default {
       chipNoResults: '无结果',
       chipWebResult: '网页结果',
       // tool-renderers/truncated.ts — 截断输出提示
-      truncatedEarlierLines: '...（上方省略 {{remaining}} 行）',
-      truncatedMoreLines: '...（下方省略 {{remaining}} 行）',
-      truncatedMoreLinesExpandable: '...（下方省略 {{remaining}} 行，ctrl+o 展开）',
+      truncatedEarlierLines: '…（上方省略 {{remaining}} 行）',
+      truncatedMoreLines: '…（下方省略 {{remaining}} 行）',
+      truncatedMoreLinesExpandable: '…（下方省略 {{remaining}} 行，ctrl+o 展开）',
       // controllers/btw-panel.ts
       btwBusyNotice: '请等待 /btw 完成后再发送其他问题。',
       btwInterrupted: '用户中断',

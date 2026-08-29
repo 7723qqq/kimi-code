@@ -265,7 +265,7 @@ function ServerForm({
               onChange={(e) => {
                 set('url', e.target.value);
               }}
-              placeholder="https://..."
+              placeholder="https://…"
               className="h-7 text-xs font-mono"
             />
             <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
@@ -798,7 +798,7 @@ export function MCPServersModal() {
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? 'Deleting...' : 'Delete'}
+              {isDeleting ? 'Deleting…' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

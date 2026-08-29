@@ -309,7 +309,7 @@ export default {
           '{{label}} installation did not complete. Check the logs and install again from /plugins.',
         installed: '{{label}} is installed.',
         installCancelledLabel: 'Install cancelled: {{label}}.',
-        installingFromMarketplace: 'Installing or updating {{label}} from marketplace...',
+        installingFromMarketplace: 'Installing or updating {{label}} from marketplace…',
         mcpDisabledHint:
           ' Some MCP servers are disabled; re-enable with /plugins mcp enable {{id}} <server>.',
         toggled: '{{action}} {{id}}. Run /reload or /new to apply.{{mcpHint}}',
@@ -435,7 +435,7 @@ export default {
         page: 'Page {{page}}/{{pageCount}}',
       },
       compaction: {
-        compacting: 'Compacting context...',
+        compacting: 'Compacting context…',
         complete: 'Compaction complete',
         cancelled: 'Compaction cancelled',
         detailTokens: '({{before}} → {{after}} tokens)',
@@ -713,7 +713,7 @@ export default {
       sessionPicker: {
         titleCwd: 'Sessions',
         titleAll: 'All sessions',
-        loading: 'Loading sessions...',
+        loading: 'Loading sessions…',
         empty: 'No sessions found.',
         scopeHintAll: 'Ctrl+A all',
         scopeHintCwd: 'Ctrl+A current cwd',
@@ -864,7 +864,7 @@ export default {
         submitTab: 'Submit',
         title: ' question',
         typeAnswerHint: 'Type your answer, then press Enter to save.',
-        moreLines: '... {{count}} more lines',
+        moreLines: '… {{count}} more lines',
         showing: 'showing {{from}}-{{to}} of {{total}}',
         questionPrefix: 'Q{{number}}',
         hintEdit: {
@@ -1021,8 +1021,8 @@ export default {
         hintAfterTask: '  ↑ to edit · will send after current task',
       },
       btwPanel: {
-        readyForSideQuestion: 'Ready for a side question...',
-        waitingForAnswer: 'Waiting for answer...',
+        readyForSideQuestion: 'Ready for a side question…',
+        waitingForAnswer: 'Waiting for answer…',
         title: ' BTW ',
         closeHint: 'Esc close ',
         scrollHint: 'Esc close · ↑↓ scroll ',
@@ -1328,7 +1328,7 @@ export default {
       loginOpeningBrowser: 'Opening browser for Kimi device login: {{url}}',
       loginPasteUrl: 'If the browser did not open, paste the URL above and enter code: {{code}}',
       loginCodeExpires: 'Code expires in {{seconds}}s.',
-      loginWaiting: 'Waiting for authorization to complete...',
+      loginWaiting: 'Waiting for authorization to complete…',
       loginSuccess: 'Logged in to {{provider}}.',
       loginFailedMsg: 'Login failed: {{message}}',
       // sub/provider.ts
@@ -1461,9 +1461,9 @@ export default {
       chipNoResults: 'no results',
       chipWebResult: 'web result',
       // tool-renderers/truncated.ts — truncated output hints
-      truncatedEarlierLines: '... ({{remaining}} earlier lines)',
-      truncatedMoreLines: '... ({{remaining}} more lines)',
-      truncatedMoreLinesExpandable: '... ({{remaining}} more lines, ctrl+o to expand)',
+      truncatedEarlierLines: '… ({{remaining}} earlier lines)',
+      truncatedMoreLines: '… ({{remaining}} more lines)',
+      truncatedMoreLinesExpandable: '… ({{remaining}} more lines, ctrl+o to expand)',
       // controllers/btw-panel.ts
       btwBusyNotice: 'Wait for /btw to finish before sending another question.',
       btwInterrupted: 'Interrupted by user',
@@ -1533,20 +1533,20 @@ export default {
       },
       agentSwarmProgress: {
         title: 'Agent Swarm',
-        orchestrating: 'Orchestrating...',
-        prompting: 'Prompting...',
-        working: 'Working...',
+        orchestrating: 'Orchestrating…',
+        prompting: 'Prompting…',
+        working: 'Working…',
         completed: 'Completed.',
         failed: 'Failed.',
         aborted: 'Aborted.',
         cancelled: 'Cancelled.',
-        queued: 'Queued...',
-        rateLimited: 'Rate limited...',
+        queued: 'Queued…',
+        rateLimited: 'Rate limited…',
         resumed: '(resumed)',
         phase: {
-          pending: 'Queued...',
-          queued: 'Queued...',
-          suspended: 'Rate limited...',
+          pending: 'Queued…',
+          queued: 'Queued…',
+          suspended: 'Rate limited…',
           running: 'Running',
           completed: 'Completed',
           failed: 'Failed',
@@ -1790,8 +1790,8 @@ export default {
         ended: 'Swarm ended',
       },
       thinking: {
-        liveLabel: 'thinking...',
-        expandHint: '... ({{count}} more lines, ctrl+o to expand)',
+        liveLabel: 'thinking…',
+        expandHint: '… ({{count}} more lines, ctrl+o to expand)',
       },
       usagePanel: {
         title: ' Usage ',
