@@ -2,6 +2,35 @@ import type { Message } from '#/kosong/contract/message';
 import type { ProfileModelContext } from '#/agent/profile/profile';
 import type { CompactionSource } from './types';
 import { estimateTokensForMessage } from '#/kosong/contract/tokens';
+import {
+  tryNativeCanSplitAfter,
+  tryNativeComputeCompactCount,
+  tryNativeReduceCompactOnOverflow,
+  type NativeCompactionMessageMeta,
+} from '#/_base/native-tools';
+
+/** Project Messages onto the native compaction wire shape. */
+function toNativeCompactionMeta(
+  messages: readonly Message[],
+  estimateMessage: (message: Message) => number,
+): NativeCompactionMessageMeta[] {
+  return messages.map((message) => ({
+    role: message.role,
+    toolCallsCount: message.toolCalls.length,
+    tokens: estimateMessage(message),
+  }));
+}
+
+/**
+ * Clamp an unbounded config knob to a value the native u32 wire can carry.
+ * `Infinity` means "no limit" on the TS side; the native engine compares
+ * against u32 and would overflow an Infinity into 0, which flips the
+ * "reached the limit" check. u32::MAX is effectively unlimited for any
+ * realistic message count.
+ */
+function nativeUnboundedLimit(value: number): number {
+  return Number.isFinite(value) ? value : 0xffffffff;
+}
 
 export interface CompactionConfig {
   triggerRatio: number;
@@ -135,6 +164,20 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
+    // Native fast path: the Rust engine implements the same window scan
+    // and split-safety rules. Falls back to TS when unavailable.
+    const native = tryNativeComputeCompactCount(
+      toNativeCompactionMeta(messages, this.estimateMessage),
+      {
+        maxSize: this.maxSize,
+        maxRecentMessages: this.config.maxRecentMessages,
+        maxRecentUserMessages: nativeUnboundedLimit(this.config.maxRecentUserMessages),
+        maxRecentSizeRatio: this.config.maxRecentSizeRatio,
+        minOverflowReductionRatio: this.config.minOverflowReductionRatio,
+      },
+      source === 'manual',
+    );
+    if (native !== undefined) return native;
 
     if (source === 'manual') {
       for (let i = messages.length - 1; i > 0; i--) {
@@ -176,6 +219,18 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   reduceCompactOnOverflow(messages: readonly Message[]): number {
+    const native = tryNativeReduceCompactOnOverflow(
+      toNativeCompactionMeta(messages, this.estimateMessage),
+      {
+        maxSize: this.maxSize,
+        maxRecentMessages: this.config.maxRecentMessages,
+        maxRecentUserMessages: nativeUnboundedLimit(this.config.maxRecentUserMessages),
+        maxRecentSizeRatio: this.config.maxRecentSizeRatio,
+        minOverflowReductionRatio: this.config.minOverflowReductionRatio,
+      },
+    );
+    if (native !== undefined) return native;
+
     const minReducedSize = Math.max(
       1,
       Math.ceil(this.maxSize * this.config.minOverflowReductionRatio),
@@ -240,6 +295,17 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
 }
 
 function canSplitAfter(messages: readonly Message[], index: number): boolean {
+  // Native fast path: tokens are not needed by the split-safety check.
+  const native = tryNativeCanSplitAfter(
+    messages.map((message) => ({
+      role: message.role,
+      toolCallsCount: message.toolCalls.length,
+      tokens: 0,
+    })),
+    index,
+  );
+  if (native !== undefined) return native;
+
   const m = messages[index];
   if (m === undefined) return false;
   if (m.role === 'user') return false;

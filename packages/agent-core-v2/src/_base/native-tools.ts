@@ -246,6 +246,18 @@ export function tryNativeComputeCompactCount(
 }
 
 /**
+ * Try the Rust native split-safety check. Returns `undefined` when the
+ * native module is unavailable or the call fails; the caller falls back
+ * to the TS implementation.
+ */
+export function tryNativeCanSplitAfter(
+  messages: readonly NativeCompactionMessageMeta[],
+  index: number,
+): boolean | undefined {
+  return callNativeSync<boolean>('nativeCanSplitAfter', [[...messages], index]);
+}
+
+/**
  * Try the Rust native overflow reduction. Returns `undefined` when the
  * native module is unavailable or the call fails; the caller falls back
  * to the TS implementation.

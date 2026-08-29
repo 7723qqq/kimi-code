@@ -1,5 +1,6 @@
 import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
 import type { ContentPart } from '#/kosong/contract/message';
+import { tryNativeSelectCompactionUserMessages, type NativeCompactionUserSelection } from '#/_base/native-tools';
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import type { ContextMessage, PromptOrigin } from './types';
@@ -216,6 +217,22 @@ export function selectCompactionUserMessages<T extends MessageLike>(
   headTokens: number = COMPACT_USER_MESSAGE_HEAD_TOKENS,
   estimateMessage: (message: T) => number = estimateTokensForMessage,
 ): CompactionUserSelection<T> {
+  // Native fast path: the Rust engine selects head/tail indices and reports
+  // the truncation boundary chars. Falls back to the TS implementation when
+  // the native module is unavailable.
+  const native = tryNativeSelectCompactionUserMessages(
+    messages.map((message) => ({
+      role: message.role,
+      text: extractText(message.content),
+      tokens: estimateMessage(message),
+    })),
+    maxTokens,
+    headTokens,
+  );
+  if (native !== undefined) {
+    return rebuildFromNativeSelection(native, messages, estimateMessage);
+  }
+
   let totalTokens = 0;
   for (const message of messages) {
     totalTokens += estimateMessage(message);
@@ -277,6 +294,93 @@ export function selectCompactionUserMessages<T extends MessageLike>(
 
 function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
   return input.legacyTail === true;
+}
+
+/**
+ * Rebuild the head/tail message arrays from a native selection. Native
+ * truncation reports the number of UTF-8 bytes retained at the truncated
+ * boundary (head keeps its beginning, tail keeps its end), so the boundary
+ * message is sliced to exactly that byte length.
+ *
+ * `omittedTokens` is recomputed with the TS estimator over the rebuilt
+ * messages so it matches the TS fallback path exactly (the native count
+ * uses the pre-truncation message tokens, which undercounts the truncation
+ * loss).
+ */
+function rebuildFromNativeSelection<T extends MessageLike>(
+  selection: NativeCompactionUserSelection,
+  messages: readonly T[],
+  estimateMessage: (message: T) => number,
+): CompactionUserSelection<T> {
+  const head: T[] = [];
+  const { headIndices, tailIndices } = selection;
+  for (let i = 0; i < headIndices.length; i++) {
+    const index = headIndices[i]!;
+    const message = messages[index]!;
+    const truncated =
+      selection.headTruncateChars !== null && i === headIndices.length - 1;
+    head.push(
+      truncated
+        ? replaceMessageText(
+            message,
+            sliceByUtf8Bytes(extractText(message.content), selection.headTruncateChars!),
+          )
+        : message,
+    );
+  }
+
+  const tail: T[] = [];
+  for (let i = 0; i < tailIndices.length; i++) {
+    const index = tailIndices[i]!;
+    const message = messages[index]!;
+    const truncated =
+      selection.tailTruncateChars !== null && i === 0;
+    tail.push(
+      truncated
+        ? replaceMessageText(
+            message,
+            sliceByUtf8BytesFromEnd(extractText(message.content), selection.tailTruncateChars!),
+          )
+        : message,
+    );
+  }
+
+  let totalTokens = 0;
+  for (const message of messages) totalTokens += estimateMessage(message);
+  let keptTokens = 0;
+  for (const message of head) keptTokens += estimateMessage(message);
+  for (const message of tail) keptTokens += estimateMessage(message);
+
+  return {
+    head,
+    tail,
+    elided: selection.elided,
+    omittedTokens: Math.max(0, totalTokens - keptTokens),
+  };
+}
+
+/** Keep the first `byteLength` UTF-8 bytes of `text` (no partial code points). */
+function sliceByUtf8Bytes(text: string, byteLength: number): string {
+  if (byteLength <= 0) return '';
+  const bytes = Buffer.from(text, 'utf8');
+  if (byteLength >= bytes.length) return text;
+  let cut = byteLength;
+  while (cut > 0 && (bytes[cut]! & 0xc0) === 0x80) {
+    cut--;
+  }
+  return bytes.subarray(0, cut).toString('utf8');
+}
+
+/** Keep the last `byteLength` UTF-8 bytes of `text` (no partial code points). */
+function sliceByUtf8BytesFromEnd(text: string, byteLength: number): string {
+  if (byteLength <= 0) return '';
+  const bytes = Buffer.from(text, 'utf8');
+  if (byteLength >= bytes.length) return text;
+  let start = bytes.length - byteLength;
+  while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) {
+    start++;
+  }
+  return bytes.subarray(start).toString('utf8');
 }
 
 function extractText(content: readonly ContentPart[]): string {
