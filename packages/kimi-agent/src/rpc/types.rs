@@ -601,14 +601,20 @@ mod tests {
         let resp = ToolExecuteResponse {
             content: "file content here".to_string(),
             is_error: false,
+            note: Some("<system>1 line read.</system>".to_string()),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["content"], "file content here");
         assert!(!json["is_error"].as_bool().unwrap());
+        assert_eq!(json["note"], "<system>1 line read.</system>");
 
         let deserialized: ToolExecuteResponse = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.content, "file content here");
         assert!(!deserialized.is_error);
+        assert_eq!(
+            deserialized.note.as_deref(),
+            Some("<system>1 line read.</system>")
+        );
     }
 
     #[test]
@@ -616,6 +622,7 @@ mod tests {
         let resp = ToolExecuteResponse {
             content: "File not found".to_string(),
             is_error: true,
+            note: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json["is_error"].as_bool().unwrap());

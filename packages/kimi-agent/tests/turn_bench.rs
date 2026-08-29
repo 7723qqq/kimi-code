@@ -102,6 +102,7 @@ impl HostCallbacks for InstantHost {
             Ok(ToolExecuteResponse {
                 content: "x".repeat(64),
                 is_error: false,
+                note: None,
             })
         })
     }

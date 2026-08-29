@@ -626,6 +626,7 @@ mod tests {
                     let resp = ToolExecuteResponse {
                         content: "file content here".into(),
                         is_error: false,
+                        note: None,
                     };
                     serde_json::to_value(&resp)
                         .map_err(|e| JsonRpcError::internal_error(e.to_string()))
@@ -1196,6 +1197,7 @@ mod tests {
                     let resp = ToolExecuteResponse {
                         content: "ok".into(),
                         is_error: false,
+                        note: None,
                     };
                     serde_json::to_value(&resp)
                         .map_err(|e| JsonRpcError::internal_error(e.to_string()))

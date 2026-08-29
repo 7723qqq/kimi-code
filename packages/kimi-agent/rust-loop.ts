@@ -252,6 +252,7 @@ type EngineEvent =
       arguments: unknown;
       content: string;
       is_error: boolean;
+      note?: string;
     }
   | { type: 'goal.budget.limit_reached'; goal_id: string };
 
@@ -297,6 +298,7 @@ interface ToolExecuteRequest {
 interface ToolExecuteResponse {
   content: string;
   is_error: boolean;
+  note?: string;
 }
 
 /** Permission check request from the engine (host/check_permission). */
@@ -1049,7 +1051,11 @@ export function createRunTurnOverride(
             type: 'tool.result',
             parentUuid: toolCallId,
             toolCallId,
-            result: { output: event.content, isError: event.is_error === true } as never,
+            result: {
+              output: event.content,
+              isError: event.is_error === true,
+              note: event.note,
+            } as never,
           });
           break;
         }
@@ -1196,6 +1202,7 @@ export function createRunTurnOverride(
       return {
         content: outputToContent(outcome.output),
         is_error: outcome.isError === true,
+        note: outcome.note,
       };
     };
 

@@ -98,13 +98,18 @@ async fn main() -> anyhow::Result<()> {
                     input.native_tools,
                     input.workspace_root.as_deref(),
                 ) {
-                    (true, Some(root)) => match kimi_agent::tools::NativeToolset::new(root, None) {
-                        Some(toolset) => Arc::new(NativeToolCallbacks {
-                            inner: base_callbacks.clone(),
-                            toolset: Arc::new(toolset),
-                        }),
-                        None => base_callbacks.clone(),
-                    },
+                    (true, Some(root)) => {
+                        match kimi_agent::tools::NativeToolset::new(
+                            root,
+                            input.shell_path.as_deref(),
+                        ) {
+                            Some(toolset) => Arc::new(NativeToolCallbacks {
+                                inner: base_callbacks.clone(),
+                                toolset: Arc::new(toolset),
+                            }),
+                            None => base_callbacks.clone(),
+                        }
+                    }
                     _ => base_callbacks.clone(),
                 };
 

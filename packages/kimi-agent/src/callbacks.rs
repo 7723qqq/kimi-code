@@ -159,6 +159,18 @@ impl HostCallbacks for NativeToolCallbacks {
                 let reason = decision
                     .reason
                     .unwrap_or_else(|| "denied by host permission".into());
+                // The refusal is the tool result the model sees — report it so
+                // the host transcript records the card's terminal state too.
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
                 return Ok(ToolExecuteResponse {
                     content: reason,
                     is_error: true,

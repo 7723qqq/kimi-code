@@ -425,3 +425,297 @@ fn notification_does_not_get_response() {
 
     client.shutdown();
 }
+// ── Native tool permission round-trip (host/check_permission) ───────────
+
+/// Locate a bash for native-Bash tests; `None` skips them (Windows CI
+/// without Git Bash keeps the host-fallback contract anyway).
+fn find_bash_for_test() -> Option<String> {
+    for candidate in [
+        "bash",
+        "C:\\Program Files\\Git\\bin\\bash.exe",
+        "C:\\msys64\\usr\\bin\\bash.exe",
+    ] {
+        let ok = std::process::Command::new(&candidate)
+            .arg("-c")
+            .arg("exit 0")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+/// What the host side observed while driving one native turn.
+#[derive(Default)]
+struct NativeTurnObservation {
+    permission_requests: Vec<serde_json::Value>,
+    execute_tool_requests: usize,
+    events: Vec<serde_json::Value>,
+    run_turn_response: Option<serde_json::Value>,
+}
+
+/// Run one `agent/run_turn` with native tools enabled. The host side scripts
+/// a single tool call on step 0 and `stop` on step 1, answers
+/// `host/check_permission` with `permission_decision`, and records everything
+/// it sees. `tool_arguments` is the LLM's tool-call arguments for step 0.
+fn drive_native_turn(
+    workspace_root: &std::path::Path,
+    shell_path: Option<&str>,
+    tool_name: &str,
+    tool_arguments: serde_json::Value,
+    permission_decision: serde_json::Value,
+) -> NativeTurnObservation {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => return NativeTurnObservation::default(),
+    };
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+
+    let mut stdin = child.stdin.take().expect("stdin");
+    let stdout = child.stdout.take().expect("stdout");
+
+    let run_turn_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "agent/run_turn",
+        "params": {
+            "turn_id": "native-permission-turn",
+            "system_prompt": "You are a test assistant.",
+            "model_name": "test-model",
+            "messages": [{"role": "user", "content": "run the tool"}],
+            "tools": [{
+                "name": tool_name,
+                "description": "test tool",
+                "input_schema": {"type": "object"}
+            }],
+            "max_steps": 5,
+            "workspace_root": workspace_root.to_string_lossy(),
+            "native_tools": true,
+            "shell_path": shell_path
+        }
+    });
+    writeln!(stdin, "{}", run_turn_req).unwrap();
+    stdin.flush().unwrap();
+
+    let mut reader = BufReader::new(stdout);
+    let mut observation = NativeTurnObservation::default();
+    let mut llm_step = 0u32;
+    let deadline = Instant::now() + Duration::from_secs(30);
+
+    loop {
+        if Instant::now() > deadline {
+            panic!("timed out driving native turn");
+        }
+        let mut buf = String::new();
+        let n = reader.read_line(&mut buf).expect("read stdout");
+        if n == 0 {
+            panic!("stdout closed before agent/run_turn response");
+        }
+        let trimmed = buf.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let msg: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        if method.is_empty() {
+            if msg.get("id") == Some(&serde_json::json!(1)) {
+                observation.run_turn_response = Some(msg);
+                break;
+            }
+            continue;
+        }
+
+        let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+        let response = match method {
+            "host/llm_chat" => {
+                let step = llm_step;
+                llm_step += 1;
+                let tool_calls = if step == 0 {
+                    serde_json::json!([{
+                        "id": "call-1",
+                        "name": tool_name,
+                        "arguments": tool_arguments
+                    }])
+                } else {
+                    serde_json::json!([])
+                };
+                let finish_reason = if step == 0 { "tool_calls" } else { "stop" };
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "tool_calls": tool_calls,
+                        "finish_reason": finish_reason,
+                        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+                    }
+                })
+            }
+            "host/check_permission" => {
+                observation
+                    .permission_requests
+                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": permission_decision
+                })
+            }
+            "host/execute_tool" => {
+                observation.execute_tool_requests += 1;
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"content": "HOST-PATH-EXECUTED", "is_error": false}
+                })
+            }
+            "host/event" => {
+                observation
+                    .events
+                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
+                continue;
+            }
+            _ => serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": format!("unknown method: {method}")}
+            }),
+        };
+
+        writeln!(stdin, "{}", response).expect("write host response");
+        stdin.flush().unwrap();
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    observation
+}
+
+fn require_observation(obs: &NativeTurnObservation) -> Option<&serde_json::Value> {
+    match obs.run_turn_response.as_ref() {
+        Some(resp) => Some(resp),
+        None => {
+            eprintln!(
+                "Skipping test: kimi-agent binary not built. Run `cargo build --release --features cli`."
+            );
+            None
+        }
+    }
+}
+
+fn native_events_of(obs: &NativeTurnObservation) -> Vec<&serde_json::Value> {
+    obs.events
+        .iter()
+        .filter(|e| e["type"] == "tool.native")
+        .collect()
+}
+
+/// A natively-enabled Write call that the host allows must execute inside
+/// the Rust process: the file lands on disk, the host hears about it via a
+/// `tool.native` event, and the host execute path is never touched.
+#[test]
+fn run_turn_native_write_permission_round_trip() {
+    let dir = std::env::temp_dir().join(format!("kimi-native-write-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "native.txt", "content": "written natively"}),
+        serde_json::json!({"decision": "allow"}),
+    );
+    let Some(resp) = require_observation(&observation) else { return; };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    let target = dir.join("native.txt");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("native write landed").as_str(),
+        "written natively"
+    );
+    assert_eq!(observation.execute_tool_requests, 0, "host execute path must be untouched");
+    assert_eq!(observation.permission_requests.len(), 1, "exactly one permission round-trip");
+    let req = &observation.permission_requests[0];
+    assert_eq!(req["tool_name"], "write");
+    assert_eq!(req["arguments"]["path"], "native.txt");
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "one tool.native report expected");
+    assert_eq!(native_events[0]["content"], "Wrote 16 bytes to native.txt");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A host deny verdict is final: the refusal text becomes the tool result,
+/// nothing executes natively or on the host, and no second prompt happens.
+#[test]
+fn run_turn_native_permission_deny_is_final() {
+    let dir = std::env::temp_dir().join(format!("kimi-native-deny-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "denied.txt", "content": "should not exist"}),
+        serde_json::json!({"decision": "deny", "reason": "denied by test policy"}),
+    );
+    let Some(resp) = require_observation(&observation) else { return; };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert!(!dir.join("denied.txt").exists(), "denied call must not write");
+    assert_eq!(observation.execute_tool_requests, 0, "deny must not fall back to the host");
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "the refusal is the tool result");
+    assert_eq!(native_events[0]["is_error"], true);
+    assert_eq!(native_events[0]["content"], "denied by test policy");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Native Bash must honor the host's shell path: arithmetic evaluation is
+/// bash semantics that cmd /C cannot perform.
+#[test]
+fn native_bash_uses_host_shell() {
+    let shell = match find_bash_for_test() {
+        Some(s) => s,
+        None => {
+            eprintln!("Skipping test: no bash on PATH.");
+            return;
+        }
+    };
+    let dir = std::env::temp_dir().join(format!("kimi-native-bash-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn(
+        &dir,
+        Some(&shell),
+        "bash",
+        serde_json::json!({"command": "echo $((20+3))"}),
+        serde_json::json!({"decision": "allow"}),
+    );
+    let Some(resp) = require_observation(&observation) else { return; };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "bash must execute natively, not on the host");
+    assert_eq!(observation.execute_tool_requests, 0);
+    let content = native_events[0]["content"].as_str().unwrap_or("");
+    assert!(content.contains("23"), "bash arithmetic must evaluate, got: {content}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
