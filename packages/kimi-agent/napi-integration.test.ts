@@ -423,3 +423,49 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — delayed callback', () => {
     expect(result.stopReason).toBe('EndTurn');
   });
 });
+
+describe.skipIf(!nativeEntry)('createRunTurnOverride — engine selection', () => {
+  it('selects the napi path and returns a TurnEngine when the addon is available', async () => {
+    const { createRunTurnOverride } = await import('./rust-loop');
+    const engine = createRunTurnOverride();
+    expect(typeof engine).toBe('function');
+  });
+
+  it('drives a full turn through the napi path via the v2 TurnEngine contract', async () => {
+    const { createRunTurnOverride } = await import('./rust-loop');
+    const engine = createRunTurnOverride();
+    expect(typeof engine).toBe('function');
+
+    const events: string[] = [];
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelName: 'test-model',
+        systemPrompt: 'You are a test assistant.',
+        chat: () =>
+          Promise.resolve({
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0 },
+          }),
+      },
+      maxSteps: 1,
+      buildMessages: () => Promise.resolve([]),
+      buildTools: () => [],
+      dispatchEvent: (event: { type: string }) => {
+        events.push(event.type);
+        return Promise.resolve();
+      },
+      executeTool: () => Promise.resolve({ output: '' }),
+    };
+
+    const result = await engine!(input as never);
+    expect(result.stopReason).toBe('completed');
+    expect(result.steps).toBeGreaterThanOrEqual(1);
+    // The adapter opens/closes a step per llm_chat and reports content parts
+    // through the host event bridge.
+    expect(events).toContain('step.begin');
+    expect(events).toContain('step.end');
+  });
+});

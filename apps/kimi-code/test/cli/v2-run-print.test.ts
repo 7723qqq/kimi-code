@@ -14,6 +14,7 @@ import {
   IAuthSummaryService,
   IBootstrapService,
   IConfigService,
+  IEngineOverrideService,
   IEventBus,
   IFileSystemStorageService,
   IOAuthToolkit,
@@ -25,6 +26,7 @@ import {
   makeAgentScopeContext,
   type BootstrapInput,
 } from '@moonshot-ai/agent-core-v2';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type DomainEvent = any;
@@ -37,6 +39,11 @@ const mocks = vi.hoisted(() => ({
   createKimiDefaultHeaders: vi.fn(() => ({})),
   resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
   createKimiDeviceId: vi.fn(() => 'device-1'),
+  maybeLoadRustEngine: vi.fn(() => Promise.resolve(undefined)),
+}));
+
+vi.mock('../../src/cli/rust-engine', () => ({
+  maybeLoadRustEngine: mocks.maybeLoadRustEngine,
 }));
 
 vi.mock('@moonshot-ai/agent-core-v2', async (importOriginal) => {
@@ -45,6 +52,7 @@ vi.mock('@moonshot-ai/agent-core-v2', async (importOriginal) => {
     ...actual,
     bootstrap: mocks.bootstrap,
     ensureMainAgent: mocks.ensureMainAgent,
+    resolveKimiHome: mocks.resolveKimiHome,
   };
 });
 
@@ -534,5 +542,40 @@ describe('runV2Print', () => {
     };
     expect(profile.bind).not.toHaveBeenCalled();
     expect(profile.setModel).toHaveBeenCalledWith('new-model');
+  });
+
+  it('appends no engine override seed when the rust engine is unavailable', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app } = makeFakeHarness();
+
+    mocks.maybeLoadRustEngine.mockResolvedValue(undefined);
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    const extraSeeds = mocks.bootstrap.mock.calls[0]?.[1] as ScopeSeed | undefined;
+    expect(extraSeeds?.some(([token]) => token === IEngineOverrideService)).toBe(false);
+    expect(mocks.maybeLoadRustEngine).toHaveBeenCalledWith('/tmp/kimi-code-test-home');
+  });
+
+  it('seeds the engine override service with the rust TurnEngine when available', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app } = makeFakeHarness();
+
+    const engine = vi.fn();
+    mocks.maybeLoadRustEngine.mockResolvedValue(engine as never);
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    const extraSeeds = mocks.bootstrap.mock.calls[0]?.[1] as ScopeSeed | undefined;
+    const engineSeed = extraSeeds?.find(([token]) => token === IEngineOverrideService);
+    expect(engineSeed).toBeDefined();
+    const provider = engineSeed![1] as { getEngine: () => unknown };
+    expect(provider.getEngine()).toBe(engine);
   });
 });
