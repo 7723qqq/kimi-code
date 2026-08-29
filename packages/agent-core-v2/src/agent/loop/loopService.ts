@@ -937,6 +937,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const turnId = runtime.turnId;
     const signal = step.signal;
     signal.throwIfAborted();
+    await this.hooks.onWillBeginStep.run({
+      turnId,
+      step: step.number,
+      firstStepOfTurn: step.number === 1,
+      signal,
+    });
     void this.dispatcher.dispatch(
       new TurnStepStarted({
         agentId: this.scopeContext.agentId,

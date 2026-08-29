@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEngineOverrideService, type TurnEngine, type TurnEngineInput } from '#/agent/loop/engineOverride';
 import type { ContentPart } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
@@ -164,5 +165,120 @@ describe('external engine override', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
     await end;
     expect(emitted(ctx, 'assistant.delta').some((e) => e['delta'] === 'js turn')).toBe(true);
+  });
+
+  it('runs the onWillBeginStep injection gate before driving the engine', async () => {
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+
+    const loop = ctx.get(IAgentLoopService);
+    const hook = loop.hooks.onWillBeginStep.register(
+      'test-injector',
+      async (context) => {
+        if (!context.firstStepOfTurn) return;
+        ctx
+          .get(IAgentContextMemoryService)
+          .append({
+            role: 'user',
+            content: [{ type: 'text', text: '<system-reminder>\nengine-path injection\n</system-reminder>' }],
+            toolCalls: [],
+          });
+      },
+    );
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+    hook.dispose();
+
+    expect(emitted(ctx, 'turn.step.started')).toHaveLength(1);
+
+    const context = ctx.get(IAgentContextMemoryService).get();
+    expect(
+      context.some(
+        (m) =>
+          m.content.some(
+            (p) => p.type === 'text' && p.text.includes('engine-path injection'),
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it('drives a multi-step turn with tool round-trips then reports events', async () => {
+    const tool = makeEchoTool();
+    let stepCount = 0;
+
+    const engine: TurnEngine = async (input) => {
+      for (let step = 1; step <= 2; step += 1) {
+        stepCount += 1;
+        await input.dispatchEvent({ type: 'step.begin', uuid: `step-${step}`, turnId: String(input.turnId), step });
+        if (step === 1) {
+          await input.dispatchEvent({
+            type: 'tool.call',
+            uuid: 'tc-1',
+            turnId: String(input.turnId),
+            step,
+            stepUuid: `step-${step}`,
+            toolCallId: 'call-1',
+            name: 'echo',
+            args: { text: 'multi' },
+          });
+          const outcome = await input.executeTool(
+            { type: 'function', id: 'call-1', name: 'echo', arguments: '{"text":"multi"}' },
+            { signal: input.signal, turnId: input.turnId },
+          );
+          await input.dispatchEvent({
+            type: 'tool.result',
+            parentUuid: 'tc-1',
+            toolCallId: 'call-1',
+            result: { output: outcome.output },
+          });
+        }
+        await input.dispatchEvent({
+          type: 'content.part',
+          uuid: `part-${step}`,
+          turnId: String(input.turnId),
+          step,
+          stepUuid: `step-${step}`,
+          part: { type: 'text', text: `engine step ${step}` },
+        });
+        await input.dispatchEvent({
+          type: 'step.end',
+          uuid: `step-${step}`,
+          turnId: String(input.turnId),
+          step,
+          usage: emptyUsage(),
+        });
+      }
+      return { stopReason: 'completed', steps: 2, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine, permissionModeServices('yolo'));
+    registerTool(ctx, tool);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'go' }] });
+    await end;
+
+    expect(stepCount).toBe(2);
+    expect(tool.calls).toHaveLength(1);
+    expect(tool.calls[0]?.args).toEqual({ text: 'multi' });
+    expect(emitted(ctx, 'turn.step.started')).toHaveLength(1);
+    expect(emitted(ctx, 'assistant.delta').map((e) => e['delta'])).toEqual([
+      'engine step 1',
+      'engine step 2',
+    ]);
   });
 });

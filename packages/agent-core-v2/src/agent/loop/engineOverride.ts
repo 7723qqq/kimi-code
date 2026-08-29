@@ -56,6 +56,23 @@ export interface TurnEngineToolResult {
   readonly stopTurn?: boolean;
 }
 
+/**
+ * Goal snapshot handed to an external engine for budget-aware turns.
+ * Mirrors the Rust `GoalContext` wire shape (snake_case) so the engine
+ * can check budgets and render steering without an extra round-trip.
+ */
+export interface TurnEngineGoalContext {
+  readonly goalId: string;
+  readonly objective: string;
+  readonly status: 'active' | 'paused' | 'blocked' | 'complete' | 'budgetLimited' | 'usageLimited';
+  readonly tokenBudget?: number;
+  readonly turnBudget?: number;
+  readonly wallClockBudgetMs?: number;
+  readonly wallClockMs: number;
+  readonly tokensUsed: number;
+  readonly turnsUsed: number;
+}
+
 export interface TurnEngineInput {
   readonly turnId: number;
   readonly signal: AbortSignal;
@@ -67,6 +84,9 @@ export interface TurnEngineInput {
   dispatchEvent(event: LoopRecordedEvent): void | Promise<void>;
   executeTool(call: ToolCall, options: TurnEngineExecuteToolOptions): Promise<TurnEngineToolResult>;
   replaceToolResult?(toolCallId: string, result: TurnEngineToolResult): void;
+  /** Current goal snapshot, or undefined when no goal exists. Read fresh
+   *  each turn so host-side goal changes are reflected. */
+  getGoal?(): TurnEngineGoalContext | undefined;
 }
 
 export interface TurnEngineResult {
