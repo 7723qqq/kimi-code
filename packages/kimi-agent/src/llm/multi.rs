@@ -229,7 +229,8 @@ mod tests {
                         content: String::new(),
                         tool_calls: vec![],
                         finish_reason: Some(name),
-                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
+        ..Default::default()},
                     })
                 }
             })
@@ -258,7 +259,8 @@ mod tests {
             content: String::new(),
             tool_calls: vec![],
             finish_reason: Some(tag.to_string()),
-            usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
+        ..Default::default()},
         }
     }
 

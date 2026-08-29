@@ -114,6 +114,10 @@ pub fn build_request_with_options(
 }
 
 /// Project a single content block to the Anthropic content-block form.
+///
+/// Anthropic's Messages API has no native audio/video blocks; audio/video
+/// URLs are degraded to placeholder text (mirroring the host's
+/// `MEDIA_STRIPPED_PLACEHOLDERS` semantics) so the request stays valid.
 fn project_block(b: &ContentBlock) -> Value {
     match b {
         ContentBlock::Text { text } => json!({ "type": "text", "text": text }),
@@ -124,6 +128,14 @@ fn project_block(b: &ContentBlock) -> Value {
         ContentBlock::ImageUrl { url } => json!({
             "type": "image",
             "source": { "type": "url", "url": url },
+        }),
+        ContentBlock::AudioUrl { .. } => json!({
+            "type": "text",
+            "text": "[audio omitted: not supported by this provider; re-read the file to hear it]",
+        }),
+        ContentBlock::VideoUrl { .. } => json!({
+            "type": "text",
+            "text": "[video omitted: not supported by this provider; re-read the file to view it]",
         }),
     }
 }
@@ -169,6 +181,16 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         .and_then(|u| u.get("output_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
+    let input_cache_read = v
+        .get("usage")
+        .and_then(|u| u.get("cache_read_input_tokens"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let input_cache_creation = v
+        .get("usage")
+        .and_then(|u| u.get("cache_creation_input_tokens"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
 
     Ok(LLMChatResponse {
         content: text,
@@ -178,6 +200,8 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
             input_tokens,
             output_tokens,
             total_tokens: input_tokens + output_tokens,
+            input_cache_read,
+            input_cache_creation,
         },
     })
 }
@@ -224,6 +248,14 @@ impl StreamAccumulator {
                 if let Some(usage) = v.get("message").and_then(|m| m.get("usage")) {
                     self.usage.input_tokens = usage
                         .get("input_tokens")
+                        .and_then(|x| x.as_u64())
+                        .unwrap_or(0) as u32;
+                    self.usage.input_cache_read = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(|x| x.as_u64())
+                        .unwrap_or(0) as u32;
+                    self.usage.input_cache_creation = usage
+                        .get("cache_creation_input_tokens")
                         .and_then(|x| x.as_u64())
                         .unwrap_or(0) as u32;
                 }
@@ -409,6 +441,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_response_extracts_cache_usage() {
+        let v = json!({
+            "content": [{ "type": "text", "text": "sure" }],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 50,
+                "output_tokens": 6,
+                "cache_read_input_tokens": 40,
+                "cache_creation_input_tokens": 10
+            }
+        });
+        let parsed = parse_response(&v).unwrap();
+        assert_eq!(parsed.usage.input_cache_read, 40);
+        assert_eq!(parsed.usage.input_cache_creation, 10);
+        assert_eq!(parsed.usage.total_tokens, 56);
+    }
+
+    #[test]
     fn parse_response_plain_text_has_no_tool_calls() {
         let v = json!({
             "content": [{ "type": "text", "text": "hello" }],
@@ -463,6 +513,26 @@ mod tests {
         assert_eq!(content[1]["source"]["type"], "base64");
         assert_eq!(content[1]["source"]["media_type"], "image/jpeg");
         assert_eq!(content[1]["source"]["data"], "BBBB");
+    }
+
+    #[test]
+    fn build_request_degrades_audio_and_video_blocks() {
+        use crate::turn_loop::types::ContentBlock;
+        // Anthropic has no native audio/video blocks: they degrade to text.
+        let msg = WireMessage::with_blocks(
+            "user",
+            vec![
+                ContentBlock::AudioUrl { url: "https://example.com/a.mp3".into(), id: None },
+                ContentBlock::VideoUrl { url: "https://example.com/v.mp4".into(), id: None },
+            ],
+        );
+        let req = build_request("m", 100, &[msg], &[]);
+        let content = req["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert!(content[0]["text"].as_str().unwrap().contains("audio omitted"));
+        assert_eq!(content[1]["type"], "text");
+        assert!(content[1]["text"].as_str().unwrap().contains("video omitted"));
     }
 
     #[test]

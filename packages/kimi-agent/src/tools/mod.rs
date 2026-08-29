@@ -246,11 +246,11 @@ fn build_glob(pattern: &str) -> Option<globset::GlobSet> {
 }
 
 fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult { content, is_error: false, is_prediction: false }
+    ExecutableToolResult { content, is_error: false }
 }
 
 fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult { content, is_error: true, is_prediction: false }
+    ExecutableToolResult { content, is_error: true }
 }
 
 #[cfg(test)]

@@ -349,6 +349,7 @@ impl LLM for MockLlm {
                     input_tokens: 10,
                     output_tokens: 5,
                     total_tokens: 15,
+                    ..Default::default()
                 },
             })
         })

@@ -332,8 +332,7 @@ fn run_turn_with_host_callbacks() {
                     "id": req_id,
                     "result": {
                         "content": "file content from host",
-                        "is_error": false,
-                        "is_prediction": false
+                        "is_error": false
                     }
                 })
             } else {

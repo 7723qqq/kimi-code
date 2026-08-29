@@ -306,6 +306,8 @@ pub struct JsGoalContext {
     pub status: String,
     pub token_budget: Option<i64>,
     pub turn_budget: Option<i64>,
+    pub wall_clock_budget_ms: Option<i64>,
+    pub wall_clock_ms: i64,
     pub tokens_used: i64,
     pub turns_used: i64,
 }
@@ -492,6 +494,8 @@ async fn run_turn_rust_impl(
         },
         token_budget: g.token_budget,
         turn_budget: g.turn_budget,
+        wall_clock_budget_ms: g.wall_clock_budget_ms,
+        wall_clock_ms: g.wall_clock_ms,
         tokens_used: g.tokens_used,
         turns_used: g.turns_used,
     });

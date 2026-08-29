@@ -85,6 +85,7 @@ impl NativeHttpLlm {
     async fn chat_impl(&self, params: LLMChatParams) -> Result<LLMChatResponse, String> {
         let wire = to_wire(&params.messages);
         let is_anthropic = self.config.protocol == "anthropic";
+        let started_at = std::time::Instant::now();
 
         // Step boundary: the host mirrors these into transcript step events.
         self.emit(serde_json::json!({ "type": "llm.step.begin", "model": self.config.model }));
@@ -170,10 +171,13 @@ impl NativeHttpLlm {
                 "arguments": tc.arguments,
             })).collect::<Vec<_>>(),
             "finish_reason": response.finish_reason,
+            "latency_ms": started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "usage": {
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
                 "total_tokens": response.usage.total_tokens,
+                "input_cache_read": response.usage.input_cache_read,
+                "input_cache_creation": response.usage.input_cache_creation,
             },
         }));
 

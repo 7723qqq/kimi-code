@@ -161,7 +161,8 @@ mod tests {
                     content: String::new(),
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
-                    usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+                    usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
+        ..Default::default()},
                 })
             })
         }
@@ -248,7 +249,8 @@ mod tests {
                             vec![]
                         },
                         finish_reason: Some("stop".into()),
-                        usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+                        usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
+        ..Default::default()},
                     })
                 })
             }

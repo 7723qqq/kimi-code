@@ -129,6 +129,8 @@ impl LLM for HostLlmProxy {
                 input_tokens: response.usage.input_tokens,
                 output_tokens: response.usage.output_tokens,
                 total_tokens: response.usage.total_tokens,
+                input_cache_read: response.usage.input_cache_read,
+                input_cache_creation: response.usage.input_cache_creation,
             };
 
             Ok(LLMChatResponse {

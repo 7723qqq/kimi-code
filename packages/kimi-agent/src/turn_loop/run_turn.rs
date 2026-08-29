@@ -1,26 +1,28 @@
-//! Event-driven turn loop with prediction support.
+//! Event-driven, stateless turn loop with resource-conflict-aware tool
+//! scheduling.
 //!
-//! The loop runs as an async state machine:
-//!   1. Call LLM → get tool calls
-//!   2. Execute all tools concurrently
-//!      - If tool returns a prediction (is_prediction=true):
-//!        insert into messages immediately, spawn background precise execution
-//!      - Otherwise: use result directly
-//!   3. Continue next LLM step — messages already contain predictions
-//!   4. Before next LLM call, await background precise results and replace predictions
+//! Flow per step:
+//!   1. Call the LLM with the current message history + tool definitions.
+//!   2. If the response has tool calls, schedule them via
+//!      [`schedule_tool_calls`]: calls whose declared resource accesses
+//!      conflict run in separate batches (serial), non-conflicting calls
+//!      run concurrently within a batch.
+//!   3. Append tool results to the message history.
+//!   4. Continue to the next step, or finish when the LLM stops.
 //!
-//! This allows the LLM to continue working while tools execute,
-//! and predictions give it enough context to make progress.
+//! Tooling is delegated to the JS host through [`HostCallbacks`]; this
+//! module only drives control flow and applies conflict scheduling.
 
 use std::sync::Arc;
 
 use super::retry::RetryConfig;
+use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{BoxFuture, ToolExecuteRequest};
 
-/// Run a single turn with prediction support.
+/// Run a single turn.
 pub fn run_turn<'a>(
     input: RunTurnInput<'a>,
     callbacks: &'a Arc<dyn HostCallbacks>,
@@ -35,9 +37,19 @@ pub fn run_turn<'a>(
         let mut total_usage = crate::rpc::types::TokenUsage::default();
         let mut steps: u32 = 0;
 
+        // Turn wall-clock anchor for the goal's wall-clock budget.
+        let turn_started = std::time::Instant::now();
+        let elapsed_wall_clock_ms = |started: std::time::Instant| {
+            started.elapsed().as_millis().min(i64::MAX as u128) as i64
+        };
+
         // Build system prompt, optionally enriched with goal steering text.
         let system_prompt = if let Some(ref goal) = goal {
-            format!("{}\n\n{}", input.llm.system_prompt(), render_goal_steering(goal, 0, 0))
+            format!(
+                "{}\n\n{}",
+                input.llm.system_prompt(),
+                render_goal_steering(goal, 0, 0, 0)
+            )
         } else {
             input.llm.system_prompt().to_string()
         };
@@ -48,15 +60,12 @@ pub fn run_turn<'a>(
         }];
         messages.extend(user_messages);
 
-        // Background handles for prediction precise execution, indexed by
-        // message index of the tool result that needs replacement.
-        let mut pending_precise: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = Vec::new();
-
         // Default retry configuration for LLM calls within this turn.
         let retry_config = RetryConfig::default();
 
         for step_num in 0..max_steps {
             steps = step_num + 1;
+            let turn_wall_clock_ms = elapsed_wall_clock_ms(turn_started);
 
             // ── Goal budget check ──────────────────────────────────────────
             // Before each step, verify the goal is still active and within
@@ -69,7 +78,6 @@ pub fn run_turn<'a>(
                         GoalStatus::Blocked => LoopTurnStopReason::Aborted,
                         _ => LoopTurnStopReason::EndTurn,
                     };
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: reason,
                         steps: step_num, // this step didn't run
@@ -79,8 +87,12 @@ pub fn run_turn<'a>(
                 // Check budgets with cumulative usage so far.
                 let turn_tokens = total_usage.total_tokens as i64;
                 let turns_this_turn = step_num as i64;
-                if goal.would_exceed_budget(turn_tokens, turns_this_turn) {
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
+                if goal.would_exceed_budget(turn_tokens, turns_this_turn, turn_wall_clock_ms) {
+                    callbacks.emit_event(serde_json::json!({
+                        "type": "goal.budget.limit_reached",
+                        "turn_id": turn_id,
+                        "goal_id": goal.goal_id,
+                    }));
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::BudgetLimited,
                         steps: step_num,
@@ -88,7 +100,8 @@ pub fn run_turn<'a>(
                     });
                 }
                 // Update steering text in system prompt with current progress.
-                let steering = render_goal_steering(goal, turn_tokens, turns_this_turn);
+                let steering =
+                    render_goal_steering(goal, turn_tokens, turns_this_turn, turn_wall_clock_ms);
                 messages[0].content = format!("{}\n\n{}", input.llm.system_prompt(), steering);
             }
 
@@ -97,7 +110,6 @@ pub fn run_turn<'a>(
             // is set. Abort the turn before calling the LLM.
             if let Some(ref cancel) = input.cancellation
                 && cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::Aborted,
                         steps: step_num,
@@ -113,7 +125,6 @@ pub fn run_turn<'a>(
                     };
                     let before_result = before_step(&ctx)?;
                     if let Some(BeforeStepResult::StopTurn(reason)) = before_result {
-                        drain_pending_precise(&mut messages, &mut pending_precise).await;
                         return Ok(TurnResult {
                             stop_reason: reason,
                             steps,
@@ -121,10 +132,6 @@ pub fn run_turn<'a>(
                         });
                     }
                 }
-
-            // Before calling LLM, drain any completed background precise
-            // results and replace predictions in messages.
-            replace_completed_predictions(&mut messages, &mut pending_precise).await;
 
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
@@ -157,7 +164,6 @@ pub fn run_turn<'a>(
                             };
                             let after_result = after_step(&ctx)?;
                             if let Some(AfterStepResult::StopTurn(reason)) = after_result {
-                                drain_pending_precise(&mut messages, &mut pending_precise).await;
                                 return Ok(TurnResult {
                                     stop_reason: reason,
                                     steps,
@@ -165,7 +171,6 @@ pub fn run_turn<'a>(
                                 });
                             }
                         }
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::EndTurn,
                         steps,
@@ -185,11 +190,14 @@ pub fn run_turn<'a>(
                         tool_call_id: None,
                     });
 
-                    // Execute tools concurrently, separating predictions
+                    // Execute tools with resource-conflict scheduling:
+                    // non-conflicting calls run concurrently, conflicting
+                    // calls (e.g. two writes to the same file) are
+                    // serialized across batches.
                     let exec_fn = {
                         let turn_id = turn_id.clone();
                         let callbacks = callbacks.clone();
-                        move |tc: ToolCall, force_precise: bool| {
+                        move |tc: ToolCall| {
                             let turn_id = turn_id.clone();
                             let callbacks = callbacks.clone();
                             async move {
@@ -198,7 +206,6 @@ pub fn run_turn<'a>(
                                     tool_call_id: tc.id.clone(),
                                     tool_name: tc.name.clone(),
                                     arguments: tc.arguments.clone(),
-                                    force_precise,
                                 };
                                 let response = callbacks.execute_tool(req).await
                                     .map_err(|e| format!("Tool execution error: {e}"))?;
@@ -209,24 +216,30 @@ pub fn run_turn<'a>(
                                 Ok(ExecutableToolResult {
                                     content: response.content,
                                     is_error: response.is_error,
-                                    is_prediction: response.is_prediction,
                                 })
                             }
                         }
                     };
-                    let (immediate_results, mut background_handles) = execute_tools_split_predictions(
-                        &tool_calls,
+                    let scheduled: Vec<ScheduledToolCall> = tool_calls
+                        .iter()
+                        .map(|tc| ScheduledToolCall {
+                            tool_call: tc.clone(),
+                            accesses: tool_scheduler::infer_tool_accesses(
+                                &tc.name,
+                                &tc.arguments,
+                            ),
+                        })
+                        .collect();
+                    let results = tool_scheduler::execute_scheduled(
+                        &turn_id,
+                        step_num,
+                        scheduled,
                         exec_fn,
                     ).await?;
 
-                    // Insert tool results and track which message indices
-                    // correspond to predictions (for later replacement). Each
-                    // result links back to its call via `tool_call_id`.
-                    let prediction_count = background_handles.iter().filter(|h| h.is_some()).count();
-                    let mut prediction_msg_indices: Vec<usize> = Vec::with_capacity(prediction_count);
-
-                    for (i, tr) in immediate_results.iter().enumerate() {
-                        let msg_idx = messages.len();
+                    // Insert tool results, each linked back to its call
+                    // via `tool_call_id` (same call order as `tool_calls`).
+                    for (i, tr) in results.iter().enumerate() {
                         messages.push(LLMMessage {
                             role: "tool".into(),
                             content: tr.content.clone(),
@@ -234,42 +247,20 @@ pub fn run_turn<'a>(
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
                         });
-
-                        if tr.is_prediction {
-                            prediction_msg_indices.push(msg_idx);
-                        }
-                    }
-
-                    // Track prediction handles for background replacement.
-                    // Swap out the Some handles into a separate vec so we
-                    // can await them later (JoinHandle is not Clone).
-                    let new_handles: Vec<_> = background_handles.drain(..)
-                        .flatten()
-                        .collect();
-                    let handle_start = pending_precise.len();
-                    pending_precise.extend(new_handles.into_iter().map(|h| (0, h)));
-                    // Map the indices in pending_precise to the correct
-                    // message indices
-                    for (j, msg_idx) in prediction_msg_indices.iter().enumerate() {
-                        let ph_idx = handle_start + j;
-                        if ph_idx < pending_precise.len() {
-                            pending_precise[ph_idx].0 = *msg_idx;
-                        }
                     }
 
                     // Fire after_step with the actual tool results from
-                    // this step (predictions included — the hook can inspect
-                    // them to decide whether to stop the turn).
+                    // this step (the hook can inspect them to decide
+                    // whether to stop the turn).
                     if let Some(hooks) = input.hooks
                         && let Some(ref after_step) = hooks.after_step {
                             let ctx = AfterStepContext {
                                 turn_id: turn_id.clone(),
                                 step: step_num,
-                                tool_results: immediate_results.clone(),
+                                tool_results: results.clone(),
                             };
                             let after_result = after_step(&ctx)?;
                             if let Some(AfterStepResult::StopTurn(reason)) = after_result {
-                                drain_pending_precise(&mut messages, &mut pending_precise).await;
                                 return Ok(TurnResult {
                                     stop_reason: reason,
                                     steps,
@@ -279,7 +270,6 @@ pub fn run_turn<'a>(
                         }
                 }
                 LoopStepStopReason::Aborted => {
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::Aborted,
                         steps,
@@ -293,7 +283,6 @@ pub fn run_turn<'a>(
                     // 400 Bad Request from a misconfigured provider).
                     // Note: the error message (_msg) is intentionally not
                     // surfaced here — it has already been logged by retry logic.
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::EndTurn,
                         steps,
@@ -303,9 +292,7 @@ pub fn run_turn<'a>(
             }
         }
 
-        // Turn ended: await any remaining background precise results
-        drain_pending_precise(&mut messages, &mut pending_precise).await;
-
+        // Turn ended.
         Ok(TurnResult {
             stop_reason: LoopTurnStopReason::EndTurn,
             steps,
@@ -314,138 +301,30 @@ pub fn run_turn<'a>(
     })
 }
 
-/// Replace any completed prediction results with precise results.
-async fn replace_completed_predictions(
-    messages: &mut [LLMMessage],
-    pending: &mut Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)>,
-) {
-    let mut i = 0;
-    while i < pending.len() {
-        let (_idx, handle) = &pending[i];
-        if handle.is_finished() {
-            let (idx, handle) = pending.swap_remove(i);
-            if let Ok(precise) = handle.await
-                && idx < messages.len() {
-                    messages[idx].content = precise.content;
-                }
-        } else {
-            i += 1;
-        }
-    }
-}
-
-/// Drain all pending precise tasks, awaiting each one and replacing the
-/// corresponding prediction in `messages`. Used on every exit path so that
-/// background precise execution is not cancelled when the turn ends.
-async fn drain_pending_precise(
-    messages: &mut [LLMMessage],
-    pending: &mut Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)>,
-) {
-    while let Some((idx, handle)) = pending.pop() {
-        if let Ok(precise) = handle.await
-            && idx < messages.len() {
-                messages[idx].content = precise.content;
-            }
-    }
-}
-
-/// Execute tools concurrently, separating predictions from precise results.
-///
-/// Takes an `execute_fn` callback for each tool call, allowing tests to
-/// inject mock results without needing a running RPC server.
-///
-/// Returns:
-/// - `immediate_results`: results to use right away (predictions or precise)
-/// - `background_handles`: handles for precise execution of predictions
-///   (None for precise results, Some(handle) for predictions)
-async fn execute_tools_split_predictions<F, Fut>(
-    tool_calls: &[ToolCall],
-    execute_fn: F,
-) -> Result<(
-    Vec<ExecutableToolResult>,
-    Vec<Option<tokio::task::JoinHandle<ExecutableToolResult>>>,
-), Box<dyn std::error::Error>>
-where
-    F: Fn(ToolCall, bool) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<ExecutableToolResult, String>> + Send,
-{
-    if tool_calls.is_empty() {
-        return Ok((vec![], vec![]));
-    }
-
-    // Spawn all tool executions concurrently (force_precise = false for the
-    // initial call — predictions are allowed).
-    let mut handles = Vec::with_capacity(tool_calls.len());
-    let exec_arc = Arc::new(execute_fn);
-
-    for tc in tool_calls {
-        let tc = tc.clone();
-        let exec = exec_arc.clone();
-        let handle = tokio::spawn(async move {
-            exec(tc, false).await
-        });
-        handles.push(handle);
-    }
-
-    // Collect results, splitting into immediate and background
-    let mut immediate_results = Vec::with_capacity(handles.len());
-    let mut background_handles: Vec<Option<tokio::task::JoinHandle<ExecutableToolResult>>> = Vec::with_capacity(handles.len());
-
-    for handle in handles {
-        match handle.await {
-            Ok(Ok(result)) => {
-                if result.is_prediction {
-                    let tc = tool_calls[immediate_results.len()].clone();
-                    let exec = exec_arc.clone();
-
-                    // Spawn background precise execution (force_precise = true).
-                    let precise = tokio::spawn(async move {
-                        let precise_result = exec(tc, true).await.unwrap_or_else(|e| {
-                            ExecutableToolResult {
-                                content: format!("Background precise execution error: {e}"),
-                                is_error: true,
-                                is_prediction: false,
-                            }
-                        });
-                        // Ensure the result is not marked as a prediction
-                        ExecutableToolResult {
-                            content: precise_result.content,
-                            is_error: precise_result.is_error,
-                            is_prediction: false,
-                        }
-                    });
-
-                    immediate_results.push(result);
-                    background_handles.push(Some(precise));
-                } else {
-                    immediate_results.push(result);
-                    background_handles.push(None);
-                }
-            }
-            Ok(Err(e)) => return Err(e.into()),
-            Err(e) => return Err(format!("Tool task join error: {e}").into()),
-        }
-    }
-
-    Ok((immediate_results, background_handles))
-}
-
 // ── Goal steering ───────────────────────────────────────────────────────────
 
 /// Render goal steering text injected into the system prompt.
 ///
 /// Mirrors the TS `buildGoalReminder` format: objective, progress, budgets,
 /// and convergence guidance when nearing a budget.
-fn render_goal_steering(goal: &GoalContext, turn_tokens: i64, turns_this_turn: i64) -> String {
+fn render_goal_steering(
+    goal: &GoalContext,
+    turn_tokens: i64,
+    turns_this_turn: i64,
+    turn_wall_clock_ms: i64,
+) -> String {
     let mut lines = Vec::new();
     lines.push(format!("## Goal\n{}", goal.objective));
 
     // Progress line
     let total_tokens = goal.tokens_used + turn_tokens;
     let total_turns = goal.turns_used + turns_this_turn;
+    let total_wall_clock_ms = goal.wall_clock_ms + turn_wall_clock_ms;
     lines.push(format!(
-        "Progress: {} continuation turns, {} tokens consumed.",
-        total_turns, total_tokens
+        "Progress: {} continuation turns, {} tokens consumed, {} elapsed.",
+        total_turns,
+        total_tokens,
+        format_elapsed(total_wall_clock_ms)
     ));
 
     // Budgets line
@@ -464,12 +343,21 @@ fn render_goal_steering(goal: &GoalContext, turn_tokens: i64, turns_this_turn: i
             total_turns, budget, remaining
         ));
     }
+    if let Some(budget) = goal.wall_clock_budget_ms {
+        let remaining = (budget - total_wall_clock_ms).max(0);
+        budget_parts.push(format!(
+            "time {}/{} (remaining {})",
+            format_elapsed(total_wall_clock_ms),
+            format_elapsed(budget),
+            format_elapsed(remaining)
+        ));
+    }
     if !budget_parts.is_empty() {
         lines.push(format!("Budgets: {}.", budget_parts.join("; ")));
     }
 
     // Budget guidance
-    let fraction = goal.budget_fraction(turn_tokens, turns_this_turn);
+    let fraction = goal.budget_fraction(turn_tokens, turns_this_turn, turn_wall_clock_ms);
     if fraction >= 0.75 {
         lines.push(
             "Budget guidance: you are nearing a budget. \
@@ -487,6 +375,21 @@ fn render_goal_steering(goal: &GoalContext, turn_tokens: i64, turns_this_turn: i
     lines.join("\n")
 }
 
+/// Format a millisecond duration compactly (`1m05s`, `2h00m`, …).
+fn format_elapsed(ms: i64) -> String {
+    let total_seconds = ms / 1000;
+    if total_seconds < 60 {
+        return format!("{total_seconds}s");
+    }
+    let minutes = total_seconds / 60;
+    if minutes < 60 {
+        let seconds = total_seconds % 60;
+        return format!("{minutes}m{seconds:02}s");
+    }
+    let hours = minutes / 60;
+    format!("{hours}h{}m", minutes % 60)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,11 +397,46 @@ mod tests {
     use crate::rpc::server::RpcServer;
     use crate::rpc::types::{self, JsonRpcError, TokenUsage, ToolExecuteRequest, ToolExecuteResponse};
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     /// Helper: create an RpcHostCallbacks from an RpcServer.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
         Arc::new(RpcHostCallbacks { server })
+    }
+
+    /// HostCallbacks decorator that records emitted events so tests can
+    /// assert on fire-and-forget notifications (e.g. goal budget limits).
+    struct EventCapturingCallbacks {
+        inner: Arc<dyn HostCallbacks>,
+        events: Arc<Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl EventCapturingCallbacks {
+        fn new(inner: Arc<dyn HostCallbacks>) -> (Self, Arc<Mutex<Vec<serde_json::Value>>>) {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            (Self { inner, events: events.clone() }, events)
+        }
+    }
+
+    impl HostCallbacks for EventCapturingCallbacks {
+        fn llm_chat(
+            &self,
+            request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>> {
+            self.inner.llm_chat(request)
+        }
+
+        fn execute_tool(
+            &self,
+            request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>> {
+            self.inner.execute_tool(request)
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event.clone());
+            self.inner.emit_event(event);
+        }
     }
 
     struct PredictTestLlm {
@@ -522,14 +460,16 @@ mod tests {
                         content: String::new(),
                         tool_calls: tcs,
                         finish_reason: Some("tool_calls".into()),
-                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
+        ..Default::default()},
                     })
                 } else {
                     Ok(LLMChatResponse {
                         content: String::new(),
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
-                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
+        ..Default::default()},
                     })
                 }
             })
@@ -542,84 +482,6 @@ mod tests {
             name: name.into(),
             arguments: serde_json::json!({"path": path}),
         }
-    }
-
-    fn make_prediction_response() -> ToolExecuteResponse {
-        ToolExecuteResponse {
-            content: "prediction content".into(),
-            is_error: false,
-            is_prediction: true,
-        }
-    }
-
-    fn make_precise_response() -> ToolExecuteResponse {
-        ToolExecuteResponse {
-            content: "precise content".into(),
-            is_error: false,
-            is_prediction: false,
-        }
-    }
-
-    #[tokio::test]
-    async fn test_replace_completed_predictions_empty() {
-        let mut messages = vec![
-            LLMMessage { role: "user".into(), content: "hello".into(), ..Default::default() }
-        ];
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![];
-
-        replace_completed_predictions(&mut messages, &mut pending).await;
-        assert_eq!(messages.len(), 1);
-        assert!(pending.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_replace_completed_predictions_replaces() {
-        let mut messages = vec![
-            LLMMessage { role: "user".into(), content: "hello".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "prediction".into(), ..Default::default() },
-        ];
-
-        let handle = tokio::spawn(async {
-            ExecutableToolResult {
-                content: "precise result".into(),
-                is_error: false,
-                is_prediction: false,
-            }
-        });
-
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![(1, handle)];
-
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        replace_completed_predictions(&mut messages, &mut pending).await;
-
-        assert_eq!(messages[1].content, "precise result");
-        assert!(pending.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_replace_completed_predictions_keeps_pending() {
-        let mut messages = vec![
-            LLMMessage { role: "user".into(), content: "hello".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "prediction".into(), ..Default::default() },
-        ];
-
-        let handle = tokio::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-            ExecutableToolResult {
-                content: "precise".into(),
-                is_error: false,
-                is_prediction: false,
-            }
-        });
-
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![(1, handle)];
-
-        replace_completed_predictions(&mut messages, &mut pending).await;
-
-        assert_eq!(messages[1].content, "prediction");
-        assert_eq!(pending.len(), 1);
-
-        pending[0].1.abort();
     }
 
     #[tokio::test]
@@ -657,9 +519,9 @@ mod tests {
     /// registered locally (tests) or reachable only via stdio (production).
     fn make_exec_fn(
         server: &Arc<RpcServer>,
-    ) -> impl Fn(ToolCall, bool) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutableToolResult, String>> + Send + 'static>> + Send + Sync + 'static {
+    ) -> impl Fn(ToolCall) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutableToolResult, String>> + Send + 'static>> + Send + Sync + 'static {
         let server = server.clone();
-        move |tc: ToolCall, force_precise: bool| {
+        move |tc: ToolCall| {
             let server = server.clone();
             Box::pin(async move {
                 let params = serde_json::to_value(&ToolExecuteRequest {
@@ -667,7 +529,6 @@ mod tests {
                     tool_call_id: tc.id.clone(),
                     tool_name: tc.name.clone(),
                     arguments: tc.arguments.clone(),
-                    force_precise,
                 }).map_err(|e| e.to_string())?;
                 let result = server
                     .invoke(types::methods::HOST_EXECUTE_TOOL, params)
@@ -678,130 +539,8 @@ mod tests {
                 Ok(ExecutableToolResult {
                     content: response.content,
                     is_error: response.is_error,
-                    is_prediction: response.is_prediction,
                 })
             })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_tools_split_predictions_all_precise() {
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            |_params| {
-                Box::pin(async move {
-                    let resp = make_precise_response();
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let tool_calls = vec![
-            mock_tool_call("c1", "Read", "/a.txt"),
-            mock_tool_call("c2", "Read", "/b.txt"),
-        ];
-
-        let exec_fn = make_exec_fn(&server);
-        let (results, backgrounds) = execute_tools_split_predictions(&tool_calls, exec_fn).await.unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(backgrounds.len(), 2);
-        assert!(backgrounds[0].is_none());
-        assert!(backgrounds[1].is_none());
-        assert!(!results[0].is_prediction);
-        assert!(!results[1].is_prediction);
-    }
-
-    #[tokio::test]
-    async fn test_execute_tools_split_predictions_mixed() {
-        let call_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let count = cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let resp = if count == 0 {
-                        make_prediction_response()
-                    } else {
-                        make_precise_response()
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let tool_calls = vec![
-            mock_tool_call("c1", "Read", "/a.txt"),
-        ];
-
-        let exec_fn = make_exec_fn(&server);
-        let (results, backgrounds) = execute_tools_split_predictions(&tool_calls, exec_fn).await.unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(backgrounds.len(), 1);
-        assert!(results[0].is_prediction);
-        assert!(backgrounds[0].is_some());
-
-        if let Some(handle) = backgrounds.into_iter().next().unwrap() {
-            let precise = handle.await.unwrap();
-            assert!(!precise.is_prediction);
-            assert_eq!(precise.content, "precise content");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_tools_split_predictions_empty() {
-        let server = Arc::new(RpcServer::new());
-        let exec_fn = make_exec_fn(&server);
-        let (results, backgrounds) = execute_tools_split_predictions(&[], exec_fn).await.unwrap();
-        assert!(results.is_empty());
-        assert!(backgrounds.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_execute_tools_split_predictions_force_precise_on_background() {
-        let call_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let count = cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let resp = if count == 0 {
-                        make_prediction_response()
-                    } else {
-                        make_precise_response()
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let tool_calls = vec![
-            mock_tool_call("c1", "Read", "/a.txt"),
-        ];
-
-        let exec_fn = make_exec_fn(&server);
-        let (results, backgrounds) = execute_tools_split_predictions(&tool_calls, exec_fn).await.unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(results[0].is_prediction);
-
-        // The background precise execution should produce a non-prediction result
-        if let Some(handle) = backgrounds.into_iter().next().unwrap() {
-            let precise = handle.await.unwrap();
-            assert!(!precise.is_prediction, "background result should not be a prediction");
         }
     }
 
@@ -839,52 +578,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_replace_completed_predictions_multiple() {
-        let mut messages = vec![
-            LLMMessage { role: "user".into(), content: "hello".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "pred1".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "pred2".into(), ..Default::default() },
-        ];
-
-        let h1 = tokio::spawn(async {
-            ExecutableToolResult { content: "precise1".into(), is_error: false, is_prediction: false }
-        });
-        let h2 = tokio::spawn(async {
-            ExecutableToolResult { content: "precise2".into(), is_error: false, is_prediction: false }
-        });
-
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![(1, h1), (2, h2)];
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        replace_completed_predictions(&mut messages, &mut pending).await;
-
-        assert_eq!(messages[1].content, "precise1");
-        assert_eq!(messages[2].content, "precise2");
-        assert!(pending.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_make_exec_fn_prediction_from_handler() {
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            |_params| {
-                Box::pin(async move {
-                    let resp = make_prediction_response();
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let exec_fn = make_exec_fn(&server);
-        let tc = mock_tool_call("c1", "Read", "/a.txt");
-        let result = exec_fn(tc, false).await.unwrap();
-        assert!(result.is_prediction);
-        assert_eq!(result.content, "prediction content");
-    }
-
-    #[tokio::test]
     async fn test_after_step_hook_receives_tool_results() {
         use std::sync::Mutex;
 
@@ -908,14 +601,16 @@ mod tests {
                                 arguments: serde_json::json!({"path": "/a.txt"}),
                             }],
                             finish_reason: Some("tool_calls".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 ,
+        ..Default::default()},
                         })
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 ,
+        ..Default::default()},
                         })
                     }
                 })
@@ -932,7 +627,6 @@ mod tests {
                     let resp = ToolExecuteResponse {
                         content: "file content here".into(),
                         is_error: false,
-                        is_prediction: false,
                     };
                     serde_json::to_value(&resp)
                         .map_err(|e| JsonRpcError::internal_error(e.to_string()))
@@ -975,7 +669,6 @@ mod tests {
         assert_eq!(captured.len(), 2, "after_step should fire once per step");
         assert_eq!(captured[0].len(), 1, "step 0 should have one tool result");
         assert_eq!(captured[0][0].content, "file content here");
-        assert!(!captured[0][0].is_prediction);
         assert!(captured[1].is_empty(), "step 1 should have no tool results");
     }
 
@@ -1002,6 +695,8 @@ mod tests {
             turn_budget: None,
             tokens_used: 0,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1042,6 +737,8 @@ mod tests {
             turn_budget: None,
             tokens_used: 0,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1072,7 +769,9 @@ mod tests {
             tool_responses: vec![],
         };
         let server = Arc::new(RpcServer::new());
-        let callbacks = rpc_callbacks(server.clone());
+        let (capturing, captured_events) =
+            EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let capturing: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let goal = GoalContext {
             goal_id: "g3".into(),
@@ -1083,6 +782,8 @@ mod tests {
             // Already used 100 tokens — at the budget limit.
             tokens_used: 100,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1097,9 +798,15 @@ mod tests {
             cancellation: None,
         };
 
-        let result = run_turn(input, &callbacks).await.unwrap();
+        let result = run_turn(input, &capturing).await.unwrap();
         assert!(matches!(result.stop_reason, LoopTurnStopReason::BudgetLimited));
         assert_eq!(result.steps, 0);
+
+        let events = captured_events.lock().unwrap();
+        assert!(
+            events.iter().any(|e| e["type"] == "goal.budget.limit_reached" && e["goal_id"] == "g3"),
+            "budget exhaustion must emit goal.budget.limit_reached, got {events:?}"
+        );
     }
 
     /// A goal whose turn budget is already exhausted must stop with
@@ -1124,6 +831,8 @@ mod tests {
             tokens_used: 0,
             // Already used 3 turns — at the limit.
             turns_used: 3,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1164,6 +873,8 @@ mod tests {
             turn_budget: Some(100),
             tokens_used: 100,
             turns_used: 1,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1248,115 +959,6 @@ mod tests {
         assert_eq!(result.steps, 1);
     }
 
-    // ── Prediction fast-path end-to-end test ────────────────────────────
-
-    /// End-to-end test of the prediction fast-path:
-    ///   1. LLM returns a Read tool call.
-    ///   2. Tool handler returns is_prediction=true on first call.
-    ///   3. Background precise execution (force_precise=true) returns the
-    ///      real content.
-    ///   4. The turn completes with EndTurn.
-    ///   5. After the turn, pending precise results replace predictions
-    ///      in the message history.
-    ///
-    /// This verifies the full flow works without a running stdio loop,
-    /// using direct_call to invoke the registered handler.
-    #[tokio::test]
-    async fn test_prediction_fast_path_end_to_end() {
-        let call_count = Arc::new(AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let n = cc.fetch_add(1, Ordering::SeqCst);
-                    // First call (force_precise=false): prediction.
-                    // Second call (force_precise=true): precise result.
-                    let resp = if n == 0 {
-                        ToolExecuteResponse {
-                            content: "PREDICTION".into(),
-                            is_error: false,
-                            is_prediction: true,
-                        }
-                    } else {
-                        ToolExecuteResponse {
-                            content: "PRECISE_RESULT".into(),
-                            is_error: false,
-                            is_prediction: false,
-                        }
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let callbacks = rpc_callbacks(server.clone());
-
-        // LLM that returns a Read tool call on step 0, then stops.
-        struct PredictLlm { call: AtomicU32 }
-        impl LLM for PredictLlm {
-            fn system_prompt(&self) -> &str { "test" }
-            fn model_name(&self) -> &str { "predict-test" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, _: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-                let call = self.call.fetch_add(1, Ordering::SeqCst);
-                Box::pin(async move {
-                    if call == 0 {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![ToolCall {
-                                id: "pc1".into(),
-                                name: "read".into(),
-                                arguments: serde_json::json!({"path": "/x.txt"}),
-                            }],
-                            finish_reason: Some("tool_calls".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-                        })
-                    } else {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![],
-                            finish_reason: Some("stop".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-                        })
-                    }
-                })
-            }
-        }
-
-        let llm = PredictLlm { call: AtomicU32::new(0) };
-        let input = RunTurnInput {
-            turn_id: "test-predict-e2e".into(),
-            llm: &llm,
-            messages: vec![LLMMessage { role: "user".into(), content: "read /x.txt".into(), ..Default::default() }],
-            tools: &[],
-            tool_defs: vec![],
-            hooks: None,
-            max_steps: 5,
-            goal: None,
-            cancellation: None,
-        };
-
-        let result = run_turn(input, &callbacks).await.unwrap();
-
-        // The turn should complete normally.
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
-        assert_eq!(result.steps, 2, "step 0: tool call, step 1: stop");
-
-        // The tool handler should have been called twice:
-        //   1. force_precise=false → prediction
-        //   2. force_precise=true → precise
-        let total_calls = call_count.load(Ordering::SeqCst);
-        assert!(
-            total_calls >= 2,
-            "expected at least 2 tool calls (prediction + precise), got {total_calls}"
-        );
-    }
 
     // ── Goal steering text injection test ────────────────────────────────
 
@@ -1387,7 +989,8 @@ mod tests {
                         content: String::new(),
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
-                        usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+                        usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 ,
+        ..Default::default()},
                     })
                 })
             }
@@ -1409,6 +1012,8 @@ mod tests {
             turn_budget: Some(10),
             tokens_used: 100,
             turns_used: 1,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
 
         let input = RunTurnInput {
@@ -1539,7 +1144,6 @@ mod tests {
                     let resp = ToolExecuteResponse {
                         content: "ok".into(),
                         is_error: false,
-                        is_prediction: false,
                     };
                     serde_json::to_value(&resp)
                         .map_err(|e| JsonRpcError::internal_error(e.to_string()))
@@ -1565,370 +1169,6 @@ mod tests {
         assert_eq!(result.steps, 3, "should stop at max_steps");
     }
 
-    // ── drain_pending_precise helper tests ──────────────────────────────
-
-    #[tokio::test]
-    async fn test_drain_pending_precise_empty() {
-        let mut messages = vec![];
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![];
-        drain_pending_precise(&mut messages, &mut pending).await;
-        assert!(pending.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_drain_pending_precise_replaces_all() {
-        let mut messages = vec![
-            LLMMessage { role: "user".into(), content: "hi".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "pred1".into(), ..Default::default() },
-            LLMMessage { role: "tool".into(), content: "pred2".into(), ..Default::default() },
-        ];
-
-        let h1 = tokio::spawn(async {
-            ExecutableToolResult { content: "precise1".into(), is_error: false, is_prediction: false }
-        });
-        let h2 = tokio::spawn(async {
-            ExecutableToolResult { content: "precise2".into(), is_error: false, is_prediction: false }
-        });
-
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![(1, h1), (2, h2)];
-        drain_pending_precise(&mut messages, &mut pending).await;
-
-        assert!(pending.is_empty(), "all pending should be drained");
-        assert_eq!(messages[1].content, "precise1");
-        assert_eq!(messages[2].content, "precise2");
-    }
-
-    #[tokio::test]
-    async fn test_drain_pending_precise_with_errors() {
-        // A task that panics should not crash the drain — the JoinHandle
-        // returns Err which we silently ignore.
-        let mut messages = vec![
-            LLMMessage { role: "tool".into(), content: "pred".into(), ..Default::default() },
-        ];
-
-        let h = tokio::spawn(async {
-            panic!("background task panicked");
-        });
-
-        let mut pending: Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)> = vec![(0, h)];
-        drain_pending_precise(&mut messages, &mut pending).await;
-
-        assert!(pending.is_empty());
-        // Message content unchanged because the task panicked.
-        assert_eq!(messages[0].content, "pred");
-    }
-
-    // ── Prediction replacement after Complete ──────────────────────────
-
-    /// Verify that when the LLM signals Complete after a prediction was
-    /// returned in a prior step, the prediction content in messages is
-    /// replaced by the precise result before the turn ends.
-    ///
-    /// This is the core regression test for the early-exit drain fix:
-    /// before the fix, the Complete exit path returned without awaiting
-    /// pending background precise tasks, leaving predictions unreplaced.
-    #[tokio::test]
-    async fn test_prediction_replaced_after_complete() {
-        let call_count = Arc::new(AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let n = cc.fetch_add(1, Ordering::SeqCst);
-                    let resp = if n == 0 {
-                        ToolExecuteResponse {
-                            content: "PREDICTION".into(),
-                            is_error: false,
-                            is_prediction: true,
-                        }
-                    } else {
-                        ToolExecuteResponse {
-                            content: "PRECISE".into(),
-                            is_error: false,
-                            is_prediction: false,
-                        }
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let callbacks = rpc_callbacks(server.clone());
-
-        // Capture messages seen by the LLM on each step.
-        use std::sync::Mutex;
-        let captured: Arc<Mutex<Vec<Vec<LLMMessage>>>> = Arc::new(Mutex::new(vec![]));
-        let captured_clone = captured.clone();
-
-        struct CaptureLlm {
-            call: AtomicU32,
-            captured: Arc<Mutex<Vec<Vec<LLMMessage>>>>,
-        }
-        impl LLM for CaptureLlm {
-            fn system_prompt(&self) -> &str { "test" }
-            fn model_name(&self) -> &str { "capture" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, params: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-                let call = self.call.fetch_add(1, Ordering::SeqCst);
-                let captured = self.captured.clone();
-                Box::pin(async move {
-                    captured.lock().unwrap().push(params.messages.clone());
-                    if call == 0 {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![ToolCall {
-                                id: "tc1".into(),
-                                name: "read".into(),
-                                arguments: serde_json::json!({"path": "/x"}),
-                            }],
-                            finish_reason: Some("tool_calls".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-                        })
-                    } else {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![],
-                            finish_reason: Some("stop".into()),
-                            usage: TokenUsage { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-                        })
-                    }
-                })
-            }
-        }
-
-        let llm = CaptureLlm { call: AtomicU32::new(0), captured: captured_clone };
-        let input = RunTurnInput {
-            turn_id: "test-pred-complete".into(),
-            llm: &llm,
-            messages: vec![LLMMessage { role: "user".into(), content: "read /x".into(), ..Default::default() }],
-            tools: &[],
-            tool_defs: vec![],
-            hooks: None,
-            max_steps: 5,
-            goal: None,
-            cancellation: None,
-        };
-
-        let result = run_turn(input, &callbacks).await.unwrap();
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
-
-        // The background precise task should have completed (2 calls total).
-        let total = call_count.load(Ordering::SeqCst);
-        assert!(total >= 2, "expected >= 2 tool calls, got {total}");
-
-        // The LLM on step 1 (second call) should see the prediction content
-        // in the messages — but by the time the turn ends, the prediction
-        // should be replaced by "PRECISE". We verify this by checking that
-        // the tool handler was called at least twice (prediction + precise).
-    }
-
-    // ── after_step stops turn after tool calls with pending predictions ──
-
-    /// When after_step returns StopTurn after tool execution that included
-    /// a prediction, the pending precise task must still be drained (not
-    /// cancelled). We verify the tool handler is called twice (prediction +
-    /// precise) even though the turn was stopped early.
-    #[tokio::test]
-    async fn test_after_step_stops_with_pending_prediction() {
-        let call_count = Arc::new(AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let n = cc.fetch_add(1, Ordering::SeqCst);
-                    let resp = if n == 0 {
-                        ToolExecuteResponse {
-                            content: "PRED".into(),
-                            is_error: false,
-                            is_prediction: true,
-                        }
-                    } else {
-                        ToolExecuteResponse {
-                            content: "PRECISE".into(),
-                            is_error: false,
-                            is_prediction: false,
-                        }
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let callbacks = rpc_callbacks(server.clone());
-
-        // LLM that returns a tool call, then would stop.
-        struct StepLlm { call: AtomicU32 }
-        impl LLM for StepLlm {
-            fn system_prompt(&self) -> &str { "test" }
-            fn model_name(&self) -> &str { "step" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, _: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-                let call = self.call.fetch_add(1, Ordering::SeqCst);
-                Box::pin(async move {
-                    if call == 0 {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![ToolCall {
-                                id: "tc1".into(),
-                                name: "read".into(),
-                                arguments: serde_json::json!({"path": "/x"}),
-                            }],
-                            finish_reason: Some("tool_calls".into()),
-                            usage: TokenUsage::default(),
-                        })
-                    } else {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![],
-                            finish_reason: Some("stop".into()),
-                            usage: TokenUsage::default(),
-                        })
-                    }
-                })
-            }
-        }
-
-        // after_step stops the turn immediately after the first tool step.
-        let hooks = LoopHooks {
-            after_step: Some(Box::new(|_ctx| {
-                Ok(Some(AfterStepResult::StopTurn(LoopTurnStopReason::Aborted)))
-            })),
-            before_step: None,
-        };
-
-        let llm = StepLlm { call: AtomicU32::new(0) };
-        let input = RunTurnInput {
-            turn_id: "test-after-stop-pred".into(),
-            llm: &llm,
-            messages: vec![LLMMessage { role: "user".into(), content: "hi".into(), ..Default::default() }],
-            tools: &[],
-            tool_defs: vec![],
-            hooks: Some(&hooks),
-            max_steps: 5,
-            goal: None,
-            cancellation: None,
-        };
-
-        let result = run_turn(input, &callbacks).await.unwrap();
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
-
-        // Even though the turn was aborted, the background precise task
-        // should have been drained (called at least twice).
-        let total = call_count.load(Ordering::SeqCst);
-        assert!(total >= 2, "expected >= 2 tool calls after drain, got {total}");
-    }
-
-    // ── Multiple predictions in one step ────────────────────────────────
-
-    /// When two tool calls in the same step both return predictions, both
-    /// background precise tasks should be spawned and eventually drained.
-    #[tokio::test]
-    async fn test_multiple_predictions_in_one_step() {
-        let call_count = Arc::new(AtomicU32::new(0));
-        let cc = call_count.clone();
-
-        let server = Arc::new(RpcServer::new());
-        RpcServer::register_arc(
-            &server,
-            types::methods::HOST_EXECUTE_TOOL,
-            move |_params| {
-                let cc = cc.clone();
-                Box::pin(async move {
-                    let n = cc.fetch_add(1, Ordering::SeqCst);
-                    // First two calls (n=0,1) are predictions, next two (n=2,3) are precise.
-                    let resp = if n < 2 {
-                        ToolExecuteResponse {
-                            content: format!("PRED_{n}"),
-                            is_error: false,
-                            is_prediction: true,
-                        }
-                    } else {
-                        ToolExecuteResponse {
-                            content: format!("PRECISE_{n}"),
-                            is_error: false,
-                            is_prediction: false,
-                        }
-                    };
-                    serde_json::to_value(&resp)
-                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))
-                })
-            },
-        );
-
-        let callbacks = rpc_callbacks(server.clone());
-
-        // LLM that returns TWO tool calls on step 0, then stops.
-        struct MultiPredLlm { call: AtomicU32 }
-        impl LLM for MultiPredLlm {
-            fn system_prompt(&self) -> &str { "test" }
-            fn model_name(&self) -> &str { "multi-pred" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, _: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-                let call = self.call.fetch_add(1, Ordering::SeqCst);
-                Box::pin(async move {
-                    if call == 0 {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![
-                                ToolCall {
-                                    id: "tc1".into(),
-                                    name: "read".into(),
-                                    arguments: serde_json::json!({"path": "/a"}),
-                                },
-                                ToolCall {
-                                    id: "tc2".into(),
-                                    name: "read".into(),
-                                    arguments: serde_json::json!({"path": "/b"}),
-                                },
-                            ],
-                            finish_reason: Some("tool_calls".into()),
-                            usage: TokenUsage::default(),
-                        })
-                    } else {
-                        Ok(LLMChatResponse {
-                            content: String::new(),
-                            tool_calls: vec![],
-                            finish_reason: Some("stop".into()),
-                            usage: TokenUsage::default(),
-                        })
-                    }
-                })
-            }
-        }
-
-        let llm = MultiPredLlm { call: AtomicU32::new(0) };
-        let input = RunTurnInput {
-            turn_id: "test-multi-pred".into(),
-            llm: &llm,
-            messages: vec![LLMMessage { role: "user".into(), content: "read /a and /b".into(), ..Default::default() }],
-            tools: &[],
-            tool_defs: vec![],
-            hooks: None,
-            max_steps: 5,
-            goal: None,
-            cancellation: None,
-        };
-
-        let result = run_turn(input, &callbacks).await.unwrap();
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
-
-        // 2 predictions + 2 precise = 4 total calls.
-        let total = call_count.load(Ordering::SeqCst);
-        assert!(total >= 4, "expected >= 4 tool calls (2 pred + 2 precise), got {total}");
-    }
-
     // ── render_goal_steering tests ──────────────────────────────────────
 
     #[test]
@@ -1941,13 +1181,42 @@ mod tests {
             turn_budget: Some(10),
             tokens_used: 100,
             turns_used: 1,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
-        let text = render_goal_steering(&goal, 50, 1);
+        let text = render_goal_steering(&goal, 50, 1, 0);
         assert!(text.contains("Write tests"), "should contain objective");
         assert!(text.contains("Goal"), "should contain Goal header");
         assert!(text.contains("Budgets:"), "should contain budget section");
         assert!(text.contains("1000"), "should mention token budget");
         assert!(text.contains("within budget"), "should say within budget when low");
+    }
+
+    #[test]
+    fn test_render_goal_steering_wall_clock_budget() {
+        let goal = GoalContext {
+            goal_id: "g".into(),
+            objective: "Finish".into(),
+            status: GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: Some(10_000),
+            wall_clock_ms: 5000,
+            tokens_used: 0,
+            turns_used: 0,
+        };
+        let text = render_goal_steering(&goal, 0, 0, 500);
+        assert!(text.contains("time 5s/10s (remaining 4s)"), "should show wall-clock budget");
+        assert!(text.contains("elapsed"), "should mention elapsed time in progress");
+    }
+
+    #[test]
+    fn test_format_elapsed() {
+        assert_eq!(format_elapsed(500), "0s");
+        assert_eq!(format_elapsed(59_000), "59s");
+        assert_eq!(format_elapsed(65_000), "1m05s");
+        assert_eq!(format_elapsed(3600_000), "1h0m");
+        assert_eq!(format_elapsed(7_200_000), "2h0m");
     }
 
     #[test]
@@ -1960,9 +1229,11 @@ mod tests {
             turn_budget: None,
             tokens_used: 80,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
         // 80 + 10 = 90 / 100 = 0.9 >= 0.75 → should say "nearing"
-        let text = render_goal_steering(&goal, 10, 0);
+        let text = render_goal_steering(&goal, 10, 0, 0);
         assert!(text.contains("nearing a budget"), "should warn about nearing budget");
     }
 
@@ -1976,8 +1247,10 @@ mod tests {
             turn_budget: None,
             tokens_used: 0,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
-        let text = render_goal_steering(&goal, 0, 0);
+        let text = render_goal_steering(&goal, 0, 0, 0);
         assert!(text.contains("Do thing"), "should contain objective");
         assert!(!text.contains("Budgets:"), "should not contain budget section when no budgets");
     }

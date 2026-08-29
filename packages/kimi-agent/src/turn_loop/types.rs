@@ -137,10 +137,6 @@ pub struct ToolExecContext {
 pub struct ExecutableToolResult {
     pub content: String,
     pub is_error: bool,
-    /// When true, this result is a fast prediction that should be replaced
-    /// by a precise result when the background execution completes.
-    #[allow(dead_code)]
-    pub is_prediction: bool,
 }
 
 /// Error result from tool resolution.
@@ -163,7 +159,7 @@ pub enum FileOperation {
 }
 
 /// Access to a single file or directory tree.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolFileAccess {
     pub operation: FileOperation,
     pub path: String,
@@ -171,7 +167,7 @@ pub struct ToolFileAccess {
 }
 
 /// A single resource access entry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolResourceAccess {
     File(ToolFileAccess),
     /// Global exclusive — conflicts with everything.
@@ -668,6 +664,12 @@ pub struct GoalContext {
     pub token_budget: Option<i64>,
     /// Optional turn budget (max turns).
     pub turn_budget: Option<i64>,
+    /// Optional wall-clock budget (milliseconds for the whole goal).
+    #[serde(default)]
+    pub wall_clock_budget_ms: Option<i64>,
+    /// Wall-clock milliseconds already consumed before this turn.
+    #[serde(default)]
+    pub wall_clock_ms: i64,
     /// Cumulative tokens consumed so far (before this turn).
     pub tokens_used: i64,
     /// Cumulative turns run so far (before this turn).
@@ -675,9 +677,15 @@ pub struct GoalContext {
 }
 
 impl GoalContext {
-    /// Returns true if adding `turn_tokens` and one more turn would exceed
-    /// any configured budget.
-    pub fn would_exceed_budget(&self, turn_tokens: i64, turns_this_turn: i64) -> bool {
+    /// Returns true if adding `turn_tokens`, one more turn, and
+    /// `turn_wall_clock_ms` of wall-clock time would exceed any configured
+    /// budget.
+    pub fn would_exceed_budget(
+        &self,
+        turn_tokens: i64,
+        turns_this_turn: i64,
+        turn_wall_clock_ms: i64,
+    ) -> bool {
         if let Some(budget) = self.token_budget
             && self.tokens_used + turn_tokens >= budget {
                 return true;
@@ -686,12 +694,21 @@ impl GoalContext {
             && self.turns_used + turns_this_turn >= budget {
                 return true;
             }
+        if let Some(budget) = self.wall_clock_budget_ms
+            && self.wall_clock_ms + turn_wall_clock_ms >= budget {
+                return true;
+            }
         false
     }
 
     /// Maximum fraction of any budget dimension currently consumed
     /// (0.0 when no budgets configured).
-    pub fn budget_fraction(&self, turn_tokens: i64, turns_this_turn: i64) -> f64 {
+    pub fn budget_fraction(
+        &self,
+        turn_tokens: i64,
+        turns_this_turn: i64,
+        turn_wall_clock_ms: i64,
+    ) -> f64 {
         let mut fractions = Vec::new();
         if let Some(budget) = self.token_budget
             && budget > 0 {
@@ -700,6 +717,10 @@ impl GoalContext {
         if let Some(budget) = self.turn_budget
             && budget > 0 {
                 fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
+            }
+        if let Some(budget) = self.wall_clock_budget_ms
+            && budget > 0 {
+                fractions.push((self.wall_clock_ms + turn_wall_clock_ms) as f64 / budget as f64);
             }
         fractions.iter().cloned().fold(0.0_f64, f64::max)
     }
@@ -765,6 +786,8 @@ mod goal_tests {
             turn_budget: Some(10),
             tokens_used: 0,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         }
     }
 
@@ -782,7 +805,7 @@ mod goal_tests {
     fn test_would_exceed_budget_token_at_limit() {
         let mut g = active_goal();
         g.tokens_used = 1000;
-        assert!(g.would_exceed_budget(0, 0), "at limit should exceed");
+        assert!(g.would_exceed_budget(0, 0, 0), "at limit should exceed");
     }
 
     #[test]
@@ -790,24 +813,24 @@ mod goal_tests {
         let mut g = active_goal();
         g.tokens_used = 900;
         // 900 + 50 = 950 < 1000, should NOT exceed
-        assert!(!g.would_exceed_budget(50, 0));
+        assert!(!g.would_exceed_budget(50, 0, 0));
         // 900 + 100 = 1000 >= 1000, should exceed
-        assert!(g.would_exceed_budget(100, 0));
+        assert!(g.would_exceed_budget(100, 0, 0));
     }
 
     #[test]
     fn test_would_exceed_budget_turn_at_limit() {
         let mut g = active_goal();
         g.turns_used = 10;
-        assert!(g.would_exceed_budget(0, 0));
+        assert!(g.would_exceed_budget(0, 0, 0));
     }
 
     #[test]
     fn test_would_exceed_budget_turn_near_limit() {
         let mut g = active_goal();
         g.turns_used = 8;
-        assert!(!g.would_exceed_budget(0, 1), "8+1=9 < 10, should not exceed");
-        assert!(g.would_exceed_budget(0, 2), "8+2=10 >= 10, should exceed");
+        assert!(!g.would_exceed_budget(0, 1, 0), "8+1=9 < 10, should not exceed");
+        assert!(g.would_exceed_budget(0, 2, 0), "8+2=10 >= 10, should exceed");
     }
 
     #[test]
@@ -820,8 +843,10 @@ mod goal_tests {
             turn_budget: None,
             tokens_used: 99999,
             turns_used: 99999,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
-        assert!(!g.would_exceed_budget(99999, 99999));
+        assert!(!g.would_exceed_budget(99999, 99999, 0));
     }
 
     #[test]
@@ -834,36 +859,71 @@ mod goal_tests {
             turn_budget: None,
             tokens_used: 0,
             turns_used: 0,
+            wall_clock_budget_ms: None,
+            wall_clock_ms: 0,
         };
-        assert_eq!(g.budget_fraction(100, 5), 0.0);
+        assert_eq!(g.budget_fraction(100, 5, 0), 0.0);
     }
 
     #[test]
     fn test_budget_fraction_half() {
         let g = active_goal(); // token_budget=1000, turn_budget=10
         // 500/1000 = 0.5, 5/10 = 0.5 → max = 0.5
-        assert_eq!(g.budget_fraction(500, 5), 0.5);
+        assert_eq!(g.budget_fraction(500, 5, 0), 0.5);
     }
 
     #[test]
     fn test_budget_fraction_near_limit() {
         let g = active_goal();
         // 750/1000 = 0.75, 5/10 = 0.5 → max = 0.75
-        assert!(g.budget_fraction(750, 5) >= 0.75);
+        assert!(g.budget_fraction(750, 5, 0) >= 0.75);
     }
 
     #[test]
     fn test_budget_fraction_over_limit() {
         let g = active_goal();
         // 1500/1000 = 1.5
-        assert!(g.budget_fraction(1500, 0) > 1.0);
+        assert!(g.budget_fraction(1500, 0, 0) > 1.0);
+    }
+
+    #[test]
+    fn test_wall_clock_budget_at_limit() {
+        let mut g = active_goal();
+        g.wall_clock_budget_ms = Some(6000);
+        assert!(!g.would_exceed_budget(0, 0, 5000), "within wall-clock budget");
+        assert!(g.would_exceed_budget(0, 0, 6000), "at wall-clock limit should exceed");
+        assert!(g.would_exceed_budget(0, 0, 7000), "beyond wall-clock limit should exceed");
+        assert_eq!(g.budget_fraction(0, 0, 3000), 0.5);
+    }
+
+    #[test]
+    fn test_wall_clock_budget_with_cumulative_elapsed() {
+        let g = GoalContext {
+            goal_id: "g".into(),
+            objective: "test".into(),
+            status: GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: Some(10_000),
+            wall_clock_ms: 9000,
+            tokens_used: 0,
+            turns_used: 0,
+        };
+        assert!(g.would_exceed_budget(0, 0, 1000), "cumulative elapsed pushes over budget");
+        assert!(!g.would_exceed_budget(0, 0, 999), "just under cumulative budget");
+    }
+
+    #[test]
+    fn test_no_wall_clock_budget_never_triggers() {
+        let g = active_goal();
+        assert!(!g.would_exceed_budget(0, 0, i64::MAX / 2), "no wall-clock budget configured");
     }
 
     #[test]
     fn test_budget_fraction_picks_max() {
         let g = active_goal(); // token=1000, turn=10
         // tokens: 100/1000 = 0.1, turns: 9/10 = 0.9 → max = 0.9
-        let frac = g.budget_fraction(100, 9);
+        let frac = g.budget_fraction(100, 9, 0);
         assert!((frac - 0.9).abs() < 0.001, "expected 0.9, got {frac}");
     }
 }

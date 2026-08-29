@@ -117,7 +117,6 @@ impl HostCallbacks for NativeToolCallbacks {
             let response = ToolExecuteResponse {
                 content: result.content,
                 is_error: result.is_error,
-                is_prediction: false,
             };
             return Box::pin(async move { Ok(response) });
         }

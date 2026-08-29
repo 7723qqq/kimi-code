@@ -19,7 +19,6 @@ pub type RequestId = serde_json::Value;
 
 /// A JSON-RPC 2.0 request.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
     #[serde(default)]
@@ -31,7 +30,6 @@ pub struct JsonRpcRequest {
 
 /// A JSON-RPC 2.0 response (success).
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
     pub id: RequestId,
@@ -40,7 +38,6 @@ pub struct JsonRpcResponse {
 
 /// A JSON-RPC 2.0 error response.
 #[derive(Debug, Serialize)]
-#[allow(dead_code)]
 pub struct JsonRpcErrorResponse {
     pub jsonrpc: String,
     pub id: RequestId,
@@ -118,6 +115,10 @@ pub enum ContentBlock {
     Image { media_type: String, data: String },
     /// Image referenced by URL (https or data URL).
     ImageUrl { url: String },
+    /// Audio referenced by URL, with an optional provider-side id.
+    AudioUrl { url: String, #[serde(default, skip_serializing_if = "Option::is_none")] id: Option<String> },
+    /// Video referenced by URL, with an optional provider-side id.
+    VideoUrl { url: String, #[serde(default, skip_serializing_if = "Option::is_none")] id: Option<String> },
 }
 
 // ── Native LLM configuration (Rust-side HTTP transport) ───────────────────
@@ -278,10 +279,6 @@ pub struct ToolExecuteRequest {
     pub tool_call_id: String,
     pub tool_name: String,
     pub arguments: serde_json::Value,
-    /// When true, JS side should skip workspace index predictions and
-    /// execute the tool precisely. Used by background prediction replacement.
-    #[serde(default)]
-    pub force_precise: bool,
 }
 
 /// Response from the host/execute_tool RPC call.
@@ -290,14 +287,14 @@ pub struct ToolExecuteRequest {
 pub struct ToolExecuteResponse {
     pub content: String,
     pub is_error: bool,
-    /// When true, the result is a fast prediction from the workspace index
-    /// rather than the precise execution output. The caller should use this
-    /// immediately and spawn background precise execution to replace it later.
-    #[serde(default)]
-    pub is_prediction: bool,
 }
 
 /// Token usage tracking.
+///
+/// Mirrors the host's 4-field `TokenUsage` (inputOther / output /
+/// inputCacheRead / inputCacheCreation): `input_tokens` covers non-cached
+/// input, and cache hits are reported separately so host-side token
+/// accounting stays accurate.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     #[serde(default)]
@@ -306,6 +303,12 @@ pub struct TokenUsage {
     pub output_tokens: u32,
     #[serde(default)]
     pub total_tokens: u32,
+    /// Prompt tokens served from the provider's cache.
+    #[serde(default)]
+    pub input_cache_read: u32,
+    /// Prompt tokens written into the provider's cache by this call.
+    #[serde(default)]
+    pub input_cache_creation: u32,
 }
 
 /// Health check response.
@@ -358,7 +361,6 @@ impl JsonRpcError {
             data: None,
         }
     }
-    #[allow(dead_code)]
     pub fn method_not_found(method: &str) -> Self {
         Self {
             code: -32601,
@@ -427,7 +429,8 @@ mod tests {
         let result = RunTurnResult {
             stop_reason: "EndTurn".to_string(),
             steps: 3,
-            usage: TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+            usage: TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 ,
+        ..Default::default()},
         };
         let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["stop_reason"], "EndTurn");
@@ -477,7 +480,8 @@ mod tests {
                 },
             ],
             finish_reason: Some("stop".to_string()),
-            usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+            usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
+        ..Default::default()},
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["tool_calls"][0]["name"], "read");
@@ -496,7 +500,6 @@ mod tests {
             tool_call_id: "call_1".to_string(),
             tool_name: "read".to_string(),
             arguments: serde_json::json!({"path": "/tmp/test.txt", "line_offset": 1}),
-            force_precise: false,
         };
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["tool_name"], "read");
@@ -508,8 +511,9 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_execute_request_force_precise_default() {
-        // Test that force_precise defaults to false when deserializing
+    fn test_tool_execute_request_defaults() {
+        // force_precise was removed with the prediction framework; the
+        // legacy field must now deserialize as absent without error.
         let json = serde_json::json!({
             "turn_id": "turn-1",
             "tool_call_id": "call_1",
@@ -518,21 +522,6 @@ mod tests {
         });
         let req: ToolExecuteRequest = serde_json::from_value(json).unwrap();
         assert_eq!(req.turn_id, "turn-1");
-        assert!(!req.force_precise);
-    }
-
-    #[test]
-    fn test_tool_execute_request_force_precise_true() {
-        let req = ToolExecuteRequest {
-            turn_id: "turn-1".to_string(),
-            tool_call_id: "call_1".to_string(),
-            tool_name: "read".to_string(),
-            arguments: serde_json::json!({"path": "/tmp/test.txt"}),
-            force_precise: true,
-        };
-        assert!(req.force_precise);
-        let json = serde_json::to_value(&req).unwrap();
-        assert!(json["force_precise"].as_bool().unwrap());
     }
 
     #[test]
@@ -540,7 +529,6 @@ mod tests {
         let resp = ToolExecuteResponse {
             content: "file content here".to_string(),
             is_error: false,
-            is_prediction: false,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["content"], "file content here");
@@ -556,7 +544,6 @@ mod tests {
         let resp = ToolExecuteResponse {
             content: "File not found".to_string(),
             is_error: true,
-            is_prediction: false,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json["is_error"].as_bool().unwrap());
@@ -621,7 +608,8 @@ mod tests {
 
     #[test]
     fn test_token_usage_roundtrip() {
-        let usage = TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 };
+        let usage = TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 ,
+        ..Default::default()};
         let json = serde_json::to_value(&usage).unwrap();
         assert_eq!(json["input_tokens"], 100);
         assert_eq!(json["output_tokens"], 50);

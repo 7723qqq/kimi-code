@@ -25,16 +25,6 @@ import { resolve } from 'node:path';
 const projectRoot = resolve(import.meta.dirname, '..', '..');
 
 /**
- * Native workspace index predict-read is not wired in this build; the JS
- * fallback (`predictReadViaFs`) is always used. Kept for API parity with the
- * planned Rust workspace index integration.
- */
-type NativeReadPrediction = { preview: string; lineCount: number; size: number };
-function tryNativeWorkspaceIndexPredictRead(_path: string): NativeReadPrediction | null {
-  return null;
-}
-
-/**
  * The v2 engine override contract this adapter implements. Imported
  * type-only from agent-core-v2 so the shape stays in sync without a
  * runtime dependency. `createRunTurnOverride` returns this type.
@@ -92,6 +82,8 @@ interface GoalContext {
   status: GoalStatus;
   token_budget?: number;
   turn_budget?: number;
+  wall_clock_budget_ms?: number;
+  wall_clock_ms: number;
   tokens_used: number;
   turns_used: number;
 }
@@ -123,19 +115,138 @@ export interface RustEngineOptions {
   nativeLlm?: NativeLlmDef | (() => NativeLlmDef | undefined);
   /** When true, Read/Grep/Glob execute inside the Rust process. */
   nativeTools?: boolean;
+  /**
+   * Provide the current goal snapshot for budget-aware engine turns.
+   * Read fresh on each turn so host-side goal changes (pause, budget
+   * edits, terminal states) are reflected. When undefined, the engine
+   * runs without goal budgeting.
+   */
+  getGoal?: () => GoalContext | undefined;
 }
 
 /** A content block on the Rust wire (see `ContentBlock` in rpc/types.rs). */
 type WireContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; media_type: string; data: string }
-  | { type: 'image_url'; url: string };
+  | { type: 'image_url'; url: string }
+  | { type: 'audio_url'; url: string; id?: string }
+  | { type: 'video_url'; url: string; id?: string };
+
+/** A v2 content part as handed to the native path after host projection. */
+interface HostContentPart {
+  type: string;
+  text?: string;
+  imageUrl?: { url: string; id?: string };
+  audioUrl?: { url: string; id?: string };
+  videoUrl?: { url: string; id?: string };
+}
+
+/** A v2 message as projected by the host context projector. */
+interface HostMessage {
+  role: string;
+  content: HostContentPart[];
+  toolCalls?: { id: string; name: string; arguments: string | null }[];
+  toolCallId?: string;
+}
+
+const HOST_ROLES = new Set(['system', 'user', 'assistant', 'tool']);
+
+function isHostMessage(value: unknown): value is HostMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const m = value as Record<string, unknown>;
+  if (typeof m.role !== 'string' || !HOST_ROLES.has(m.role)) return false;
+  if (!Array.isArray(m.content)) return false;
+  return true;
+}
+
+function isHostContentPart(value: unknown): value is HostContentPart {
+  if (typeof value !== 'object' || value === null) return false;
+  const type = (value as { type?: unknown }).type;
+  return (
+    type === 'text' ||
+    type === 'think' ||
+    type === 'image_url' ||
+    type === 'audio_url' ||
+    type === 'video_url'
+  );
+}
+
+/** Project a host-projected v2 message onto the Rust wire (P1 projection). */
+export function projectHostMessageToWire(m: HostMessage): WireMessage {
+  let text = '';
+  let hasMedia = false;
+  const blocks: WireContentBlock[] = [];
+  for (const part of m.content.filter(isHostContentPart)) {
+    switch (part.type) {
+      case 'text':
+        if (typeof part.text !== 'string') continue;
+        text += part.text;
+        blocks.push({ type: 'text', text: part.text });
+        break;
+      case 'think':
+        // Think parts are hosted as reasoning content on the JS path
+        // (never part of the message `content`); the native wire has no
+        // reasoning field, so they are intentionally not projected.
+        break;
+      case 'image_url':
+        if (part.imageUrl?.url === undefined) continue;
+        hasMedia = true;
+        blocks.push({ type: 'image_url', url: part.imageUrl.url });
+        break;
+      case 'audio_url':
+        if (part.audioUrl?.url === undefined) continue;
+        hasMedia = true;
+        blocks.push({ type: 'audio_url', url: part.audioUrl.url, id: part.audioUrl.id });
+        break;
+      case 'video_url':
+        if (part.videoUrl?.url === undefined) continue;
+        hasMedia = true;
+        blocks.push({ type: 'video_url', url: part.videoUrl.url, id: part.videoUrl.id });
+        break;
+      default:
+        continue;
+    }
+  }
+  const toolCalls = (m.toolCalls ?? []).map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    arguments: tc.arguments === null ? {} : tryParseJson(tc.arguments),
+  }));
+  return {
+    role: m.role,
+    content: text,
+    blocks: hasMedia ? blocks : undefined,
+    tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    tool_call_id: m.toolCallId,
+  };
+}
 
 /** Fire-and-forget engine event (Rust → host, `host/event`). */
-interface EngineEvent {
-  type: string;
-  [key: string]: unknown;
-}
+type EngineEvent =
+  | { type: 'llm.step.begin'; model: string }
+  | { type: 'llm.delta'; part: { type: 'text'; text: string } }
+  | {
+      type: 'llm.step.end';
+      content: string;
+      finish_reason?: string;
+      latency_ms?: number;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        total_tokens?: number;
+        input_cache_read?: number;
+        input_cache_creation?: number;
+      };
+    }
+  | {
+      type: 'tool.native';
+      tool_call_id: string;
+      tool_name: string;
+      arguments: unknown;
+      content: string;
+      is_error: boolean;
+    }
+  | { type: 'goal.budget.limit_reached'; goal_id: string };
 
 interface RunTurnResult {
   stop_reason: string;
@@ -170,15 +281,11 @@ interface ToolExecuteRequest {
   tool_call_id: string;
   tool_name: string;
   arguments: unknown;
-  /** When true, skip workspace index predictions and execute precisely. */
-  force_precise?: boolean;
 }
 
 interface ToolExecuteResponse {
   content: string;
   is_error: boolean;
-  /** When true, the result is a fast prediction from the workspace index. */
-  is_prediction?: boolean;
 }
 
 /**
@@ -788,9 +895,6 @@ export function createRunTurnOverride(
         ? undefined
         : resolvedNativeLlm;
 
-    // The prediction fast-path is disabled (see header note): all reads
-    // execute precisely on the first call.
-
     // Step lifecycle. The host owns the transcript AND the message history:
     // Rust drives control flow and calls back per LLM step and per tool. We
     // open an assistant "step" on host/llm_chat and keep it open — recording
@@ -837,30 +941,23 @@ export function createRunTurnOverride(
             turnId: turnIdStr,
             step: openStep.step,
             stepUuid: openStep.uuid,
-            part: event['part'] as never,
+            part: event.part as never,
           });
           break;
         }
         case 'llm.step.end': {
           if (openStep === undefined) break;
-          const usage = event['usage'] as
-            | { input_tokens?: number; output_tokens?: number }
-            | undefined;
           openStep.usage = {
-            inputOther: usage?.input_tokens ?? 0,
-            output: usage?.output_tokens ?? 0,
-            inputCacheRead: 0,
-            inputCacheCreation: 0,
+            inputOther: event.usage?.input_tokens ?? 0,
+            output: event.usage?.output_tokens ?? 0,
+            inputCacheRead: event.usage?.input_cache_read ?? 0,
+            inputCacheCreation: event.usage?.input_cache_creation ?? 0,
           };
           break;
         }
         case 'tool.native': {
-          // A tool that executed inside the Rust process — mirror the
-          // call/result pair into the transcript.
           if (openStep === undefined) break;
-          const rawCallId = event['tool_call_id'];
-          const toolCallId = typeof rawCallId === 'string' ? rawCallId : randomUUID();
-          const toolName = typeof event['tool_name'] === 'string' ? event['tool_name'] : '';
+          const toolCallId = event.tool_call_id;
           await input.dispatchEvent({
             type: 'tool.call',
             uuid: toolCallId,
@@ -868,15 +965,20 @@ export function createRunTurnOverride(
             step: openStep.step,
             stepUuid: openStep.uuid,
             toolCallId,
-            name: toolName,
-            args: event['arguments'],
+            name: event.tool_name,
+            args: event.arguments,
           });
           await input.dispatchEvent({
             type: 'tool.result',
             parentUuid: toolCallId,
             toolCallId,
-            result: { output: event['content'], isError: event['is_error'] === true } as never,
+            result: { output: event.content, isError: event.is_error === true } as never,
           });
+          break;
+        }
+        case 'goal.budget.limit_reached': {
+          // Forwarded for host-side accounting; the turn already stops
+          // with a BudgetLimited stop reason from the Rust loop.
           break;
         }
         default:
@@ -889,49 +991,17 @@ export function createRunTurnOverride(
 
     // ── Native LLM initial messages ───────────────────────────────
     // When Rust calls the provider directly it owns the in-turn message
-    // history, so the host serializes the current history (text, images,
-    // and tool-call structure) once at turn start.
-    interface HostContentPart {
-      type: string;
-      text?: string;
-      imageUrl?: { url: string };
-    }
-    interface HostMessage {
-      role: string;
-      content: HostContentPart[];
-      toolCalls?: { id: string; name: string; arguments: string | null }[];
-      toolCallId?: string;
-    }
-    const toWireMessage = (m: HostMessage): WireMessage => {
-      let text = '';
-      let hasMedia = false;
-      const blocks: WireContentBlock[] = [];
-      for (const part of m.content) {
-        if (part.type === 'text' && typeof part.text === 'string') {
-          text += part.text;
-          blocks.push({ type: 'text', text: part.text });
-        } else if (part.type === 'image_url' && part.imageUrl?.url !== undefined) {
-          hasMedia = true;
-          blocks.push({ type: 'image_url', url: part.imageUrl.url });
-        }
-        // think/audio/video parts are not projected to the native wire.
-      }
-      const toolCalls = (m.toolCalls ?? []).map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments === null ? {} : tryParseJson(tc.arguments),
-      }));
-      return {
-        role: m.role,
-        content: text,
-        blocks: hasMedia ? blocks : undefined,
-        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-        tool_call_id: m.toolCallId,
-      };
-    };
+    // history, so the host serializes the current history once at turn
+    // start. The host already ran the context projector (structure
+    // repairs); `projectHostMessageToWire` mirrors the v2 content-part
+    // wire so the projection round-trips losslessly for text/image/
+    // audio/video.
     const buildWireMessages = async (): Promise<WireMessage[]> => {
-      const messages = (await input.buildMessages()) as unknown as HostMessage[];
-      return messages.map(toWireMessage);
+      const projected = await input.buildMessages();
+      // Strict validation: the host projection must stay wire-valid.
+      // Malformed entries are filtered rather than cast through, so a host
+      // regression cannot silently corrupt the native request.
+      return projected.filter(isHostMessage).map(projectHostMessageToWire);
     };
     const buildWireTools = (): { name: string; description: string; parameters: unknown }[] => {
       const stepTools = input.buildTools();
@@ -1061,6 +1131,7 @@ export function createRunTurnOverride(
     // flows back over the event channel.
     const wireMessages = nativeLlm === undefined ? [] : await buildWireMessages();
     const wireTools = nativeLlm === undefined ? [] : buildWireTools();
+    const goal = options?.getGoal?.();
     let rustResult: RunTurnResult;
     try {
       if (mode === 'napi') {
@@ -1084,6 +1155,7 @@ export function createRunTurnOverride(
               inputSchema: JSON.stringify(t.parameters ?? {}),
             })),
             maxSteps: input.maxSteps ?? 10,
+            goal,
             nativeLlm:
               nativeLlm === undefined
                 ? undefined
@@ -1137,6 +1209,7 @@ export function createRunTurnOverride(
           })),
           max_steps: input.maxSteps ?? 10,
           providers: providers ?? [],
+          goal,
           native_llm: nativeLlm,
           workspace_root: workspaceRoot,
           native_tools: nativeTools,
@@ -1212,157 +1285,3 @@ export function shutdownRustEngine() {
   engineMode = 'js';
 }
 
-// ── Workspace prediction ──────────────────────────────────────────────────
-
-/// Maximum file size for which we offer a prediction (100 KB).
-/// Larger files skip the fast-path and execute precisely on the first call.
-const PREDICTION_MAX_FILE_SIZE = 100 * 1024;
-
-/// Number of preview lines included in the prediction.
-const PREDICTION_PREVIEW_LINES = 5;
-
-/**
- * Lightweight workspace file predictor for the Read tool fast-path.
- *
- * Instead of pre-scanning the entire workspace (like the Rust WorkspaceIndex),
- * this class checks individual files on-demand: stat + read first N lines.
- * This avoids the startup cost of building a full index while still
- * providing instant predictions for most Read calls.
- *
- * The prediction includes the first few lines with line numbers and a
- * note that it's a prediction — the precise result will replace it shortly.
- *
- * The Rust workspace index fast path is not wired in this build:
- * `tryNativeWorkspaceIndexPredictRead` always returns null, so every
- * prediction goes through the on-demand JS stat path.
- */
-export class WorkspacePredictor {
-  private readonly root: string;
-
-  constructor(root: string) {
-    this.root = root;
-  }
-
-  /**
-   * Generate a Read prediction for the given path.
-   *
-   * Uses an on-demand stat + read of the first N lines. (The preheated
-   * Rust workspace index fast path is not wired in this build.)
-   *
-   * Returns null when:
-   *   - The file doesn't exist or is not a regular file
-   *   - The file is too large (> 100 KB)
-   *   - The file contains NUL bytes (binary)
-   *   - fs/stat is not available (sandboxed environment)
-   */
-  predictRead(path: string): string | null {
-    // 1) Try the preheated native workspace index first.
-    const nativePrediction = tryNativeWorkspaceIndexPredictRead(path);
-    if (nativePrediction !== undefined && nativePrediction !== null) {
-      return this.formatNativePrediction(path, nativePrediction);
-    }
-
-    // 2) Fall back to on-demand JS stat + read.
-    return this.predictReadViaFs(path);
-  }
-
-  /**
-   * Format a native index prediction into the same shape as the JS path.
-   */
-  private formatNativePrediction(path: string, p: NativeReadPrediction): string {
-    const previewLines = p.preview.split('\n').slice(0, PREDICTION_PREVIEW_LINES);
-    const numbered = previewLines
-      .map((line, i) => `${String(i + 1).padStart(6)}→${line}`)
-      .join('\n');
-    return (
-      `cat ${path}  (prediction: ${p.lineCount} lines, ${p.size} bytes)\n` +
-      `${numbered}\n` +
-      `\n[... prediction — precise result loading ...]`
-    );
-  }
-
-  /**
-   * On-demand JS fallback: stat + read first N lines.
-   */
-  private predictReadViaFs(path: string): string | null {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require('node:fs') as typeof import('node:fs');
-
-      const resolved = this.resolvePath(path);
-      if (resolved === null) return null;
-
-      const stat = fs.statSync(resolved, { throwIfNoEntry: false });
-      if (stat === undefined || !stat.isFile()) return null;
-      if (stat.size > PREDICTION_MAX_FILE_SIZE) return null;
-      if (stat.size === 0) return null;
-
-      // Read first N lines
-      const fd = fs.openSync(resolved, 'r');
-      try {
-        const buf = Buffer.alloc(Math.min(stat.size, 8192));
-        const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
-        const content = buf.subarray(0, bytesRead).toString('utf-8');
-
-        // Binary detection: NUL byte
-        if (content.includes('\0')) return null;
-
-        const lines = content.split('\n');
-        const previewLines = lines.slice(0, PREDICTION_PREVIEW_LINES);
-        const numbered = previewLines
-          .map((line, i) => `${String(i + 1).padStart(6)}→${line}`)
-          .join('\n');
-
-        const lineCount = stat.size > 0 ? this.estimateLineCount(resolved, stat.size) : 0;
-        return (
-          `cat ${path}  (prediction: ${lineCount} lines, ${stat.size} bytes)\n` +
-          `${numbered}\n` +
-          `\n[... prediction — precise result loading ...]`
-        );
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Resolve a path relative to the workspace root.
-   * Returns null if the path is outside the workspace.
-   */
-  private resolvePath(path: string): string | null {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pathMod = require('node:path') as typeof import('node:path');
-      const resolved = pathMod.isAbsolute(path) ? path : pathMod.resolve(this.root, path);
-      return resolved;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Quick line count estimate without reading the whole file.
-   * Uses the average line length from the preview.
-   */
-  private estimateLineCount(filePath: string, fileSize: number): number {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require('node:fs') as typeof import('node:fs');
-      const fd = fs.openSync(filePath, 'r');
-      try {
-        const buf = Buffer.alloc(Math.min(fileSize, 8192));
-        const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
-        const sample = buf.subarray(0, bytesRead).toString('utf-8');
-        const sampleLines = sample.split('\n').length;
-        const avgLineLength = bytesRead / sampleLines;
-        return Math.ceil(fileSize / avgLineLength);
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch {
-      return 0;
-    }
-  }
-}

@@ -116,6 +116,20 @@ fn project_block(b: &ContentBlock) -> Value {
             "type": "image_url",
             "image_url": { "url": url },
         }),
+        ContentBlock::AudioUrl { url, id } => {
+            let mut audio = json!({ "url": url });
+            if let Some(id) = id {
+                audio["id"] = Value::String(id.clone());
+            }
+            json!({ "type": "audio_url", "audio_url": audio })
+        }
+        ContentBlock::VideoUrl { url, id } => {
+            let mut video = json!({ "url": url });
+            if let Some(id) = id {
+                video["id"] = Value::String(id.clone());
+            }
+            json!({ "type": "video_url", "video_url": video })
+        }
     }
 }
 
@@ -183,7 +197,14 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
         .and_then(|x| x.as_u64())
         .map(|t| t as u32)
         .unwrap_or(input_tokens + output_tokens);
-    TokenUsage { input_tokens, output_tokens, total_tokens }
+    // OpenAI reports cache hits under `prompt_tokens_details.cached_tokens`;
+    // they are part of `prompt_tokens` and must not double-count `input`.
+    let input_cache_read = usage
+        .and_then(|u| u.get("prompt_tokens_details"))
+        .and_then(|d| d.get("cached_tokens"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    TokenUsage { input_tokens, output_tokens, total_tokens, input_cache_read, input_cache_creation: 0 }
 }
 
 // ── Streaming (SSE) accumulation ───────────────────────────────────────
@@ -368,6 +389,34 @@ mod tests {
     }
 
     #[test]
+    fn parse_response_extracts_cached_prompt_tokens() {
+        let v = json!({
+            "choices": [{ "message": { "role": "assistant", "content": "hi" }, "finish_reason": "stop" }],
+            "usage": {
+                "prompt_tokens": 40,
+                "completion_tokens": 5,
+                "total_tokens": 45,
+                "prompt_tokens_details": { "cached_tokens": 30 }
+            }
+        });
+        let parsed = parse_response(&v).unwrap();
+        assert_eq!(parsed.usage.input_cache_read, 30);
+        assert_eq!(parsed.usage.input_tokens, 40);
+        assert_eq!(parsed.usage.input_cache_creation, 0);
+    }
+
+    #[test]
+    fn parse_usage_missing_details_defaults_cache_to_zero() {
+        let parsed = parse_response(&json!({
+            "choices": [{ "message": { "role": "assistant", "content": "hi" }, "finish_reason": "stop" }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 2 }
+        }))
+        .unwrap();
+        assert_eq!(parsed.usage.input_cache_read, 0);
+        assert_eq!(parsed.usage.input_cache_creation, 0);
+    }
+
+    #[test]
     fn parse_response_plain_text_has_no_tool_calls() {
         let v = json!({
             "choices": [{ "message": { "role": "assistant", "content": "hello" }, "finish_reason": "stop" }],
@@ -411,6 +460,27 @@ mod tests {
         assert_eq!(content[1]["type"], "image_url");
         assert_eq!(content[1]["image_url"]["url"], "data:image/png;base64,AAAA");
         assert_eq!(content[2]["image_url"]["url"], "https://example.com/x.png");
+    }
+
+    #[test]
+    fn build_request_projects_audio_and_video_blocks() {
+        use crate::turn_loop::types::ContentBlock;
+        let msg = WireMessage::with_blocks(
+            "user",
+            vec![
+                ContentBlock::AudioUrl { url: "https://example.com/a.mp3".into(), id: None },
+                ContentBlock::VideoUrl { url: "https://example.com/v.mp4".into(), id: Some("v1".into()) },
+            ],
+        );
+        let req = build_request("m", &[msg], &[]);
+        let content = req["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "audio_url");
+        assert_eq!(content[0]["audio_url"]["url"], "https://example.com/a.mp3");
+        assert!(content[0]["audio_url"].get("id").is_none());
+        assert_eq!(content[1]["type"], "video_url");
+        assert_eq!(content[1]["video_url"]["url"], "https://example.com/v.mp4");
+        assert_eq!(content[1]["video_url"]["id"], "v1");
     }
 
     #[test]

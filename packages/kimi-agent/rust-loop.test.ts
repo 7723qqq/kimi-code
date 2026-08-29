@@ -1,17 +1,6 @@
-import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
 
-import { describe, expect, it, vi, afterEach } from 'vitest';
-
-import { classifyRpcMessage, mapStopReason, WorkspacePredictor } from './rust-loop';
-
-// Mock the native workspace index so we can test the native-first /
-// fs-fallback prediction path without requiring the Rust module.
-vi.mock('@moonshot-ai/agent-core-v2', () => ({
-  tryNativeWorkspaceIndexPredictRead: vi.fn(),
-  tryNativeBuildWorkspaceIndex: vi.fn(),
-}));
-
-const { tryNativeWorkspaceIndexPredictRead } = await import('@moonshot-ai/agent-core-v2');
+import { classifyRpcMessage, mapStopReason, projectHostMessageToWire } from './rust-loop';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -81,42 +70,78 @@ describe('mapStopReason', () => {
   });
 });
 
-describe('WorkspacePredictor', () => {
-  const predictor = new WorkspacePredictor(process.cwd());
-
-  afterEach(() => {
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReset();
+describe('projectHostMessageToWire', () => {
+  it('projects text parts and joins them into content', () => {
+    const wire = projectHostMessageToWire({
+      role: 'user',
+      content: [{ type: 'text', text: 'hello ' }, { type: 'text', text: 'world' }],
+    });
+    expect(wire.role).toBe('user');
+    expect(wire.content).toBe('hello world');
+    expect(wire.blocks).toBeUndefined();
   });
 
-  it('falls back to fs stat when the native index misses (returns null)', () => {
-    // Native index miss → returns null → predictor falls back to fs.
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);
-
-    // Point at a real file on disk so the fs fallback path succeeds.
-    const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
-    const result = predictor.predictRead(realFile);
-
-    expect(result).not.toBeNull();
-    expect(result).toContain('prediction:');
-    expect(result).toContain('[... prediction — precise result loading ...]');
+  it('drops think parts from the wire (reasoning hosted separately)', () => {
+    const wire = projectHostMessageToWire({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'answer' },
+        { type: 'think', think: 'internal reasoning' },
+      ],
+    });
+    expect(wire.content).toBe('answer');
+    expect(wire.blocks).toBeUndefined();
   });
 
-  it('falls back to fs when the native module is unavailable (returns undefined)', () => {
-    // Native module absent → returns undefined → predictor falls back to fs.
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue();
-
-    const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
-    const result = predictor.predictRead(realFile);
-
-    expect(result).not.toBeNull();
-    expect(result).toContain('prediction:');
+  it('projects image/audio/video blocks with their urls', () => {
+    const wire = projectHostMessageToWire({
+      role: 'user',
+      content: [
+        { type: 'image_url', imageUrl: { url: 'https://e.com/a.png', id: 'i1' } },
+        { type: 'audio_url', audioUrl: { url: 'https://e.com/a.mp3', id: 'a1' } },
+        { type: 'video_url', videoUrl: { url: 'https://e.com/v.mp4', id: 'v1' } },
+      ],
+    });
+    expect(wire.content).toBe('');
+    expect(wire.blocks).toEqual([
+      { type: 'image_url', url: 'https://e.com/a.png' },
+      { type: 'audio_url', url: 'https://e.com/a.mp3', id: 'a1' },
+      { type: 'video_url', url: 'https://e.com/v.mp4', id: 'v1' },
+    ]);
   });
 
-  it('returns null for a non-existent file when both paths miss', () => {
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);
+  it('skips malformed parts and unknown part types', () => {
+    const wire = projectHostMessageToWire({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'ok' },
+        { type: 'text' } as never,
+        { type: 'image_url', imageUrl: { url: undefined } } as never,
+        { type: 'hologram', data: 'x' } as never,
+      ],
+    });
+    expect(wire.content).toBe('ok');
+    expect(wire.blocks).toBeUndefined();
+  });
 
-    const result = predictor.predictRead('definitely/does/not/exist.txt');
+  it('projects tool_calls and tool_call_id', () => {
+    const wire = projectHostMessageToWire({
+      role: 'assistant',
+      content: [],
+      toolCalls: [{ id: 'c1', name: 'Read', arguments: '{"path":"/a"}' }],
+    });
+    expect(wire.tool_calls).toEqual([
+      { id: 'c1', name: 'Read', arguments: { path: '/a' } },
+    ]);
+    expect(wire.blocks).toBeUndefined();
+  });
 
-    expect(result).toBeNull();
+  it('serializes null tool arguments as an empty object', () => {
+    const wire = projectHostMessageToWire({
+      role: 'assistant',
+      content: [],
+      toolCalls: [{ id: 'c2', name: 'Bash', arguments: null }],
+    });
+    expect(wire.tool_calls).toEqual([{ id: 'c2', name: 'Bash', arguments: {} }]);
   });
 });

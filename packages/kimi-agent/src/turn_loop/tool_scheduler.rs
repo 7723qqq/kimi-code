@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Tool scheduling — parallel and serial execution of tool calls with
 //! resource conflict detection.
 //!
@@ -13,9 +11,12 @@
 //!   - Within each batch, tasks are independent and safe to parallelise.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use crate::turn_loop::types::{
-    tool_accesses_conflict, ExecutableToolResult, ToolAccesses, ToolCall,
+    read_file_access, read_tree_access, tool_accesses_conflict, write_file_access,
+    ExecutableToolResult, ToolAccesses, ToolCall, ToolFileAccess, ToolResourceAccess,
+    FileOperation,
 };
 
 /// A scheduled tool call with its resource accesses.
@@ -68,8 +69,10 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
 
 /// Execute all scheduled tool calls in order, respecting conflict boundaries.
 ///
-/// Returns results in the original call order (batches are flattened back
-/// to a single Vec).
+/// Calls from the same batch run concurrently; batches run serially, so
+/// conflicting calls (e.g. two writes to the same file) never overlap.
+/// Results are returned in the original call order (batches are flattened
+/// back to a single Vec).
 pub async fn execute_scheduled<F, Fut>(
     _turn_id: &str,
     _step: u32,
@@ -77,18 +80,70 @@ pub async fn execute_scheduled<F, Fut>(
     execute_fn: F,
 ) -> Result<Vec<ExecutableToolResult>, Box<dyn std::error::Error>>
 where
-    F: Fn(&ToolCall) -> Fut,
-    Fut: Future<Output = Result<ExecutableToolResult, Box<dyn std::error::Error>>>,
+    F: Fn(ToolCall) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<ExecutableToolResult, String>> + Send,
 {
     let batches = schedule_tool_calls(scheduled);
+    if batches.is_empty() {
+        return Ok(vec![]);
+    }
+    let execute_fn = Arc::new(execute_fn);
     let mut all_results = Vec::new();
     for batch in &batches {
+        let mut handles = Vec::with_capacity(batch.len());
         for scheduled in batch {
-            let result = execute_fn(&scheduled.tool_call).await?;
-            all_results.push(result);
+            let tc = scheduled.tool_call.clone();
+            let execute_fn = execute_fn.clone();
+            handles.push(tokio::spawn(async move { execute_fn(tc).await }));
+        }
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(result)) => all_results.push(result),
+                Ok(Err(e)) => return Err(e.into()),
+                Err(e) => return Err(format!("Tool task join error: {e}").into()),
+            }
         }
     }
     Ok(all_results)
+}
+
+/// Infer the resource accesses of a tool call from its name and arguments.
+///
+/// Mirrors the accesses declared by the matching v2 tool implementations
+/// (`read` → readFile, `write` → writeFile, `edit` → readWriteFile,
+/// `grep` / `glob` → search tree). Unknown tools or calls without a
+/// parseable `path` get no accesses (parallel-safe), matching the v2 host's
+/// scheduler semantics for undeclared accesses. The host applies its own
+/// full permission + conflict layer on execution anyway; this inference
+/// only serializes the file-ops whose declared accesses we can reproduce.
+pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAccesses {
+    let name = tool_name.to_ascii_lowercase();
+    let path = args.get("path").and_then(|p| p.as_str());
+    match name.as_str() {
+        "read" => path
+            .map(read_file_access)
+            .into_iter()
+            .collect(),
+        "write" => path
+            .map(write_file_access)
+            .into_iter()
+            .collect(),
+        "edit" => path
+            .map(|p| {
+                ToolResourceAccess::File(ToolFileAccess {
+                    operation: FileOperation::ReadWrite,
+                    path: p.to_string(),
+                    recursive: false,
+                })
+            })
+            .into_iter()
+            .collect(),
+        "grep" | "glob" => path
+            .map(read_tree_access)
+            .into_iter()
+            .collect(),
+        _ => vec![],
+    }
 }
 
 #[cfg(test)]
@@ -487,5 +542,171 @@ mod tests {
         let batches = schedule_tool_calls(calls);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 3);
+    }
+
+    // ── infer_tool_accesses tests ──────────────────────────────────────
+
+    #[test]
+    fn test_infer_read() {
+        let accesses = infer_tool_accesses("read", &serde_json::json!({"path": "/a.txt"}));
+        assert_eq!(accesses, vec![read_file_access("/a.txt")]);
+    }
+
+    #[test]
+    fn test_infer_write() {
+        let accesses = infer_tool_accesses("Write", &serde_json::json!({"path": "/b.txt"}));
+        assert_eq!(accesses, vec![write_file_access("/b.txt")]);
+    }
+
+    #[test]
+    fn test_infer_edit_is_readwrite() {
+        let accesses = infer_tool_accesses("edit", &serde_json::json!({"path": "/c.txt"}));
+        assert_eq!(accesses, vec![ToolResourceAccess::File(ToolFileAccess {
+            operation: FileOperation::ReadWrite,
+            path: "/c.txt".into(),
+            recursive: false,
+        })]);
+    }
+
+    #[test]
+    fn test_infer_grep_and_glob_are_tree_reads() {
+        let accesses = infer_tool_accesses("grep", &serde_json::json!({"path": "/repo"}));
+        assert_eq!(accesses, vec![read_tree_access("/repo")]);
+        let accesses = infer_tool_accesses("Glob", &serde_json::json!({"path": "/repo"}));
+        assert_eq!(accesses, vec![read_tree_access("/repo")]);
+    }
+
+    #[test]
+    fn test_infer_unknown_tool_has_no_accesses() {
+        let accesses = infer_tool_accesses("web_search", &serde_json::json!({"query": "x"}));
+        assert!(accesses.is_empty());
+    }
+
+    #[test]
+    fn test_infer_missing_path_has_no_accesses() {
+        let accesses = infer_tool_accesses("read", &serde_json::json!({}));
+        assert!(accesses.is_empty());
+    }
+
+    // ── execute_scheduled concurrency/serialization tests ──────────────
+
+    /// Conflicting writes to the same file must not overlap: the second
+    /// call only starts after the first finishes.
+    #[tokio::test]
+    async fn test_execute_scheduled_conflicting_writes_serialized() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+        ];
+        let executor = {
+            let active = active.clone();
+            let max_active = max_active.clone();
+            move |_tc: ToolCall| {
+                let active = active.clone();
+                let max_active = max_active.clone();
+                async move {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_active.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false })
+                }
+            }
+        };
+        let results = execute_scheduled("t", 0, scheduled, executor).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(max_active.load(Ordering::SeqCst), 1, "conflicting calls must never overlap");
+    }
+
+    /// Non-conflicting calls must run concurrently (max active > 1).
+    #[tokio::test]
+    async fn test_execute_scheduled_non_conflicting_parallel() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/b.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/c.txt")],
+            },
+        ];
+        let executor = {
+            let active = active.clone();
+            let max_active = max_active.clone();
+            move |_tc: ToolCall| {
+                let active = active.clone();
+                let max_active = max_active.clone();
+                async move {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_active.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false })
+                }
+            }
+        };
+        let results = execute_scheduled("t", 0, scheduled, executor).await.unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(max_active.load(Ordering::SeqCst) > 1, "non-conflicting calls should overlap");
+    }
+
+    /// Empty schedule yields an empty result.
+    #[tokio::test]
+    async fn test_execute_scheduled_empty() {
+        let results = execute_scheduled(
+            "t",
+            0,
+            vec![],
+            |_tc: ToolCall| async move { Ok(ExecutableToolResult { content: "x".into(), is_error: false }) },
+        ).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    /// Results preserve the original call order regardless of batching.
+    #[tokio::test]
+    async fn test_execute_scheduled_preserves_order_across_batches() {
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/g.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+        ];
+        let results = execute_scheduled(
+            "t",
+            0,
+            scheduled,
+            |tc: ToolCall| async move { Ok(ExecutableToolResult { content: tc.id, is_error: false }) },
+        ).await.unwrap();
+        let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
+        assert_eq!(ids, vec!["1", "2", "3"]);
     }
 }
