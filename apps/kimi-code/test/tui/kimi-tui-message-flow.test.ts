@@ -2887,7 +2887,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'task.started',
+        type: 'background.task.started',
         agentId: 'main',
         sessionId: 'ses-1',
         turnId: 1,

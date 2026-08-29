@@ -900,7 +900,7 @@ describe('KimiTUI resume message replay', () => {
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'task.terminated',
+        type: 'background.task.terminated',
         agentId: 'main',
         sessionId: 'ses-replay',
         info: { ...info, status: 'timed_out', endedAt: 2 },

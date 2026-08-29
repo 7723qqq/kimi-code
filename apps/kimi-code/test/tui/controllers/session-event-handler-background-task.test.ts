@@ -155,12 +155,12 @@ function makeSessionEventHost() {
   return host as never;
 }
 
-describe('SessionEventHandler — task.terminated', () => {
+describe('SessionEventHandler — background.task.terminated', () => {
   function terminatedEvent(agentId: string, status: string): Event {
     return {
       sessionId: 's1',
       agentId: 'main',
-      type: 'task.terminated',
+      type: 'background.task.terminated',
       info: {
         taskId: `task-${agentId}`,
         kind: 'agent',
@@ -216,5 +216,34 @@ describe('SessionEventHandler — task.terminated', () => {
     );
 
     expect(store.get('agent-7')).toBeUndefined();
+  });
+
+  it('updates the footer badge when a background task starts (the spelling the SDK delivers)', () => {
+    const host = makeSessionEventHost() as {
+      state: { footer: { setBackgroundCounts: ReturnType<typeof vi.fn> } };
+    };
+    const handler = new SessionEventHandler(host as never);
+
+    handler.handleEvent(
+      {
+        sessionId: 's1',
+        agentId: 'main',
+        type: 'background.task.started',
+        info: {
+          taskId: 'bash-1',
+          kind: 'process',
+          description: 'long build',
+          status: 'running',
+          startedAt: 0,
+          endedAt: null,
+        },
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(host.state.footer.setBackgroundCounts).toHaveBeenCalledWith({
+      bashTasks: 1,
+      agentTasks: 0,
+    });
   });
 });
