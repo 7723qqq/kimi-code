@@ -5,6 +5,14 @@ import {
   translateShellDrivePath,
   type ShellPathBridge,
 } from '#/_base/execEnv/shellPathBridge';
+import {
+  tryNativeIsSensitiveFile,
+  tryNativePathCanonicalize,
+  tryNativePathIsWithinDirectory,
+  tryNativePathIsWithinWorkspace,
+  tryNativePathNormalizeUserPath,
+  type NativePathClass,
+} from '#/_base/native-tools';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 export interface WorkspaceConfig {
@@ -49,6 +57,11 @@ function comparable(path: string): string {
 }
 
 export function isSensitiveFile(path: string): boolean {
+  // Native fast path: also treats `\` and `/` as equivalent separators, so
+  // Windows-style paths (C:\...\.aws\credentials) are matched on any host.
+  const native = tryNativeIsSensitiveFile(path);
+  if (native !== undefined) return native;
+
   const name = pathe.basename(path);
   const comparableName = comparable(name);
   const comparablePath = comparable(path);
@@ -123,6 +136,8 @@ function isWin32DriveRelative(path: string): boolean {
 }
 
 export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_PATH_CLASS): string {
+  const native = tryNativePathNormalizeUserPath(path, pathClass as NativePathClass);
+  if (native !== undefined) return native;
   return pathClass === 'win32' ? translateShellDrivePath(path) : path;
 }
 
@@ -140,6 +155,19 @@ export function canonicalizePath(
   cwd: string,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): string {
+  // Native fast path. The Rust engine returns "ERROR: <code>: <message>"
+  // on failure; re-throw the equivalent PathSecurityError so the public
+  // error contract is unchanged. Native win32 results use backslash
+  // separators; normalize to the repository-wide forward-slash convention.
+  const native = tryNativePathCanonicalize(path, cwd, pathClass as NativePathClass);
+  if (native !== undefined) {
+    if (native.startsWith('ERROR: ')) {
+      const message = native.slice('ERROR: '.length);
+      throw new PathSecurityError('PATH_INVALID', path, path, message);
+    }
+    return native.replaceAll('\\', '/');
+  }
+
   if (path === '') {
     throw new PathSecurityError('PATH_INVALID', path, path, 'Path cannot be empty');
   }
@@ -169,6 +197,9 @@ export function isWithinDirectory(
   base: string,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
+  const native = tryNativePathIsWithinDirectory(candidate, base, pathClass as NativePathClass);
+  if (native !== undefined) return native;
+
   const nc = pathe.normalize(candidate);
   const nb = pathe.normalize(base);
   const comparableCandidate = pathClass === 'win32' ? nc.toLowerCase() : nc;
@@ -183,6 +214,13 @@ export function isWithinWorkspace(
   config: WorkspaceConfig,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
+  const native = tryNativePathIsWithinWorkspace(
+    candidate,
+    [config.workspaceDir, ...config.additionalDirs],
+    pathClass as NativePathClass,
+  );
+  if (native !== undefined) return native;
+
   if (isWithinDirectory(candidate, config.workspaceDir, pathClass)) return true;
   for (const dir of config.additionalDirs) {
     if (isWithinDirectory(candidate, dir, pathClass)) return true;

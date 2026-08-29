@@ -1,5 +1,6 @@
 import { basename, dirname, join, normalize } from 'pathe';
 
+import { tryNativeListDirectory } from '#/_base/native-tools';
 import { findGitWorkTree } from '#/app/git/workTree';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 
@@ -383,6 +384,17 @@ async function listDirectory(
   workDir: string,
   options: ListDirectoryOptions = {},
 ): Promise<string> {
+  // Native fast path: the Rust engine renders the same two-level tree.
+  // It reports unreadable/absent directories as `error` (TS renders those
+  // as "[not readable]" or the parent listing's fallback), so fall back to
+  // the TS renderer whenever the native side reports an error or is
+  // unavailable — the public contract stays identical.
+  const native = tryNativeListDirectory({
+    path: workDir,
+    collapseHiddenDirs: options.collapseHiddenDirs,
+  });
+  if (native !== undefined && native.error === undefined) return native.output;
+
   const lines: string[] = [];
   const { entries, total, readable } = await collectEntries(deps, workDir, LIST_DIR_ROOT_WIDTH);
   if (!readable) return '[not readable]';

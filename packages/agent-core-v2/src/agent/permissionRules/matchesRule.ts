@@ -1,6 +1,7 @@
 import picomatch from 'picomatch';
 
 import { Error2, ErrorCodes } from '#/errors';
+import { tryNativeParsePermissionPattern } from '#/_base/native-tools';
 import type { RunnableToolExecution } from '#/tool/toolContract';
 
 import type { PermissionRule } from './permissionRules';
@@ -31,6 +32,14 @@ export interface PermissionRuleMatchInput {
 }
 
 export function parsePattern(pattern: string): ParsedPattern {
+  // Native fast path: the Rust engine parses the DSL and returns either a
+  // `{toolName, argPattern}` object or an error string. Keep the public
+  // Error2 contract on failure.
+  const native = tryNativeParsePermissionPattern(pattern);
+  if (native !== undefined) {
+    return { toolName: native.toolName, ...(native.argPattern === null ? {} : { argPattern: native.argPattern }) };
+  }
+
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
     throw new Error2(ErrorCodes.VALIDATION_FAILED, 'permission pattern: empty string');

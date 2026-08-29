@@ -1,6 +1,7 @@
 import type { ContentPart, ToolCall } from '#/kosong/contract/message';
 import type { Tool } from '#/kosong/contract/tool';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { tryNativeIsMcpToolName, tryNativeToolAccessesConflict } from '#/_base/native-tools';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 export type ExecutableToolOutput = string | ContentPart[];
@@ -178,11 +179,29 @@ export const ToolAccesses = {
   },
 
   conflict(left: ToolAccesses, right: ToolAccesses): boolean {
+    const native = tryNativeToolAccessesConflict(
+      left.map(toNativeToolAccessMeta),
+      right.map(toNativeToolAccessMeta),
+    );
+    if (native !== undefined) return native;
     return left.some((leftAccess) =>
       right.some((rightAccess) => resourceAccessesConflict(leftAccess, rightAccess)),
     );
   },
 };
+
+/** Project a TS ToolResourceAccess onto the native tool-access wire shape. */
+function toNativeToolAccessMeta(
+  access: ToolResourceAccess,
+): { kind: string; operation?: string; path?: string; recursive?: boolean } {
+  if (access.kind === 'all') return { kind: 'all' };
+  return {
+    kind: 'file',
+    operation: access.operation,
+    path: access.path,
+    recursive: access.recursive,
+  };
+}
 
 function resourceAccessesConflict(left: ToolResourceAccess, right: ToolResourceAccess): boolean {
   if (left.kind === 'all' || right.kind === 'all') return true;
@@ -233,5 +252,7 @@ function normalizePath(path: string): string {
 const MCP_NAME_PREFIX = 'mcp__';
 
 export function isMcpToolName(name: string): boolean {
+  const native = tryNativeIsMcpToolName(name);
+  if (native !== undefined) return native;
   return name.startsWith(MCP_NAME_PREFIX);
 }
