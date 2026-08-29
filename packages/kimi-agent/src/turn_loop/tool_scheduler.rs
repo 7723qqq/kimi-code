@@ -12,6 +12,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::turn_loop::types::{
     read_file_access, read_tree_access, tool_accesses_conflict, write_file_access,
@@ -32,6 +33,9 @@ pub struct ScheduledToolCall {
 /// of tool calls that can safely execute in parallel. Batches must be
 /// executed sequentially (batch 0 → batch 1 → …).
 ///
+/// Flattening the batches reproduces the input order exactly; callers rely on
+/// that to pair each result with its originating tool call.
+///
 /// When all access lists are empty (no access info available), falls back
 /// to a single batch containing all calls (parallel-safe by default).
 pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<ScheduledToolCall>> {
@@ -46,26 +50,37 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
     }
 
     let mut batches: Vec<Vec<ScheduledToolCall>> = Vec::new();
+    // Lowest batch a call may join. Raising it monotonically keeps batch
+    // indices non-decreasing across calls, which is what makes flattening the
+    // batches reproduce the input order. Callers pair results with the input
+    // tool calls by position, and plain first-fit placement lets a later call
+    // backfill an earlier batch — `[write a, write a, write b]` came back as
+    // `[0, 2, 1]` — which attaches results to the wrong `tool_call_id`.
+    let mut floor = 0;
 
     for call in tool_calls {
-        let mut placed = false;
-        for batch in &mut batches {
-            let conflicts = batch
+        let mut index = floor;
+        loop {
+            if index == batches.len() {
+                batches.push(Vec::new());
+            }
+            let conflicts = batches[index]
                 .iter()
                 .any(|existing| tool_accesses_conflict(&call.accesses, &existing.accesses));
             if !conflicts {
-                batch.push(call.clone());
-                placed = true;
+                batches[index].push(call);
+                floor = index;
                 break;
             }
-        }
-        if !placed {
-            batches.push(vec![call]);
+            index += 1;
         }
     }
 
     batches
 }
+
+/// Cap on tool calls running concurrently within one batch.
+const MAX_PARALLEL_TOOLS: usize = 16;
 
 /// Execute all scheduled tool calls in order, respecting conflict boundaries.
 ///
@@ -73,9 +88,11 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
 /// conflicting calls (e.g. two writes to the same file) never overlap.
 /// Results are returned in the original call order (batches are flattened
 /// back to a single Vec).
+///
+/// `cancellation` is polled between calls: a turn that is cancelled mid-batch
+/// stops launching work instead of running the batch out.
 pub async fn execute_scheduled<F, Fut>(
-    _turn_id: &str,
-    _step: u32,
+    cancellation: Option<&Arc<AtomicBool>>,
     scheduled: Vec<ScheduledToolCall>,
     execute_fn: F,
 ) -> Result<Vec<ExecutableToolResult>, Box<dyn std::error::Error>>
@@ -88,23 +105,63 @@ where
         return Ok(vec![]);
     }
     let execute_fn = Arc::new(execute_fn);
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_PARALLEL_TOOLS));
     let mut all_results = Vec::new();
     for batch in &batches {
+        if is_cancelled(cancellation) {
+            return Err("turn cancelled".into());
+        }
         let mut handles = Vec::with_capacity(batch.len());
         for scheduled in batch {
             let tc = scheduled.tool_call.clone();
             let execute_fn = execute_fn.clone();
-            handles.push(tokio::spawn(async move { execute_fn(tc).await }));
+            let semaphore = semaphore.clone();
+            handles.push(tokio::spawn(async move {
+                // A batch can be arbitrarily large and every call does I/O.
+                let Ok(_permit) = semaphore.acquire_owned().await else {
+                    return Err("tool scheduler semaphore closed".to_string());
+                };
+                execute_fn(tc).await
+            }));
         }
-        for handle in handles {
+
+        let mut failure: Option<String> = None;
+        let mut pending = handles.into_iter();
+        for handle in pending.by_ref() {
             match handle.await {
-                Ok(Ok(result)) => all_results.push(result),
-                Ok(Err(e)) => return Err(e.into()),
-                Err(e) => return Err(format!("Tool task join error: {e}").into()),
+                Ok(Ok(result)) => {
+                    if is_cancelled(cancellation) {
+                        failure = Some("turn cancelled".to_string());
+                        break;
+                    }
+                    all_results.push(result);
+                }
+                Ok(Err(e)) => {
+                    failure = Some(e);
+                    break;
+                }
+                Err(e) => {
+                    failure = Some(format!("Tool task join error: {e}"));
+                    break;
+                }
             }
+        }
+        // Dropping a JoinHandle does not cancel its task, so whatever the loop
+        // left behind would keep running — writing files and executing shell
+        // commands for a turn that has already failed.
+        for handle in pending {
+            handle.abort();
+        }
+
+        if let Some(e) = failure {
+            return Err(e.into());
         }
     }
     Ok(all_results)
+}
+
+fn is_cancelled(cancellation: Option<&Arc<AtomicBool>>) -> bool {
+    cancellation.is_some_and(|flag| flag.load(Ordering::Relaxed))
 }
 
 /// Infer the resource accesses of a tool call from its name and arguments.
@@ -640,9 +697,57 @@ mod tests {
                 }
             }
         };
-        let results = execute_scheduled("t", 0, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(max_active.load(Ordering::SeqCst), 1, "conflicting calls must never overlap");
+    }
+
+    /// Flattening the batches must reproduce the input order: callers pair
+    /// each result with `tool_calls[i]`, and a reorder attaches a result to
+    /// the wrong `tool_call_id`.
+    #[tokio::test]
+    async fn test_execute_scheduled_preserves_call_order() {
+        // [write a, write a, write b]: the second call conflicts with the
+        // first, so it lands in a later batch — and the third must not
+        // backfill the first batch ahead of it.
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/b.txt")],
+            },
+        ];
+        let executor = move |tc: ToolCall| async move {
+            Ok(ExecutableToolResult { content: tc.id.clone(), is_error: false, note: None })
+        };
+        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
+        assert_eq!(ids, vec!["1", "2", "3"], "results must come back in call order");
+    }
+
+    /// A cancelled turn must stop launching work rather than running the
+    /// batch out.
+    #[tokio::test]
+    async fn test_execute_scheduled_stops_on_cancellation() {
+        let cancel = Arc::new(AtomicBool::new(true));
+        let scheduled = vec![ScheduledToolCall {
+            tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+            accesses: vec![write_file_access("/a.txt")],
+        }];
+        let executor = move |_tc: ToolCall| async move {
+            Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
+        };
+        let err = execute_scheduled(Some(&cancel), scheduled, executor)
+            .await
+            .expect_err("a cancelled turn must not run tools");
+        assert!(err.to_string().contains("cancelled"), "unexpected error: {err}");
     }
 
     /// Non-conflicting calls must run concurrently (max active > 1).
@@ -682,7 +787,7 @@ mod tests {
                 }
             }
         };
-        let results = execute_scheduled("t", 0, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
         assert_eq!(results.len(), 3);
         assert!(max_active.load(Ordering::SeqCst) > 1, "non-conflicting calls should overlap");
     }
@@ -691,8 +796,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_scheduled_empty() {
         let results = execute_scheduled(
-            "t",
-            0,
+            None,
             vec![],
             |_tc: ToolCall| async move { Ok(ExecutableToolResult { content: "x".into(), is_error: false, note: None }) },
         ).await.unwrap();
@@ -717,8 +821,7 @@ mod tests {
             },
         ];
         let results = execute_scheduled(
-            "t",
-            0,
+            None,
             scheduled,
             |tc: ToolCall| async move { Ok(ExecutableToolResult { content: tc.id, is_error: false, note: None }) },
         ).await.unwrap();
