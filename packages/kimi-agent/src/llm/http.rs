@@ -121,9 +121,17 @@ impl NativeHttpLlm {
 
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            let brief: String = body.chars().take(500).collect();
-            return Err(format!("llm http status {status}: {brief}"));
+            // The provider may ask for a specific wait; carry it out-of-band
+            // so the retry layer can honour it instead of burning its
+            // attempts at its own pace.
+            let retry_after = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse::<u64>().ok());
+            let brief = read_brief_body(response).await;
+            let suffix = retry_after.map_or(String::new(), |s| format!(" (retry-after {s}s)"));
+            return Err(format!("llm http status {status}: {brief}{suffix}"));
         }
 
         // Two accumulator shapes (different SSE grammars); drive whichever
@@ -185,6 +193,24 @@ impl NativeHttpLlm {
     }
 }
 
+/// Cap on how much of an error body is read. Only a brief excerpt is
+/// rendered, so there is no reason to buffer an unbounded response first.
+const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
+
+/// Read the start of an error body, bounded, for inclusion in the error
+/// message.
+async fn read_brief_body(response: reqwest::Response) -> String {
+    let mut stream = response;
+    let mut buf: Vec<u8> = Vec::new();
+    while buf.len() < ERROR_BODY_MAX_BYTES {
+        match stream.chunk().await {
+            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
+            _ => break,
+        }
+    }
+    String::from_utf8_lossy(&buf).chars().take(500).collect()
+}
+
 impl LLM for NativeHttpLlm {
     fn system_prompt(&self) -> &str {
         &self.system_prompt
@@ -195,15 +221,17 @@ impl LLM for NativeHttpLlm {
     }
 
     fn is_retryable_error(&self, error: &str) -> bool {
-        // Transport-level and throttling/server errors are retryable;
-        // auth and request-shape errors are not.
+        // Status-coded errors are classified by code, not by body. Scanning
+        // the body for keywords would retry a 400 whose text happens to
+        // contain "connection", or a 401 that mentions a session timeout —
+        // requests that can never succeed no matter how often they repeat.
+        if let Some(rest) = error.strip_prefix("llm http status ") {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let code: u16 = digits.parse().unwrap_or(0);
+            return matches!(code, 408 | 425 | 429 | 500..=599);
+        }
+        // Transport-level failures carry no status code; classify by keyword.
         const RETRYABLE: &[&str] = &[
-            "status 429",
-            "status 500",
-            "status 502",
-            "status 503",
-            "status 504",
-            "status 529",
             "overloaded",
             "timed out",
             "timeout",
@@ -263,6 +291,22 @@ mod tests {
         assert!(llm.is_retryable_error("operation timed out"));
         assert!(!llm.is_retryable_error("llm http status 401 Unauthorized: bad key"));
         assert!(!llm.is_retryable_error("llm http status 400 Bad Request: invalid schema"));
+    }
+
+    #[test]
+    fn retryable_error_ignores_status_body_keywords() {
+        let llm = NativeHttpLlm::new(config("openai", "https://api.example.com/v1"), String::new());
+        // A 400 whose body mentions connections, and a 401 that mentions a
+        // session timeout, describe requests that can never succeed — no
+        // amount of retrying changes that.
+        assert!(!llm.is_retryable_error(
+            "llm http status 400 Bad Request: unknown field 'connection'"
+        ));
+        assert!(!llm.is_retryable_error(
+            "llm http status 401 Unauthorized: session timeout, please re-authenticate"
+        ));
+        assert!(llm.is_retryable_error("llm http status 429 Too Many Requests: (retry-after 30s)"));
+        assert!(llm.is_retryable_error("llm http status 529 overloaded"));
     }
 
     #[test]

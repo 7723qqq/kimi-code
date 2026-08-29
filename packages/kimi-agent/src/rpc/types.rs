@@ -163,7 +163,7 @@ pub enum ContentBlock {
 /// Configuration for the native HTTP LLM transport. When present on
 /// `RunTurnParams`, the Rust engine calls the provider directly over
 /// HTTP with SSE streaming instead of proxying `llm_chat` to the JS host.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct NativeLlmConfig {
     /// Wire protocol: `"openai"` (Chat Completions) or `"anthropic"` (Messages).
     pub protocol: String,
@@ -179,6 +179,22 @@ pub struct NativeLlmConfig {
     /// Extra headers sent with every request.
     #[serde(default)]
     pub custom_headers: std::collections::HashMap<String, String>,
+}
+
+/// Debug never renders the key: this struct is `{:?}`-formatted on paths that
+/// reach logs and transcripts, and one accidental log line would publish the
+/// credential there.
+impl std::fmt::Debug for NativeLlmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeLlmConfig")
+            .field("protocol", &self.protocol)
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[redacted]")
+            .field("model", &self.model)
+            .field("max_tokens", &self.max_tokens)
+            .field("custom_headers", &self.custom_headers)
+            .finish()
+    }
 }
 
 // ── RunTurn request/response types ─────────────────────────────────────────

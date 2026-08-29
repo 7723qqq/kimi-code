@@ -26,6 +26,14 @@ const READ_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// Grep caps: scanned files, and wall-clock budget.
 const GREP_MAX_FILES: usize = 5000;
 const GREP_TIME_BUDGET: Duration = Duration::from_secs(3);
+/// Largest file native Grep will pull into memory (matches the Read cap).
+/// Bigger ones are skipped and reported as truncation rather than risking a
+/// multi-gigabyte allocation per matching file.
+const GREP_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// Cap on rendered Grep lines. The whole result is built before paging, so
+/// context lines across thousands of files would otherwise be materialised
+/// in full.
+const GREP_MAX_OUTPUT_LINES: usize = 5000;
 /// Default result cap for native Grep (host DEFAULT_HEAD_LIMIT).
 const GREP_HEAD_LIMIT: usize = 250;
 /// Maximum number of Glob results returned.
@@ -354,6 +362,13 @@ impl NativeToolset {
                 filtered_sensitive.push(display.display().to_string());
                 continue;
             }
+            // Check the size before reading: every matching file's content
+            // is held in memory until the result is rendered.
+            let Ok(metadata) = std::fs::metadata(path) else { continue };
+            if metadata.len() > GREP_MAX_FILE_BYTES {
+                truncated = true;
+                continue;
+            }
             let Ok(bytes) = std::fs::read(path) else { continue };
             if bytes.contains(&0) {
                 continue;
@@ -446,6 +461,12 @@ impl NativeToolset {
             }
         }
 
+        let mut output_truncated = false;
+        if rendered.len() > GREP_MAX_OUTPUT_LINES {
+            rendered.truncate(GREP_MAX_OUTPUT_LINES);
+            output_truncated = true;
+        }
+
         let after_offset: Vec<String> = if page_offset > 0 {
             rendered.into_iter().skip(page_offset).collect()
         } else {
@@ -493,6 +514,11 @@ impl NativeToolset {
             } else {
                 messages.push(notice);
             }
+        }
+        if output_truncated {
+            messages.push(format!(
+                "Output truncated to {GREP_MAX_OUTPUT_LINES} lines; narrow the pattern or add a glob filter."
+            ));
         }
         if !filtered_sensitive.is_empty() {
             messages.push(format!(
@@ -717,6 +743,10 @@ impl NativeToolset {
             // timeout or wait failure: kill and report
             _ => {
                 let _ = child.kill().await;
+                // Reap it. Killing leaves the child a zombie until it is
+                // waited on, and this loop can hit the timeout repeatedly
+                // within one turn.
+                let _ = child.wait().await;
                 return Some(err_result(format!(
                     "Command killed by timeout ({}s)",
                     timeout_s

@@ -15,6 +15,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Upper bound on one JSON-RPC line. Real requests are far smaller; this
+/// catches a peer that has stopped framing properly before it becomes the
+/// only thing the process is doing.
+const MAX_RPC_LINE_BYTES: usize = 8 * 1024 * 1024;
+
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::oneshot;
 
@@ -212,17 +217,27 @@ impl RpcServer {
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         let server = self;
         let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
-        let mut line = String::new();
+        let mut raw: Vec<u8> = Vec::new();
 
         loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
+            raw.clear();
+            // `read_until` rather than `read_line`: the latter is String-based
+            // and a single invalid UTF-8 byte made it error out and take the
+            // whole server — and with it the engine — down.
+            match reader.read_until(b'\n', &mut raw).await {
                 Ok(0) => {
                     // EOF (stdin closed)
                     break;
                 }
                 Ok(_) => {
-                    let trimmed = line.trim().to_string();
+                    if raw.len() > MAX_RPC_LINE_BYTES {
+                        eprintln!(
+                            "rpc line rejected: {} bytes exceeds the {MAX_RPC_LINE_BYTES} limit",
+                            raw.len()
+                        );
+                        continue;
+                    }
+                    let trimmed = String::from_utf8_lossy(&raw).trim().to_string();
                     if trimmed.is_empty() {
                         continue;
                     }

@@ -1,5 +1,7 @@
 //! Single step execution within a turn.
 
+use std::time::Duration;
+
 use super::retry::RetryConfig;
 use super::retry::retry_delay;
 use super::types::*;
@@ -22,7 +24,7 @@ fn classify_llm_error(
     llm: &dyn LLM,
     attempt: u32,
     config: &RetryConfig,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<Duration>, Box<dyn std::error::Error + Send + Sync>> {
     let err_str = err.to_string();
     // `err` is dropped here (end of function scope for the parameter).
     if !llm.is_retryable_error(&err_str) {
@@ -33,7 +35,29 @@ fn classify_llm_error(
             "LLM call failed after {attempt} attempts: {err_str}"
         )));
     }
-    Ok(())
+    Ok(retry_after_hint(&err_str))
+}
+
+/// A wait the provider asked for, carried in the error text by the transport.
+///
+/// Retrying sooner than that is wasted: the request will be throttled again,
+/// and one exhausted retry budget is spent on requests that were always going
+/// to be rejected.
+fn retry_after_hint(error: &str) -> Option<Duration> {
+    let marker = " (retry-after ";
+    let start = error.rfind(marker)? + marker.len();
+    let rest = &error[start..];
+    let end = rest.find('s')?;
+    rest[..end].trim().parse::<u64>().ok().map(Duration::from_secs)
+}
+
+/// Pick the wait before the next attempt: the provider's request when it is
+/// longer than the plain backoff, the backoff otherwise.
+fn step_delay(backoff: Duration, hint: Option<Duration>) -> Duration {
+    match hint {
+        Some(hint) if hint > backoff => hint,
+        _ => backoff,
+    }
 }
 
 /// Execute a single LLM step with default retry configuration.
@@ -83,11 +107,11 @@ pub fn execute_loop_step_with_retry<'a>(
             attempt += 1;
             // Match the chat result and extract only Send-safe values, so the
             // non-Send `Box<dyn Error>` is fully consumed before the `.await`.
-            let (break_resp, return_err) = match llm.chat(params.clone()).await {
-                Ok(resp) => (Some(resp), None),
+            let (break_resp, return_err, wait_hint) = match llm.chat(params.clone()).await {
+                Ok(resp) => (Some(resp), None, None),
                 Err(err) => match classify_llm_error(err, llm, attempt, &retry_config) {
-                    Ok(()) => (None, None),
-                    Err(e) => (None, Some(e)),
+                    Ok(hint) => (None, None, hint),
+                    Err(e) => (None, Some(e), None),
                 },
             };
             if let Some(resp) = break_resp {
@@ -96,18 +120,20 @@ pub fn execute_loop_step_with_retry<'a>(
             if let Some(e) = return_err {
                 return Err(e);
             }
-            let delay = retry_delay(attempt, &retry_config);
+            let delay = step_delay(retry_delay(attempt, &retry_config), wait_hint);
             tokio::time::sleep(delay).await;
         };
 
         let usage = response.usage.clone();
         let attempts = attempt;
+        let finish_reason = response.finish_reason.clone();
         if response.tool_calls.is_empty() {
             Ok(StepResult {
                 usage,
                 stop_reason: LoopStepStopReason::Complete,
                 content: response.content,
                 attempts,
+                finish_reason,
             })
         } else {
             Ok(StepResult {
@@ -115,6 +141,7 @@ pub fn execute_loop_step_with_retry<'a>(
                 stop_reason: LoopStepStopReason::ToolCalls(response.tool_calls),
                 content: response.content,
                 attempts,
+                finish_reason,
             })
         }
     })
@@ -292,5 +319,29 @@ mod tests {
         let llm = FlakyLlm::new(0, true);
         let result = execute_loop_step("t1", 1, &llm, vec![], &[], vec![]).await;
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn retry_after_hint_is_parsed_from_the_error_text() {
+        let with_hint = "llm http status 429 Too Many Requests: slow down (retry-after 30s)";
+        assert_eq!(retry_after_hint(with_hint), Some(Duration::from_secs(30)));
+
+        // No hint, or a hint in HTTP-date form (seconds only is what the
+        // transport emits): fall back to the plain backoff.
+        assert_eq!(retry_after_hint("llm http status 429: slow down"), None);
+        assert_eq!(
+            retry_after_hint("llm http status 429: (retry-after Wed, 21 Oct 2015 07:28:00 GMT)"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retry_waits_at_least_as_long_as_the_provider_asks() {
+        // A provider asking for 30s must not be retried at the 1s backoff.
+        assert_eq!(step_delay(Duration::from_secs(1), Some(Duration::from_secs(30))), Duration::from_secs(30));
+        // And a short hint must not shorten the backoff either.
+        assert_eq!(step_delay(Duration::from_secs(5), Some(Duration::from_millis(200))), Duration::from_secs(5));
+        // No hint: the backoff stands.
+        assert_eq!(step_delay(Duration::from_secs(3), None), Duration::from_secs(3));
     }
 }
