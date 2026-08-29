@@ -215,6 +215,11 @@ enum PartialBlock {
     ToolUse { id: String, name: String, input_json: String },
 }
 
+/// Upper bound on content blocks a single streamed response may open.
+/// Generous for real responses (a tool call or two plus text); small enough
+/// that a hostile `index` cannot exhaust memory.
+const MAX_STREAM_BLOCKS: usize = 256;
+
 /// Accumulates Anthropic Messages stream events into a final
 /// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload (each carries a
 /// `type` discriminator) to [`feed`]; text deltas are returned so the
@@ -232,11 +237,20 @@ impl StreamAccumulator {
         Self::default()
     }
 
-    fn slot(&mut self, index: usize) -> &mut Option<PartialBlock> {
+    /// Resolve the block slot for a streamed index, or `None` when the index
+    /// is implausible.
+    ///
+    /// The index comes from the provider, and growing the vec to satisfy an
+    /// arbitrary one lets a single chunk allocate until the process dies —
+    /// which in the napi build takes the host down with it.
+    fn slot(&mut self, index: usize) -> Option<&mut Option<PartialBlock>> {
+        if index >= MAX_STREAM_BLOCKS {
+            return None;
+        }
         while self.blocks.len() <= index {
             self.blocks.push(None);
         }
-        &mut self.blocks[index]
+        self.blocks.get_mut(index)
     }
 
     /// Feed one stream event. Returns the text delta contained in the
@@ -272,7 +286,9 @@ impl StreamAccumulator {
                     },
                     _ => PartialBlock::Text,
                 };
-                *self.slot(index) = Some(partial);
+                if let Some(slot) = self.slot(index) {
+                    *slot = Some(partial);
+                }
                 None
             }
             "content_block_delta" => {
@@ -565,5 +581,18 @@ mod tests {
         assert_eq!(resp.usage.input_tokens, 25);
         assert_eq!(resp.usage.output_tokens, 9);
         assert_eq!(resp.usage.total_tokens, 34);
+    }
+
+    #[test]
+    fn stream_accumulator_ignores_implausible_block_index() {
+        // The index comes from the provider; honouring an arbitrary one grew
+        // the accumulator without bound until the process died.
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text" } }));
+        acc.feed(&json!({ "type": "content_block_start", "index": 50_000_000, "content_block": { "type": "tool_use", "id": "boom", "name": "Boom" } }));
+
+        assert!(acc.blocks.len() <= MAX_STREAM_BLOCKS);
+        let resp = acc.finish();
+        assert_eq!(resp.tool_calls.len(), 0, "the out-of-range block must be dropped");
     }
 }

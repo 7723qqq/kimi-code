@@ -218,6 +218,11 @@ struct PartialToolCall {
     arguments: String,
 }
 
+/// Upper bound on tool calls a single streamed response may open. Generous
+/// for real responses; small enough that a hostile `index` cannot exhaust
+/// memory.
+const MAX_STREAM_TOOL_CALLS: usize = 256;
+
 /// Accumulates OpenAI Chat Completions stream chunks into a final
 /// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload to [`feed`];
 /// text deltas are returned so the caller can forward them to the host.
@@ -232,6 +237,22 @@ pub struct StreamAccumulator {
 impl StreamAccumulator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Resolve the tool-call slot for a streamed index, or `None` when the
+    /// index is implausible.
+    ///
+    /// The index comes from the provider, and growing the vec to satisfy an
+    /// arbitrary one lets a single chunk allocate until the process dies —
+    /// which in the napi build takes the host down with it.
+    fn tool_call_slot(&mut self, index: usize) -> Option<&mut PartialToolCall> {
+        if index >= MAX_STREAM_TOOL_CALLS {
+            return None;
+        }
+        while self.tool_calls.len() <= index {
+            self.tool_calls.push(PartialToolCall::default());
+        }
+        self.tool_calls.get_mut(index)
     }
 
     /// Feed one stream chunk. Returns the text delta contained in the
@@ -251,10 +272,11 @@ impl StreamAccumulator {
         if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
             for tc in tcs {
                 let index = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
-                while self.tool_calls.len() <= index {
-                    self.tool_calls.push(PartialToolCall::default());
-                }
-                let slot = &mut self.tool_calls[index];
+                // An out-of-range index is dropped rather than honoured: it
+                // would otherwise grow the vec without bound.
+                let Some(slot) = self.tool_call_slot(index) else {
+                    continue;
+                };
                 if let Some(id) = tc.get("id").and_then(|x| x.as_str()) {
                     slot.id.push_str(id);
                 }
@@ -537,5 +559,20 @@ mod tests {
         assert_eq!(resp.tool_calls.len(), 2);
         assert_eq!(resp.tool_calls[0].name, "Read");
         assert_eq!(resp.tool_calls[1].name, "Glob");
+    }
+
+    #[test]
+    fn stream_accumulator_ignores_implausible_tool_call_index() {
+        // The index comes from the provider; honouring an arbitrary one grew
+        // the accumulator without bound until the process died.
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({ "choices": [{ "delta": { "tool_calls": [
+            { "index": 0, "id": "a", "function": { "name": "Read", "arguments": "{}" } },
+            { "index": 50_000_000, "id": "b", "function": { "name": "Boom", "arguments": "{}" } }
+        ] } }] }));
+        assert!(acc.tool_calls.len() <= MAX_STREAM_TOOL_CALLS);
+        let resp = acc.finish();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "Read");
     }
 }
