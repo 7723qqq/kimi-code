@@ -412,11 +412,11 @@ impl NativeToolset {
                         }
                         let lo = idx.saturating_sub(context_before);
                         let hi = (idx + context_after).min(file.lines.len() - 1);
-                        if let Some(lr) = last_rendered {
-                            if lo > lr + 1 {
-                                rendered.push("--".into());
-                                last_rendered = None;
-                            }
+                        if let Some(lr) = last_rendered
+                            && lo > lr + 1
+                        {
+                            rendered.push("--".into());
+                            last_rendered = None;
                         }
                         let start = last_rendered.map_or(lo, |lr| (lr + 1).max(lo));
                         for (offset_in_window, (is_match, lineno, line)) in
@@ -672,6 +672,12 @@ impl NativeToolset {
             .env("TERM", "dumb")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("SHELL", shell)
+            // The engine's own stdin is the host RPC transport. Inheriting it
+            // would let any stdin-reading command (`cat`, `read`, `git`,
+            // `npm init`) swallow host traffic and corrupt the protocol; on
+            // Windows the inherited pipe also keeps Git Bash from exiting,
+            // which hangs the turn. Commands get an empty stdin instead.
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()

@@ -2,7 +2,7 @@
 //! stdio JSON-RPC round-trip works end-to-end.
 //!
 //! This test exercises the full IPC path:
-//!   1. Spawn the release (or debug) binary as a child process
+//!   1. Spawn the built binary (debug or release, whichever is newer)
 //!   2. Send a JSON-RPC request on stdin
 //!   3. Read the JSON-RPC response on stdout
 //!   4. Assert the response matches the protocol
@@ -13,31 +13,40 @@
 //!   - `unknown_method_returns_error`: an unknown method yields a -32601 error
 //!   - `run_turn_with_host_callbacks`: run_turn drives host/llm_chat + host/execute_tool
 //!
-//! These tests require the binary to be built (`cargo build --release` or
-//! `cargo build`). They are skipped (with a passing assertion) when the
-//! binary is not present, so `cargo test` still works in CI without a prior
-//! build step.
+//! These tests require the binary to be built (`cargo test --features cli`
+//! builds it; so do `cargo build --features cli` and `cargo build --release
+//! --features cli`). They are skipped (with a passing assertion) when the
+//! binary is absent, so `cargo test` still works without a prior build step —
+//! note that a skipped test proves nothing, so CI builds the binary first.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-/// Find the kimi-agent binary, preferring release over debug.
+/// Find the kimi-agent binary, preferring the most recently built one.
+///
+/// Ordering by mtime rather than by profile matters: the `cli` binary sits
+/// behind `required-features`, so a plain `cargo test` never rebuilds it and a
+/// stale artifact in the preferred directory becomes the thing under test.
+/// Prefer `cargo test --features cli` so the binary is rebuilt in this profile.
 fn find_binary() -> Option<std::path::PathBuf> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let ext = if cfg!(windows) { ".exe" } else { "" };
     let candidates = [
-        std::path::PathBuf::from(manifest_dir).join("target/release/kimi-agent-cli").with_extension(""),
-        std::path::PathBuf::from(manifest_dir).join(format!("target/release/kimi-agent-cli{}", ext)),
-        std::path::PathBuf::from(manifest_dir).join(format!("target/debug/kimi-agent-cli{}", ext)),
+        format!("target/debug/kimi-agent-cli{ext}"),
+        format!("target/release/kimi-agent-cli{ext}"),
     ];
-    for c in &candidates {
-        if c.exists() {
-            return Some(c.clone());
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for candidate in candidates {
+        let path = std::path::Path::new(manifest_dir).join(candidate);
+        let Ok(metadata) = path.metadata() else { continue };
+        let Ok(modified) = metadata.modified() else { continue };
+        if newest.as_ref().is_none_or(|(best, _)| modified > *best) {
+            newest = Some((modified, path));
         }
     }
-    None
+    newest.map(|(_, path)| path)
 }
 
 /// A simple RPC client driving the child process stdio.
@@ -435,7 +444,7 @@ fn find_bash_for_test() -> Option<String> {
         "C:\\Program Files\\Git\\bin\\bash.exe",
         "C:\\msys64\\usr\\bin\\bash.exe",
     ] {
-        let ok = std::process::Command::new(&candidate)
+        let ok = std::process::Command::new(candidate)
             .arg("-c")
             .arg("exit 0")
             .output()
