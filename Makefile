@@ -63,15 +63,21 @@ dev:
 
 ## Rust binaries
 
+# The `cli` feature gates the kimi-agent-cli binary (it links the napi
+# bindings, which only resolve inside a Node process). Every target below
+# passes it so the binary is rebuilt rather than left stale.
 rust-build:
-	cd packages/kimi-agent && cargo build --release
+	cd packages/kimi-agent && cargo build --release --features cli
 
 rust-check:
-	cd packages/kimi-agent && cargo check
+	cd packages/kimi-agent && cargo check --all-targets --features cli
 
+# `cargo test --features cli` builds the debug binary the integration tests
+# spawn; `find_binary` picks the newest artifact, so a bare `cargo test`
+# would otherwise exercise whatever was left in target/.
 rust-test:
-	cd packages/kimi-agent && cargo test
-	cd packages/kimi-agent && cargo run -- --test
+	cd packages/kimi-agent && cargo test --features cli
+	cd packages/kimi-agent && cargo run --features cli -- --test
 
 ## vis
 

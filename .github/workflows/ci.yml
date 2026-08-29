@@ -61,6 +61,49 @@ jobs:
       # canonical dev/test toolchain and the shards need no Node install.
       - run: bun --bun run test --shard=${{ matrix.shard }}/5
 
+  # The Rust engine has its own cargo suite (unit tests plus the stdio-RPC
+  # integration tests). It is not part of the vitest workspace, so without this
+  # job nothing in CI ever runs it.
+  #
+  # Windows stays in the matrix on purpose: the native-Bash path shells out to
+  # Git Bash and is Windows-sensitive, and the deadlock this job was written to
+  # catch (a child inheriting the engine's RPC stdin) only reproduced there.
+  test-rust:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/kimi-agent/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-agent/Cargo.lock') }}
+
+      # `--features cli` is what builds the `kimi-agent-cli` binary the
+      # integration tests spawn. It sits behind `required-features`, so a bare
+      # `cargo test` leaves a stale artifact in place — or none at all.
+      - name: Test Rust engine
+        working-directory: packages/kimi-agent
+        run: cargo test --features cli
+
+      # The integration tests skip — and therefore pass — when that binary is
+      # missing, which would turn this job green while it tested nothing.
+      - name: Assert the CLI binary was built
+        working-directory: packages/kimi-agent
+        shell: bash
+        run: |
+          ls target/debug/kimi-agent-cli target/debug/kimi-agent-cli.exe 2>/dev/null \
+            || { echo "::error::kimi-agent-cli missing; integration tests would silently skip"; exit 1; }
+
   # pi-tui's suite runs on node:test (not vitest), so the root `bun run test`
   # does not execute it; it needs its own job.
   test-pi-tui:
