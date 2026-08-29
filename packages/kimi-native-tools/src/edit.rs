@@ -84,8 +84,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
             return EditResult {
                 success: false,
                 error: Some(format!(
-                    "old_string not found in {}. The file contents may be out of date. Please use the Read Tool to reload the content.",
-                    path
+                    "old_string not found in {path}, the file contents may be out of date. Please use the Read Tool to reload the content.\n"
                 )),
                 replacements: 0,
             };
@@ -114,8 +113,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
             0 => EditResult {
                 success: false,
                 error: Some(format!(
-                    "old_string not found in {}. The file contents may be out of date. Please use the Read Tool to reload the content.",
-                    path
+                    "old_string not found in {path}, the file contents may be out of date. Please use the Read Tool to reload the content.\n"
                 )),
                 replacements: 0,
             },
@@ -139,8 +137,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
             _ => EditResult {
                 success: false,
                 error: Some(format!(
-                    "old_string is not unique in {}. Found {} occurrences. To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.",
-                    path, count
+                    "old_string is not unique in {path} (found {count} occurrences). To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string."
                 )),
                 replacements: 0,
             },
