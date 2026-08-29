@@ -37,10 +37,13 @@ use napi::{
 use napi_derive::napi;
 use tokio::sync::oneshot;
 
-use crate::callbacks::{HostCallbacks, NativeToolCallbacks};
+use crate::callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks};
 use crate::llm::http::NativeHttpLlm;
 use crate::llm::proxy::HostLlmProxy;
-use crate::rpc::types::{LlmChatRequest, LlmChatResponse, NativeLlmConfig, ToolExecuteRequest, ToolExecuteResponse};
+use crate::rpc::types::{
+    BoxFuture, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
+    PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
+};
 use crate::turn_loop::{
     run_turn::run_turn,
     types::*,
@@ -135,6 +138,10 @@ struct NapiHostCallbacks {
     /// Optional fire-and-forget event channel. The JS side fetches the
     /// payload via `getCallbackPayload(id)` but must NOT resolve it.
     emit_event_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional permission checker for native execution of mutating tools.
+    /// Fail-closed when absent: without a checker the engine refuses native
+    /// execution of Write/Edit/Bash and the call falls back to the host.
+    check_permission_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
 }
 
 impl HostCallbacks for NapiHostCallbacks {
@@ -158,6 +165,27 @@ impl HostCallbacks for NapiHostCallbacks {
             format!(r#"{{"error":"serialize: {}"}}"#, e)
         });
         Box::pin(napi_execute_tool(tsfn, input))
+    }
+
+    fn check_permission(
+        &self,
+        request: PermissionCheckRequest,
+    ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+        let Some(ref tsfn) = self.check_permission_fn else {
+            return Box::pin(async {
+                Ok(PermissionDecision::deny(
+                    "host did not provide a permission checker; native execution of a mutating tool is refused",
+                ))
+            });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request).unwrap_or_else(|e| {
+            format!(r#"{{"error":"serialize: {}"}}"#, e)
+        });
+        Box::pin(async move {
+            let output = invoke_via_registry(&tsfn, input, "check_permission").await?;
+            serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
+        })
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -258,6 +286,9 @@ pub struct JsRunTurnParams {
     pub workspace_root: Option<String>,
     /// When true (with `workspace_root`), Read/Grep/Glob run in-process.
     pub native_tools: Option<bool>,
+    /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
+    /// Absent on Windows → native Bash stays with the host.
+    pub shell_path: Option<String>,
 }
 
 #[napi(object)]
@@ -319,6 +350,10 @@ pub struct JsRunTurnResult {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,
+    /// Host-visible engine events emitted during the turn.
+    pub events_emitted: u32,
+    /// LLM retries performed during the turn (attempts beyond the first).
+    pub llm_retries: u32,
 }
 
 // ── napi exported functions ────────────────────────────────────────────────
@@ -346,6 +381,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] llm_chat_cb: JsFunction,
     #[napi(ts_arg_type = "(callbackId: number) => void")] execute_tool_cb: JsFunction,
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -377,12 +413,30 @@ pub fn run_turn_rust(
         None => None,
     };
 
+    let check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
+        match check_permission_cb {
+            Some(cb) => Some(cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?),
+            None => None,
+        };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
     env.execute_tokio_future(
         async move {
-            run_turn_rust_impl(params, llm_chat_tsfn, execute_tool_tsfn, emit_event_tsfn).await
+            run_turn_rust_impl(
+                params,
+                llm_chat_tsfn,
+                execute_tool_tsfn,
+                emit_event_tsfn,
+                check_permission_tsfn,
+            )
+            .await
         },
         |env: &mut Env, val: JsRunTurnResult| {
             let mut obj = env.create_object()?;
@@ -391,6 +445,8 @@ pub fn run_turn_rust(
             obj.set_named_property("inputTokens", env.create_uint32(val.input_tokens)?)?;
             obj.set_named_property("outputTokens", env.create_uint32(val.output_tokens)?)?;
             obj.set_named_property("totalTokens", env.create_uint32(val.total_tokens)?)?;
+            obj.set_named_property("eventsEmitted", env.create_uint32(val.events_emitted)?)?;
+            obj.set_named_property("llmRetries", env.create_uint32(val.llm_retries)?)?;
             Ok(obj)
         },
     )
@@ -402,11 +458,22 @@ async fn run_turn_rust_impl(
     llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
     execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(NapiHostCallbacks {
         llm_chat_fn: Arc::new(llm_chat_tsfn),
         execute_tool_fn: Arc::new(execute_tool_tsfn),
         emit_event_fn: emit_event_tsfn.map(Arc::new),
+        check_permission_fn: check_permission_tsfn.map(Arc::new),
+    });
+
+    // Count every event this turn emits (step lifecycle, deltas, native
+    // tools, goal budget limits) for the turn telemetry. Wrapped before the
+    // tool wrapper and the native LLM event sink so all paths are counted.
+    let turn_event_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(CountingCallbacks {
+        inner: base_callbacks,
+        event_count: turn_event_count.clone(),
     });
 
     // Native tool execution: wrap the callbacks so Read/Grep/Glob run
@@ -416,7 +483,7 @@ async fn run_turn_rust_impl(
         params.native_tools.unwrap_or(false),
         params.workspace_root.as_deref(),
     ) {
-        (true, Some(root)) => match crate::tools::NativeToolset::new(root) {
+        (true, Some(root)) => match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
             Some(toolset) => Arc::new(NativeToolCallbacks {
                 inner: base_callbacks.clone(),
                 toolset: Arc::new(toolset),
@@ -528,5 +595,8 @@ async fn run_turn_rust_impl(
         input_tokens: result.usage.input_tokens as u32,
         output_tokens: result.usage.output_tokens as u32,
         total_tokens: result.usage.total_tokens as u32,
+        events_emitted: turn_event_count.load(std::sync::atomic::Ordering::Relaxed),
+        llm_retries: result.llm_retries,
     })
 }
+

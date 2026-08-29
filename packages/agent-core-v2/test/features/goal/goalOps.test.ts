@@ -51,6 +51,7 @@ function createLoopStub(): IAgentLoopService {
   return {
     _serviceBrand: undefined,
     hooks: { onWillBeginStep: hookSlot(), onDidFinishStep: hookSlot() },
+    registerEngineGoalProvider: () => noopDisposable(),
   } as unknown as IAgentLoopService;
 }
 

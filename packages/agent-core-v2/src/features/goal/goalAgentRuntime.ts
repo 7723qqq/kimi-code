@@ -11,6 +11,7 @@ import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/features/goal/injection/goalInjection';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { LoopErrors } from '#/agent/loop/errors';
+import type { TurnEngineGoalContext } from '#/agent/loop/engineOverride';
 import {
   IAgentLoopService,
   type AfterStepContext,
@@ -1167,6 +1168,25 @@ function pauseReasonWithMessage(prefix: string, message: string | undefined): st
   return trimmed === undefined || trimmed.length === 0 ? prefix : `${prefix}: ${trimmed}`;
 }
 
+/** Project a host goal snapshot onto the external-engine wire shape. */
+export function toTurnEngineGoalContext(goal: GoalSnapshot): TurnEngineGoalContext {
+  return {
+    goalId: goal.goalId,
+    objective: goal.objective,
+    status: goal.status === 'budget_limited'
+      ? 'budgetLimited'
+      : goal.status === 'usage_limited'
+        ? 'usageLimited'
+        : goal.status,
+    tokenBudget: goal.budget.tokenBudget ?? undefined,
+    turnBudget: goal.budget.turnBudget ?? undefined,
+    wallClockBudgetMs: goal.budget.wallClockBudgetMs ?? undefined,
+    wallClockMs: goal.wallClockMs,
+    tokensUsed: goal.tokensUsed,
+    turnsUsed: goal.turnsUsed,
+  };
+}
+
 function createGoalEffectHandlers(runtime: AgentRuntimeContext<GoalRuntimeState>) {
   const context = goalOperationContext(runtime);
   return {
@@ -1175,6 +1195,12 @@ function createGoalEffectHandlers(runtime: AgentRuntimeContext<GoalRuntimeState>
     injection: {
       getGoal: () => getGoal(context).goal,
       isWaitForEnabled: () => isWaitForAvailable(context),
+    },
+    /** Goal snapshot for the external-engine budget gate; read fresh on
+     *  each engine turn so host-side goal changes are reflected. */
+    engineGoal: (): TurnEngineGoalContext | undefined => {
+      const goal = getGoal(context).goal;
+      return goal === null ? undefined : toTurnEngineGoalContext(goal);
     },
     normalize: () => { normalizeAfterReplay(context); },
     turnStarted: (event: TurnStarted) => { handleTurnLaunched(context, event.turnId, event.origin); },
@@ -1260,6 +1286,7 @@ const goalEffects = fromCallback(({
       await handlers.beforeStep(context);
       await next();
     }));
+    disposables.push(loop.registerEngineGoalProvider(handlers.engineGoal));
     disposables.push(loop.hooks.onDidFinishStep.register('goal-outcome-continuation', async (context, next) => {
       handlers.afterStep(context);
       await next();

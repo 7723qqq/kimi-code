@@ -1,6 +1,7 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Error2, isError2, type Error2Options } from '#/_base/errors/errors';
+import type { TurnEngineGoalContext } from './engineOverride';
 import type { FinishReason } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import type { Hooks } from '#/hooks';
@@ -158,6 +159,17 @@ export interface IAgentLoopService {
   registerLoopErrorHandler(
     handler: LoopErrorHandler,
     options?: LoopErrorHandlerRegistrationOptions,
+  ): IDisposable;
+
+  /**
+   * Register a provider for the current goal snapshot, consumed by an
+   * external turn engine (engine override path) for budget-aware turns.
+   * Consulted fresh on each engine turn; the first provider returning a
+   * snapshot wins. Goal-owning features register here instead of the loop
+   * importing them (which would create a dependency cycle).
+   */
+  registerEngineGoalProvider(
+    provider: () => TurnEngineGoalContext | undefined,
   ): IDisposable;
 
   readonly hooks: Hooks<{

@@ -1,6 +1,7 @@
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type { IAgentLoopService, LoopErrorHandler, LoopErrorHandlerRegistrationOptions, Step, Turn, TurnResult } from '#/agent/loop/loop';
+import type { TurnEngineGoalContext } from '#/agent/loop/engineOverride';
 import type { StepRequest } from '#/agent/loop/stepRequest';
 import { StepRequestQueue, type StepRequestBatch } from '#/agent/loop/stepRequestQueue';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -15,6 +16,7 @@ export type StubLoop = IAgentLoopService & {
   readonly queue: StepRequestQueue;
   readonly launches: readonly number[];
   readonly cancels: readonly { readonly turnId?: number; readonly reason?: unknown }[];
+  readonly engineGoalProviders: readonly (() => TurnEngineGoalContext | undefined)[];
   startTurn(): Turn;
   settleActive(result?: TurnResult): void;
   drainNextBatch(context: { append(...messages: ContextMessage[]): void }): StepRequestBatch | undefined;
@@ -44,6 +46,7 @@ function materialize(request: StepRequest, context: { append(...messages: Contex
 export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hooks = createHooks(['onWillBeginStep', 'onDidFinishStep']) as IAgentLoopService['hooks'];
   const queue = new StepRequestQueue(); const errorHandlers = registry(); const launches: number[] = []; const cancels: { turnId?: number; reason?: unknown }[] = [];
+  const engineGoalProviders: Array<() => TurnEngineGoalContext | undefined> = [];
   let active: Turn | undefined; let nextId = typeof options.currentId === 'number' ? options.currentId : 0;
   let releaseActiveResult: ((result: TurnResult) => void) | undefined;
   const startTurn = () => {
@@ -55,8 +58,9 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     launches.push(configured.id); active = configured; return configured;
   };
   const stub: StubLoop = {
-    _serviceBrand: undefined, hooks, queue, launches, cancels, startTurn,
+    _serviceBrand: undefined, hooks, queue, launches, cancels, engineGoalProviders, startTurn,
     settleActive(result = { type: 'completed', steps: 0, truncated: false }) { releaseActiveResult?.(result); },
+    registerEngineGoalProvider(provider) { engineGoalProviders.push(provider); return toDisposable(() => { const i = engineGoalProviders.indexOf(provider); if (i >= 0) engineGoalProviders.splice(i, 1); }); },
     enqueue(request, enqueueOptions) {
       let turn = active;
       if (request.admission === 'newTurn' || (request.admission === 'activeOrNewTurn' && turn === undefined)) turn = startTurn();

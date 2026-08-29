@@ -219,6 +219,40 @@ export async function maybeLoadRustEngine(
   // of forever calling the provider that was active at startup.
   const providers = extractMultiLlmProviders(loaded.config);
   const nativeTools = agentConfig.nativeTools === true;
+  // Native Bash must run under the same shell the host Bash tool documents
+  // (bash everywhere, Git Bash on Windows) — probe it once for the engine.
+  let shellPath: string | undefined;
+  try {
+    const os = await import('node:os');
+    const fsPromises = await import('node:fs/promises');
+    const { probeHostEnvironment } = await import('@moonshot-ai/agent-core-v2');
+    const env = await probeHostEnvironment({
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+      homeDir: os.homedir(),
+      env: process.env,
+      isFile: async (p) => {
+        try {
+          return (await fsPromises.stat(p)).isFile();
+        } catch {
+          return false;
+        }
+      },
+      execFileText: async (file, args, timeoutMs) => {
+        const { execFile } = await import('node:child_process');
+        return new Promise((resolve) => {
+          execFile(file, [...args], { timeout: timeoutMs }, (error, stdout) => {
+            resolve(error === undefined || error === null ? String(stdout) : undefined);
+          });
+        });
+      },
+    });
+    shellPath = env.shellPath;
+  } catch {
+    // Without a probed shell the engine keeps native Bash on the host.
+    shellPath = undefined;
+  }
 
   // Dynamic import of the Rust adapter via the workspace package.
   try {
@@ -237,6 +271,7 @@ export async function maybeLoadRustEngine(
         return extractNativeLlm(reloaded.config);
       },
       nativeTools,
+      shellPath,
     });
     if (engine !== undefined) {
       rustTurnEngine = engine;

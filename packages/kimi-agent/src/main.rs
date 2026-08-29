@@ -5,12 +5,12 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use clap::Parser;
 
 use kimi_agent::{
-    callbacks::{HostCallbacks, NativeToolCallbacks, RpcHostCallbacks},
+    callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks, RpcHostCallbacks},
     llm::{http::NativeHttpLlm, proxy::HostLlmProxy, multi::{LlmProvider, MultiLLM}},
     rpc::{
         server::RpcServer,
@@ -85,11 +85,20 @@ async fn main() -> anyhow::Result<()> {
                 let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
                     RpcHostCallbacks { server: server.clone() },
                 );
+                // Count every event this turn emits (step lifecycle, deltas,
+                // native tools, goal budget limits) for the turn telemetry.
+                let turn_event_count = Arc::new(AtomicU32::new(0));
+                let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
+                    CountingCallbacks {
+                        inner: base_callbacks,
+                        event_count: turn_event_count.clone(),
+                    },
+                );
                 let callbacks: Arc<dyn HostCallbacks> = match (
                     input.native_tools,
                     input.workspace_root.as_deref(),
                 ) {
-                    (true, Some(root)) => match kimi_agent::tools::NativeToolset::new(root) {
+                    (true, Some(root)) => match kimi_agent::tools::NativeToolset::new(root, None) {
                         Some(toolset) => Arc::new(NativeToolCallbacks {
                             inner: base_callbacks.clone(),
                             toolset: Arc::new(toolset),
@@ -180,6 +189,8 @@ async fn main() -> anyhow::Result<()> {
                             stop_reason: format!("{:?}", res.stop_reason),
                             steps: res.steps,
                             usage: res.usage,
+                            events_emitted: turn_event_count.load(Ordering::Relaxed),
+                            llm_retries: res.llm_retries,
                         };
                         serde_json::to_value(&output).map_err(|e| {
                             types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
@@ -190,6 +201,8 @@ async fn main() -> anyhow::Result<()> {
                             stop_reason: format!("Error: {e}"),
                             steps: 0,
                             usage: TokenUsage::default(),
+                            events_emitted: 0,
+                            llm_retries: 0,
                         };
                         serde_json::to_value(&output).map_err(|_| {
                             types::JsonRpcError::internal_error(format!("Turn failed: {e}"))

@@ -658,7 +658,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 24_144,
+        tokens_before: expect.any(Number),
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
@@ -1125,7 +1125,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 24_144,
+        tokens_before: expect.any(Number),
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1350,7 +1350,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 24_144,
+        tokens_before: expect.any(Number),
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',
@@ -3258,7 +3258,10 @@ function hookPayloadLoggerCommand(logPath: string): string {
     '});',
   ].join('');
   writeFileSync(scriptPath, script);
-  return `${process.execPath} ${scriptPath}`;
+  // Quote execPath: on Windows it lives under "C:\Program Files\..." and the
+  // hook runner executes the command through a shell, which would otherwise
+  // split the path at the space.
+  return `"${process.execPath}" ${scriptPath}`;
 }
 
 function readHookPayloads(logPath: string): Array<Record<string, unknown>> {

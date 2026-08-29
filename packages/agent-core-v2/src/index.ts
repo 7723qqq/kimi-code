@@ -9,6 +9,7 @@ export * from './app/scopes';
 export * from '#/_base/di/serviceCollection';
 export * from '#/_base/di/cascadeEngine';
 export * from '#/_base/di/dependencyGraph';
+export * from '#/_base/execEnv/environmentProbe';
 export * from '#/_base/lifecycle/ledger';
 export {
   collection,

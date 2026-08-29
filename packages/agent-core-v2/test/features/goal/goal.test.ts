@@ -42,7 +42,14 @@ import type { WireRecord } from '#/wire/record';
 import { IEventBus } from '#/app/event/eventBus';
 import { APIConnectionError, APIStatusError } from '#/kosong/contract/errors';
 import type { ToolCall } from '#/kosong/contract/message';
+import { emptyUsage } from '#/kosong/contract/usage';
 import type { TokenUsage } from '#/kosong/contract/usage';
+import {
+  IEngineOverrideService,
+  type TurnEngine,
+  type TurnEngineGoalContext,
+  type TurnEngineInput,
+} from '#/agent/loop/engineOverride';
 import { ErrorCodes, Error2, errorInfo, toKimiErrorPayload } from '#/errors';
 import type { ExecutableTool, RunnableToolExecution } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
@@ -2873,5 +2880,93 @@ describe('AgentGoalService WaitFor guidance gating', () => {
     } finally {
       await ctx.dispose();
     }
+  });
+});
+
+describe('goal → external engine bridge', () => {
+  let ctx: TestAgentContext | undefined;
+
+  afterEach(async () => {
+    await ctx?.dispose();
+    ctx = undefined;
+  });
+
+  it('feeds the current goal snapshot to an engine turn via getGoal', async () => {
+    let engineInput: TurnEngineInput | undefined;
+    let goalDuringTurn: TurnEngineGoalContext | undefined;
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      goalDuringTurn = input.getGoal?.();
+      await input.dispatchEvent({
+        type: 'step.begin',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+      });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgent(appService(IEngineOverrideService, { getEngine: () => engine }));
+    const engineGoals = ctx!.resolve(AgentGoal) as GoalServiceTestManager;
+    const snapshot = await engineGoals.createGoal({ objective: 'Ship feature X' });
+    await engineGoals.setBudgetLimits({ budgetLimits: { tokenBudget: 5000 } }, 'user');
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'work on it' }] });
+    await end;
+
+    expect(engineInput).toBeDefined();
+    // Read at engine entry: the onWillBeginStep gate has already counted
+    // this turn, so the snapshot shows the live budget state.
+    expect(goalDuringTurn).toMatchObject({
+      goalId: snapshot.goalId,
+      objective: 'Ship feature X',
+      status: 'active',
+      tokenBudget: 5000,
+      turnsUsed: 1,
+    });
+    // Re-read after the turn stays fresh (no double counting).
+    expect(engineInput!.getGoal?.()).toMatchObject({
+      goalId: snapshot.goalId,
+      status: 'active',
+      turnsUsed: 1,
+    });
+  });
+
+  it('reports no goal to the engine when none exists', async () => {
+    let engineInput: TurnEngineInput | undefined;
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      await input.dispatchEvent({
+        type: 'step.begin',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+      });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgent(appService(IEngineOverrideService, { getEngine: () => engine }));
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'plain work' }] });
+    await end;
+
+    expect(engineInput).toBeDefined();
+    expect(engineInput!.getGoal?.()).toBeUndefined();
   });
 });

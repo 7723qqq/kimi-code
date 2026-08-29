@@ -77,9 +77,14 @@ export class GitService implements IGitService {
 
     let diffStdout: string;
     if (untracked || !hasHead) {
+      // The null device must match the platform: `/dev/null` only resolves
+      // when git runs behind an msys/bash path conversion, which does not
+      // happen for a direct Windows spawn (error: Could not access
+      // '/dev/null/<path>').
+      const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
       const res = await this.runCommand(
         'git',
-        ['diff', '--no-color', '--no-index', '--', '/dev/null', relPath],
+        ['diff', '--no-color', '--no-index', '--', nullDevice, relPath],
         cwd,
       );
       if (res.exitCode !== 0 && res.exitCode !== 1) {

@@ -87,12 +87,35 @@ export interface TurnEngineInput {
   /** Current goal snapshot, or undefined when no goal exists. Read fresh
    *  each turn so host-side goal changes are reflected. */
   getGoal?(): TurnEngineGoalContext | undefined;
+  /**
+   * Permission verdict for executing a mutating tool call natively (inside
+   * an engine-owned process). The host stays the permission authority: it
+   * runs its full machinery (mode, rules, policies, interactive approval)
+   * and answers allow or deny. A deny verdict must become the tool result
+   * verbatim — never retried through executeTool, which would prompt twice.
+   */
+  checkToolPermission?(
+    call: ToolCall,
+  ): Promise<{ decision: 'allow' | 'deny'; reason?: string }>;
 }
 
 export interface TurnEngineResult {
   readonly stopReason: FinishReason;
   readonly steps: number;
   readonly usage: TokenUsage;
+  /**
+   * Turn telemetry counters aggregated by the engine. Optional so engines
+   * without counter support stay contract-compatible.
+   */
+  readonly telemetry?: TurnEngineTelemetry;
+}
+
+/** Counters reported by an external engine for one turn. */
+export interface TurnEngineTelemetry {
+  /** Host-visible engine events emitted during the turn. */
+  readonly eventsEmitted: number;
+  /** LLM retries performed during the turn (attempts beyond the first). */
+  readonly llmRetries: number;
 }
 
 export type TurnEngine = (input: TurnEngineInput) => Promise<TurnEngineResult>;

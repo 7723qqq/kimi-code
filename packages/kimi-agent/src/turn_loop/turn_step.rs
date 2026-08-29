@@ -101,17 +101,20 @@ pub fn execute_loop_step_with_retry<'a>(
         };
 
         let usage = response.usage.clone();
+        let attempts = attempt;
         if response.tool_calls.is_empty() {
             Ok(StepResult {
                 usage,
                 stop_reason: LoopStepStopReason::Complete,
                 content: response.content,
+                attempts,
             })
         } else {
             Ok(StepResult {
                 usage,
                 stop_reason: LoopStepStopReason::ToolCalls(response.tool_calls),
                 content: response.content,
+                attempts,
             })
         }
     })

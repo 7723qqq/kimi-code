@@ -25,12 +25,15 @@ import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
+  EngineTurnEvent,
   TurnEndedEvent as TurnEndedTelemetryEvent,
   TurnInterruptedEvent,
   TurnStartedEvent as TurnStartedTelemetryEvent,
@@ -79,6 +82,7 @@ import {
   IEngineOverrideService,
   type EngineOverrideProvider,
   type TurnEngine,
+  type TurnEngineGoalContext,
   type TurnEngineInput,
 } from './engineOverride';
 
@@ -107,6 +111,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private readonly standaloneStepQueue = new StepRequestQueue();
   private readonly pendingAssignments = new Map<StepRequest, ReturnType<typeof createControlledPromise<import('./loop').StepAssignment>>>();
   private readonly errorHandlers: LoopErrorHandler[] = [];
+  private readonly engineGoalProviders: Array<() => TurnEngineGoalContext | undefined> = [];
   private readonly pendingTurns: TurnJob[] = [];
   private readonly heldAdmissions: HeldAdmission[] = [];
   private activeTurnJob: TurnJob | undefined;
@@ -126,6 +131,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentStateService private readonly states: IAgentStateService,
     @IEngineOverrideService private readonly engineOverride: EngineOverrideProvider,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
@@ -647,6 +653,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return true;
   }
 
+  registerEngineGoalProvider(
+    provider: () => TurnEngineGoalContext | undefined,
+  ): IDisposable {
+    this.engineGoalProviders.push(provider);
+    return toDisposable(() => {
+      const index = this.engineGoalProviders.indexOf(provider);
+      if (index >= 0) this.engineGoalProviders.splice(index, 1);
+    });
+  }
+
+  private getEngineGoal(): TurnEngineGoalContext | undefined {
+    for (const provider of this.engineGoalProviders) {
+      const snapshot = provider();
+      if (snapshot !== undefined) return snapshot;
+    }
+    return undefined;
+  }
+
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
     const runtime = this.createLoopRuntime(options);
     try {
@@ -954,6 +978,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     onStarted?.(step.number);
     const input = this.buildEngineInput(turnId, signal, step.number);
     const result = await engine(input);
+    if (result.telemetry !== undefined) {
+      const engineTurn: EngineTurnEvent = {
+        turn_id: turnId,
+        stop_reason: result.stopReason,
+        steps: result.steps,
+        events_emitted: result.telemetry.eventsEmitted,
+        llm_retries: result.telemetry.llmRetries,
+      };
+      this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
+    }
     void this.dispatcher.dispatch(
       new TurnStepCompleted({
         agentId: this.scopeContext.agentId,
@@ -1002,6 +1036,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       },
       maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
       buildMessages: async () => [...this.projector.project(this.context.get())],
+      getGoal: () => this.getEngineGoal(),
       buildTools: () =>
         this.toolSelect.shapeTools(this.toolRegistry.list()).map((tool) => ({
           name: tool.name,
@@ -1032,6 +1067,47 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           note: last.result.note,
           stopTurn: last.result.stopTurn,
         };
+      },
+      checkToolPermission: async (call) => {
+        const denied = (reason: string) => ({ decision: 'deny' as const, reason });
+        try {
+          // Resolved lazily on first use: constructing the gate earlier would
+          // reorder the toolExecutor permission listeners ahead of features
+          // that must short-circuit them (e.g. plan-mode file interception).
+          const gate = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentPermissionGate),
+          );
+          const tool = this.toolRegistry.resolve(call.name);
+          if (tool === undefined) return denied(`Tool "${call.name}" is not registered`);
+          let args: unknown = {};
+          if (typeof call.arguments === 'string' && call.arguments.length > 0) {
+            args = JSON.parse(call.arguments);
+          }
+          const execution = await tool.resolveExecution(args);
+          if (!('execute' in execution)) {
+            return denied(`Tool "${call.name}" failed to resolve its execution`);
+          }
+          const decision = await gate.authorize({
+            turnId,
+            signal,
+            toolCall: call,
+            toolCalls: [call],
+            tool,
+            args,
+            execution,
+          });
+          if (decision?.veto !== undefined) {
+            const output = decision.veto.output;
+            return denied(typeof output === 'string' ? output : JSON.stringify(output));
+          }
+          return { decision: 'allow' };
+        } catch (error) {
+          // Fail closed: a permission evaluation error must not open a
+          // native execution path.
+          return denied(
+            `permission check failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       },
     };
   }

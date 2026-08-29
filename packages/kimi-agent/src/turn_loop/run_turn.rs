@@ -20,7 +20,28 @@ use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
 use crate::callbacks::HostCallbacks;
-use crate::rpc::types::{BoxFuture, ToolExecuteRequest};
+use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
+
+/// Build a [`TurnResult`] with the turn's telemetry counters.
+///
+/// `events_emitted` is zero here and filled by the composition root (see
+/// [`crate::callbacks::CountingCallbacks`]); the LLM retry count is
+/// accumulated in this loop from per-step attempt figures.
+fn turn_result(
+    stop_reason: LoopTurnStopReason,
+    steps: u32,
+    usage: TokenUsage,
+    events_emitted: u32,
+    llm_retries: u32,
+) -> TurnResult {
+    TurnResult {
+        stop_reason,
+        steps,
+        usage,
+        events_emitted,
+        llm_retries,
+    }
+}
 
 /// Run a single turn.
 pub fn run_turn<'a>(
@@ -36,6 +57,11 @@ pub fn run_turn<'a>(
     Box::pin(async move {
         let mut total_usage = crate::rpc::types::TokenUsage::default();
         let mut steps: u32 = 0;
+        // LLM retries performed so far (attempts beyond the first per step);
+        // surfaced on the turn result as a telemetry figure. Event counting
+        // lives at the composition root, hence the zero here.
+        let mut llm_retries: u32 = 0;
+        let events_emitted = || 0u32;
 
         // Turn wall-clock anchor for the goal's wall-clock budget.
         let turn_started = std::time::Instant::now();
@@ -78,11 +104,13 @@ pub fn run_turn<'a>(
                         GoalStatus::Blocked => LoopTurnStopReason::Aborted,
                         _ => LoopTurnStopReason::EndTurn,
                     };
-                    return Ok(TurnResult {
-                        stop_reason: reason,
-                        steps: step_num, // this step didn't run
-                        usage: total_usage,
-                    });
+                    return Ok(turn_result(
+                        reason,
+                        step_num, // this step didn't run
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
                 // Check budgets with cumulative usage so far.
                 let turn_tokens = total_usage.total_tokens as i64;
@@ -93,11 +121,13 @@ pub fn run_turn<'a>(
                         "turn_id": turn_id,
                         "goal_id": goal.goal_id,
                     }));
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::BudgetLimited,
-                        steps: step_num,
-                        usage: total_usage,
-                    });
+                    return Ok(turn_result(
+                        LoopTurnStopReason::BudgetLimited,
+                        step_num,
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
                 // Update steering text in system prompt with current progress.
                 let steering =
@@ -110,11 +140,13 @@ pub fn run_turn<'a>(
             // is set. Abort the turn before calling the LLM.
             if let Some(ref cancel) = input.cancellation
                 && cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::Aborted,
-                        steps: step_num,
-                        usage: total_usage,
-                    });
+                    return Ok(turn_result(
+                        LoopTurnStopReason::Aborted,
+                        step_num,
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
 
             if let Some(hooks) = input.hooks
@@ -125,11 +157,7 @@ pub fn run_turn<'a>(
                     };
                     let before_result = before_step(&ctx)?;
                     if let Some(BeforeStepResult::StopTurn(reason)) = before_result {
-                        return Ok(TurnResult {
-                            stop_reason: reason,
-                            steps,
-                            usage: total_usage,
-                        });
+                        return Ok(turn_result(reason, steps, total_usage, events_emitted(), llm_retries));
                     }
                 }
 
@@ -150,6 +178,7 @@ pub fn run_turn<'a>(
             total_usage.input_tokens += step_result.usage.input_tokens;
             total_usage.output_tokens += step_result.usage.output_tokens;
             total_usage.total_tokens += step_result.usage.total_tokens;
+            llm_retries += step_result.attempts.saturating_sub(1);
 
             match step_result.stop_reason {
                 LoopStepStopReason::Complete => {
@@ -164,18 +193,16 @@ pub fn run_turn<'a>(
                             };
                             let after_result = after_step(&ctx)?;
                             if let Some(AfterStepResult::StopTurn(reason)) = after_result {
-                                return Ok(TurnResult {
-                                    stop_reason: reason,
-                                    steps,
-                                    usage: total_usage,
-                                });
+                                return Ok(turn_result(reason, steps, total_usage, events_emitted(), llm_retries));
                             }
                         }
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::EndTurn,
+                    return Ok(turn_result(
+                        LoopTurnStopReason::EndTurn,
                         steps,
-                        usage: total_usage,
-                    });
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
                 LoopStepStopReason::ToolCalls(tool_calls) => {
                     // Append ONE assistant message carrying all tool calls. Wire
@@ -216,6 +243,7 @@ pub fn run_turn<'a>(
                                 Ok(ExecutableToolResult {
                                     content: response.content,
                                     is_error: response.is_error,
+                                    note: response.note,
                                 })
                             }
                         }
@@ -261,20 +289,18 @@ pub fn run_turn<'a>(
                             };
                             let after_result = after_step(&ctx)?;
                             if let Some(AfterStepResult::StopTurn(reason)) = after_result {
-                                return Ok(TurnResult {
-                                    stop_reason: reason,
-                                    steps,
-                                    usage: total_usage,
-                                });
+                                return Ok(turn_result(reason, steps, total_usage, events_emitted(), llm_retries));
                             }
                         }
                 }
                 LoopStepStopReason::Aborted => {
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::Aborted,
+                    return Ok(turn_result(
+                        LoopTurnStopReason::Aborted,
                         steps,
-                        usage: total_usage,
-                    });
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
                 LoopStepStopReason::Error(_msg) => {
                     // An LLM error that exhausted all retries must stop the
@@ -283,21 +309,25 @@ pub fn run_turn<'a>(
                     // 400 Bad Request from a misconfigured provider).
                     // Note: the error message (_msg) is intentionally not
                     // surfaced here — it has already been logged by retry logic.
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::EndTurn,
+                    return Ok(turn_result(
+                        LoopTurnStopReason::EndTurn,
                         steps,
-                        usage: total_usage,
-                    });
+                        total_usage,
+                        events_emitted(),
+                        llm_retries,
+                    ));
                 }
             }
         }
 
         // Turn ended.
-        Ok(TurnResult {
-            stop_reason: LoopTurnStopReason::EndTurn,
+        Ok(turn_result(
+            LoopTurnStopReason::EndTurn,
             steps,
-            usage: total_usage,
-        })
+            total_usage,
+            events_emitted(),
+            llm_retries,
+        ))
     })
 }
 
@@ -395,7 +425,7 @@ mod tests {
     use super::*;
     use crate::callbacks::RpcHostCallbacks;
     use crate::rpc::server::RpcServer;
-    use crate::rpc::types::{self, JsonRpcError, TokenUsage, ToolExecuteRequest, ToolExecuteResponse};
+    use crate::rpc::types::{self, JsonRpcError, TokenUsage, ToolExecuteResponse};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -431,6 +461,13 @@ mod tests {
             request: crate::rpc::types::ToolExecuteRequest,
         ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>> {
             self.inner.execute_tool(request)
+        }
+
+        fn check_permission(
+            &self,
+            request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::PermissionDecision, String>> {
+            self.inner.check_permission(request)
         }
 
         fn emit_event(&self, event: serde_json::Value) {
@@ -476,14 +513,6 @@ mod tests {
         }
     }
 
-    fn mock_tool_call(id: &str, name: &str, path: &str) -> ToolCall {
-        ToolCall {
-            id: id.into(),
-            name: name.into(),
-            arguments: serde_json::json!({"path": path}),
-        }
-    }
-
     #[tokio::test]
     async fn test_run_turn_no_tool_calls() {
         let llm = PredictTestLlm {
@@ -512,36 +541,6 @@ mod tests {
         assert!(result.is_ok());
         let turn = result.unwrap();
         assert_eq!(turn.steps, 1);
-    }
-
-    /// Test helper: creates a tool execution closure from a registered RPC handler.
-    /// Uses `invoke` so the same code path works whether the handler is
-    /// registered locally (tests) or reachable only via stdio (production).
-    fn make_exec_fn(
-        server: &Arc<RpcServer>,
-    ) -> impl Fn(ToolCall) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutableToolResult, String>> + Send + 'static>> + Send + Sync + 'static {
-        let server = server.clone();
-        move |tc: ToolCall| {
-            let server = server.clone();
-            Box::pin(async move {
-                let params = serde_json::to_value(&ToolExecuteRequest {
-                    turn_id: "test".into(),
-                    tool_call_id: tc.id.clone(),
-                    tool_name: tc.name.clone(),
-                    arguments: tc.arguments.clone(),
-                }).map_err(|e| e.to_string())?;
-                let result = server
-                    .invoke(types::methods::HOST_EXECUTE_TOOL, params)
-                    .await
-                    .map_err(|e| e.message)?;
-                let response: ToolExecuteResponse = serde_json::from_value(result)
-                    .map_err(|e| e.to_string())?;
-                Ok(ExecutableToolResult {
-                    content: response.content,
-                    is_error: response.is_error,
-                })
-            })
-        }
     }
 
     #[tokio::test]
@@ -670,6 +669,59 @@ mod tests {
         assert_eq!(captured[0].len(), 1, "step 0 should have one tool result");
         assert_eq!(captured[0][0].content, "file content here");
         assert!(captured[1].is_empty(), "step 1 should have no tool results");
+    }
+
+    // ── Turn telemetry counters ─────────────────────────────────────────
+
+    /// The turn result carries the LLM retry count: the transient failure
+    /// on the first chat attempt counts as one retry.
+    #[tokio::test]
+    async fn test_turn_result_llm_retry_counter() {
+        struct RetryOnceLlm {
+            calls: AtomicU32,
+        }
+        impl LLM for RetryOnceLlm {
+            fn system_prompt(&self) -> &str { "test" }
+            fn model_name(&self) -> &str { "retry-once" }
+            fn is_retryable_error(&self, _: &str) -> bool { true }
+
+            fn chat(&self, _: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        return Err("transient failure".into());
+                    }
+                    Ok(LLMChatResponse {
+                        content: "done".into(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
+        ..Default::default()},
+                    })
+                })
+            }
+        }
+
+        let llm = RetryOnceLlm { calls: AtomicU32::new(0) };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            turn_id: "test-retry-counter".into(),
+            llm: &llm,
+            messages: vec![LLMMessage { role: "user".into(), content: "hi".into(), ..Default::default() }],
+            tools: &[],
+            tool_defs: vec![],
+            hooks: None,
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+        assert_eq!(result.llm_retries, 1, "one retryable failure is one retry");
+        assert_eq!(result.events_emitted, 0, "event counting lives at the composition root");
     }
 
     // ── Goal budget tests ───────────────────────────────────────────────

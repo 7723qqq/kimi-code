@@ -76,6 +76,16 @@ export interface TurnEndedEvent {
   trace_id?: string;
 }
 
+/** Reported by an external turn engine (engine override path) after it
+ *  drives a turn, carrying the engine's own aggregated counters. */
+export interface EngineTurnEvent {
+  turn_id: number;
+  stop_reason: string;
+  steps: number;
+  events_emitted: number;
+  llm_retries: number;
+}
+
 export interface PromptCacheProbeEvent {
   source: 'fork';
   turn_id: number;
@@ -536,6 +546,18 @@ export const telemetryEventDefinitions = {
       thinking_effort: 'Effective thinking effort the turn ran with',
       trace_id:
         'Trace id of the most recent LLM request in this turn; absent for non-Kimi protocols',
+    },
+  }),
+  engine_turn: defineAgentTelemetryEvent<EngineTurnEvent>({
+    owner: 'kimi-code',
+    comment:
+      "An external engine (agent.engine = 'rust') finished driving a turn and reports its own counters.",
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      stop_reason: 'Why the engine stopped the turn',
+      steps: 'Steps the engine executed',
+      events_emitted: 'Host-visible engine events emitted during the turn',
+      llm_retries: 'LLM retries performed during the turn (attempts beyond the first)',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({

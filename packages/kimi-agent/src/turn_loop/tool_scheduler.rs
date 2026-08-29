@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use crate::turn_loop::types::{
     read_file_access, read_tree_access, tool_accesses_conflict, write_file_access,
-    ExecutableToolResult, ToolAccesses, ToolCall, ToolFileAccess, ToolResourceAccess,
-    FileOperation,
+    write_tree_access, ExecutableToolResult, ToolAccesses, ToolCall, ToolFileAccess,
+    ToolResourceAccess, FileOperation,
 };
 
 /// A scheduled tool call with its resource accesses.
@@ -142,6 +142,10 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
             .map(read_tree_access)
             .into_iter()
             .collect(),
+        // A shell command mutates arbitrarily — serialize it against the
+        // whole workspace so it never runs concurrently with any other
+        // tool that touches the sandbox.
+        "bash" => vec![write_tree_access("/")],
         _ => vec![],
     }
 }
@@ -577,6 +581,18 @@ mod tests {
     }
 
     #[test]
+    fn test_infer_bash_is_workspace_wide_write() {
+        // A shell command mutates arbitrarily, so it must serialize against
+        // every other sandbox-touching tool.
+        let accesses = infer_tool_accesses("Bash", &serde_json::json!({"command": "echo hi"}));
+        assert_eq!(accesses, vec![write_tree_access("/")]);
+        assert!(tool_accesses_conflict(
+            &accesses,
+            &vec![write_file_access("/any/file.txt")],
+        ));
+    }
+
+    #[test]
     fn test_infer_unknown_tool_has_no_accesses() {
         let accesses = infer_tool_accesses("web_search", &serde_json::json!({"query": "x"}));
         assert!(accesses.is_empty());
@@ -620,7 +636,7 @@ mod tests {
                     max_active.fetch_max(now, Ordering::SeqCst);
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
-                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false })
+                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
                 }
             }
         };
@@ -662,7 +678,7 @@ mod tests {
                     max_active.fetch_max(now, Ordering::SeqCst);
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
-                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false })
+                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
                 }
             }
         };
@@ -678,7 +694,7 @@ mod tests {
             "t",
             0,
             vec![],
-            |_tc: ToolCall| async move { Ok(ExecutableToolResult { content: "x".into(), is_error: false }) },
+            |_tc: ToolCall| async move { Ok(ExecutableToolResult { content: "x".into(), is_error: false, note: None }) },
         ).await.unwrap();
         assert!(results.is_empty());
     }
@@ -704,7 +720,7 @@ mod tests {
             "t",
             0,
             scheduled,
-            |tc: ToolCall| async move { Ok(ExecutableToolResult { content: tc.id, is_error: false }) },
+            |tc: ToolCall| async move { Ok(ExecutableToolResult { content: tc.id, is_error: false, note: None }) },
         ).await.unwrap();
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(ids, vec!["1", "2", "3"]);

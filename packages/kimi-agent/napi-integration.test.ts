@@ -363,7 +363,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () =
 });
 
 describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
-  it('accepts goal context params', async () => {
+  it('accepts goal context params including wall-clock budget', async () => {
     const mod = loadNativeModule();
 
     const result = await mod.runTurnRust(
@@ -375,6 +375,8 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
           status: 'active',
           tokenBudget: 1000,
           turnBudget: 5,
+          wallClockBudgetMs: 60000,
+          wallClockMs: 5000,
           tokensUsed: 0,
           turnsUsed: 0,
         },
@@ -391,6 +393,58 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
 
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
+  });
+
+  it('stops with a BudgetLimited stop reason when the goal budget is exhausted', async () => {
+    const mod = loadNativeModule();
+
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        goal: {
+          goalId: 'goal-2',
+          objective: 'Test objective',
+          status: 'active',
+          tokenBudget: 10,
+          tokensUsed: 10,
+          turnsUsed: 0,
+          wallClockMs: 0,
+        },
+      },
+      makeCallback(mod, (_req) =>
+        JSON.stringify({
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        }),
+      ),
+      makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    expect(result.stopReason).toBe('BudgetLimited');
+    expect(result.steps).toBe(0);
+  });
+
+  it('reports telemetry counters on the turn result', async () => {
+    const mod = loadNativeModule();
+
+    const result = await mod.runTurnRust(
+      validParams,
+      makeCallback(mod, (_req) =>
+        JSON.stringify({
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        }),
+      ),
+      makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    expect(result).toBeDefined();
+    expect(typeof result.eventsEmitted).toBe('number');
+    expect(typeof result.llmRetries).toBe('number');
+    expect(result.eventsEmitted).toBeGreaterThanOrEqual(0);
+    expect(result.llmRetries).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -467,5 +521,110 @@ describe.skipIf(!nativeEntry)('createRunTurnOverride — engine selection', () =
     // through the host event bridge.
     expect(events).toContain('step.begin');
     expect(events).toContain('step.end');
+  });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () => {
+  it('consults the permission callback before a native Write and runs it on allow', async () => {
+    const os = await import('node:os');
+    const workspaceRoot = os.default.tmpdir();
+    const mod = loadNativeModule();
+
+    const permissionCalls: string[] = [];
+    let llmCalls = 0;
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot: workspaceRoot,
+        nativeTools: true,
+        tools: [
+          {
+            name: 'Write',
+            description: 'Write a file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}',
+          },
+        ],
+        messages: [
+          { role: 'user', content: 'write it' },
+        ],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-write-1',
+                  name: 'Write',
+                  arguments: { path: 'napi-permission-test.txt', content: 'granted' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+      undefined,
+      makeCallback(mod, (req) => {
+        const parsed = JSON.parse(req as string) as { tool_name: string };
+        permissionCalls.push(parsed.tool_name);
+        return JSON.stringify({ decision: 'allow' });
+      }),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(permissionCalls).toEqual(['Write']);
+    const { existsSync, readFileSync, rmSync } = await import('node:fs');
+    const written = resolve(workspaceRoot, 'napi-permission-test.txt');
+    expect(existsSync(written)).toBe(true);
+    expect(readFileSync(written, 'utf8')).toBe('granted');
+    rmSync(written, { force: true });
+  });
+
+  it('returns the deny verdict as the tool result without executing', async () => {
+    const mod = loadNativeModule();
+
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot: process.cwd(),
+        nativeTools: true,
+        tools: [
+          {
+            name: 'Write',
+            description: 'Write a file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'write it' }],
+      },
+      makeCallback(mod, (req) => {
+        const parsed = JSON.parse(req as string) as { messages: Array<{ role: string; content: string }> };
+        void parsed;
+        return JSON.stringify({
+          tool_calls: [
+            {
+              id: 'call-write-deny',
+              name: 'Write',
+              arguments: { path: 'napi-denied-test.txt', content: 'nope' },
+            },
+          ],
+          finish_reason: 'tool_calls',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+      undefined,
+      makeCallback(mod, () => JSON.stringify({ decision: 'deny', reason: 'user declined' })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    const { existsSync, rmSync } = await import('node:fs');
+    expect(existsSync(resolve(process.cwd(), 'napi-denied-test.txt'))).toBe(false);
+    rmSync(resolve(process.cwd(), 'napi-denied-test.txt'), { force: true });
   });
 });

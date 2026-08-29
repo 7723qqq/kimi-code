@@ -1,6 +1,3 @@
-import * as posixPath from 'node:path/posix';
-import * as win32Path from 'node:path/win32';
-
 import { Emitter } from '#/_base/event';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -11,6 +8,7 @@ import { IHostTerminalService } from '#/os/interface/terminal';
 import type { Runtime, RuntimeCapability, RuntimePath, RuntimeStatus } from './runtime';
 import type { RuntimeProviderAttachment, RuntimeProviderContext, RuntimeProviderFactory } from './runtimeProvider';
 import type { RuntimeProviderHost } from './runtimeUnitHost';
+import { createRuntimePath } from './runtimePath';
 
 let nextGeneration = 1;
 
@@ -53,17 +51,8 @@ export class LocalRuntime implements Runtime {
       homeDir: environment.homeDir,
       jsRuntimes: environment.jsRuntimes,
     };
-    const path = environment.pathClass === 'win32' ? win32Path : posixPath;
-    this.path = {
-      separator: path.sep as '/' | '\\',
-      delimiter: path.delimiter as ':' | ';',
-      isAbsolute: (p) => path.isAbsolute(p),
-      join: (...paths) => path.join(...paths),
-      relative: (from, to) => path.relative(from, to),
-      resolve: (...paths) => path.resolve(...paths),
-      basename: (p) => path.basename(p),
-      dirname: (p) => path.dirname(p),
-    };
+    const path = createRuntimePath(environment.pathClass);
+    this.path = path;
     this.workspace = {
       mapRoots: (roots) => ({
         workDir: path.resolve(roots.workDir),

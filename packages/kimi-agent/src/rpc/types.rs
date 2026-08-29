@@ -94,11 +94,49 @@ pub mod methods {
     /// Execute a tool call (Rust → JS host proxy).
     pub const HOST_EXECUTE_TOOL: &str = "host/execute_tool";
 
+    /// Permission check for native execution of a mutating tool
+    /// (Rust → JS host). The host stays the permission authority; a deny
+    /// answer makes the engine return the denial as the tool result
+    /// instead of executing (natively or via the host).
+    pub const HOST_CHECK_PERMISSION: &str = "host/check_permission";
+
     /// Fire-and-forget event notification (Rust → JS host).
     /// Used by the native LLM / native tool paths to report step
     /// boundaries, streaming deltas, and natively-executed tool results
     /// so the host can record them in the transcript.
     pub const HOST_EVENT: &str = "host/event";
+}
+
+/// Permission check for a mutating tool call the engine wants to execute
+/// natively. Sent to the host before running the tool; the host applies its
+/// full permission machinery (mode, rules, policies, interactive approval).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionCheckRequest {
+    pub tool_name: String,
+    pub tool_call_id: String,
+    pub arguments: serde_json::Value,
+}
+
+/// The host's permission verdict for a [`PermissionCheckRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionDecision {
+    /// `"allow"` or `"deny"`.
+    pub decision: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl PermissionDecision {
+    pub fn is_allow(&self) -> bool {
+        self.decision.eq_ignore_ascii_case("allow")
+    }
+
+    pub fn deny(reason: impl Into<String>) -> Self {
+        Self {
+            decision: "deny".into(),
+            reason: Some(reason.into()),
+        }
+    }
 }
 
 // ── Message content blocks (multimodal) ─────────────────────────────────
@@ -172,11 +210,15 @@ pub struct RunTurnParams {
     /// Workspace root used to sandbox native tool execution.
     #[serde(default)]
     pub workspace_root: Option<String>,
-    /// When true (and `workspace_root` is set), read-only tools
-    /// (Read/Grep/Glob/ListDirectory) execute inside the Rust process,
-    /// bypassing the host round-trip.
+    /// When true (and `workspace_root` is set), tools the sandbox can
+    /// execute (Read/Grep/Glob/Write/Edit/Bash, each gated on a host
+    /// permission grant) run inside the Rust process.
     #[serde(default)]
     pub native_tools: bool,
+    /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
+    /// Absent on Windows → native Bash stays with the host.
+    #[serde(default)]
+    pub shell_path: Option<String>,
 }
 
 /// LLM provider definition for MultiLLM.
@@ -227,6 +269,12 @@ pub struct RunTurnResult {
     pub stop_reason: String,
     pub steps: u32,
     pub usage: TokenUsage,
+    /// Host-visible engine events emitted during the turn.
+    #[serde(default)]
+    pub events_emitted: u32,
+    /// LLM retries performed during the turn (attempts beyond the first).
+    #[serde(default)]
+    pub llm_retries: u32,
 }
 
 // ── LLM proxy types (Rust → JS host) ───────────────────────────────────────
@@ -287,6 +335,10 @@ pub struct ToolExecuteRequest {
 pub struct ToolExecuteResponse {
     pub content: String,
     pub is_error: bool,
+    /// Host-notice annotation carried through to the tool result message
+    /// (e.g. Read's `<system>…</system>` summary).
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// Token usage tracking.
@@ -431,15 +483,35 @@ mod tests {
             steps: 3,
             usage: TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 ,
         ..Default::default()},
+            events_emitted: 7,
+            llm_retries: 2,
         };
         let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["stop_reason"], "EndTurn");
         assert_eq!(json["steps"], 3);
         assert_eq!(json["usage"]["input_tokens"], 100);
+        assert_eq!(json["events_emitted"], 7);
+        assert_eq!(json["llm_retries"], 2);
 
         let deserialized: RunTurnResult = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.stop_reason, "EndTurn");
         assert_eq!(deserialized.steps, 3);
+        assert_eq!(deserialized.events_emitted, 7);
+        assert_eq!(deserialized.llm_retries, 2);
+    }
+
+    /// Older adapters omit the telemetry counters; serde defaults keep the
+    /// wire backward-compatible.
+    #[test]
+    fn test_run_turn_result_defaults_without_counters() {
+        let deserialized: RunTurnResult = serde_json::from_value(serde_json::json!({
+            "stop_reason": "EndTurn",
+            "steps": 1,
+            "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
+        }))
+        .unwrap();
+        assert_eq!(deserialized.events_emitted, 0);
+        assert_eq!(deserialized.llm_retries, 0);
     }
 
     #[test]

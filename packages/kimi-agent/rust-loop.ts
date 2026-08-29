@@ -116,6 +116,13 @@ export interface RustEngineOptions {
   /** When true, Read/Grep/Glob execute inside the Rust process. */
   nativeTools?: boolean;
   /**
+   * Host shell for native Bash (bash everywhere, Git Bash on Windows —
+   * the value from the host environment probe). Without it, native Bash
+   * stays with the host on Windows: the engine will not guess a shell
+   * that could diverge from the tool's documented bash contract.
+   */
+  shellPath?: string;
+  /**
    * Provide the current goal snapshot for budget-aware engine turns.
    * Read fresh on each turn so host-side goal changes (pause, budget
    * edits, terminal states) are reflected. When undefined, the engine
@@ -154,8 +161,8 @@ const HOST_ROLES = new Set(['system', 'user', 'assistant', 'tool']);
 function isHostMessage(value: unknown): value is HostMessage {
   if (typeof value !== 'object' || value === null) return false;
   const m = value as Record<string, unknown>;
-  if (typeof m.role !== 'string' || !HOST_ROLES.has(m.role)) return false;
-  if (!Array.isArray(m.content)) return false;
+  if (typeof m['role'] !== 'string' || !HOST_ROLES.has(m['role'])) return false;
+  if (!Array.isArray(m['content'])) return false;
   return true;
 }
 
@@ -252,6 +259,10 @@ interface RunTurnResult {
   stop_reason: string;
   steps: number;
   usage: { input_tokens: number; output_tokens: number; total_tokens: number };
+  /** Host-visible engine events emitted during the turn. */
+  events_emitted?: number;
+  /** LLM retries performed during the turn (attempts beyond the first). */
+  llm_retries?: number;
 }
 
 /** A message on the Rust wire, with optional multimodal/tool-call payloads. */
@@ -288,6 +299,18 @@ interface ToolExecuteResponse {
   is_error: boolean;
 }
 
+/** Permission check request from the engine (host/check_permission). */
+interface PermissionCheckRequest {
+  tool_name: string;
+  tool_call_id: string;
+  arguments: unknown;
+}
+
+interface PermissionDecision {
+  decision: 'allow' | 'deny';
+  reason?: string;
+}
+
 /**
  * Classify an incoming RPC line. A JSON-RPC request always carries `method`; a
  * response never does. Discriminating on `method` FIRST prevents a Rust host
@@ -309,6 +332,10 @@ interface NapiRunTurnResult {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Host-visible engine events emitted during the turn. */
+  eventsEmitted?: number;
+  /** LLM retries performed during the turn (attempts beyond the first). */
+  llmRetries?: number;
 }
 
 // ── Napi engine (in-process native addon) ─────────────────────────────────
@@ -323,6 +350,7 @@ interface KimiAgentNativeModule {
     llmChatCb: (callbackId: number) => void,
     executeToolCb: (callbackId: number) => void,
     emitEventCb?: (callbackId: number) => void,
+    checkPermissionCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -448,6 +476,8 @@ class NapiEngine {
         status: string;
         tokenBudget?: number;
         turnBudget?: number;
+        wallClockBudgetMs?: number;
+        wallClockMs: number;
         tokensUsed: number;
         turnsUsed: number;
       };
@@ -460,10 +490,12 @@ class NapiEngine {
       };
       workspaceRoot?: string;
       nativeTools?: boolean;
+      shellPath?: string;
     },
     llmChatCb: (request: string) => Promise<string>,
     executeToolCb: (request: string) => Promise<string>,
     emitEventCb?: (event: EngineEvent) => void,
+    checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -512,11 +544,23 @@ class NapiEngine {
             }
           };
 
+    // Permission channel: resolve like the request/response callbacks.
+    const permissionHandler =
+      checkPermissionCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const decision = await checkPermissionCb(
+              JSON.parse(payload) as PermissionCheckRequest,
+            );
+            return JSON.stringify(decision);
+          });
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
       makeCallbackHandler(executeToolCb),
       eventHandler,
+      permissionHandler,
     );
   }
 
@@ -550,6 +594,11 @@ class AgentProcess {
   private toolExecuteHandler: ((req: ToolExecuteRequest) => Promise<ToolExecuteResponse>) | null =
     null;
 
+  /** Callback for handling host/check_permission requests from the Rust side. */
+  private permissionHandler:
+    | ((req: PermissionCheckRequest) => Promise<PermissionDecision>)
+    | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -559,6 +608,10 @@ class AgentProcess {
 
   setToolExecuteHandler(handler: (req: ToolExecuteRequest) => Promise<ToolExecuteResponse>) {
     this.toolExecuteHandler = handler;
+  }
+
+  setPermissionHandler(handler: (req: PermissionCheckRequest) => Promise<PermissionDecision>) {
+    this.permissionHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -678,6 +731,8 @@ class AgentProcess {
       await this.handleHostLlmChat(msg);
     } else if (msg.method === 'host/execute_tool') {
       await this.handleHostExecuteTool(msg);
+    } else if (msg.method === 'host/check_permission') {
+      await this.handleHostCheckPermission(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -685,6 +740,27 @@ class AgentProcess {
         error: { code: -32601, message: `Unknown method: ${msg.method}` },
       });
       this.process!.stdin!.write(response + '\n');
+    }
+  }
+
+  private async handleHostCheckPermission(msg: RpcMessage) {
+    if (!this.permissionHandler) {
+      // Fail closed: without a permission checker the engine must not run
+      // mutating tools natively.
+      this.writeHostResult(msg.id, {
+        decision: 'deny',
+        reason: 'no permission handler registered',
+      } satisfies PermissionDecision);
+      return;
+    }
+    try {
+      const result = await this.permissionHandler(msg.params as PermissionCheckRequest);
+      this.writeHostResult(msg.id, result);
+    } catch (error) {
+      this.writeHostResult(msg.id, {
+        decision: 'deny',
+        reason: error instanceof Error ? error.message : String(error),
+      } satisfies PermissionDecision);
     }
   }
 
@@ -863,6 +939,7 @@ export function createRunTurnOverride(
 
   const nativeLlmOpt = options?.nativeLlm;
   const nativeTools = options?.nativeTools === true;
+  const shellPathOpt = options?.shellPath;
 
   return async (input) => {
     // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
@@ -1155,7 +1232,23 @@ export function createRunTurnOverride(
               inputSchema: JSON.stringify(t.parameters ?? {}),
             })),
             maxSteps: input.maxSteps ?? 10,
-            goal,
+            // The stdio wire is snake_case; the napi object wire is
+            // camelCase (napi-rs converts Rust field names), so project
+            // the goal context explicitly instead of passing it through.
+            goal:
+              goal === undefined
+                ? undefined
+                : {
+                    goalId: goal.goal_id,
+                    objective: goal.objective,
+                    status: goal.status,
+                    tokenBudget: goal.token_budget,
+                    turnBudget: goal.turn_budget,
+                    wallClockBudgetMs: goal.wall_clock_budget_ms,
+                    wallClockMs: goal.wall_clock_ms,
+                    tokensUsed: goal.tokens_used,
+                    turnsUsed: goal.turns_used,
+                  },
             nativeLlm:
               nativeLlm === undefined
                 ? undefined
@@ -1168,6 +1261,7 @@ export function createRunTurnOverride(
                   },
             workspaceRoot,
             nativeTools,
+            shellPath: shellPathOpt,
           },
           // Wrap structured handler with JSON serialization for napi
           async (_requestJson: string) => {
@@ -1180,6 +1274,21 @@ export function createRunTurnOverride(
             return JSON.stringify(response);
           },
           handleEngineEvent,
+          async (req: PermissionCheckRequest) => {
+            if (input.checkToolPermission === undefined) {
+              // Fail closed when the host input does not expose a checker.
+              return {
+                decision: 'deny',
+                reason: 'engine input has no checkToolPermission capability',
+              } satisfies PermissionDecision;
+            }
+            return input.checkToolPermission({
+              type: 'function',
+              id: req.tool_call_id,
+              name: req.tool_name,
+              arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
+            });
+          },
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1189,12 +1298,28 @@ export function createRunTurnOverride(
             output_tokens: napiResult.outputTokens,
             total_tokens: napiResult.totalTokens,
           },
+          events_emitted: napiResult.eventsEmitted,
+          llm_retries: napiResult.llmRetries,
         };
       } else {
         // stdio JSON-RPC path
         const agent = getAgent()!;
         agent.setLlmChatHandler(llmChatHandler);
         agent.setToolExecuteHandler(toolExecuteHandler);
+        agent.setPermissionHandler(async (req) => {
+          if (input.checkToolPermission === undefined) {
+            return {
+              decision: 'deny',
+              reason: 'engine input has no checkToolPermission capability',
+            } satisfies PermissionDecision;
+          }
+          return input.checkToolPermission({
+            type: 'function',
+            id: req.tool_call_id,
+            name: req.tool_name,
+            arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
+          });
+        });
         agent.setEventHandler(handleEngineEvent);
 
         const result = await agent.request('agent/run_turn', {
@@ -1213,6 +1338,7 @@ export function createRunTurnOverride(
           native_llm: nativeLlm,
           workspace_root: workspaceRoot,
           native_tools: nativeTools,
+          shell_path: shellPathOpt,
         });
         if (!result) {
           throw new Error('Rust engine returned null result');
@@ -1236,6 +1362,10 @@ export function createRunTurnOverride(
         output: rustResult.usage.output_tokens,
         inputCacheRead: 0,
         inputCacheCreation: 0,
+      },
+      telemetry: {
+        eventsEmitted: rustResult.events_emitted ?? 0,
+        llmRetries: rustResult.llm_retries ?? 0,
       },
     };
   };

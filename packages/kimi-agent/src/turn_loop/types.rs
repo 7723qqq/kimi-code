@@ -20,6 +20,14 @@ pub struct TurnResult {
     pub steps: u32,
     /// Token usage for the entire turn.
     pub usage: TokenUsage,
+    /// Host-visible engine events emitted during the turn (step lifecycle,
+    /// deltas, native tool results, goal budget limits). Filled by the
+    /// composition root (stdio CLI / napi addon) which owns the counting
+    /// callbacks wrapper; zero when `run_turn` is called directly.
+    pub events_emitted: u32,
+    /// LLM retries performed during the turn: attempts beyond the first
+    /// per step, summed over all steps.
+    pub llm_retries: u32,
 }
 
 /// Reasons a turn can stop.
@@ -137,6 +145,9 @@ pub struct ToolExecContext {
 pub struct ExecutableToolResult {
     pub content: String,
     pub is_error: bool,
+    /// Host-notice annotation (e.g. Read's `<system>…</system>` summary).
+    /// `None` when the tool produces none.
+    pub note: Option<String>,
 }
 
 /// Error result from tool resolution.
@@ -758,6 +769,8 @@ pub struct StepResult {
     /// Assistant text produced in this step (may be empty on the host-proxy
     /// path, where the host owns the transcript).
     pub content: String,
+    /// LLM attempts used by this step (1 = no retry).
+    pub attempts: u32,
 }
 
 /// Reasons a single step can stop.

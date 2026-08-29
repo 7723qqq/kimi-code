@@ -10,9 +10,11 @@ import {
   appService,
   createTestAgent,
   permissionModeServices,
+  telemetryServices,
   type TestAgentContext,
   type TestAgentServiceOverride,
 } from '../../harness';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { makeEchoTool, registerTool } from './helpers';
 
 function emitted(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -184,17 +186,16 @@ describe('external engine override', () => {
     void ctx.restoreRuntimes();
 
     const loop = ctx.get(IAgentLoopService);
+    const contextMemory = ctx!.get(IAgentContextMemoryService);
     const hook = loop.hooks.onWillBeginStep.register(
       'test-injector',
       async (context) => {
         if (!context.firstStepOfTurn) return;
-        ctx
-          .get(IAgentContextMemoryService)
-          .append({
-            role: 'user',
-            content: [{ type: 'text', text: '<system-reminder>\nengine-path injection\n</system-reminder>' }],
-            toolCalls: [],
-          });
+        contextMemory.append({
+          role: 'user',
+          content: [{ type: 'text', text: '<system-reminder>\nengine-path injection\n</system-reminder>' }],
+          toolCalls: [],
+        });
       },
     );
 
@@ -280,5 +281,134 @@ describe('external engine override', () => {
       'engine step 1',
       'engine step 2',
     ]);
+  });
+
+  it('provides the registered goal snapshot to the engine input', async () => {
+    calls = 0;
+    engineInput = undefined;
+    const engine: TurnEngine = async (input) => {
+      calls += 1;
+      engineInput = input;
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+
+    const loop = ctx.get(IAgentLoopService);
+    const provider = loop.registerEngineGoalProvider(() => ({
+      goalId: 'goal-1',
+      objective: 'Do the thing',
+      status: 'active',
+      tokenBudget: 5000,
+      turnBudget: 20,
+      wallClockBudgetMs: 60000,
+      wallClockMs: 1000,
+      tokensUsed: 100,
+      turnsUsed: 2,
+    }));
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    expect(calls).toBe(1);
+    expect(engineInput!.getGoal?.()).toMatchObject({
+      goalId: 'goal-1',
+      objective: 'Do the thing',
+      status: 'active',
+      tokensUsed: 100,
+      turnsUsed: 2,
+    });
+
+    provider.dispose();
+    expect(engineInput!.getGoal?.()).toBeUndefined();
+  });
+
+  it('reports engine telemetry counters from the engine result', async () => {
+    const records: TelemetryRecord[] = [];
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return {
+        stopReason: 'completed',
+        steps: 2,
+        usage: emptyUsage(),
+        telemetry: { eventsEmitted: 7, llmRetries: 1 },
+      };
+    };
+
+    ctx = createTestAgentWithEngine(engine, telemetryServices(recordingTelemetry(records)));
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    const engineTurn = records.find((r) => r.event === 'engine_turn');
+    expect(engineTurn?.properties).toMatchObject({
+      stop_reason: 'completed',
+      steps: 2,
+      events_emitted: 7,
+      llm_retries: 1,
+    });
+  });
+
+  it('answers native permission checks through the host permission gate', async () => {
+    const decisions: Array<string | undefined> = [];
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      decisions.push(
+        (
+          await input.checkToolPermission?.({
+            type: 'function',
+            id: 'call-1',
+            name: 'echo',
+            arguments: '{"text":"x"}',
+          })
+        )?.decision,
+      );
+      decisions.push(
+        (
+          await input.checkToolPermission?.({
+            type: 'function',
+            id: 'call-2',
+            name: 'not-registered',
+            arguments: '{}',
+          })
+        )?.decision,
+      );
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    const tool = makeEchoTool();
+    ctx = createTestAgentWithEngine(engine, permissionModeServices('yolo'));
+    registerTool(ctx, tool);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    expect(decisions).toEqual(['allow', 'deny']);
   });
 });

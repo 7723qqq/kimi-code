@@ -14,6 +14,7 @@ import {
   bootstrapSeed,
   resolveBootstrapOptions,
 } from '#/app/bootstrap/bootstrap';
+import { IEngineOverrideService } from '#/agent/loop/engineOverride';
 import { BootstrapService } from '#/app/bootstrap/bootstrapService';
 import { LifecycleScope } from '#/app/scopes';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
@@ -179,14 +180,20 @@ describe('bootstrap() storage seeding', () => {
 });
 
 describe('bootstrapSeed', () => {
-  it('returns a single seed entry keyed on the IBootstrapOptions identifier', () => {
+  it('seeds the bootstrap options and the default engine override provider', () => {
     const seed = bootstrapSeed({ homeDir: '/tmp/kimi-seed', clientIdentity: stubClientIdentity });
-    expect(seed).toHaveLength(1);
+    expect(seed).toHaveLength(2);
     const [id, value] = seed[0]!;
     expect(id).toBe(IBootstrapOptions);
     expect(value).toEqual(
       resolveBootstrapOptions({ homeDir: '/tmp/kimi-seed', clientIdentity: stubClientIdentity }),
     );
+    const [engineId, engineProvider] = seed[1]! as [
+      typeof IEngineOverrideService,
+      { getEngine: () => undefined },
+    ];
+    expect(engineId).toBe(IEngineOverrideService);
+    expect(engineProvider.getEngine()).toBeUndefined();
   });
 
   it('resolves the same value as resolveBootstrapOptions for the same input', () => {

@@ -3475,7 +3475,9 @@ describe('Agent tools', () => {
           {
             event: 'PreToolUse',
             matcher: 'Bash',
-            command: "echo 'blocked by PreToolUse' >&2; exit 2",
+            // Shell-neutral: bun's shell does not honor `>&2` / `exit N`
+            // chaining, so write to stderr and exit from node directly.
+            command: `node -e "process.stderr.write('blocked by PreToolUse' + String.fromCharCode(10)); process.exit(2)"`,
           },
           {
             event: 'PostToolUseFailure',
@@ -4094,7 +4096,12 @@ function hookErrorMessageAssertCommand(expected: string): string {
     '  process.exit(2);',
     '});',
   ].join('');
-  return `node -e ${JSON.stringify(script)}`;
+  // Ship the script base64-encoded: bun's shell (shell: true on Windows)
+  // does not collapse backslash escapes inside double quotes, so a
+  // double-JSON-escaped script reaches node with multi-line string literals
+  // mangled and the hook assertions fail.
+  const encoded = Buffer.from(script, 'utf8').toString('base64');
+  return `node -e "eval(Buffer.from('${encoded}', 'base64').toString())"`;
 }
 
 function hookPayloadAssertCommand(expected: {
@@ -4130,5 +4137,10 @@ function hookPayloadAssertCommand(expected: {
     '});',
     "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
   ].filter((line) => line.length > 0).join('');
-  return `node -e ${JSON.stringify(script)}`;
+  // Ship the script base64-encoded: bun's shell (shell: true on Windows)
+  // does not collapse backslash escapes inside double quotes, so a
+  // double-JSON-escaped script reaches node with multi-line string literals
+  // mangled and the hook assertions fail.
+  const encoded = Buffer.from(script, 'utf8').toString('base64');
+  return `node -e "eval(Buffer.from('${encoded}', 'base64').toString())"`;
 }

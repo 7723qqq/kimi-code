@@ -240,6 +240,10 @@ class FakeLoopService implements IAgentLoopService {
   registerLoopErrorHandler(): IDisposable {
     throw new Error('unused in this suite');
   }
+
+  registerEngineGoalProvider(): IDisposable {
+    throw new Error('unused in this suite');
+  }
 }
 
 class FakeContextMemory implements IAgentContextMemoryService {
