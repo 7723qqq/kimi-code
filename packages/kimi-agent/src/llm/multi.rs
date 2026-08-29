@@ -8,6 +8,7 @@ use crate::callbacks::HostCallbacks;
 use crate::llm::proxy::HostLlmProxy;
 use crate::turn_loop::types::*;
 use futures_util::future::select_all;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A single LLM provider configuration for MultiLLM.
@@ -23,7 +24,16 @@ impl LlmProvider {
         HostLlmProxy::new(self.system_prompt.clone(), self.model.clone())
             .with_callbacks(self.callbacks.clone())
     }
+
+    /// Build a proxy whose request the host can abort, for the multi-provider
+    /// race where this call may lose.
+    pub fn to_llm_with_request_id(&self, request_id: String) -> HostLlmProxy {
+        self.to_llm().with_request_id(request_id)
+    }
 }
+
+/// Monotonic suffix keeping racing request ids unique within the process.
+static NEXT_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Result from a single provider in the race.
 #[derive(Debug)]
@@ -77,26 +87,38 @@ impl MultiLLM {
             return llm.chat(params).await;
         }
 
-        // Spawn each provider as a tokio task
+        // Spawn each provider as a tokio task. Every racer carries its own
+        // request id so the losers can be cancelled at the host — aborting the
+        // task only drops the receiver and leaves the provider call running.
         let mut handles = Vec::with_capacity(self.providers.len());
+        let mut cancellers: HashMap<String, Arc<dyn HostCallbacks>> = HashMap::new();
         for provider in &self.providers {
             let params = params.clone();
-            let llm = provider.to_llm();
+            let request_id = format!(
+                "llm-{}-{}",
+                provider.name,
+                NEXT_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let llm = provider.to_llm_with_request_id(request_id.clone());
             let name = provider.name.clone();
+            cancellers.insert(request_id.clone(), provider.callbacks.clone());
 
             handles.push(tokio::spawn(async move {
                 let start = std::time::Instant::now();
                 let result = llm.chat(params).await;
                 let elapsed = start.elapsed().as_millis() as u64;
-                ProviderResult {
-                    provider_name: name,
-                    result: result.map_err(|e| e.to_string()),
-                    elapsed_ms: elapsed,
-                }
+                (
+                    request_id,
+                    ProviderResult {
+                        provider_name: name,
+                        result: result.map_err(|e| e.to_string()),
+                        elapsed_ms: elapsed,
+                    },
+                )
             }));
         }
 
-        race_first_success(handles).await
+        race_first_success(handles, &cancellers).await
     }
 
     /// Run all providers and return ALL results (for comparison/debugging).
@@ -137,19 +159,29 @@ impl MultiLLM {
 /// return the first successful response and abort the remaining tasks. Errors
 /// from providers that finish first with a failure are collected and only
 /// surfaced if every provider fails. Assumes `handles` is non-empty.
+///
+/// Losers are cancelled at the host as well as aborted locally: the host has
+/// already issued the provider call, and dropping the receiver alone would let
+/// it run to completion and bill for work nobody will read.
 async fn race_first_success(
-    mut handles: Vec<tokio::task::JoinHandle<ProviderResult>>,
+    mut handles: Vec<tokio::task::JoinHandle<(String, ProviderResult)>>,
+    cancellers: &HashMap<String, Arc<dyn HostCallbacks>>,
 ) -> Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>> {
     let mut errors: Vec<String> = Vec::new();
     while !handles.is_empty() {
         let (joined, _index, rest) = select_all(handles).await;
         handles = rest;
         match joined {
-            Ok(pr) => match pr.result {
+            Ok((winner_id, pr)) => match pr.result {
                 Ok(response) => {
                     eprintln!("MultiLLM: {} won ({}ms)", pr.provider_name, pr.elapsed_ms);
                     for handle in &handles {
                         handle.abort();
+                    }
+                    for (id, callbacks) in cancellers {
+                        if id != &winner_id {
+                            callbacks.cancel_llm_chat(id);
+                        }
                     }
                     return Ok(response);
                 }
@@ -270,21 +302,27 @@ mod tests {
         // second: the race resolves on completion order, not spawn order.
         let slow = tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-            ProviderResult {
-                provider_name: "slow".into(),
-                result: Ok(mk_response("slow")),
-                elapsed_ms: 80,
-            }
+            (
+                "slow-id".to_string(),
+                ProviderResult {
+                    provider_name: "slow".into(),
+                    result: Ok(mk_response("slow")),
+                    elapsed_ms: 80,
+                },
+            )
         });
         let fast = tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            ProviderResult {
-                provider_name: "fast".into(),
-                result: Ok(mk_response("fast")),
-                elapsed_ms: 5,
-            }
+            (
+                "fast-id".to_string(),
+                ProviderResult {
+                    provider_name: "fast".into(),
+                    result: Ok(mk_response("fast")),
+                    elapsed_ms: 5,
+                },
+            )
         });
-        let winner = race_first_success(vec![slow, fast]).await.unwrap();
+        let winner = race_first_success(vec![slow, fast], &HashMap::new()).await.unwrap();
         assert_eq!(winner.finish_reason.as_deref(), Some("fast"));
     }
 
@@ -294,33 +332,145 @@ mod tests {
         // success is returned instead.
         let fast_fail = tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            ProviderResult {
-                provider_name: "failer".into(),
-                result: Err("boom".into()),
-                elapsed_ms: 5,
-            }
+            (
+                "failer-id".to_string(),
+                ProviderResult {
+                    provider_name: "failer".into(),
+                    result: Err("boom".into()),
+                    elapsed_ms: 5,
+                },
+            )
         });
         let slow_ok = tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            ProviderResult {
-                provider_name: "ok".into(),
-                result: Ok(mk_response("ok")),
-                elapsed_ms: 30,
-            }
+            (
+                "ok-id".to_string(),
+                ProviderResult {
+                    provider_name: "ok".into(),
+                    result: Ok(mk_response("ok")),
+                    elapsed_ms: 30,
+                },
+            )
         });
-        let winner = race_first_success(vec![fast_fail, slow_ok]).await.unwrap();
+        let winner = race_first_success(vec![fast_fail, slow_ok], &HashMap::new()).await.unwrap();
         assert_eq!(winner.finish_reason.as_deref(), Some("ok"));
+    }
+
+    /// Host callbacks that record which request ids the engine asked the host
+    /// to drop, and serve a deliberately slow "slow" model so the race has a
+    /// predictable winner.
+    struct CancellationSpy {
+        cancelled: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl CancellationSpy {
+        fn new() -> (Arc<CancellationSpy>, Arc<std::sync::Mutex<Vec<String>>>) {
+            let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+            (Arc::new(Self { cancelled: log.clone() }), log)
+        }
+    }
+
+    impl HostCallbacks for CancellationSpy {
+        fn llm_chat(
+            &self,
+            request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+        {
+            let slow = request.model_name == "slow";
+            let request_id = request.request_id.clone();
+            Box::pin(async move {
+                if slow {
+                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                }
+                Ok(crate::rpc::types::LlmChatResponse {
+                    content: request_id.unwrap_or_default(),
+                    tool_calls: vec![],
+                    finish_reason: Some(if slow { "slow" } else { "fast" }.to_string()),
+                    usage: crate::rpc::types::TokenUsage::default(),
+                })
+            })
+        }
+
+        fn execute_tool(
+            &self,
+            _request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>>
+        {
+            Box::pin(async { Err("not used by this test".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::PermissionDecision, String>,
+        > {
+            Box::pin(async { Err("not used by this test".into()) })
+        }
+
+        fn cancel_llm_chat(&self, request_id: &str) {
+            self.cancelled.lock().unwrap().push(request_id.to_string());
+        }
+    }
+
+    /// The loser's provider request must be cancelled at the host, not just
+    /// aborted locally — otherwise it runs to completion and bills for work
+    /// nobody will read.
+    #[tokio::test]
+    async fn test_losing_providers_are_cancelled_at_the_host() {
+        let (slow_spy, slow_log) = CancellationSpy::new();
+        let (fast_spy, fast_log) = CancellationSpy::new();
+        let slow_callbacks: Arc<dyn HostCallbacks> = slow_spy;
+        let fast_callbacks: Arc<dyn HostCallbacks> = fast_spy;
+        let multi = MultiLLM::new(vec![
+            LlmProvider {
+                name: "slow".into(),
+                system_prompt: String::new(),
+                model: "slow".into(),
+                callbacks: slow_callbacks.clone(),
+            },
+            LlmProvider {
+                name: "fast".into(),
+                system_prompt: String::new(),
+                model: "fast".into(),
+                callbacks: fast_callbacks.clone(),
+            },
+        ]);
+
+        let winner = multi
+            .first_past_the_post(LLMChatParams { messages: vec![], tools: vec![] })
+            .await
+            .unwrap();
+        assert_eq!(winner.finish_reason.as_deref(), Some("fast"));
+
+        // The loser is cancelled; the winner is not.
+        let cancelled = slow_log.lock().unwrap();
+        assert_eq!(cancelled.len(), 1, "the losing provider must be cancelled once");
+        assert!(cancelled[0].contains("slow"), "unexpected id: {}", cancelled[0]);
+        drop(cancelled);
+
+        assert!(
+            fast_log.lock().unwrap().is_empty(),
+            "the winning provider must not be cancelled"
+        );
     }
 
     #[tokio::test]
     async fn test_race_all_fail_reports_every_error() {
         let f1 = tokio::spawn(async {
-            ProviderResult { provider_name: "f1".into(), result: Err("e1".into()), elapsed_ms: 1 }
+            (
+                "f1-id".to_string(),
+                ProviderResult { provider_name: "f1".into(), result: Err("e1".into()), elapsed_ms: 1 },
+            )
         });
         let f2 = tokio::spawn(async {
-            ProviderResult { provider_name: "f2".into(), result: Err("e2".into()), elapsed_ms: 1 }
+            (
+                "f2-id".to_string(),
+                ProviderResult { provider_name: "f2".into(), result: Err("e2".into()), elapsed_ms: 1 },
+            )
         });
-        let err = race_first_success(vec![f1, f2]).await.unwrap_err().to_string();
+        let err = race_first_success(vec![f1, f2], &HashMap::new()).await.unwrap_err().to_string();
         assert!(err.contains("f1: e1"), "missing f1 error: {err}");
         assert!(err.contains("f2: e2"), "missing f2 error: {err}");
     }

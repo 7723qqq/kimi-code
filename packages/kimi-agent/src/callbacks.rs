@@ -43,6 +43,20 @@ pub trait HostCallbacks: Send + Sync {
     fn emit_event(&self, event: serde_json::Value) {
         let _ = event;
     }
+
+    /// Tell the host it may stop working on an LLM request that lost a race.
+    ///
+    /// Aborting the Rust task is not enough: the request has already been
+    /// handed to the host, and dropping the receiver leaves the host's
+    /// provider call running to completion — billed — for every loser of
+    /// every MultiLLM step. This is fire-and-forget, so the host is free to
+    /// ignore an id it has already finished with.
+    fn cancel_llm_chat(&self, request_id: &str) {
+        self.emit_event(serde_json::json!({
+            "type": "llm_chat.cancel",
+            "request_id": request_id,
+        }));
+    }
 }
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio

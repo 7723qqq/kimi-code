@@ -74,7 +74,6 @@ pub struct JsonRpcNotification {
 // ── Agent RPC method names ─────────────────────────────────────────────────
 
 /// RPC method names for the kimi-agent protocol.
-#[allow(dead_code)]
 pub mod methods {
     /// Run a single turn. Corresponds to `runTurn()` in the JS loop.
     pub const RUN_TURN: &str = "agent/run_turn";
@@ -193,6 +192,7 @@ pub struct RunTurnParams {
     pub model_name: String,
     pub messages: Vec<Message>,
     pub tools: Vec<ToolDef>,
+    /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
     /// Multiple LLM providers for concurrent execution (MultiLLM).
     /// When present, overrides `system_prompt` + `model_name`.
@@ -286,6 +286,11 @@ pub struct LlmChatRequest {
     pub model_name: String,
     pub messages: Vec<LlmChatMessage>,
     pub tools: Vec<ToolDef>,
+    /// Identifies this call so the host can abort it later. Set when the
+    /// request is one of several racing providers (MultiLLM); `None` for the
+    /// single-provider path, where nothing can lose a race.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 /// A message in the LLM chat request.
@@ -397,7 +402,6 @@ impl JsonRpcErrorResponse {
 }
 
 impl JsonRpcError {
-    #[allow(dead_code)]
     pub fn parse_error() -> Self {
         Self {
             code: -32700,
@@ -405,7 +409,6 @@ impl JsonRpcError {
             data: None,
         }
     }
-    #[allow(dead_code)]
     pub fn invalid_request() -> Self {
         Self {
             code: -32600,
@@ -529,15 +532,34 @@ mod tests {
                     input_schema: serde_json::json!({"type": "object"}),
                 },
             ],
+            request_id: None,
         };
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["system_prompt"], "You are helpful.");
         assert_eq!(json["messages"][0]["role"], "user");
+        // Absent rather than null: the single-provider path has nothing to cancel.
+        assert!(json.get("request_id").is_none());
 
         let deserialized: LlmChatRequest = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.system_prompt, req.system_prompt);
         assert_eq!(deserialized.messages.len(), 1);
         assert_eq!(deserialized.tools.len(), 1);
+    }
+
+    #[test]
+    fn test_llm_chat_request_carries_request_id() {
+        let req = LlmChatRequest {
+            system_prompt: String::new(),
+            model_name: "fast".to_string(),
+            messages: vec![],
+            tools: vec![],
+            request_id: Some("llm-slow-7".to_string()),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["request_id"], "llm-slow-7");
+
+        let deserialized: LlmChatRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.request_id.as_deref(), Some("llm-slow-7"));
     }
 
     #[test]

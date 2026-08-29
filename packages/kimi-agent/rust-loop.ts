@@ -1,3 +1,8 @@
+// The engine intentionally logs lifecycle diagnostics (fallback warnings,
+// stderr forwarding, request handler errors) to the console so they reach
+// the operator when the native addon is missing, the stdio binary fails
+// to start, or the host RPC dispatcher hits an unhandled exception.
+// oxlint-disable no-console
 /// Rust agent engine adapter (experimental).
 ///
 /// Wired into the agent-core-v2 turn loop through the
@@ -57,19 +62,6 @@ interface RpcMessage {
   params?: unknown;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
-}
-
-interface RunTurnParams {
-  turn_id: string;
-  system_prompt: string;
-  model_name: string;
-  messages: { role: string; content: string }[];
-  tools: { name: string; description: string; input_schema: unknown }[];
-  max_steps?: number;
-  /** Multiple LLM providers for concurrent execution (MultiLLM). */
-  providers?: LlmProviderDef[];
-  /** Optional goal context for budget-aware execution. */
-  goal?: GoalContext;
 }
 
 /** Goal status matching the Rust GoalStatus enum. */
@@ -228,6 +220,53 @@ export function projectHostMessageToWire(m: HostMessage): WireMessage {
   };
 }
 
+/**
+ * Tracks the `AbortController` of every in-flight LLM request that the Rust
+ * side can name, so a provider that loses a MultiLLM race can actually be
+ * stopped instead of running to completion and billing for a response nobody
+ * will read.
+ *
+ * Cancellation can overtake its request: `llm_chat` and the cancel event
+ * travel on separate channels, so an id that arrives before its request is
+ * remembered and applied the moment the request shows up.
+ */
+interface LlmAbortRegistry {
+  /** Register a request; returns the signal to pass to the provider. */
+  begin(requestId: string | undefined): { signal?: AbortSignal; finish(): void };
+  /** Abort a request if it is in flight. */
+  cancel(requestId: string): void;
+}
+
+export function createLlmAbortRegistry(): LlmAbortRegistry {
+  const inFlight = new Map<string, AbortController>();
+  const cancelledEarly = new Set<string>();
+
+  return {
+    begin(requestId) {
+      // Single-provider turns are unnamed; they use the turn's own signal.
+      if (requestId === undefined) return { finish() {} };
+      const controller = new AbortController();
+      if (cancelledEarly.delete(requestId)) controller.abort();
+      inFlight.set(requestId, controller);
+      return {
+        signal: controller.signal,
+        finish() {
+          inFlight.delete(requestId);
+        },
+      };
+    },
+    cancel(requestId) {
+      const controller = inFlight.get(requestId);
+      if (controller === undefined) {
+        cancelledEarly.add(requestId);
+        return;
+      }
+      controller.abort();
+      inFlight.delete(requestId);
+    },
+  };
+}
+
 /** Fire-and-forget engine event (Rust → host, `host/event`). */
 type EngineEvent =
   | { type: 'llm.step.begin'; model: string }
@@ -254,12 +293,20 @@ type EngineEvent =
       is_error: boolean;
       note?: string;
     }
-  | { type: 'goal.budget.limit_reached'; goal_id: string };
+  | { type: 'goal.budget.limit_reached'; goal_id: string }
+  /** A racing provider lost; the host may abort its in-flight request. */
+  | { type: 'llm_chat.cancel'; request_id: string };
 
 interface RunTurnResult {
   stop_reason: string;
   steps: number;
-  usage: { input_tokens: number; output_tokens: number; total_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    input_cache_read?: number;
+    input_cache_creation?: number;
+  };
   /** Host-visible engine events emitted during the turn. */
   events_emitted?: number;
   /** LLM retries performed during the turn (attempts beyond the first). */
@@ -280,12 +327,20 @@ interface LlmChatRequest {
   model_name: string;
   messages: { role: string; content: string }[];
   tools: { name: string; description: string; input_schema: unknown }[];
+  /** Present only for racing providers, so a loser can be aborted. */
+  request_id?: string;
 }
 
 interface LlmChatResponse {
   tool_calls: { id: string; name: string; arguments: unknown }[];
   finish_reason?: string;
-  usage: { input_tokens: number; output_tokens: number; total_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    input_cache_read?: number;
+    input_cache_creation?: number;
+  };
 }
 
 interface ToolExecuteRequest {
@@ -334,6 +389,10 @@ interface NapiRunTurnResult {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Prompt tokens served from the provider's cache. */
+  inputCacheRead?: number;
+  /** Prompt tokens written into the provider's cache by this turn. */
+  inputCacheCreation?: number;
   /** Host-visible engine events emitted during the turn. */
   eventsEmitted?: number;
   /** LLM retries performed during the turn (attempts beyond the first). */
@@ -490,6 +549,11 @@ class NapiEngine {
         model: string;
         maxTokens?: number;
       };
+      providers?: Array<{
+        name: string;
+        model: string;
+        systemPrompt: string;
+      }>;
       workspaceRoot?: string;
       nativeTools?: boolean;
       shellPath?: string;
@@ -517,18 +581,18 @@ class NapiEngine {
       return (callbackId: number) => {
         const payload = nativeModule.getCallbackPayload(callbackId);
         if (!payload) return;
-        handler(payload).then(
-          (result) => {
+        void (async () => {
+          try {
+            const result = await handler(payload);
             nativeModule.resolveCallback(callbackId, null, result);
-          },
-          (error: unknown) => {
+          } catch (error: unknown) {
             nativeModule.resolveCallback(
               callbackId,
               error instanceof Error ? error.message : String(error),
               null,
             );
-          },
-        );
+          }
+        })();
       };
     };
 
@@ -574,6 +638,13 @@ class NapiEngine {
 
 // ── Agent process manager (stdio JSON-RPC) ────────────────────────────────
 
+/* oxlint-disable no-non-null-assertion */
+// All non-null assertions inside `AgentProcess` are guarded by either
+// `this.ready` (set true only after `start()` has populated `this.process`
+// and the child stdio streams are wired) or an explicit `!this.process ||
+// !this.ready` throw at the top of the calling method. TypeScript cannot
+// narrow through the `throw` without a helper, and the assertions here are
+// the documented lifecycle contract rather than speculative `!`s.
 class AgentProcess {
   // kimi-agent has no tsconfig of its own (it is a Rust package), so
   // type-aware oxlint resolves `ChildProcess` as an error/any type here and
@@ -590,7 +661,12 @@ class AgentProcess {
   private ready = false;
 
   /** Callback for handling host/llm_chat requests from the Rust side. */
-  private llmChatHandler: ((req: LlmChatRequest) => Promise<LlmChatResponse>) | null = null;
+  private llmChatHandler:
+    | ((signal: AbortSignal | undefined) => Promise<LlmChatResponse>)
+    | null = null;
+
+  /** Lets a losing MultiLLM provider be aborted mid-flight. */
+  private llmAbortRegistry: LlmAbortRegistry | null = null;
 
   /** Callback for handling host/execute_tool requests from the Rust side. */
   private toolExecuteHandler: ((req: ToolExecuteRequest) => Promise<ToolExecuteResponse>) | null =
@@ -604,8 +680,12 @@ class AgentProcess {
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
-  setLlmChatHandler(handler: (req: LlmChatRequest) => Promise<LlmChatResponse>) {
+  setLlmChatHandler(handler: (signal: AbortSignal | undefined) => Promise<LlmChatResponse>) {
     this.llmChatHandler = handler;
+  }
+
+  setLlmAbortRegistry(registry: LlmAbortRegistry) {
+    this.llmAbortRegistry = registry;
   }
 
   setToolExecuteHandler(handler: (req: ToolExecuteRequest) => Promise<ToolExecuteResponse>) {
@@ -771,11 +851,15 @@ class AgentProcess {
       this.writeHostError(msg.id, 'No LLM chat handler registered');
       return;
     }
+    const params = msg.params as LlmChatRequest;
+    const request = this.llmAbortRegistry?.begin(params.request_id) ?? { finish() {} };
     try {
-      const result = await this.llmChatHandler(msg.params as LlmChatRequest);
+      const result = await this.llmChatHandler(request.signal);
       this.writeHostResult(msg.id, result);
     } catch (error) {
       this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
+    } finally {
+      request.finish();
     }
   }
 
@@ -845,6 +929,14 @@ let agentProcess: AgentProcess | null = null;
 let napiEngine: NapiEngine | null = null;
 
 /**
+ * Test seam: when set, `initEngine` uses this transport instead of the
+ * napi-first default. Tests force stdio on machines that also have the napi
+ * addon so the JS-side handler paths (e.g. `handleHostCheckPermission`) are
+ * exercised end to end.
+ */
+let forcedTransport: 'napi' | 'stdio' | undefined;
+
+/**
  * Initialize the Rust engine, preferring napi-rs over stdio JSON-RPC.
  * Returns the selected mode. Called once on first use; subsequent calls
  * return the same mode.
@@ -852,8 +944,9 @@ let napiEngine: NapiEngine | null = null;
 function initEngine(): EngineMode {
   if (engineMode !== 'js') return engineMode;
 
-  // 1) Try napi-rs first (in-process, no subprocess overhead)
-  if (NapiEngine.isAvailable()) {
+  // 1) Try napi-rs first (in-process, no subprocess overhead), unless a
+  //    test has forced the stdio transport.
+  if (forcedTransport !== 'stdio' && NapiEngine.isAvailable()) {
     const engine = new NapiEngine();
     if (engine.load()) {
       napiEngine = engine;
@@ -886,32 +979,6 @@ function getNapiEngine(): NapiEngine | null {
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
-
-export async function runTurnRust(
-  params: RunTurnParams,
-  handlers?: {
-    llmChat?: (req: LlmChatRequest) => Promise<LlmChatResponse>;
-    toolExecute?: (req: ToolExecuteRequest) => Promise<ToolExecuteResponse>;
-  },
-): Promise<RunTurnResult | null> {
-  const agent = getAgent();
-  if (!agent) return null;
-
-  if (handlers?.llmChat) {
-    agent.setLlmChatHandler(handlers.llmChat);
-  }
-  if (handlers?.toolExecute) {
-    agent.setToolExecuteHandler(handlers.toolExecute);
-  }
-
-  try {
-    const result = await agent.request('agent/run_turn', params);
-    return result as RunTurnResult;
-  } catch (error) {
-    console.error('[kimi-agent] RPC call failed:', error);
-    return null;
-  }
-}
 
 /**
  * Create a `TurnEngine` adapter wired into the agent-core-v2 loop through
@@ -1053,7 +1120,7 @@ export function createRunTurnOverride(
             toolCallId,
             result: {
               output: event.content,
-              isError: event.is_error === true,
+              isError: event.is_error,
               note: event.note,
             } as never,
           });
@@ -1068,7 +1135,15 @@ export function createRunTurnOverride(
           break;
       }
     };
+    const llmAbortRegistry = createLlmAbortRegistry();
+
     const handleEngineEvent = (event: EngineEvent): void => {
+      // Handled outside the chain: an abort that waits behind the event
+      // backlog defeats the point of cancelling.
+      if (event.type === 'llm_chat.cancel') {
+        llmAbortRegistry.cancel(event.request_id);
+        return;
+      }
       eventChain = eventChain.then(() => processEngineEvent(event)).catch(() => {});
     };
 
@@ -1096,7 +1171,11 @@ export function createRunTurnOverride(
     };
 
     // ── LLM chat handler ──────────────────────────────────────────────
-    const llmChatHandler = async (): Promise<LlmChatResponse> => {
+    /**
+     * `signal` is set when this request is one of several racing providers;
+     * otherwise the turn's own signal governs it.
+     */
+    const llmChatHandler = async (signal?: AbortSignal): Promise<LlmChatResponse> => {
       await closeOpenStep();
       currentStep += 1;
       const stepUuid = randomUUID();
@@ -1115,7 +1194,7 @@ export function createRunTurnOverride(
       const response = await input.llm.chat({
         messages,
         tools: stepTools,
-        signal: input.signal,
+        signal: signal ?? input.signal,
         onTextPart: async (part) => {
           await input.dispatchEvent({
             type: 'content.part',
@@ -1151,6 +1230,8 @@ export function createRunTurnOverride(
           input_tokens: response.usage?.inputOther ?? 0,
           output_tokens: response.usage?.output ?? 0,
           total_tokens: (response.usage?.inputOther ?? 0) + (response.usage?.output ?? 0),
+          input_cache_read: response.usage?.inputCacheRead ?? 0,
+          input_cache_creation: response.usage?.inputCacheCreation ?? 0,
         },
       };
     };
@@ -1238,7 +1319,7 @@ export function createRunTurnOverride(
               description: t.description,
               inputSchema: JSON.stringify(t.parameters ?? {}),
             })),
-            maxSteps: input.maxSteps ?? 10,
+            maxSteps: input.maxSteps,
             // The stdio wire is snake_case; the napi object wire is
             // camelCase (napi-rs converts Rust field names), so project
             // the goal context explicitly instead of passing it through.
@@ -1271,9 +1352,15 @@ export function createRunTurnOverride(
             shellPath: shellPathOpt,
           },
           // Wrap structured handler with JSON serialization for napi
-          async (_requestJson: string) => {
-            const response = await llmChatHandler();
-            return JSON.stringify(response);
+          async (requestJson: string) => {
+            const params = JSON.parse(requestJson) as LlmChatRequest;
+            const request = llmAbortRegistry.begin(params.request_id);
+            try {
+              const response = await llmChatHandler(request.signal);
+              return JSON.stringify(response);
+            } finally {
+              request.finish();
+            }
           },
           async (requestJson: string) => {
             const req = JSON.parse(requestJson) as ToolExecuteRequest;
@@ -1304,6 +1391,8 @@ export function createRunTurnOverride(
             input_tokens: napiResult.inputTokens,
             output_tokens: napiResult.outputTokens,
             total_tokens: napiResult.totalTokens,
+            input_cache_read: napiResult.inputCacheRead,
+            input_cache_creation: napiResult.inputCacheCreation,
           },
           events_emitted: napiResult.eventsEmitted,
           llm_retries: napiResult.llmRetries,
@@ -1312,6 +1401,7 @@ export function createRunTurnOverride(
         // stdio JSON-RPC path
         const agent = getAgent()!;
         agent.setLlmChatHandler(llmChatHandler);
+        agent.setLlmAbortRegistry(llmAbortRegistry);
         agent.setToolExecuteHandler(toolExecuteHandler);
         agent.setPermissionHandler(async (req) => {
           if (input.checkToolPermission === undefined) {
@@ -1339,7 +1429,7 @@ export function createRunTurnOverride(
             description: t.description,
             input_schema: t.parameters ?? {},
           })),
-          max_steps: input.maxSteps ?? 10,
+          max_steps: input.maxSteps,
           providers: providers ?? [],
           goal,
           native_llm: nativeLlm,
@@ -1367,8 +1457,8 @@ export function createRunTurnOverride(
       usage: {
         inputOther: rustResult.usage.input_tokens,
         output: rustResult.usage.output_tokens,
-        inputCacheRead: 0,
-        inputCacheCreation: 0,
+        inputCacheRead: rustResult.usage.input_cache_read ?? 0,
+        inputCacheCreation: rustResult.usage.input_cache_creation ?? 0,
       },
       telemetry: {
         eventsEmitted: rustResult.events_emitted ?? 0,
@@ -1420,5 +1510,16 @@ export function shutdownRustEngine() {
   }
   napiEngine = null;
   engineMode = 'js';
+  forcedTransport = undefined;
+}
+
+/**
+ * Test seam: force the transport the engine initializes with on the next
+ * `initEngine()` call. `shutdownRustEngine()` resets this back to `undefined`.
+ * Must be called before the first turn (before `createRunTurnOverride` runs
+ * its lazy init).
+ */
+export function forceEngineTransport(mode: 'napi' | 'stdio'): void {
+  forcedTransport = mode;
 }
 

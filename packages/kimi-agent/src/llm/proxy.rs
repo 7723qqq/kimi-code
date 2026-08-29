@@ -14,6 +14,9 @@ pub struct HostLlmProxy {
     system_prompt: String,
     model_name: String,
     callbacks: Option<Arc<dyn HostCallbacks>>,
+    /// Set when this call is one of several racing providers, so the host can
+    /// be told to drop it once another provider wins.
+    request_id: Option<String>,
 }
 
 impl HostLlmProxy {
@@ -22,11 +25,17 @@ impl HostLlmProxy {
             system_prompt,
             model_name,
             callbacks: None,
+            request_id: None,
         }
     }
 
     pub fn with_callbacks(mut self, callbacks: Arc<dyn HostCallbacks>) -> Self {
         self.callbacks = Some(callbacks);
+        self
+    }
+
+    pub fn with_request_id(mut self, request_id: String) -> Self {
+        self.request_id = Some(request_id);
         self
     }
 
@@ -76,9 +85,12 @@ impl LLM for HostLlmProxy {
         let system_prompt = self.system_prompt.clone();
         let model_name = self.model_name.clone();
         let callbacks = self.callbacks.clone();
+        let request_id = self.request_id.clone();
 
         Box::pin(async move {
-            let callbacks = callbacks.expect("HostLlmProxy: callbacks not set");
+            let Some(callbacks) = callbacks else {
+                return Err("HostLlmProxy: callbacks not set".into());
+            };
 
             // Convert messages
             let messages: Vec<LlmChatMessage> = params
@@ -107,6 +119,7 @@ impl LLM for HostLlmProxy {
                 model_name,
                 messages,
                 tools,
+                request_id,
             };
 
             let response = callbacks.llm_chat(request).await
