@@ -13,13 +13,18 @@ export function isWindowsAbsolutePath(value: string): boolean {
 }
 
 export function resolvePath(base: string, value: string): string {
+  // A POSIX-absolute value (`/tmp/x`) is already resolved regardless of the
+  // host: don't let a Windows-style base pull it onto the current drive
+  // (win32.resolve('C:/...', '/tmp/x') → 'C:/tmp/x').
+  if (isAbsolute(value) || isWindowsAbsolutePath(value)) {
+    return isWindowsAbsolutePath(value)
+      ? nodePath.win32.resolve(value).replaceAll('\\', '/')
+      : normalize(value);
+  }
   if (isWindowsAbsolutePath(base)) {
     return nodePath.win32.resolve(base, value).replaceAll('\\', '/');
   }
-  if (isWindowsAbsolutePath(value)) {
-    return nodePath.win32.resolve(value).replaceAll('\\', '/');
-  }
-  return isAbsolute(value) ? normalize(value) : resolve(base, value);
+  return resolve(base, value);
 }
 
 export function canonicalPath(cwd: string): string {

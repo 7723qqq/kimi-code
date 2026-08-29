@@ -191,6 +191,13 @@ describe('resolvePath', () => {
     expect(resolvePath('/repo', 'tools/../mcp')).toBe('/repo/mcp');
     expect(resolvePath('/repo', '/abs/path')).toBe('/abs/path');
   });
+
+  it('does not drag a POSIX-absolute value onto the Windows base drive', () => {
+    // Regression: win32.resolve('C:/repo', '/tmp/x') → 'C:/tmp/x'. A POSIX
+    // absolute value is already resolved and must stay as-is on any host.
+    expect(resolvePath('C:/repo', '/tmp/mcp-workdir')).toBe('/tmp/mcp-workdir');
+    expect(resolvePath('C:\\repo', '/tmp/mcp-workdir')).toBe('/tmp/mcp-workdir');
+  });
 });
 
 describe('canonicalWorkspaceRoot', () => {

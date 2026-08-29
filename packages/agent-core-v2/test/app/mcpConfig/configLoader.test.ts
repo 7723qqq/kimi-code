@@ -42,6 +42,31 @@ describe('resolveMcpJsonPaths', () => {
     expect(paths.projectRoot).toBe(join(repoRoot, '.mcp.json'));
     expect(paths.project).toBe(join(cwd, '.kimi-code', 'mcp.json'));
   });
+
+  it('canonicalizes a relative cwd against the process cwd so git discovery still works', async () => {
+    // A relative cwd (as callers may pass when the workspace is spelled as
+    // `./packages/agent-core`) must resolve against the process cwd before
+    // git-worktree discovery, which requires an absolute path. Otherwise the
+    // project-root .mcp.json is never found and the layer silently drops.
+    const repoRoot = makeTempDir();
+    const cwd = join(repoRoot, 'packages', 'agent-core');
+    await mkdir(join(repoRoot, '.git'), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+
+    // Re-root: make the repo the process cwd so the relative form is meaningful.
+    const before = process.cwd();
+    process.chdir(repoRoot);
+    try {
+      const rel = join('packages', 'agent-core');
+      const paths = await resolveMcpJsonPaths({ fs, cwd: rel, homeDir: '/home/user/.kimi-code' });
+
+      expect(paths.user).toBe('/home/user/.kimi-code/mcp.json');
+      expect(paths.projectRoot).toBe(join(repoRoot, '.mcp.json'));
+      expect(paths.project).toBe(join(cwd, '.kimi-code', 'mcp.json'));
+    } finally {
+      process.chdir(before);
+    }
+  });
 });
 
 describe('loadMcpServers', () => {

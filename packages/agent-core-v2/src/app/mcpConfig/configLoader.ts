@@ -1,8 +1,8 @@
-import { dirname, join, normalize } from 'pathe';
+import { dirname, join } from 'pathe';
 
 import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
 import { findGitWorkTree } from '#/app/git/workTree';
-import { resolvePath } from '#/_base/utils/paths';
+import { canonicalPath, resolvePath } from '#/_base/utils/paths';
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -21,13 +21,17 @@ export interface ResolveMcpJsonPathsInput {
 }
 
 export async function resolveMcpJsonPaths(input: ResolveMcpJsonPathsInput): Promise<McpJsonPaths> {
-  const start = normalize(input.cwd);
+  // Canonicalize relative cwd values against the process cwd so
+  // findGitWorkTree (which requires an absolute path) and the project-local
+  // join both resolve to the same location regardless of how the caller
+  // spelled the workspace directory.
+  const start = canonicalPath(input.cwd);
   const projectRoot = (await findGitWorkTree(input.fs, start))?.root ?? start;
 
   return {
     user: join(resolveKimiHome(input.homeDir), 'mcp.json'),
     projectRoot: join(projectRoot, '.mcp.json'),
-    project: join(input.cwd, '.kimi-code', 'mcp.json'),
+    project: join(start, '.kimi-code', 'mcp.json'),
   };
 }
 
