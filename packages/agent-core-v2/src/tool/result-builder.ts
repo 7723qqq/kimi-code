@@ -1,4 +1,5 @@
 import { BugIndicatingError } from '#/errors';
+import { tryNativeWriteToolOutputChunk } from '#/_base/native-tools';
 
 import type { ExecutableToolErrorResult, ExecutableToolSuccessResult } from './toolContract';
 
@@ -48,6 +49,23 @@ export class ToolResultBuilder {
   }
 
   write(text: string): number {
+    // Native fast path: the Rust engine applies the same line-length and
+    // total-character budgets and reports the updated totals; the builder
+    // just appends the processed chunk and adopts the new counters.
+    const native = tryNativeWriteToolOutputChunk(
+      text,
+      this.nCharsValue,
+      this.maxChars,
+      this.maxLineLength,
+      this.truncationHappened,
+    );
+    if (native !== undefined) {
+      if (native.output.length > 0) this.buffer.push(native.output);
+      this.nCharsValue = native.newNchars;
+      this.truncationHappened = native.truncated;
+      return native.charsWritten;
+    }
+
     if (this.nCharsValue >= this.maxChars) {
       if (text.length > 0 && !this.truncationHappened) {
         this.buffer.push(TRUNCATION_MARKER);
