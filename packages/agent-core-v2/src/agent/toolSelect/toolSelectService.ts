@@ -2,6 +2,8 @@ import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
+import { type CollectionView } from '#/_base/di/collection';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import type { Tool } from '#/kosong/contract/tool';
@@ -12,6 +14,10 @@ import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import {
+  ToolDisclosureContribution,
+  type ToolDisclosureContribution as ToolDisclosureGate,
+} from '#/agent/toolDisclosure/toolDisclosure';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -47,6 +53,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     @IFlagService private readonly flags: IFlagService,
     @IEventBus eventBus: IEventBus,
     @IAgentStateService private readonly states: IAgentStateService,
+    @ToolDisclosureContribution private readonly disclosures: CollectionView<ToolDisclosureContribution>,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
     this.states.contributeState(toolSelectPendingLoadedKey);
@@ -288,6 +296,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private activeEntries(entries: readonly ToolInfo[], disclosure: boolean): readonly ToolInfo[] {
+    const gates = this.disclosures.items;
+    const visibleByName = gates.length === 0 ? undefined : this.evaluateDisclosures(gates);
     let filtered: ToolInfo[] | undefined;
     for (let i = 0; i < entries.length; i += 1) {
       const entry = entries[i]!;
@@ -296,7 +306,10 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         (disclosure &&
           entry.name === SELECT_TOOLS_TOOL_NAME &&
           this.toolPolicy.isToolActiveForDisclosure(entry.name, entry.source));
-      const keep = active && (disclosure || entry.name !== SELECT_TOOLS_TOOL_NAME);
+      const keep =
+        active &&
+        (disclosure || entry.name !== SELECT_TOOLS_TOOL_NAME) &&
+        (visibleByName === undefined || visibleByName.get(entry.name) !== false);
       if (keep) {
         if (filtered !== undefined) filtered.push(entry);
         continue;
@@ -304,6 +317,24 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       if (filtered === undefined) filtered = entries.slice(0, i);
     }
     return filtered ?? entries;
+  }
+
+  private evaluateDisclosures(
+    gates: readonly ToolDisclosureGate[],
+  ): Map<string, boolean> {
+    const verdicts = new Map<string, boolean>();
+    this.instantiation.invokeFunction((accessor) => {
+      for (const gate of gates) {
+        let visible = true;
+        try {
+          visible = gate.visible(accessor);
+        } catch {
+          visible = false;
+        }
+        verdicts.set(gate.name, visible);
+      }
+    });
+    return verdicts;
   }
 }
 

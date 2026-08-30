@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { ScopeActivation } from '#/_base/di/instantiation';
+import { ScopeActivation, type ServicesAccessor } from '#/_base/di/instantiation';
 import {
   _clearScopedRegistryForTests,
   registerScopedService,
@@ -28,6 +28,8 @@ import {
   registerFeature,
 } from '#/features/featureRegistry';
 import { GoalFeature } from '#/features/goal/goalFeature';
+import { goalControlToolsVisible } from '#/features/goal/goalToolDisclosure';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -72,5 +74,27 @@ describe('GoalFeature', () => {
     expect(manager.units().map((unit) => unit.name)).toContain('goal');
 
     host.dispose();
+  });
+
+  it('gates goal control tools on goal existence', () => {
+    let goal: { goalId: string } | null = null;
+    const accessor = {
+      get: (id: unknown) => {
+        if (id === IAgentScopeContext) return { agentContext: {} };
+        if (id === IAgentLifecycleService) {
+          return {
+            resolve: () => ({
+              getGoal: () => ({ goal }),
+            }),
+          };
+        }
+        throw new Error(`unexpected service: ${String(id)}`);
+      },
+    } as unknown as ServicesAccessor;
+
+    expect(goalControlToolsVisible(accessor)).toBe(false);
+
+    goal = { goalId: 'g1' };
+    expect(goalControlToolsVisible(accessor)).toBe(true);
   });
 });

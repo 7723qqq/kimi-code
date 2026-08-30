@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { Service } from '#/_base/di/service';
 import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
 import { OrderedHookSlot } from '#/hooks';
 import { IEventBus } from '#/app/event/eventBus';
@@ -47,6 +48,10 @@ import { AgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSele
 import { IAgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemas';
 import { AgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemasService';
 import { AgentToolSelectService } from '#/agent/toolSelect/toolSelectService';
+import {
+  ToolDisclosureContribution,
+  type ToolDisclosureContribution as ToolDisclosureGate,
+} from '#/agent/toolDisclosure/toolDisclosure';
 import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IWireService } from '#/wire/wire';
@@ -70,6 +75,19 @@ const REQUIRED_PAYLOAD_PARAMETERS = {
   additionalProperties: false,
 };
 
+const activeDisclosureGates: ToolDisclosureGate[] = [];
+
+class DisclosureGateAssembly extends Service {
+  declare readonly _serviceBrand: undefined;
+
+  constructor() {
+    super();
+    for (const gate of activeDisclosureGates) {
+      this.provide(ToolDisclosureContribution, gate);
+    }
+  }
+}
+
 let disposables: DisposableStore;
 let capabilities: ModelCapability;
 let flagEnabled: boolean;
@@ -82,6 +100,7 @@ beforeEach(() => {
   flagEnabled = false;
   activeToolNames = undefined;
   disclosureToolActive = true;
+  activeDisclosureGates.length = 0;
 });
 
 afterEach(() => disposables.dispose());
@@ -1130,5 +1149,50 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     const h = createHarness();
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
     expect(await announce(h)).toBeUndefined();
+  });
+});
+
+describe('AgentToolSelectService disclosure gates', () => {
+  it('drops a gated tool from the model list but keeps it registered and executable', () => {
+    activeDisclosureGates.push({ name: 'Beta', visible: () => false });
+    const h = createHarness();
+    h.ix.createInstance(DisclosureGateAssembly);
+    const visible = new EchoTool('Alpha');
+    const hidden = new EchoTool('Beta');
+    disposables.add(h.registry.register(visible));
+    disposables.add(h.registry.register(hidden));
+
+    const names = h.sut.shapeTools(h.registry.list()).map((entry) => entry.name);
+
+    expect(names).toContain('Alpha');
+    expect(names).not.toContain('Beta');
+    expect(h.registry.resolve('Beta')).toBe(hidden);
+  });
+
+  it('keeps a gated tool in the model list when the predicate is true', () => {
+    activeDisclosureGates.push({ name: 'Beta', visible: () => true });
+    const h = createHarness();
+    h.ix.createInstance(DisclosureGateAssembly);
+    disposables.add(h.registry.register(new EchoTool('Beta')));
+
+    const names = h.sut.shapeTools(h.registry.list()).map((entry) => entry.name);
+
+    expect(names).toContain('Beta');
+  });
+
+  it('fails closed when a disclosure predicate throws', () => {
+    activeDisclosureGates.push({
+      name: 'Beta',
+      visible: () => {
+        throw new Error('boom');
+      },
+    });
+    const h = createHarness();
+    h.ix.createInstance(DisclosureGateAssembly);
+    disposables.add(h.registry.register(new EchoTool('Beta')));
+
+    const names = h.sut.shapeTools(h.registry.list()).map((entry) => entry.name);
+
+    expect(names).not.toContain('Beta');
   });
 });

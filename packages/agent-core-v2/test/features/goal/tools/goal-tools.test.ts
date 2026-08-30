@@ -21,6 +21,7 @@ import {
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 
@@ -118,6 +119,22 @@ describe('goal tools', () => {
     expect(result.isError).toBeFalsy();
     expect(result.stopTurn).toBeFalsy();
     expect(result.output).toBe('Goal budget not set: no current goal.');
+  });
+
+  it('keeps UpdateGoal and SetGoalBudget out of the model tool list until a goal exists', async () => {
+    const toolSelect = ctx.get(IAgentToolSelectService);
+    const registry = ctx.get(IAgentToolRegistryService);
+    expect(registry.resolve('UpdateGoal')).toBeDefined();
+    expect(registry.resolve('SetGoalBudget')).toBeDefined();
+
+    const namesBefore = toolSelect.shapeTools(registry.list()).map((tool) => tool.name);
+    expect(namesBefore).not.toContain('UpdateGoal');
+    expect(namesBefore).not.toContain('SetGoalBudget');
+
+    await goals.createGoal({ objective: 'work' });
+    const namesAfter = toolSelect.shapeTools(registry.list()).map((tool) => tool.name);
+    expect(namesAfter).toContain('UpdateGoal');
+    expect(namesAfter).toContain('SetGoalBudget');
   });
 
   it('SetGoalBudget returns stop signals when the requested limit is already exhausted', async () => {
