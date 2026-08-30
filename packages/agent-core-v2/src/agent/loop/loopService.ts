@@ -41,6 +41,7 @@ import { OrderedHookSlot } from '#/hooks';
 import {
   ISessionQuestionService,
   type QuestionAnswers,
+  type QuestionItem,
   type QuestionResponse,
   type QuestionResult,
 } from '#/session/question/question';
@@ -61,6 +62,7 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
+import { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   EngineTurnEvent,
@@ -110,6 +112,9 @@ import {
 import { TurnCancel, TurnEnded, turnKey, TurnPrompt } from './turnOps';
 import {
   IEngineOverrideService,
+  type AskQuestionWire,
+  type AskQuestionWireItem,
+  type AskQuestionWireResult,
   type EngineOverrideProvider,
   type TurnEngine,
   type TurnEngineGoalContext,
@@ -1176,29 +1181,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       },
       askUserQuestion: async (request) => {
         const turnId = Number(request.turn_id);
+        const questions = request.questions.map((q) => ({
+          question: q.question,
+          header: q.header,
+          options: q.options.map((o) => ({ label: o.label, description: o.description })),
+          multiSelect: q.multi_select,
+        }));
+        if (request.background === true) {
+          return this.askUserQuestionInBackground(request, turnId, questions);
+        }
         const result = await this.question.request(
           {
             turnId: turnId || undefined,
             toolCallId: request.tool_call_id,
-            questions: request.questions.map((q) => ({
-              question: q.question,
-              header: q.header,
-              options: q.options.map((o) => ({ label: o.label, description: o.description })),
-              multiSelect: q.multi_select,
-            })),
+            questions,
           },
           { signal, agentId: this.scopeContext.agentId },
         );
-        if (result === null) {
-          return { answers: {}, note: 'User dismissed the question without answering.' };
-        }
-        if (isCancelledQuestionResult(result)) {
-          return { cancelled: true, reason: result.reason };
-        }
-        if (isQuestionResponse(result)) {
-          return { answers: mapQuestionAnswers(result.answers), method: result.method };
-        }
-        return { answers: mapQuestionAnswers(result) };
+        return mapQuestionWireResult(result);
       },
       stateRead: async (request) => {
         if (request.domain === 'todo') {
@@ -1562,6 +1562,56 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },
+    };
+  }
+
+  private askUserQuestionInBackground(
+    request: AskQuestionWire,
+    turnId: number,
+    questions: readonly QuestionItem[],
+  ): AskQuestionWireResult {
+    const description = questionDescription(request.questions);
+    const tasks = this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IAgentTaskService),
+    );
+    let taskId: string;
+    try {
+      taskId = tasks.registerTask(
+        new QuestionBackgroundTask(
+          async (taskSignal) => {
+            const result = await this.question.request(
+              {
+                turnId: turnId || undefined,
+                toolCallId: request.tool_call_id,
+                questions,
+              },
+              { signal: taskSignal, agentId: this.scopeContext.agentId },
+            );
+            return { isError: false, output: JSON.stringify(mapQuestionWireResult(result)) };
+          },
+          description,
+          { questionCount: request.questions.length, toolCallId: request.tool_call_id },
+        ),
+        { detached: true },
+      );
+    } catch (error) {
+      return {
+        answers: {},
+        note: `Failed to start background question: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    const status = tasks.getTask(taskId)?.status ?? 'running';
+    return {
+      answers: {},
+      note:
+        `task_id: ${taskId}\n` +
+        `description: ${description}\n` +
+        `status: ${status}\n` +
+        `automatic_notification: true\n` +
+        'next_step: Continue your current work; the answer will arrive automatically when the user responds.\n' +
+        'next_step: Use TaskOutput with this task_id for a non-blocking status/answer snapshot.\n' +
+        'next_step: Use TaskStop only if the question should be cancelled.\n' +
+        'human_shell_hint: The pending question is also visible in the client UI.',
     };
   }
 
@@ -2047,6 +2097,26 @@ function mapQuestionAnswers(answers: QuestionAnswers): Record<string, string> {
     mapped[question] = typeof answer === 'string' ? answer : String(answer);
   }
   return mapped;
+}
+
+function mapQuestionWireResult(result: QuestionResult): AskQuestionWireResult {
+  if (result === null) {
+    return { answers: {}, note: 'User dismissed the question without answering.' };
+  }
+  if (isCancelledQuestionResult(result)) {
+    return { cancelled: true, reason: result.reason };
+  }
+  if (isQuestionResponse(result)) {
+    return { answers: mapQuestionAnswers(result.answers), method: result.method };
+  }
+  return { answers: mapQuestionAnswers(result) };
+}
+
+function questionDescription(questions: readonly AskQuestionWireItem[]): string {
+  const first = questions[0]?.question.trim();
+  const label = first === undefined || first.length === 0 ? 'Ask user question' : first;
+  if (questions.length <= 1) return label;
+  return `${label} (+${String(questions.length - 1)} more)`;
 }
 
 type MutableTurn = {

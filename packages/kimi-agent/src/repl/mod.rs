@@ -22,8 +22,9 @@ use crate::llm::http::NativeHttpLlm;
 use crate::mcp::McpManager;
 use crate::permission::PermissionEngine;
 use crate::rpc::types::{
-    LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision,
-    TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
+    AskQuestionRequest, AskQuestionResponse, LlmChatRequest, LlmChatResponse, NativeLlmConfig,
+    PermissionCheckRequest, PermissionDecision, TokenUsage, ToolExecuteRequest,
+    ToolExecuteResponse,
 };
 use crate::storage::SessionStore;
 use crate::subagent::SubagentManager;
@@ -52,6 +53,113 @@ impl HostCallbacks for ReplDummyHostCallbacks {
     ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
         Box::pin(async { Ok(PermissionDecision::allow()) })
     }
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        Box::pin(async move {
+            let stdin = io::stdin();
+            let mut reader = stdin.lock();
+            let stdout = io::stdout();
+            let mut writer = stdout.lock();
+            Ok(answer_questions_interactive(
+                &request,
+                &mut reader,
+                &mut writer,
+            ))
+        })
+    }
+}
+
+/// Mirrors the v2 `QUESTION_DISMISSED_MESSAGE` constant so the native
+/// ask_user_question tool maps an EOF/empty-line dismissal to a dismissed
+/// result instead of a background-task pass-through.
+const QUESTION_DISMISSED_MESSAGE: &str = "User dismissed the question without answering.";
+
+/// Ask the user each question in `request` through `reader`/`writer` and
+/// return the v2 `AskQuestionResponse`. Questions are asked one at a time;
+/// each answer is one line read from `reader`. EOF or an empty line at any
+/// question dismisses the whole request (empty answers + dismissal note).
+fn answer_questions_interactive(
+    request: &AskQuestionRequest,
+    reader: &mut dyn BufRead,
+    writer: &mut dyn Write,
+) -> AskQuestionResponse {
+    let mut answers = HashMap::new();
+    for item in &request.questions {
+        if let Some(header) = &item.header {
+            let _ = writeln!(writer, "[{header}]");
+        }
+        let _ = writeln!(writer, "{}", item.question);
+        for (index, option) in item.options.iter().enumerate() {
+            match &option.description {
+                Some(description) => {
+                    let _ = writeln!(writer, "  {}. {} — {description}", index + 1, option.label);
+                }
+                None => {
+                    let _ = writeln!(writer, "  {}. {}", index + 1, option.label);
+                }
+            }
+        }
+        let _ = write!(writer, "> ");
+        let _ = writer.flush();
+
+        let mut line = String::new();
+        let answer = match reader.read_line(&mut line) {
+            Ok(0) => None, // EOF (Ctrl+D)
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }
+            Err(_) => None,
+        };
+        let Some(answer) = answer else {
+            return AskQuestionResponse {
+                answers: HashMap::new(),
+                method: None,
+                note: Some(QUESTION_DISMISSED_MESSAGE.into()),
+                cancelled: None,
+                reason: None,
+            };
+        };
+        answers.insert(item.question.clone(), answer);
+    }
+    AskQuestionResponse {
+        answers,
+        method: Some("enter".into()),
+        note: None,
+        cancelled: None,
+        reason: None,
+    }
+}
+
+/// All tool definitions exposed to the model in the REPL: subagent tools,
+/// MCP-discovered tools, and the natively-executed tool set (todo/plan/goal/
+/// cron/task/ask-question/skill classes).
+async fn build_repl_tool_defs(mcp_manager: &McpManager) -> Vec<crate::turn_loop::types::ToolInfo> {
+    let mut defs = crate::tools::subagent_tools::subagent_tool_defs();
+    defs.extend(mcp_manager.list_tool_infos().await);
+    defs.push(crate::tools::ask_user_question::ask_user_question_tool_def());
+    defs.push(crate::tools::todo_list::todo_list_tool_def());
+    defs.push(crate::tools::plan_mode::enter_plan_mode_tool_def());
+    defs.push(crate::tools::get_goal::get_goal_tool_def());
+    defs.push(crate::tools::cron_tools::cron_list_tool_def());
+    defs.push(crate::tools::cron_tools::cron_create_tool_def());
+    defs.push(crate::tools::cron_tools::cron_delete_tool_def());
+    defs.push(crate::tools::goal_tools::update_goal_tool_def());
+    defs.push(crate::tools::goal_tools::set_goal_budget_tool_def());
+    defs.push(crate::tools::task_tools::task_list_tool_def());
+    defs.push(crate::tools::task_tools::task_output_tool_def());
+    defs.push(crate::tools::task_tools::task_stop_tool_def());
+    defs.push(crate::tools::task_tools::task_wait_tool_def());
+    defs.push(crate::tools::exit_plan_mode::exit_plan_mode_tool_def());
+    defs.push(crate::tools::create_goal::create_goal_tool_def());
+    defs.push(crate::tools::skill::skill_tool_def());
+    defs
 }
 
 pub async fn start_repl(
@@ -75,19 +183,23 @@ pub async fn start_repl(
     // tools are discovered and exposed to the model this session.
     mcp_manager.spawn_from_config(&config.mcp_servers).await;
 
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
-
     loop {
         ui::render_prompt();
 
-        let line = match lines.next() {
-            Some(Ok(l)) => l.trim().to_string(),
-            Some(Err(e)) => {
-                eprintln!("[Error reading input]: {e}");
-                break;
+        // Lock stdin only for the prompt read and drop it before the turn:
+        // the ask_question callback reads stdin from a spawned tool task,
+        // and a lock held across the turn would deadlock that read.
+        let line = {
+            let stdin = io::stdin();
+            let mut lines = stdin.lock().lines();
+            match lines.next() {
+                Some(Ok(l)) => l.trim().to_string(),
+                Some(Err(e)) => {
+                    eprintln!("[Error reading input]: {e}");
+                    break;
+                }
+                None => break, // EOF (Ctrl+D)
             }
-            None => break, // EOF (Ctrl+D)
         };
 
         if line.is_empty() {
@@ -311,11 +423,7 @@ pub async fn start_repl(
                 llm: llm.as_ref(),
                 messages: messages.clone(),
                 tools: &[],
-                tool_defs: {
-                    let mut defs = crate::tools::subagent_tools::subagent_tool_defs();
-                    defs.extend(mcp_manager.list_tool_infos().await);
-                    defs
-                },
+                tool_defs: build_repl_tool_defs(&mcp_manager).await,
                 max_steps: 25,
                 goal: None,
                 cancellation: Some(cancellation),
@@ -350,4 +458,140 @@ pub async fn start_repl(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+    use crate::rpc::types::{AskQuestionItem, AskQuestionOption};
+
+    fn question(text: &str, options: &[&str]) -> AskQuestionItem {
+        AskQuestionItem {
+            question: text.into(),
+            header: None,
+            options: options
+                .iter()
+                .map(|label| AskQuestionOption {
+                    label: (*label).into(),
+                    description: None,
+                })
+                .collect(),
+            multi_select: false,
+        }
+    }
+
+    fn request(questions: Vec<AskQuestionItem>) -> AskQuestionRequest {
+        AskQuestionRequest {
+            question_id: "question_test".into(),
+            turn_id: "turn_test".into(),
+            tool_call_id: "call_test".into(),
+            background: false,
+            timeout_ms: None,
+            questions,
+        }
+    }
+
+    #[test]
+    fn test_answer_question_single() {
+        let req = request(vec![question("Pick one", &["Alpha", "Beta"])]);
+        let mut reader = Cursor::new(b"Alpha\n".to_vec());
+        let mut writer = Vec::new();
+        let resp = answer_questions_interactive(&req, &mut reader, &mut writer);
+        assert_eq!(
+            resp.answers,
+            HashMap::from([("Pick one".to_string(), "Alpha".to_string())])
+        );
+        assert_eq!(resp.method.as_deref(), Some("enter"));
+        assert!(resp.note.is_none());
+        let out = String::from_utf8(writer).unwrap();
+        assert!(out.contains("Pick one"));
+        assert!(out.contains("1. Alpha"));
+        assert!(out.contains("2. Beta"));
+    }
+
+    #[test]
+    fn test_answer_question_multiple() {
+        let req = request(vec![
+            question("First", &["A", "B"]),
+            question("Second", &["C", "D"]),
+        ]);
+        let mut reader = Cursor::new(b"A\nD\n".to_vec());
+        let mut writer = Vec::new();
+        let resp = answer_questions_interactive(&req, &mut reader, &mut writer);
+        assert_eq!(
+            resp.answers,
+            HashMap::from([
+                ("First".to_string(), "A".to_string()),
+                ("Second".to_string(), "D".to_string()),
+            ])
+        );
+        assert_eq!(resp.method.as_deref(), Some("enter"));
+    }
+
+    #[test]
+    fn test_answer_question_eof_dismisses() {
+        let req = request(vec![question("Pick one", &["Alpha", "Beta"])]);
+        let mut reader = Cursor::new(Vec::new());
+        let mut writer = Vec::new();
+        let resp = answer_questions_interactive(&req, &mut reader, &mut writer);
+        assert!(resp.answers.is_empty());
+        assert_eq!(resp.method, None);
+        assert_eq!(resp.note.as_deref(), Some(QUESTION_DISMISSED_MESSAGE));
+    }
+
+    #[test]
+    fn test_answer_question_empty_line_dismisses() {
+        let req = request(vec![question("Pick one", &["Alpha", "Beta"])]);
+        let mut reader = Cursor::new(b"\n".to_vec());
+        let mut writer = Vec::new();
+        let resp = answer_questions_interactive(&req, &mut reader, &mut writer);
+        assert!(resp.answers.is_empty());
+        assert_eq!(resp.note.as_deref(), Some(QUESTION_DISMISSED_MESSAGE));
+    }
+
+    #[test]
+    fn test_answer_question_eof_midway_dismisses_all() {
+        // Answer the first question, then EOF on the second: the whole
+        // request is dismissed, not partially answered.
+        let req = request(vec![
+            question("First", &["A", "B"]),
+            question("Second", &["C", "D"]),
+        ]);
+        let mut reader = Cursor::new(b"A\n".to_vec());
+        let mut writer = Vec::new();
+        let resp = answer_questions_interactive(&req, &mut reader, &mut writer);
+        assert!(resp.answers.is_empty());
+        assert_eq!(resp.note.as_deref(), Some(QUESTION_DISMISSED_MESSAGE));
+    }
+
+    #[tokio::test]
+    async fn test_repl_tool_defs_complete() {
+        let defs = build_repl_tool_defs(&McpManager::new()).await;
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        for expected in [
+            "invoke_subagent",
+            "manage_subagents",
+            "define_subagent",
+            "ask_user_question",
+            "TodoList",
+            "EnterPlanMode",
+            "GetGoal",
+            "CronList",
+            "CronCreate",
+            "CronDelete",
+            "UpdateGoal",
+            "SetGoalBudget",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+            "TaskWait",
+            "ExitPlanMode",
+            "CreateGoal",
+            "Skill",
+        ] {
+            assert!(names.contains(&expected), "missing tool def: {expected}");
+        }
+    }
 }

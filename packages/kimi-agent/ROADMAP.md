@@ -1150,6 +1150,12 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 基础设施收尾 — ✅ 完成（2026-09-01）
+
+- **REPL 完整化**（`repl/mod.rs`）：tool_defs 接入全部 16 个原生工具 def（`build_repl_tool_defs`）；`ReplDummyHostCallbacks` 实现 ask_question（stdin 交互式提问，EOF/空行 → dismissed，note 复刻 v2 常量）；修复 stdin 锁死锁（每轮迭代获取、turn 前释放）；+6 单测
+- **background 任务模型**（`loopService.ts`）：ask_question 的 `background:true` 注册 `QuestionBackgroundTask`（detached，对齐 v2）立即返回 task_id/status/automatic_notification note；答案经 taskService 既有通道自动送达（引擎侧零改动）；+2 测试（53/53）
+- **第四批评估**：`reports/rust-engine-batch4-assessment.md`（119 行）——Knowledge 存储层其实已在 Rust（kimi-native-tools knowledge.rs 仍是 v2 后端，修正调研报告错误说法）、Team coordinator（~1100 行纯编排）与 AgentRunBatch（646 行纯算法）值得直移；lsp/run_code/Tower/Workflow 长期留 host；前置：Knowledge 需 rusqlite 依赖决策、Team 需 SubagentManager persistent 化
+
 ### 第 7 批第二批收尾：Task 族 + 第三批交互类 — ✅ 完成（2026-09-01）
 
 - `src/tools/task_tools.rs`（1413 行，37 单测）：TaskList（active_only 过滤 Rust 侧做）/ TaskOutput（输出快照渲染）/ TaskStop / TaskWait（宿主阻塞等待 + 超时报告）；wire 双兼容（宿主 taskId/preview 形状）

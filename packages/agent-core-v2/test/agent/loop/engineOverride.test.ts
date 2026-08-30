@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -690,6 +690,90 @@ describe('external engine × session question service bridge', () => {
     await end;
 
     expect(wireResult).toEqual({ cancelled: true, reason: 'turn_ended' });
+  });
+
+  it('registers a background question task and returns its task_id immediately', async () => {
+    let wireResult: AskQuestionWireResult | undefined;
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      wireResult = await input.askUserQuestion?.({
+        question_id: 'question_1',
+        turn_id: String(input.turnId),
+        tool_call_id: 'call-q',
+        background: true,
+        timeout_ms: null,
+        questions: [
+          {
+            question: 'Which database?',
+            header: 'Storage',
+            options: [
+              { label: 'Postgres', description: 'Relational storage' },
+              { label: 'SQLite', description: 'Embedded storage' },
+            ],
+            multi_select: false,
+          },
+        ],
+      });
+      await input.dispatchEvent({ type: 'step.end', uuid: 'step-1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    ctx.mockNextResponse({ type: 'text', text: 'notification ack' });
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion({ 'Which database?': 'Postgres' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult?.answers).toEqual({});
+    expect(wireResult?.note).toContain('task_id: question-');
+    expect(wireResult?.note).toContain('status: running');
+    expect(wireResult?.note).toContain('automatic_notification: true');
+
+    const taskId = wireResult?.note?.match(/task_id: (\S+)/)?.[1];
+    expect(taskId).toBeDefined();
+    const tasks = ctx.get(IAgentTaskService);
+    await vi.waitFor(() => {
+      expect(tasks.getTask(taskId!)).toMatchObject({ kind: 'question', status: 'completed' });
+    });
+    const snapshot = await tasks.getOutputSnapshot(taskId!, 4096);
+    expect(snapshot.preview).toContain('Postgres');
+  });
+
+  it('keeps a foreground question blocking without registering a task', async () => {
+    let wireResult: AskQuestionWireResult | undefined;
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      wireResult = await input.askUserQuestion?.({
+        question_id: 'question_1',
+        turn_id: String(input.turnId),
+        tool_call_id: 'call-q',
+        background: false,
+        timeout_ms: null,
+        questions: [
+          {
+            question: 'Which database?',
+            options: [{ label: 'Postgres' }],
+            multi_select: false,
+          },
+        ],
+      });
+      await input.dispatchEvent({ type: 'step.end', uuid: 'step-1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion({ 'Which database?': 'Postgres' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult).toEqual({ answers: { 'Which database?': 'Postgres' } });
+    expect(ctx.get(IAgentTaskService).list(false)).toHaveLength(0);
   });
 });
 
