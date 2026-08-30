@@ -33,6 +33,8 @@ import { MAX_CRON_JOBS_PER_SESSION, MAX_PROMPT_BYTES } from '#/features/cron/too
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import type { GoalBudgetLimits } from '#/features/goal/types';
 import { IAgentPlanService } from '#/features/plan/plan';
+import type { SkillDefinition } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { readTodoItems } from '#/features/todo/todoItem';
 import { OrderedHookSlot } from '#/hooks';
@@ -56,6 +58,9 @@ import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentTaskService } from '#/agent/task/task';
+import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   EngineTurnEvent,
@@ -1226,6 +1231,31 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
           return { value: goal.getGoal() };
         }
+        if (request.domain === 'task') {
+          const tasks = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentTaskService),
+          );
+          if (request.key === 'task') {
+            return { value: tasks.list(false).map(taskEntryWire) };
+          }
+          const info = tasks.getTask(request.key);
+          if (info === undefined) {
+            throw stateBridgeError(-32002, `Task not found: ${request.key}`);
+          }
+          const output = await tasks.getOutputSnapshot(request.key, TASK_OUTPUT_PREVIEW_BYTES);
+          return { value: taskOutputWire(info, output) };
+        }
+        if (request.domain === 'skill') {
+          const catalog = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(ISessionSkillCatalog),
+          );
+          await catalog.ready;
+          const skill = catalog.catalog.getSkill(request.key);
+          if (skill === undefined) {
+            throw stateBridgeError(-32002, `Skill not found: ${request.key}`);
+          }
+          return { value: skillWire(skill) };
+        }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },
       stateWrite: async (request) => {
@@ -1361,12 +1391,64 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           }
           throw stateBridgeError(-32003, `invalid cron action: ${String(action)}`);
         }
+        if (request.domain === 'task') {
+          const value = request.value;
+          if (typeof value !== 'object' || value === null) {
+            throw stateBridgeError(
+              -32003,
+              'invalid task state value: expected { action: "stop" | "wait", ... }',
+            );
+          }
+          const action = (value as { action?: unknown }).action;
+          const tasks = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentTaskService),
+          );
+          if (action === 'stop') {
+            const id = (value as { id?: unknown }).id;
+            if (typeof id !== 'string') {
+              throw stateBridgeError(
+                -32003,
+                'invalid task stop value: expected { action: "stop", id: string }',
+              );
+            }
+            await tasks.suppressTerminalNotification(id);
+            const info = await tasks.stop(id, 'Stopped by TaskStop');
+            if (info === undefined) {
+              throw stateBridgeError(-32002, `Task not found: ${id}`);
+            }
+            return { ok: true, value: taskEntryWire(info) };
+          }
+          if (action === 'wait') {
+            const input = value as { id?: unknown; timeout_ms?: unknown };
+            if (typeof input.id !== 'string') {
+              throw stateBridgeError(
+                -32003,
+                'invalid task wait value: expected { action: "wait", id: string, timeout_ms?: number }',
+              );
+            }
+            if (
+              input.timeout_ms !== undefined &&
+              (typeof input.timeout_ms !== 'number' || !Number.isFinite(input.timeout_ms))
+            ) {
+              throw stateBridgeError(-32003, 'invalid task wait value: timeout_ms must be a number');
+            }
+            const info = await tasks.wait(input.id, input.timeout_ms ?? 30_000);
+            if (info === undefined) {
+              throw stateBridgeError(-32002, `Task not found: ${input.id}`);
+            }
+            if (TERMINAL_STATUSES.has(info.status)) {
+              tasks.markTasksDeliveredViaWait([{ taskId: info.taskId, status: info.status }]);
+            }
+            return { ok: true, value: taskEntryWire(info) };
+          }
+          throw stateBridgeError(-32003, `invalid task action: ${String(action)}`);
+        }
         if (request.domain === 'goal') {
           const value = request.value;
           if (typeof value !== 'object' || value === null) {
             throw stateBridgeError(
               -32003,
-              'invalid goal state value: expected { action: "update" | "set_budget", ... }',
+              'invalid goal state value: expected { action: "create" | "update" | "set_budget", ... }',
             );
           }
           const action = (value as { action?: unknown }).action;
@@ -1374,6 +1456,46 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             accessor.get(IAgentLifecycleService),
           );
           const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
+          if (action === 'create') {
+            const input = value as { objective?: unknown; completion_criterion?: unknown };
+            if (typeof input.objective !== 'string') {
+              throw stateBridgeError(
+                -32003,
+                'invalid goal create value: expected { action: "create", objective: string, completion_criterion?: string }',
+              );
+            }
+            if (
+              input.completion_criterion !== undefined &&
+              typeof input.completion_criterion !== 'string'
+            ) {
+              throw stateBridgeError(
+                -32003,
+                'invalid goal create value: completion_criterion must be a string',
+              );
+            }
+            try {
+              const snapshot = await goal.createGoal(
+                {
+                  objective: input.objective,
+                  completionCriterion: input.completion_criterion,
+                  replace: false,
+                },
+                'model',
+              );
+              return { ok: true, value: { goal: snapshot } };
+            } catch (error) {
+              if (isError2(error)) {
+                if (
+                  error.code === ErrorCodes.GOAL_OBJECTIVE_EMPTY ||
+                  error.code === ErrorCodes.GOAL_OBJECTIVE_TOO_LONG
+                ) {
+                  throw stateBridgeError(-32003, error.message);
+                }
+                throw stateBridgeError(-32004, error.message);
+              }
+              throw error;
+            }
+          }
           if (action === 'update') {
             const status = (value as { status?: unknown }).status;
             if (status !== 'active' && status !== 'complete' && status !== 'blocked') {
@@ -1765,6 +1887,44 @@ function normalizeFinishReason(reason: FinishReason): string {
   if (reason === 'completed') return 'end_turn';
   if (reason === 'truncated') return 'max_tokens';
   return reason;
+}
+
+const TASK_OUTPUT_PREVIEW_BYTES = 32 * 1024;
+
+function taskEntryWire(info: AgentTaskInfo): Record<string, unknown> {
+  return {
+    taskId: info.taskId,
+    description: info.description,
+    status: info.status,
+    detached: info.detached,
+    startedAt: info.startedAt,
+    endedAt: info.endedAt,
+    stopReason: info.stopReason,
+    timeoutMs: info.timeoutMs,
+  };
+}
+
+function taskOutputWire(
+  info: AgentTaskInfo,
+  output: AgentTaskOutputSnapshot,
+): Record<string, unknown> {
+  return {
+    ...taskEntryWire(info),
+    outputPath: output.outputPath,
+    outputSizeBytes: output.outputSizeBytes,
+    previewBytes: output.previewBytes,
+    truncated: output.truncated,
+    fullOutputAvailable: output.fullOutputAvailable,
+    preview: output.preview,
+  };
+}
+
+function skillWire(skill: SkillDefinition): Record<string, unknown> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    instructions: skill.content,
+  };
 }
 
 function stateBridgeError(code: number, message: string): Error {

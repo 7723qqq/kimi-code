@@ -16,10 +16,12 @@ import {
   type TurnEngine,
   type TurnEngineInput,
 } from '#/agent/loop/engineOverride';
+import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { IFlagService } from '#/app/flag/flag';
 import { AgentCron } from '#/features/cron/cronAgentRuntime';
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
@@ -33,6 +35,7 @@ import {
   createTestAgent,
   execEnvServices,
   permissionModeServices,
+  skillServices,
   telemetryServices,
   type TestAgentContext,
   type TestAgentServiceOverride,
@@ -759,6 +762,44 @@ describe('external engine × state bridge', () => {
     }
   }
 
+  function completingTask(output: string): AgentTask {
+    return {
+      idPrefix: 'test',
+      kind: 'process',
+      description: 'fake process task',
+      start: async (sink) => {
+        sink.appendOutput(output);
+        await sink.settle({ status: 'completed' });
+      },
+      toInfo: (base) => ({ ...base, kind: 'process', command: 'echo', pid: 0, exitCode: null }),
+    };
+  }
+
+  function abortableTask(): AgentTask {
+    return {
+      idPrefix: 'test',
+      kind: 'process',
+      description: 'fake process task',
+      start: async (sink) => {
+        await new Promise<void>((resolve) => {
+          sink.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        await sink.settle({ status: 'killed' });
+      },
+      toInfo: (base) => ({ ...base, kind: 'process', command: 'sleep', pid: 0, exitCode: null }),
+    };
+  }
+
+  function runningTask(): AgentTask {
+    return {
+      idPrefix: 'test',
+      kind: 'process',
+      description: 'fake process task',
+      start: async () => {},
+      toInfo: (base) => ({ ...base, kind: 'process', command: 'sleep', pid: 0, exitCode: null }),
+    };
+  }
+
   it('reads the todo domain through the AgentTodo runtime', async () => {
     let readResult: StateReadWireResult | undefined;
     const engine = makeStateEngine(async (input) => {
@@ -1242,6 +1283,262 @@ describe('external engine × state bridge', () => {
           key: 'goal',
           value: { goal: null },
           undoable: true,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('reads the task domain list through the AgentTaskService', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'task', key: 'task' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    ctx.get(IAgentTaskService).registerTask(completingTask('hello\n'));
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: [
+        expect.objectContaining({
+          taskId: expect.any(String),
+          description: 'fake process task',
+          status: 'completed',
+          startedAt: expect.any(Number),
+          endedAt: expect.any(Number),
+        }),
+      ],
+    });
+  });
+
+  it('reads a single task output snapshot through the AgentTaskService', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'task', key: taskId });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    const taskId = ctx.get(IAgentTaskService).registerTask(completingTask('hello\n'));
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: expect.objectContaining({
+        taskId,
+        description: 'fake process task',
+        status: 'completed',
+        outputSizeBytes: 6,
+        preview: 'hello\n',
+      }),
+    });
+  });
+
+  it('rejects reading a missing task with -32002', async () => {
+    let readError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      readError = await captureError(async () => {
+        await input.stateRead?.({ domain: 'task', key: 'missing-task' });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((readError as { code?: number }).code).toBe(-32002);
+  });
+
+  it('stops a task through the AgentTaskService', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'task',
+        key: taskId,
+        value: { action: 'stop', id: taskId },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    const taskId = ctx.get(IAgentTaskService).registerTask(abortableTask());
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toMatchObject({ taskId, status: 'killed' });
+    expect(ctx.get(IAgentTaskService).getTask(taskId)).toMatchObject({ status: 'killed' });
+  });
+
+  it('waits on a task through the AgentTaskService and returns its current state', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'task',
+        key: taskId,
+        value: { action: 'wait', id: taskId, timeout_ms: 50 },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    const taskId = ctx.get(IAgentTaskService).registerTask(runningTask());
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toMatchObject({ taskId, status: 'running' });
+  });
+
+  it('waits on a completed task through the AgentTaskService and returns the terminal state', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'task',
+        key: taskId,
+        value: { action: 'wait', id: taskId, timeout_ms: 5_000 },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    const taskId = ctx.get(IAgentTaskService).registerTask(completingTask('done\n'));
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toMatchObject({ taskId, status: 'completed' });
+  });
+
+  it('rejects stopping a missing task with -32002', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'task',
+          key: 'missing-task',
+          value: { action: 'stop', id: 'missing-task' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32002);
+  });
+
+  it('rejects an invalid task action with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'task',
+          key: 'task',
+          value: { action: 'explode' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('reads the skill domain through the session skill catalog', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'skill', key: 'my-skill' });
+    });
+    const catalog = new InMemorySkillCatalog();
+    catalog.register({
+      name: 'my-skill',
+      description: 'A test skill',
+      path: '/skills/my-skill',
+      dir: '/skills/my-skill',
+      content: 'Follow these instructions.',
+      metadata: {},
+      source: 'user',
+    });
+    ctx = createTestAgentWithEngine(engine, skillServices(catalog));
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: {
+        name: 'my-skill',
+        description: 'A test skill',
+        instructions: 'Follow these instructions.',
+      },
+    });
+  });
+
+  it('rejects reading a missing skill with -32002', async () => {
+    let readError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      readError = await captureError(async () => {
+        await input.stateRead?.({ domain: 'skill', key: 'nope' });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine, skillServices(new InMemorySkillCatalog()));
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((readError as { code?: number }).code).toBe(-32002);
+  });
+
+  it('writes the goal domain create action through the AgentGoal runtime', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'goal',
+        key: 'goal',
+        value: { action: 'create', objective: 'Do the thing' },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toEqual({
+      goal: expect.objectContaining({ objective: 'Do the thing', status: 'active' }),
+    });
+    expect(ctx.resolve(AgentGoal).getGoal().goal).toMatchObject({ objective: 'Do the thing' });
+  });
+
+  it('rejects a goal create with an existing goal with -32004', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { action: 'create', objective: 'Another goal' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentGoal).createGoal({ objective: 'Existing goal' });
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32004);
+  });
+
+  it('rejects a goal create with an empty objective with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { action: 'create', objective: '   ' },
+          undoable: false,
         });
       });
     });

@@ -52,15 +52,19 @@ const BASH_MAX_SECONDS: u64 = 300;
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 pub mod ask_user_question;
+pub mod create_goal;
 pub mod cron_tools;
 pub mod encoding;
+pub mod exit_plan_mode;
 pub mod fetch_url;
 pub mod get_goal;
 pub mod goal_tools;
 pub mod list_directory;
 pub mod plan_mode;
+pub mod skill;
 pub mod subagent_tools;
 pub mod task_format;
+pub mod task_tools;
 pub mod todo_item;
 pub mod todo_list;
 pub mod web_search;
@@ -202,6 +206,19 @@ impl NativeToolset {
                 | "update_goal"
                 | "setgoalbudget"
                 | "set_goal_budget"
+                | "tasklist"
+                | "task_list"
+                | "taskoutput"
+                | "task_output"
+                | "taskstop"
+                | "task_stop"
+                | "taskwait"
+                | "task_wait"
+                | "exitplanmode"
+                | "exit_plan_mode"
+                | "creategoal"
+                | "create_goal"
+                | "skill"
         )
     }
 
@@ -267,6 +284,34 @@ impl NativeToolset {
             "setgoalbudget" | "set_goal_budget" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(goal_tools::execute_set_goal_budget(callbacks, args).await)
+            }
+            "tasklist" | "task_list" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(task_tools::execute_task_list(callbacks, args).await)
+            }
+            "taskoutput" | "task_output" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(task_tools::execute_task_output(callbacks, args).await)
+            }
+            "taskstop" | "task_stop" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(task_tools::execute_task_stop(callbacks, args).await)
+            }
+            "taskwait" | "task_wait" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(task_tools::execute_task_wait(callbacks, args).await)
+            }
+            "exitplanmode" | "exit_plan_mode" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(exit_plan_mode::execute_exit_plan_mode(callbacks, args).await)
+            }
+            "creategoal" | "create_goal" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(create_goal::execute_create_goal(callbacks, args).await)
+            }
+            "skill" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(skill::execute_skill(callbacks, args).await)
             }
             "write" => self.write(args),
             "edit" => self.edit(args),

@@ -1150,6 +1150,16 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 第 7 批第二批收尾：Task 族 + 第三批交互类 — ✅ 完成（2026-09-01）
+
+- `src/tools/task_tools.rs`（1413 行，37 单测）：TaskList（active_only 过滤 Rust 侧做）/ TaskOutput（输出快照渲染）/ TaskStop / TaskWait（宿主阻塞等待 + 超时报告）；wire 双兼容（宿主 taskId/preview 形状）
+- `src/tools/exit_plan_mode.rs`（18 单测）：先读 plan 域，auto 模式直接退出、非 auto 经 ask_question 确认（Approve/Reject/Revise）；未激活 → v2 文案
+- `src/tools/create_goal.rs`（9 单测）：state_write goal {action:"create"} → 渲染 goal 快照
+- `src/tools/skill.rs`（8 单测）：state_read skill 域 → `<skill-loaded>` 块渲染；不存在 → v2 文案
+- `loopService.ts`：stateRead 加 task 域（列表/单任务输出快照 -32002）+ skill 域（技能定义）；stateWrite 加 task 域（stop/wait，对齐 v2 语义）；goal 写加 create action（objective 校验 -32003、已有 goal -32004）
+- engineOverride 测试 +13（task 读/stop/wait、skill 读、goal create、错误映射），51/51
+- `tools/mod.rs` 统一接线 7 个工具（主代理）
+
 ### 第 7 批第二批：cron 工具族 + goal 写工具 — ✅ 完成（2026-09-01）
 
 - `src/tools/cron_tools.rs`（1100 行，24 单测）：CronList（state_read cron 域 + 渲染对齐 v2）/ CronCreate（引擎侧校验：parse/5 年窗口/8KiB/one-shot 350 天）/ CronDelete（id 格式校验）；tool def schema 对齐 v2
