@@ -3,7 +3,6 @@
 //! Pure functions only — no HTTP. The transport layer (reqwest) and credential
 //! wiring are added in a later step; these functions own the provider-specific
 //! JSON shape and are unit-tested against fixtures.
-#![allow(dead_code)]
 
 use serde_json::{Value, json};
 

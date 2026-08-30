@@ -1,6 +1,5 @@
 //! Provider-agnostic wire message used to project a turn's history into a
 //! specific provider's request format.
-#![allow(dead_code)]
 
 use crate::turn_loop::types::{ContentBlock, LLMMessage, ToolCall};
 

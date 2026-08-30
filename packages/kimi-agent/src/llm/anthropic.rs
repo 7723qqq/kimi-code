@@ -5,7 +5,6 @@
 //! message), assistant tool calls are `tool_use` content blocks whose `input`
 //! is a JSON **object** (not a string), and tool results are `tool_result`
 //! blocks carried on a `user` message.
-#![allow(dead_code)]
 
 use serde_json::{Value, json};
 
