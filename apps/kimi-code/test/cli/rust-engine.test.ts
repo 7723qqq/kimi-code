@@ -70,7 +70,7 @@ beforeEach(() => {
   mocks.createRunTurnOverride.mockReset();
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
-  // Capability probe defaults to "bundle absent" so gate tests are hermetic.
+  // Bundle-absent default keeps the rust-first fallback path hermetic.
   mocks.existsSync.mockReset().mockReturnValue(false);
   mocks.readdirSync.mockReset().mockImplementation(() => {
     throw new Error('engine addon dir not present in this fixture');
@@ -93,22 +93,23 @@ describe('maybeLoadRustEngine', () => {
     expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when agent.engine is unset or js (JS engine default)', async () => {
+  it('falls back to the JS loop when unset and the bundle is missing, and on explicit "js"', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
-    // Unset probes the bundle (fs check) and finds none in this fixture.
+    // Unset defaults to rust, so the bundle-presence guard is consulted and
+    // finds nothing in this fixture.
     expect(mocks.existsSync).toHaveBeenCalled();
 
     mocks.existsSync.mockClear();
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: { engine: 'js' } }) });
     const maybeLoadRustEngine2 = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine2('/home/u')).resolves.toBeUndefined();
-    // Explicit opt-out skips the capability probe entirely.
+    // Explicit opt-out skips the bundle-presence guard entirely.
     expect(mocks.existsSync).not.toHaveBeenCalled();
   });
 
-  it('auto-enables the engine when agent.engine is unset and the bundle is loadable', async () => {
+  it('defaults to the engine when agent.engine is unset and the bundle is loadable', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
     mocks.existsSync.mockReturnValue(true);
     const engine = vi.fn();

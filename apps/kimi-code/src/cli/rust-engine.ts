@@ -2,9 +2,10 @@
  * Rust agent engine integration (v2).
  *
  * Wires the Rust agent engine (kimi-agent) based on the `agent.engine`
- * gate: `"rust"` always, `"js"` never, and unset auto-enables it when the
- * bundle is loadable (napi addon or bundled stdio CLI). Falls back to the
- * JS engine when the addon/binary is missing or fails to start.
+ * gate. The default is rust-first: `"js"` is an explicit opt-out, while a
+ * missing `agent.engine` (or `"rust"`) enables the engine whenever the
+ * bundle is loadable (napi addon or bundled stdio CLI), falling back to the
+ * JS engine only when the bundle is missing or fails to start.
  *
  * MultiLLM support: when `agent.multiLlm` lists provider names, those
  * providers are extracted from the config and passed to the Rust engine
@@ -207,11 +208,13 @@ export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: stri
 }
 
 /**
- * Capability probe: true when the engine bundle is present (napi addon or
- * the bundled stdio CLI). Mirrors `rust-loop`'s `isRustEngineAvailable`
- * against the same candidate paths, but stays dependency-free — importing
- * rust-loop drags the whole agent-core-v2 graph in, which is several
- * seconds on a cold test worker. Only existence checks, never loads.
+ * Bundle-presence guard for the rust-first default. True when the engine
+ * bundle is present (napi addon or the bundled stdio CLI). Mirrors
+ * `rust-loop`'s `isRustEngineAvailable` against the same candidate paths,
+ * but stays dependency-free — importing rust-loop drags the whole
+ * agent-core-v2 graph in, which is several seconds on a cold test worker.
+ * Only existence checks, never loads: an unset `agent.engine` falls back
+ * to the JS loop exactly when this guard is false.
  */
 function isEngineLoadable(): boolean {
   const root = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -263,15 +266,13 @@ export async function maybeLoadRustEngine(
   }
 
   const agentConfig = loaded.config.agent;
-  // Three-way engine gate:
-  // - agent.engine = "rust"  → always wired (explicit opt-in).
+  // Engine gate — rust-first:
   // - agent.engine = "js"    → never wired (explicit opt-out).
-  // - unset                  → capability probe: wire it when the engine
-  //   bundle is loadable (.node addon or bundled stdio CLI), quietly
-  //   falling back to the JS loop otherwise.
+  // - agent.engine = "rust"  → always wired (explicit opt-in).
+  // - unset (default)        → wired whenever the bundle is loadable; the
+  //   JS loop is the fallback only when the bundle is missing.
   const engineMode = agentConfig?.engine;
-  const engineActive =
-    engineMode === 'rust' || (engineMode !== 'js' && isEngineLoadable());
+  const engineActive = engineMode !== 'js' && (engineMode === 'rust' || isEngineLoadable());
   if (!engineActive) {
     // Warn if multiLlm is set but the engine isn't active — it's a no-op in this case.
     if (agentConfig?.multiLlm && agentConfig.multiLlm.length > 0) {

@@ -186,7 +186,7 @@ describe.skipIf(!optedIn || !hasNativeAddon || !hosted)(
   },
 );
 
-describe.skipIf(!hasNativeAddon)('capability-probe auto-enable (real bundle)', () => {
+describe.skipIf(!hasNativeAddon)('rust-first default (real bundle)', () => {
   function writeConfig(homeDir: string, agentSection: string): string {
     const path = join(homeDir, 'config.toml');
     writeFileSync(
@@ -221,8 +221,8 @@ describe.skipIf(!hasNativeAddon)('capability-probe auto-enable (real bundle)', (
       try {
         const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
         const engine = await maybeLoadRustEngine(homeDir);
-        // No agent.engine configured: the capability probe (real .node) must
-        // auto-wire the engine without any LLM call.
+        // No agent.engine configured: the rust-first default wires the
+        // engine from the real .node bundle without any LLM call.
         expect(engine).toBeDefined();
         expect(typeof engine).toBe('function');
       } finally {

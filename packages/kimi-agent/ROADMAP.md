@@ -451,7 +451,7 @@ P11 核实了「stdio 通道在发布产物里必然缺席」(dist-native/bin/<a
 |------|------|
 | `agent.engine = "rust"` | 恒启用(显式选入) |
 | `agent.engine = "js"` | 恒禁用(显式退出,跳过探测) |
-| 未设置 | **能力探测**:`isRustEngineAvailable()`(.node addon 或打包 stdio CLI 存在即真)为真则启用,否则安静回退 JS loop |
+| 未设置 | **默认 rust(rust-first)**：bundle(.node addon 或打包 stdio CLI)存在即启用,缺失才安静回退 JS loop |
 
 实现:`maybeLoadRustEngine`(rust-engine.ts)在未配置时动态 import rust-loop 的 `isRustEngineAvailable`(纯文件存在检查,不加载 addon)。多 LLM/provider 不兼容不阻断——引擎以 host-proxy 兜底也有收益。
 
@@ -474,7 +474,7 @@ auto 探测上线后 mock 测试全绿,但**真机**验证暴露:`loadRuntimeCon
 ### 诚实边界(沿用+新增)
 
 - ~~真实 LLM 会话端到端仍待真 key~~ **✅ 已达成(2026-08-30)**：见「真实 key E2E 首次全绿」。
-- tower/swarm 的具体 variant 未单独写引擎契约(机制与 plan 同源,均经 onWillBeginStep→AgentReminder;真实会话 E2E 兜底)。
+- ~~tower/swarm 的具体 variant 未单独写引擎契约~~ **✅ 已达成(P18)**：engineOverride 新增 tower/swarm 真实注入契约各 1 例,投影内均见各自提醒文本。
 
 ## P14 — 真实 key 端到端首次全绿（2026-08-30）
 
@@ -575,3 +575,41 @@ native outputTokens: 88, 88, 88   proxy: 89, 89, 89
 这补齐了 P13 链条的最后一段:此前 plan 注入只证过 fake engine(engineOverride 契约)与真实引擎未联动;现在**真实引擎的请求消息携带 feature 注入**已实证。tower/swarm 的注入同源(AgentReminder variant → onWillBeginStep),机制闭环。
 
 验证:rustEngineE2E 1→2、engineOverride+plan 全量 37/37 无回归、oxlint 0 errors。
+
+## P18 — engine 路径 features 契约覆盖审计 + tower/swarm 注入补测（2026-08-30）
+
+### 1. features 契约覆盖审计
+
+engineOverride(fake engine 契约)+ rustEngineE2E(真实 napi addon)对 features 的覆盖盘点:
+
+| feature | 注入变体(机制) | engineOverride | rustEngineE2E |
+|---------|---------------|----------------|---------------|
+| 注入门基座 | onWillBeginStep→AgentReminder | ✅ 抽象注入用例 | - |
+| plan | plan_mode(PlanModeInjection) | ✅ 投影含 reminder | ✅ 真实引擎请求含 reminder |
+| goal | engineInput.getGoal(registerEngineGoalProvider) | ✅ 快照进引擎输入 | - |
+| tower | tower_mode(TowerModeInjection:isActive + TOWER 实验 flag) | ✅ 投影含「Tower mode is active」 | - |
+| swarm | swarm_mode(SwarmInjection:agentState 触发状态) | ✅ 投影含「## Swarm Mode」 | - |
+
+todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 AgentReminder→onWillBeginStep 门,机制已被 plan/tower/swarm 三个 feature 证实。
+
+### 2. 补测内容
+
+`engineOverride.test.ts` 9→11,新增「external engine × tower/swarm injection bridge」:
+
+- **tower**:「carries the tower-mode reminder into the engine message projection」——真实 cwd + `stubFlag(TOWER_FLAG_ID)` 点亮实验 flag + `tower.enter()` → 引擎 turn → `buildMessages()` 含 `Tower mode is active`(FULL 提醒)。
+- **swarm**:「carries the swarm-mode reminder into the engine message projection」——`IAgentSwarmService.enter('manual')` → 引擎 turn → `buildMessages()` 含 `## Swarm Mode`(ENTER 提醒)。
+
+两者都经真实 feature service(TowerModeInjection/SwarmInjection 随 service 构造经 `activateReminderWhenReady` 挂载),与 plan 用例同一 onWillBeginStep 注入门——证明 feature 注入到达引擎投影在 tower/swarm 上闭环,P13/P16 的「具体 variant 不再单独验证」边界撤销。
+
+### 验证
+
+- engineOverride 11/11(9→11);tower/swarm/plan/goal + rustEngineE2E 回归 **512/512**;oxlint 0 errors;agent-core-v2 typecheck 0 errors。
+
+## P19 — C-1 产品决策：engine 未设置时默认恒启用 rust（rust-first）（2026-08-30）
+
+产品决策拍板：`agent.engine` 未设置时的默认策略为 **rust-first**——只要引擎 bundle（.node addon 或打包 stdio CLI）存在即启用，bundle 缺失才回退 JS loop；`"js"` 仍是显式退出、`"rust"` 仍是显式选入。该策略就是 P13 三态门的行为（「能力探测」是它的实现触发器），本轮把表述统一为 rust-first：
+
+- `rust-engine.ts`：头注释 + 门控注释改为 rust-first 语义；门控表达式重构为 `engineMode !== 'js' && (engineMode === 'rust' || isEngineLoadable())`（直读策略，行为不变，逻辑等价已验证）。
+- 测试措辞：rust-engine.test.ts 两例改名为「unset+bundle 缺失→JS 回退 / unset+bundle 存在→默认启用」;rust-engine-cli-e2e 的 describe 改为「rust-first default (real bundle)」。
+
+验证：rust-engine.test.ts 21/21、rust-engine-cli-e2e（真 .node bundle）2/2、oxlint 0 errors。
