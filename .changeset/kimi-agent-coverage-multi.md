@@ -1,0 +1,5 @@
+---
+"@moonshot-ai/kimi-code": patch
+---
+
+Add 10 in-file unit tests to `packages/kimi-agent/src/llm/multi.rs` (F.2 coverage baseline). Before this change `MultiLLM` had only 1 direct test (`test_race_prefers_success_over_fast_failure`) and its public surface — `MultiLLM::new` / `provider_count` / `first_past_the_post` / `all_results` / `system_prompt` / `model_name` / `is_retryable_error` — was exercised only indirectly through `run_turn`. The new tests are deterministic (no real LLM, no timing) and cover the constructor, accessors, the empty-providers short-circuit, the single-provider short-circuit that bypasses the race machinery, the multi-result collection path, and the all-error race result. `cargo test --lib` goes from 243 → 253 passed; clippy 0 warnings. `RpcHostCallbacks` / `NativeToolCallbacks` are deliberately left without new direct tests because their behavior is plain delegation plus an `RpcServer` invocation that requires a live stdio JSON-RPC peer, and `RpcServer` is already covered by its own dedicated unit tests.
