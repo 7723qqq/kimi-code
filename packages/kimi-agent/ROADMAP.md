@@ -634,7 +634,19 @@ todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 Ag
 | addon Rust read | `kimi-native-tools/src/read.rs`（1216 行）→ 导出 `nativeRead` | 全仓只有 `.d.ts`、bridge `_base/native-tools.ts:106`、bridge 自身测试引用；**零生产调用点** |
 | 引擎 Rust read | `kimi-agent/src/tools/mod.rs:177` | 有实现，但默认不启用（见 G-1） |
 
-`nativeGrep` / `nativeGrepStructured` / `nativeWrite` 同样只有 bridge、无生产调用点；`nativeBatchRead` 连 bridge 都没接，只存在于 `index.d.ts`。v2 的 Grep 工具实际是 spawn 外部 `rg` 二进制再解析 stdout（`grepTool.ts:123`，并有 `grep_tool_rg_fallback` 遥测）。addon 里**确实被生产用上**的部分：edit（`app/edit/fileEditService.ts:30`）、bash、fetch_url、path-access、permission rules、compaction 助手、glob-match、result 截断/spill、knowledge、i18n 翻译、kosong 的 SSE 流。
+`nativeGrep` / `nativeGrepStructured` / `nativeWrite` 同样只有 bridge、无生产调用点；`nativeBatchRead` 也是**真导出但无人调用**（`napi_bindings.rs:198` 的 `native_batch_read`，带 file-cache 路径），不是空声明。v2 的 Grep 工具实际是 spawn 外部 `rg` 二进制再解析 stdout（`grepTool.ts:123`，并有 `grep_tool_rg_fallback` 遥测）。addon 里**确实被生产用上**的部分：edit（`app/edit/fileEditService.ts:30`）、bash、fetch_url、path-access、permission rules、compaction 助手、glob-match、result 截断/spill、list-directory（`agent/profile/context.ts:392`）、knowledge、i18n 翻译、kosong 的 SSE 流。
+
+#### D-3 删除的真实连带半径（实测，推翻了「零风险」的估计）
+
+删导出壳不是孤立方能删的——五者各自的实现核心归属不同：
+
+- **`native_write`**：❌ **实测不干净**（以为可删，已回退）。删壳后 `write::WriteMode::Append` 变成 never constructed，多出 1 条 dead_code 警告；而 append 是**在用的产品能力**——v2 Write 工具暴露 `mode: 'overwrite' | 'append'`（`tools/os/write/writeTool.ts:89` 走 `fs.appendText`），引擎侧 `tools/mod.rs:628` 也已实现 append。addon 的 append 分支只是因没人接线才不可达，删它等于删测试过的能力。
+- **`native_read` + `native_batch_read`**：删壳会让 `read::read_file` / `ReadConfig` 不可达，进而拖垮 `file_cache.rs`（473 行，只被这两壳与 `native_file_cache_invalidate` 使用，而后者本身也是死导出），还要动**在用的** `native_edit` 里的 `FILE_CACHE.invalidate` 调用。合计牵连 ≈ 1.7k 行。
+- **`native_grep` + `native_grep_structured`**：核心 `grep_search` / `grep_search_structured` 只被这两壳调用，删壳即 `grep.rs`（1470 行）整体不可达——而它正是第 3 批的移植参考。
+
+叠加本仓的 no-dead-code 立场（`9b5947283e` 刚清掉 `dead_code` allows），**只删壳不删核 = 制造 dead code 警告，违反验收口径**。
+
+**结论：第 0.5 批整批撤销——本仓不存在可孤立删除的 addon 工具导出。** D-3 的「先删死代码」在这个代码库里不成立：addon 导出的退场只能与「引擎实现替换它」同时发生（并入第 2/3 批），否则必然要么造出不可达代码、要么丢掉在用能力。已回退全部改动，`cargo check --lib` 恢复 0 warning。
 
 含义：「Rust 已经有 read」这句直觉半对——实现有，链路没接。所以「替代 TS」不是翻一个开关，而是把工具层从三份平行实现收敛成引擎内一份。
 
@@ -664,7 +676,7 @@ todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 Ag
 ### 排序计划（按已决策 D-1/D-2/D-3 重排）
 
 - **第 0 批（纯存量，无风险）**：`cargo fmt` 归零、clippy 4 warnings 归零。验收即口径本身。
-- **第 0.5 批（D-3 直接兑现）**：删除粒度要精确——**只删死的 napi 导出壳**（`napi_bindings.rs` 的 `native_read:136` / `native_write:275` / `native_grep:371` / `native_grep_structured:452`）+ `index.d.ts` 对应声明（含只有声明没有壳的 `nativeBatchRead`）+ v2 bridge 里的 `tryNative*` 及其测试。**保留 `read.rs` / `grep.rs` 实现模块**：它们是第 2/3 批的移植参考且自带 cargo 测试。注意 `write::write_file` 被 `edit.rs:176` 内部调用（`nativeEdit` 生产在用），不可动。删 addon 需重建 `.node` 并跑 TS 套件确认无回归。
+- ~~**第 0.5 批（D-3 直接兑现）**~~ → **已撤销**（见上面的连带半径实测）：本仓没有可孤立删除的 addon 工具导出，addon 侧退场并入第 2/3 批的「替换即删除」。
 - **第 1 批（D-1 的「量」）**：G-5 传输/执行路径观测出口（`/status` 要能说清这次运行用的是 native 还是 host）；G-6 宿主生命周期等效逐项核对（结果截断/spill、display、遥测、`ToolAccesses` 并行冲突、undo 锚点）；工具执行路径基线（现有 bench 只覆盖 LLM 传输）。出数字，再定 `nativeTools` 默认值。
 - **第 2 批（read 对齐）**：以 addon `read.rs` 为参考在引擎内实现，去掉 4 MiB/1000 行降级，补编码与行尾处理；完成后按 D-3 退场 addon 对应实现。
 - **第 3 批（grep/glob/write/edit/bash 对齐）**：同法吸收 `grep.rs`；Windows 无 `KIMI_SHELL_PATH` 时 bash 归属宿主这条单独判定是否保留。
@@ -677,7 +689,7 @@ todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 Ag
 
 - **D-1 → 先量再定。** 依 G-6：不预设翻 true，先做「G-5 观测出口 + G-6 宿主生命周期等效逐项核对 + 工具执行路径基线」，拿到收益数字再决定默认值。在此之前 P19 的 rust-first 只按「引擎本体」解释。
 - **D-2 → 全量吸收，引擎做完整 runtime。** 不按「纯 I/O 才吸收」划界；宿主状态与人机交互类（todo / plan / task / 子代理 / ask-user-question）也在目标范围内。这把本程序从「工具移植」升级为「引擎成为完整 runtime」，随之出现三个此前不在地图里的前置项：反向交互协议（引擎要能向宿主发问并等回答，非阻塞 step 循环）、宿主状态层的归属（todo/plan 的持久化与 undo 语义）、子代理递归（引擎内起子 turn）。
-- **D-3 → 先删死代码，再逐个退场。** `nativeRead` / `nativeGrep` / `nativeGrepStructured` / `nativeWrite` / `nativeBatchRead` 无生产调用点，立即删（连同 bridge 里对应的 `tryNative*` 与其测试），不等引擎对齐；其余导出按批次「引擎实现对齐 → 删 addon 那份」。不建双轨 guard 测试。
+- **D-3 → 先删死代码，再逐个退场。** **按字面执行后被实测推翻**（见上面的连带半径）：五个导出没有一个能孤立删除，故退场时机改为「引擎实现替换它的同一批里一起删」（并入第 2 / 3 批），仍然不建双轨 guard 测试。原意图不变——不留重复实现——变的只是顺序。
 
 ### 本轮未验证
 
