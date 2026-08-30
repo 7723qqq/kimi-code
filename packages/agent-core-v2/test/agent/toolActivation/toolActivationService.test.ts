@@ -364,6 +364,42 @@ describe('AgentToolActivationService', () => {
     expect(gammaConstructions).toBe(0);
   });
 
+  it('withdraws a contribution when its when predicate turns false and restores it later', async () => {
+    let visible = true;
+    registerAgentToolService(IGammaTool, GammaTool, { name: 'Gamma', when: () => visible });
+    const ix = createActivationHost();
+    const registry = ix.get(IAgentToolRegistryService);
+    const activation = ix.get(IAgentToolActivationService);
+
+    await activation.activate();
+    const gamma = registry.resolve('Gamma');
+    expect(gamma).toBeInstanceOf(GammaTool);
+
+    visible = false;
+    await activation.activate();
+    expect(registry.resolve('Gamma')).toBeUndefined();
+    expect(gammaConstructions).toBe(1);
+
+    visible = true;
+    await activation.activate();
+    expect(registry.resolve('Gamma')).toBeInstanceOf(GammaTool);
+  });
+
+  it('treats a throwing when predicate as false (fail-closed)', async () => {
+    registerAgentToolService(IGammaTool, GammaTool, {
+      name: 'Gamma',
+      when: () => {
+        throw new Error('boom');
+      },
+    });
+    const ix = createActivationHost();
+
+    await ix.get(IAgentToolActivationService).activate();
+
+    expect(ix.get(IAgentToolRegistryService).resolve('Gamma')).toBeUndefined();
+    expect(gammaConstructions).toBe(0);
+  });
+
   it('honors the workspace tool-policy veto before the profile', async () => {
     gateData.disabledTools = ['Beta'];
     registerAgentToolService(IAlphaTool, AlphaTool, { name: 'Alpha' });

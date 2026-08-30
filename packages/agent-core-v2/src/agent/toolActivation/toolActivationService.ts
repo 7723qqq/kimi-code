@@ -1,5 +1,5 @@
 import { type CollectionView } from '#/_base/di/collection';
-import { IInstantiationService } from '#/_base/di/instantiation';
+import { IInstantiationService, type ServicesAccessor } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
@@ -47,8 +47,22 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
   }
 
   activate(): Promise<void> {
+    this.instantiationService.invokeFunction((accessor) => {
+      for (const record of this.contributions.items) {
+        if (!this.whenAllows(record, accessor)) this.deactivateRecord(record);
+      }
+    });
     this.activateRecords(this.contributions.items);
     return Promise.resolve();
+  }
+
+  private whenAllows(record: AgentToolContribution, accessor: ServicesAccessor): boolean {
+    if (record.options.when === undefined) return true;
+    try {
+      return record.options.when(accessor);
+    } catch {
+      return false;
+    }
   }
 
   private activateRecords(records: readonly AgentToolContribution[]): void {
@@ -64,7 +78,7 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
         if (!this.runtimeAllows(record)) continue;
         if (!isToolActive(workspaceVeto, options.name, source)) continue;
         if (!isToolActive(policy, options.name, source)) continue;
-        if (options.when !== undefined && !options.when(accessor)) continue;
+        if (!this.whenAllows(record, accessor)) continue;
         const tool = accessor.get(id);
         const registration = this.toolRegistry.register(tool, {
           source: options.source,
