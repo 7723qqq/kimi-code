@@ -93,7 +93,6 @@ pub struct ToolInfo {
 
 /// The LLM's response to a chat call.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct LLMChatResponse {
     /// Assistant text content. Empty on the host-proxy path (the host owns
     /// the transcript there); filled by the native HTTP transport so the
@@ -578,63 +577,6 @@ pub trait ExecutableTool: Send + Sync {
     ) -> Result<ToolExecution, Box<dyn std::error::Error>>;
 }
 
-// ── LoopHooks ──────────────────────────────────────────────────────────────
-
-/// Possible results from the before_step hook.
-#[derive(Debug, Clone)]
-pub enum BeforeStepResult {
-    /// Stop the turn with this reason.
-    StopTurn(LoopTurnStopReason),
-    /// Continue normally.
-    Continue,
-}
-
-/// Possible results from the after_step hook.
-#[derive(Debug, Clone)]
-pub enum AfterStepResult {
-    /// Stop the turn.
-    StopTurn(LoopTurnStopReason),
-    /// Continue to the next step.
-    Continue,
-}
-
-/// Context passed to hooks.
-#[derive(Debug, Clone)]
-pub struct StepContext {
-    pub turn_id: String,
-    pub step: u32,
-}
-
-/// Context passed to after_step hook.
-#[derive(Debug, Clone)]
-pub struct AfterStepContext {
-    pub turn_id: String,
-    pub step: u32,
-    pub tool_results: Vec<ExecutableToolResult>,
-}
-
-/// A before-step hook: invoked before each step with the step context.
-pub type BeforeStepHook = Box<
-    dyn Fn(&StepContext) -> Result<Option<BeforeStepResult>, Box<dyn std::error::Error>>
-        + Send
-        + Sync,
->;
-
-/// An after-step hook: invoked after each step with the step context.
-pub type AfterStepHook = Box<
-    dyn Fn(&AfterStepContext) -> Result<Option<AfterStepResult>, Box<dyn std::error::Error>>
-        + Send
-        + Sync,
->;
-
-/// The hook system for the turn loop.
-/// Each hook is optional.
-#[derive(Default)]
-pub struct LoopHooks {
-    pub before_step: Option<BeforeStepHook>,
-    pub after_step: Option<AfterStepHook>,
-}
-
 // ── GoalContext (budget-aware turn execution) ──────────────────────────────
 
 /// Goal status, matching the 6-state machine in `kimi-native-tools::goal::state`.
@@ -748,7 +690,6 @@ pub struct RunTurnInput<'a> {
     /// Tool definitions passed from the JS side. These are sent to the
     /// LLM proxy so the JS host can include them in the actual LLM call.
     pub tool_defs: Vec<ToolInfo>,
-    pub hooks: Option<&'a LoopHooks>,
     pub max_steps: u32,
     /// Optional goal context for budget-aware execution and steering.
     /// When present, the loop checks budgets before each step and injects
@@ -771,6 +712,10 @@ pub struct StepResult {
     pub content: String,
     /// LLM attempts used by this step (1 = no retry).
     pub attempts: u32,
+    /// Provider finish reason for this step (`stop`, `length`, `max_tokens`,
+    /// `tool_calls`, `content_filter`, …). Consumed by the turn loop to map
+    /// provider-side truncation/filtering onto turn-level stop reasons.
+    pub finish_reason: Option<String>,
 }
 
 /// Reasons a single step can stop.
@@ -782,8 +727,6 @@ pub enum LoopStepStopReason {
     ToolCalls(Vec<ToolCall>),
     /// The step was aborted.
     Aborted,
-    /// An error occurred.
-    Error(String),
 }
 
 #[cfg(test)]

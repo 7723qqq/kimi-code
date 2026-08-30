@@ -70,7 +70,9 @@ async fn main() -> anyhow::Result<()> {
                     .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
 
                 let turn_id = input.turn_id.clone();
-                let max_steps = input.max_steps.unwrap_or(10);
+                // None = unbounded, mirroring the JS loop (which only stops
+                // on a configured `maxStepsPerTurn`).
+                let max_steps = input.max_steps.unwrap_or(u32::MAX);
 
                 // Create and register a cancellation flag for this turn.
                 let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -174,7 +176,6 @@ async fn main() -> anyhow::Result<()> {
                     messages,
                     tools: &tools,
                     tool_defs,
-                    hooks: None,
                     max_steps,
                     goal: input.goal,
                     cancellation: Some(cancel_flag.clone()),
@@ -302,7 +303,6 @@ async fn run_self_test() -> anyhow::Result<()> {
         messages,
         tools: &[],
         tool_defs: vec![],
-        hooks: None,
         max_steps: 5,
         goal: None,
         cancellation: None,
@@ -338,7 +338,6 @@ async fn run_self_test() -> anyhow::Result<()> {
 }
 
 /// A mock LLM that returns a fixed response without tool calls.
-#[allow(dead_code)]
 struct MockLlm {
     system_prompt: String,
     model_name: String,

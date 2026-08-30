@@ -24,6 +24,7 @@ function loadNativeModule(): {
   runTurnRust: (...args: unknown[]) => Promise<unknown>;
   resolveCallback: (id: number, error: string | null, result: string | null) => void;
   getCallbackPayload: (id: number) => string | null;
+  cancelTurn: (turnId: string) => void;
 } {
   if (!nativeEntry) {
     throw new Error('kimi_agent native addon not built; run `napi build` in packages/kimi-agent');
@@ -52,13 +53,16 @@ function makeCallback(
       const result = handler(payload);
       if (result instanceof Promise) {
         result.then(
-          (res) => mod.resolveCallback(callbackId, null, res),
-          (error: unknown) =>
+          (res) => {
+            mod.resolveCallback(callbackId, null, res);
+          },
+          (error: unknown) => {
             mod.resolveCallback(
               callbackId,
               error instanceof Error ? error.message : String(error),
               null,
-            ),
+            );
+          },
         );
       } else {
         mod.resolveCallback(callbackId, null, result);
@@ -360,6 +364,39 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () =
     expect(result.stopReason).toBe('EndTurn');
     expect(result.steps).toBe(2);
   });
+
+  it('runs past 10 steps when maxSteps is omitted (unbounded, JS-loop semantics)', async () => {
+    const mod = loadNativeModule();
+    let llmCallCount = 0;
+
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: undefined,
+        tools: [{ name: 'loop', description: 'Loops', inputSchema: '{"type":"object"}' }],
+      },
+      makeCallback(mod, (_req) => {
+        llmCallCount++;
+        if (llmCallCount <= 11) {
+          return JSON.stringify({
+            tool_calls: [{ id: `call_${llmCallCount}`, name: 'loop', arguments: {} }],
+            finish_reason: 'tool_calls',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        }
+        return JSON.stringify({
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, (_req) => JSON.stringify({ content: 'ok', is_error: false })),
+    );
+
+    expect(llmCallCount).toBe(12);
+    expect(result.steps).toBe(12);
+    expect(result.stopReason).toBe('EndTurn');
+  });
 });
 
 describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
@@ -475,6 +512,72 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — delayed callback', () => {
 
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
+  });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — cancellation', () => {
+  it('aborts a running turn at the next step boundary (cancelTurn sets the flag)', async () => {
+    const mod = loadNativeModule();
+
+    // Gate the first llm_chat response behind a manual release so we can
+    // guarantee the cancel flag is set before step 1 starts.
+    let releaseFirstChat!: () => void;
+    const firstChatGate = new Promise<void>((r) => {
+      releaseFirstChat = r;
+    });
+    let chatCallCount = 0;
+    const llmCb = (callbackId: number) => {
+      const call = chatCallCount++;
+      if (call === 0) {
+        firstChatGate.then(
+          () => {
+            mod.resolveCallback(
+              callbackId,
+              null,
+              JSON.stringify({
+                tool_calls: [
+                  { id: 'tc-cancel', name: 'Read', arguments: '{"path":"a.txt"}' },
+                ],
+                finish_reason: 'tool_calls',
+                usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+              }),
+            );
+          },
+          () => {},
+        );
+      } else {
+        // The Rust loop must not reach a second chat: step 1 top checks the
+        // cancel flag and returns Aborted. If this branch fires, something
+        // is wrong.
+        mod.resolveCallback(callbackId, null, JSON.stringify({
+          tool_calls: [], finish_reason: 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }));
+      }
+    };
+    const toolCb = (callbackId: number) => {
+      mod.resolveCallback(callbackId, null, JSON.stringify({ content: 'ok', is_error: false }));
+    };
+
+    const inFlight = mod.runTurnRust(
+      { ...validParams, maxSteps: undefined },
+      llmCb,
+      toolCb,
+    );
+
+    // Let the gate await, then set the cancel flag before releasing the
+    // chat so step 1 is guaranteed to observe it.
+    await new Promise((r) => setTimeout(r, 20));
+    mod.cancelTurn(validParams.turnId);
+    releaseFirstChat();
+
+    const result = await inFlight;
+
+    expect(result.stopReason).toBe('Aborted');
+    expect(result.steps).toBe(1);
+    expect(result.llmRetries).toBe(0);
+    expect(typeof result.eventsEmitted).toBe('number');
+    expect(chatCallCount).toBe(1);
   });
 });
 
@@ -628,4 +731,79 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () =
     expect(existsSync(resolve(process.cwd(), 'napi-denied-test.txt'))).toBe(false);
     rmSync(resolve(process.cwd(), 'napi-denied-test.txt'), { force: true });
   });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — concurrent MultiLLM providers', () => {
+  it(
+    'picks the first successful provider and ignores a failing peer',
+    { timeout: 15_000 },
+    async () => {
+      const mod = loadNativeModule();
+
+      const providerCalls: Array<{ model: string; ts: number }> = [];
+      let winnerChatCount = 0;
+      const t0 = Date.now();
+      const llmCb = (callbackId: number) => {
+        const req = JSON.parse(mod.getCallbackPayload(callbackId) ?? '{}') as {
+          model_name?: string;
+        };
+        const model = req.model_name ?? '<missing>';
+        providerCalls.push({ model, ts: Date.now() - t0 });
+        if (model === 'loser-model') {
+          mod.resolveCallback(callbackId, 'simulated provider failure', null);
+          return;
+        }
+        winnerChatCount += 1;
+        if (winnerChatCount === 1) {
+          mod.resolveCallback(
+            callbackId,
+            null,
+            JSON.stringify({
+              tool_calls: [
+                {
+                  id: 'tc-multi',
+                  name: 'Read',
+                  arguments: '{"path":"x.txt"}',
+                },
+              ],
+              finish_reason: 'tool_calls',
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            }),
+          );
+          return;
+        }
+        // Subsequent winner chats: complete the turn.
+        mod.resolveCallback(
+          callbackId,
+          null,
+          JSON.stringify({
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          }),
+        );
+      };
+      const toolCb = (callbackId: number) => {
+        mod.resolveCallback(callbackId, null, JSON.stringify({ content: 'ok', is_error: false }));
+      };
+
+      const result = await mod.runTurnRust(
+        {
+          ...validParams,
+          maxSteps: undefined,
+          providers: [
+            { name: 'loser', model: 'loser-model', systemPrompt: 'always errors' },
+            { name: 'winner', model: 'winner-model', systemPrompt: 'wins the race' },
+          ],
+          tools: [{ name: 'Read', description: 'r', inputSchema: '{"type":"object"}' }],
+        },
+        llmCb,
+        toolCb,
+      );
+
+      expect(result.stopReason).toBe('EndTurn');
+      expect(providerCalls.map((c) => c.model)).toContain('winner-model');
+      expect(providerCalls.filter((c) => c.model === 'loser-model').length).toBeLessThanOrEqual(2);
+    },
+  );
 });
