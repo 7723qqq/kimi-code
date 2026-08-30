@@ -118,6 +118,16 @@ vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
   };
 });
 
+vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
+  createRunTurnOverride: () => undefined,
+  isRustEngineAvailable: () => false,
+  shutdownRustEngine: () => {},
+}));
+
+vi.mock('@moonshot-ai/agent-core-v2', () => ({
+  probeHostEnvironment: async () => ({ shellPath: undefined }),
+}));
+
 vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   setCrashPhase: mocks.setCrashPhase,

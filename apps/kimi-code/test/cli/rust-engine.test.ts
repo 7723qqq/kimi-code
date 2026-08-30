@@ -7,7 +7,18 @@ const mocks = vi.hoisted(() => ({
   createRunTurnOverride: vi.fn(),
   probeHostEnvironment: vi.fn(),
   isRustEngineAvailable: vi.fn(),
+  existsSync: vi.fn(),
+  readdirSync: vi.fn(),
 }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: mocks.existsSync,
+    readdirSync: mocks.readdirSync,
+  };
+});
 
 vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
   loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
@@ -59,6 +70,11 @@ beforeEach(() => {
   mocks.createRunTurnOverride.mockReset();
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
+  // Capability probe defaults to "bundle absent" so gate tests are hermetic.
+  mocks.existsSync.mockReset().mockReturnValue(false);
+  mocks.readdirSync.mockReset().mockImplementation(() => {
+    throw new Error('engine addon dir not present in this fixture');
+  });
 });
 
 afterEach(() => {
@@ -81,18 +97,20 @@ describe('maybeLoadRustEngine', () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
-    expect(mocks.isRustEngineAvailable).toHaveBeenCalled();
+    // Unset probes the bundle (fs check) and finds none in this fixture.
+    expect(mocks.existsSync).toHaveBeenCalled();
 
+    mocks.existsSync.mockClear();
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: { engine: 'js' } }) });
     const maybeLoadRustEngine2 = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine2('/home/u')).resolves.toBeUndefined();
-    // Explicit opt-out skips the capability probe.
-    expect(mocks.isRustEngineAvailable).toHaveBeenCalledTimes(1);
+    // Explicit opt-out skips the capability probe entirely.
+    expect(mocks.existsSync).not.toHaveBeenCalled();
   });
 
   it('auto-enables the engine when agent.engine is unset and the bundle is loadable', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
-    mocks.isRustEngineAvailable.mockReturnValue(true);
+    mocks.existsSync.mockReturnValue(true);
     const engine = vi.fn();
     mocks.createRunTurnOverride.mockReturnValue(engine);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
@@ -105,10 +123,11 @@ describe('maybeLoadRustEngine', () => {
       ...okResult,
       config: makeConfig({ agent: { engine: 'js' } }),
     });
-    mocks.isRustEngineAvailable.mockReturnValue(true);
+    mocks.existsSync.mockReturnValue(true);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
     expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
+    expect(mocks.existsSync).not.toHaveBeenCalled();
   });
 
   it('returns undefined when the rust adapter module has no createRunTurnOverride', async () => {

@@ -10,6 +10,8 @@
  * providers are extracted from the config and passed to the Rust engine
  * as concurrent LLM providers ("first past the post").
  */
+import { existsSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { loadRuntimeConfigSafe, resolveConfigPath, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 import type { TurnEngine } from '@moonshot-ai/agent-core-v2';
 
@@ -205,14 +207,32 @@ export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: stri
 }
 
 /**
- * Capability probe: true when the engine bundle is present and loadable
- * (napi addon or the bundled stdio CLI). Used by the auto-enable path when
- * `agent.engine` is unset. Never loads the addon — only checks availability.
+ * Capability probe: true when the engine bundle is present (napi addon or
+ * the bundled stdio CLI). Mirrors `rust-loop`'s `isRustEngineAvailable`
+ * against the same candidate paths, but stays dependency-free — importing
+ * rust-loop drags the whole agent-core-v2 graph in, which is several
+ * seconds on a cold test worker. Only existence checks, never loads.
  */
-async function isEngineLoadable(): Promise<boolean> {
+function isEngineLoadable(): boolean {
+  const root = resolve(import.meta.dirname, '..', '..', '..', '..');
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const arch = `${process.platform}-${process.arch}`;
+  const stdioCandidates = [
+    join(root, 'packages/kimi-agent/target/release', `kimi-agent-cli${ext}`),
+    join(root, 'packages/kimi-agent/target/debug', `kimi-agent-cli${ext}`),
+    join(root, 'dist-native/bin', arch, `kimi-agent-cli${ext}`),
+  ];
   try {
-    const { isRustEngineAvailable } = await import('@moonshot-ai/kimi-agent/rust-loop');
-    return typeof isRustEngineAvailable === 'function' && isRustEngineAvailable();
+    for (const candidate of stdioCandidates) {
+      if (existsSync(candidate)) return true;
+    }
+  } catch {
+    // ignore and fall through to the addon check
+  }
+  try {
+    return readdirSync(join(root, 'packages/kimi-agent')).some(
+      (entry) => entry.startsWith('kimi_agent') && entry.endsWith('.node'),
+    );
   } catch {
     return false;
   }
@@ -251,7 +271,7 @@ export async function maybeLoadRustEngine(
   //   falling back to the JS loop otherwise.
   const engineMode = agentConfig?.engine;
   const engineActive =
-    engineMode === 'rust' || (engineMode !== 'js' && (await isEngineLoadable()));
+    engineMode === 'rust' || (engineMode !== 'js' && isEngineLoadable());
   if (!engineActive) {
     // Warn if multiLlm is set but the engine isn't active — it's a no-op in this case.
     if (agentConfig?.multiLlm && agentConfig.multiLlm.length > 0) {
