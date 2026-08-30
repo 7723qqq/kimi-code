@@ -99,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
                 inner: base_callbacks,
                 event_count: turn_event_count.clone(),
             });
+            let native_tool_count = Arc::new(AtomicU32::new(0));
             let callbacks: Arc<dyn HostCallbacks> =
                 match (input.native_tools, input.workspace_root.as_deref()) {
                     (true, Some(root)) => {
@@ -109,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
                             Some(toolset) => Arc::new(NativeToolCallbacks {
                                 inner: base_callbacks.clone(),
                                 toolset: Arc::new(toolset),
+                                native_count: native_tool_count.clone(),
                             }),
                             None => base_callbacks.clone(),
                         }
@@ -206,6 +208,8 @@ async fn main() -> anyhow::Result<()> {
                         usage: res.usage,
                         events_emitted: turn_event_count.load(Ordering::Relaxed),
                         llm_retries: res.llm_retries,
+                        llm_transport: llm.transport().to_string(),
+                        native_tool_calls: native_tool_count.load(Ordering::Relaxed),
                     };
                     serde_json::to_value(&output).map_err(|e| {
                         types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
@@ -218,6 +222,8 @@ async fn main() -> anyhow::Result<()> {
                         usage: TokenUsage::default(),
                         events_emitted: 0,
                         llm_retries: 0,
+                        llm_transport: llm.transport().to_string(),
+                        native_tool_calls: native_tool_count.load(Ordering::Relaxed),
                     };
                     serde_json::to_value(&output).map_err(|_| {
                         types::JsonRpcError::internal_error(format!("Turn failed: {e}"))

@@ -311,6 +311,10 @@ interface RunTurnResult {
   events_emitted?: number;
   /** LLM retries performed during the turn (attempts beyond the first). */
   llm_retries?: number;
+  /** Which LLM transport served the turn: `native-http` / `host-proxy` / `multi`. */
+  llm_transport?: string;
+  /** Tool calls the engine ran in its own process instead of on the host. */
+  native_tool_calls?: number;
 }
 
 /** A message on the Rust wire, with optional multimodal/tool-call payloads. */
@@ -390,13 +394,17 @@ interface NapiRunTurnResult {
   outputTokens: number;
   totalTokens: number;
   /** Prompt tokens served from the provider's cache. */
-  inputCacheRead?: number;
+  inputCacheRead: number;
   /** Prompt tokens written into the provider's cache by this turn. */
-  inputCacheCreation?: number;
+  inputCacheCreation: number;
   /** Host-visible engine events emitted during the turn. */
   eventsEmitted?: number;
   /** LLM retries performed during the turn (attempts beyond the first). */
   llmRetries?: number;
+  /** Which LLM transport served the turn: `native-http` / `host-proxy` / `multi`. */
+  llmTransport: string;
+  /** Tool calls the engine ran in its own process instead of on the host. */
+  nativeToolCalls: number;
 }
 
 // ── Napi engine (in-process native addon) ─────────────────────────────────
@@ -1451,6 +1459,8 @@ export function createRunTurnOverride(
           },
           events_emitted: napiResult.eventsEmitted,
           llm_retries: napiResult.llmRetries,
+          llm_transport: napiResult.llmTransport,
+          native_tool_calls: napiResult.nativeToolCalls,
         };
       } else {
         // stdio JSON-RPC path
@@ -1518,6 +1528,8 @@ export function createRunTurnOverride(
       telemetry: {
         eventsEmitted: rustResult.events_emitted ?? 0,
         llmRetries: rustResult.llm_retries ?? 0,
+        llmTransport: rustResult.llm_transport,
+        nativeToolCallCount: rustResult.native_tool_calls,
       },
     };
   };

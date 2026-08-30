@@ -56,6 +56,10 @@ impl LLM for HostLlmProxy {
         &self.model_name
     }
 
+    fn transport(&self) -> &'static str {
+        "host-proxy"
+    }
+
     fn is_retryable_error(&self, error: &str) -> bool {
         // Transport-level and throttling/server errors are retryable;
         // auth, request-shape, and client errors are not. This mirrors

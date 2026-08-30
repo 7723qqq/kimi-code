@@ -985,6 +985,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         steps: result.steps,
         events_emitted: result.telemetry.eventsEmitted,
         llm_retries: result.telemetry.llmRetries,
+        llm_transport: result.telemetry.llmTransport,
+        native_tool_call_count: result.telemetry.nativeToolCallCount,
       };
       this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
     }

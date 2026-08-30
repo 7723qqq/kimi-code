@@ -28,6 +28,17 @@ pub struct TurnResult {
     /// LLM retries performed during the turn: attempts beyond the first
     /// per step, summed over all steps.
     pub llm_retries: u32,
+    /// Which LLM transport served this turn — `native-http`, `host-proxy` or
+    /// `multi`. Filled by the composition root, which is what selects the
+    /// transport; empty when `run_turn` is called directly.
+    #[serde(default)]
+    pub llm_transport: String,
+    /// Tool calls executed inside this process instead of round-tripping to
+    /// the host. Filled by the composition root (see
+    /// [`crate::callbacks::NativeToolCallbacks`]); zero also means "native tool
+    /// execution was not engaged for this turn".
+    #[serde(default)]
+    pub native_tool_calls: u32,
 }
 
 /// Reasons a turn can stop.
@@ -53,6 +64,13 @@ pub trait LLM: Send + Sync {
     fn model_name(&self) -> &str;
     /// Whether the given error is retryable.
     fn is_retryable_error(&self, error: &str) -> bool;
+    /// Which transport serves this LLM — `native-http`, `host-proxy`, `multi`.
+    /// Reported in the turn result so a caller can tell what actually ran
+    /// without inferring it from error strings; overridden by every
+    /// production implementation.
+    fn transport(&self) -> &'static str {
+        "custom"
+    }
     /// Send a chat request and get a response.
     fn chat(
         &self,

@@ -24,8 +24,10 @@ use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
 
 /// Build a [`TurnResult`] with the turn's telemetry counters.
 ///
-/// `events_emitted` is zero here and filled by the composition root (see
-/// [`crate::callbacks::CountingCallbacks`]); the LLM retry count is
+/// `events_emitted`, `llm_transport` and `native_tool_calls` are left empty
+/// here and filled by the composition root (see
+/// [`crate::callbacks::CountingCallbacks`] and
+/// [`crate::callbacks::NativeToolCallbacks`]); the LLM retry count is
 /// accumulated in this loop from per-step attempt figures.
 fn turn_result(
     stop_reason: LoopTurnStopReason,
@@ -40,6 +42,8 @@ fn turn_result(
         usage,
         events_emitted,
         llm_retries,
+        llm_transport: String::new(),
+        native_tool_calls: 0,
     }
 }
 

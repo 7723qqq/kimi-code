@@ -160,6 +160,9 @@ impl HostCallbacks for RpcHostCallbacks {
 pub struct NativeToolCallbacks {
     pub inner: Arc<dyn HostCallbacks>,
     pub toolset: Arc<crate::tools::NativeToolset>,
+    /// Counts the calls this wrapper executed in-process. The composition root
+    /// holds the same handle to fill in `TurnResult::native_tool_calls`.
+    pub native_count: Arc<AtomicU32>,
 }
 
 impl HostCallbacks for NativeToolCallbacks {
@@ -180,6 +183,7 @@ impl HostCallbacks for NativeToolCallbacks {
         let this = NativeToolCallbacks {
             inner: self.inner.clone(),
             toolset: self.toolset.clone(),
+            native_count: self.native_count.clone(),
         };
         Box::pin(async move {
             let decision = this
@@ -221,6 +225,7 @@ impl HostCallbacks for NativeToolCallbacks {
             };
             match result {
                 Some(result) => {
+                    this.native_count.fetch_add(1, Ordering::Relaxed);
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
                         "turn_id": request.turn_id,
@@ -408,11 +413,13 @@ mod tests {
         NativeToolCallbacks,
         Arc<AtomicU32>,
         Arc<AtomicU32>,
+        Arc<AtomicU32>,
     ) {
         let dir = tempfile::tempdir().unwrap();
         let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
         let permission_calls = Arc::new(AtomicU32::new(0));
         let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
         let native = NativeToolCallbacks {
             inner: Arc::new(ScriptedPermissionCallbacks {
                 decision,
@@ -420,18 +427,20 @@ mod tests {
                 executed: executed.clone(),
             }),
             toolset,
+            native_count: native_count.clone(),
         };
-        (dir, native, permission_calls, executed)
+        (dir, native, permission_calls, executed, native_count)
     }
 
     use crate::tools::NativeToolset;
 
     #[tokio::test]
     async fn test_native_write_requires_permission_and_runs_on_allow() {
-        let (dir, native, permission_calls, executed) = gate_setup(PermissionDecision {
-            decision: "allow".into(),
-            reason: None,
-        });
+        let (dir, native, permission_calls, executed, native_count) =
+            gate_setup(PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            });
         let response = native
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),
@@ -451,16 +460,22 @@ mod tests {
             0,
             "allowed calls never reach the host executor"
         );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            1,
+            "an in-process execution is reported"
+        );
         assert!(!response.is_error);
         assert!(dir.path().join("made.txt").exists());
     }
 
     #[tokio::test]
     async fn test_native_write_denial_never_executes() {
-        let (_dir, native, permission_calls, executed) = gate_setup(PermissionDecision {
-            decision: "deny".into(),
-            reason: Some("user declined".into()),
-        });
+        let (_dir, native, permission_calls, executed, native_count) =
+            gate_setup(PermissionDecision {
+                decision: "deny".into(),
+                reason: Some("user declined".into()),
+            });
         let response = native
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),
@@ -476,6 +491,11 @@ mod tests {
             0,
             "denied calls must not fall back to the host"
         );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            0,
+            "a denied call executed nowhere, so it is not a native execution"
+        );
         assert!(response.is_error);
         assert!(response.content.contains("user declined"));
         assert!(!_dir.path().join("made.txt").exists());
@@ -486,10 +506,11 @@ mod tests {
         // The host policy chain can require interactive approval even for
         // reads (sensitive-file access) — so read-only native executions are
         // gated exactly like mutating ones.
-        let (_dir, native, permission_calls, executed) = gate_setup(PermissionDecision {
-            decision: "deny".into(),
-            reason: Some("sensitive file".into()),
-        });
+        let (_dir, native, permission_calls, executed, native_count) =
+            gate_setup(PermissionDecision {
+                decision: "deny".into(),
+                reason: Some("sensitive file".into()),
+            });
         std::fs::write(
             _dir.path().join("a.txt"),
             "alpha
@@ -507,7 +528,36 @@ mod tests {
             .unwrap();
         assert_eq!(permission_calls.load(Ordering::Relaxed), 1);
         assert_eq!(executed.load(Ordering::Relaxed), 0);
+        assert_eq!(native_count.load(Ordering::Relaxed), 0);
         assert!(response.is_error);
         assert!(response.content.contains("sensitive file"));
+    }
+
+    #[tokio::test]
+    async fn test_sandbox_escape_is_not_reported_as_native_execution() {
+        // A call the sandbox declines to handle runs on the host instead, so
+        // it must not inflate native_tool_calls — otherwise the turn result
+        // would claim a path that never served the call.
+        let (_dir, native, _permission_calls, executed, native_count) =
+            gate_setup(PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            });
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c4".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "../outside.txt" }),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            1,
+            "the host picks up what the sandbox escapes"
+        );
+        assert_eq!(native_count.load(Ordering::Relaxed), 0);
+        assert!(!response.is_error);
     }
 }

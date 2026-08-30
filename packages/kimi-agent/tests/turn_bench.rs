@@ -217,6 +217,7 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
     let native: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: host.clone(),
         toolset,
+        native_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;
     let started = Instant::now();

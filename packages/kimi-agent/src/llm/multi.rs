@@ -211,6 +211,10 @@ impl LLM for MultiLLM {
         &self.label
     }
 
+    fn transport(&self) -> &'static str {
+        "multi"
+    }
+
     fn is_retryable_error(&self, error: &str) -> bool {
         self.providers
             .first()

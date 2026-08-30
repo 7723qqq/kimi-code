@@ -299,6 +299,12 @@ pub struct RunTurnResult {
     /// LLM retries performed during the turn (attempts beyond the first).
     #[serde(default)]
     pub llm_retries: u32,
+    /// Which LLM transport served this turn: `native-http`, `host-proxy`, `multi`.
+    #[serde(default)]
+    pub llm_transport: String,
+    /// Tool calls executed inside the engine; the rest round-tripped to the host.
+    #[serde(default)]
+    pub native_tool_calls: u32,
 }
 
 // ── LLM proxy types (Rust → JS host) ───────────────────────────────────────
@@ -516,6 +522,8 @@ mod tests {
             },
             events_emitted: 7,
             llm_retries: 2,
+            llm_transport: "native-http".to_string(),
+            native_tool_calls: 4,
         };
         let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["stop_reason"], "EndTurn");
@@ -523,6 +531,8 @@ mod tests {
         assert_eq!(json["usage"]["input_tokens"], 100);
         assert_eq!(json["events_emitted"], 7);
         assert_eq!(json["llm_retries"], 2);
+        assert_eq!(json["llm_transport"], "native-http");
+        assert_eq!(json["native_tool_calls"], 4);
 
         let deserialized: RunTurnResult = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.stop_reason, "EndTurn");
@@ -543,6 +553,8 @@ mod tests {
         .unwrap();
         assert_eq!(deserialized.events_emitted, 0);
         assert_eq!(deserialized.llm_retries, 0);
+        assert_eq!(deserialized.llm_transport, "");
+        assert_eq!(deserialized.native_tool_calls, 0);
     }
 
     #[test]

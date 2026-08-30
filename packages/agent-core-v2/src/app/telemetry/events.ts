@@ -84,6 +84,8 @@ export interface EngineTurnEvent {
   steps: number;
   events_emitted: number;
   llm_retries: number;
+  llm_transport?: string;
+  native_tool_call_count?: number;
 }
 
 export interface PromptCacheProbeEvent {
@@ -558,6 +560,10 @@ export const telemetryEventDefinitions = {
       steps: 'Steps the engine executed',
       events_emitted: 'Host-visible engine events emitted during the turn',
       llm_retries: 'LLM retries performed during the turn (attempts beyond the first)',
+      llm_transport:
+        'Which LLM transport served the turn: native-http, host-proxy or multi; absent when the engine does not report it',
+      native_tool_call_count:
+        'Tool calls the engine executed in its own process; the remainder round-tripped to the host',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({

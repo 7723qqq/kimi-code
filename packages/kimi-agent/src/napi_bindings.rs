@@ -580,6 +580,10 @@ pub struct JsRunTurnResult {
     pub events_emitted: u32,
     /// LLM retries performed during the turn (attempts beyond the first).
     pub llm_retries: u32,
+    /// Which LLM transport served this turn: `native-http`, `host-proxy`, `multi`.
+    pub llm_transport: String,
+    /// Tool calls executed inside the engine; the rest round-tripped to the host.
+    pub native_tool_calls: u32,
 }
 
 // ── napi exported functions ────────────────────────────────────────────────
@@ -677,8 +681,18 @@ pub fn run_turn_rust(
             obj.set_named_property("inputTokens", env.create_uint32(val.input_tokens)?)?;
             obj.set_named_property("outputTokens", env.create_uint32(val.output_tokens)?)?;
             obj.set_named_property("totalTokens", env.create_uint32(val.total_tokens)?)?;
+            obj.set_named_property("inputCacheRead", env.create_uint32(val.input_cache_read)?)?;
+            obj.set_named_property(
+                "inputCacheCreation",
+                env.create_uint32(val.input_cache_creation)?,
+            )?;
             obj.set_named_property("eventsEmitted", env.create_uint32(val.events_emitted)?)?;
             obj.set_named_property("llmRetries", env.create_uint32(val.llm_retries)?)?;
+            obj.set_named_property(
+                "llmTransport",
+                env.create_string_from_std(val.llm_transport)?,
+            )?;
+            obj.set_named_property("nativeToolCalls", env.create_uint32(val.native_tool_calls)?)?;
             Ok(obj)
         },
     )
@@ -722,6 +736,7 @@ async fn run_turn_rust_impl(
     // Native tool execution: wrap the callbacks so Read/Grep/Glob run
     // in-process (sandboxed to the workspace) and everything else — and
     // anything that escapes the sandbox — still round-trips to the host.
+    let native_tool_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let callbacks: Arc<dyn HostCallbacks> = match (
         params.native_tools.unwrap_or(false),
         params.workspace_root.as_deref(),
@@ -731,6 +746,7 @@ async fn run_turn_rust_impl(
                 Some(toolset) => Arc::new(NativeToolCallbacks {
                     inner: base_callbacks.clone(),
                     toolset: Arc::new(toolset),
+                    native_count: native_tool_count.clone(),
                 }),
                 None => base_callbacks.clone(),
             }
@@ -862,6 +878,8 @@ async fn run_turn_rust_impl(
         input_cache_creation: result.usage.input_cache_creation as u32,
         events_emitted: turn_event_count.load(std::sync::atomic::Ordering::Relaxed),
         llm_retries: result.llm_retries,
+        llm_transport: llm.transport().to_string(),
+        native_tool_calls: native_tool_count.load(std::sync::atomic::Ordering::Relaxed),
     })
 }
 

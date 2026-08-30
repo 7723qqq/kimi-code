@@ -241,6 +241,10 @@ impl LLM for NativeHttpLlm {
         &self.config.model
     }
 
+    fn transport(&self) -> &'static str {
+        "native-http"
+    }
+
     fn is_retryable_error(&self, error: &str) -> bool {
         // Status-coded errors are classified by code, not by body. Scanning
         // the body for keywords would retry a 400 whose text happens to

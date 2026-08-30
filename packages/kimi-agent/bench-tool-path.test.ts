@@ -24,7 +24,12 @@ type NativeModule = {
     tool: (id: number) => void,
     events: (id: number) => void,
     permission: (id: number) => void,
-  ) => Promise<{ steps: number; stopReason: string }>;
+  ) => Promise<{
+    steps: number;
+    stopReason: string;
+    nativeToolCalls?: number;
+    llmTransport?: string;
+  }>;
   resolveCallback: (id: number, error: string | null, result: string | null) => void;
   getCallbackPayload: (id: number) => string | null;
 };
@@ -95,7 +100,12 @@ afterAll(() => {
   rmSync(workspace, { recursive: true, force: true });
 });
 
-type Counts = { hostExecutions: number; permissionChecks: number; nativeResults: string[] };
+type Counts = {
+  hostExecutions: number;
+  permissionChecks: number;
+  nativeResults: string[];
+  engineNativeTotal: number;
+};
 
 async function runTurn(
   mod: NativeModule,
@@ -104,7 +114,7 @@ async function runTurn(
 ): Promise<number> {
   let requests = 0;
   const started = performance.now();
-  await mod.runTurnRust(
+  const turnResult = await mod.runTurnRust(
     {
       turnId: `bench-${Math.random()}`,
       systemPrompt: 'You are a benchmark.',
@@ -151,6 +161,8 @@ async function runTurn(
       return JSON.stringify({ decision: 'allow' });
     }),
   );
+  // -1 marks "this addon never reported it", so a stale binary fails loudly.
+  opts.counts.engineNativeTotal += turnResult.nativeToolCalls ?? -1;
   return performance.now() - started;
 }
 
@@ -159,7 +171,12 @@ async function measure(
   file: string | null,
   nativeTools: boolean,
 ): Promise<{ medianMs: number; counts: Counts }> {
-  const counts: Counts = { hostExecutions: 0, permissionChecks: 0, nativeResults: [] };
+  const counts: Counts = {
+    hostExecutions: 0,
+    permissionChecks: 0,
+    nativeResults: [],
+    engineNativeTotal: 0,
+  };
   const samples: number[] = [];
   for (let i = 0; i < REPS; i += 1) {
     samples.push(await runTurn(mod, file, { nativeTools, counts }));
@@ -196,6 +213,15 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
     expect(routed(viaNative.counts)).toEqual({ host: 0, permission: REPS });
     expect(routed(oversizedHost.counts)).toEqual({ host: REPS, permission: 0 });
     expect(routed(nativeFallsBack.counts)).toEqual({ host: REPS, permission: REPS });
+
+    // The engine's own report must agree with what the callbacks observed:
+    // only the in-cap native arm executed anything in-process, and a
+    // never-reported field would surface as a negative total here.
+    expect(control.counts.engineNativeTotal).toBe(0);
+    expect(viaHost.counts.engineNativeTotal).toBe(0);
+    expect(viaNative.counts.engineNativeTotal).toBe(REPS);
+    expect(oversizedHost.counts.engineNativeTotal).toBe(0);
+    expect(nativeFallsBack.counts.engineNativeTotal).toBe(0);
 
     // Guard against measuring unequal work: the native arm must hand back the
     // same 1000 numbered lines the host arm does, not a shorter payload.

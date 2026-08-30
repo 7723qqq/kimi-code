@@ -108,6 +108,37 @@ describe.skipIf(!nativeEntry)('napi native module', () => {
     );
     expect(result).toBeInstanceOf(Promise);
   });
+
+  it('reports the serving transport, the native tool count, and cache usage', async () => {
+    const mod = loadNativeModule();
+
+    const result = (await mod.runTurnRust(
+      validParams,
+      makeCallback(mod, (_req) =>
+        JSON.stringify({
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: {
+            input_tokens: 7,
+            output_tokens: 3,
+            total_tokens: 10,
+            input_cache_read: 5,
+            input_cache_creation: 2,
+          },
+        }),
+      ),
+      makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
+    )) as Record<string, unknown>;
+
+    // validParams sets neither nativeLlm nor providers, and no native toolset
+    // is engaged, so the host proxy served every step.
+    expect(result.llmTransport).toBe('host-proxy');
+    expect(result.nativeToolCalls).toBe(0);
+    // Regression guard: the hand-built napi result object once omitted these
+    // two, so cache usage always reached JS as zero.
+    expect(result.inputCacheRead).toBe(5);
+    expect(result.inputCacheCreation).toBe(2);
+  });
 });
 
 describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {

@@ -118,6 +118,10 @@ export interface TurnEngineTelemetry {
   readonly eventsEmitted: number;
   /** LLM retries performed during the turn (attempts beyond the first). */
   readonly llmRetries: number;
+  /** Which LLM transport served the turn: `native-http` / `host-proxy` / `multi`. */
+  readonly llmTransport?: string;
+  /** Tool calls the engine executed in its own process rather than on the host. */
+  readonly nativeToolCallCount?: number;
 }
 
 export type TurnEngine = (input: TurnEngineInput) => Promise<TurnEngineResult>;

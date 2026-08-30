@@ -768,3 +768,33 @@ P21 排序计划的第 0 批，纯 lint/格式，无行为变更。
 因此地图上的顺序要改：**「宿主生命周期等效」是原生工具的前置条件，不是可选项**，且它属于第 4 批（协议与状态层地基）而不是第 1 批。第 1 批的产出到此为止：数字 + 缺口清单，D-1 保持默认 false，P19 的 rust-first 继续按「引擎本体」解释。
 
 验证：`bench-tool-path.test.ts` 1/1 绿（五臂路由计数 + 原生产出等价断言），跑三轮取表中范围；本包 TS 套件 58 通过 / 5 跳过 / 0 失败。未改任何 Rust 行为代码，故无需重建 addon。
+
+## P24 — G-5：执行路径成为可查事实（2026-08-30）
+
+P11 留下来的老问题——「这次运行到底用了哪条传输、工具是否在引擎内执行，只能靠错误字符串猜」——本轮补上观测出口。
+
+### 引擎侧
+
+- `TurnResult` 新增 `llm_transport` / `native_tool_calls`，沿用 `events_emitted` 的既有约定：由组装根填写，直接调 `run_turn` 时为空。
+- 传输标签取自 **`LLM::transport()`**（trait 默认 `"custom"`，三个生产实现分别覆盖为 `host-proxy` / `native-http` / `multi`）。**没有**在两个组装根里重写一遍选择条件——`main.rs` 的注释记录过「先查 native_llm 会把 MultiLLM 静默降级成单模型」这类漂移，标签由实现自报就不会与实例脱节。
+- 计数只认「确实在本进程执行」：deny 不计、沙箱逃逸回落宿主不计。cargo 四断言锁住，新增 `test_sandbox_escape_is_not_reported_as_native_execution`。
+- stdio 通道同步（`rpc/types.rs::RunTurnResult` + `main.rs`），两个通道的观测字段集合现在一致。
+
+### 顺带挖出并修掉一个真 bug
+
+`napi_bindings.rs` 手工拼装返回对象时**从未 set `inputCacheRead` / `inputCacheCreation`**，而 `JsRunTurnResult` 一直声明着这两个字段。后果：`rust-loop.ts:1449` 读到 `undefined`，`1515` 的 `?? 0` 把它掩成 0——**napi 路径每个 turn 的 cache 用量恒报 0**，与 P8「cache usage 全链路贯通」的记录相反。之所以长期无人发现：全仓没有任何测试断言过非零 cache 值跨过这个边界，相关命中都是 TS 假 LLM 的构造值。现由 `napi-integration.test.ts` 断言 `inputCacheRead === 5` / `inputCacheCreation === 2` 守住，并把 `NapiRunTurnResult` 的这两个字段改为必传。
+
+### 宿主侧接线
+
+`TurnEngineTelemetry` 新增可选 `llmTransport` / `nativeToolCallCount`（可选以免破坏不支持此能力的引擎），经 `loopService.ts` 汇入 `engine_turn` 遥测事件，线上属性为 `llm_transport` 与 `native_tool_call_count`（计数按仓内约定带 `_count` 后缀）。
+
+### 交叉验证
+
+`bench-tool-path.test.ts` 现在同时校**引擎自报**的 `nativeToolCalls` 与回调**独立数出**的往返次数，五臂全部吻合（含沙箱逃逸臂报 0）；字段缺失以 -1 哨兵失败，防止旧二进制把「没上报」伪装成合法的 0。
+
+### 仍未完成
+
+G-5 只做到「事实存在且程序可读」。用户可见的 `/status` 还没接——`nativeToolsStatus()` 依旧只反映 addon 能否加载，看不出引擎实际走了哪条路；要把它投影到 `/status` 或会话摘要属 `apps/kimi-code` 的 UI 工作。
+
+验证：`cargo test` 269/269（260 lib + 9 stdio）、`cargo clippy --all-targets` 0 warnings、`cargo fmt --check` 退出 0；addon 已 `napi build --release` 重建（24.9s）；本包 TS 套件 **59 通过 / 5 跳过 / 0 失败**；`agent-core-v2` 遥测 + `engineOverride` + `rustEngineE2E` 分别 65/65 与 13/13 全绿。
+另：`agent-core-v2` 的 `tsc --noEmit` 有一处**与本批无关的既有错误**（`rust-loop.ts:509` `this.nativeModule` 可能为 null；HEAD 同样存在，且在我本次 diff 之外），未顺手修。
