@@ -1455,3 +1455,174 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native subagents (P28 批 3 
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 });
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批)', () => {
+  const askArgs = {
+    questions: [
+      {
+        question: 'Which approach should I take?',
+        header: 'Style',
+        options: [
+          { label: 'Option A (Recommended)', description: 'Fast, less flexible' },
+          { label: 'Option B', description: 'Slower, more flexible' },
+        ],
+        multi_select: false,
+      },
+    ],
+    background: false,
+  };
+
+  // Drive one turn whose first llm_chat asks ask_user_question natively.
+  // Returns the llm requests (the tool result the model sees is in
+  // `llmRequests[1].messages`) and the raw ask_question wire requests.
+  async function runAskTurn(
+    mod: ReturnType<typeof loadNativeModule>,
+    askQuestionCb: ((request: string) => string) | undefined,
+    args: Record<string, unknown> = askArgs,
+  ): Promise<{
+    llmRequests: Array<{ messages: Array<{ role: string; content: string }> }>;
+    askQuestionRequests: string[];
+  }> {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-aq-'));
+    const llmRequests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    const askQuestionRequests: string[] = [];
+    try {
+      await mod.runTurnRust(
+        {
+          ...validParams,
+          maxSteps: 2,
+          workspaceRoot,
+          nativeTools: true,
+          tools: [
+            {
+              name: 'ask_user_question',
+              description: 'Ask the user questions',
+              inputSchema: '{"type":"object","properties":{"questions":{"type":"array"}}}',
+            },
+          ],
+          messages: [{ role: 'user', content: 'ask me something' }],
+        },
+        makeCallback(mod, (req) => {
+          llmRequests.push(JSON.parse(req));
+          const first = llmRequests.length === 1;
+          return JSON.stringify({
+            tool_calls: first
+              ? [{ id: 'call-ask-1', name: 'ask_user_question', arguments: args }]
+              : [],
+            finish_reason: first ? 'tool_calls' : 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        }),
+        makeCallback(mod, () =>
+          JSON.stringify({ content: 'HOST EXEC WAS CALLED', is_error: false }),
+        ),
+        undefined,
+        makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+        undefined,
+        undefined,
+        askQuestionCb
+          ? makeCallback(mod, (req) => {
+              askQuestionRequests.push(req);
+              return askQuestionCb(req);
+            })
+          : undefined,
+      );
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+    return { llmRequests, askQuestionRequests };
+  }
+
+  it('executes the tool natively and maps an answered response into the model context', async () => {
+    const mod = loadNativeModule();
+    let receivedRequest: Record<string, unknown> | null = null;
+
+    const { llmRequests, askQuestionRequests } = await runAskTurn(mod, (req) => {
+      receivedRequest = JSON.parse(req);
+      return JSON.stringify({
+        answers: { 'Which approach should I take?': 'Option A (Recommended)' },
+        method: 'enter',
+      });
+    });
+
+    expect(askQuestionRequests.length).toBe(1);
+    expect(receivedRequest).not.toBeNull();
+    const wire = receivedRequest as Record<string, unknown>;
+    expect(typeof wire.question_id).toBe('string');
+    expect((wire.question_id as string).startsWith('question_')).toBe(true);
+    const questions = wire.questions as Array<Record<string, unknown>>;
+    expect(questions.length).toBe(1);
+    expect(questions[0]?.question).toBe('Which approach should I take?');
+    expect(questions[0]?.header).toBe('Style');
+    const options = questions[0]?.options as Array<Record<string, unknown>>;
+    expect(options.map((o) => o.label)).toEqual(['Option A (Recommended)', 'Option B']);
+    // The formatted answer re-enters the model context as the tool result.
+    const toolMsg = llmRequests[1]?.messages.find((m) => m.role === 'tool');
+    const parsed = JSON.parse(toolMsg?.content ?? '{}') as Record<string, unknown>;
+    expect(parsed.answers).toEqual({
+      'Which approach should I take?': 'Option A (Recommended)',
+    });
+  });
+
+  it('maps a dismissed response to the v2 note', async () => {
+    const mod = loadNativeModule();
+
+    const { llmRequests } = await runAskTurn(mod, () =>
+      JSON.stringify({
+        answers: {},
+        note: 'User dismissed the question without answering.',
+      }),
+    );
+
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('User dismissed the question without answering.');
+  });
+
+  it('maps a cancelled response to an error tool result', async () => {
+    const mod = loadNativeModule();
+
+    const { llmRequests } = await runAskTurn(mod, () =>
+      JSON.stringify({ cancelled: true, reason: 'turn_ended' }),
+    );
+
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('cancelled');
+    expect(followUp).toContain('turn_ended');
+  });
+
+  it('returns the unsupported-host message when no ask_question_cb is provided', async () => {
+    const mod = loadNativeModule();
+
+    const { llmRequests } = await runAskTurn(mod, undefined);
+
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('Do NOT call this tool again');
+  });
+
+  it('forwards background:true to the host wire request', async () => {
+    const mod = loadNativeModule();
+    let receivedRequest: Record<string, unknown> | null = null;
+
+    const { llmRequests } = await runAskTurn(
+      mod,
+      (req) => {
+        receivedRequest = JSON.parse(req);
+        // Background questions return the v2 background task output
+        // verbatim in `note` (design doc 3.3).
+        return JSON.stringify({
+          answers: {},
+          note: 'task_id: question_abc\ndescription: Which approach should I take?\nstatus: running\nautomatic_notification: true',
+        });
+      },
+      { ...askArgs, background: true },
+    );
+
+    expect((receivedRequest as Record<string, unknown>).background).toBe(true);
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('task_id: question_abc');
+    expect(followUp).toContain('status: running');
+  });
+});

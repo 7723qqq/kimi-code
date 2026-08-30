@@ -11,6 +11,8 @@ import {
   createLlmAbortRegistry,
   mapStopReason,
   projectHostMessageToWire,
+  type AskQuestionWire,
+  type AskQuestionWireResult,
 } from './rust-loop';
 
 describe('classifyRpcMessage', () => {
@@ -826,6 +828,231 @@ describe('stdio transport — host/ask_question JS handler', () => {
       jsonrpc: '2.0',
       id: 9,
       error: { code: -32603, message: 'question service exploded' },
+    });
+  });
+});
+
+// ── stdio transport: host/ask_question end to end ─────────────────────────
+// A real stdio engine process drives the AskUserQuestion tool natively: the
+// engine emits host/ask_question, the JS handler answers, and the answer
+// becomes the tool result the next host/llm_chat request sees.
+
+describe.skipIf(!hasStdioCliBinary())('stdio transport — host/ask_question end to end', () => {
+  const tempDirs: string[] = [];
+
+  // Same contract alias as the check_permission block above: the v2
+  // TurnEngineInput shape, imported type-only to keep this file free of a
+  // build-time dependency on the workspace package.
+  type TurnEngineInputLike = Parameters<Awaited<ReturnType<typeof import('./rust-loop').createRunTurnOverride>> extends infer E ? E extends (...args: infer A) => unknown ? (...args: A) => unknown : never : never>[0];
+
+  afterEach(async () => {
+    const { shutdownRustEngine } = await import('./rust-loop');
+    shutdownRustEngine();
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  const questionArgs = {
+    questions: [
+      {
+        question: 'Which database?',
+        header: 'Storage',
+        options: [
+          { label: 'Postgres', description: 'Relational storage' },
+          { label: 'SQLite', description: 'Embedded storage' },
+        ],
+        multi_select: false,
+      },
+    ],
+    turn_id: '1',
+    tool_call_id: 'call-q',
+    background: false,
+  };
+
+  async function driveAskQuestionTurn(opts: {
+    askUserQuestion?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>;
+  }): Promise<{
+    hostRequests: Array<{ method?: string; params?: unknown }>;
+    writtenToEngine: string[];
+    chatMessages: unknown[][];
+    toolResultEvents: Array<{ output?: unknown; isError?: boolean }>;
+    result: unknown;
+  }> {
+    const mod = await import('./rust-loop');
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-ask-'));
+    tempDirs.push(workspace);
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    // Spy on the live stdio process: record every host request the engine
+    // sends and every response line written back to it. The engine only
+    // starts talking after agent/run_turn, so the spies are installed
+    // before the turn begins.
+    const agent = mod.activeAgentProcessForTests() as unknown as {
+      handleHostRequest?: (msg: { method?: string; params?: unknown }) => Promise<void>;
+      process?: { stdin?: { write(line: string): unknown } };
+    } | null;
+    const hostRequests: Array<{ method?: string; params?: unknown }> = [];
+    const writtenToEngine: string[] = [];
+    const originalHandleHostRequest = agent?.handleHostRequest;
+    if (agent && originalHandleHostRequest) {
+      agent.handleHostRequest = async (msg) => {
+        hostRequests.push(msg);
+        await originalHandleHostRequest.call(agent, msg);
+      };
+    }
+    const stdin = agent?.process?.stdin;
+    if (stdin) {
+      const originalWrite = stdin.write.bind(stdin);
+      stdin.write = (line: string) => {
+        writtenToEngine.push(line);
+        return originalWrite(line);
+      };
+    }
+
+    const chatMessages: unknown[][] = [];
+    const toolResultEvents: Array<{ output?: unknown; isError?: boolean }> = [];
+    let chatCallCount = 0;
+
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'test-model',
+        modelId: 'test-model',
+        systemPrompt: 'You are a test driver.',
+        async chat(inputArg: { messages: unknown[] }) {
+          chatMessages.push(inputArg.messages);
+          const call = chatCallCount++;
+          if (call === 0) {
+            return {
+              toolCalls: [
+                {
+                  type: 'function',
+                  id: 'call-q',
+                  name: 'ask_user_question',
+                  arguments: JSON.stringify(questionArgs),
+                },
+              ],
+              providerFinishReason: 'tool_calls',
+              usage: { inputOther: 10, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        // Mirror the host transcript: the tool.result events the adapter
+        // dispatched for the native tool become the tool messages the next
+        // llm request sees.
+        return toolResultEvents.map((tr) => ({
+          role: 'tool',
+          content: [
+            {
+              type: 'text',
+              text: typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output),
+            },
+          ],
+          toolCallId: 'call-q',
+        }));
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent(event: unknown) {
+        const e = event as { type?: string; result?: { output?: unknown; isError?: boolean } };
+        if (e.type === 'tool.result' && e.result) {
+          toolResultEvents.push({ output: e.result.output, isError: e.result.isError });
+        }
+      },
+      async executeTool() {
+        return { output: 'UNREACHABLE host fallback', isError: true };
+      },
+      async checkToolPermission() {
+        return { decision: 'allow' as const };
+      },
+      askUserQuestion: opts.askUserQuestion,
+    } satisfies TurnEngineInputLike;
+
+    const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
+    return { hostRequests, writtenToEngine, chatMessages, toolResultEvents, result };
+  }
+
+  it('round-trips an answered question through the real stdio engine', async () => {
+    const received: unknown[] = [];
+    const out = await driveAskQuestionTurn({
+      askUserQuestion: async (request) => {
+        received.push(request);
+        return { answers: { 'Which database?': 'Postgres' }, method: 'enter' };
+      },
+    });
+
+    // The engine must emit host/ask_question with the wire method and the
+    // engine-generated question id plus the parsed questions.
+    const askRequests = out.hostRequests.filter((r) => r.method === 'host/ask_question');
+    expect(askRequests).toHaveLength(1);
+    const params = askRequests[0]?.params as {
+      question_id?: string;
+      questions?: Array<{ question?: string }>;
+    };
+    expect(params?.question_id).toMatch(/^question_[0-9a-f]{16}$/);
+    expect(params?.questions).toHaveLength(1);
+    expect(params?.questions?.[0]?.question).toBe('Which database?');
+
+    // The JS handler received the same request the engine sent.
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      turn_id: '1',
+      tool_call_id: 'call-q',
+      background: false,
+      timeout_ms: null,
+    });
+
+    // The answer became the native tool result the next llm request sees.
+    expect(out.toolResultEvents).toHaveLength(1);
+    expect(out.toolResultEvents[0]).toEqual({
+      output: '{"answers":{"Which database?":"Postgres"}}',
+      isError: false,
+    });
+    const secondChat = out.chatMessages[1];
+    expect(secondChat).toHaveLength(1);
+    expect(secondChat?.[0]).toMatchObject({
+      role: 'tool',
+      content: [{ type: 'text', text: '{"answers":{"Which database?":"Postgres"}}' }],
+    });
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+  });
+
+  it('reports an unwired host as an unsupported error the model must not retry', async () => {
+    const out = await driveAskQuestionTurn({});
+
+    // The engine received a JSON-RPC error (-32603) on the wire.
+    const errorLines = out.writtenToEngine
+      .map((line) => JSON.parse(line) as { error?: { code?: number } })
+      .filter((m) => m.error !== undefined);
+    expect(errorLines).toHaveLength(1);
+    expect(errorLines[0]?.error?.code).toBe(-32603);
+
+    // The tool result carries the v2 unsupported message; the model must
+    // not retry the tool.
+    expect(out.toolResultEvents).toHaveLength(1);
+    expect(out.toolResultEvents[0]?.isError).toBe(true);
+    expect(String(out.toolResultEvents[0]?.output)).toContain('Do NOT call this tool again');
+    const secondChat = out.chatMessages[1];
+    expect(secondChat?.[0]).toMatchObject({
+      role: 'tool',
+      content: [{ type: 'text', text: expect.stringContaining('Do NOT call this tool again') }],
     });
   });
 });
