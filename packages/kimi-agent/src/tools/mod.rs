@@ -21,21 +21,28 @@ use crate::turn_loop::types::ExecutableToolResult;
 const READ_MAX_LINES: usize = 1000;
 /// Maximum rendered length of a single Read line (host Read cap).
 const READ_MAX_LINE_LENGTH: usize = 2000;
-/// Maximum file size a native Read serves (larger files fall back to host).
-const READ_MAX_BYTES: u64 = 4 * 1024 * 1024;
-/// Grep caps: scanned files, and wall-clock budget.
+/// Maximum rendered output bytes for a native Read (host/addon MAX_BYTES).
+const READ_MAX_OUTPUT_BYTES: usize = 100 * 1024;
+/// Maximum file size a native Read serves (addon TRANSCODE_MAX_BYTES; larger
+/// files fall back to the host, which streams them).
+const READ_MAX_BYTES: u64 = 10 * 1024 * 1024;
+/// Grep caps: scanned files, and wall-clock budget (host/addon
+/// DEFAULT_TIMEOUT_MS = 20s).
 const GREP_MAX_FILES: usize = 5000;
-const GREP_TIME_BUDGET: Duration = Duration::from_secs(3);
+const GREP_TIME_BUDGET: Duration = Duration::from_secs(20);
 /// Largest file native Grep will pull into memory (matches the Read cap).
 /// Bigger ones are skipped and reported as truncation rather than risking a
 /// multi-gigabyte allocation per matching file.
 const GREP_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
-/// Cap on rendered Grep lines. The whole result is built before paging, so
-/// context lines across thousands of files would otherwise be materialised
-/// in full.
-const GREP_MAX_OUTPUT_LINES: usize = 5000;
+/// Cap on rendered Grep output bytes (host/addon MAX_OUTPUT_BYTES). The whole
+/// result is built before paging, so context lines across thousands of files
+/// would otherwise be materialised in full.
+const GREP_MAX_OUTPUT_BYTES: usize = 512 * 1024;
 /// Default result cap for native Grep (host DEFAULT_HEAD_LIMIT).
 const GREP_HEAD_LIMIT: usize = 250;
+/// VCS metadata directories excluded from every grep walk, regardless of
+/// `.gitignore` (mirrors the host `VCS_DIRECTORIES_TO_EXCLUDE`).
+const VCS_DIRECTORIES_TO_EXCLUDE: [&str; 6] = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 /// Maximum number of Glob results returned.
 const GLOB_MAX_RESULTS: usize = 500;
 
@@ -44,6 +51,7 @@ const BASH_MAX_SECONDS: u64 = 300;
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
+pub mod encoding;
 pub mod fetch_url;
 pub mod list_directory;
 pub mod subagent_tools;
@@ -295,58 +303,112 @@ impl NativeToolset {
             return None;
         }
         let bytes = std::fs::read(&resolved).ok()?;
-        // Binary files fall back to the host (media handling lives there).
-        if bytes.contains(&0) {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&bytes);
 
-        let all: Vec<&str> = text.lines().collect();
+        // Encoding detection mirrors the host Read tool: BOM first, then the
+        // zero-byte parity heuristic. UTF-16 payloads are transcoded whole;
+        // binary-looking headers and invalid UTF-8 fall back to the host,
+        // which owns the media pipeline and the full error contract.
+        let header = &bytes[..bytes.len().min(encoding::ENCODING_DETECTION_SAMPLE_BYTES)];
+        let detection = encoding::detect_text_encoding(header);
+        let (text, encoding_note) =
+            if !detection.seems_binary && detection.encoding != encoding::UtfTextEncoding::Utf8 {
+                let decoded = encoding::decode_utf_text(&bytes, detection.encoding);
+                (decoded, Some(detection.encoding))
+            } else if detection.seems_binary {
+                return None;
+            } else {
+                // Strict UTF-8: NUL bytes and malformed sequences are the host's
+                // verdict (binary / not-UTF-8 errors), not a lossy native read.
+                if bytes.contains(&0) {
+                    return None;
+                }
+                let text = std::str::from_utf8(&bytes).ok()?.to_string();
+                // A leading UTF-8 BOM is stripped like TextDecoder does.
+                let text = text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string();
+                (text, None)
+            };
+
+        // Split keeping a trailing `\r` per line — the style-aware renderer
+        // decides whether to strip it (pure CRLF) or make it visible (mixed).
+        // A final newline does not produce a phantom empty line.
+        let mut all: Vec<&str> = text.split('\n').collect();
+        if all.last().is_some_and(|l| l.is_empty()) {
+            all.pop();
+        }
+        let style = encoding::detect_line_ending_style(text.as_bytes());
+
         if offset > all.len() && !all.is_empty() {
             return Some(err_result(format!(
                 "line_offset {offset} is past the end of {path} ({} lines)",
                 all.len()
             )));
         }
-        let end = (offset - 1 + n_lines).min(all.len());
-        // Line rendering mirrors the host Read tool: `${lineNo}\t${content}`
-        // with per-line truncation to READ_MAX_LINE_LENGTH characters.
+        let start = (offset - 1).min(all.len());
+        let end = (start + n_lines).min(all.len());
+        // Line rendering mirrors the host Read tool: `${lineNo}\t${content}`,
+        // CRLF-style trailing CRs stripped, per-line truncation to
+        // READ_MAX_LINE_LENGTH characters with a `...` marker, lone CRs made
+        // visible as `\r` on mixed files, and a READ_MAX_OUTPUT_BYTES budget.
         let mut out = String::new();
         let mut truncated_lines: Vec<usize> = Vec::new();
-        for (i, line) in all[offset - 1..end].iter().enumerate() {
-            let mut rendered: String = (*line).to_string();
+        let mut rendered_bytes = 0usize;
+        let mut max_bytes_reached = false;
+        let mut rendered_count = 0usize;
+        for (i, raw) in all[start..end].iter().enumerate() {
+            let mut rendered: String = (*raw).to_string();
+            let mut was_truncated = false;
+            if style == encoding::LineEndingStyle::CrLf && rendered.ends_with('\r') {
+                rendered.pop();
+            }
             if rendered.chars().count() > READ_MAX_LINE_LENGTH {
-                let mut cut = rendered
-                    .char_indices()
-                    .nth(READ_MAX_LINE_LENGTH)
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(rendered.len());
-                while !rendered.is_char_boundary(cut) {
-                    cut -= 1;
-                }
-                rendered.truncate(cut);
+                const MARKER: &str = "...";
+                let keep = READ_MAX_LINE_LENGTH - MARKER.len();
+                rendered = rendered.chars().take(keep).collect();
+                rendered.push_str(MARKER);
+                was_truncated = true;
+            }
+            if style == encoding::LineEndingStyle::Mixed {
+                rendered = encoding::make_carriage_returns_visible(&rendered);
+            }
+            let rendered_line = format!("{}\t{}", offset + i, rendered);
+            // The separator byte between rendered lines counts toward the
+            // budget (host renderedLineBytes accounting).
+            let line_bytes = rendered_line.len() + usize::from(!out.is_empty());
+            if !out.is_empty() && rendered_bytes + line_bytes > READ_MAX_OUTPUT_BYTES {
+                max_bytes_reached = true;
+                break;
+            }
+            if was_truncated {
                 truncated_lines.push(offset + i);
             }
-            out.push_str(&format!("{}\t{}\n", offset + i, rendered));
+            out.push_str(&rendered_line);
+            out.push('\n');
+            rendered_count += 1;
+            rendered_bytes += line_bytes;
+            if rendered_bytes >= READ_MAX_OUTPUT_BYTES {
+                max_bytes_reached = true;
+                break;
+            }
         }
         // Host-faithful `<system>` note (finishMessage in readTool.ts).
-        let line_count = end - (offset - 1);
         let mut parts: Vec<String> = Vec::new();
-        if line_count > 0 {
+        if rendered_count > 0 {
             parts.push(format!(
-                "{line_count} {} read from file starting from line {offset}.",
-                if line_count == 1 { "line" } else { "lines" }
+                "{rendered_count} {} read from file starting from line {offset}.",
+                if rendered_count == 1 { "line" } else { "lines" }
             ));
         } else {
             parts.push("No lines read from file.".into());
         }
         parts.push(format!("Total lines in file: {}.", all.len()));
-        if end < all.len() {
-            if end == READ_MAX_LINES {
-                parts.push(format!("Max {READ_MAX_LINES} lines reached."));
-            } else {
-                parts.push("End of file reached.".into());
-            }
+        let max_lines_reached =
+            n_lines >= READ_MAX_LINES && rendered_count == n_lines && end < all.len();
+        if max_lines_reached {
+            parts.push(format!("Max {READ_MAX_LINES} lines reached."));
+        } else if max_bytes_reached {
+            parts.push(format!("Max {READ_MAX_OUTPUT_BYTES} bytes reached."));
+        } else if rendered_count < n_lines {
+            parts.push("End of file reached.".into());
         }
         if !truncated_lines.is_empty() {
             let list = truncated_lines
@@ -356,6 +418,17 @@ impl NativeToolset {
                 .join(", ");
             parts.push(format!(
                 "Lines [{list}] were truncated to {READ_MAX_LINE_LENGTH} characters; use Bash (e.g. cut or sed) to read the elided content of those lines."
+            ));
+        }
+        if style == encoding::LineEndingStyle::Mixed {
+            parts.push(
+                "Mixed or lone carriage-return line endings are shown as \\r. Use exact \\r\\n or \\r escapes in Edit.old_string for those lines.".into(),
+            );
+        }
+        if let Some(enc) = encoding_note {
+            parts.push(format!(
+                "Detected file encoding: {}; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. `iconv` via Bash).",
+                enc.display_name()
             ));
         }
         let mut result = ok_result(out);
@@ -438,17 +511,32 @@ impl NativeToolset {
         let started = Instant::now();
         let mut per_file: Vec<FileMatches> = Vec::new();
         let mut filtered_sensitive: Vec<String> = Vec::new();
-        let mut truncated = false;
+        let mut timed_out = false;
+        let mut file_cap_truncated = false;
 
         // The host Grep searches hidden files (--hidden) and then filters
-        // sensitive ones — mirror both, or .env-style content leaks.
+        // sensitive ones — mirror both, or .env-style content leaks. VCS
+        // metadata directories are excluded like the host's `--glob !.git`
+        // family.
         let walker = ignore::WalkBuilder::new(&search_root).hidden(false).build();
         for entry in walker.flatten() {
-            if started.elapsed() > GREP_TIME_BUDGET || per_file.len() >= GREP_MAX_FILES {
-                truncated = true;
+            if started.elapsed() > GREP_TIME_BUDGET {
+                timed_out = true;
+                break;
+            }
+            if per_file.len() >= GREP_MAX_FILES {
+                file_cap_truncated = true;
                 break;
             }
             let path = entry.path();
+            if path.components().any(|c| {
+                matches!(
+                    c.as_os_str().to_str(),
+                    Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
+                )
+            }) {
+                continue;
+            }
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
@@ -470,7 +558,7 @@ impl NativeToolset {
                 continue;
             };
             if metadata.len() > GREP_MAX_FILE_BYTES {
-                truncated = true;
+                file_cap_truncated = true;
                 continue;
             }
             let Ok(bytes) = std::fs::read(path) else {
@@ -484,11 +572,13 @@ impl NativeToolset {
             let mut total_matches = 0usize;
             for (lineno, line) in text.lines().enumerate() {
                 let trimmed = line.strip_suffix('\r').unwrap_or(line);
-                let is_match = regex.is_match(trimmed);
-                if is_match {
-                    total_matches += 1;
+                // Occurrences per line, like rg --count-matches (the host
+                // summary sums these, not matching lines).
+                let matches_in_line = regex.find_iter(trimmed).count();
+                if matches_in_line > 0 {
+                    total_matches += matches_in_line;
                 }
-                lines.push((is_match, lineno + 1, trimmed.to_string()));
+                lines.push((matches_in_line > 0, lineno + 1, trimmed.to_string()));
             }
             if total_matches == 0 {
                 continue;
@@ -564,8 +654,18 @@ impl NativeToolset {
         }
 
         let mut output_truncated = false;
-        if rendered.len() > GREP_MAX_OUTPUT_LINES {
-            rendered.truncate(GREP_MAX_OUTPUT_LINES);
+        if rendered.iter().map(|l| l.len() + 1).sum::<usize>() > GREP_MAX_OUTPUT_BYTES {
+            let mut bytes = 0usize;
+            let mut keep = 0usize;
+            for line in &rendered {
+                let line_bytes = line.len() + 1; // trailing \n separator
+                if bytes + line_bytes > GREP_MAX_OUTPUT_BYTES {
+                    break;
+                }
+                bytes += line_bytes;
+                keep += 1;
+            }
+            rendered.truncate(keep);
             output_truncated = true;
         }
 
@@ -625,7 +725,13 @@ impl NativeToolset {
         }
         if output_truncated {
             messages.push(format!(
-                "Output truncated to {GREP_MAX_OUTPUT_LINES} lines; narrow the pattern or add a glob filter."
+                "[Output truncated at {GREP_MAX_OUTPUT_BYTES} bytes — the result set is incomplete. Narrow the pattern, path, or glob filters and re-run to recover complete results.]"
+            ));
+        }
+        if timed_out {
+            messages.push(format!(
+                "Grep timed out after {}s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.",
+                GREP_TIME_BUDGET.as_secs()
             ));
         }
         if !filtered_sensitive.is_empty() {
@@ -642,7 +748,7 @@ impl NativeToolset {
         if !messages.is_empty() {
             out.push_str(&format!("\n\n{}", messages.join("\n")));
         }
-        if truncated {
+        if file_cap_truncated {
             out.push_str("\n\n[truncated — refine the pattern or scope to see more]");
         }
         Some(ok_result(out))
@@ -1173,6 +1279,232 @@ mod tests {
         );
     }
 
+    fn utf16le_bytes(text: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        out
+    }
+
+    fn utf16be_bytes(text: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_be_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn read_transcodes_utf16le_bom() {
+        let (_dir, ts) = setup();
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend_from_slice(&utf16le_bytes("alpha\nbeta\n"));
+        std::fs::write(_dir.path().join("u16.txt"), bytes).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "u16.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("1\talpha"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("2\tbeta"),
+            "content: {}",
+            result.content
+        );
+        let note = result.note.unwrap();
+        assert!(
+            note.contains("Detected file encoding: UTF-16 LE"),
+            "note: {note}"
+        );
+    }
+
+    #[test]
+    fn read_transcodes_utf16be_bom() {
+        let (_dir, ts) = setup();
+        let mut bytes = vec![0xfe, 0xff];
+        bytes.extend_from_slice(&utf16be_bytes("alpha\nbeta\n"));
+        std::fs::write(_dir.path().join("u16.txt"), bytes).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "u16.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("1\talpha"),
+            "content: {}",
+            result.content
+        );
+        let note = result.note.unwrap();
+        assert!(
+            note.contains("Detected file encoding: UTF-16 BE"),
+            "note: {note}"
+        );
+    }
+
+    #[test]
+    fn read_transcodes_bomless_utf16le() {
+        let (_dir, ts) = setup();
+        // Zero-byte parity heuristic: no BOM, zeros at odd indices.
+        std::fs::write(_dir.path().join("u16.txt"), utf16le_bytes("alpha\n")).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "u16.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("1\talpha"),
+            "content: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn read_binary_nul_falls_back_to_host() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("bin.dat"), b"plain prefix\x00\x01").unwrap();
+        assert!(
+            ts.execute("Read", &json!({ "path": "bin.dat" })).is_none(),
+            "binary files stay on the host"
+        );
+    }
+
+    #[test]
+    fn read_invalid_utf8_falls_back_to_host() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("bad.txt"), b"a\xffb").unwrap();
+        assert!(
+            ts.execute("Read", &json!({ "path": "bad.txt" })).is_none(),
+            "non-UTF-8 text stays on the host (full error contract)"
+        );
+    }
+
+    #[test]
+    fn read_strips_utf8_bom() {
+        let (_dir, ts) = setup();
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend_from_slice(b"alpha\n");
+        std::fs::write(_dir.path().join("bom.txt"), bytes).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "bom.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("1\talpha"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains('\u{FEFF}'),
+            "BOM must be stripped: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn read_pure_crlf_normalized() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("crlf.txt"), b"alpha\r\nbeta\r\n").unwrap();
+        let result = ts.execute("Read", &json!({ "path": "crlf.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("1\talpha"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains('\r'),
+            "pure CRLF renders without CRs: {}",
+            result.content
+        );
+        let note = result.note.unwrap();
+        assert!(
+            !note.contains("carriage-return"),
+            "pure CRLF must not report mixed endings: {note}"
+        );
+    }
+
+    #[test]
+    fn read_mixed_line_endings_make_cr_visible() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("mixed.txt"), b"a\nb\r\n").unwrap();
+        let result = ts.execute("Read", &json!({ "path": "mixed.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("2\tb\\r"),
+            "content: {}",
+            result.content
+        );
+        let note = result.note.unwrap();
+        assert!(
+            note.contains("carriage-return"),
+            "mixed endings must be reported: {note}"
+        );
+    }
+
+    #[test]
+    fn read_truncates_long_lines_with_marker() {
+        let (_dir, ts) = setup();
+        let long_line = "a".repeat(3000);
+        std::fs::write(
+            _dir.path().join("long.txt"),
+            format!("{long_line}\nshort\n"),
+        )
+        .unwrap();
+        let result = ts.execute("Read", &json!({ "path": "long.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        let first = result.content.split('\n').next().unwrap();
+        let text = first.strip_prefix("1\t").unwrap();
+        assert!(text.ends_with("..."), "line: {text}");
+        assert_eq!(text.chars().count(), 2000);
+        let note = result.note.unwrap();
+        assert!(
+            note.contains("Lines [1] were truncated to 2000 characters"),
+            "note: {note}"
+        );
+    }
+
+    #[test]
+    fn read_output_byte_budget_reports_max_bytes() {
+        let (_dir, ts) = setup();
+        let mut content = String::new();
+        for _ in 0..100 {
+            content.push_str(&"x".repeat(1100));
+            content.push('\n');
+        }
+        std::fs::write(_dir.path().join("wide.txt"), content).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "wide.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        let note = result.note.unwrap();
+        assert!(note.contains("Max 102400 bytes reached."), "note: {note}");
+        assert!(
+            !result.content.contains("100\t"),
+            "byte budget must stop rendering early: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn read_empty_file_with_offset_does_not_panic() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("empty.txt"), b"").unwrap();
+        let result = ts
+            .execute("Read", &json!({ "path": "empty.txt", "line_offset": 5 }))
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(result.content.is_empty(), "content: {}", result.content);
+        let note = result.note.unwrap();
+        assert!(note.contains("No lines read from file"), "note: {note}");
+        assert!(note.contains("Total lines in file: 0."), "note: {note}");
+    }
+
+    #[test]
+    fn read_large_file_falls_back_to_host() {
+        let (_dir, ts) = setup();
+        std::fs::write(
+            _dir.path().join("big.txt"),
+            vec![b'a'; 10 * 1024 * 1024 + 1],
+        )
+        .unwrap();
+        assert!(
+            ts.execute("Read", &json!({ "path": "big.txt" })).is_none(),
+            "files beyond the transcode budget stay on the host"
+        );
+    }
+
     #[tokio::test]
     async fn grep_finds_matches_across_files() {
         let (_dir, ts) = setup();
@@ -1369,6 +1701,58 @@ m2
         assert!(
             ts.execute("Grep", &json!({ "pattern": "x", "type": "rust" }))
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_skips_vcs_directories() {
+        let (_dir, ts) = setup();
+        std::fs::create_dir_all(_dir.path().join(".git")).unwrap();
+        std::fs::write(_dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(_dir.path().join("notes.txt"), "ref: something\n").unwrap();
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "ref:", "output_mode": "content" }),
+            )
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("notes.txt"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains(".git"),
+            "VCS metadata must be excluded: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_count_matches_counts_occurrences() {
+        let (_dir, ts) = setup();
+        std::fs::write(_dir.path().join("multi.txt"), "beta beta beta\n").unwrap();
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "beta", "output_mode": "count_matches" }),
+            )
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("multi.txt:3"),
+            "content: {}",
+            result.content
+        );
+        // setup() also writes a.txt ("beta" once) and src/lib.rs ("beta"
+        // once), so the whole-workspace count is 5 across 3 files.
+        assert!(
+            result
+                .content
+                .contains("Found 5 total occurrences across 3 files."),
+            "content: {}",
+            result.content
         );
     }
 

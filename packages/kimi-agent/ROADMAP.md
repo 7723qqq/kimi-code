@@ -1125,3 +1125,35 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
    - `render_tool_call`：实时显示工具调用名称、参数精简预览（`key=val`）以及执行结果状态（`✓ ok` / `✗ error`）。
    - `render_status_panel`：表格化展示会话详情、YOLO 权限模式、轮次与 Prompt/Completion/Cache Token 细分指标。
    - `render_prompt`：高亮提示符 `kimi > `。
+
+---
+
+## P32 — 剩余缺口推进：G-3 工具语义 / G-4 压缩 / 第 4 批协议设计（2026-09-01）
+
+> P21 缺口地图的剩余项推进。并行 4 个子代理完成，全部验证通过后合入。
+
+### G-3 read/grep 语义对齐 — ✅ 已完成
+
+- 新增 `src/tools/encoding.rs`（455 行，14 单测）：UTF-8/UTF-16 LE/BE BOM 探测 + 零字节奇偶启发式、std 手写 UTF-16 转码（代理对合并、未配对/奇数尾字节 → U+FFFD）、行尾检测（CRLF/LF/Mixed）、CR 可见化。零新依赖。
+- `tools/mod.rs` read 增强：接入编码探测（UTF-16 整文件转码 + 系统注记）、纯 CRLF 归一化 / mixed CR 可见化、`READ_MAX_BYTES` 4MiB → 10MiB、新增 100KiB 输出预算、行截断对齐 host `...` 标记；修复空文件 + `line_offset>1` 切片 panic 与 EOF 注记误报。
+- `tools/mod.rs` grep 增强：超时 3s → 20s（对齐 host）、输出 5000 行 → 512KiB 字节、VCS 目录排除（`.git/.svn/.hg/.bzr/.jj/.sl`）、count_matches 按出现次数计数（对齐 rg `--count-matches`）。
+- 二进制/非法 UTF-8 回落 host（不 lossy 静默损坏）；GBK 不在范围（std 无法实现，host 契约兜底）。
+
+### G-4 turn 内上下文压缩 — ✅ 已完成
+
+- 新增 `src/compaction/mod.rs`（476 行，9 单测）：镜像 `fullCompaction/strategy.ts` + `kimi-native-tools/src/compaction.rs`——system 提示永不压缩、`can_split_after` 分割安全规则（不拆 tool exchange）、`messages[1..count]` 替换为 user 角色摘要占位、最近尾部原样保留；token 估算 `chars/4`；默认窗口 128k（引擎无模型能力数据，接口预留 `max_context_tokens` 注入点）。
+- `run_turn.rs` 接线：每次 LLM 调用前估算，超阈值（0.85×窗口 或 50k 预留）时压缩并替换 messages；与 goal 预算检查共存（goal 停止 turn、压缩延续 turn）。
+
+### 第 4 批反向交互协议 — 设计就绪（落码待排期）
+
+- `reports/rust-engine-reverse-protocol-design.md`：引擎→宿主 `host/ask_question` 请求/响应协议（question_id/turn_id/timeout/questions[]，响应三态 answered/dismissed/cancelled）、napi 新增 `ask_question_cb` + stdio method、不阻塞 step 循环（工具调用内 tokio future + 取消三通道）、状态层归属推荐"写穿桥接"（引擎工具经 `host/state_read`/`host/state_write` 读写宿主状态，宿主保持持久化 + undo 唯一权威）、HostCallbacks 新增 `ask_question` trait 方法（带默认不支持实现）。
+- 8 步落码里程碑 + 4 项风险记录在文档中。
+
+### 第 7 批状态类工具 — 调研就绪（迁移待第 4 批协议）
+
+- `reports/rust-engine-state-tools-survey.md`：约 30 个工具清单表（位置/状态依赖/交互依赖/迁移可行性）；三分类——纯计算可直移（约 6 个：cron-expr/goal 预算/todo 渲染/task 格式化）、依赖状态层（约 9 个）、依赖反向交互协议（约 4 个）、宿主独有能力建议保留 host（约 10 个）。
+
+### 验证
+
+- `cargo test`: 340 lib + 9 stdio 全绿（新增 44 测试）；`cargo clippy --all-targets` 0 warnings；`cargo fmt --check` 干净；`bun x vitest` 70 passed / 5 skipped。
+- 3 个并行子代理测试断言错误已修复（未配对代理输入、CR 可见化期望、grep count 未计 setup 目录既有文件）。

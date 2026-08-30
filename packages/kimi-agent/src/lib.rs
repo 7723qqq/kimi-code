@@ -4,6 +4,7 @@
 //! and the napi-rs native addon (direct Node.js integration).
 
 pub mod callbacks;
+pub mod compaction;
 pub mod config;
 pub mod events;
 pub mod llm;

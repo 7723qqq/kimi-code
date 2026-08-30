@@ -109,6 +109,10 @@ pub fn run_turn<'a>(
         // Default retry configuration for LLM calls within this turn.
         let retry_config = RetryConfig::default();
 
+        // Context compaction knobs. The engine has no model capability
+        // data, so the window defaults to a fixed 128k-token budget.
+        let compaction_config = crate::compaction::CompactionConfig::default();
+
         for step_num in 0..max_steps {
             steps = step_num + 1;
             let turn_wall_clock_ms = elapsed_wall_clock_ms(turn_started);
@@ -175,6 +179,25 @@ pub fn run_turn<'a>(
                 && let Ok(steers) = callbacks.drain_steers().await
             {
                 messages.extend(steers);
+            }
+
+            // ── Context compaction check ─────────────────────────────────
+            // Before each LLM call, estimate the message history against
+            // the context window. When it crosses the trigger threshold,
+            // replace the oldest messages with a summary placeholder so
+            // the turn can continue instead of failing on a context
+            // overflow. Independent of the goal budget check above: the
+            // goal budget stops the turn, compaction keeps it running.
+            let compacted = crate::compaction::compact_messages(&messages, &compaction_config);
+            if compacted.len() != messages.len() {
+                tracing::debug!(
+                    turn_id = %turn_id,
+                    step = step_num,
+                    before = messages.len(),
+                    after = compacted.len(),
+                    "compacted turn context before LLM call"
+                );
+                messages = compacted;
             }
 
             // Delegate LLM call (with retry) to turn_step module.
@@ -1634,5 +1657,102 @@ mod tests {
             !text.contains("Budgets:"),
             "should not contain budget section when no budgets"
         );
+    }
+
+    // ── Context compaction wiring tests ────────────────────────────────
+
+    /// When the message history crosses the context trigger threshold, the
+    /// loop compacts it before the LLM call: the system prompt and the
+    /// most recent messages survive, the middle is replaced by a summary
+    /// placeholder.
+    #[tokio::test]
+    async fn test_context_compaction_before_llm_call() {
+        use std::sync::Mutex;
+
+        struct CaptureLlm {
+            captured: Arc<Mutex<Vec<LLMMessage>>>,
+        }
+        impl LLM for CaptureLlm {
+            fn system_prompt(&self) -> &str {
+                "base prompt"
+            }
+            fn model_name(&self) -> &str {
+                "capture"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let captured = self.captured.clone();
+                Box::pin(async move {
+                    *captured.lock().unwrap() = params.messages.clone();
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                            total_tokens: 2,
+                            ..Default::default()
+                        },
+                    })
+                })
+            }
+        }
+
+        // Default trigger threshold is 128k - 50k reserved = 81_072 tokens;
+        // at 4 chars/token that is ~324k chars. Three 120k-char messages
+        // (90k estimated tokens) cross it.
+        let big = "x".repeat(120_000);
+        let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = CaptureLlm {
+            captured: captured.clone(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-compaction".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.len(), 3, "system + placeholder + recent user");
+        assert_eq!(captured[0].role, "system");
+        assert_eq!(captured[1].role, "user");
+        assert!(
+            captured[1].content.contains("compacted"),
+            "placeholder must mention compaction"
+        );
+        assert_eq!(captured[2].content, big, "most recent message preserved");
     }
 }
