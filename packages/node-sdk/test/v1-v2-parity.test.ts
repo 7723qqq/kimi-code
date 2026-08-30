@@ -730,10 +730,12 @@ describe('v1↔v2 return-value parity', () => {
       'parity-project-skill',
     );
     try {
-      const [v1Skills, v2Skills] = await Promise.all([
-        v1.listWorkspaceSkills(workDir),
-        v2.listWorkspaceSkills(workDir),
-      ]);
+      // Both engines share one home and both lazily materialize
+      // `workspaces.json` on first use. Running them concurrently makes two
+      // atomic-write renames of the same path race on Windows (EPERM), so
+      // run them in sequence; the parity claim is determinism, not timing.
+      const v1Skills = await v1.listWorkspaceSkills(workDir);
+      const v2Skills = await v2.listWorkspaceSkills(workDir);
       expect(normalize(v2Skills, 'name')).toEqual(normalize(v1Skills, 'name'));
     } finally {
       await closeAll(v1, v2);
