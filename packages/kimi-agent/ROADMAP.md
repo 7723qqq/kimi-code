@@ -933,7 +933,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `cargo test`: 282 passed (273 lib + 9 stdio)。
 - `bun x vitest`: 69 passed / 5 skipped / 0 failed。
 
-### 批 6（顺带）：退场 `kimi-native-tools` crate（per D-3）— 🔄 进行中 (已完成孤岛调用点全量盘点)
+### 批 6（顺带）：退场 `kimi-native-tools` crate（per D-3）— ✅ 已完成 (2026-09-01)
 
 **目标**：按 D-3，addon 导出的退场并入"引擎实现替换它"的同一批。
 
@@ -941,6 +941,14 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - **已在 kimi-agent 原生引擎闭环**：`Read` / `Write` / `Edit` / `Bash` / `Grep` / `Glob` / `FetchURL` / `WebSearch` / `ListDirectory` / `PermissionEngine` / `ToolResultTruncator`。
 - **确认零生产调用点孤岛**：`nativeBatchRead`、`nativeFileCacheInvalidate`、`nativeGrepStructured`。
 - **保留供 JS 模式复用的上层实用函数**：`tryNativeEscapeXml`、`nativeTranslate`、`tryNativeCompressImage`、`tryNativeSelectCompactionUserMessages`、`nativeKnowledge`。
+
+**孤岛删除（2026-09-01）**：
+- `napi_bindings.rs`：删除 `native_batch_read` / `native_file_cache_invalidate` / `native_grep_structured` 三个 napi 导出。
+- `grep.rs`：删除结构化 grep 死代码（`GrepStructuredMatch`/`FileHit`/`Result`/`Config`、`grep_search_structured`、`build_glob_set` 及 8 个单测，-556 行）。
+- `bash_spawn.rs`：删除整个死模块（531 行，零生产引用，仅 `lib.rs` 声明）。
+- `agent-core-v2/src/_base/native-tools.ts`：删除 `tryNativeGrepStructured` 及 3 个类型接口。
+- `kimi-native-tools/index.d.ts`：删除 3 组声明。
+- 全仓 grep 确认零残留引用（dist/target 除外）。
 
 **后续动作**：保持渐进式收敛，待未来纯 Rust CLI 独立运行时（P27）就绪后，可进一步统一归并为单一 Rust 引擎 crate。
 
@@ -952,7 +960,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 批 2（host/execute_tool 纯 I/O） ✅ 已完成 (2026-08-31)
 批 3（host/check_permission）  ✅ 已完成 (2026-08-31)
 批 5（host/event）              ✅ 已完成 (2026-08-31)
-批 6（addon 盘点与退场规划）     🔄 进行中 (已完成孤岛盘点)
+批 6（addon 盘点与退场规划）     ✅ 已完成 (2026-09-01)
 ```
 
 **最新验证基线（2026-08-31）**：

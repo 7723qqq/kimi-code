@@ -24,26 +24,6 @@ export interface ReadOptions {
 export function nativeRead(path: string, options?: ReadOptions): Promise<ReadResult>;
 
 // ============================================================================
-// Batch Read
-// ============================================================================
-
-export interface BatchReadOptions {
-  lineOffsets?: Array<number | null>;
-  nLinesArray?: Array<number | null>;
-}
-
-export function nativeBatchRead(
-  paths: string[],
-  options?: BatchReadOptions,
-): Promise<ReadResult[]>;
-
-// ============================================================================
-// File cache
-// ============================================================================
-
-export function nativeFileCacheInvalidate(path: string): void;
-
-// ============================================================================
 // Write tool
 // ============================================================================
 
@@ -452,45 +432,6 @@ export function nativeWriteToolOutputChunk(
   maxLineLength: number | null,
   alreadyTruncated: boolean,
 ): ToolOutputChunkResult;
-
-// ============================================================================
-// Structured grep
-// ============================================================================
-
-export interface GrepStructuredMatch {
-  line: number;
-  col: number;
-  text: string;
-  before: string[];
-  after: string[];
-}
-
-export interface GrepStructuredFile {
-  path: string;
-  matches: GrepStructuredMatch[];
-}
-
-export interface GrepStructuredResult {
-  files: GrepStructuredFile[];
-  filesScanned: number;
-  truncated: boolean;
-  error?: string;
-}
-
-export function nativeGrepStructured(
-  pattern: string,
-  path: string,
-  literal: boolean,
-  caseInsensitive: boolean,
-  includeGlobs: string[],
-  excludeGlobs: string[],
-  contextLines: number,
-  maxFiles: number,
-  maxMatchesPerFile: number,
-  maxTotalMatches: number,
-  timeoutMs: number,
-  followGitignore: boolean,
-): GrepStructuredResult;
 
 // ============================================================================
 // Constants

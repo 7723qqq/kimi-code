@@ -8,10 +8,7 @@ use crate::edit::{self, EditResult};
 use crate::escape;
 use crate::github;
 use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
-use crate::grep::{
-    self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode,
-    DEFAULT_HEAD_LIMIT,
-};
+use crate::grep::{self, GrepConfig, GrepResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::image_compress;
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::output_truncate;
@@ -178,80 +175,6 @@ pub async fn native_read(
     }
 
     result
-}
-
-// ============================================================================
-// Batch Read — parallel multi-file read via tokio
-// ============================================================================
-
-/// Read multiple files in parallel using tokio's blocking thread pool.
-///
-/// Each file is read independently; results are returned in the same order as
-/// the input paths. This is more efficient than N sequential `native_read`
-/// calls because file I/O operations run concurrently.
-///
-/// @param paths - Array of file paths to read.
-/// @param line_offsets - Optional per-file line offsets (defaults to 1 for each).
-/// @param n_lines - Optional per-file line counts (defaults to MAX_LINES).
-/// @returns Array of ReadResult, one per input path, in input order.
-#[napi]
-pub async fn native_batch_read(
-    paths: Vec<String>,
-    line_offsets: Option<Vec<Option<i64>>>,
-    n_lines_array: Option<Vec<Option<u32>>>,
-) -> Vec<ReadResult> {
-    let offsets = line_offsets.unwrap_or_else(|| vec![None; paths.len()]);
-    let lines = n_lines_array.unwrap_or_else(|| vec![None; paths.len()]);
-
-    let tasks: Vec<_> = paths
-        .into_iter()
-        .zip(offsets)
-        .zip(lines)
-        .map(|((path, line_offset), n_lines)| {
-            tokio::task::spawn_blocking(move || {
-                // Same cache path as native_read: any request is cacheable,
-                // keyed by (path, offset, n_lines) and TOCTOU-guarded.
-                if let Some(cached) = crate::file_cache::FILE_CACHE.get(&path, line_offset, n_lines)
-                {
-                    return cached;
-                }
-                let pre_read = crate::file_cache::snapshot(&path);
-                let result = read::read_file(&ReadConfig {
-                    path: path.clone(),
-                    line_offset,
-                    n_lines,
-                });
-                if result.error.is_none() {
-                    if let Some(pre) = pre_read {
-                        crate::file_cache::FILE_CACHE
-                            .put(path, line_offset, n_lines, result.clone(), pre);
-                    }
-                }
-                result
-            })
-        })
-        .collect();
-
-    let mut results = Vec::with_capacity(tasks.len());
-    for task in tasks {
-        results.push(task.await.unwrap_or_else(|e| ReadResult {
-            content: String::new(),
-            line_count: 0,
-            error: Some(format!("read panicked: {e}")),
-            error_kind: Some("panic".to_string()),
-        }));
-    }
-    results
-}
-
-// ============================================================================
-// File cache — invalidation
-// ============================================================================
-
-/// Invalidate the file read cache entry for a path (call after write/edit).
-#[napi]
-pub fn native_file_cache_invalidate(path: String) {
-    crate::file_cache::FILE_CACHE.invalidate(&path);
 }
 
 // ============================================================================
@@ -423,64 +346,6 @@ pub async fn native_grep(
     tokio::task::spawn_blocking(move || grep::grep_search(&config))
         .await
         .map_err(|e| napi::Error::from_reason(format!("grep task failed: {}", e)))
-}
-
-/// Structured grep — returns typed match data instead of formatted strings.
-///
-/// Async: runs the directory walk on tokio's blocking thread pool so the
-/// Node event loop stays responsive during large searches.
-///
-/// Used by fsSearchService when rg is not available on PATH. Walks the
-/// directory tree, applies include/exclude globs, reads each file, and
-/// collects matches with context lines.
-///
-/// @param pattern - Pattern to search for.
-/// @param path - Directory to search in.
-/// @param literal - If true, treat pattern as literal (not regex).
-/// @param case_insensitive - Case-insensitive search.
-/// @param include_globs - Only scan files matching these globs.
-/// @param exclude_globs - Skip files matching these globs.
-/// @param context_lines - Number of context lines before/after each match.
-/// @param max_files - Max files to scan.
-/// @param max_matches_per_file - Max matches per file.
-/// @param max_total_matches - Max total matches across all files.
-/// @param timeout_ms - Timeout in milliseconds.
-/// @param follow_gitignore - Whether to respect .gitignore rules.
-/// @returns GrepStructuredResult with files, matches, and metadata.
-#[allow(clippy::too_many_arguments)]
-#[napi]
-pub async fn native_grep_structured(
-    pattern: String,
-    path: String,
-    literal: bool,
-    case_insensitive: bool,
-    include_globs: Vec<String>,
-    exclude_globs: Vec<String>,
-    context_lines: u32,
-    max_files: u32,
-    max_matches_per_file: u32,
-    max_total_matches: u32,
-    timeout_ms: u32,
-    follow_gitignore: bool,
-) -> Result<GrepStructuredResult, napi::Error> {
-    let config = GrepStructuredConfig {
-        pattern,
-        path,
-        literal,
-        case_insensitive,
-        include_globs,
-        exclude_globs,
-        context_lines,
-        max_files,
-        max_matches_per_file,
-        max_total_matches,
-        timeout_ms: timeout_ms.into(),
-        follow_gitignore,
-    };
-
-    tokio::task::spawn_blocking(move || grep::grep_search_structured(&config))
-        .await
-        .map_err(|e| napi::Error::from_reason(format!("grep_structured task failed: {}", e)))
 }
 
 // ============================================================================
