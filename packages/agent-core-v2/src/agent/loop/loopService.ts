@@ -18,6 +18,7 @@ import { type FinishReason } from '#/kosong/contract/provider';
 import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type TokenUsage } from '#/kosong/contract/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { readTodoItems } from '#/features/todo/todoItem';
@@ -1201,6 +1202,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 : { active: true, id: status.id, path: status.path },
           };
         }
+        if (request.domain === 'goal') {
+          const lifecycle = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentLifecycleService),
+          );
+          const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
+          return { value: goal.getGoal() };
+        }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },
       stateWrite: async (request) => {
@@ -1253,6 +1261,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 ? { active: false }
                 : { active: true, id: status.id, path: status.path },
           };
+        }
+        if (request.domain === 'goal') {
+          throw stateBridgeError(
+            -32004,
+            'goal state writes are not supported: goal mutations must go through the host tool path',
+          );
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },

@@ -17,6 +17,7 @@ import {
   type TurnEngineInput,
 } from '#/agent/loop/engineOverride';
 import { IFlagService } from '#/app/flag/flag';
+import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
@@ -905,10 +906,10 @@ describe('external engine × state bridge', () => {
     let writeError: unknown;
     const engine = makeStateEngine(async (input) => {
       readError = await captureError(async () => {
-        await input.stateRead?.({ domain: 'goal', key: 'goal' });
+        await input.stateRead?.({ domain: 'cron', key: 'cron' });
       });
       writeError = await captureError(async () => {
-        await input.stateWrite?.({ domain: 'goal', key: 'goal', value: {}, undoable: true });
+        await input.stateWrite?.({ domain: 'cron', key: 'cron', value: {}, undoable: true });
       });
     });
     ctx = createTestAgentWithEngine(engine);
@@ -974,6 +975,58 @@ describe('external engine × state bridge', () => {
     await ctx.restorePersisted();
     await ctx.restoreRuntimes();
     await ctx.get(IAgentPlanService).enter('engine-plan');
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32004);
+  });
+
+  it('reads the goal domain as null when no goal exists', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'goal', key: 'goal' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(readResult).toEqual({ value: { goal: null } });
+  });
+
+  it('reads the goal domain through the AgentGoal runtime', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'goal', key: 'goal' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentGoal).createGoal({ objective: 'Do the thing' });
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: {
+        goal: expect.objectContaining({
+          objective: 'Do the thing',
+          status: 'active',
+          tokensUsed: 0,
+        }),
+      },
+    });
+  });
+
+  it('rejects a goal state write with -32004', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { goal: null },
+          undoable: true,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
     await driveTurn();
 
     expect((writeError as { code?: number }).code).toBe(-32004);

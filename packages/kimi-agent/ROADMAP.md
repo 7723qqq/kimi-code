@@ -1144,6 +1144,18 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - 新增 `src/compaction/mod.rs`（476 行，9 单测）：镜像 `fullCompaction/strategy.ts` + `kimi-native-tools/src/compaction.rs`——system 提示永不压缩、`can_split_after` 分割安全规则（不拆 tool exchange）、`messages[1..count]` 替换为 user 角色摘要占位、最近尾部原样保留；token 估算 `chars/4`；默认窗口 128k（引擎无模型能力数据，接口预留 `max_context_tokens` 注入点）。
 - `run_turn.rs` 接线：每次 LLM 调用前估算，超阈值（0.85×窗口 或 50k 预留）时压缩并替换 messages；与 goal 预算检查共存（goal 停止 turn、压缩延续 turn）。
 
+### 第 7 批第一批：纯计算内核直移 — ✅ 完成（2026-09-01）
+
+- `src/cron/mod.rs`（1008 行，21 单测）：cron 表达式解析（5 字段 + step/range）、`next_fire`（逐分钟扫描、5 年窗口）、`to_human` 渲染（逐字符对齐 v2）、校验（8KiB 字节、350 天 one-shot）；时区用显式 `tz_offset_minutes` 参数（std-only，不建模 DST）
+- `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
+- `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
+
+### 第 7 批第二批：GetGoal 直移 — ✅ 完成（2026-09-01）
+
+- `loopService.ts` stateRead 加 goal 域（经 `AgentGoal` runtime 返回 `{goal: GoalSnapshot|null}`）；stateWrite goal 域首版拒绝（-32004，goal 写经宿主工具路径）
+- `src/tools/get_goal.rs`（8 单测）：原生 GetGoal——state_read goal 域 + 渲染对齐 v2（`goalResultForModel` 字段序、可选字段省略）；`get_goal_tool_def()`
+- engineOverride 测试 +3（无 goal/有 goal/写拒绝），28/28
+
 ### 状态桥接（host/state_read + host/state_write）— ✅ 落码完成（2026-09-01）
 
 > 第 7 批状态类工具迁移的地基。设计：`reports/rust-engine-state-bridge-design.md`（336 行）。

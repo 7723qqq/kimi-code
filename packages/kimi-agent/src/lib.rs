@@ -6,7 +6,9 @@
 pub mod callbacks;
 pub mod compaction;
 pub mod config;
+pub mod cron;
 pub mod events;
+pub mod goal;
 pub mod llm;
 pub mod mcp;
 pub mod napi_bindings;

@@ -54,9 +54,11 @@ const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 pub mod ask_user_question;
 pub mod encoding;
 pub mod fetch_url;
+pub mod get_goal;
 pub mod list_directory;
 pub mod plan_mode;
 pub mod subagent_tools;
+pub mod task_format;
 pub mod todo_item;
 pub mod todo_list;
 pub mod web_search;
@@ -182,6 +184,8 @@ impl NativeToolset {
                 | "define_subagent"
                 | "askuserquestion"
                 | "ask_user_question"
+                | "getgoal"
+                | "get_goal"
                 | "todolist"
                 | "todo_list"
                 | "enterplanmode"
@@ -219,6 +223,10 @@ impl NativeToolset {
             "askuserquestion" | "ask_user_question" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(ask_user_question::execute_ask_user_question(callbacks, args).await)
+            }
+            "getgoal" | "get_goal" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(get_goal::execute_get_goal(callbacks, args).await)
             }
             "todolist" | "todo_list" => {
                 let callbacks = self.callbacks.as_deref()?;
