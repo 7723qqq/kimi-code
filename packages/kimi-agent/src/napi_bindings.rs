@@ -843,7 +843,22 @@ async fn run_turn_rust_impl(
     // (Read/Grep/Glob/Write/Edit/Bash) runs in-process (sandboxed to the
     // workspace) and everything else — and anything that escapes the
     // sandbox — still round-trips to the host.
+    //
+    // P26 批 4: when `rust_self_contained` is set, the wrapper also carries
+    // a local truncator that handles result truncation + spill without
+    // calling the host's `host/finalize_tool_result` seam.
     let native_tool_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let truncator = if params.rust_self_contained.unwrap_or(false) {
+        params
+            .workspace_root
+            .as_deref()
+            .map(std::path::Path::new)
+            .map(|root| {
+                Arc::new(crate::tool_result_truncation::ToolResultTruncator::for_workspace(root))
+            })
+    } else {
+        None
+    };
     let callbacks: Arc<dyn HostCallbacks> = match (
         params.native_tools.unwrap_or(false),
         params.workspace_root.as_deref(),
@@ -854,6 +869,7 @@ async fn run_turn_rust_impl(
                     inner: base_callbacks.clone(),
                     toolset: Arc::new(toolset),
                     native_count: native_tool_count.clone(),
+                    truncator: truncator.clone(),
                 }),
                 None => base_callbacks.clone(),
             }

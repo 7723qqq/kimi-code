@@ -11,6 +11,7 @@ use crate::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
     ToolExecuteRequest, ToolExecuteResponse, ToolFinalizeRequest,
 };
+use crate::turn_loop::types::LLMMessage;
 
 /// Host-provided callbacks that the turn loop needs to call back to JS.
 pub trait HostCallbacks: Send + Sync {
@@ -55,6 +56,15 @@ pub trait HostCallbacks: Send + Sync {
         })
     }
 
+    /// Ask the host to release steering the user injected during this turn.
+    /// The host owns the turn's step-request queue and records each steer into
+    /// the transcript as it releases it, so an engine driving the whole turn
+    /// has to ask at every step head — otherwise the prompt waits for the turn
+    /// to end. The default answers with nothing, for hosts without the seam.
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     /// Fire-and-forget event notification to the JS host. Used by the
     /// native LLM / native tool paths to report step boundaries, streaming
     /// deltas, and natively-executed tool results so the host can record
@@ -91,6 +101,11 @@ pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// optionally spills a string — no human in the loop — so a stalled call must
 /// not hold the turn open for as long as a real tool execution may.
 pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Outer bound on releasing queued mid-turn steering. Like finalization this is
+/// host bookkeeping with no human in the loop, so a stalled answer must not
+/// hold the step open.
+pub const HOST_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -185,6 +200,22 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_DRAIN_STEERS,
+                    serde_json::json!({}),
+                    Some(HOST_DRAIN_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Drain steers error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("Drain steers parse error: {e}"))
+        })
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         // JSON-RPC notification over stdout — fire-and-forget by design.
         crate::rpc::server::RpcServer::notify_now(crate::rpc::types::methods::HOST_EVENT, &event);
@@ -208,6 +239,12 @@ pub struct NativeToolCallbacks {
     /// Counts the calls this wrapper executed in-process. The composition root
     /// holds the same handle to fill in `TurnResult::native_tool_calls`.
     pub native_count: Arc<AtomicU32>,
+    /// Optional in-process truncator (P26 批 4). When `Some`, large native
+    /// results are truncated and spilled locally; the host's
+    /// `finalize_tool_result` seam is bypassed. When `None`, the wrapper
+    /// falls back to `inner.finalize_tool_result(...)` for backwards
+    /// compatibility.
+    pub truncator: Option<Arc<crate::tool_result_truncation::ToolResultTruncator>>,
 }
 
 impl HostCallbacks for NativeToolCallbacks {
@@ -229,6 +266,7 @@ impl HostCallbacks for NativeToolCallbacks {
             inner: self.inner.clone(),
             toolset: self.toolset.clone(),
             native_count: self.native_count.clone(),
+            truncator: self.truncator.clone(),
         };
         Box::pin(async move {
             let decision = this
@@ -276,22 +314,46 @@ impl HostCallbacks for NativeToolCallbacks {
                         is_error: result.is_error,
                         note: result.note,
                     };
-                    // The host owns result truncation and spill-to-disk; a
-                    // large native result must not reach the model raw the way
-                    // an identical host-executed call never could.
-                    let finalized = this
-                        .inner
-                        .finalize_tool_result(ToolFinalizeRequest {
-                            tool_name: request.tool_name.clone(),
-                            tool_call_id: request.tool_call_id.clone(),
-                            content: raw.content.clone(),
-                            is_error: raw.is_error,
-                            note: raw.note.clone(),
-                        })
-                        .await
-                        // A failed result policy must not cost the model its
-                        // tool output.
-                        .unwrap_or(raw);
+                    // P26 批 4: when a local truncator is configured, run the
+                    // policy in-process and bypass the host's finalize seam.
+                    // The TS host still receives the *truncated* text via
+                    // emit_event so its transcript shows what the model saw.
+                    let finalized = match this.truncator.as_ref() {
+                        Some(truncator) => {
+                            let f = truncator.truncate(
+                                crate::tool_result_truncation::TruncationRequest {
+                                    tool_name: &request.tool_name,
+                                    tool_call_id: &request.tool_call_id,
+                                    content: &raw.content,
+                                    is_error: raw.is_error,
+                                    note: raw.note.as_deref(),
+                                },
+                            );
+                            ToolExecuteResponse {
+                                content: f.content,
+                                is_error: f.is_error,
+                                note: f.note,
+                            }
+                        }
+                        None => {
+                            // Legacy path: the host owns result truncation and
+                            // spill-to-disk; a large native result must not
+                            // reach the model raw the way an identical
+                            // host-executed call never could.
+                            this.inner
+                                .finalize_tool_result(ToolFinalizeRequest {
+                                    tool_name: request.tool_name.clone(),
+                                    tool_call_id: request.tool_call_id.clone(),
+                                    content: raw.content.clone(),
+                                    is_error: raw.is_error,
+                                    note: raw.note.clone(),
+                                })
+                                .await
+                                // A failed result policy must not cost the
+                                // model its tool output.
+                                .unwrap_or(raw)
+                        }
+                    };
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
                         "turn_id": request.turn_id,
@@ -323,6 +385,10 @@ impl HostCallbacks for NativeToolCallbacks {
         request: ToolFinalizeRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
         self.inner.finalize_tool_result(request)
+    }
+
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        self.inner.drain_steers()
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -370,6 +436,10 @@ impl HostCallbacks for CountingCallbacks {
         request: ToolFinalizeRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
         self.inner.finalize_tool_result(request)
+    }
+
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        self.inner.drain_steers()
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -542,6 +612,7 @@ mod tests {
             }),
             toolset,
             native_count: native_count.clone(),
+            truncator: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }

@@ -981,3 +981,169 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — rustSelfContained (P26 批 1
     expect((result as { stopReason: string }).stopReason).toBe('EndTurn');
   });
 });
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — mid-turn steering drain channel', () => {
+  // Port 9 (discard) refuses connections immediately, so a turn that really
+  // picks the native transport fails locally instead of reaching a provider.
+  // The drain happens at the step head — before the request is sent — so the
+  // dead endpoint does not hide whether the channel was consulted.
+  const deadNativeLlm = {
+    protocol: 'openai',
+    baseUrl: 'http://127.0.0.1:9/v1',
+    apiKey: 'sk-test',
+    model: 'test-model',
+  };
+
+  it('consults the host for steering when the engine owns the history', { timeout: 40_000 }, async () => {
+    const mod = loadNativeModule();
+    let drains = 0;
+    let hostChatCalls = 0;
+
+    await mod
+      .runTurnRust(
+        {
+          ...validParams,
+          maxSteps: 1,
+          nativeLlm: deadNativeLlm,
+        },
+        makeCallback(mod, () => {
+          hostChatCalls += 1;
+          return JSON.stringify({ content: '', tool_calls: [], finish_reason: 'stop' });
+        }),
+        makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+        makeCallback(mod, () => ''),
+        makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+        makeCallback(mod, (req: string) => req),
+        makeCallback(mod, () => {
+          drains += 1;
+          return JSON.stringify([{ role: 'user', content: 'steered mid-turn' }]);
+        }),
+      )
+      .catch(() => undefined);
+
+    expect(drains).toBe(1);
+    expect(hostChatCalls).toBe(0);
+  });
+
+  it('never consults the drain channel for a host-proxied provider', async () => {
+    const mod = loadNativeModule();
+    let drains = 0;
+
+    await mod.runTurnRust(
+      { ...validParams, maxSteps: 1 },
+      makeCallback(mod, () =>
+        JSON.stringify({
+          content: 'proxied',
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+      ),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, (req: string) => req),
+      makeCallback(mod, () => {
+        drains += 1;
+        return JSON.stringify([]);
+      }),
+    );
+
+    expect(drains).toBe(0);
+  });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation (P26 批 4)', () => {
+  it('truncates a large native result in-process and skips the host finalize seam', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-b4-'));
+    // 30 lines × 2_000 chars = 60_000 raw chars. The native Read tool
+    // caps each line at 2_000 + '[...truncated]' marker, so the post-Read
+    // content is ~30 × 2_020 = 60_600 chars — well over the 50_000
+    // truncator cap. A single 60k-line would not trigger truncation
+    // because Read already reduces it to ~2_000 chars.
+    const huge = Array.from({ length: 30 }, () => 'a'.repeat(2_000) + '\n').join('');
+    fs.writeFileSync(path.join(workspaceRoot, 'huge.txt'), huge);
+    const mod = loadNativeModule();
+
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let finalizeCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        // rustSelfContained wires up the local truncator (the seam under
+        // test). It also requires a non-empty `providers` or `native_llm`
+        // so the engine can serve an LLM call; we use a single mock
+        // provider that still routes through the host's llm_chat
+        // callback via MultiLLM, which is enough to drive the tool
+        // execution path under test.
+        rustSelfContained: true,
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'Read',
+            description: 'Read a file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'read it' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-read-b4', name: 'Read', arguments: { path: 'huge.txt' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, () => {
+        finalizeCalls += 1;
+        return JSON.stringify({ content: 'HOST FINALIZE WAS CALLED', is_error: false });
+      }),
+    );
+
+    // The local truncator handled the result — the host's finalize seam
+    // must NOT be hit. If the Rust engine is doing its job, finalizeCalls
+    // stays at 0; if it accidentally fell back, the host would have run
+    // once and the assert would fail.
+    expect(finalizeCalls).toBe(0);
+    // The follow-up LLM request carries the *truncated* model-facing
+    // content, not the raw 60k-char file body. With 30 lines × 2_000
+    // chars the shaped text is ~60_111 chars, well over the 50_000 cap,
+    // so the persisted-pointer branch runs (not the inline-pointer one).
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('Tool output exceeded');
+    expect(followUp).toContain('output_path:');
+    expect(followUp).toContain('tool_name: Read');
+    expect(followUp).toContain('tool_call_id: call-read-b4');
+    expect(followUp).toContain('output_size_chars: 60111');
+    expect(followUp).toContain('[preview:');
+    // The full 60_111-char file body is *not* in the model context —
+    // the middle ~54k chars were elided and only a head/tail preview
+    // remain. The `[elided: chars [a, b)]` marker is the proof that
+    // the truncator actually removed content, not just labelled it.
+    expect(followUp).toContain('[elided: chars [4096, 59087)]');
+    expect(followUp).toContain('[preview: chars [0, 4096)]');
+    expect(followUp).toContain('[preview: chars [59087, 60111)]');
+    // The spill directory was created and contains the retained text.
+    const spillDir = path.join(workspaceRoot, '.kimi', 'spill');
+    expect(fs.existsSync(spillDir)).toBe(true);
+    const spillFiles = fs.readdirSync(spillDir);
+    expect(spillFiles.length).toBeGreaterThan(0);
+    const saved = fs.readFileSync(path.join(spillDir, spillFiles[0]!), 'utf8');
+    expect(saved.length).toBeGreaterThanOrEqual(50_000);
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});

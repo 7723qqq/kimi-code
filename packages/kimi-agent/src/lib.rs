@@ -7,5 +7,6 @@ pub mod callbacks;
 pub mod llm;
 pub mod napi_bindings;
 pub mod rpc;
+pub mod tool_result_truncation;
 pub mod tools;
 pub mod turn_loop;

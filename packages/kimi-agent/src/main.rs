@@ -100,6 +100,24 @@ async fn main() -> anyhow::Result<()> {
                 event_count: turn_event_count.clone(),
             });
             let native_tool_count = Arc::new(AtomicU32::new(0));
+            // P26 批 4: when `rust_self_contained` is set, build a local
+            // truncator so result truncation + spill happen in-process and
+            // the host's `host/finalize_tool_result` seam is bypassed.
+            let truncator = if input.rust_self_contained {
+                input
+                    .workspace_root
+                    .as_deref()
+                    .map(std::path::Path::new)
+                    .map(|root| {
+                        Arc::new(
+                            kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(
+                                root,
+                            ),
+                        )
+                    })
+            } else {
+                None
+            };
             let callbacks: Arc<dyn HostCallbacks> =
                 match (input.native_tools, input.workspace_root.as_deref()) {
                     (true, Some(root)) => {
@@ -111,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
                                 inner: base_callbacks.clone(),
                                 toolset: Arc::new(toolset),
                                 native_count: native_tool_count.clone(),
+                                truncator: truncator.clone(),
                             }),
                             None => base_callbacks.clone(),
                         }
