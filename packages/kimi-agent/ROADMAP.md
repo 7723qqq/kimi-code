@@ -1150,6 +1150,13 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 第四批可直移项 — ✅ 完成（2026-09-01）
+
+- **SubagentManager persistent 化**（`subagent/manager.rs` +715 行，5 单测）：`spawn_persistent`（常驻实例 + 跨轮历史）/ `run_persistent_turn`（多轮 run_turn + usage 聚合）/ `get_persistent_usage` / `destroy_persistent`（取消传播与 kill 共享 flag）；Team/AgentSwarm 前置
+- **AgentRunBatch 直移**（`src/swarm/agent_run_batch.rs` 1638 行，11 单测）：v2 646 行纯算法完整移植——初始 5 并发 + 700ms 间隔、rate-limit 容量收缩/恢复、全局重试间隔、单任务指数退避、唯一任务 rate-limit 直接失败、超时/取消全量 aborted；`AgentRunBatchLauncher` trait 抽象 + `resolve_swarm_max_concurrency`
+- **Memory 纯函数**（`src/tools/memory_paths.rs` 700 行，24 单测）：`project_id_from_cwd`（手写 SHA-256，零依赖）/ `parse_memory_path` / `extract_title` / `detect_type` / `build_snippet` / `sanitize_file_name` / `build_rel_path`
+- 遗留：Knowledge 直移待 rusqlite 依赖决策；Team coordinator 直移待 launcher 实现（SubagentManager persistent 已就绪）
+
 ### 基础设施收尾 — ✅ 完成（2026-09-01）
 
 - **REPL 完整化**（`repl/mod.rs`）：tool_defs 接入全部 16 个原生工具 def（`build_repl_tool_defs`）；`ReplDummyHostCallbacks` 实现 ask_question（stdin 交互式提问，EOF/空行 → dismissed，note 复刻 v2 常量）；修复 stdin 锁死锁（每轮迭代获取、turn 前释放）；+6 单测

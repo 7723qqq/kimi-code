@@ -60,6 +60,7 @@ pub mod fetch_url;
 pub mod get_goal;
 pub mod goal_tools;
 pub mod list_directory;
+pub mod memory_paths;
 pub mod plan_mode;
 pub mod skill;
 pub mod subagent_tools;

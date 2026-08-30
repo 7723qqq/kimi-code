@@ -17,6 +17,7 @@ pub mod repl;
 pub mod rpc;
 pub mod storage;
 pub mod subagent;
+pub mod swarm;
 pub mod tool_result_truncation;
 pub mod tools;
 pub mod turn_loop;
