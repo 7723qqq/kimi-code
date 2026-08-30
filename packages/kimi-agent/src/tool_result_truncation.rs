@@ -175,6 +175,25 @@ impl ToolResultTruncator {
         }
         Some(path.to_string_lossy().into_owned())
     }
+
+    /// Prune spill files older than `max_age` to prevent workspace bloat.
+    pub fn cleanup_expired_spills(&self, max_age: std::time::Duration) -> usize {
+        let mut pruned = 0;
+        let now = std::time::SystemTime::now();
+        if let Ok(entries) = fs::read_dir(&self.spill_dir) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata()
+                    && let Ok(modified) = meta.modified()
+                    && let Ok(age) = now.duration_since(modified)
+                    && age > max_age
+                    && fs::remove_file(entry.path()).is_ok()
+                {
+                    pruned += 1;
+                }
+            }
+        }
+        pruned
+    }
 }
 
 /// Cap each line at `max_chars` and append `[...truncated]` when the cap

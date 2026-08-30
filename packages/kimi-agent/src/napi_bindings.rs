@@ -569,6 +569,8 @@ pub struct JsRunTurnParams {
     /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
     /// Absent on Windows → native Bash stays with the host.
     pub shell_path: Option<String>,
+    /// Optional JSON-serialized PolicySnapshot for local permission evaluation (P26 批 3).
+    pub policy_snapshot_json: Option<String>,
 }
 
 #[napi(object)]
@@ -834,10 +836,11 @@ async fn run_turn_rust_impl(
     // tools, goal budget limits) for the turn telemetry. Wrapped before the
     // tool wrapper and the native LLM event sink so all paths are counted.
     let turn_event_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(CountingCallbacks {
-        inner: base_callbacks,
-        event_count: turn_event_count.clone(),
-    });
+    let event_bus = std::sync::Arc::new(crate::events::EventBus::new());
+    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
+        CountingCallbacks::new(base_callbacks, turn_event_count.clone())
+            .with_bus(event_bus.clone()),
+    );
 
     // Native tool execution: wrap the callbacks so the in-process toolset
     // (Read/Grep/Glob/Write/Edit/Bash) runs in-process (sandboxed to the
@@ -859,6 +862,11 @@ async fn run_turn_rust_impl(
     } else {
         None
     };
+    let permission_engine = params
+        .policy_snapshot_json
+        .as_deref()
+        .and_then(|j| serde_json::from_str::<crate::permission::PolicySnapshot>(j).ok())
+        .map(|s| Arc::new(crate::permission::PermissionEngine::new(s)));
     let callbacks: Arc<dyn HostCallbacks> = match (
         params.native_tools.unwrap_or(false),
         params.workspace_root.as_deref(),
@@ -870,6 +878,7 @@ async fn run_turn_rust_impl(
                     toolset: Arc::new(toolset),
                     native_count: native_tool_count.clone(),
                     truncator: truncator.clone(),
+                    permission_engine,
                 }),
                 None => base_callbacks.clone(),
             }

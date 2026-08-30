@@ -30,6 +30,18 @@ use kimi_agent::{
     about = "Kimi Agent engine (Rust)"
 )]
 struct Cli {
+    /// Start interactive standalone REPL session
+    #[arg(long, short)]
+    repl: bool,
+
+    /// Override model to use
+    #[arg(long, short)]
+    model: Option<String>,
+
+    /// Specific config file path to load
+    #[arg(long, short)]
+    config: Option<std::path::PathBuf>,
+
     /// Run a health check and exit
     #[arg(long)]
     health: bool,
@@ -54,6 +66,18 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.test {
         return run_self_test().await;
+    }
+
+    if cli.repl {
+        let (config, _) = if let Some(ref path) = cli.config {
+            let cfg = kimi_agent::config::KimiConfig::from_file(path)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            (cfg, path.clone())
+        } else {
+            kimi_agent::config::KimiConfig::discover().map_err(|e| anyhow::anyhow!("{e}"))?
+        };
+        let cwd = std::env::current_dir()?;
+        return kimi_agent::repl::start_repl(config, cwd, cli.model).await;
     }
 
     // Build the RPC server and register handlers
@@ -95,10 +119,11 @@ async fn main() -> anyhow::Result<()> {
             // Count every event this turn emits (step lifecycle, deltas,
             // native tools, goal budget limits) for the turn telemetry.
             let turn_event_count = Arc::new(AtomicU32::new(0));
-            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(CountingCallbacks {
-                inner: base_callbacks,
-                event_count: turn_event_count.clone(),
-            });
+            let event_bus = Arc::new(kimi_agent::events::EventBus::new());
+            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
+                CountingCallbacks::new(base_callbacks, turn_event_count.clone())
+                    .with_bus(event_bus.clone()),
+            );
             let native_tool_count = Arc::new(AtomicU32::new(0));
             // P26 批 4: when `rust_self_contained` is set, build a local
             // truncator so result truncation + spill happen in-process and
@@ -118,6 +143,9 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 None
             };
+            let permission_engine = input
+                .policy_snapshot
+                .map(|s| Arc::new(kimi_agent::permission::PermissionEngine::new(s)));
             let callbacks: Arc<dyn HostCallbacks> =
                 match (input.native_tools, input.workspace_root.as_deref()) {
                     (true, Some(root)) => {
@@ -130,6 +158,7 @@ async fn main() -> anyhow::Result<()> {
                                 toolset: Arc::new(toolset),
                                 native_count: native_tool_count.clone(),
                                 truncator: truncator.clone(),
+                                permission_engine,
                             }),
                             None => base_callbacks.clone(),
                         }
@@ -166,7 +195,8 @@ async fn main() -> anyhow::Result<()> {
                 if input.rust_self_contained {
                     return Err(types::JsonRpcError::internal_error(
                         "rustSelfContained=true requires providers or native_llm to be \
-                         set; refusing to fall back to host/llm_chat (P26 批 1)",
+                         set; refusing to fall back to host/llm_chat (P26 批 1)"
+                            .to_string(),
                     ));
                 }
                 Box::new(

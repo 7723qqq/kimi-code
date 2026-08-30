@@ -1147,3 +1147,242 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 });
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — pure I/O tools (P26 批 2)', () => {
+  it('executes ListDirectory natively and captures directory tree in context', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-b2-'));
+    fs.mkdirSync(path.join(workspaceRoot, 'subfolder'));
+    fs.writeFileSync(path.join(workspaceRoot, 'subfolder', 'child.txt'), 'child content');
+    fs.writeFileSync(path.join(workspaceRoot, 'root-file.ts'), 'console.log(1)');
+
+    const mod = loadNativeModule();
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let hostExecuteCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        rustSelfContained: true,
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'ListDirectory',
+            description: 'List files in directory',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'list dir' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-list-dir', name: 'ListDirectory', arguments: { path: '.' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecuteCalls += 1;
+        return JSON.stringify({ content: 'HOST WAS CALLED', is_error: false });
+      }),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    expect(hostExecuteCalls).toBe(0);
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('subfolder/');
+    expect(followUp).toContain('child.txt');
+    expect(followUp).toContain('root-file.ts');
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('executes FetchURL natively and blocks private SSRF addresses', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-b2-ssrf-'));
+
+    const mod = loadNativeModule();
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let hostExecuteCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        rustSelfContained: true,
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'FetchURL',
+            description: 'Fetch URL',
+            inputSchema: '{"type":"object","properties":{"url":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'fetch it' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-fetch-ssrf', name: 'FetchURL', arguments: { url: 'http://127.0.0.1:8080/admin' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecuteCalls += 1;
+        return JSON.stringify({ content: 'HOST WAS CALLED', is_error: false });
+      }),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    expect(hostExecuteCalls).toBe(0);
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('Failed to fetch URL: Refusing to fetch private address');
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — local permission engine (P26 批 3)', () => {
+  it('evaluates YOLO mode locally in Rust and bypasses host check_permission', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-p3-yolo-'));
+
+    const mod = loadNativeModule();
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let hostPermissionCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        rustSelfContained: true,
+        policySnapshotJson: JSON.stringify({
+          mode: 'yolo',
+        }),
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'Write',
+            description: 'Write file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'write test file' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-write-yolo', name: 'Write', arguments: { path: 'yolo-test.txt', content: 'yolo content' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: 'HOST EXEC WAS CALLED', is_error: false })),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => {
+        hostPermissionCalls += 1;
+        return JSON.stringify({ decision: 'allow' });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    // Host permission callback must NOT be called because YOLO mode is evaluated locally in Rust
+    expect(hostPermissionCalls).toBe(0);
+    const written = path.join(workspaceRoot, 'yolo-test.txt');
+    expect(fs.existsSync(written)).toBe(true);
+    expect(fs.readFileSync(written, 'utf8')).toBe('yolo content');
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('evaluates user deny rules locally in Rust and denies write immediately', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-p3-deny-'));
+
+    const mod = loadNativeModule();
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let hostPermissionCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        rustSelfContained: true,
+        policySnapshotJson: JSON.stringify({
+          mode: 'yolo',
+          deny_rules: ['Write(blocked.txt)'],
+        }),
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'Write',
+            description: 'Write file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'write blocked file' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-write-blocked', name: 'Write', arguments: { path: 'blocked.txt', content: 'should not land' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: 'HOST EXEC WAS CALLED', is_error: false })),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => {
+        hostPermissionCalls += 1;
+        return JSON.stringify({ decision: 'allow' });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    // Host permission callback must NOT be called
+    expect(hostPermissionCalls).toBe(0);
+    const written = path.join(workspaceRoot, 'blocked.txt');
+    expect(fs.existsSync(written)).toBe(false);
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('Denied by user rule: Write(blocked.txt)');
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});
+
+

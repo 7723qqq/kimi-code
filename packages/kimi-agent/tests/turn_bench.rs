@@ -219,6 +219,7 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
         toolset,
         native_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         truncator: None,
+        permission_engine: None,
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;
     let started = Instant::now();

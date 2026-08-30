@@ -134,6 +134,21 @@ export interface RustEngineOptions {
    * runs without goal budgeting.
    */
   getGoal?: () => GoalContext | undefined;
+  /**
+   * Provide the current permission policy snapshot for local evaluation (P26 批 3).
+   * Read fresh on each turn.
+   */
+  getPolicySnapshot?: () => PolicySnapshot | undefined;
+}
+
+/** Snapshot of permission policies for in-Rust evaluation (P26 批 3). */
+export interface PolicySnapshot {
+  mode?: 'manual' | 'auto' | 'yolo';
+  deny_rules?: string[];
+  ask_rules?: string[];
+  allow_rules?: string[];
+  session_approvals?: string[];
+  git_cwd?: string;
 }
 
 /** A content block on the Rust wire (see `ContentBlock` in rpc/types.rs). */
@@ -600,6 +615,7 @@ class NapiEngine {
       nativeTools?: boolean;
       rustSelfContained?: boolean;
       shellPath?: string;
+      policySnapshotJson?: string;
     },
     llmChatCb: (request: string) => Promise<string>,
     executeToolCb: (request: string) => Promise<string>,
@@ -1153,7 +1169,9 @@ export function createRunTurnOverride(
   if (mode === 'js') return undefined;
 
   const nativeLlmOpt = options?.nativeLlm;
-  const nativeTools = options?.nativeTools === true;
+  // P21 D-1: nativeTools defaults to true now that local permission and
+  // truncation engines are self-contained. Opt-out via `nativeTools: false`.
+  const nativeTools = options?.nativeTools !== false;
   const rustSelfContained = options?.rustSelfContained === true;
   const shellPathOpt = options?.shellPath;
 
@@ -1472,6 +1490,9 @@ export function createRunTurnOverride(
     const wireMessages = nativeLlm === undefined ? [] : await buildWireMessages();
     const wireTools = nativeLlm === undefined ? [] : buildWireTools();
     const goal = options?.getGoal?.();
+    const policySnapshot = options?.getPolicySnapshot?.();
+    const policySnapshotJson =
+      policySnapshot === undefined ? undefined : JSON.stringify(policySnapshot);
     // The host owns tool-result truncation and spill-to-disk, so a result the
     // engine produced in its own process must pass through the same policy
     // before the model sees it. Engines whose input lacks the capability get an
@@ -1548,6 +1569,7 @@ export function createRunTurnOverride(
             nativeTools,
             rustSelfContained,
             shellPath: shellPathOpt,
+            policySnapshotJson,
             providers: providers?.map((p) => ({
               name: p.name,
               model: p.model,
@@ -1646,6 +1668,7 @@ export function createRunTurnOverride(
           native_tools: nativeTools,
           rust_self_contained: rustSelfContained,
           shell_path: shellPathOpt,
+          policy_snapshot: policySnapshot,
         });
         if (!result) {
           throw new Error('Rust engine returned null result');

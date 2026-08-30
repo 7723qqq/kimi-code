@@ -4,9 +4,16 @@
 //! and the napi-rs native addon (direct Node.js integration).
 
 pub mod callbacks;
+pub mod config;
+pub mod events;
 pub mod llm;
+pub mod mcp;
 pub mod napi_bindings;
+pub mod permission;
+pub mod repl;
 pub mod rpc;
+pub mod storage;
+pub mod subagent;
 pub mod tool_result_truncation;
 pub mod tools;
 pub mod turn_loop;

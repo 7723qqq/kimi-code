@@ -245,6 +245,11 @@ pub struct NativeToolCallbacks {
     /// falls back to `inner.finalize_tool_result(...)` for backwards
     /// compatibility.
     pub truncator: Option<Arc<crate::tool_result_truncation::ToolResultTruncator>>,
+    /// Optional in-process permission engine (P26 批 3). When `Some`, tool
+    /// calls are evaluated against the per-turn `PolicySnapshot` locally in
+    /// Rust, bypassing the host `host/check_permission` seam for allow/deny
+    /// verdicts.
+    pub permission_engine: Option<Arc<crate::permission::PermissionEngine>>,
 }
 
 impl HostCallbacks for NativeToolCallbacks {
@@ -267,16 +272,37 @@ impl HostCallbacks for NativeToolCallbacks {
             toolset: self.toolset.clone(),
             native_count: self.native_count.clone(),
             truncator: self.truncator.clone(),
+            permission_engine: self.permission_engine.clone(),
         };
         Box::pin(async move {
-            let decision = this
-                .inner
-                .check_permission(PermissionCheckRequest {
-                    tool_name: request.tool_name.clone(),
-                    tool_call_id: request.tool_call_id.clone(),
-                    arguments: request.arguments.clone(),
-                })
-                .await?;
+            let decision = if let Some(ref engine) = this.permission_engine {
+                let verdict = engine.evaluate(&request.tool_name, &request.arguments);
+                match verdict.decision {
+                    crate::permission::VerdictDecision::Allow => PermissionDecision::allow(),
+                    crate::permission::VerdictDecision::Deny => PermissionDecision::deny(
+                        verdict
+                            .reason
+                            .unwrap_or_else(|| "Denied by local permission policy".into()),
+                    ),
+                    crate::permission::VerdictDecision::Ask => {
+                        this.inner
+                            .check_permission(PermissionCheckRequest {
+                                tool_name: request.tool_name.clone(),
+                                tool_call_id: request.tool_call_id.clone(),
+                                arguments: request.arguments.clone(),
+                            })
+                            .await?
+                    }
+                }
+            } else {
+                this.inner
+                    .check_permission(PermissionCheckRequest {
+                        tool_name: request.tool_name.clone(),
+                        tool_call_id: request.tool_call_id.clone(),
+                        arguments: request.arguments.clone(),
+                    })
+                    .await?
+            };
             if !decision.is_allow() {
                 let reason = decision
                     .reason
@@ -299,13 +325,10 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
-            let result = if crate::tools::is_mutating_tool(&request.tool_name) {
-                this.toolset
-                    .execute_mutating(&request.tool_name, &request.arguments)
-                    .await
-            } else {
-                this.toolset.execute(&request.tool_name, &request.arguments)
-            };
+            let result = this
+                .toolset
+                .execute_tool(&request.tool_name, &request.arguments)
+                .await;
             match result {
                 Some(result) => {
                     this.native_count.fetch_add(1, Ordering::Relaxed);
@@ -407,6 +430,23 @@ impl HostCallbacks for NativeToolCallbacks {
 pub struct CountingCallbacks {
     pub inner: Arc<dyn HostCallbacks>,
     pub event_count: Arc<AtomicU32>,
+    /// Optional in-process event bus (P26 批 5) for decoupled in-Rust event consumers.
+    pub bus: Option<Arc<crate::events::EventBus>>,
+}
+
+impl CountingCallbacks {
+    pub fn new(inner: Arc<dyn HostCallbacks>, event_count: Arc<AtomicU32>) -> Self {
+        Self {
+            inner,
+            event_count,
+            bus: None,
+        }
+    }
+
+    pub fn with_bus(mut self, bus: Arc<crate::events::EventBus>) -> Self {
+        self.bus = Some(bus);
+        self
+    }
 }
 
 impl HostCallbacks for CountingCallbacks {
@@ -444,6 +484,9 @@ impl HostCallbacks for CountingCallbacks {
 
     fn emit_event(&self, event: serde_json::Value) {
         self.event_count.fetch_add(1, Ordering::Relaxed);
+        if let Some(ref bus) = self.bus {
+            bus.publish_json(event.clone());
+        }
         self.inner.emit_event(event);
     }
 }
@@ -509,12 +552,12 @@ mod tests {
     #[tokio::test]
     async fn test_counting_callbacks_forwards_result_finalization() {
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let counting = CountingCallbacks {
-            inner: Arc::new(RecordingCallbacks {
+        let counting = CountingCallbacks::new(
+            Arc::new(RecordingCallbacks {
                 events: events.clone(),
             }),
-            event_count: Arc::new(AtomicU32::new(0)),
-        };
+            Arc::new(AtomicU32::new(0)),
+        );
         let resolved = counting
             .finalize_tool_result(ToolFinalizeRequest {
                 tool_name: "Read".into(),
@@ -532,12 +575,12 @@ mod tests {
     fn test_counting_callbacks_counts_events_and_forwards() {
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let counter = Arc::new(AtomicU32::new(0));
-        let callbacks = CountingCallbacks {
-            inner: Arc::new(RecordingCallbacks {
+        let callbacks = CountingCallbacks::new(
+            Arc::new(RecordingCallbacks {
                 events: events.clone(),
             }),
-            event_count: counter.clone(),
-        };
+            counter.clone(),
+        );
 
         callbacks.emit_event(serde_json::json!({ "type": "a" }));
         callbacks.emit_event(serde_json::json!({ "type": "b" }));
@@ -613,6 +656,7 @@ mod tests {
             toolset,
             native_count: native_count.clone(),
             truncator: None,
+            permission_engine: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }

@@ -170,6 +170,13 @@ pub fn run_turn<'a>(
                 ));
             }
 
+            // Drain mid-turn steering from host when engine owns the history.
+            if input.llm.transport() != "host-proxy"
+                && let Ok(steers) = callbacks.drain_steers().await
+            {
+                messages.extend(steers);
+            }
+
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
             let step_result = execute_loop_step_with_retry(

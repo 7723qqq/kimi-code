@@ -44,6 +44,11 @@ const BASH_MAX_SECONDS: u64 = 300;
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
+pub mod fetch_url;
+pub mod list_directory;
+pub mod subagent_tools;
+pub mod web_search;
+
 /// Tools whose native execution requires a host permission grant first.
 pub fn is_mutating_tool(tool_name: &str) -> bool {
     matches!(
@@ -60,6 +65,8 @@ pub struct NativeToolset {
     /// otherwise run commands under a different shell than the tool's
     /// documented contract.
     shell: Option<String>,
+    subagent_manager: Option<std::sync::Arc<crate::subagent::SubagentManager>>,
+    mcp_manager: Option<std::sync::Arc<crate::mcp::McpManager>>,
 }
 
 impl NativeToolset {
@@ -87,7 +94,27 @@ impl NativeToolset {
                     .to_string(),
             )
         };
-        Some(Self { root, shell })
+        Some(Self {
+            root,
+            shell,
+            subagent_manager: None,
+            mcp_manager: None,
+        })
+    }
+
+    /// Attach a SubagentManager for in-process multi-agent collaboration.
+    pub fn with_subagents(
+        mut self,
+        manager: std::sync::Arc<crate::subagent::SubagentManager>,
+    ) -> Self {
+        self.subagent_manager = Some(manager);
+        self
+    }
+
+    /// Attach an McpManager for external MCP server tools.
+    pub fn with_mcp(mut self, manager: std::sync::Arc<crate::mcp::McpManager>) -> Self {
+        self.mcp_manager = Some(manager);
+        self
     }
 
     /// Execute a read-only tool natively when supported and inside the
@@ -97,6 +124,9 @@ impl NativeToolset {
             "read" => self.read(args),
             "grep" => self.grep(args),
             "glob" => self.glob(args),
+            "listdirectory" | "list_directory" => {
+                list_directory::execute_list_directory(&self.root, args)
+            }
             _ => None,
         }
     }
@@ -106,8 +136,66 @@ impl NativeToolset {
     pub fn handles(&self, tool_name: &str) -> bool {
         matches!(
             tool_name.to_ascii_lowercase().as_str(),
-            "read" | "grep" | "glob" | "write" | "edit" | "bash"
+            "read"
+                | "grep"
+                | "glob"
+                | "write"
+                | "edit"
+                | "bash"
+                | "fetchurl"
+                | "fetch_url"
+                | "websearch"
+                | "web_search"
+                | "listdirectory"
+                | "list_directory"
+                | "invokesubagent"
+                | "invoke_subagent"
+                | "managesubagents"
+                | "manage_subagents"
+                | "definesubagent"
+                | "define_subagent"
         )
+    }
+
+    /// Execute a tool natively (async).
+    pub async fn execute_tool(
+        &self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        match tool_name.to_ascii_lowercase().as_str() {
+            "read" => self.read(args),
+            "grep" => self.grep(args),
+            "glob" => self.glob(args),
+            "listdirectory" | "list_directory" => {
+                list_directory::execute_list_directory(&self.root, args)
+            }
+            "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args).await,
+            "websearch" | "web_search" => web_search::execute_web_search(args).await,
+            "invokesubagent" | "invoke_subagent" => {
+                let mgr = self.subagent_manager.as_deref()?;
+                Some(subagent_tools::execute_invoke_subagent(mgr, args).await)
+            }
+            "managesubagents" | "manage_subagents" => {
+                let mgr = self.subagent_manager.as_deref()?;
+                Some(subagent_tools::execute_manage_subagents(mgr, args).await)
+            }
+            "definesubagent" | "define_subagent" => {
+                let mgr = self.subagent_manager.as_deref()?;
+                Some(subagent_tools::execute_define_subagent(mgr, args).await)
+            }
+            "write" => self.write(args),
+            "edit" => self.edit(args),
+            "bash" => self.bash(args).await,
+            _ => {
+                if let Some(ref mcp) = self.mcp_manager
+                    && mcp.handles(tool_name).await
+                {
+                    return mcp.call_tool(tool_name, args).await;
+                }
+                None
+            }
+        }
     }
 
     /// Execute a mutating tool natively. Callers must have obtained a

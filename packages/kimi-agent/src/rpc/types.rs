@@ -153,6 +153,13 @@ pub struct PermissionDecision {
 }
 
 impl PermissionDecision {
+    pub fn allow() -> Self {
+        Self {
+            decision: "allow".into(),
+            reason: None,
+        }
+    }
+
     pub fn is_allow(&self) -> bool {
         self.decision.eq_ignore_ascii_case("allow")
     }
@@ -277,6 +284,9 @@ pub struct RunTurnParams {
     /// Absent on Windows → native Bash stays with the host.
     #[serde(default)]
     pub shell_path: Option<String>,
+    /// Optional permission policy snapshot for local evaluation (P26 批 3).
+    #[serde(default)]
+    pub policy_snapshot: Option<crate::permission::PolicySnapshot>,
 }
 
 /// LLM provider definition for MultiLLM.

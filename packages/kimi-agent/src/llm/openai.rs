@@ -312,7 +312,10 @@ impl StreamAccumulator {
             }
         }
 
-        let text = delta.get("content").and_then(|c| c.as_str())?;
+        let text = delta
+            .get("content")
+            .and_then(|c| c.as_str())
+            .or_else(|| delta.get("reasoning_content").and_then(|c| c.as_str()))?;
         if text.is_empty() {
             return None;
         }
@@ -671,5 +674,26 @@ mod tests {
         assert_eq!(resp.tool_calls.len(), 1);
         assert_eq!(resp.tool_calls[0].name, "Read");
         assert_eq!(resp.tool_calls[0].arguments["path"], "a.txt");
+    }
+
+    #[test]
+    fn test_stream_accumulator_reasoning_content() {
+        let mut acc = StreamAccumulator::default();
+        let delta1 = acc.feed(&json!({
+            "choices": [{
+                "delta": { "reasoning_content": "Thinking about " }
+            }]
+        }));
+        assert_eq!(delta1.as_deref(), Some("Thinking about "));
+
+        let delta2 = acc.feed(&json!({
+            "choices": [{
+                "delta": { "content": "the solution." }
+            }]
+        }));
+        assert_eq!(delta2.as_deref(), Some("the solution."));
+
+        let resp = acc.finish();
+        assert_eq!(resp.content, "Thinking about the solution.");
     }
 }

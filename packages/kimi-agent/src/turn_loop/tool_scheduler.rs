@@ -209,7 +209,10 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
             })
             .into_iter()
             .collect(),
-        "grep" | "glob" => path.map(read_tree_access).into_iter().collect(),
+        "grep" | "glob" | "listdirectory" | "list_directory" => {
+            path.map(read_tree_access).into_iter().collect()
+        }
+        "fetchurl" | "fetch_url" | "websearch" | "web_search" => vec![],
         // A shell command mutates arbitrarily — serialize it against the
         // whole workspace so it never runs concurrently with any other
         // tool that touches the sandbox.
