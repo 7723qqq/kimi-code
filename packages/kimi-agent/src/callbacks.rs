@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
-    ToolExecuteRequest, ToolExecuteResponse,
+    ToolExecuteRequest, ToolExecuteResponse, ToolFinalizeRequest,
 };
 
 /// Host-provided callbacks that the turn loop needs to call back to JS.
@@ -35,6 +35,25 @@ pub trait HostCallbacks: Send + Sync {
         &self,
         request: PermissionCheckRequest,
     ) -> BoxFuture<'static, Result<PermissionDecision, String>>;
+
+    /// Hand a natively-executed result to the host for finalization before it
+    /// enters the model context. The host owns result truncation and
+    /// spill-to-disk, so without this seam a large native result reaches the
+    /// model unprocessed while the same call on the host path would be
+    /// truncated and spilled. The default returns the result unchanged, for
+    /// hosts that do not implement the seam.
+    fn finalize_tool_result(
+        &self,
+        request: ToolFinalizeRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        Box::pin(async move {
+            Ok(ToolExecuteResponse {
+                content: request.content,
+                is_error: request.is_error,
+                note: request.note,
+            })
+        })
+    }
 
     /// Fire-and-forget event notification to the JS host. Used by the
     /// native LLM / native tool paths to report step boundaries, streaming
@@ -67,6 +86,11 @@ pub const HOST_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Outer bound on a host tool call. Tools carry their own timeouts (native
 /// Bash caps at 300s); this covers a stalled host.
 pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Outer bound on finalizing a natively-executed result. The host truncates and
+/// optionally spills a string — no human in the loop — so a stalled call must
+/// not hold the turn open for as long as a real tool execution may.
+pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -137,6 +161,27 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Permission check error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Permission decision parse error: {e}"))
+        })
+    }
+
+    fn finalize_tool_result(
+        &self,
+        request: ToolFinalizeRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("Tool finalize serialize error: {e}"))?;
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_FINALIZE_TOOL_RESULT,
+                    params,
+                    Some(HOST_FINALIZE_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Tool finalize error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("Tool finalize parse error: {e}"))
         })
     }
 
@@ -226,21 +271,38 @@ impl HostCallbacks for NativeToolCallbacks {
             match result {
                 Some(result) => {
                     this.native_count.fetch_add(1, Ordering::Relaxed);
+                    let raw = ToolExecuteResponse {
+                        content: result.content,
+                        is_error: result.is_error,
+                        note: result.note,
+                    };
+                    // The host owns result truncation and spill-to-disk; a
+                    // large native result must not reach the model raw the way
+                    // an identical host-executed call never could.
+                    let finalized = this
+                        .inner
+                        .finalize_tool_result(ToolFinalizeRequest {
+                            tool_name: request.tool_name.clone(),
+                            tool_call_id: request.tool_call_id.clone(),
+                            content: raw.content.clone(),
+                            is_error: raw.is_error,
+                            note: raw.note.clone(),
+                        })
+                        .await
+                        // A failed result policy must not cost the model its
+                        // tool output.
+                        .unwrap_or(raw);
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
                         "turn_id": request.turn_id,
                         "tool_call_id": request.tool_call_id,
                         "tool_name": request.tool_name,
                         "arguments": request.arguments,
-                        "content": result.content,
-                        "is_error": result.is_error,
-                        "note": result.note,
+                        "content": finalized.content,
+                        "is_error": finalized.is_error,
+                        "note": finalized.note,
                     }));
-                    Ok(ToolExecuteResponse {
-                        content: result.content,
-                        is_error: result.is_error,
-                        note: result.note.clone(),
-                    })
+                    Ok(finalized)
                 }
                 // Sandbox escape or unrecognized argument shape — the host
                 // already allowed the call, so run it there.
@@ -254,6 +316,13 @@ impl HostCallbacks for NativeToolCallbacks {
         request: PermissionCheckRequest,
     ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
         self.inner.check_permission(request)
+    }
+
+    fn finalize_tool_result(
+        &self,
+        request: ToolFinalizeRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        self.inner.finalize_tool_result(request)
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -294,6 +363,13 @@ impl HostCallbacks for CountingCallbacks {
         request: PermissionCheckRequest,
     ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
         self.inner.check_permission(request)
+    }
+
+    fn finalize_tool_result(
+        &self,
+        request: ToolFinalizeRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        self.inner.finalize_tool_result(request)
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -342,6 +418,44 @@ mod tests {
         fn emit_event(&self, event: serde_json::Value) {
             self.events.lock().unwrap().push(event);
         }
+
+        fn finalize_tool_result(
+            &self,
+            request: ToolFinalizeRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async move {
+                Ok(ToolExecuteResponse {
+                    content: format!("finalized:{}", request.content),
+                    is_error: request.is_error,
+                    note: request.note,
+                })
+            })
+        }
+    }
+
+    /// A decorator that forgets to forward `finalize_tool_result` silently
+    /// answers with the trait default, so the host policy never runs and every
+    /// natively-executed result reaches the model raw.
+    #[tokio::test]
+    async fn test_counting_callbacks_forwards_result_finalization() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let counting = CountingCallbacks {
+            inner: Arc::new(RecordingCallbacks {
+                events: events.clone(),
+            }),
+            event_count: Arc::new(AtomicU32::new(0)),
+        };
+        let resolved = counting
+            .finalize_tool_result(ToolFinalizeRequest {
+                tool_name: "Read".into(),
+                tool_call_id: "c".into(),
+                content: "body".into(),
+                is_error: false,
+                note: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(resolved.content, "finalized:body");
     }
 
     #[test]

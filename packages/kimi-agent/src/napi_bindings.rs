@@ -45,7 +45,7 @@ use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
-    PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
+    PermissionDecision, ToolExecuteRequest, ToolExecuteResponse, ToolFinalizeRequest,
 };
 use crate::turn_loop::{run_turn::run_turn, types::*};
 
@@ -263,6 +263,10 @@ struct NapiHostCallbacks {
     /// Fail-closed when absent: without a checker the engine refuses native
     /// execution of Write/Edit/Bash and the call falls back to the host.
     check_permission_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional result finalizer: the host truncates and spills a natively
+    /// executed result before it re-enters the model context. Absent means the
+    /// result passes through unchanged, which is the pre-existing behaviour.
+    finalize_tool_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -318,6 +322,36 @@ impl HostCallbacks for NapiHostCallbacks {
             let output =
                 invoke_via_registry(&tsfn, input, "check_permission", None, cancel).await?;
             serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
+        })
+    }
+
+    fn finalize_tool_result(
+        &self,
+        request: ToolFinalizeRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        let Some(ref tsfn) = self.finalize_tool_fn else {
+            return Box::pin(async move {
+                Ok(ToolExecuteResponse {
+                    content: request.content,
+                    is_error: request.is_error,
+                    note: request.note,
+                })
+            });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            let output = invoke_via_registry(
+                &tsfn,
+                input,
+                "finalize_tool_result",
+                Some(crate::callbacks::HOST_FINALIZE_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            serde_json::from_str(&output).map_err(|e| format!("finalize_tool_result parse: {e}"))
         })
     }
 
@@ -612,6 +646,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] execute_tool_cb: JsFunction,
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -660,6 +695,20 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
+        match finalize_tool_cb {
+            Some(cb) => Some(cb.create_threadsafe_function(
+                0,
+                |ctx: ThreadSafeCallContext<u32>| {
+                    let id = ctx.value;
+                    let js_num = ctx.env.create_uint32(id)?;
+                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                    Ok(args)
+                },
+            )?),
+            None => None,
+        };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -671,6 +720,7 @@ pub fn run_turn_rust(
                 execute_tool_tsfn,
                 emit_event_tsfn,
                 check_permission_tsfn,
+                finalize_tool_tsfn,
             )
             .await
         },
@@ -705,6 +755,7 @@ async fn run_turn_rust_impl(
     execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -721,6 +772,7 @@ async fn run_turn_rust_impl(
         execute_tool_fn: Arc::new(execute_tool_tsfn),
         emit_event_fn: emit_event_tsfn.map(Arc::new),
         check_permission_fn: check_permission_tsfn.map(Arc::new),
+        finalize_tool_fn: finalize_tool_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 

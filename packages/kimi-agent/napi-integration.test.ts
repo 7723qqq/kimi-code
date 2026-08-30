@@ -844,3 +844,77 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — concurrent MultiLLM provider
     },
   );
 });
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — native result finalization', () => {
+  it('sends a natively-executed result through the host policy before the model sees it', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-finalize-'));
+    fs.writeFileSync(path.join(workspaceRoot, 'large.txt'), 'a'.repeat(5000));
+    const mod = loadNativeModule();
+
+    const nativeEvents: Array<{ content?: string }> = [];
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let finalizeCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [
+          {
+            name: 'Read',
+            description: 'Read a file',
+            inputSchema: '{"type":"object","properties":{"path":{"type":"string"}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'read it' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [{ id: 'call-read-1', name: 'Read', arguments: { path: 'large.txt' } }]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: 'HOST EXECUTED', is_error: false })),
+      makeCallback(mod, (req) => {
+        const event = JSON.parse(req) as { type?: string };
+        if (event.type === 'tool.native') nativeEvents.push(event as { content?: string });
+        return '';
+      }),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, (req) => {
+        finalizeCalls += 1;
+        const request = JSON.parse(req) as {
+          tool_name: string;
+          tool_call_id: string;
+          content: string;
+        };
+        expect(request.tool_name).toBe('Read');
+        // Stand in for truncation: replace the body the way the host policy would.
+        return JSON.stringify({
+          content: `TRUNCATED(${request.content.length})`,
+          is_error: false,
+          note: undefined,
+        });
+      }),
+    );
+
+    expect(finalizeCalls).toBe(1);
+    // The transcript records what the model was shown, not the raw output.
+    expect(nativeEvents[0]?.content).toMatch(/^TRUNCATED\(\d+\)$/);
+    // And the finalized text is what re-enters the model context.
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('TRUNCATED(');
+    expect(followUp).not.toContain('aaaaaaaaaa');
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});

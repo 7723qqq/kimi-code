@@ -99,6 +99,11 @@ pub mod methods {
     /// instead of executing (natively or via the host).
     pub const HOST_CHECK_PERMISSION: &str = "host/check_permission";
 
+    /// Finalize a natively-executed tool result (Rust → JS host). The host
+    /// applies its own result policy — truncation and spill-to-disk — and
+    /// returns what the model should see.
+    pub const HOST_FINALIZE_TOOL_RESULT: &str = "host/finalize_tool_result";
+
     /// Fire-and-forget event notification (Rust → JS host).
     /// Used by the native LLM / native tool paths to report step
     /// boundaries, streaming deltas, and natively-executed tool results
@@ -114,6 +119,21 @@ pub struct PermissionCheckRequest {
     pub tool_name: String,
     pub tool_call_id: String,
     pub arguments: serde_json::Value,
+}
+
+/// A tool result the engine executed in-process, handed to the host for
+/// finalization before it enters the model context. The host owns result
+/// truncation and spill-to-disk, so a large native result must go through the
+/// same policy a host-executed result does; the response is what the model
+/// actually sees.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolFinalizeRequest {
+    pub tool_name: String,
+    pub tool_call_id: String,
+    pub content: String,
+    pub is_error: bool,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// The host's permission verdict for a [`PermissionCheckRequest`].

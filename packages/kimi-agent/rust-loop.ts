@@ -367,6 +367,19 @@ interface PermissionCheckRequest {
   arguments: unknown;
 }
 
+/**
+ * Result finalization request from the engine (host/finalize_tool_result): a
+ * tool result the engine executed in its own process, handed to the host so its
+ * truncation and spill-to-disk policy applies before the model sees it.
+ */
+interface ToolFinalizeRequest {
+  tool_name: string;
+  tool_call_id: string;
+  content: string;
+  is_error: boolean;
+  note?: string;
+}
+
 interface PermissionDecision {
   decision: 'allow' | 'deny';
   reason?: string;
@@ -421,6 +434,7 @@ interface KimiAgentNativeModule {
     executeToolCb: (callbackId: number) => void,
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
+    finalizeToolCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -576,6 +590,7 @@ class NapiEngine {
     executeToolCb: (request: string) => Promise<string>,
     emitEventCb?: (event: EngineEvent) => void,
     checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
+    finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -635,12 +650,21 @@ class NapiEngine {
             return JSON.stringify(decision);
           });
 
+    const finalizeHandler =
+      finalizeToolCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const finalized = await finalizeToolCb(JSON.parse(payload) as ToolFinalizeRequest);
+            return JSON.stringify(finalized);
+          });
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
       makeCallbackHandler(executeToolCb),
       eventHandler,
       permissionHandler,
+      finalizeHandler,
     );
   }
 
@@ -691,6 +715,11 @@ class AgentProcess {
     | ((req: PermissionCheckRequest) => Promise<PermissionDecision>)
     | null = null;
 
+  /** Callback for handling host/finalize_tool_result requests from Rust. */
+  private finalizeHandler:
+    | ((req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>)
+    | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -710,6 +739,10 @@ class AgentProcess {
 
   setPermissionHandler(handler: (req: PermissionCheckRequest) => Promise<PermissionDecision>) {
     this.permissionHandler = handler;
+  }
+
+  setFinalizeHandler(handler: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>) {
+    this.finalizeHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -832,6 +865,8 @@ class AgentProcess {
       await this.handleHostExecuteTool(msg);
     } else if (msg.method === 'host/check_permission') {
       await this.handleHostCheckPermission(msg);
+    } else if (msg.method === 'host/finalize_tool_result') {
+      await this.handleHostFinalizeToolResult(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -839,6 +874,30 @@ class AgentProcess {
         error: { code: -32601, message: `Unknown method: ${msg.method}` },
       });
       this.process!.stdin!.write(response + '\n');
+    }
+  }
+
+  private async handleHostFinalizeToolResult(msg: RpcMessage) {
+    const req = msg.params as ToolFinalizeRequest;
+    if (!this.finalizeHandler) {
+      // No policy registered: hand the result back unchanged rather than
+      // failing the call the engine already completed.
+      this.writeHostResult(msg.id, {
+        content: req.content,
+        is_error: req.is_error,
+        note: req.note,
+      } satisfies ToolExecuteResponse);
+      return;
+    }
+    try {
+      this.writeHostResult(msg.id, await this.finalizeHandler(req));
+    } catch (error) {
+      this.writeHostResult(msg.id, {
+        content: req.content,
+        is_error: req.is_error,
+        note: req.note,
+        _finalizeError: error instanceof Error ? error.message : String(error),
+      } satisfies ToolExecuteResponse & { _finalizeError?: string });
     }
   }
 
@@ -1355,6 +1414,28 @@ export function createRunTurnOverride(
     const wireMessages = nativeLlm === undefined ? [] : await buildWireMessages();
     const wireTools = nativeLlm === undefined ? [] : buildWireTools();
     const goal = options?.getGoal?.();
+    // The host owns tool-result truncation and spill-to-disk, so a result the
+    // engine produced in its own process must pass through the same policy
+    // before the model sees it. Engines whose input lacks the capability get an
+    // unchanged result instead of a failed call.
+    const finalizeNativeResult = async (
+      req: ToolFinalizeRequest,
+    ): Promise<ToolExecuteResponse> => {
+      if (input.finalizeToolResult === undefined) {
+        return { content: req.content, is_error: req.is_error, note: req.note };
+      }
+      const finalized = await input.finalizeToolResult(req.tool_name, req.tool_call_id, {
+        output: req.content,
+        isError: req.is_error,
+        note: req.note,
+      });
+      return {
+        content: typeof finalized.output === 'string' ? finalized.output : JSON.stringify(finalized.output),
+        is_error: finalized.isError ?? false,
+        note: finalized.note,
+      };
+    };
+
     let rustResult: RunTurnResult;
     try {
       if (mode === 'napi') {
@@ -1446,6 +1527,7 @@ export function createRunTurnOverride(
               arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
             });
           },
+          finalizeNativeResult,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1468,6 +1550,7 @@ export function createRunTurnOverride(
         agent.setLlmChatHandler(llmChatHandler);
         agent.setLlmAbortRegistry(llmAbortRegistry);
         agent.setToolExecuteHandler(toolExecuteHandler);
+        agent.setFinalizeHandler(finalizeNativeResult);
         agent.setPermissionHandler(async (req) => {
           if (input.checkToolPermission === undefined) {
             return {

@@ -798,3 +798,33 @@ G-5 只做到「事实存在且程序可读」。用户可见的 `/status` 还�
 
 验证：`cargo test` 269/269（260 lib + 9 stdio）、`cargo clippy --all-targets` 0 warnings、`cargo fmt --check` 退出 0；addon 已 `napi build --release` 重建（24.9s）；本包 TS 套件 **59 通过 / 5 跳过 / 0 失败**；`agent-core-v2` 遥测 + `engineOverride` + `rustEngineE2E` 分别 65/65 与 13/13 全绿。
 另：`agent-core-v2` 的 `tsc --noEmit` 有一处**与本批无关的既有错误**（`rust-loop.ts:509` `this.nativeModule` 可能为 null；HEAD 同样存在，且在我本次 diff 之外），未顺手修。
+
+## P25 — 原生结果接入宿主截断策略（2026-08-30）
+
+P23 等效清单里最要紧的一项：**结果截断与 spill**。
+
+### 为什么接缝必须在引擎侧
+
+`run_turn.rs:287` 把工具结果直接 `messages.push(role:"tool")` 喂给下一次请求，宿主只在 transcript 分发层看见它。所以若只在 `rust-loop.ts` 的 `tool.native` 分支里截断，改的只是 transcript，模型照旧收到原始大结果。正确位置是**执行之后、进 `messages` 之前**——因此新增一条请求/响应接缝，而不是复用 fire-and-forget 事件。
+
+### 接缝
+
+- Rust：`HostCallbacks::finalize_tool_result`（trait 默认 = 原样返回）；napi 新增第 6 个可选回调，stdio 新增 `host/finalize_tool_result` 方法。
+- v2：`TurnEngineInput.finalizeToolResult?` 由 `loopService` 用 **`IAgentToolResultTruncationService.truncateForModel`** 实现，与宿主执行器结束时的调用（`toolExecutorService.ts:675`）是同一个服务的同一个方法，因此 spill 路径与指针文案天然一致，不需要在 Rust 里重写一遍策略。
+- 降级规则：策略自身抛错 → 返回原结果（不因策略出错而丢工具输出）；stdio 未注册处理器 → 同样返回原值而不是 RPC 错误，避免白等 `HOST_FINALIZE_TIMEOUT` 30 秒。
+
+### 实现过程中被测试抓到的缺陷
+
+第一版跑出来 `finalizeCalls === 0`：**`CountingCallbacks` 没转发 `finalize_tool_result`**，于是继承 trait 默认实现，在 `CountingCallbacks → NapiHostCallbacks` 装饰链中间把调用静默吞掉，宿主策略永远不执行。补转发后新增 `test_counting_callbacks_forwards_result_finalization` 锁死。教训值得记下：**往带默认实现的 trait 上加方法时，装饰器必须逐个显式转发**，否则编译通过、行为静默失效，而这正是最容易自我安慰成功的那类 bug。
+
+### 验证
+
+- 端到端（真实 addon）：`napi-integration.test.ts` 新用例断言三件事——宿主 finalize 回调命中 1 次；`tool.native` 事件记录的是**替换后**文本；**模型的下一次请求里出现 `TRUNCATED(` 且不再出现原始的 `aaaaaaaaaa`**。最后一条才是"模型上下文确实被保护"的实证。
+- `cargo test` 270/270（261 lib + 9 stdio）、`cargo clippy --all-targets` 0 warnings、`cargo fmt --check` 退出 0；addon 重建（18.1s）；本包 TS 套件 60 通过 / 5 跳过 / 0 失败；`agent-core-v2` typecheck 只剩 P24 记过的那处既有 null 错误。
+- 两处红的归属都查了：`agent-core-v2` `loop.test.ts` 的 tools_snapshot 快照红，在**把我全部 v2 改动还原到 HEAD 后仍然红**（50 通过 / 1 失败），是其他会话留下的过期快照；`rust-loop.ts:531` 的 null 错误同为既有。均与本批无关。
+
+### 仍未完成
+
+- **checkpoint / undo**：原生写入仍不进 checkpoint。它要的是「**执行前**」钩子 + accesses 上送（写前快照必须在写之前捕获），与本轮「执行后」接缝是两条不同通道，另做一批。
+- **veto 链旁路**（P23）未修，D-1 结论不变：`nativeTools` 继续默认 false。
+- `tool.progress`/`onUpdate`、`tool_call` 遥测、`ToolAccesses` 并行批处理、display 卡片仍在缺口清单里。
