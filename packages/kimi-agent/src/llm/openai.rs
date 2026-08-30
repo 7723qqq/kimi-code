@@ -241,8 +241,9 @@ struct PartialToolCall {
 const MAX_STREAM_TOOL_CALLS: usize = 256;
 
 /// Accumulates OpenAI Chat Completions stream chunks into a final
-/// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload to [`feed`];
-/// text deltas are returned so the caller can forward them to the host.
+/// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload to
+/// [`StreamAccumulator::feed`]; text deltas are returned so the caller can
+/// forward them to the host.
 #[derive(Debug, Default)]
 pub struct StreamAccumulator {
     content: String,

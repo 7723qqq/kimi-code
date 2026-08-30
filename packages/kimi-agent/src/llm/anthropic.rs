@@ -238,8 +238,8 @@ const MAX_STREAM_BLOCKS: usize = 256;
 
 /// Accumulates Anthropic Messages stream events into a final
 /// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload (each carries a
-/// `type` discriminator) to [`feed`]; text deltas are returned so the
-/// caller can forward them to the host.
+/// `type` discriminator) to [`StreamAccumulator::feed`]; text deltas are
+/// returned so the caller can forward them to the host.
 #[derive(Debug, Default)]
 pub struct StreamAccumulator {
     content: String,

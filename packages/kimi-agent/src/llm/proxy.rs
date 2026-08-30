@@ -39,7 +39,8 @@ impl HostLlmProxy {
         self
     }
 
-    /// Legacy: accept an RPC server and wrap it in [`RpcHostCallbacks`].
+    /// Legacy: accept an RPC server and wrap it in
+    /// [`crate::callbacks::RpcHostCallbacks`].
     pub fn with_server(self, server: Arc<crate::rpc::server::RpcServer>) -> Self {
         let cb = Arc::new(crate::callbacks::RpcHostCallbacks { server });
         self.with_callbacks(cb)

@@ -154,8 +154,9 @@ impl HostCallbacks for RpcHostCallbacks {
 /// host permission grant first: the host policy chain can require interactive
 /// approval even for reads (sensitive-file access). A deny verdict becomes
 /// the tool result without any execution, natively or on the host.
-/// Natively-executed calls are reported to the host via [`emit_event`]
-/// (`type: "tool.native"`) so the transcript still records them.
+/// Natively-executed calls are reported to the host via
+/// [`HostCallbacks::emit_event`] (`type: "tool.native"`) so the transcript
+/// still records them.
 pub struct NativeToolCallbacks {
     pub inner: Arc<dyn HostCallbacks>,
     pub toolset: Arc<crate::tools::NativeToolset>,

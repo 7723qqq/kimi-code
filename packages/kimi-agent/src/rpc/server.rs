@@ -380,7 +380,7 @@ impl RpcServer {
         Ok(())
     }
 
-    /// Synchronous variant of [`notify`] for non-async call sites
+    /// Synchronous variant of [`Self::notify`] for non-async call sites
     /// (e.g. `HostCallbacks::emit_event`). Serialization failures are
     /// swallowed — a lost notification must never break the turn loop.
     pub fn notify_now(method: &str, params: &impl serde::Serialize) {

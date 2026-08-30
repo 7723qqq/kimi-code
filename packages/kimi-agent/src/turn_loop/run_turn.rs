@@ -4,9 +4,9 @@
 //! Flow per step:
 //!   1. Call the LLM with the current message history + tool definitions.
 //!   2. If the response has tool calls, schedule them via
-//!      [`schedule_tool_calls`]: calls whose declared resource accesses
-//!      conflict run in separate batches (serial), non-conflicting calls
-//!      run concurrently within a batch.
+//!      [`tool_scheduler::schedule_tool_calls`]: calls whose declared
+//!      resource accesses conflict run in separate batches (serial),
+//!      non-conflicting calls run concurrently within a batch.
 //!   3. Append tool results to the message history.
 //!   4. Continue to the next step, or finish when the LLM stops.
 //!
