@@ -219,6 +219,60 @@ Bash 对齐内容:`timeout` 尊重参数(默认 60s、上限 300s);`run_in_backg
 - 全部验证:`cargo test` 219 lib + 6 集成;`bun vitest` 全绿(kimi-agent 41、agent-core-v2 engineOverride 8、goal 桥接 114);oxlint 0 errors。
 - agent-core-v2 全量套件余 3~4 个 Windows 时钟/mtime/stdio 时序敏感的预存失败(见 P5 说明),与本路线无关。
 
+## P8 — 行为等效打磨(2026-08-30)
+
+逐文件核实后发现 3 个与 v2 JS 引擎的真实行为分叉、若干死代码、1 个 ROADMAP 自认的 E2E 缺口,集中修复。
+
+### 1. `maxSteps` 对齐 JS 语义
+
+- 问题:Rust 两个通道都默认 `unwrap_or(10)`(`napi_bindings.rs:581`、`main.rs:73`),而 v2 JS 循环未配置 `maxStepsPerTurn` 时**无上限**(`loopService.ts:743-745`)。默认配置下 Rust 引擎 turn 会在 10 步后静默截断。
+- 修复:`None = unbounded`(镜像 JS)。`JsRunTurnParams.max_steps` / `RunTurnParams.max_steps` wire 字段加注释;`rust-loop.ts` 两处 `?? 10` 改为直传 `input.maxSteps`;`unwrap_or(u32::MAX)` 在两处通道组装。
+- 验证:Rust 新增测试 `runs past 10 steps when maxSteps is omitted`(always-tool-call LLM 跑 12 步不停);napi 集成同步新增;cargo lib 239 全绿。
+
+### 2. `finish_reason` 贯通(truncated / filtered 复活)
+
+- 问题:所有 LLM 实现都填 `finish_reason`(openai `length`、anthropic `max_tokens`),但 `run_turn` 完全不读;`LoopTurnStopReason::MaxTokens/Filtered/Unknown` 是从未构造的死变体;`LLMChatResponse.finish_reason` 挂着 `#[allow(dead_code)]`。结果:命中 max_tokens 的 turn 上报 `EndTurn` → JS `mapStopReason` 得 `completed`,而 v2 JS 路径会得 `truncated`(UI 显示截断)。
+- 修复:`StepResult` 增 `finish_reason: Option<String>`;`turn_step.rs` 把它从 `LLMChatResponse` 带入;`run_turn` 跟踪 `last_finish_reason`,turn 结束时按 `length`/`max_tokens` → `MaxTokens`、`content_filter` → `Filtered` 映射(`turn_stop_reason_from_finish`);移除 `LLMChatResponse` 的 allow。`mapStopReason` 早支持两种字符串,无需改。
+- 验证:Rust 新增 4 个测试:`length`/`max_tokens`/`content_filter` 各映射正确,max_steps 耗尽时若最后一步 `length` 也得 `MaxTokens`;cargo lib 239 全绿。
+
+### 3. cache usage 全链路贯通
+
+- 问题:wire `TokenUsage` 已有 `input_cache_read/input_cache_creation`(P4),但 `run_turn.rs` 只累计 3 字段;host-proxy 侧 `llmChatHandler` 不填 cache 字段;napi `JsRunTurnResult` 无 cache 字段;最终映射硬编码 0。v2 JS 路径的 cache 计数在 Rust 引擎模式下归零。
+- 修复:`run_turn` 累计 5 字段;`rust-loop.ts` `llmChatHandler` 从 `response.usage?.inputCacheRead/inputCacheCreation` 填 wire usage;`JsRunTurnResult` 增两字段 + napi 组装映射;stdio `RunTurnResult` 内嵌完整 `TokenUsage`(serde default 向后兼容,无需改);`rust-loop.ts` 最终映射读真实值,删硬编码 0。
+- 验证:Rust 新增测试 `test_cache_usage_accumulates_across_steps`(两步累计断言 4 个字段);napi 集成 6 个工具/cache 用例全绿。
+
+### 4. 死代码清理
+
+- `LoopStepStopReason::Error` 变体从未构造(LLM 错误经 `run_turn.rs` 的 `?` 以 Err 通道传播给宿主)→ 删变体 + `run_turn.rs` 死 match arm。
+- `run_turn.rs` 空 `if response.is_error {}` 块删除。
+- `run_turn.rs` `let events_emitted = || 0u32;` 闭包 → 直接 `0`(组装点 `CountingCallbacks` 填充,本地恒为 0)。
+- `main.rs` `MockLlm` 的 `#[allow(dead_code)]`(self-test 实际使用,allow 多余)删除。
+- `rpc/types.rs` `pub mod methods` / `parse_error` / `invalid_request` 的 `#[allow(dead_code)]` 删除(全部已引用);serde 反序列化目标 wire 结构体的 allow 按 ROADMAP P5 结论保留。
+- `tools/mod.rs` `collapsible_if`、`tests/stdio_rpc_integration.rs` `needless_borrows_for_generic_args`、`run_turn.rs` 测试 `digits_grouped` 三个 pre-existing clippy 警告一并修复。
+- 验证:`cargo clippy --lib --tests --all-targets` 0 warnings。
+
+### 5. stdio `host/check_permission` JS 侧 E2E(P7 诚实边界补齐)
+
+- 改动:新增 `rust-loop.ts` 测试接缝 `forceEngineTransport('napi' | 'stdio')`(`shutdownRustEngine` 重置),允许在 napi addon 存在的机器上强制走 stdio 路径。
+- 新增 `rust-loop.test.ts` `stdio transport` describe(skipIf CLI 二进制缺失):spawn 真 `kimi-agent-cli`,驱动一次原生 Write turn,assertion:
+  - allow:权限请求到达 `input.checkToolPermission`、文件由原生路径落盘(`stdio-seam.txt`)、`hostToolExecutions === 0`、tool.call + tool.result 事件齐发。
+  - deny:权限请求到达、拒绝文本作为工具结果(无落盘)、`hostToolExecutions === 0`、tool.result `isError` 为真。
+- 验证:2/2 通过(vitest)。
+
+### 总验证
+
+- `cargo test --lib`:239 全绿(原 228 + 本轮新增 5 finish_reason 测试 + cache 测试... 共 +11,含 +6 来自 P6/P7 此前轮次;本次新增 5 跑_turn + 1 cache)
+- `cargo test --test stdio_rpc_integration`:9/9(包含 3 个权限往返)
+- `cargo clippy --lib --tests --all-targets`:0 warnings
+- `bun x vitest run` (kimi-agent):44/44(rust-loop 20 + 新增 stdio 2 + napi-integration 22)
+- `bun x vitest run` (agent-core-v2 engineOverride + rustEngineE2E):9/9
+- oxlint:0 errors
+
+### 仍未如实覆盖(诚实边界)
+
+- 真实 LLM 会话下的端到端验证仍需真实 key(沿用 ROADMAP P5 待办)。
+- stdio 通道 `check_permission` JS 端 handler 现已有真二进制 E2E(本轮补齐),覆盖该边界。
+
 ---
 
 ## 优先级与依赖
@@ -233,3 +287,128 @@ P0(清理) → P1(投影) → P2(注入) → P3(goal) → P4(遥测)
 
 - **P2 不做 features 移植**:plan/skill/tower 等宿主能力保持 host 侧(host-proxy 路径天然可用),仅在 Rust 侧打通"提醒注入"这一条会丢失的通道——用最小 Rust 改动换最大功能对齐。
 - 若后续要求 native-LLM 下运行 tower/swarm,另立项做完整注入框架,不在本路线范围内。
+
+## P9 — 补全收尾(2026-08-30)
+
+P8 完成后审查出的最后真缺口:cancellation JS 侧无 E2E、stdio telemetry 无端到端断言、legacy `runTurnRust` 缺边界说明,一并补齐。
+
+### 1. cancellation JS 侧 E2E(napi + stdio)
+
+- 问题:`rust-loop.ts` 的 `onAbort` → napi `cancelTurn`(CANCEL_MAP AtomicBool)/ stdio 发 `agent/cancel_turn`(main.rs 本地 cancel_flag)接线齐全,Rust 循环在每步顶端检查 → `Aborted` → JS `mapStopReason` 得 `other`。但 JS 侧从未真测过整条链路。
+- 设计:Rust 在**步顶端**检查 cancel,所以让 LLM chat 在 abort 前阻塞(adapter 传来的 `signal` 上 `addEventListener('abort')`),保证 abort 落在 step 0 内 → step 0 完成 → step 1 顶端观察到 flag → `Aborted`。
+- 新增 `napi-integration.test.ts` `napi runTurnRust — cancellation`(gate 一个手动 `firstChatGate` Promise,先 `mod.cancelTurn(turnId)` 再 `releaseFirstChat()`)。
+- 新增 `rust-loop.test.ts` `stdio transport` describe 中 `aborts a running turn at the next step boundary`(chat 等 `chatSignal` abort)。
+- 验证:两用例均断言 `stopReason` 正确(`Aborted` / `other`)、`steps === 1`、`llmRetries === 0`、chat 仅调用 1 次。2/2 通过。
+
+### 2. stdio telemetry 端到端断言
+
+- 问题:napi 有 `reports telemetry counters on the turn result` 用例,stdio 缺。`main.rs:199` 读 `CountingCallbacks` 的 counter 填 `RunTurnResult.events_emitted`,但无端到端测试断言 adapter `telemetry.eventsEmitted >= 1`(`tool.native` 必触发)。
+- 修复:在 stdio allow E2E 结果断言追加 `telemetry?.eventsEmitted >= 1`,验证 `CountingCallbacks → RunTurnResult → adapter telemetry` 整链路贯通。
+
+### 3. legacy `runTurnRust` JSDoc
+
+- `rust-loop.ts:890` 的 `runTurnRust` 仅供 `napi-roundtrip.bench.ts` / `napi-debug.mjs` 直接测 napi 通道,**不路由** `permissionHandler` / `eventHandler`(缺则原生变更工具 fail-closed 回退宿主,事件丢)。补 JSDoc 说明边界,指引生产路径用 `createRunTurnOverride`。
+
+### 4. 打磨顺带
+
+- `makeCallback` 的 `.then(success, error)` success handler 返回 void 表达式 → 改为块语句(error handler 同步)。
+- `AgentProcess` 内 `!` 非空断言集中在 `this.process!.stdin!` / `.stdout!` / `.stderr!`,均在 `ready` / start guard 之后(TS 无法跨 throw 收窄),加块级 `oxlint-disable no-non-null-assertion` + 注释说明生命周期契约。
+- `rust-loop.ts` 顶部加 `oxlint-disable no-console`(8 处 console.warn/error 均为引擎生命周期诊断:fallback 警告、stderr 转发、请求处理错误)。
+
+### 验证
+
+- `cargo clippy --all-targets`:0 warnings(P9 未改 Rust,沿用 P8)。
+- `bun x vitest run` (kimi-agent):46/46(P8 44 + cancellation napi 1 + cancellation stdio 1)。
+- `bun x vitest run` (agent-core-v2 engineOverride + rustEngineE2E):9/9(无回归)。
+- oxlint:0 errors(58→0)。
+
+### 仍未如实覆盖(诚实边界,沿用)
+
+- 真实 LLM 会话下的端到端验证仍需真实 key。
+
+## P10 — 收尾:删死代码 + 补 MultiLLM 缺口(2026-08-30)
+
+直面 P9 自查暴露的"偷懒"事实,集中清掉三类。
+
+### 1. 删除不可达的 `LoopHooks` API
+
+- 问题:整个 `LoopHooks` / `before_step` / `after_step` / `chain` 体系(`hooks/mod.rs` + `types.rs` 中 5 个相关类型 + `RunTurnInput.hooks` 字段)有完整 Rust API + 7 个 `hooks` 单测 + 3 个 `run_turn` 集成测试,但 **`napi_bindings.rs` 与 `main.rs` 两处组装都硬写 `hooks: None`**,TS adapter 也没暴露 `hooks` 选项。**整个 API 在 JS 消费侧完全不可达,只是死表面 + 死测试**。`hooks/mod.rs` 自身的 doc 也明确"`LoopHooks`/`BeforeStepResult`/`AfterStepResult`/`StepContext`/`AfterStepContext` 活在 `turn_loop::types`"——但那些类型只为 Rust 内部服务,JS 无法构造闭包也无法构造这个 trait object。
+- 决定:**删除**(不是接入,因为 napi-rs 无法跨边界传 Rust 闭包,要真接通需要新增 enum-形态的 hook 选择,工程量与价值不匹配)。
+- 改动:`types.rs` 删 5 个类型 + `RunTurnInput.hooks` 字段;`run_turn.rs` 删 3 处 hook 调用(loop 入口 before_step、Complete 分支 after_step、ToolCalls 分支 after_step)+ 3 个 hook 集成测试 + 全部 `hooks: None` 字段;`main.rs` 删 2 处 `hooks: None`;`tests/turn_bench.rs` 删 1 处;`lib.rs` 删 `pub mod hooks`;删除整个 `src/hooks/` 目录。
+- 验证:`cargo clippy --all-targets` 0 warnings,`cargo test --lib` 全绿(原 248 个 `#[test]` 减 10 个 hook 测试,变 238 个,详见 ROADMAP 末尾"测试口径"段)。
+
+### 2. napi 路径补齐 `providers` 字段
+
+- 问题:MultiLLM 能力在 Rust 端有完整实现(`llm/multi.rs`,7 个 winner 选择单测),stdio 路径通过 `RunTurnParams.providers` 字段支持,但 napi 路径的 `JsRunTurnParams` **没有 `providers` 字段**——意味着 `createRunTurnOverride` 选了 napi 时,`MultiLLM` 这条路根本走不到。是 P3 接线时漏的对齐。
+- 改动:
+  - Rust:加 `pub struct JsLlmProviderDef { name, model, system_prompt }`;`JsRunTurnParams` 增 `providers: Option<Vec<JsLlmProviderDef>>` 字段;`run_turn_rust` 组装时按 **providers > native_llm > host_proxy** 优先级选 LLM(providers 非空时构 `MultiLLM`,否则走原有分支)。
+  - TS:`rust-loop.ts` `NapiEngine.runTurn` params 类型增 `providers?: { name, model, systemPrompt }[]`。
+  - 测试:新增 `napi runTurnRust — concurrent MultiLLM providers`,2 个 provider(loser-model 立即错误、winner-model 第一次返回 tool_calls、第二次返回 stop),断言 `stopReason=EndTurn`、`steps=2`、winner 被调用 ≥1 次、loser ≤2 次。验证:端到端 4 次 llm_chat callback(每步 race 一次 loser + winner),winner wins 2 步结束。
+- 验证:`cargo test --lib` 0 errors,`bun x vitest run napi-integration.test.ts` 24/24。
+
+### 3. 删除 legacy `runTurnRust` TS 包装
+
+- 问题:`rust-loop.ts` 中的 `export async function runTurnRust(...)` 是 stdio-only 包装,**只接 `llmChat`/`toolExecute` 两个 handler,不接 `permissionHandler`/`eventHandler`**(原生变更工具 fail-closed 回退宿主、事件丢)。全仓库 grep 无任何外部调用(`mod.runTurnRust` 调的是 Rust napi 函数,不是这个 TS 包装)。**纯死代码 + P9 加的 JSDoc 也是在给死代码贴标签**。
+- 决定:删除(不是修齐,因为 `createRunTurnOverride` 已接管 stdio+napi 双通道全部 4 个 callback,这条 legacy 路径不存在修齐的价值)。
+- 改动:删除 `rust-loop.ts:950` 整个函数 + JSDoc;连带删除现已无引用的 `RunTurnParams` interface(legacy 的 stdio wire shape)。修复 oxlint `no-unnecessary-boolean-literal-compare`(遗留 `event.is_error === true`)与 `always-return`(`makeCallbackHandler` 的 .then)。
+- 验证:`bun x oxlint --type-aware` 0 errors,`bun x vitest` 48/48。
+
+### 总验证
+
+- `cargo clippy --all-targets`:0 warnings
+- `cargo test --lib`:全绿
+- `bun x vitest run`(kimi-agent):**48/48**(P9 47 + MultiLLM 1)
+- `bun x vitest run`(agent-core-v2 engineOverride + rustEngineE2E):9/9
+- oxlint:0 errors(从 41 warnings / 1 error 修到 41 warnings / 0 errors)
+
+### 测试口径变化(累计)
+
+| 阶段 | lib `#[test]` | 集成 `#[test]` | vitest |
+|---|---|---|---|
+| P8 末 | 239 | 9 | 46 |
+| P9 末 | 239 | 9 | 47(+cancellation stdio) |
+| P10 末 | 238(−10 hooks) | 9 | 48(+MultiLLM napi) |
+
+hooks 删了 10 个测试(7 个 hooks/mod.rs 单测 + 3 个 run_turn hook 集成),净减 1 个 `#[test]`。但接口表面积真实缩小、call 路径真实缩短。
+
+### 仍未如实覆盖(诚实边界)
+
+- **真实 LLM 会话端到端验证仍需真实 key**(沿用 P5/P9)。
+- **napi 的 MultiLLM 只有 host-proxy 路径测过**,没接真 LLM 并发跑过(provider 之间的端到端延迟、并发失败、winner 选择一致性都只测了 fake)。
+- **MiniMax-M3 (anthropic) 因 minimax 反代 URL 与 kimi-agent 假设不兼容**(`/anthropic` 前缀 vs kimi-agent 的 `baseUrl/messages` 直拼),需要 `/v1` 兜底才通。这是个发现,引擎行为暂未改。
+- **legacy `runTurnRust` 删除后**,若有外部用户依赖此函数会编译失败。当前仓库内无引用,发布前应通知。
+
+## P11 — 发布产物加载核实 + native-LLM 命名空间修复（2026-08-30）
+
+### 1. 发布产物里引擎到底能不能加载（此前从未核实）
+
+实测对象:当日构建的 `apps/kimi-code/dist-native/bin/win32-x64/kimi.exe`,用隔离 `KIMI_CODE_HOME` + 指向 `127.0.0.1:9` 的假 provider(零外网、零花费)。
+
+- **napi 通道确认可用**:输出的 `run_turn failed:` 与 `LLM call failed after 3 attempts` 两个字面量在全仓只分别存在于 `napi_bindings.rs:659` 与 `turn_loop/turn_step.rs:35`,且没有出现 `napi module not found` / `Binary not found, falling back to JS engine` 两条降级警告。
+- **加载链路**:`.node` 由 `_native-build.yml:78` 在打包前构建 → `native-deps.mjs` 以 `collect:'native-files'` 嵌入(缺 `.node` 时 `assets.mjs:175` 硬失败) → 运行期 `NapiEngine.findModule()` 经 `__kimi_getNativePackageRoot` 定位解包缓存根。manifest 实测含 `@moonshot-ai/kimi-agent/kimi_agent.win32-x64-msvc.node`。
+- **更正两处注释**(`native-deps.mjs` / `assets.mjs`):tsdown 并**不**把 `rust-loop.ts` 打进 bundle(实测 `dist/` 里无该文件任何字符串字面量,外部 specifier 残留),是 `bun build --compile` 编译 staged `main.cjs` 时从 workspace `node_modules` 解析并内联进 exe。
+- **stdio 通道在发布产物里必然缺席**:`AgentProcess.findBinary()` 的三个候选中,`dist-native/bin/<arch>/kimi-agent-cli(.exe)` 没有任何构建步骤产出(该二进制需要 `--features cli`,只有 Makefile 与 CI 测试 job 会建)。→ 只走 stdio 的代码(含 `ea3126e1ec` 的崩溃恢复)在发布形态永不执行,P8/P9 补的 stdio E2E 只覆盖开发树。
+
+### 2. native-LLM 恒降级为 host-proxy（真实缺陷,已修）
+
+- **根因链**:`loopService.buildEngineInput` 给 `llm.modelName` 填的是**别名**(`resolveModelContext().modelAlias`),`extractNativeLlm` 给 `nativeLlm.model` 填的是 **wire 原始 id**(`[models."<alias>"].model`),而 `rust-loop.ts` 的 staleness 守卫把这两个不同命名空间的值直接比较 → 凡是别名带 `provider/` 前缀就永不相等 → 恒降级。
+- **判别实证**(同一 exe、只差 `model` 写法):`model="m1"` → `LLM call failed after 3 attempts: Connection error.`(JS SDK 措辞 = host-proxy);`model="fake/m1"` → `llm http request failed: error sending request for url(.../v1/chat/completions)`(reqwest = native 生效)。即当时"过守卫"与"wire 上模型 id 正确"互斥——把 `model` 写成别名虽然能过守卫,却会把别名发给 provider。
+- **影响**:P1 的 wire 投影、P5 结论里"native-LLM 的收益主要来自流式事件不再跨进程转发",在带前缀别名(本 fork 常见)下从未兑现;也正因如此 P1/P4/P5 的 native 路径改动没在真会话里暴露过。
+- **修复(契约侧分开两种标识)**:`ProfileModelContext` 增 `modelId`(= `Model.name`,即 `catalogService.buildModel` 的 wireName);`TurnEngineLLM.modelName` 改名 `modelAlias` 并新增 `modelId`;守卫改按 wire id ↔ wire id 比较;napi/stdio 的 `model_name` 仍传别名(宿主按别名解析会话模型)。
+- **验证**:改后同配置走源码路径 `bun src/main.ts -p`,输出翻成 `llm http request failed: error sending request for url (http://127.0.0.1:9/v1/chat/completions)`(native 生效)。新增 `rust-loop.test.ts`「native-LLM staleness guard」2 例:命中→宿主 `chat` 0 次且未正常完成;config 指向别的模型→宿主 `chat` >0 且 `completed`。agent-core-v2:`lint:imports` OK、`typecheck` 0 errors、engineOverride + rustEngineE2E + llmRequester **75/75**。
+
+### 3. 既存红:重建 addon 后暴露的取消语义回归（已修）
+
+- **口径教训**:`*.node` 与 `target/release/kimi-agent-cli` 都是 gitignore 的本地产物,而 `findBinary()` **优先取 release**。此前多轮"全绿"是在 05:25 的旧 `.node` 与 03:17 的旧 release CLI 上测出来的——测的不是当前源码。改完 Rust 必须先 `cd packages/kimi-agent && bun run build` 重建 `.node`,再跑 TS 侧用例。
+- 重建 `.node` 对齐 HEAD 后,napi 取消两用例转红:`tool_scheduler.rs:112/134` 在批内观察到取消时返回 `Err("turn cancelled")`,`napi_bindings.rs:659` 把 Err 变成 rejection(而 stdio 的 `main.rs:205` 返回 `stop_reason:"Error: ..."`),并且 `?` 提前返回跳过了 `napi_bindings.rs:661` 的 `CANCEL_MAP.remove`(取消标志滞留)。P8/P9 的契约要求 取消 ⇒ `Aborted`。
+- **修法**:`run_turn` 在调度器报错时先读取消标志,已取消则按 `LoopTurnStopReason::Aborted` 正常返回(与步顶端、`LoopStepStopReason::Aborted` 两条既有路径一致),未取消才传播原错误;napi 组装点改为「先取结果 → 无条件 `CANCEL_MAP.remove` → 再决定传播」。
+- **新增 cargo 回归** `test_cancellation_during_tool_execution_aborts`:`CancelDuringToolCallbacks` 在 `execute_tool` 前翻起标志,断言 turn 以 `Aborted` 结束且 `steps == 1`。这条不依赖 `.node`/CLI 二进制,是真正的守门测试(cargo 241 全绿)。
+- 另一例 stdio `allow → file lands natively` 在全量运行时红、单独运行绿 → 顺序/争用 flake,本轮只是恰好通过,**未定论**。
+
+### 本轮测试口径
+
+- `cargo test --lib`:241 全绿(含新增的调度器内取消回归)。
+- `bun x vitest run`(kimi-agent):55 passed / 1 skipped(real-key 未开启)。
+- `bun x vitest run`(apps/kimi-code rust-engine):19/19——此前 2 红的原因是 `maybeLoadRustEngine` 为宿主 shell 探测动态 import 整个 `@moonshot-ai/agent-core-v2`,配合测试的 `vi.resetModules()` 让首个用例实测 8s(超默认 5s 超时)并把在飞调用泄漏到下一用例;现已把 `probeHostEnvironment` mock 掉。
+- 新增 `apps/kimi-code/test/cli/rust-engine-cli-e2e.test.ts`(CLI 消费路径真机会走一遍),按 `KIMI_E2E=1` 显式选择加入、无 key/无 addon 时**显式 skip 而非空过**;其真机路径尚未执行过(需要真 key)。
+- `real-key-e2e.test.ts`:删掉从未被调用的 `pickProvider`,并把它独有的 `/v1` 兜底规则并进真正使用的 `pickAnyProvider`(此前该规则只活在死函数里,导致 anthropic 反代在本机永远选不中)。
