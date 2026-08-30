@@ -1,9 +1,18 @@
+import type * as ChildProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEngineOverrideService, type TurnEngine, type TurnEngineInput } from '#/agent/loop/engineOverride';
+import { IFlagService } from '#/app/flag/flag';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
 import type { ContentPart } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -18,6 +27,7 @@ import {
   type TestAgentContext,
   type TestAgentServiceOverride,
 } from '../../harness';
+import { stubFlag } from '../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 import { makeEchoTool, registerTool } from './helpers';
@@ -502,5 +512,74 @@ describe('external engine × plan mode bridge', () => {
     // reminder — proving feature injections reach the native engine.
     expect(text).toContain('Plan mode is active');
     expect(text).toContain('<system-reminder>');
+  });
+});
+
+describe('external engine × tower/swarm injection bridge', () => {
+  let ctx: TestAgentContext | undefined;
+  let engineInput: TurnEngineInput | undefined;
+  let cwd: string | undefined;
+
+  afterEach(async () => {
+    engineInput = undefined;
+    if (ctx !== undefined) {
+      await ctx.dispose();
+      ctx = undefined;
+    }
+    if (cwd !== undefined) {
+      await rm(cwd, { recursive: true, force: true });
+      cwd = undefined;
+    }
+  });
+
+  function makeRecordEngine(): TurnEngine {
+    return async (input) => {
+      engineInput = input;
+      await input.dispatchEvent({ type: 'step.begin', uuid: 's1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({ type: 'step.end', uuid: 's1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+  }
+
+  function projectedText(): Promise<string> {
+    return engineInput!.buildMessages().then((messages) =>
+      messages
+        .flatMap((m) => m.content)
+        .map((p) => (p.type === 'text' ? p.text : ''))
+        .join('\n'),
+    );
+  }
+
+  it('carries the tower-mode reminder into the engine message projection', async () => {
+    cwd = await mkdtemp(join(tmpdir(), 'engine-tower-'));
+    ctx = createTestAgent(
+      { cwd },
+      appService(IEngineOverrideService, { getEngine: () => makeRecordEngine() }),
+      appService(IFlagService, stubFlag((id) => id === TOWER_FLAG_ID)),
+    );
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await ctx.get(IAgentTowerService).enter();
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run the tower' }] });
+    await end;
+
+    expect(engineInput).toBeDefined();
+    expect(await projectedText()).toContain('Tower mode is active');
+  });
+
+  it('carries the swarm-mode reminder into the engine message projection', async () => {
+    ctx = createTestAgent(appService(IEngineOverrideService, { getEngine: () => makeRecordEngine() }));
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    ctx.get(IAgentSwarmService).enter('manual');
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run the swarm' }] });
+    await end;
+
+    expect(engineInput).toBeDefined();
+    expect(await projectedText()).toContain('## Swarm Mode');
   });
 });
