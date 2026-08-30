@@ -8,7 +8,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IEngineOverrideService, type TurnEngine, type TurnEngineInput } from '#/agent/loop/engineOverride';
+import {
+  IEngineOverrideService,
+  type AskQuestionWireResult,
+  type TurnEngine,
+  type TurnEngineInput,
+} from '#/agent/loop/engineOverride';
 import { IFlagService } from '#/app/flag/flag';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
@@ -581,5 +586,101 @@ describe('external engine × tower/swarm injection bridge', () => {
 
     expect(engineInput).toBeDefined();
     expect(await projectedText()).toContain('## Swarm Mode');
+  });
+});
+
+describe('external engine × session question service bridge', () => {
+  let ctx: TestAgentContext | undefined;
+  let wireResult: AskQuestionWireResult | undefined;
+
+  afterEach(async () => {
+    wireResult = undefined;
+    if (ctx !== undefined) {
+      await ctx.dispose();
+      ctx = undefined;
+    }
+  });
+
+  function makeQuestionEngine(): TurnEngine {
+    return async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      wireResult = await input.askUserQuestion?.({
+        question_id: 'question_1',
+        turn_id: String(input.turnId),
+        tool_call_id: 'call-q',
+        background: false,
+        timeout_ms: null,
+        questions: [
+          {
+            question: 'Which database?',
+            header: 'Storage',
+            options: [
+              { label: 'Postgres', description: 'Relational storage' },
+              { label: 'SQLite', description: 'Embedded storage' },
+            ],
+            multi_select: false,
+          },
+        ],
+      });
+      await input.dispatchEvent({ type: 'step.end', uuid: 'step-1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+  }
+
+  it('routes an engine question to the session question service and maps the answer', async () => {
+    ctx = createTestAgentWithEngine(makeQuestionEngine());
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion({ 'Which database?': 'Postgres' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult).toEqual({ answers: { 'Which database?': 'Postgres' } });
+  });
+
+  it('passes the answer method through to the wire result', async () => {
+    ctx = createTestAgentWithEngine(makeQuestionEngine());
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion({
+      answers: { 'Which database?': 'Postgres' },
+      method: 'number_key',
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult).toEqual({
+      answers: { 'Which database?': 'Postgres' },
+      method: 'number_key',
+    });
+  });
+
+  it('maps a dismissed question to the empty-answers note result', async () => {
+    ctx = createTestAgentWithEngine(makeQuestionEngine());
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion(null);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult).toEqual({
+      answers: {},
+      note: 'User dismissed the question without answering.',
+    });
+  });
+
+  it('maps a turn-ended cancellation to the cancelled wire result', async () => {
+    ctx = createTestAgentWithEngine(makeQuestionEngine());
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    const question = ctx.untilQuestion({ cancelled: true, reason: 'turn_ended' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await question;
+    await end;
+
+    expect(wireResult).toEqual({ cancelled: true, reason: 'turn_ended' });
   });
 });

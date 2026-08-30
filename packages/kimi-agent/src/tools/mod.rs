@@ -51,6 +51,7 @@ const BASH_MAX_SECONDS: u64 = 300;
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
+pub mod ask_user_question;
 pub mod encoding;
 pub mod fetch_url;
 pub mod list_directory;
@@ -75,6 +76,10 @@ pub struct NativeToolset {
     shell: Option<String>,
     subagent_manager: Option<std::sync::Arc<crate::subagent::SubagentManager>>,
     mcp_manager: Option<std::sync::Arc<crate::mcp::McpManager>>,
+    /// Host callbacks for interactive tools (AskUserQuestion). `None` means
+    /// the tool falls back to the host path, which owns the interaction
+    /// runtime anyway.
+    callbacks: Option<std::sync::Arc<dyn crate::callbacks::HostCallbacks>>,
 }
 
 impl NativeToolset {
@@ -107,6 +112,7 @@ impl NativeToolset {
             shell,
             subagent_manager: None,
             mcp_manager: None,
+            callbacks: None,
         })
     }
 
@@ -122,6 +128,15 @@ impl NativeToolset {
     /// Attach an McpManager for external MCP server tools.
     pub fn with_mcp(mut self, manager: std::sync::Arc<crate::mcp::McpManager>) -> Self {
         self.mcp_manager = Some(manager);
+        self
+    }
+
+    /// Attach the host callbacks for interactive tools (AskUserQuestion).
+    pub fn with_callbacks(
+        mut self,
+        callbacks: std::sync::Arc<dyn crate::callbacks::HostCallbacks>,
+    ) -> Self {
+        self.callbacks = Some(callbacks);
         self
     }
 
@@ -162,6 +177,8 @@ impl NativeToolset {
                 | "manage_subagents"
                 | "definesubagent"
                 | "define_subagent"
+                | "askuserquestion"
+                | "ask_user_question"
         )
     }
 
@@ -191,6 +208,10 @@ impl NativeToolset {
             "definesubagent" | "define_subagent" => {
                 let mgr = self.subagent_manager.as_deref()?;
                 Some(subagent_tools::execute_define_subagent(mgr, args).await)
+            }
+            "askuserquestion" | "ask_user_question" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(ask_user_question::execute_ask_user_question(callbacks, args).await)
             }
             "write" => self.write(args),
             "edit" => self.edit(args),

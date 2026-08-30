@@ -285,7 +285,8 @@ pub async fn start_repl(
             NativeToolset::new(&workspace_str, None)
                 .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
                 .with_subagents(subagent_manager.clone())
-                .with_mcp(mcp_manager.clone()),
+                .with_mcp(mcp_manager.clone())
+                .with_callbacks(base_callbacks.clone()),
         );
         let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
             inner: base_callbacks,

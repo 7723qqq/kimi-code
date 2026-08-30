@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  AgentProcess,
+  NapiEngine,
   classifyRpcMessage,
   createLlmAbortRegistry,
   mapStopReason,
@@ -724,5 +726,214 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — provider model routin
     expect(result.stopReason).toBe('completed');
     expect(result.steps).toBeGreaterThanOrEqual(1);
     expect(new Set(routed)).toEqual(new Set(['alpha-model', 'beta-model']));
+  });
+});
+
+// ── stdio transport: host/ask_question JS-side handler ────────────────────
+// The Rust engine sends host/ask_question only once its native
+// AskUserQuestion tool lands; these tests exercise the JS-side dispatch
+// directly with a fake process so the seam is covered regardless of the
+// binary's Rust version.
+
+describe('stdio transport — host/ask_question JS handler', () => {
+  type HostRequestHandler = {
+    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+  };
+
+  function fakeProcess(): {
+    agent: AgentProcess;
+    written: string[];
+  } {
+    const agent = new AgentProcess();
+    const written: string[] = [];
+    (agent as unknown as { process: { stdin: { write(line: string): void } } }).process = {
+      stdin: { write: (line) => written.push(line) },
+    };
+    return { agent, written };
+  }
+
+  const questionParams = {
+    question_id: 'question_1',
+    turn_id: '1',
+    tool_call_id: 'call-q',
+    background: false,
+    timeout_ms: null,
+    questions: [
+      {
+        question: 'Which database?',
+        header: 'Storage',
+        options: [
+          { label: 'Postgres', description: 'Relational storage' },
+          { label: 'SQLite', description: 'Embedded storage' },
+        ],
+        multi_select: false,
+      },
+    ],
+  };
+
+  it('dispatches host/ask_question to the registered handler and writes the result', async () => {
+    const { agent, written } = fakeProcess();
+    const requests: unknown[] = [];
+    agent.setAskQuestionHandler(async (request) => {
+      requests.push(request);
+      return { answers: { 'Which database?': 'Postgres' }, method: 'enter' };
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'host/ask_question',
+      params: questionParams,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ question_id: 'question_1', turn_id: '1' });
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      result: { answers: { 'Which database?': 'Postgres' }, method: 'enter' },
+    });
+  });
+
+  it('answers an unwired host/ask_question with the unsupported error', async () => {
+    const { agent, written } = fakeProcess();
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'host/ask_question',
+      params: questionParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 8,
+      error: { code: -32603, message: 'host does not support interactive questions' },
+    });
+  });
+
+  it('propagates a handler failure as a JSON-RPC error', async () => {
+    const { agent, written } = fakeProcess();
+    agent.setAskQuestionHandler(async () => {
+      throw new Error('question service exploded');
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'host/ask_question',
+      params: questionParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 9,
+      error: { code: -32603, message: 'question service exploded' },
+    });
+  });
+});
+
+// ── napi adapter layer: ask_question callback passing ─────────────────────
+// The native addon invokes the 8th runTurnRust callback only once the Rust
+// side lands; these tests verify the JS adapter passes it through with a
+// fake native module.
+
+describe('NapiEngine — ask_question callback passing', () => {
+  function fakeEngine(): {
+    engine: NapiEngine;
+    received: unknown[][];
+  } {
+    const engine = new NapiEngine();
+    const received: unknown[][] = [];
+    (engine as unknown as { nativeModule: unknown }).nativeModule = {
+      getCallbackPayload: () => null,
+      resolveCallback: () => {},
+      cancelTurn: () => {},
+      runTurnRust: (...args: unknown[]) => {
+        received.push(args);
+        return Promise.resolve({
+          stopReason: 'EndTurn',
+          steps: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          llmTransport: 'host-proxy',
+          nativeToolCalls: 0,
+        });
+      },
+    };
+    return { engine, received };
+  }
+
+  const emptyTurnParams = {
+    turnId: '1',
+    systemPrompt: 'test',
+    modelName: 'test-model',
+    messages: [],
+    tools: [],
+  };
+
+  it('passes askQuestionCb as the 8th runTurnRust argument and round-trips through the registry', async () => {
+    const engine = new NapiEngine();
+    const received: unknown[][] = [];
+    const payloads = new Map<number, string>();
+    let resolved: { id: number; error: string | null; result: string | null } | undefined;
+    (engine as unknown as { nativeModule: unknown }).nativeModule = {
+      getCallbackPayload: (id: number) => payloads.get(id) ?? null,
+      resolveCallback: (id: number, error: string | null, result: string | null) => {
+        resolved = { id, error, result };
+      },
+      cancelTurn: () => {},
+      runTurnRust: (...args: unknown[]) => {
+        received.push(args);
+        return Promise.resolve({
+          stopReason: 'EndTurn',
+          steps: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          llmTransport: 'host-proxy',
+          nativeToolCalls: 0,
+        });
+      },
+    };
+    const askQuestionCb = async (request: { question_id: string }) => ({
+      answers: { 'Which database?': request.question_id },
+    });
+    await engine.runTurn(
+      emptyTurnParams,
+      async () => JSON.stringify({ tool_calls: [], usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }),
+      async () => JSON.stringify({ content: '', is_error: false }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      askQuestionCb,
+    );
+
+    expect(received).toHaveLength(1);
+    const askQuestionHandler = received[0]?.[7];
+    expect(typeof askQuestionHandler).toBe('function');
+    payloads.set(42, JSON.stringify({ question_id: 'question_1' }));
+    (askQuestionHandler as (callbackId: number) => void)(42);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved).toEqual({
+      id: 42,
+      error: null,
+      result: JSON.stringify({ answers: { 'Which database?': 'question_1' } }),
+    });
+  });
+
+  it('leaves the 8th runTurnRust argument undefined without askQuestionCb', async () => {
+    const { engine, received } = fakeEngine();
+    await engine.runTurn(
+      emptyTurnParams,
+      async () => JSON.stringify({ tool_calls: [], usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }),
+      async () => JSON.stringify({ content: '', is_error: false }),
+    );
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.[7]).toBeUndefined();
   });
 });

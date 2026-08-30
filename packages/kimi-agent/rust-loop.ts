@@ -37,6 +37,8 @@ const projectRoot = resolve(import.meta.dirname, '..', '..');
 export type TurnEngineAdapter = import('@moonshot-ai/agent-core-v2').TurnEngine;
 export type TurnEngineInputAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineInput;
 export type TurnEngineToolResultAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineToolResult;
+export type AskQuestionWire = import('@moonshot-ai/agent-core-v2').AskQuestionWire;
+export type AskQuestionWireResult = import('@moonshot-ai/agent-core-v2').AskQuestionWireResult;
 
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
@@ -139,6 +141,14 @@ export interface RustEngineOptions {
    * Read fresh on each turn.
    */
   getPolicySnapshot?: () => PolicySnapshot | undefined;
+  /**
+   * Ask the host an interactive question and wait for a human answer
+   * (`host/ask_question`). The per-turn engine input's `askUserQuestion`
+   * takes precedence when both are wired; when neither is, the engine
+   * reports "host does not support interactive questions" as the tool
+   * result.
+   */
+  askUserQuestion?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>;
 }
 
 /** Snapshot of permission policies for in-Rust evaluation (P26 批 3). */
@@ -464,10 +474,12 @@ interface KimiAgentNativeModule {
     checkPermissionCb?: (callbackId: number) => void,
     finalizeToolCb?: (callbackId: number) => void,
     drainSteersCb?: (callbackId: number) => void,
+    askQuestionCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
-class NapiEngine {
+/** In-process napi-rs engine transport. Exported for unit tests. */
+export class NapiEngine {
   private nativeModule: KimiAgentNativeModule | null = null;
   private loaded = false;
 
@@ -623,6 +635,7 @@ class NapiEngine {
     checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
     finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
     drainSteersCb?: () => Promise<WireMessage[]>,
+    askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -695,6 +708,17 @@ class NapiEngine {
         ? undefined
         : makeCallbackHandler(async () => JSON.stringify(await drainSteersCb()));
 
+    // Question channel: resolve like the request/response callbacks. The
+    // host owns the interaction runtime and answers with the v2
+    // QuestionResult three states (answered / dismissed / cancelled).
+    const askQuestionHandler =
+      askQuestionCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const result = await askQuestionCb(JSON.parse(payload) as AskQuestionWire);
+            return JSON.stringify(result);
+          });
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -703,6 +727,7 @@ class NapiEngine {
       permissionHandler,
       finalizeHandler,
       drainHandler,
+      askQuestionHandler,
     );
   }
 
@@ -721,7 +746,8 @@ class NapiEngine {
 // !this.ready` throw at the top of the calling method. TypeScript cannot
 // narrow through the `throw` without a helper, and the assertions here are
 // the documented lifecycle contract rather than speculative `!`s.
-class AgentProcess {
+/** stdio JSON-RPC engine transport. Exported for unit tests. */
+export class AgentProcess {
   // kimi-agent has no tsconfig of its own (it is a Rust package), so
   // type-aware oxlint resolves `ChildProcess` as an error/any type here and
   // flags the union as redundant. The file is a standalone JS companion that
@@ -761,6 +787,11 @@ class AgentProcess {
   /** Callback for handling host/drain_steers requests from Rust. */
   private drainSteersHandler: (() => Promise<WireMessage[]>) | null = null;
 
+  /** Callback for handling host/ask_question requests from Rust. */
+  private askQuestionHandler:
+    | ((req: AskQuestionWire) => Promise<AskQuestionWireResult>)
+    | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -788,6 +819,10 @@ class AgentProcess {
 
   setDrainSteersHandler(handler: () => Promise<WireMessage[]>) {
     this.drainSteersHandler = handler;
+  }
+
+  setAskQuestionHandler(handler: (req: AskQuestionWire) => Promise<AskQuestionWireResult>) {
+    this.askQuestionHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -914,6 +949,8 @@ class AgentProcess {
       await this.handleHostFinalizeToolResult(msg);
     } else if (msg.method === 'host/drain_steers') {
       await this.handleHostDrainSteers(msg);
+    } else if (msg.method === 'host/ask_question') {
+      await this.handleHostAskQuestion(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -935,6 +972,21 @@ class AgentProcess {
       // An undrained steer stays in the host queue and reaches the model once
       // the turn ends, so a failed drain must not abort the running turn.
       this.writeHostResult(msg.id, [] satisfies WireMessage[]);
+    }
+  }
+
+  private async handleHostAskQuestion(msg: RpcMessage) {
+    if (!this.askQuestionHandler) {
+      // Unwired host: the engine maps this error to the v2
+      // QUESTION_UNSUPPORTED_FAILURE_MESSAGE tool result.
+      this.writeHostError(msg.id, 'host does not support interactive questions');
+      return;
+    }
+    try {
+      const result = await this.askQuestionHandler(msg.params as AskQuestionWire);
+      this.writeHostResult(msg.id, result);
+    } catch (error) {
+      this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -1491,6 +1543,7 @@ export function createRunTurnOverride(
     const wireTools = nativeLlm === undefined ? [] : buildWireTools();
     const goal = options?.getGoal?.();
     const policySnapshot = options?.getPolicySnapshot?.();
+    const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
     const policySnapshotJson =
       policySnapshot === undefined ? undefined : JSON.stringify(policySnapshot);
     // The host owns tool-result truncation and spill-to-disk, so a result the
@@ -1610,6 +1663,7 @@ export function createRunTurnOverride(
           },
           finalizeNativeResult,
           drainSteers,
+          askUserQuestion,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1634,6 +1688,9 @@ export function createRunTurnOverride(
         agent.setToolExecuteHandler(toolExecuteHandler);
         agent.setFinalizeHandler(finalizeNativeResult);
         agent.setDrainSteersHandler(drainSteers);
+        if (askUserQuestion !== undefined) {
+          agent.setAskQuestionHandler(askUserQuestion);
+        }
         agent.setPermissionHandler(async (req) => {
           if (input.checkToolPermission === undefined) {
             return {

@@ -44,8 +44,9 @@ use crate::llm::http::NativeHttpLlm;
 use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
-    BoxFuture, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
-    PermissionDecision, ToolExecuteRequest, ToolExecuteResponse, ToolFinalizeRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
+    NativeLlmConfig, PermissionCheckRequest, PermissionDecision, ToolExecuteRequest,
+    ToolExecuteResponse, ToolFinalizeRequest,
 };
 use crate::turn_loop::{run_turn::run_turn, types::*};
 
@@ -278,6 +279,11 @@ struct NapiHostCallbacks {
     /// Absent means nothing is delivered until the turn ends, which is the
     /// pre-existing behaviour for hosts that do not wire it.
     drain_steers_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional interactive question channel: the host owns the interaction
+    /// runtime and answers with the v2 `QuestionResult` three states.
+    /// Absent means the engine reports "host does not support interactive
+    /// questions" as the tool result.
+    ask_question_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -333,6 +339,28 @@ impl HostCallbacks for NapiHostCallbacks {
             let output =
                 invoke_via_registry(&tsfn, input, "check_permission", None, cancel).await?;
             serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
+        })
+    }
+
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        let Some(ref tsfn) = self.ask_question_fn else {
+            return Box::pin(async {
+                Err("host does not support interactive questions".to_string())
+            });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // No timeout: this one waits on a human, and giving up would
+            // discard an answer the user has already given. A turn
+            // cancellation still interrupts the wait.
+            let output = invoke_via_registry(&tsfn, input, "ask_question", None, cancel).await?;
+            serde_json::from_str(&output).map_err(|e| format!("ask_question parse: {e}"))
         })
     }
 
@@ -677,6 +705,8 @@ pub struct JsRunTurnResult {
 /// * `execute_tool_cb` — receives callback ID, fetches `ToolExecuteRequest` JSON
 /// * `emit_event_cb` — optional; receives callback ID, fetches a JSON event
 ///   payload. Fire-and-forget: the JS side must NOT call `resolveCallback`.
+/// * `ask_question_cb` — optional; receives callback ID, fetches an
+///   `AskQuestionRequest` JSON payload and resolves with the host's answer.
 ///
 /// JsFunction is converted to ThreadsafeFunction synchronously, then the
 /// async work is dispatched via `env.execute_tokio_future` so the JS event
@@ -692,6 +722,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -768,6 +799,20 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
+        match ask_question_cb {
+            Some(cb) => Some(cb.create_threadsafe_function(
+                0,
+                |ctx: ThreadSafeCallContext<u32>| {
+                    let id = ctx.value;
+                    let js_num = ctx.env.create_uint32(id)?;
+                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                    Ok(args)
+                },
+            )?),
+            None => None,
+        };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -781,6 +826,7 @@ pub fn run_turn_rust(
                 check_permission_tsfn,
                 finalize_tool_tsfn,
                 drain_steers_tsfn,
+                ask_question_tsfn,
             )
             .await
         },
@@ -809,6 +855,7 @@ pub fn run_turn_rust(
 }
 
 /// Inner async implementation — all captured values are `Send`.
+#[allow(clippy::too_many_arguments)]
 async fn run_turn_rust_impl(
     params: JsRunTurnParams,
     llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
@@ -817,6 +864,7 @@ async fn run_turn_rust_impl(
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -835,6 +883,7 @@ async fn run_turn_rust_impl(
         check_permission_fn: check_permission_tsfn.map(Arc::new),
         finalize_tool_fn: finalize_tool_tsfn.map(Arc::new),
         drain_steers_fn: drain_steers_tsfn.map(Arc::new),
+        ask_question_fn: ask_question_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 
@@ -881,7 +930,11 @@ async fn run_turn_rust_impl(
             match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
                 Some(toolset) => Arc::new(NativeToolCallbacks {
                     inner: base_callbacks.clone(),
-                    toolset: Arc::new(toolset.with_subagents(SUBAGENT_MANAGER.clone())),
+                    toolset: Arc::new(
+                        toolset
+                            .with_subagents(SUBAGENT_MANAGER.clone())
+                            .with_callbacks(base_callbacks.clone()),
+                    ),
                     native_count: native_tool_count.clone(),
                     truncator: truncator.clone(),
                     permission_engine,

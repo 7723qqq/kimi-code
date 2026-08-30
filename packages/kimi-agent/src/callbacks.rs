@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
-    BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
-    ToolExecuteRequest, ToolExecuteResponse, ToolFinalizeRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
+    PermissionCheckRequest, PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
+    ToolFinalizeRequest,
 };
 use crate::turn_loop::types::LLMMessage;
 
@@ -36,6 +37,21 @@ pub trait HostCallbacks: Send + Sync {
         &self,
         request: PermissionCheckRequest,
     ) -> BoxFuture<'static, Result<PermissionDecision, String>>;
+
+    /// Ask the host an interactive question and wait for a human answer
+    /// (ask-user-question class tools). The host owns the interaction
+    /// runtime — pending key, dismiss, turn-end cancellation — and answers
+    /// with the v2 `QuestionResult` three states (answered / dismissed /
+    /// cancelled). No timeout: like a permission check, this one waits on a
+    /// human. The default answers with an error so an unwired host gets a
+    /// tool result telling the model not to call the tool again.
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        let _ = request;
+        Box::pin(async { Err("host does not support interactive questions".into()) })
+    }
 
     /// Hand a natively-executed result to the host for finalization before it
     /// enters the model context. The host owns result truncation and
@@ -176,6 +192,25 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Permission check error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Permission decision parse error: {e}"))
+        })
+    }
+
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("Ask question serialize error: {e}"))?;
+            // No timeout: a question is answered by a human, and giving up
+            // would discard an answer the user already gave.
+            let response_value = server
+                .invoke(crate::rpc::types::methods::HOST_ASK_QUESTION, params, None)
+                .await
+                .map_err(|e| format!("Ask question error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("Ask question response parse error: {e}"))
         })
     }
 
@@ -403,6 +438,13 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.check_permission(request)
     }
 
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        self.inner.ask_question(request)
+    }
+
     fn finalize_tool_result(
         &self,
         request: ToolFinalizeRequest,
@@ -471,6 +513,13 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.check_permission(request)
     }
 
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        self.inner.ask_question(request)
+    }
+
     fn finalize_tool_result(
         &self,
         request: ToolFinalizeRequest,
@@ -494,6 +543,7 @@ impl HostCallbacks for CountingCallbacks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::types::{AskQuestionItem, AskQuestionOption};
     use std::sync::atomic::AtomicU32;
 
     /// A stub that records emitted events so the counter can be asserted.
@@ -788,5 +838,129 @@ mod tests {
         );
         assert_eq!(native_count.load(Ordering::Relaxed), 0);
         assert!(!response.is_error);
+    }
+
+    /// A stub that answers questions, recording the request it received.
+    struct AskQuestionCallbacks {
+        received: Arc<std::sync::Mutex<Option<AskQuestionRequest>>>,
+    }
+
+    impl HostCallbacks for AskQuestionCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+
+        fn ask_question(
+            &self,
+            request: AskQuestionRequest,
+        ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+            *self.received.lock().unwrap() = Some(request);
+            Box::pin(async {
+                Ok(AskQuestionResponse {
+                    answers: std::collections::HashMap::new(),
+                    method: Some("enter".into()),
+                    note: None,
+                    cancelled: None,
+                    reason: None,
+                })
+            })
+        }
+    }
+
+    fn sample_ask_question_request() -> AskQuestionRequest {
+        AskQuestionRequest {
+            question_id: "question_1".into(),
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_1".into(),
+            background: false,
+            timeout_ms: None,
+            questions: vec![AskQuestionItem {
+                question: "Pick one".into(),
+                header: None,
+                options: vec![AskQuestionOption {
+                    label: "Option A".into(),
+                    description: None,
+                }],
+                multi_select: false,
+            }],
+        }
+    }
+
+    /// A host that never wired the interactive-question seam must get the
+    /// trait default: an explicit "not supported" error, so the tool result
+    /// tells the model not to call the tool again.
+    #[tokio::test]
+    async fn test_ask_question_default_impl_errors() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callbacks = RecordingCallbacks { events };
+        let err = callbacks
+            .ask_question(sample_ask_question_request())
+            .await
+            .unwrap_err();
+        assert!(err.contains("does not support interactive questions"));
+    }
+
+    #[tokio::test]
+    async fn test_counting_callbacks_forwards_ask_question() {
+        let received = Arc::new(std::sync::Mutex::new(None));
+        let counting = CountingCallbacks::new(
+            Arc::new(AskQuestionCallbacks {
+                received: received.clone(),
+            }),
+            Arc::new(AtomicU32::new(0)),
+        );
+        let response = counting
+            .ask_question(sample_ask_question_request())
+            .await
+            .unwrap();
+        assert_eq!(response.method.as_deref(), Some("enter"));
+        assert!(response.answers.is_empty());
+        let received = received.lock().unwrap();
+        assert_eq!(received.as_ref().unwrap().question_id, "question_1");
+        assert_eq!(received.as_ref().unwrap().questions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_native_tool_callbacks_forwards_ask_question() {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let received = Arc::new(std::sync::Mutex::new(None));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(AskQuestionCallbacks {
+                received: received.clone(),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+        };
+        let mut request = sample_ask_question_request();
+        request.question_id = "question_2".into();
+        request.background = true;
+        request.timeout_ms = Some(30_000);
+        let response = native.ask_question(request).await.unwrap();
+        assert_eq!(response.method.as_deref(), Some("enter"));
+        let received = received.lock().unwrap();
+        let req = received.as_ref().unwrap();
+        assert_eq!(req.question_id, "question_2");
+        assert!(req.background);
+        assert_eq!(req.timeout_ms, Some(30_000));
     }
 }

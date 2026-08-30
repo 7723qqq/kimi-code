@@ -1144,7 +1144,17 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - 新增 `src/compaction/mod.rs`（476 行，9 单测）：镜像 `fullCompaction/strategy.ts` + `kimi-native-tools/src/compaction.rs`——system 提示永不压缩、`can_split_after` 分割安全规则（不拆 tool exchange）、`messages[1..count]` 替换为 user 角色摘要占位、最近尾部原样保留；token 估算 `chars/4`；默认窗口 128k（引擎无模型能力数据，接口预留 `max_context_tokens` 注入点）。
 - `run_turn.rs` 接线：每次 LLM 调用前估算，超阈值（0.85×窗口 或 50k 预留）时压缩并替换 messages；与 goal 预算检查共存（goal 停止 turn、压缩延续 turn）。
 
-### 第 4 批反向交互协议 — 设计就绪（落码待排期）
+### 第 4 批反向交互协议 — ✅ 落码完成（2026-09-01）
+
+- `rpc/types.rs`：`AskQuestionRequest/Item/Option/Response` + `methods::HOST_ASK_QUESTION`（+210 行，序列化 round-trip 单测）
+- `callbacks.rs`：`HostCallbacks::ask_question` 默认实现（不支持报错）+ `RpcHostCallbacks`（stdio invoke）+ 装饰器转发（+182 行）
+- `napi_bindings.rs`：`run_turn_rust` 第 8 可选参 `ask_question_cb` + `NapiHostCallbacks` 实现（invoke_via_registry 无超时 + 取消观察）
+- `rust-loop.ts`：napi 第 8 回调传递 + stdio `setAskQuestionHandler`/`handleHostRequest` 分发（+5 测试）
+- `agent-core-v2`：`TurnEngineInput.askUserQuestion?` + `loopService.ts` 从 `ISessionQuestionService` 接线（wire ↔ v2 三态映射，+4 测试）
+- `tools/ask_user_question.rs`：引擎原生 AskUserQuestion 工具（参数校验、四态映射、宿主不支持文案对齐 v2 `QUESTION_UNSUPPORTED_FAILURE_MESSAGE`、background 经 note 透传；+10 单测）
+- 三路径 `with_callbacks` 接线（napi/main/repl），原生路径激活
+- 遗留：background 按前台处理（后台任务注册归第 7 批）；`timeout_ms` 宿主忽略（v2 无超时语义）
+
 
 - `reports/rust-engine-reverse-protocol-design.md`：引擎→宿主 `host/ask_question` 请求/响应协议（question_id/turn_id/timeout/questions[]，响应三态 answered/dismissed/cancelled）、napi 新增 `ask_question_cb` + stdio method、不阻塞 step 循环（工具调用内 tokio future + 取消三通道）、状态层归属推荐"写穿桥接"（引擎工具经 `host/state_read`/`host/state_write` 读写宿主状态，宿主保持持久化 + undo 唯一权威）、HostCallbacks 新增 `ask_question` trait 方法（带默认不支持实现）。
 - 8 步落码里程碑 + 4 项风险记录在文档中。

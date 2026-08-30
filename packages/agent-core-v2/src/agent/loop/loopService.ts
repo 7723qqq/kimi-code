@@ -19,6 +19,12 @@ import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/koso
 import { type TokenUsage } from '#/kosong/contract/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
+import {
+  ISessionQuestionService,
+  type QuestionAnswers,
+  type QuestionResponse,
+  type QuestionResult,
+} from '#/session/question/question';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
@@ -136,6 +142,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
+    @ISessionQuestionService private readonly question: ISessionQuestionService,
   ) {
     super();
     this.states.contributeState(turnKey);
@@ -1144,6 +1151,32 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           return result;
         }
       },
+      askUserQuestion: async (request) => {
+        const turnId = Number(request.turn_id);
+        const result = await this.question.request(
+          {
+            turnId: turnId || undefined,
+            toolCallId: request.tool_call_id,
+            questions: request.questions.map((q) => ({
+              question: q.question,
+              header: q.header,
+              options: q.options.map((o) => ({ label: o.label, description: o.description })),
+              multiSelect: q.multi_select,
+            })),
+          },
+          { signal, agentId: this.scopeContext.agentId },
+        );
+        if (result === null) {
+          return { answers: {}, note: 'User dismissed the question without answering.' };
+        }
+        if (isCancelledQuestionResult(result)) {
+          return { cancelled: true, reason: result.reason };
+        }
+        if (isQuestionResponse(result)) {
+          return { answers: mapQuestionAnswers(result.answers), method: result.method };
+        }
+        return { answers: mapQuestionAnswers(result) };
+      },
     };
   }
 
@@ -1469,6 +1502,29 @@ function normalizeFinishReason(reason: FinishReason): string {
   if (reason === 'completed') return 'end_turn';
   if (reason === 'truncated') return 'max_tokens';
   return reason;
+}
+
+function isCancelledQuestionResult(
+  result: QuestionResult,
+): result is { readonly cancelled: true; readonly reason: string } {
+  if (typeof result !== 'object' || result === null) return false;
+  const candidate = result as { readonly cancelled?: unknown; readonly reason?: unknown };
+  return candidate.cancelled === true && typeof candidate.reason === 'string';
+}
+
+function isQuestionResponse(result: Exclude<QuestionResult, null>): result is QuestionResponse {
+  if (typeof result !== 'object' || result === null) return false;
+  if (!Object.hasOwn(result, 'answers')) return false;
+  const answers = (result as { readonly answers?: unknown }).answers;
+  return typeof answers === 'object' && answers !== null && !Array.isArray(answers);
+}
+
+function mapQuestionAnswers(answers: QuestionAnswers): Record<string, string> {
+  const mapped: Record<string, string> = {};
+  for (const [question, answer] of Object.entries(answers)) {
+    mapped[question] = typeof answer === 'string' ? answer : String(answer);
+  }
+  return mapped;
 }
 
 type MutableTurn = {

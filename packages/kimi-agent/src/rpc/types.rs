@@ -116,6 +116,12 @@ pub mod methods {
     /// boundaries, streaming deltas, and natively-executed tool results
     /// so the host can record them in the transcript.
     pub const HOST_EVENT: &str = "host/event";
+
+    /// Ask the host an interactive question and wait for a human answer
+    /// (Rust → JS host). The host owns the interaction runtime — pending
+    /// key, dismiss, turn-end cancellation — and answers with the v2
+    /// `QuestionResult` three states (answered / dismissed / cancelled).
+    pub const HOST_ASK_QUESTION: &str = "host/ask_question";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -170,6 +176,84 @@ impl PermissionDecision {
             reason: Some(reason.into()),
         }
     }
+}
+
+// ── Reverse interaction types (Rust → JS host) ─────────────────────────────
+
+/// An interactive question the engine asks the host, answered by a human.
+/// Mirrors the v2 `QuestionItem` shape: 1–4 questions, each with 2–4
+/// options and an optional multi-select flag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskQuestionRequest {
+    /// Engine-generated unique id (`question_<uuid>`); the host keys its
+    /// pending interaction on it and echoes it back in the response.
+    pub question_id: String,
+    /// Turn the question belongs to; the host cancels pending questions by
+    /// turn when the turn ends.
+    pub turn_id: String,
+    /// Tool call the question answers; lets the UI associate it with the
+    /// tool card.
+    pub tool_call_id: String,
+    /// `true` = background question: the host registers a background task
+    /// and returns its task_id immediately instead of waiting for a human.
+    #[serde(default)]
+    pub background: bool,
+    /// Optional wait bound. `None` = wait indefinitely (v2 semantics, human
+    /// in the loop — same as a permission check).
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    /// 1–4 questions, mirroring v2 `QuestionItem` fields.
+    pub questions: Vec<AskQuestionItem>,
+}
+
+/// A single question within an [`AskQuestionRequest`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskQuestionItem {
+    /// The question text; also the key under which the answer is returned.
+    pub question: String,
+    /// Short category label (≤12 chars in v2).
+    #[serde(default)]
+    pub header: Option<String>,
+    /// 2–4 options; labels are unique within a question.
+    pub options: Vec<AskQuestionOption>,
+    /// `true` = the user may pick several options (answers are
+    /// comma-separated labels).
+    #[serde(default)]
+    pub multi_select: bool,
+}
+
+/// A selectable option within an [`AskQuestionItem`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskQuestionOption {
+    pub label: String,
+    /// Optional explanatory text shown under the label.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// The host's answer to an [`AskQuestionRequest`]. Mirrors the v2
+/// `QuestionResult` three states: answered (`answers` + optional `method`),
+/// dismissed (empty `answers` + `note`), or cancelled (`cancelled` +
+/// `reason`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskQuestionResponse {
+    /// `question text → answer` (multi-select answers are comma-separated
+    /// labels; "Other" carries the user's free text).
+    #[serde(default)]
+    pub answers: std::collections::HashMap<String, String>,
+    /// How the user answered: `"enter"` / `"space"` / `"number_key"`.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Present when the user dismissed the question without answering.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// `true` when the interaction was cancelled (turn ended, agent closed,
+    /// or timeout).
+    #[serde(default)]
+    pub cancelled: Option<bool>,
+    /// Cancellation reason: `turn_ended` / `agent_closed` / `timeout`.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 // ── Message content blocks (multimodal) ─────────────────────────────────
@@ -881,6 +965,7 @@ mod tests {
         assert_eq!(methods::SHUTDOWN, "agent/shutdown");
         assert_eq!(methods::HOST_LLM_CHAT, "host/llm_chat");
         assert_eq!(methods::HOST_EXECUTE_TOOL, "host/execute_tool");
+        assert_eq!(methods::HOST_ASK_QUESTION, "host/ask_question");
     }
 
     #[test]
@@ -946,5 +1031,139 @@ mod tests {
         let deserialized: ToolDef = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.name, "bash");
         assert!(deserialized.input_schema.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_ask_question_request_roundtrip() {
+        let req = AskQuestionRequest {
+            question_id: "question_9f2c".to_string(),
+            turn_id: "turn-42".to_string(),
+            tool_call_id: "call_abc".to_string(),
+            background: false,
+            timeout_ms: None,
+            questions: vec![AskQuestionItem {
+                question: "Which approach should I take?".to_string(),
+                header: Some("Style".to_string()),
+                options: vec![
+                    AskQuestionOption {
+                        label: "Option A (Recommended)".to_string(),
+                        description: Some("Fast, less flexible".to_string()),
+                    },
+                    AskQuestionOption {
+                        label: "Option B".to_string(),
+                        description: None,
+                    },
+                ],
+                multi_select: false,
+            }],
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["question_id"], "question_9f2c");
+        assert_eq!(json["turn_id"], "turn-42");
+        assert_eq!(json["tool_call_id"], "call_abc");
+        assert_eq!(json["background"], false);
+        assert!(json["timeout_ms"].is_null());
+        assert_eq!(
+            json["questions"][0]["question"],
+            "Which approach should I take?"
+        );
+        assert_eq!(json["questions"][0]["header"], "Style");
+        assert_eq!(
+            json["questions"][0]["options"][0]["label"],
+            "Option A (Recommended)"
+        );
+        assert_eq!(
+            json["questions"][0]["options"][0]["description"],
+            "Fast, less flexible"
+        );
+        assert!(json["questions"][0]["options"][1]["description"].is_null());
+        assert_eq!(json["questions"][0]["multi_select"], false);
+
+        let deserialized: AskQuestionRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.question_id, req.question_id);
+        assert_eq!(deserialized.turn_id, "turn-42");
+        assert_eq!(deserialized.questions.len(), 1);
+        assert_eq!(deserialized.questions[0].options.len(), 2);
+        assert_eq!(deserialized.questions[0].options[1].description, None);
+        assert_eq!(deserialized.timeout_ms, None);
+    }
+
+    #[test]
+    fn test_ask_question_request_background_and_timeout() {
+        let req = AskQuestionRequest {
+            question_id: "question_1".to_string(),
+            turn_id: "turn-1".to_string(),
+            tool_call_id: "call_1".to_string(),
+            background: true,
+            timeout_ms: Some(30_000),
+            questions: vec![],
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["background"], true);
+        assert_eq!(json["timeout_ms"], 30_000);
+
+        let deserialized: AskQuestionRequest = serde_json::from_value(json).unwrap();
+        assert!(deserialized.background);
+        assert_eq!(deserialized.timeout_ms, Some(30_000));
+    }
+
+    #[test]
+    fn test_ask_question_response_answered_roundtrip() {
+        let resp = AskQuestionResponse {
+            answers: std::collections::HashMap::from([(
+                "Which approach should I take?".to_string(),
+                "Option A (Recommended)".to_string(),
+            )]),
+            method: Some("enter".to_string()),
+            note: None,
+            cancelled: None,
+            reason: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(
+            json["answers"]["Which approach should I take?"],
+            "Option A (Recommended)"
+        );
+        assert_eq!(json["method"], "enter");
+
+        let deserialized: AskQuestionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.answers.len(), 1);
+        assert_eq!(
+            deserialized
+                .answers
+                .get("Which approach should I take?")
+                .map(String::as_str),
+            Some("Option A (Recommended)")
+        );
+        assert_eq!(deserialized.method.as_deref(), Some("enter"));
+        assert_eq!(deserialized.cancelled, None);
+        assert_eq!(deserialized.reason, None);
+    }
+
+    #[test]
+    fn test_ask_question_response_dismissed_and_cancelled() {
+        // Dismissed: empty answers + note.
+        let dismissed: AskQuestionResponse = serde_json::from_value(serde_json::json!({
+            "answers": {},
+            "note": "User dismissed the question without answering."
+        }))
+        .unwrap();
+        assert!(dismissed.answers.is_empty());
+        assert_eq!(
+            dismissed.note.as_deref(),
+            Some("User dismissed the question without answering.")
+        );
+        assert_eq!(dismissed.cancelled, None);
+
+        // Cancelled: {cancelled: true, reason} — answers default to empty.
+        let cancelled: AskQuestionResponse = serde_json::from_value(serde_json::json!({
+            "cancelled": true,
+            "reason": "turn_ended"
+        }))
+        .unwrap();
+        assert_eq!(cancelled.cancelled, Some(true));
+        assert_eq!(cancelled.reason.as_deref(), Some("turn_ended"));
+        assert!(cancelled.answers.is_empty());
+        assert_eq!(cancelled.method, None);
     }
 }

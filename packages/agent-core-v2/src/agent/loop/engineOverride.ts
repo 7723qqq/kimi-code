@@ -58,6 +58,35 @@ export interface TurnEngineToolResult {
   readonly stopTurn?: boolean;
 }
 
+export interface AskQuestionWireOption {
+  readonly label: string;
+  readonly description?: string;
+}
+
+export interface AskQuestionWireItem {
+  readonly question: string;
+  readonly header?: string;
+  readonly options: readonly AskQuestionWireOption[];
+  readonly multi_select: boolean;
+}
+
+export interface AskQuestionWire {
+  readonly question_id: string;
+  readonly turn_id: string;
+  readonly tool_call_id: string;
+  readonly background: boolean;
+  readonly timeout_ms: number | null;
+  readonly questions: readonly AskQuestionWireItem[];
+}
+
+export interface AskQuestionWireResult {
+  readonly answers?: Record<string, string>;
+  readonly method?: 'enter' | 'space' | 'number_key';
+  readonly note?: string;
+  readonly cancelled?: boolean;
+  readonly reason?: string;
+}
+
 /**
  * Goal snapshot handed to an external engine for budget-aware turns.
  * Mirrors the Rust `GoalContext` wire shape (snake_case) so the engine
@@ -111,6 +140,7 @@ export interface TurnEngineInput {
     toolCallId: string,
     result: TurnEngineToolResult,
   ): Promise<TurnEngineToolResult>;
+  askUserQuestion?(request: AskQuestionWire): Promise<AskQuestionWireResult>;
 }
 
 export interface TurnEngineResult {

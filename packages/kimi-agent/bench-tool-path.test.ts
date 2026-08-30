@@ -93,7 +93,9 @@ beforeAll(() => {
   fitName = 'fits.txt';
   escapeName = 'too_big.txt';
   writeFileSync(join(workspace, fitName), syntheticFile(50_000));
-  writeFileSync(join(workspace, escapeName), syntheticFile(85_000));
+  // ~13 MB — above the native Read cap (10 MiB since P32 G-3), so the
+  // native arm must fall back to the host.
+  writeFileSync(join(workspace, escapeName), syntheticFile(200_000));
 });
 
 afterAll(() => {

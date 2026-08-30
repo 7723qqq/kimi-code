@@ -155,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
                         ) {
                             Some(toolset) => Arc::new(NativeToolCallbacks {
                                 inner: base_callbacks.clone(),
-                                toolset: Arc::new(toolset),
+                                toolset: Arc::new(toolset.with_callbacks(base_callbacks.clone())),
                                 native_count: native_tool_count.clone(),
                                 truncator: truncator.clone(),
                                 permission_engine,
