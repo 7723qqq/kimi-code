@@ -528,6 +528,40 @@ native outputTokens: 88, 88, 88   proxy: 89, 89, 89
 
 ### 仍待(可选项)
 
-- MultiLLM 真机并发(winner 选择实测)。
+- ~~MultiLLM 真机并发~~ **✅ 已达成(2026-08-30)**：见 P16。
 - tower/swarm 真实会话验证。
 - next:native 整轮 total 在含 UI 转发成本下的对比(如需)。
+
+## P16 — MultiLLM 真机并发 + model 路由接缝修复（2026-08-30）
+
+「napi MultiLLM 只有 fake 路径测过」的诚实边界闭环。真机测试首次运行便暴露一个**真实功能缺口**:
+
+### 接缝缺口:MultiLLM 的 provider 路由从未到达宿主
+
+`MultiLLM` 的每个 provider 都经 HostLlmProxy(host-proxy)发 `host/llm_chat`,请求带 `model_name`(provider.model),但 rust-loop 的 `handleHostLlmChat`/napi 回调只把 `signal` 透传——**宿主 chat 看不到 modelName**,所有并发请求都打主模型,MultiLLM 在 host-proxy 下是"同模型并发"空转。napi 组装点也没把 `providers` 传进 `runTurnRust`(P10 只加了字段没接线)。
+
+修复:
+- `TurnEngineLLMChatInput` 增 `modelName?: string`(agent-core-v2 契约,可选、向后兼容)。
+- rust-loop stdio + napi 两处 `llmChatHandler(signal, params.model_name)` 透传 → `input.llm.chat({ ..., modelName })`。
+- napi 组装 `runTurnRust` 补 `providers`(camelCase 映射 `system_prompt → systemPrompt`)。
+
+### 真机验证(minimax anthropic + deepseek openai 双 provider 并发)
+
+```
+[multi-llm] winner=completed steps=1 calls={"minimax":1,"deepseek":1} routed=MiniMax-M3,deepseek-v4-flash elapsed=769ms
+```
+
+- **两路真并发**:calls 两 provider 各 1(同一步内都发起)。
+- **模型路由闭环**:`routed` 集合 = 两个真实模型名(接缝修复生效)。
+- **winner 选择**:first-past-the-post 完成(stopReason=completed, steps=1)。
+- 新增 `multi-llm-real-key.test.ts`(KIMI_E2E=1 门控,入 vitest include;无 key skip)。
+
+### 验证
+
+- 真机:multi-llm-real-key 1/1;real-key-e2e 1/1;bench 1/1(均 KIMI_E2E=1)。
+- 常规 kimi-agent 55/55 + 3 skipped;agent-core-v2 engineOverride+rustEngineE2E 10/10;oxlint 0 errors。
+
+### 诚实边界(更新)
+
+- ~~napi MultiLLM 只有 fake 路径测过~~ **✅ 已达成**。
+- tower/swarm 真实会话验证仍待。

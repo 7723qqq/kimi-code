@@ -7,6 +7,7 @@ export default defineConfig({
       'rust-loop.test.ts',
       'real-key-e2e.test.ts',
       'bench-native-vs-proxy.test.ts',
+      'multi-llm-real-key.test.ts',
     ],
     // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
     server: {

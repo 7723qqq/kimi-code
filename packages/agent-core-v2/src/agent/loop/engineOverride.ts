@@ -24,6 +24,7 @@ export interface TurnEngineLLMChatInput {
   readonly messages: readonly Message[];
   readonly tools: readonly Tool[];
   readonly signal?: AbortSignal;
+  readonly modelName?: string;
   readonly onTextPart?: (part: TextPart) => void | Promise<void>;
   readonly onThinkPart?: (part: ThinkPart) => void | Promise<void>;
 }

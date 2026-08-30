@@ -662,7 +662,7 @@ class AgentProcess {
 
   /** Callback for handling host/llm_chat requests from the Rust side. */
   private llmChatHandler:
-    | ((signal: AbortSignal | undefined) => Promise<LlmChatResponse>)
+    | ((signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>)
     | null = null;
 
   /** Lets a losing MultiLLM provider be aborted mid-flight. */
@@ -680,7 +680,9 @@ class AgentProcess {
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
-  setLlmChatHandler(handler: (signal: AbortSignal | undefined) => Promise<LlmChatResponse>) {
+  setLlmChatHandler(
+    handler: (signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>,
+  ) {
     this.llmChatHandler = handler;
   }
 
@@ -855,7 +857,9 @@ class AgentProcess {
     const params = msg.params as LlmChatRequest;
     const request = this.llmAbortRegistry?.begin(params.request_id) ?? { finish() {} };
     try {
-      const result = await this.llmChatHandler(request.signal);
+      // MultiLLM races each provider under its own model; hand the model to
+      // the host chat so it can route to the right endpoint.
+      const result = await this.llmChatHandler(request.signal, params.model_name);
       this.writeHostResult(msg.id, result);
     } catch (error) {
       this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
@@ -1211,7 +1215,10 @@ export function createRunTurnOverride(
      * `signal` is set when this request is one of several racing providers;
      * otherwise the turn's own signal governs it.
      */
-    const llmChatHandler = async (signal?: AbortSignal): Promise<LlmChatResponse> => {
+    const llmChatHandler = async (
+      signal?: AbortSignal,
+      modelName?: string,
+    ): Promise<LlmChatResponse> => {
       await closeOpenStep();
       currentStep += 1;
       const stepUuid = randomUUID();
@@ -1231,6 +1238,7 @@ export function createRunTurnOverride(
         messages,
         tools: stepTools,
         signal: signal ?? input.signal,
+        modelName,
         onTextPart: async (part) => {
           await input.dispatchEvent({
             type: 'content.part',
@@ -1386,13 +1394,18 @@ export function createRunTurnOverride(
             workspaceRoot,
             nativeTools,
             shellPath: shellPathOpt,
+            providers: providers?.map((p) => ({
+              name: p.name,
+              model: p.model,
+              systemPrompt: p.system_prompt,
+            })),
           },
           // Wrap structured handler with JSON serialization for napi
           async (requestJson: string) => {
             const params = JSON.parse(requestJson) as LlmChatRequest;
             const request = llmAbortRegistry.begin(params.request_id);
             try {
-              const response = await llmChatHandler(request.signal);
+              const response = await llmChatHandler(request.signal, params.model_name);
               return JSON.stringify(response);
             } finally {
               request.finish();
