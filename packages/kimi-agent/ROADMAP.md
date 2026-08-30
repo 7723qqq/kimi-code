@@ -412,3 +412,31 @@ hooks 删了 10 个测试(7 个 hooks/mod.rs 单测 + 3 个 run_turn hook 集成
 - `bun x vitest run`(apps/kimi-code rust-engine):19/19——此前 2 红的原因是 `maybeLoadRustEngine` 为宿主 shell 探测动态 import 整个 `@moonshot-ai/agent-core-v2`,配合测试的 `vi.resetModules()` 让首个用例实测 8s(超默认 5s 超时)并把在飞调用泄漏到下一用例;现已把 `probeHostEnvironment` mock 掉。
 - 新增 `apps/kimi-code/test/cli/rust-engine-cli-e2e.test.ts`(CLI 消费路径真机会走一遍),按 `KIMI_E2E=1` 显式选择加入、无 key/无 addon 时**显式 skip 而非空过**;其真机路径尚未执行过(需要真 key)。
 - `real-key-e2e.test.ts`:删掉从未被调用的 `pickProvider`,并把它独有的 `/v1` 兜底规则并进真正使用的 `pickAnyProvider`(此前该规则只活在死函数里,导致 anthropic 反代在本机永远选不中)。
+
+## P12 — 发布产物 stdio 通道 + stdio 事件丢牌根因修复（2026-08-30）
+
+### 1. 发布产物补齐 `kimi-agent-cli`（P11 文档兑现为代码）
+
+P11 核实了「stdio 通道在发布产物里必然缺席」(dist-native/bin/<arch>/ 下只有 kimi.exe + .node),本轮把构建与打包一步到位:
+
+| 环节 | 改动 |
+|------|------|
+| 路径 | `paths.mjs` 新增 `nativeStdioCliName` / `nativeStdioCliPath`(平台扩展名) |
+| 构建 | `build-bun.mjs` 的 `stageStdioCli(target)`:`cargo build --release --features cli` 的产物从 `packages/kimi-agent/target/release` 拷贝到 `dist-native/bin/<target>/kimi-agent-cli(.exe)`;缺二进制时大声警告但不阻断(napi 主通道不受影响) |
+| CI | `_native-build.yml` 矩阵在构建 .node 之后加 `cargo build --release --features cli`(原生 runner 上 cargo 直接产目标平台二进制,无需交叉编译) |
+| 打包 | `package.mjs` 把已 staged 的 stdio CLI 作为第二个成员写进发布 zip(缺失时 warn 跳过,兼容本地无 cargo 的打包) |
+| 冒烟 | `smoke.mjs` 在 stdio CLI 存在时跑 `--health` 断言 `"ok"` |
+
+**真机验证(win32-x64)**:`build:native:bun` 后 `dist-native/bin/win32-x64/kimi-agent-cli.exe`(6.5MB)出现;`test:native:smoke` 两条全过(kimi.exe + stdio health);`package:native` 产出的 zip 实测含 `kimi.exe` + `kimi-agent-cli.exe` 两成员。新增 3 个单测:paths 2(名称/落位)+ release-artifacts 1(zip 附加 stdio CLI)。
+
+### 2. stdio 事件丢牌根因修复(P11「未定论」flake 定论)
+
+- **定论过程**:先排除 Rust 侧顺序问题——直连 CLI 的 8 次诊断全部 `tool.native` 先于 response 到达(println 逐行 flush,顺序保真);JS 的 `processBuffer` 插桩证明 `tool.native` **必然到达**;失败特征为 events 里 `tool.call`/`tool.result` 整对缺失而 step 事件完整。
+- **根因**:host-proxy 路径的 `llmChatHandler` **不经事件链**运行——它在 `await closeOpenStep()`(同步清空 `openStep=undefined`)与 `openStep = {...}`(重新赋值)之间隔着 `await input.dispatchEvent(step.begin)`。若此时事件链上的 `tool.native` 处理器(链内)恰好执行,读到 `openStep === undefined` 就 `break`,工具卡片整个丢失。偶发性来自微任务调度时序。8 轮「等链排空」的修复无效(病不在链),反而抬高失败率,已撤。
+- **修复**:`closeOpenStep` 关闭前把 step 记入 `lastClosedStep`;`tool.native` 分支改读 `openStep ?? lastClosedStep`(都无才 break)。工具结果或记在仍开着的 step,或记在它真正所属的上一 step——永不丢。
+- **验证**:rust-loop.test.ts 12 连跑全绿(修复前 10 跑红 6);kimi-agent 全量 55/55;agent-core-v2 契约 12/12。
+
+### 诚实边界(沿用)
+
+- 真实 LLM 会话端到端仍需真 key。
+- stdio 通道的 `tool.native → tool.call/result` 丢牌已用单机 windows 复现/修复,但多平台(linux/macos)风险未实测;Rust 侧顺序保证 + JS 兜底已覆盖其协议面。
