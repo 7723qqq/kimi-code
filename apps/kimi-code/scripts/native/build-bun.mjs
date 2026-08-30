@@ -205,8 +205,6 @@ async function buildBunNative() {
     assets: native.assets,
   });
 
-  stageStdioCli(target);
-
   await runSignStep({
     identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',
     keychainPath: profile === 'release' ? (process.env.APPLE_KEYCHAIN_PATH ?? null) : null,

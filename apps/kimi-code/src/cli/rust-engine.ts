@@ -290,7 +290,8 @@ export async function maybeLoadRustEngine(
   // config.toml), the Rust engine follows to the new model's provider instead
   // of forever calling the provider that was active at startup.
   const providers = extractMultiLlmProviders(loaded.config);
-  const nativeTools = agentConfig?.nativeTools === true;
+  // P21 D-1: nativeTools defaults to true for native sandboxed tool speedup.
+  const nativeTools = agentConfig?.nativeTools !== false;
   // rustSelfContained (P26 批 1): opt-in switch that forces the Rust
   // engine to fail fast if no native LLM transport is configured,
   // instead of silently falling back to host/llm_chat. Default false
@@ -350,6 +351,29 @@ export async function maybeLoadRustEngine(
       nativeTools,
       rustSelfContained,
       shellPath,
+      getPolicySnapshot: () => {
+        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+        if (reloaded.fileError !== undefined) return;
+        const cfg = reloaded.config as Record<string, unknown>;
+        const perm = cfg.permission as Record<string, unknown> | undefined;
+        const agent = cfg.agent as Record<string, unknown> | undefined;
+        const mode = (agent?.yolo === true
+          ? 'yolo'
+          : (perm?.mode as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
+        const rules = (perm?.rules as Array<{ decision?: string; pattern?: string }>) ?? [];
+        return {
+          mode,
+          deny_rules: rules
+            .filter((r) => r.decision === 'deny' && typeof r.pattern === 'string')
+            .map((r) => r.pattern!),
+          ask_rules: rules
+            .filter((r) => r.decision === 'ask' && typeof r.pattern === 'string')
+            .map((r) => r.pattern!),
+          allow_rules: rules
+            .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
+            .map((r) => r.pattern!),
+        };
+      },
     });
     if (engine !== undefined) {
       rustTurnEngine = engine;

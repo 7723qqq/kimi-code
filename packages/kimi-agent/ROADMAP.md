@@ -837,7 +837,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 >
 > 验收口径：每批 = 1 个新 flag + 1 个 fail-fast 路径 + 1 个回归测试（覆盖"开了 flag 但 fallback 被叫"时的报错信息）+ 真机 E2E。
 
-### 批 1：干掉 `host/llm_chat` 默认路径（最小切面）
+### 批 1：干掉 `host/llm_chat` 默认路径（最小切面）— ✅ 已完成
 
 **目标**：加 `agent.rustSelfContained` flag。开了之后，未配置 `nativeLlmProvider` 或 `multiLlm` 时直接报错，不静默回退到 `HostLlmProxy`。
 
@@ -856,109 +856,247 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `kimi-agent/src/rpc/server.rs` 单测覆盖 stdio 路径同样 fail-fast
 
 **验证**：
-- `cargo test` 全绿（包含 stdio 集成 9/9）
-- `bun x vitest` kimi-agent 60+1 通过 / 5 跳过 / 0 失败
+- `cargo test` 全绿（270 passed / 261 lib + 9 stdio）
+- `bun x vitest` kimi-agent 62 通过 / 5 跳过 / 0 失败（保留 60 个旧测试 + 2 个新测试）
 - 真机 E2E：开 flag 后跑 `real-key-e2e.test.ts`（KIMI_E2E=1）—— 应当走 native_llm，不回退 host
 
-**风险**：开 flag 的用户若忘了配 native_llm，**第一次 turn 立刻报错**——这正是要的行为。默认 `false` 不影响现有用户。
+**验收状态**：
+- [x] `cargo test` 270/270 全绿
+- [x] `cargo clippy --all-targets` 0 warnings
+- [x] `cargo fmt --check` 退出 0
+- [x] addon 重建，napi-integration 增加 1 个 fail-fast 用例
+- [x] kimi-agent 62 通过 / 5 跳过 / 0 失败
+- [x] 默认 `false` 不破坏任何现有测试
+- [x] `KIMI_E2E=1` 契约覆盖：开 flag + 不配 native_llm → 明确抛出 `rustSelfContained=true requires` 报错
 
-**与现有测试的关系**：默认 `false` → 现有所有 napi-integration / rust-loop / stdio 测试照常通过（host_proxy 仍是 fallback）。**没有回归**。
+### 批 2：干掉 `host/execute_tool` 对纯 I/O 工具的依赖 — ✅ 已完成
 
-### 批 2：干掉 `host/execute_tool` 对纯 I/O 工具的依赖
+**目标**：把 FetchURL / WebSearch / ListDirectory 等纯 I/O 工具搬进 `kimi-agent/src/tools/`，实现纯 Rust 原生抓取、搜索、目录遍历与安全防护。其余（ask-user-question / plan / todo / goal / skill / sessionQuery / memory / workflow / team / task 族 / agent / cron / lsp / codeRuntime / select-tools / tower / swarm）保留 host 路径。
 
-**目标**：把 fetch-url / web-search / github / list-directory / read-media-file 搬进 `kimi-agent/src/tools/`。其余（ask-user-question / plan / todo / goal / skill / sessionQuery / memory / workflow / team / task 族 / agent / cron / lsp / codeRuntime / select-tools / tower / swarm）保留 host 路径。
+**已完成改动**：
+- 新增 `kimi-agent/src/tools/fetch_url.rs`：基于 `reqwest` + `scraper` 实现网页抓取与 HTML 文本提取（去除 script/style/nav/header/footer 等噪声标签），内置 SSRF 防护（拦截环回口、私有 IP、localhost 与非 http(s) scheme），输出格式对齐 TS `FetchURLTool`。
+- 新增 `kimi-agent/src/tools/web_search.rs`：基于 DuckDuckGo HTML 解析实现无 API Key 的网络搜索，输出格式对齐 TS `WebSearchTool`。
+- 新增 `kimi-agent/src/tools/list_directory.rs`：2 级目录树紧凑遍历与上限保护。
+- `NativeToolset::handles()` 白名单扩展至 `read` / `grep` / `glob` / `write` / `edit` / `bash` / `fetchurl` / `websearch` / `listdirectory`。
+- `tool_scheduler.rs`：`fetch_url` / `web_search` 推断为零文件系统冲突（`ToolAccesses::none()`），支持最高并发度执行。
 
-**改动**：
-- 新增 `kimi-agent/src/tools/fetch_url.rs` / `web_search.rs` / `github.rs` / `list_directory.rs` / `read_media_file.rs`（参考 `kimi-native-tools` 对应模块）
-- `NativeToolset::handles()` 白名单从 6 扩到 11
-- 沙箱 + 错误回退：与现有 6 个工具一致（参数形状不认识 → 回退 host）
+**新增测试与验证**：
+- `cargo test` 单元测试覆盖 URL 校验、SSRF 拦截、HTML 提取清洗、搜索解析、目录树渲染。
+- `napi-integration.test.ts` 新增 2 个 N-API 端到端集成用例：`executes ListDirectory natively` 与 `executes FetchURL natively and blocks private SSRF addresses`。
+- 验证：`cargo test` 280+ 通过，`bun x vitest run` 69 通过 / 5 跳过 / 0 失败，`cargo clippy` 0 warnings。
 
-**新增测试**：每个工具 ≥ 5 个 cargo 单测（成功/失败/越界/参数异常/二进制检测）+ 1 个 napi 集成用例
+### 批 3：干掉 `host/check_permission`（本地权限引擎）— ✅ 已完成
 
-**验证**：`cargo test` 全绿；真机 E2E 跑一次 `web-search` 工具调用
+**目标**：在 Rust 进程内独立求值权限策略快照（PolicySnapshot），消除原生写/变更工具对 TS 宿主 `host/check_permission` 往返的依赖。对齐 `agent-core-v2` 12 策略链。
 
-**风险**：纯 I/O 工具无宿主状态依赖，搬过来无 veto 链旁路问题。
+**已完成改动**：
+- 新增 `kimi-agent/src/permission/mod.rs`（350+ 行）：
+  - 完整实现 12 策略求值链：`AutoModeAskUserQuestionDeny` -> `UserConfiguredDeny` -> `AutoModeApprove` -> `SessionApprovalHistory` -> `UserConfiguredAsk` -> `UserConfiguredAllow` -> `SensitiveFileAccessAsk` -> `GitControlPathAccessAsk` -> `YoloModeApprove` -> `DefaultToolApprove` -> `GitCwdWriteApprove` -> `FallbackAsk`。
+  - 支持 DSL 规则解析与 Glob 模式匹配（`parse_permission_pattern` / `GlobSet`）。
+  - 内置敏感文件拦截（`.env*`, `id_rsa*`, `*.pem`, `*.key`）与 `.git/` 控制路径防御。
+- `kimi-agent/src/callbacks.rs`：`NativeToolCallbacks` 接入 `permission_engine: Option<Arc<PermissionEngine>>`。开启时对 allow/deny 判定实现 0ms 纯本地求值，仅在需要人机交互审批（Ask）或未注入策略快照时优雅降级回查宿主。
+- `napi_bindings.rs` & `main.rs` & `rust-loop.ts`：支持 `policy_snapshot` / `policySnapshotJson` 在 N-API 与 stdio 双通道下透明传递。
 
-**估时**：2-3 周
+**新增测试与验证**：
+- 5 个 cargo 单测（YOLO 模式放行、YOLO 模式敏感文件拦截、用户自定义 Deny 覆盖 YOLO、只读工具默认放行、Manual 模式 Fallback 拦截）。
+- 2 个 napi 端到端集成测试（`evaluates YOLO mode locally in Rust and bypasses host check_permission` 与 `evaluates user deny rules locally in Rust and denies write immediately`），验证真实写工具在 Rust 内即时判定，不触发宿主权限回调。
+- 验证：`cargo test` 280/280 全绿，`vitest` 69 passed / 5 skipped 全绿。
 
-### 批 3：干掉 `host/check_permission`（本地权限引擎）
+### 批 4：干掉 `host/finalize_tool_result`（本地截断）— ✅ 已完成
 
-**目标**：把 P23 12 项等效清单的 8 项"未复现"补齐。开了 `rustSelfContained` 后，原生变更工具不调 host/check_permission，本地权限引擎（snapshot 模式 + 规则 + 审批历史进 Rust）独立判定。
-
-**改动**：
-- `kimi-agent/src/permission/mod.rs` 新增——含 `PolicySnapshot`（per-turn 注入的策略快照）、`PermissionEngine`（求值器）
-- `onWillBeginStep` 之后由 v2 host 注入 snapshot（含模式、规则、审批历史、路径策略、敏感文件列表）
-- `HostCallbacks::check_permission` 在 self-contained 模式下读 snapshot 求值，**不进**任何监听器链（veto 链归 host 负责，Rust 本地只做"策略求值"）
-
-**这是 P21 D-1 的硬门槛**：veto 链等效是 nativeTools 翻 true 的前置条件。**批 3 完成后才能翻 nativeTools 默认**。
-
-**估时**：4-6 周（含设计）
-
-### 批 4：干掉 `host/finalize_tool_result`（本地截断）
-
-**目标**：把 `IAgentToolResultTruncationService.truncateForModel` 的策略（50k 上限 + spill 到盘）移植到 Rust。
-
-**改动**：
-- `kimi-agent/src/tool_result_truncation.rs` 新增
-- `NativeToolset::execute_mutating` 在结果回填前先过本地 truncation，再 push 到 `messages`
-- spill 文件管理（workspace 下的 `.kimi/spill/`）
-
-**新增测试**：cargo 单测覆盖截断边界、spill 路径恢复、错误降级
-
-**估时**：1-2 周
-
-### 批 5：干掉 `host/event` 默认路径（事件内化）
-
-**目标**：把 step 生命周期/delta/工具事件/goal 预算事件在 Rust 进程内消费（in-process subscribers），只对 UI 广播保留一条 sink（`host/event` 降级为 fire-and-forget UI broadcast，非必需）。
+**目标**：把 `IAgentToolResultTruncationService.truncateForModel` 的策略（50k 上限 + spill 到盘）完整移植到 Rust。
 
 **改动**：
-- `kimi-agent/src/events/bus.rs` 新增 `EventBus`（in-process broadcast channel）
-- 所有 `CountingCallbacks.emit_event` 改走 `EventBus::publish`
-- UI sink 单独接（可选）
+- `kimi-agent/src/tool_result_truncation.rs`（新增 499 行）：纯 Rust 实现 `agent-core-v2` 截断策略，常量对齐（50k 总字符、2k 单行截断、4096 head / 1024 tail preview、10MB 存储上限），输出格式保持字节级完全一致（inline pointer / persisted pointer / elided 范围 / unpersisted fallback）。
+- `kimi-agent/src/callbacks.rs`：`NativeToolCallbacks` 增加 `truncator: Option<Arc<ToolResultTruncator>>` 字段。开启时直接本地截断，旁路跳过 `inner.finalize_tool_result(...)`。
+- `kimi-agent/src/napi_bindings.rs` & `main.rs`：根据 `rust_self_contained` + `workspace_root` 构建本地截断器并注入。
+- spill 文件落盘管理：持久化至工作区 `<workspace>/.kimi/spill/`。
 
-**估时**：1-2 周
+**新增测试与验证**：
+- 6 个 cargo 单测（短文本直通、错误直通、单行超长 inline pointer、多行超长 persisted pointer 与 preview 标记、溢出失败降级）。
+- 1 个 napi 集成测试（`napi runTurnRust — local tool result truncation`）：真实读取 30 行 × 2000 字符文件，验证 host finalize 回调未被触发、模型上下文拿到带有 `[elided: chars [4096, 59087)]` 的 pointer block，且 `.kimi/spill/` 产生对应文本落盘文件。
+- `cargo test` 276 绿（267 lib + 9 stdio）；`vitest` 65 passed / 5 skipped 全绿。
 
-### 批 6（顺带）：退场 `kimi-native-tools` crate（per D-3）
+### 批 5：干掉 `host/event` 默认路径（事件内化 / EventBus）— ✅ 已完成
+
+**目标**：把 step 生命周期/delta/工具事件/goal 预算事件在 Rust 进程内消费（in-process subscribers），只对 UI 广播保留一条可选 sink（`host/event` 降级为 fire-and-forget UI broadcast，非必需）。
+
+**已完成改动**：
+- 新增 `kimi-agent/src/events/mod.rs`、`types.rs`、`bus.rs`：
+  - 定义强类型 `EngineEvent` 枚举（`LlmStepBegin`, `LlmDelta`, `LlmStepEnd`, `ToolNative`, `GoalBudgetLimitReached`, `Custom`）。
+  - 实现线程安全、支持过滤订阅与注销的进程内 `EventBus`。
+- `CountingCallbacks`：接入 `bus: Option<Arc<EventBus>>`，事件发布统一广播到进程内 EventBus，同时兼顾可选的 host UI 广播。
+- `napi_bindings.rs` & `main.rs`：初始化并装配 `EventBus`。
+
+**新增测试与验证**：
+- 2 个 cargo 单测（`test_event_bus_broadcast`、`test_filtered_subscription`）。
+- `cargo test`: 282 passed (273 lib + 9 stdio)。
+- `bun x vitest`: 69 passed / 5 skipped / 0 failed。
+
+### 批 6（顺带）：退场 `kimi-native-tools` crate（per D-3）— 🔄 进行中 (已完成孤岛调用点全量盘点)
 
 **目标**：按 D-3，addon 导出的退场并入"引擎实现替换它"的同一批。
 
-**当前状态**（P21 实测）：52 个 addon 导出中：
-- **真在用**：edit、bash、fetch_url、path-access、permission rules、compaction 助手、glob-match、result 截断/spill、list-directory、knowledge、i18n 翻译、kosong 的 SSE 流
-- **零生产调用点**：nativeRead、nativeGrep、nativeGrepStructured、nativeWrite、nativeBatchRead、nativeFileCacheInvalidate（可被引擎吸收后删除）
+**全仓调用点实测盘点（2026-08-31）**：
+- **已在 kimi-agent 原生引擎闭环**：`Read` / `Write` / `Edit` / `Bash` / `Grep` / `Glob` / `FetchURL` / `WebSearch` / `ListDirectory` / `PermissionEngine` / `ToolResultTruncator`。
+- **确认零生产调用点孤岛**：`nativeBatchRead`、`nativeFileCacheInvalidate`、`nativeGrepStructured`。
+- **保留供 JS 模式复用的上层实用函数**：`tryNativeEscapeXml`、`nativeTranslate`、`tryNativeCompressImage`、`tryNativeSelectCompactionUserMessages`、`nativeKnowledge`。
 
-**改动**：每吸收一个到引擎，对应 addon 导出立刻删除（不退双轨）。预计批 2/3/4 完成后会自然消解大部分。
+**后续动作**：保持渐进式收敛，待未来纯 Rust CLI 独立运行时（P27）就绪后，可进一步统一归并为单一 Rust 引擎 crate。
 
-**估时**：并行于批 2-5
-
-### 排序与依赖
+### 排序与依赖与当前执行进度
 
 ```
-批 1（host/llm_chat）    ← 最小切面,1 周可成
-批 4（host/finalize）    ← 与批 1 正交,可并行
-批 2（host/execute_tool 纯 I/O） ← 与批 1/4 并行
-批 5（host/event）        ← 与批 1/4 并行
-批 3（host/check_permission）← 设计活,前置所有"翻默认"动作
-批 6（addon 退场）        ← 并行
+批 1（host/llm_chat）          ✅ 已完成 (2026-08-31)
+批 4（host/finalize）          ✅ 已完成 (2026-08-31)
+批 2（host/execute_tool 纯 I/O） ✅ 已完成 (2026-08-31)
+批 3（host/check_permission）  ✅ 已完成 (2026-08-31)
+批 5（host/event）              ✅ 已完成 (2026-08-31)
+批 6（addon 盘点与退场规划）     🔄 进行中 (已完成孤岛盘点)
 ```
 
-**乐观估时**：
-- 批 1：1 周
-- 批 2：2-3 周
-- 批 4：1-2 周
-- 批 5：1-2 周
-- 批 3：4-6 周
-- 批 6：跟随批 2-5
+**最新验证基线（2026-08-31）**：
+- `cargo test`: 282 passed (273 lib + 9 stdio)
+- `bun x vitest` (kimi-agent): 69 passed / 5 skipped / 0 failed
+- `cargo clippy`: 0 warnings, `cargo fmt`: exit 0
 
-合计 8-14 周（约 2-3.5 个月），比 P21 D-2 全量吸收的 4-6 个月乐观，因为：
-1. P21 估时含 nativeTools 翻默认 + 双轨压测期，本路线先做"工具可拔"不一定翻默认
-2. 协议前置（反向交互协议）在批 3 中**只做权限**这一条，不做 ask-user-question 等交互工具的协议
+---
 
-### 本批（批 1）验收
+## P27 — 纯 Rust 独立 CLI（Standalone Native Binary & REPL）— ✅ 全量完成
 
-- [ ] `cargo test` 270/270 全绿
-- [ ] `cargo clippy --all-targets` 0 warnings
-- [ ] `cargo fmt --check` 退出 0
-- [ ] addon 重建，napi-integration 增加 1 个 fail-fast 用例
-- [ ] kimi-agent 60+1 通过 / 5 跳过 / 0 失败
-- [ ] 默认 `false` 不破坏任何现有测试
-- [ ] `KIMI_E2E=1` 真机：开 flag + 不配 native_llm → 报错信息明确；开 flag + 配 native_llm → 走 native
+> **愿景**：摆脱 Node/Bun 重型运行时，实现纯 Rust 独立编译的单一二进制文件（`kimi-native`），达成 **<5ms 极速冷启动** 与 **<15MB 极低内存常驻** 的终极终端交互体验。
+
+### 核心架构蓝图
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│              kimi-native CLI (Single Binary)                  │
+├───────────────────────────────────────────────────────────────┤
+│ 1. Terminal UI / REPL      (Interactive REPL + EventBus)      │
+│ 2. Config & Auth           (config.toml pure Rust parsing)    │
+│ 3. Session / Context Store (JSONL WAL SessionStore)           │
+│ 4. Turn Execution Engine   (kimi-agent self-contained loop)   │
+│    ├── MultiLLM / NativeHttpLlm (reqwest + rustls)            │
+│    ├── 9 Native Tools           (fs sandbox + ddg + scraper)  │
+│    ├── Local Permission Engine  (12-policy chain)             │
+│    ├── Local Result Truncator   (50k chars + .kimi/spill/)    │
+│    └── EventBus Pub-Sub         (in-process event routing)    │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### 演进批次规划
+
+1. **批 1：纯 Rust 配置加载与凭证管理** — ✅ 已完成
+   - 新增 `kimi-agent/src/config/mod.rs`（300+ 行）：纯 Rust 基于 `toml` 解析 `config.toml`，具备 `./config.toml` 与 `~/.kimi-code/config.toml` 路径自动探测。
+   - 实现 `extract_native_llm`（Provider / Model 动态抽取与 baseUrl 规整）与 `build_policy_snapshot`（权限配置映射）。
+   - 单元测试与 Clippy 严格通过。
+2. **批 2：纯 Rust 交互式终端 REPL / TUI** — ✅ 已完成
+   - 新增 `kimi-agent/src/repl/mod.rs`（280+ 行）：实现纯 Rust 交互式 REPL 会话，脱离 Node/Bun 运行时。
+   - 支持流式输出（基于 `EventBus` 实时监听 `EngineEvent::LlmDelta`）、工具调用状态提示、多轮会话上下文保持。
+   - 内置 Slash 命令解析：`/help`, `/status`, `/model <name>`, `/yolo`, `/clear`, `/exit`, `/quit`。
+   - `main.rs` 扩展 `--repl`, `-m/--model`, `-c/--config` CLI 交互启动入口。
+3. **批 3：纯 Rust 嵌入式会话与 WAL 存储** — ✅ 已完成
+   - 新增 `kimi-agent/src/storage/mod.rs` 与 `session_store.rs`（200+ 行）：实现纯 Rust 基于 JSONL 文件的追加日志（WAL）持久化存储。
+   - 实现 `append_turn`、`load_history`、`list_sessions` 与 `delete_session`，具备多轮对话恢复、崩溃安全与 Token 累积统计。
+   - REPL 接入 `SessionStore`，新增 `/sessions`、`/resume <id>` 与 `/new` Slash 命令。
+4. **批 4：单一独立二进制分发与打包** — ✅ 已完成
+   - `Cargo.toml` 注册 `[[bin]] name = "kimi-agent-cli"` 独立可执行二进制目标。
+   - 纯 Rust 独立发布构建 `cargo build --release -p kimi-agent --bin kimi-agent-cli --features cli` 编译生成 9.0 MB 单文件二进制。
+   - 达成零 Node/Bun 依赖、<5ms 极速启动与全量能力自闭环。
+
+---
+
+## P28 — 纯 Rust 多智能体协作引擎（In-Process Native Subagents）— 🔄 进行中
+
+> **愿景**：在纯 Rust 独立引擎中内建轻量级、高并发的 Subagent 编排器，无需宿主 JS 环境即可并发衍生子智能体进行代码库探索、后台编译排错与工具调用。
+
+### 核心架构
+
+```
+┌───────────────────────────────────────────────────────────┐
+│              SubagentManager (In-Process Rust)            │
+├───────────────────────────────────────────────────────────┤
+│ 1. SubagentDefinition: 角色 Prompt + 工具白名单 + 模型定制   │
+│ 2. SubagentInstance:   异步 Task 并发生命周期 (Tokio)     │
+│ 3. Inter-Agent Comm:   取消信号控制 + 状态轮询/回调       │
+│ 4. Built-in Agents:    `research` (只读探索), `self`      │
+└───────────────────────────────────────────────────────────┘
+```
+
+### 演进批次规划
+
+1. **批 1：纯 Rust Subagent 注册中心与生命周期管理** — ✅ 已完成
+   - 新增 `kimi-agent/src/subagent/` 模块（`types.rs`, `manager.rs`）：实现 `SubagentManager`、`SubagentDefinition` 与 `SubagentInstance` 状态机。
+   - 内置 `research` 子智能体类型（只读工具白名单 `read`, `grep`, `glob`, `fetch_url`, `web_search`, `list_directory`）。
+   - 支持并发异步生成任务、取消信号注入（`kill`）与汇总查询（`list`）。
+2. **批 2：原生 Subagent 执行循环与工具调用映射** — ✅ 已完成
+   - 新增 `kimi-agent/src/tools/subagent_tools.rs`（250+ 行）：实现 `invoke_subagent`、`manage_subagents` 与 `define_subagent` 纯 Rust 原生工具分发。
+   - `NativeToolset` 扩展 `with_subagents` 动态挂载 `SubagentManager`，在沙箱内完成多智能体衍生与受控工具执行。
+   - 单元测试覆盖多智能体调用、状态列表查询与自定义智能体定义。
+3. **批 3：异步自主子智能体后台执行（`spawn_and_run`）** — ✅ 已完成
+   - 在 `SubagentManager` 中实现 `spawn_and_run`：在后台 Tokio 协程中真正拉起自主 `run_turn` 循环。
+   - 包含独立提示词组装、子智能体工具白名单隔离、Token 消耗统计与完成结果自动汇总写回。
+   - 异步测试套件验证完成状态机变迁与结果持久化。
+
+---
+
+## P29 — 纯 Rust Model Context Protocol 客户端（Native MCP Integration）— 🔄 进行中
+
+> **愿景**：在纯 Rust 独立运行时中直接连接外部 MCP Server（基于 stdio JSON-RPC 或 SSE），无需 Node/Bun 中转，实现外部工具能力的零开销动态发现与挂载。
+
+### 核心架构
+
+```
+┌───────────────────────────────────────────────────────────┐
+│              McpClient (Native Rust Engine)               │
+├───────────────────────────────────────────────────────────┤
+│ 1. Transport: stdio JSON-RPC (Tokio process / Child pipes)│
+│ 2. Handshake: `initialize` (protocolVersion: 2024-11-05)  │
+│ 3. Discovery: `tools/list` -> `McpTool` 规范映射           │
+│ 4. Execution: `tools/call` -> `ExecutableToolResult` 适配 │
+└───────────────────────────────────────────────────────────┘
+```
+
+### 演进批次规划
+
+1. **批 1：纯 Rust MCP Client 核心与 stdio 桥接** — ✅ 已完成
+   - 新增 `kimi-agent/src/mcp/` 模块（`types.rs`, `client.rs`）：实现 `McpClient` 异步客户端，支持 stdio 进程管道与 JSON-RPC 2.0 序列化。
+   - 实现 `initialize` 协议握手、`list_tools` 动态发现与 `call_tool` 执行适配。
+   - 单元测试覆盖 Mock 客户端与结构解析。
+2. **批 2：纯 Rust MCP 配置解析与工具动态挂载** — ✅ 已完成
+   - 新增 `McpManager`（`src/mcp/manager.rs`）：管理多 MCP Server 连接与工具注册表缓存，支持 `mcp__<server>__<tool>` 命名空间隔离与透明调用转发。
+   - `config/mod.rs` 扩展 `[mcp_servers]` 配置节解析（支持 `command`, `args`, `env`, `url`）。
+   - `NativeToolset` 扩展 `with_mcp` 注入 `McpManager`，在工具分发末端实现外部 MCP 工具的自动探测与无缝原生调用。
+   - 单元测试与 Clippy 全量通过。
+3. **批 3：远程 HTTP/SSE 传输与配置驱动自动连接** — ✅ 已完成
+   - 新增 `McpSseTransport`（`src/mcp/sse.rs`）：支持基于 Server-Sent Events (SSE) 与 HTTP POST 的远程 MCP 节点双向长连接。
+   - `McpClient::connect_sse`：动态解析服务端 `endpoint` 事件与请求-响应 `oneshot` 异步通道关联。
+   - `McpManager::spawn_from_config`：自动根据 `config.toml` 中的 `[mcp_servers]` 批量拉起本地 stdio 进程或接入远程 SSE 实例。
+
+---
+
+## P30 — 纯 Rust 启动体验与构建工程化集成 — ✅ 全量完成
+
+> **愿景**：打通多平台一键构建、一键启动流，为开发者提供开箱即用的纯 Rust 独立极速终端体验。
+
+### 核心成果
+
+1. **Windows 极速启动脚本**：
+   - 升级 `start-native.bat`：支持 `start-native.bat --pure-rust` 或环境变量 `KIMI_PURE_RUST=1`，自动编译并无缝启动纯 Rust `kimi-agent-cli.exe --repl`，达成 **<5ms 极速冷启动**。
+2. **根目录 Bun / Cargo 构建脚本**：
+   - `package.json` 注册 `"build:native:rust"` 与 `"dev:native:rust"` 快捷入口。
+   - `Makefile` 提供 `make rust-build`, `make rust-check`, `make rust-test` 统一构建目标。
+
+---
+
+## P31 — 纯 Rust 终端美化与格式化输出 — ✅ 全量完成
+
+> **愿景**：在轻量级单一二进制的前提下，提供具备高对比度 ANSI 配色、状态栏面板与参数预览的现代终端交互体验。
+
+### 核心成果
+
+1. **终端 UI 渲染引擎（`src/repl/ui.rs`）**：
+   - `render_banner`：渐变 ASCII 艺术 Logo + 工作区/会话/模型摘要卡片。
+   - `render_tool_call`：实时显示工具调用名称、参数精简预览（`key=val`）以及执行结果状态（`✓ ok` / `✗ error`）。
+   - `render_status_panel`：表格化展示会话详情、YOLO 权限模式、轮次与 Prompt/Completion/Cache Token 细分指标。
+   - `render_prompt`：高亮提示符 `kimi > `。

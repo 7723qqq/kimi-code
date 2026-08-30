@@ -1,8 +1,38 @@
 @echo off
 REM Kimi Code launcher with native Rust tools built.
-REM Usage: double-click or run from cmd/powershell.
+REM Usage:
+REM   start-native.bat               - Run Bun CLI with native Rust tools
+REM   start-native.bat --pure-rust   - Run pure Rust standalone REPL binary (kimi-agent-cli)
 
 setlocal
+
+set "PURE_RUST=0"
+if "%~1"=="--pure-rust" (
+    set "PURE_RUST=1"
+    shift
+)
+if "%KIMI_PURE_RUST%"=="1" (
+    set "PURE_RUST=1"
+)
+
+if "%PURE_RUST%"=="1" (
+    set "CLI_EXE=%~dp0packages\kimi-agent\target\release\kimi-agent-cli.exe"
+    if not exist "%CLI_EXE%" (
+        echo Building pure Rust standalone CLI...
+        cd /d "%~dp0\packages\kimi-agent"
+        cargo build --release --features cli
+        if errorlevel 1 (
+            echo [ERROR] cargo build failed.
+            pause
+            exit /b 1
+        )
+        cd /d "%~dp0"
+    )
+    echo Launching pure Rust standalone REPL...
+    "%CLI_EXE%" --repl %*
+    endlocal
+    exit /b %errorlevel%
+)
 
 REM Ensure native module is built.
 REM napi-rs on Windows produces files named with -msvc suffix.
