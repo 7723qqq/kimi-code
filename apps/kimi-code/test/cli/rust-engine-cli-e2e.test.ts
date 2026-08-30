@@ -158,10 +158,17 @@ describe.skipIf(!optedIn || !hasNativeAddon || !hosted)(
           async dispatchEvent(e: { type: string }) {
             events.push(e.type);
           },
+          // Only reached when the engine routes a tool call back to the host;
+          // a native-LLM turn with no tool calls never invokes it.
+          async executeTool() {
+            return { output: JSON.stringify({}), isError: false };
+          },
         };
 
+        // The test input is a minimal stand-in for the v2 TurnEngineInput
+        // contract; assert the engine only through the call shape we need.
         const result = await (
-          engine as (i: typeof input) => Promise<{
+          engine as (i: unknown) => Promise<{
             stopReason: string;
             steps: number;
             usage: { inputOther: number; output: number };
