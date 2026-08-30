@@ -719,3 +719,47 @@ P21 排序计划的第 0 批，纯 lint/格式，无行为变更。
 处置：按「实现未变则改测试」，用例重写为验证 napi 边界上真正独有的那件事 —— turn 不 reject，且崩溃文本出现在模型的下一轮请求里（`napi-integration.test.ts`，改名「surfaces an execute_tool callback throw to the model as an error result」）。
 
 **这条红为什么值得记**：它是 stale-binary 陷阱的又一实例——13:48 的 `.node` 比 13:29 的提交新，但套件此前没人跑过全量，红了一小时才被下一次重建暴露。「源文件改过就必须重建 + 全量跑」不是谨慎，是唯一能发现这类红的手段。
+
+## P23 — 第 1 批：原生工具路径的实测（2026-08-30）
+
+回答 D-1 留下的问题：开原生工具到底得到什么、失去什么。两条独立测量，全部零 provider 流量。
+
+### 1. 成本：性能收益是真的，但当前上限反向惩罚大文件
+
+新增 `bench-tool-path.test.ts`（脚本化 LLM，25 次/臂取中位；已登记进本包 `vitest.config.ts`，**只断言路由事实、不断言时序**，故不引入时序 flake）：
+
+| 臂 | 每工具调用 | 宿主 executeTool 次数 | check_permission 次数 |
+|----|-----------|----------------------|----------------------|
+| 对照（2 步，无工具） | 0.06 ms（整 turn） | 0 | 0 |
+| 宿主 read 3 MB | 27.57 ms | 25 | 0 |
+| **原生 read 3 MB** | **4.93 ms（5.6× 快）** | 0 | 25 |
+| 原生尝试 5 MB → 回落宿主 | **46.94 ms（比纯宿主慢 70%）** | 25 | 25 |
+
+- G-6 关于「多一次往返」的推断被断言证实：原生臂宿主 `executeTool` 零次但 `check_permission` 25 次。而它被数字证明**不是主要成本**——5.6× 的差距里 napi 往返可以忽略。
+- **回落路径是净损失**：Rust 先读满 5 MB 才发现超 `READ_MAX_BYTES` 放弃，宿主再读一遍。多出的 19.4 ms 全是白做的功。这类「先做再放弃」的降级点，`tools/mod.rs` 里有 40 处，每一处都是同一种税。
+
+> 测量口径：表中绝对毫秒是单次运行，复跑抖动约 20%（第二次运行为 21.8 / 4.1 / 37.5 ms）。承载结论的是两个**比例**——原生快 5.3~5.6×、回落比纯宿主慢 70~72%——两次运行均复现。
+
+### 2. 等效性：原生路径丢掉的是宿主生命周期的大头
+
+逐阶段核对宿主 `executeTool`（`agent-core-v2/src/agent/loop/loopService.ts:1052` → `toolExecutorService.ts:178`）与原生路径（只有 `check_permission` + 一条 `tool.native`，`rust-loop.ts:1143` 合成 `tool.call`/`tool.result`）：
+
+| 宿主职责 | 原生路径 |
+|---------|---------|
+| Ajv schema 校验、`toolCallGuard`、unavailable describer（`toolExecutorService.ts:757,778-803`） | ❌ 只有 `JSON.parse` + `resolveExecution`（`loopService.ts:1085`），校验靠 Rust 自己解析参数 |
+| `onBeforeExecuteTool` **veto 链**（plan 写拦截 `features/plan/planService.ts:97`、staleGuard、swarm、tower、btw、externalHooks、goal、toolDedupe） | ❌ **旁路**——`check_permission` 走 `permissionGateService.ts:67` 的 `authorize`，只做 `policyService.evaluate`，不进监听器链 |
+| 策略判定 + 审批事件（`toolApprovalService.ts:138,187`） | ✅ 已复现 |
+| `ToolAccesses` 冲突检测与并行批处理、`stopBatchAfterThis`（`toolScheduler.ts:21-51`） | ❌ 未复现（原生载荷里没有 accesses 声明） |
+| `tool.progress` / `onUpdate`、2s abort 宽限、中断引导文案（`toolExecutorService.ts:530,941`） | ❌ 无 |
+| 结果截断 + **落盘 spill**（`toolResultTruncationService.ts:45-135`，50k 上限） | ❌ 只有 Rust 每工具硬上限；`{content,is_error,note}` 三元组装不下 truncated/spill 字段 |
+| `tool_call` 遥测（outcome/duration_ms/error_type） | ❌ 全缺（原生路径不产生 duration） |
+| `tool.call.started` + `ToolInputDisplay` 卡片（diff/command/file_io）、页脚耗时 | ❌ 未复现——`dispatchEngineUIBridge` 只桥接 `content.part`（`loopService.ts:1117-1129`） |
+| checkpoint 写前快照 + `context.undo` 回滚（`checkpointService.ts:81-88`） | ❌ 原生写的文件不进 checkpoint |
+| `stopTurn` 语义、`replaceToolResult` | ❌ 三元组无 `stopTurn`；`replaceToolResult`（`engineOverride.ts:88`）在 `rust-loop.ts` 从未被调用 |
+| `tool.result` 之后才推进 turn 时钟（undo 锚点保真） | ✅ 已复现（走同一 `dispatchEvent`） |
+
+**结论：D-1 的默认值现在有了明确答案——不能翻 true。** 阻碍不是性能（性能恰恰支持翻），而是第 2 节那行 veto 链旁路：开了原生工具，**plan 模式的写拦截会静默失效**。这一条我抽查验证过（`planService.ts:97` 注册在宿主 `onBeforeExecuteTool` 上，而 `authorize` 不跑该链），不是推测。
+
+因此地图上的顺序要改：**「宿主生命周期等效」是原生工具的前置条件，不是可选项**，且它属于第 4 批（协议与状态层地基）而不是第 1 批。第 1 批的产出到此为止：数字 + 缺口清单，D-1 保持默认 false，P19 的 rust-first 继续按「引擎本体」解释。
+
+验证：`bench-tool-path.test.ts` 1/1 绿（断言四臂路由计数）；本包 TS 套件加此后 58 通过 / 5 跳过 / 0 失败。未改任何 Rust 行为代码，故无需重建 addon。

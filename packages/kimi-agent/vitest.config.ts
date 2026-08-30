@@ -7,6 +7,7 @@ export default defineConfig({
       'rust-loop.test.ts',
       'real-key-e2e.test.ts',
       'bench-native-vs-proxy.test.ts',
+      'bench-tool-path.test.ts',
       'multi-llm-real-key.test.ts',
       'long-session-memory.test.ts',
     ],
