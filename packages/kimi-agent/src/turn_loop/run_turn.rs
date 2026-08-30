@@ -246,11 +246,32 @@ pub fn run_turn<'a>(
                             ),
                         })
                         .collect();
-                    let results = tool_scheduler::execute_scheduled(
+                    let results = match tool_scheduler::execute_scheduled(
                         input.cancellation.as_ref(),
                         scheduled,
                         exec_fn,
-                    ).await?;
+                    ).await {
+                        Ok(results) => results,
+                        Err(err) => {
+                            // The scheduler stops mid-batch when the host
+                            // cancels. That is a clean abort, not a failed
+                            // turn — mirror the step-top and step-result paths.
+                            let cancelled = input
+                                .cancellation
+                                .as_ref()
+                                .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
+                            if cancelled {
+                                return Ok(turn_result(
+                                    LoopTurnStopReason::Aborted,
+                                    steps,
+                                    total_usage,
+                                    0,
+                                    llm_retries,
+                                ));
+                            }
+                            return Err(err);
+                        }
+                    };
 
                     // Insert tool results, each linked back to its call
                     // via `tool_call_id` (same call order as `tool_calls`).
@@ -1051,6 +1072,93 @@ mod tests {
         let result = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
         assert_eq!(result.steps, 0);
+    }
+
+    /// HostCallbacks decorator that raises the cancellation flag as a tool
+    /// call runs, so the scheduler observes the cancel inside a batch.
+    struct CancelDuringToolCallbacks {
+        inner: Arc<dyn HostCallbacks>,
+        cancellation: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl HostCallbacks for CancelDuringToolCallbacks {
+        fn llm_chat(
+            &self,
+            request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>> {
+            self.inner.llm_chat(request)
+        }
+
+        fn execute_tool(
+            &self,
+            request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>> {
+            self.cancellation.store(true, Ordering::Relaxed);
+            self.inner.execute_tool(request)
+        }
+
+        fn check_permission(
+            &self,
+            request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::PermissionDecision, String>> {
+            self.inner.check_permission(request)
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.inner.emit_event(event);
+        }
+    }
+
+    /// A cancel landing while tools execute ends the turn as `Aborted`: the
+    /// host asked to stop, so the turn must not surface a hard error.
+    #[tokio::test]
+    async fn test_cancellation_during_tool_execution_aborts() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-cancel".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({ "path": "/a.txt" }),
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp)
+                    .map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(CancelDuringToolCallbacks {
+            inner: rpc_callbacks(server.clone()),
+            cancellation: cancellation.clone(),
+        });
+
+        let input = RunTurnInput {
+            turn_id: "test-cancel-during-tools".into(),
+            llm: &llm,
+            messages: vec![LLMMessage { role: "user".into(), content: "Hello!".into(), ..Default::default() }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: Some(cancellation),
+        };
+
+        let result = run_turn(input, &callbacks)
+            .await
+            .expect("a cancel must not fail the turn");
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
+        assert_eq!(result.steps, 1);
     }
 
     /// When the cancellation flag is cleared, the turn runs normally.

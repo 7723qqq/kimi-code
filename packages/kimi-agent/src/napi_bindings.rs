@@ -654,11 +654,11 @@ async fn run_turn_rust_impl(
         cancellation: Some(cancellation),
     };
 
-    let result = run_turn(input, &callbacks)
-        .await
-        .map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
+    let result = run_turn(input, &callbacks).await;
 
     CANCEL_MAP.lock().unwrap().remove(&turn_id);
+
+    let result = result.map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
 
     Ok(JsRunTurnResult {
         stop_reason: format!("{:?}", result.stop_reason),
