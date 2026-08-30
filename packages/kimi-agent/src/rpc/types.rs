@@ -104,6 +104,13 @@ pub mod methods {
     /// returns what the model should see.
     pub const HOST_FINALIZE_TOOL_RESULT: &str = "host/finalize_tool_result";
 
+    /// Release queued mid-turn steering to the engine (Rust → JS host). The
+    /// host owns the turn's step-request queue, so without this call a prompt
+    /// the user injected during a turn would only reach the model after the
+    /// engine's turn ended. The host records each steer and returns the
+    /// messages the engine should append to its own history.
+    pub const HOST_DRAIN_STEERS: &str = "host/drain_steers";
+
     /// Fire-and-forget event notification (Rust → JS host).
     /// Used by the native LLM / native tool paths to report step
     /// boundaries, streaming deltas, and natively-executed tool results
@@ -259,6 +266,13 @@ pub struct RunTurnParams {
     /// permission grant) run inside the Rust process.
     #[serde(default)]
     pub native_tools: bool,
+    /// Rust engine self-contained mode. When true, the engine refuses to
+    /// fall back to the host proxy for LLM calls — the caller must set
+    /// `native_llm` or `providers`, or the engine returns a JSON-RPC
+    /// internal error instead of routing through `host/llm_chat`. See
+    /// kimi-agent ROADMAP P26 批 1.
+    #[serde(default)]
+    pub rust_self_contained: bool,
     /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
     /// Absent on Windows → native Bash stays with the host.
     #[serde(default)]

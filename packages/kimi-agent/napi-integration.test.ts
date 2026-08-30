@@ -918,3 +918,66 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native result finalization',
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 });
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — rustSelfContained (P26 批 1)', () => {
+  it('rejects when rustSelfContained is true and no native LLM transport is configured', async () => {
+    const mod = loadNativeModule();
+    let llmCalls = 0;
+
+    await expect(
+      mod.runTurnRust(
+        {
+          ...validParams,
+          // Both native_llm and providers are absent — the only configured
+          // path would be the host proxy, which the flag must forbid.
+          native_llm: undefined,
+          providers: undefined,
+          rustSelfContained: true,
+          maxSteps: 1,
+        },
+        makeCallback(mod, (_req) => {
+          llmCalls += 1;
+          return JSON.stringify({
+            content: 'should not be called',
+            finish_reason: 'stop',
+            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+          });
+        }),
+        makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
+      ),
+    ).rejects.toThrow(/rustSelfContained=true requires/);
+
+    // The LLM callback must not be invoked when the engine fails fast
+    // at construction. Any llm_chat hit would mean we silently fell
+    // back to host/llm_chat, defeating the migration switch.
+    expect(llmCalls).toBe(0);
+  });
+
+  it('falls back to host proxy when rustSelfContained is not set (backwards compat)', async () => {
+    const mod = loadNativeModule();
+
+    // No native_llm, no providers, no rustSelfContained. The default
+    // behaviour (host proxy via llm_chat callback) must still work.
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        native_llm: undefined,
+        providers: undefined,
+        rustSelfContained: undefined,
+        maxSteps: 1,
+      },
+      makeCallback(mod, (_req) =>
+        JSON.stringify({
+          tool_calls: [],
+          content: 'hello from host proxy',
+          finish_reason: 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+      ),
+      makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    // The result should complete normally via the host proxy path.
+    expect((result as { stopReason: string }).stopReason).toBe('EndTurn');
+  });
+});

@@ -105,8 +105,21 @@ export interface RustEngineOptions {
    * that model switches in the TUI are reflected.
    */
   nativeLlm?: NativeLlmDef | (() => NativeLlmDef | undefined);
-  /** When true, Read/Grep/Glob execute inside the Rust process. */
+  /**
+   * When true, the in-process toolset (Read/Grep/Glob/Write/Edit/Bash)
+   * executes inside the Rust process, sandboxed to the workspace. Any
+   * other tool, or any argument shape the toolset cannot handle, still
+   * round-trips to the host via `host/execute_tool`.
+   */
   nativeTools?: boolean;
+  /**
+   * When true, the Rust engine refuses to fall back to the host proxy
+   * for LLM calls — the user must configure `nativeLlm` or `providers`,
+   * or the engine errors out at construction time. Mirrors
+   * `agent.rustSelfContained` from config. See kimi-agent ROADMAP P26
+   * 批 1. Default `false` (backwards compatible).
+   */
+  rustSelfContained?: boolean;
   /**
    * Host shell for native Bash (bash everywhere, Git Bash on Windows —
    * the value from the host environment probe). Without it, native Bash
@@ -435,6 +448,7 @@ interface KimiAgentNativeModule {
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
     finalizeToolCb?: (callbackId: number) => void,
+    drainSteersCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -584,6 +598,7 @@ class NapiEngine {
       }>;
       workspaceRoot?: string;
       nativeTools?: boolean;
+      rustSelfContained?: boolean;
       shellPath?: string;
     },
     llmChatCb: (request: string) => Promise<string>,
@@ -591,6 +606,7 @@ class NapiEngine {
     emitEventCb?: (event: EngineEvent) => void,
     checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
     finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
+    drainSteersCb?: () => Promise<WireMessage[]>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -658,6 +674,11 @@ class NapiEngine {
             return JSON.stringify(finalized);
           });
 
+    const drainHandler =
+      drainSteersCb === undefined
+        ? undefined
+        : makeCallbackHandler(async () => JSON.stringify(await drainSteersCb()));
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -665,6 +686,7 @@ class NapiEngine {
       eventHandler,
       permissionHandler,
       finalizeHandler,
+      drainHandler,
     );
   }
 
@@ -720,6 +742,9 @@ class AgentProcess {
     | ((req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>)
     | null = null;
 
+  /** Callback for handling host/drain_steers requests from Rust. */
+  private drainSteersHandler: (() => Promise<WireMessage[]>) | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -743,6 +768,10 @@ class AgentProcess {
 
   setFinalizeHandler(handler: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>) {
     this.finalizeHandler = handler;
+  }
+
+  setDrainSteersHandler(handler: () => Promise<WireMessage[]>) {
+    this.drainSteersHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -867,6 +896,8 @@ class AgentProcess {
       await this.handleHostCheckPermission(msg);
     } else if (msg.method === 'host/finalize_tool_result') {
       await this.handleHostFinalizeToolResult(msg);
+    } else if (msg.method === 'host/drain_steers') {
+      await this.handleHostDrainSteers(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -874,6 +905,20 @@ class AgentProcess {
         error: { code: -32601, message: `Unknown method: ${msg.method}` },
       });
       this.process!.stdin!.write(response + '\n');
+    }
+  }
+
+  private async handleHostDrainSteers(msg: RpcMessage) {
+    if (!this.drainSteersHandler) {
+      this.writeHostResult(msg.id, [] satisfies WireMessage[]);
+      return;
+    }
+    try {
+      this.writeHostResult(msg.id, await this.drainSteersHandler());
+    } catch {
+      // An undrained steer stays in the host queue and reaches the model once
+      // the turn ends, so a failed drain must not abort the running turn.
+      this.writeHostResult(msg.id, [] satisfies WireMessage[]);
     }
   }
 
@@ -1109,6 +1154,7 @@ export function createRunTurnOverride(
 
   const nativeLlmOpt = options?.nativeLlm;
   const nativeTools = options?.nativeTools === true;
+  const rustSelfContained = options?.rustSelfContained === true;
   const shellPathOpt = options?.shellPath;
 
   return async (input) => {
@@ -1283,6 +1329,17 @@ export function createRunTurnOverride(
       }));
     };
 
+    // Mid-turn steering lands in the host's step queue, which the JS loop would
+    // normally drain at the next step head. An engine driving the whole turn
+    // has to ask, or a steered prompt waits for the turn to end. Awaiting the
+    // event chain first keeps the record ordered after the tool results that
+    // are still being appended for the step that just ran.
+    const drainSteers = async (): Promise<WireMessage[]> => {
+      await eventChain;
+      const steered = await input.drainSteers?.();
+      return (steered ?? []).filter(isHostMessage).map(projectHostMessageToWire);
+    };
+
     // ── LLM chat handler ──────────────────────────────────────────────
     /**
      * `signal` is set when this request is one of several racing providers;
@@ -1293,6 +1350,7 @@ export function createRunTurnOverride(
       modelName?: string,
     ): Promise<LlmChatResponse> => {
       await closeOpenStep();
+      await drainSteers();
       currentStep += 1;
       const stepUuid = randomUUID();
       const stepNum = currentStep;
@@ -1488,6 +1546,7 @@ export function createRunTurnOverride(
                   },
             workspaceRoot,
             nativeTools,
+            rustSelfContained,
             shellPath: shellPathOpt,
             providers: providers?.map((p) => ({
               name: p.name,
@@ -1528,6 +1587,7 @@ export function createRunTurnOverride(
             });
           },
           finalizeNativeResult,
+          drainSteers,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1551,6 +1611,7 @@ export function createRunTurnOverride(
         agent.setLlmAbortRegistry(llmAbortRegistry);
         agent.setToolExecuteHandler(toolExecuteHandler);
         agent.setFinalizeHandler(finalizeNativeResult);
+        agent.setDrainSteersHandler(drainSteers);
         agent.setPermissionHandler(async (req) => {
           if (input.checkToolPermission === undefined) {
             return {
@@ -1583,6 +1644,7 @@ export function createRunTurnOverride(
           native_llm: nativeLlm,
           workspace_root: workspaceRoot,
           native_tools: nativeTools,
+          rust_self_contained: rustSelfContained,
           shell_path: shellPathOpt,
         });
         if (!result) {

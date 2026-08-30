@@ -267,6 +267,11 @@ struct NapiHostCallbacks {
     /// executed result before it re-enters the model context. Absent means the
     /// result passes through unchanged, which is the pre-existing behaviour.
     finalize_tool_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional steering drainer: the host releases the prompts the user
+    /// injected during this turn and returns them for the engine's history.
+    /// Absent means nothing is delivered until the turn ends, which is the
+    /// pre-existing behaviour for hosts that do not wire it.
+    drain_steers_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -352,6 +357,25 @@ impl HostCallbacks for NapiHostCallbacks {
             )
             .await?;
             serde_json::from_str(&output).map_err(|e| format!("finalize_tool_result parse: {e}"))
+        })
+    }
+
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        let Some(ref tsfn) = self.drain_steers_fn else {
+            return Box::pin(async { Ok(Vec::new()) });
+        };
+        let tsfn = tsfn.clone();
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            let output = invoke_via_registry(
+                &tsfn,
+                "{}".to_string(),
+                "drain_steers",
+                Some(crate::callbacks::HOST_DRAIN_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            serde_json::from_str(&output).map_err(|e| format!("drain_steers parse: {e}"))
         })
     }
 
@@ -529,8 +553,19 @@ pub struct JsRunTurnParams {
     pub providers: Option<Vec<JsLlmProviderDef>>,
     /// Workspace root used to sandbox native tool execution.
     pub workspace_root: Option<String>,
-    /// When true (with `workspace_root`), Read/Grep/Glob run in-process.
+    /// When true (with `workspace_root`), the in-process toolset
+    /// (Read/Grep/Glob/Write/Edit/Bash, each gated on a host permission
+    /// grant) runs inside the Rust process. Any tool not in that set, or
+    /// any argument shape the toolset cannot handle, falls back to the
+    /// host (`host/execute_tool`).
     pub native_tools: Option<bool>,
+    /// Rust engine self-contained mode. When true, the engine refuses to
+    /// fall back to the host proxy for LLM calls — the user must
+    /// configure either `providers` (concurrent MultiLLM race) or
+    /// `native_llm` (single provider direct HTTP), or the engine errors
+    /// out at construction time instead of silently routing through
+    /// `host/llm_chat`. Mirrors `agent.rustSelfContained` from config.
+    pub rust_self_contained: Option<bool>,
     /// Host shell for native Bash (bash everywhere, Git Bash on Windows).
     /// Absent on Windows → native Bash stays with the host.
     pub shell_path: Option<String>,
@@ -639,6 +674,7 @@ pub struct JsRunTurnResult {
 /// async work is dispatched via `env.execute_tokio_future` so the JS event
 /// loop stays alive to process TSFN callbacks.
 #[napi]
+#[allow(clippy::too_many_arguments)]
 pub fn run_turn_rust(
     env: Env,
     params: JsRunTurnParams,
@@ -647,6 +683,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -709,6 +746,20 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
+        match drain_steers_cb {
+            Some(cb) => Some(cb.create_threadsafe_function(
+                0,
+                |ctx: ThreadSafeCallContext<u32>| {
+                    let id = ctx.value;
+                    let js_num = ctx.env.create_uint32(id)?;
+                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                    Ok(args)
+                },
+            )?),
+            None => None,
+        };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -721,6 +772,7 @@ pub fn run_turn_rust(
                 emit_event_tsfn,
                 check_permission_tsfn,
                 finalize_tool_tsfn,
+                drain_steers_tsfn,
             )
             .await
         },
@@ -756,6 +808,7 @@ async fn run_turn_rust_impl(
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -773,6 +826,7 @@ async fn run_turn_rust_impl(
         emit_event_fn: emit_event_tsfn.map(Arc::new),
         check_permission_fn: check_permission_tsfn.map(Arc::new),
         finalize_tool_fn: finalize_tool_tsfn.map(Arc::new),
+        drain_steers_fn: drain_steers_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 
@@ -785,9 +839,10 @@ async fn run_turn_rust_impl(
         event_count: turn_event_count.clone(),
     });
 
-    // Native tool execution: wrap the callbacks so Read/Grep/Glob run
-    // in-process (sandboxed to the workspace) and everything else — and
-    // anything that escapes the sandbox — still round-trips to the host.
+    // Native tool execution: wrap the callbacks so the in-process toolset
+    // (Read/Grep/Glob/Write/Edit/Bash) runs in-process (sandboxed to the
+    // workspace) and everything else — and anything that escapes the
+    // sandbox — still round-trips to the host.
     let native_tool_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let callbacks: Arc<dyn HostCallbacks> = match (
         params.native_tools.unwrap_or(false),
@@ -811,6 +866,8 @@ async fn run_turn_rust_impl(
     //      run in parallel and the first success wins
     //   2. native_llm — Rust calls a single provider directly via HTTP/SSE
     //   3. host proxy — caller (napi host) handles the actual LLM call
+    //      (skipped when `rust_self_contained` is set; the engine errors
+    //      out instead, see kimi-agent ROADMAP P26 批 1)
     let llm: Box<dyn LLM> =
         if let Some(providers) = params.providers.as_ref().filter(|p| !p.is_empty()) {
             let rust_providers: Vec<LlmProvider> = providers
@@ -841,10 +898,20 @@ async fn run_turn_rust_impl(
                     .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
                     Box::new(native)
                 }
-                None => Box::new(
-                    HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
-                        .with_callbacks(callbacks.clone()),
-                ),
+                None => {
+                    // Self-contained mode: refuse to fall back to host proxy.
+                    if params.rust_self_contained.unwrap_or(false) {
+                        return Err(napi::Error::from_reason(
+                            "rustSelfContained=true requires providers or native_llm to be \
+                             set; refusing to fall back to host/llm_chat (P26 批 1)"
+                                .to_string(),
+                        ));
+                    }
+                    Box::new(
+                        HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
+                            .with_callbacks(callbacks.clone()),
+                    )
+                }
             }
         };
 

@@ -143,6 +143,13 @@ async fn main() -> anyhow::Result<()> {
                         .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
                 )
             } else {
+                // Self-contained mode: refuse to fall back to host proxy.
+                if input.rust_self_contained {
+                    return Err(types::JsonRpcError::internal_error(
+                        "rustSelfContained=true requires providers or native_llm to be \
+                         set; refusing to fall back to host/llm_chat (P26 批 1)",
+                    ));
+                }
                 Box::new(
                     HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
                         .with_callbacks(callbacks.clone()),

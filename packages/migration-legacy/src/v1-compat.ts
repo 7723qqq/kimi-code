@@ -313,13 +313,23 @@ const AgentConfigSchema = z.object({
    */
   nativeLlmProvider: z.string().optional(),
   /**
-   * Native tool execution (Rust engine only). When true, read-only tools
-   * (Read/Grep/Glob) execute inside the Rust engine process, sandboxed to
-   * the workspace root — skipping the host round-trip. Anything outside
-   * the sandbox or not natively supported still executes on the JS host
-   * under the full permission system.
+   * Native tool execution (Rust engine only). When true, the in-process
+   * toolset (Read/Grep/Glob/Write/Edit/Bash) executes inside the Rust
+   * engine process, sandboxed to the workspace root — skipping the host
+   * round-trip. Anything outside the sandbox, or any argument shape the
+   * toolset cannot handle, still executes on the JS host under the full
+   * permission system.
    */
   nativeTools: z.boolean().optional(),
+  /**
+   * Rust engine self-contained mode. When true, the Rust engine refuses
+   * to fall back to the host proxy for LLM calls — the user must
+   * configure either `nativeLlmProvider` (single provider direct HTTP) or
+   * `multiLlm` (concurrent MultiLLM race), or the engine errors out
+   * immediately. The default (false) preserves the existing host-proxy
+   * fallback for backwards compatibility.
+   */
+  rustSelfContained: z.boolean().optional(),
 });
 
 /**

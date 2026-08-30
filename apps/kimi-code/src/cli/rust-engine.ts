@@ -41,6 +41,7 @@ interface RustEngineConfig {
     multiLlm?: string[];
     nativeLlmProvider?: string;
     nativeTools?: boolean;
+    rustSelfContained?: boolean;
   };
 }
 
@@ -290,6 +291,11 @@ export async function maybeLoadRustEngine(
   // of forever calling the provider that was active at startup.
   const providers = extractMultiLlmProviders(loaded.config);
   const nativeTools = agentConfig?.nativeTools === true;
+  // rustSelfContained (P26 批 1): opt-in switch that forces the Rust
+  // engine to fail fast if no native LLM transport is configured,
+  // instead of silently falling back to host/llm_chat. Default false
+  // preserves the existing host-proxy fallback for backwards compat.
+  const rustSelfContained = agentConfig?.rustSelfContained === true;
   // Native Bash must run under the same shell the host Bash tool documents
   // (bash everywhere, Git Bash on Windows) — probe it once for the engine.
   let shellPath: string | undefined;
@@ -342,6 +348,7 @@ export async function maybeLoadRustEngine(
         return extractNativeLlm(reloaded.config);
       },
       nativeTools,
+      rustSelfContained,
       shellPath,
     });
     if (engine !== undefined) {

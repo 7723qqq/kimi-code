@@ -14,7 +14,7 @@
 | Turn 循环 | `src/turn_loop/run_turn.rs` | 多步循环:goal 预算检查 / 暂停 / 阻塞、取消标志(step 边界)、before/after hooks、并发工具执行 |
 | LLM 抽象 | `src/turn_loop/types.rs` `LLM` trait | 三种实现:`NativeHttpLlm`(native 直连,SSE)、`HostLlmProxy`(host 代理)、`MultiLLM`(并发 first-past-the-post) |
 | 重试 | `src/turn_loop/retry.rs` | 指数退避 + jitter |
-| 原生只读工具 | `src/tools/mod.rs` | Read / Grep / Glob,沙箱到 workspace root,越界或复杂参数回退 host;Write/Edit/Bash 永不 native |
+| 原生只读工具 | `src/tools/mod.rs` | Read / Grep / Glob / Write / Edit / Bash,沙箱到 workspace root,越界或复杂参数回退 host;只有这六个 native,其余仍走 `host/execute_tool` |
 | Goal 预算雏形 | `run_turn.rs` 开头 | token/turn 预算检查、暂停/阻塞/预算耗尽停止、steering 文本 |
 | 取消 | `main.rs` / `napi_bindings.rs` | turn_id → `AtomicBool`,step 边界观察 |
 
@@ -828,3 +828,137 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - **checkpoint / undo**：原生写入仍不进 checkpoint。它要的是「**执行前**」钩子 + accesses 上送（写前快照必须在写之前捕获），与本轮「执行后」接缝是两条不同通道，另做一批。
 - **veto 链旁路**（P23）未修，D-1 结论不变：`nativeTools` 继续默认 false。
 - `tool.progress`/`onUpdate`、`tool_call` 遥测、`ToolAccesses` 并行批处理、display 卡片仍在缺口清单里。
+
+## P26 — Rust 不依赖 TS 的 5 批路线（2026-08-31）
+
+> 现状：Rust 引擎通过 5 条 `host/*` RPC 回调依赖 TS——`host/llm_chat`、`host/execute_tool`、`host/check_permission`、`host/finalize_tool_result`、`host/event`。其中两条必传（`llm_chat_fn`、`execute_tool_fn`），三条可选（`emit_event_fn`、`check_permission_fn`、`finalize_tool_fn`，缺失时降级为原样返回或 fail-closed）。
+>
+> 终态：5 条全部成为 opt-in——配置 `agent.rustSelfContained = true` 时，引擎在没有 native 替代品的情况下 fail-fast，不再静默回退到 TS。
+>
+> 验收口径：每批 = 1 个新 flag + 1 个 fail-fast 路径 + 1 个回归测试（覆盖"开了 flag 但 fallback 被叫"时的报错信息）+ 真机 E2E。
+
+### 批 1：干掉 `host/llm_chat` 默认路径（最小切面）
+
+**目标**：加 `agent.rustSelfContained` flag。开了之后，未配置 `nativeLlmProvider` 或 `multiLlm` 时直接报错，不静默回退到 `HostLlmProxy`。
+
+**改动**：
+- `node-sdk/src/config-local/schema.ts` `AgentConfigSchema` 新增 `rustSelfContained: z.boolean().optional()`
+- `napi_bindings.rs::JsRunTurnParams` 新增 `pub rust_self_contained: Option<bool>`
+- `rpc/types.rs::RunTurnParams` 新增 `pub rust_self_contained: Option<bool>`（`#[serde(default)]`）
+- `main.rs` CLI 解析透传
+- `napi_bindings.rs` LLM 选择的 `else` 分支前置 check：`rust_self_contained && (providers 为空) && native_llm 为 None` → `napi::Error`
+- `main.rs` stdio 组装点同样 check
+- `rust-loop.ts::RustEngineOptions` 新增 `rustSelfContained?: boolean` + napi/stdio 双通道透传
+- `apps/kimi-code/src/cli/rust-engine.ts` 从 `agentConfig.rustSelfContained` 读取并传入
+
+**新增测试**：
+- `napi-integration.test.ts` 新用例 `rustSelfContained=true without native_llm errors fast`——跑一次 runTurnRust，断言 rejection 文本含 `rustSelfContained`
+- `kimi-agent/src/rpc/server.rs` 单测覆盖 stdio 路径同样 fail-fast
+
+**验证**：
+- `cargo test` 全绿（包含 stdio 集成 9/9）
+- `bun x vitest` kimi-agent 60+1 通过 / 5 跳过 / 0 失败
+- 真机 E2E：开 flag 后跑 `real-key-e2e.test.ts`（KIMI_E2E=1）—— 应当走 native_llm，不回退 host
+
+**风险**：开 flag 的用户若忘了配 native_llm，**第一次 turn 立刻报错**——这正是要的行为。默认 `false` 不影响现有用户。
+
+**与现有测试的关系**：默认 `false` → 现有所有 napi-integration / rust-loop / stdio 测试照常通过（host_proxy 仍是 fallback）。**没有回归**。
+
+### 批 2：干掉 `host/execute_tool` 对纯 I/O 工具的依赖
+
+**目标**：把 fetch-url / web-search / github / list-directory / read-media-file 搬进 `kimi-agent/src/tools/`。其余（ask-user-question / plan / todo / goal / skill / sessionQuery / memory / workflow / team / task 族 / agent / cron / lsp / codeRuntime / select-tools / tower / swarm）保留 host 路径。
+
+**改动**：
+- 新增 `kimi-agent/src/tools/fetch_url.rs` / `web_search.rs` / `github.rs` / `list_directory.rs` / `read_media_file.rs`（参考 `kimi-native-tools` 对应模块）
+- `NativeToolset::handles()` 白名单从 6 扩到 11
+- 沙箱 + 错误回退：与现有 6 个工具一致（参数形状不认识 → 回退 host）
+
+**新增测试**：每个工具 ≥ 5 个 cargo 单测（成功/失败/越界/参数异常/二进制检测）+ 1 个 napi 集成用例
+
+**验证**：`cargo test` 全绿；真机 E2E 跑一次 `web-search` 工具调用
+
+**风险**：纯 I/O 工具无宿主状态依赖，搬过来无 veto 链旁路问题。
+
+**估时**：2-3 周
+
+### 批 3：干掉 `host/check_permission`（本地权限引擎）
+
+**目标**：把 P23 12 项等效清单的 8 项"未复现"补齐。开了 `rustSelfContained` 后，原生变更工具不调 host/check_permission，本地权限引擎（snapshot 模式 + 规则 + 审批历史进 Rust）独立判定。
+
+**改动**：
+- `kimi-agent/src/permission/mod.rs` 新增——含 `PolicySnapshot`（per-turn 注入的策略快照）、`PermissionEngine`（求值器）
+- `onWillBeginStep` 之后由 v2 host 注入 snapshot（含模式、规则、审批历史、路径策略、敏感文件列表）
+- `HostCallbacks::check_permission` 在 self-contained 模式下读 snapshot 求值，**不进**任何监听器链（veto 链归 host 负责，Rust 本地只做"策略求值"）
+
+**这是 P21 D-1 的硬门槛**：veto 链等效是 nativeTools 翻 true 的前置条件。**批 3 完成后才能翻 nativeTools 默认**。
+
+**估时**：4-6 周（含设计）
+
+### 批 4：干掉 `host/finalize_tool_result`（本地截断）
+
+**目标**：把 `IAgentToolResultTruncationService.truncateForModel` 的策略（50k 上限 + spill 到盘）移植到 Rust。
+
+**改动**：
+- `kimi-agent/src/tool_result_truncation.rs` 新增
+- `NativeToolset::execute_mutating` 在结果回填前先过本地 truncation，再 push 到 `messages`
+- spill 文件管理（workspace 下的 `.kimi/spill/`）
+
+**新增测试**：cargo 单测覆盖截断边界、spill 路径恢复、错误降级
+
+**估时**：1-2 周
+
+### 批 5：干掉 `host/event` 默认路径（事件内化）
+
+**目标**：把 step 生命周期/delta/工具事件/goal 预算事件在 Rust 进程内消费（in-process subscribers），只对 UI 广播保留一条 sink（`host/event` 降级为 fire-and-forget UI broadcast，非必需）。
+
+**改动**：
+- `kimi-agent/src/events/bus.rs` 新增 `EventBus`（in-process broadcast channel）
+- 所有 `CountingCallbacks.emit_event` 改走 `EventBus::publish`
+- UI sink 单独接（可选）
+
+**估时**：1-2 周
+
+### 批 6（顺带）：退场 `kimi-native-tools` crate（per D-3）
+
+**目标**：按 D-3，addon 导出的退场并入"引擎实现替换它"的同一批。
+
+**当前状态**（P21 实测）：52 个 addon 导出中：
+- **真在用**：edit、bash、fetch_url、path-access、permission rules、compaction 助手、glob-match、result 截断/spill、list-directory、knowledge、i18n 翻译、kosong 的 SSE 流
+- **零生产调用点**：nativeRead、nativeGrep、nativeGrepStructured、nativeWrite、nativeBatchRead、nativeFileCacheInvalidate（可被引擎吸收后删除）
+
+**改动**：每吸收一个到引擎，对应 addon 导出立刻删除（不退双轨）。预计批 2/3/4 完成后会自然消解大部分。
+
+**估时**：并行于批 2-5
+
+### 排序与依赖
+
+```
+批 1（host/llm_chat）    ← 最小切面,1 周可成
+批 4（host/finalize）    ← 与批 1 正交,可并行
+批 2（host/execute_tool 纯 I/O） ← 与批 1/4 并行
+批 5（host/event）        ← 与批 1/4 并行
+批 3（host/check_permission）← 设计活,前置所有"翻默认"动作
+批 6（addon 退场）        ← 并行
+```
+
+**乐观估时**：
+- 批 1：1 周
+- 批 2：2-3 周
+- 批 4：1-2 周
+- 批 5：1-2 周
+- 批 3：4-6 周
+- 批 6：跟随批 2-5
+
+合计 8-14 周（约 2-3.5 个月），比 P21 D-2 全量吸收的 4-6 个月乐观，因为：
+1. P21 估时含 nativeTools 翻默认 + 双轨压测期，本路线先做"工具可拔"不一定翻默认
+2. 协议前置（反向交互协议）在批 3 中**只做权限**这一条，不做 ask-user-question 等交互工具的协议
+
+### 本批（批 1）验收
+
+- [ ] `cargo test` 270/270 全绿
+- [ ] `cargo clippy --all-targets` 0 warnings
+- [ ] `cargo fmt --check` 退出 0
+- [ ] addon 重建，napi-integration 增加 1 个 fail-fast 用例
+- [ ] kimi-agent 60+1 通过 / 5 跳过 / 0 失败
+- [ ] 默认 `false` 不破坏任何现有测试
+- [ ] `KIMI_E2E=1` 真机：开 flag + 不配 native_llm → 报错信息明确；开 flag + 配 native_llm → 走 native
