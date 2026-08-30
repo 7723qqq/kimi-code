@@ -138,9 +138,10 @@ async function collectPackageFiles({
   if (includeEntryJs) {
     const entry = resolvePackageEntry(packageRoot, packageJson);
     if (entry === null) {
-      // `native-files` packages may legitimately lack a JS entry: kimi-agent
-      // pre-bundles its runtime JS into main.cjs and ships only the .node
-      // binary. Modes whose extracted tree must be requireable fail hard.
+      // `native-files` packages may legitimately lack a JS entry: kimi-agent's
+      // adapter is inlined into the compiled executable by `bun build
+      // --compile`, and only the .node binary is embedded here. Modes whose
+      // extracted tree must be requireable fail hard.
       if (requireEntryJs) {
         fail(`Native package ${packageName} has no resolvable entry point at ${packageRoot}`);
       }

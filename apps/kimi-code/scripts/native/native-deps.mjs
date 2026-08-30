@@ -98,8 +98,11 @@ export const nativeDeps = Object.freeze([
     id: 'kimi-agent',
     name: () => '@moonshot-ai/kimi-agent',
     // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch).
-    // JS (rust-loop.ts) is bundled into main.cjs; only the .node binary ships
-    // as a native asset so the compiled Bun binary can load it at runtime.
+    // tsdown leaves `@moonshot-ai/kimi-agent/rust-loop` as an external require;
+    // `bun build --compile` resolves it from the workspace node_modules and
+    // inlines the adapter into the executable. Only the `.node` binary is
+    // embedded here as a native asset, which the adapter locates at runtime
+    // through `__kimi_getNativePackageRoot`.
     collect: 'native-files',
     parent: null,
   },
