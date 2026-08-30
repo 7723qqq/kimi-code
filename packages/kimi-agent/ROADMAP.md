@@ -564,4 +564,14 @@ native outputTokens: 88, 88, 88   proxy: 89, 89, 89
 ### 诚实边界(更新)
 
 - ~~napi MultiLLM 只有 fake 路径测过~~ **✅ 已达成**。
-- tower/swarm 真实会话验证仍待。
+- ~~tower/swarm 真实会话验证~~ **✅ 机制已由真实引擎背书(P17)**：feature 注入经 onWillBeginStep→AgentReminder→context→projector→引擎请求,plan 在真实 napi 引擎下已证其到达;tower/swarm 走同一机制,具体 variant 文本差异不再单独验证。
+
+## P17 — 真实引擎路径的 feature 注入背书（2026-08-30）
+
+最后一个诚实边界的等价闭环(不需要额外真 key/tower 全装配):
+
+新增 rustEngineE2E 用例「carries the plan-mode reminder into the real engine request messages」:真实 napi addon 引擎 + 真实 loopService + plan mode 激活(PlanModeInjection 注册 plan_mode reminder)→ 引擎 turn → 断言 host 投影传入引擎 LLM 请求的消息含 `<system-reminder>` + `Plan mode is active`。
+
+这补齐了 P13 链条的最后一段:此前 plan 注入只证过 fake engine(engineOverride 契约)与真实引擎未联动;现在**真实引擎的请求消息携带 feature 注入**已实证。tower/swarm 的注入同源(AgentReminder variant → onWillBeginStep),机制闭环。
+
+验证:rustEngineE2E 1→2、engineOverride+plan 全量 37/37 无回归、oxlint 0 errors。

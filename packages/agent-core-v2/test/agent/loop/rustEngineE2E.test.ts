@@ -6,13 +6,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEngineOverrideService, type TurnEngine } from '#/agent/loop/engineOverride';
+import { IAgentPlanService } from '#/features/plan/plan';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 import {
   appService,
   createTestAgent,
+  execEnvServices,
   permissionModeServices,
   type TestAgentContext,
 } from '../../harness';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 /**
  * End-to-end seam test: the REAL Rust addon (napi) + the REAL rust-loop
@@ -120,5 +125,68 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
     // The loop saw exactly the engine-driven turn lifecycle.
     const loop = ctx.get(IAgentLoopService);
     expect(loop.status().state).toBe('idle');
+  });
+
+  it('carries the plan-mode reminder into the real engine request messages', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-plan-'));
+    tempDirs.push(workspace);
+
+    const activeFs = createFakeHostFs({ mkdir: async () => undefined, readText: async () => '' });
+    const activeRunner = createFakeProcessRunner();
+    const delegatingFs = (): IHostFileSystem =>
+      new Proxy(createFakeHostFs({ mkdir: async () => undefined, readText: async () => '' }), {
+        get(_target, prop, receiver) {
+          const value = Reflect.get(activeFs, prop, receiver);
+          return typeof value === 'function' ? value.bind(activeFs) : value;
+        },
+      }) as IHostFileSystem;
+    const delegatingRunner = (): IHostProcessService =>
+      new Proxy(createFakeProcessRunner(), {
+        get(_target, prop, receiver) {
+          const value = Reflect.get(activeRunner, prop, receiver);
+          return typeof value === 'function' ? value.bind(activeRunner) : value;
+        },
+      }) as IHostProcessService;
+
+    const adapterModule = (await import(
+      '../../../../kimi-agent/rust-loop.ts'
+    )) as typeof import('../../../../kimi-agent/rust-loop');
+    const { shutdownRustEngine } = adapterModule;
+    const engine = adapterModule.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+    shutdownRustEngine();
+
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine as unknown as TurnEngine,
+      }),
+      execEnvServices({ hostFs: delegatingFs(), processRunner: delegatingRunner() }),
+    );
+    await ctx.restorePersisted();
+    void ctx.restoreRuntimes();
+
+    // Enter plan mode: PlanModeInjection registers the plan_mode reminder,
+    // which reconcileAroundStep injects through onWillBeginStep — the gate
+    // the engine-driven turn also runs.
+    await ctx.get(IAgentPlanService).enter('engine-plan');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Plan first.' });
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Plan the rust engine work' }] });
+    await end;
+
+    // The REAL engine adapter built its request from buildMessages(); the
+    // host projection must have carried the plan-mode reminder into the
+    // messages the (scripted) LLM received.
+    expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(1);
+    const history = ctx.llmCalls[0]?.history ?? [];
+    const text = history
+      .flatMap((m) => (typeof m.content === 'string' ? [m.content] : m.content.map((c) => 'text' in c ? c.text : '')))
+      .join('\n');
+    expect(text).toContain('<system-reminder>');
+    expect(text).toContain('Plan mode is active');
   });
 });
