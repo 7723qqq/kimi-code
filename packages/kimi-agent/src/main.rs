@@ -268,6 +268,28 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("kimi-agent ready, listening on stdin/stdout");
 
+    // Initialize tracing when the host opts in. Default (env unset) is a
+    // no-op so the existing JSON-RPC stdout is never polluted. The host
+    // sets `KIMI_AGENT_TRACE=1` (or any non-empty value) to enable
+    // structured tracing to stderr; `KIMI_AGENT_TRACE_FORMAT=json` opts
+    // into JSON for chrome://tracing / speedscope.app visualisation.
+    if std::env::var("KIMI_AGENT_TRACE").is_ok_and(|v| !v.is_empty()) {
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("kimi_agent=info"));
+        if std::env::var("KIMI_AGENT_TRACE_FORMAT").as_deref() == Ok("json") {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .json()
+                .with_writer(std::io::stderr)
+                .init();
+        } else {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_writer(std::io::stderr)
+                .init();
+        }
+    }
+
     // Handlers hold Arc clones of the server (self-referential by design: the
     // RUN_TURN handler captures a server clone to spawn tool/LLM callbacks), so
     // the strong count is never 1 here. Keep the Arc and run on it directly.

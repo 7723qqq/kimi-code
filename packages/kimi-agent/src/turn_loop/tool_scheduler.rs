@@ -38,6 +38,7 @@ pub struct ScheduledToolCall {
 ///
 /// When all access lists are empty (no access info available), falls back
 /// to a single batch containing all calls (parallel-safe by default).
+#[tracing::instrument(name = "schedule_tool_calls", skip_all, fields(call_count = tool_calls.len()))]
 pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<ScheduledToolCall>> {
     if tool_calls.is_empty() {
         return vec![];
@@ -91,6 +92,7 @@ const MAX_PARALLEL_TOOLS: usize = 16;
 ///
 /// `cancellation` is polled between calls: a turn that is cancelled mid-batch
 /// stops launching work instead of running the batch out.
+#[tracing::instrument(name = "execute_scheduled", skip_all, fields(batch_size = scheduled.len()))]
 pub async fn execute_scheduled<F, Fut>(
     cancellation: Option<&Arc<AtomicBool>>,
     scheduled: Vec<ScheduledToolCall>,

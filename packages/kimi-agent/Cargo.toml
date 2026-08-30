@@ -34,6 +34,8 @@ eventsource-stream = "0.2"
 regex = "1"
 globset = "0.4"
 ignore = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [build-dependencies]
 napi-build = "2"

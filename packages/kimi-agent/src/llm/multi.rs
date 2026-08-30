@@ -78,6 +78,7 @@ impl MultiLLM {
     /// A provider that finishes first with an error does not win: its error is
     /// recorded and the race continues with the rest. If every provider fails,
     /// all errors are returned joined together.
+    #[tracing::instrument(name = "MultiLLM::first_past_the_post", skip_all, fields(providers = self.providers.len()))]
     pub async fn first_past_the_post(
         &self,
         params: LLMChatParams,
@@ -125,6 +126,7 @@ impl MultiLLM {
     }
 
     /// Run all providers and return ALL results (for comparison/debugging).
+    #[tracing::instrument(name = "MultiLLM::all_results", skip_all, fields(providers = self.providers.len()))]
     pub async fn all_results(&self, params: LLMChatParams) -> Vec<ProviderResult> {
         if self.providers.is_empty() {
             return vec![];
@@ -166,6 +168,7 @@ impl MultiLLM {
 /// Losers are cancelled at the host as well as aborted locally: the host has
 /// already issued the provider call, and dropping the receiver alone would let
 /// it run to completion and bill for work nobody will read.
+#[tracing::instrument(name = "race_first_success", skip_all, fields(handles = handles.len()))]
 async fn race_first_success(
     mut handles: Vec<tokio::task::JoinHandle<(String, ProviderResult)>>,
     cancellers: &HashMap<String, Arc<dyn HostCallbacks>>,

@@ -57,6 +57,7 @@ fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReas
 }
 
 /// Run a single turn.
+#[tracing::instrument(name = "run_turn", skip_all, fields(turn_id = %input.turn_id, max_steps = input.max_steps, has_goal = input.goal.is_some()))]
 pub fn run_turn<'a>(
     input: RunTurnInput<'a>,
     callbacks: &'a Arc<dyn HostCallbacks>,
