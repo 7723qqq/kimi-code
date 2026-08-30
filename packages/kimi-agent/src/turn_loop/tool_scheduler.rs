@@ -139,12 +139,30 @@ where
                     all_results.push(result);
                 }
                 Ok(Err(e)) => {
-                    failure = Some(e);
-                    break;
+                    // A single call failing (transport/execution) must not
+                    // abort the batch: completed siblings are kept and the
+                    // failing call surfaces as an error result the model can
+                    // react to. Only a cancellation aborts the round.
+                    if is_cancelled(cancellation) {
+                        failure = Some("turn cancelled".to_string());
+                        break;
+                    }
+                    all_results.push(ExecutableToolResult {
+                        content: e,
+                        is_error: true,
+                        note: None,
+                    });
                 }
                 Err(e) => {
-                    failure = Some(format!("Tool task join error: {e}"));
-                    break;
+                    if is_cancelled(cancellation) {
+                        failure = Some("turn cancelled".to_string());
+                        break;
+                    }
+                    all_results.push(ExecutableToolResult {
+                        content: format!("Tool task join error: {e}"),
+                        is_error: true,
+                        note: None,
+                    });
                 }
             }
         }
@@ -886,6 +904,47 @@ mod tests {
             err.to_string().contains("cancelled"),
             "unexpected error: {err}"
         );
+    }
+
+    /// A single failing call must not abort the batch: its error surfaces as an
+    /// error-marked result while sibling results are preserved.
+    #[tokio::test]
+    async fn test_execute_scheduled_single_failure_keeps_siblings() {
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
+                accesses: vec![write_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
+                accesses: vec![write_file_access("/b.txt")],
+            },
+        ];
+        let executor = move |tc: ToolCall| async move {
+            if tc.id == "1" {
+                Err("transport failed".to_string())
+            } else {
+                Ok(ExecutableToolResult {
+                    content: "ok-2".into(),
+                    is_error: false,
+                    note: None,
+                })
+            }
+        };
+        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_error, "call 1 must carry an error result");
+        assert!(results[0].content.contains("transport failed"));
+        assert!(!results[1].is_error, "sibling result must be kept");
+        assert_eq!(results[1].content, "ok-2");
     }
 
     /// Non-conflicting calls must run concurrently (max active > 1).

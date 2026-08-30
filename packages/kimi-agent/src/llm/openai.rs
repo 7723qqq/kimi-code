@@ -326,10 +326,17 @@ impl StreamAccumulator {
             .tool_calls
             .into_iter()
             .filter(|tc| !tc.name.is_empty())
-            .map(|tc| ToolCall {
-                id: tc.id,
-                name: tc.name,
-                arguments: serde_json::from_str(&tc.arguments).unwrap_or_else(|_| json!({})),
+            .filter_map(|tc| {
+                // A truncated stream leaves `arguments` unparseable — never
+                // fabricate an empty-argument call (it would execute a tool
+                // with no real inputs); drop the call instead.
+                serde_json::from_str(&tc.arguments)
+                    .ok()
+                    .map(|arguments| ToolCall {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments,
+                    })
             })
             .collect();
         LLMChatResponse {
@@ -630,5 +637,39 @@ mod tests {
         assert_eq!(resp.content, "hello");
         assert!(resp.finish_reason.is_none());
         assert_eq!(resp.usage.output_tokens, 0);
+    }
+
+    #[test]
+    fn truncated_tool_call_arguments_are_dropped_not_fabricated() {
+        // A stream cut inside the JSON arguments must NOT execute a tool call
+        // with an empty argument object (e.g. Bash without a command).
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({
+            "choices": [{
+                "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "function": { "name": "Bash", "arguments": "{\"command\": \"ech" } }] }
+            }]
+        }));
+        acc.feed(&json!({
+            "choices": [{
+                "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "" } }] }
+            }]
+        }));
+        let resp = acc.finish();
+        assert!(resp.tool_calls.is_empty(), "truncated call must be dropped");
+        assert!(resp.content.is_empty());
+    }
+
+    #[test]
+    fn complete_tool_call_arguments_are_kept() {
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({
+            "choices": [{
+                "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "function": { "name": "Read", "arguments": "{\"path\": \"a.txt\"}" } }] }
+            }]
+        }));
+        let resp = acc.finish();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "Read");
+        assert_eq!(resp.tool_calls[0].arguments["path"], "a.txt");
     }
 }

@@ -93,7 +93,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
         let new_content = parts.join(new_string);
         let disk_content = materialize_model_text(&new_content, model_view.line_ending_style);
 
-        match fs::write(file_path, &disk_content) {
+        match write_disk_content(path, &disk_content) {
             Ok(()) => EditResult {
                 success: true,
                 error: None,
@@ -101,7 +101,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
             },
             Err(e) => EditResult {
                 success: false,
-                error: Some(e.to_string()),
+                error: Some(e),
                 replacements: 0,
             },
         }
@@ -121,7 +121,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
                 let new_content = replace_once(content, old_string, new_string);
                 let disk_content = materialize_model_text(&new_content, model_view.line_ending_style);
 
-                match fs::write(file_path, &disk_content) {
+                match write_disk_content(path, &disk_content) {
                     Ok(()) => EditResult {
                         success: true,
                         error: None,
@@ -129,7 +129,7 @@ pub fn edit_file(path: &str, old_string: &str, new_string: &str, replace_all: bo
                     },
                     Err(e) => EditResult {
                         success: false,
-                        error: Some(e.to_string()),
+                        error: Some(e),
                         replacements: 0,
                     },
                 }
@@ -166,6 +166,17 @@ fn replace_once(content: &str, old: &str, new: &str) -> String {
         result
     } else {
         content.to_string()
+    }
+}
+
+/// Persist `content` atomically (temp file + rename, reusing the write tool's
+/// mechanism) so a crash or power loss mid-write cannot leave a half-edited
+/// file behind.
+fn write_disk_content(path: &str, content: &str) -> Result<(), String> {
+    let result = crate::write::write_file(path, content, crate::write::WriteMode::Overwrite, true);
+    match result.error {
+        Some(e) => Err(e),
+        None => Ok(()),
     }
 }
 

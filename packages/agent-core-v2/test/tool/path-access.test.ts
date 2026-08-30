@@ -317,8 +317,6 @@ describe('resolvePathAccess symlink/junction escape hardening', () => {
     if (!linkWorkspaceToOutside(workspace, outside)) return;
     fs.writeFileSync(path.join(outside, 'credentials'), 'secret');
 
-    // The link lives inside the workspace and its path passes every lexical
-    // check; only a real-path resolution reveals the escape.
     expect(() =>
       resolvePathAccess(
         path.join(workspace, 'escape', 'credentials'),
@@ -326,7 +324,7 @@ describe('resolvePathAccess symlink/junction escape hardening', () => {
         { workspaceDir: workspace, additionalDirs: [] },
         options(),
       ),
-    ).toThrow(/PATH_SENSITIVE/);
+    ).toThrowError('matches a sensitive-file pattern (env / credential / SSH key)');
   });
 
   it('classifies a non-sensitive file reached through a link as outside the workspace', () => {

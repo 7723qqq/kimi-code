@@ -2,7 +2,11 @@ import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
 import { DiscussionContext, type DebatePhase, type DiscussionEntry } from './context';
-import type { DiscussionObserver, DiscussionTurnEvent } from './coordinator';
+import {
+  turnFailureMessage,
+  type DiscussionObserver,
+  type DiscussionTurnEvent,
+} from './coordinator';
 
 /**
  * Configuration for a single debate participant.
@@ -104,18 +108,21 @@ export class StructuredDebateCoordinator {
       for (const [index, participant] of options.participants.entries()) {
         signal.throwIfAborted();
         const speaker = participant.speakerName ?? participant.profileName;
-        const content = await this.runOpeningStatement(
+        const turn = await this.runOpeningStatement(
           index,
           participant,
           options.topic,
           context,
           signal,
         );
+        const content = turn.content;
         context.addEntry(speaker, this.agentIds[index]!, content, 1);
 
-        const stance = this.extractStance(content);
-        initialPositions.set(speaker, stance);
-        context.recordPosition(speaker, stance, this.extractKeyPoints(content), 1);
+        if (turn.ok) {
+          const stance = this.extractStance(content);
+          initialPositions.set(speaker, stance);
+          context.recordPosition(speaker, stance, this.extractKeyPoints(content), 1);
+        }
 
         this.emitTurn(speaker, this.agentIds[index]!, 1, content);
       }
@@ -140,17 +147,20 @@ export class StructuredDebateCoordinator {
             currentRound,
           );
 
-          const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+          const turn = await this.runDebateTurn(agentId, prompt, signal);
+          const content = turn.content;
           context.addEntry(speaker, agentId, content, currentRound);
 
-          const newStance = this.extractStance(content);
-          if (newStance && newStance !== context.getPosition(speaker)?.stance) {
-            context.recordPosition(
-              speaker,
-              newStance,
-              this.extractKeyPoints(content),
-              currentRound,
-            );
+          if (turn.ok) {
+            const newStance = this.extractStance(content);
+            if (newStance && newStance !== context.getPosition(speaker)?.stance) {
+              context.recordPosition(
+                speaker,
+                newStance,
+                this.extractKeyPoints(content),
+                currentRound,
+              );
+            }
           }
 
           this.emitTurn(speaker, agentId, currentRound, content);
@@ -172,12 +182,20 @@ export class StructuredDebateCoordinator {
           closingRound,
         );
 
-        const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+        const turn = await this.runDebateTurn(agentId, prompt, signal);
+        const content = turn.content;
         context.addEntry(speaker, agentId, content, closingRound);
 
-        const finalStance = this.extractStance(content);
-        if (finalStance) {
-          context.recordPosition(speaker, finalStance, this.extractKeyPoints(content), closingRound);
+        if (turn.ok) {
+          const finalStance = this.extractStance(content);
+          if (finalStance) {
+            context.recordPosition(
+              speaker,
+              finalStance,
+              this.extractKeyPoints(content),
+              closingRound,
+            );
+          }
         }
 
         this.emitTurn(speaker, agentId, closingRound, content);
@@ -247,7 +265,7 @@ export class StructuredDebateCoordinator {
     topic: string,
     context: DiscussionContext,
     signal: AbortSignal,
-  ): Promise<string> {
+  ): Promise<{ content: string; ok: boolean }> {
     const agentId = this.agentIds[index]!;
     const stanceHint = participant.assignedStance
       ? `\nYour assigned stance: ${participant.assignedStance}`
@@ -267,7 +285,21 @@ export class StructuredDebateCoordinator {
       'Be thorough and persuasive — this is your chance to frame the debate.',
     ].join('\n');
 
-    return this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+    return this.runDebateTurn(agentId, prompt, signal);
+  }
+
+  private async runDebateTurn(
+    agentId: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<{ content: string; ok: boolean }> {
+    try {
+      const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+      return { content, ok: true };
+    } catch (error) {
+      if (isCancelled(error, signal)) throw error;
+      return { content: turnFailureMessage(error), ok: false };
+    }
   }
 
   private buildDebateRoundPrompt(

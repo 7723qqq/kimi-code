@@ -77,17 +77,32 @@ static PAYLOAD_REGISTRY: LazyLock<Mutex<BTreeMap<u32, String>>> =
 const PAYLOAD_REGISTRY_MAX_ENTRIES: usize = 1000;
 
 /// Store a payload for JS to collect, pruning the oldest entries when the
-/// registry is full.
+/// registry is full — but never evicting a payload whose callback is still
+/// awaiting resolution. Evicting one would make JS fetch null for a pending
+/// request and strand its oneshot until the timeout (or, for a permission
+/// check, forever).
 fn store_payload(id: u32, payload: String) {
-    let mut registry = PAYLOAD_REGISTRY.lock().unwrap();
+    let mut registry = PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
     registry.insert(id, payload);
     let excess = registry.len().saturating_sub(PAYLOAD_REGISTRY_MAX_ENTRIES);
     if excess == 0 {
         return;
     }
-    let oldest: Vec<u32> = registry.keys().take(excess).copied().collect();
-    for id in oldest {
-        registry.remove(&id);
+    let pending = CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut evicted = 0usize;
+    let mut doomed: Vec<u32> = Vec::new();
+    for (candidate, _) in registry.iter() {
+        if evicted >= excess {
+            break;
+        }
+        if pending.contains_key(candidate) {
+            continue;
+        }
+        doomed.push(*candidate);
+        evicted += 1;
+    }
+    for candidate in doomed {
+        registry.remove(&candidate);
     }
 }
 
@@ -107,10 +122,16 @@ static CANCEL_MAP: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
 /// finished this is a no-op.
 #[napi]
 pub fn cancel_turn(turn_id: String) -> napi::Result<()> {
-    if let Some(flag) = CANCEL_MAP.lock().unwrap().get(&turn_id) {
-        flag.store(true, Ordering::Relaxed);
-    }
-    Ok(())
+    guard_sync_panic(|| {
+        if let Some(flag) = CANCEL_MAP
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&turn_id)
+        {
+            flag.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    })
 }
 
 /// Emit a one-shot `tracing::info!` event. Used by the test harness to
@@ -143,16 +164,27 @@ pub fn init_tracing_from_env() -> napi::Result<bool> {
         }
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("kimi_agent=info"));
-        let result = if std::env::var("KIMI_AGENT_TRACE_FORMAT").as_deref() == Ok("json") {
+        // Default to stdout: vitest's reporter captures stderr in some
+        // harness modes, and our existing `eprintln!` diagnostics already
+        // write to stderr. Sending tracing to stdout keeps the two
+        // channels separate and lets vitest users pipe the trace.
+        let use_stderr = std::env::var("KIMI_AGENT_TRACE_STDERR").is_ok();
+        let use_json = std::env::var("KIMI_AGENT_TRACE_FORMAT").as_deref() == Ok("json");
+        let result = if use_stderr {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_writer(|| std::io::stderr())
+                .try_init()
+        } else if use_json {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
                 .json()
-                .with_writer(std::io::stderr)
+                .with_writer(|| std::io::stdout())
                 .try_init()
         } else {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
-                .with_writer(std::io::stderr)
+                .with_writer(|| std::io::stdout())
                 .try_init()
         };
         if result.is_ok() {
@@ -166,8 +198,13 @@ pub fn init_tracing_from_env() -> napi::Result<bool> {
 /// Returns the JSON-serialized request payload, or null if not found.
 #[napi]
 pub fn get_callback_payload(id: u32) -> napi::Result<Option<String>> {
-    let payload = PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
-    Ok(payload)
+    guard_sync_panic(|| {
+        let payload = PAYLOAD_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+        Ok(payload)
+    })
 }
 
 /// Called by JS to resolve a pending host callback.
@@ -181,15 +218,29 @@ pub fn resolve_callback(
     error: Option<String>,
     result: Option<String>,
 ) -> napi::Result<()> {
-    if let Some(tx) = CALLBACK_REGISTRY.lock().unwrap().remove(&id) {
-        let outcome = match (error, result) {
-            (Some(err), _) => Err(err),
-            (_, Some(res)) => Ok(res),
-            (None, None) => Err("callback resolved with no result".to_string()),
-        };
-        let _ = tx.send(outcome);
-    }
-    Ok(())
+    guard_sync_panic(|| {
+        if let Some(tx) = CALLBACK_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id)
+        {
+            let outcome = match (error, result) {
+                (Some(err), _) => Err(err),
+                (_, Some(res)) => Ok(res),
+                (None, None) => Err("callback resolved with no result".to_string()),
+            };
+            let _ = tx.send(outcome);
+        }
+        Ok(())
+    })
+}
+
+/// Catch a panic in a synchronous napi export so it becomes a JS-side
+/// error instead of unwinding across the FFI boundary and aborting the
+/// whole Node process.
+fn guard_sync_panic<T>(f: impl FnOnce() -> napi::Result<T>) -> napi::Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .map_err(|_| napi::Error::from_reason("internal panic in sync napi export"))?
 }
 
 // ── NapiHostCallbacks ──────────────────────────────────────────────────────
@@ -212,6 +263,10 @@ struct NapiHostCallbacks {
     /// Fail-closed when absent: without a checker the engine refuses native
     /// execution of Write/Edit/Bash and the call falls back to the host.
     check_permission_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// The current turn's cancellation flag. Awaiting a host callback then
+    /// observes it, so `cancel_turn` also interrupts in-flight permission
+    /// checks and host tool calls instead of stranding them until timeout.
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 impl HostCallbacks for NapiHostCallbacks {
@@ -225,7 +280,7 @@ impl HostCallbacks for NapiHostCallbacks {
         let tsfn = self.llm_chat_fn.clone();
         let input = serde_json::to_string(&request)
             .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
-        Box::pin(napi_llm_chat(tsfn, input))
+        Box::pin(napi_llm_chat(tsfn, input, self.cancellation.clone()))
     }
 
     fn execute_tool(
@@ -238,7 +293,7 @@ impl HostCallbacks for NapiHostCallbacks {
         let tsfn = self.execute_tool_fn.clone();
         let input = serde_json::to_string(&request)
             .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
-        Box::pin(napi_execute_tool(tsfn, input))
+        Box::pin(napi_execute_tool(tsfn, input, self.cancellation.clone()))
     }
 
     fn check_permission(
@@ -255,10 +310,12 @@ impl HostCallbacks for NapiHostCallbacks {
         let tsfn = tsfn.clone();
         let input = serde_json::to_string(&request)
             .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
         Box::pin(async move {
             // No timeout: this one waits on a human, and giving up would
-            // discard an approval the user has already granted.
-            let output = invoke_via_registry(&tsfn, input, "check_permission", None).await?;
+            // discard an approval the user has already granted. A turn
+            // cancellation still interrupts the wait.
+            let output = invoke_via_registry(&tsfn, input, "check_permission", None, cancel).await?;
             serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
         })
     }
@@ -277,7 +334,7 @@ impl HostCallbacks for NapiHostCallbacks {
         store_payload(id, payload);
         let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
         if status != napi::Status::Ok {
-            PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
+            PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         }
     }
 }
@@ -291,11 +348,13 @@ impl HostCallbacks for NapiHostCallbacks {
 /// `timeout` bounds how long the host may take to answer. `None` waits
 /// indefinitely, which is right for a permission check: that one is
 /// answered by a human, and a timeout would land after the user approved.
+/// Either way, a turn cancellation interrupts the wait.
 async fn invoke_via_registry(
     tsfn: &Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
     label: &str,
     timeout: Option<Duration>,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> std::result::Result<std::string::String, std::string::String> {
     let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = oneshot::channel();
@@ -304,43 +363,75 @@ async fn invoke_via_registry(
     store_payload(id, input);
 
     // Register the sender so resolve_callback can find it.
-    CALLBACK_REGISTRY.lock().unwrap().insert(id, tx);
+    CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
 
     // Fire the JS function with just the callback ID (a number).
     // ErrorStrategy::Fatal: no error-first null prepended, JS receives the id directly.
     let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
     if status != napi::Status::Ok {
         // Clean up on failure.
-        PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
-        CALLBACK_REGISTRY.lock().unwrap().remove(&id);
+        PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         return Err(format!("{label} call: {status:?}"));
     }
 
-    // Await the oneshot receiver. The sender is triggered by resolve_callback.
-    let outcome = match timeout {
-        Some(limit) => match tokio::time::timeout(limit, rx).await {
+    let pending = match timeout {
+        Some(limit) => match tokio::time::timeout(limit, wait_for_callback(rx, cancel, label)).await
+        {
             Ok(outcome) => outcome,
-            Err(_) => {
-                // Leave nothing behind: the late resolve_callback would find
-                // no sender, and the payload would sit in the registry until
-                // it was pruned.
-                PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
-                CALLBACK_REGISTRY.lock().unwrap().remove(&id);
-                return Err(format!("{label} timed out after {}s", limit.as_secs()));
-            }
+            Err(_) => Err(format!("{label} timed out after {}s", limit.as_secs())),
         },
-        None => rx.await,
+        None => wait_for_callback(rx, cancel, label).await,
     };
 
-    outcome.map_err(|e| format!("{label} closed: {e}"))?
+    // Whatever ended the wait (resolution, timeout, cancellation, dropped
+    // host), leave nothing behind: a late resolve_callback would find no
+    // sender, and the payload would sit in the registry until pruned.
+    PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    if pending.is_err() {
+        CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    }
+
+    pending.and_then(|inner| inner)
+}
+
+/// Await a host-callback oneshot, optionally observing the turn's
+/// cancellation flag so `cancel_turn` can interrupt permission waits and
+/// host-tool round-trips instead of stranding them.
+async fn wait_for_callback(
+    rx: oneshot::Receiver<Result<String, String>>,
+    cancel: Option<Arc<AtomicBool>>,
+    label: &str,
+) -> Result<Result<String, String>, String> {
+    let Some(flag) = cancel else {
+        return match rx.await {
+            Ok(outcome) => Ok(outcome),
+            Err(_) => Err(format!("{label} closed: receiver dropped")),
+        };
+    };
+    let mut rx = rx;
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {
+                if flag.load(Ordering::Relaxed) {
+                    return Err(format!("{label} cancelled"));
+                }
+            }
+            outcome = &mut rx => return outcome.map_err(|_| format!("{label} closed: receiver dropped")),
+        }
+    }
 }
 
 /// Standalone async function for LLM chat via callback registry.
 async fn napi_llm_chat(
     tsfn: Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> std::result::Result<LlmChatResponse, std::string::String> {
-    let output = invoke_via_registry(&tsfn, input, "llm_chat", Some(HOST_LLM_TIMEOUT)).await?;
+    let output =
+        invoke_via_registry(&tsfn, input, "llm_chat", Some(HOST_LLM_TIMEOUT), cancel).await?;
     serde_json::from_str(&output).map_err(|e| format!("llm_chat parse: {e}"))
 }
 
@@ -348,8 +439,10 @@ async fn napi_llm_chat(
 async fn napi_execute_tool(
     tsfn: Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> std::result::Result<ToolExecuteResponse, std::string::String> {
-    let output = invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT)).await?;
+    let output =
+        invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT), cancel).await?;
     serde_json::from_str(&output).map_err(|e| format!("execute_tool parse: {e}"))
 }
 
@@ -573,11 +666,22 @@ async fn run_turn_rust_impl(
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
+    // Register the turn's cancellation flag up front so a JS-side
+    // `cancel_turn` can interrupt host callbacks (permission waits
+    // included) while this turn is in flight.
+    let turn_id = params.turn_id.clone();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    CANCEL_MAP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(turn_id.clone(), cancellation.clone());
+
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(NapiHostCallbacks {
         llm_chat_fn: Arc::new(llm_chat_tsfn),
         execute_tool_fn: Arc::new(execute_tool_tsfn),
         emit_event_fn: emit_event_tsfn.map(Arc::new),
         check_permission_fn: check_permission_tsfn.map(Arc::new),
+        cancellation: Some(cancellation.clone()),
     });
 
     // Count every event this turn emits (step lifecycle, deltas, native
@@ -700,13 +804,6 @@ async fn run_turn_rust_impl(
         turns_used: g.turns_used,
     });
 
-    let turn_id = params.turn_id.clone();
-    let cancellation = Arc::new(AtomicBool::new(false));
-    CANCEL_MAP
-        .lock()
-        .unwrap()
-        .insert(turn_id.clone(), cancellation.clone());
-
     let input = RunTurnInput {
         turn_id: turn_id.clone(),
         llm: &*llm,
@@ -722,7 +819,10 @@ async fn run_turn_rust_impl(
 
     let result = run_turn(input, &callbacks).await;
 
-    CANCEL_MAP.lock().unwrap().remove(&turn_id);
+    CANCEL_MAP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&turn_id);
 
     let result = result.map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
 

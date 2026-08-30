@@ -47,9 +47,12 @@ export const TeamToolInputSchema = z.object({
     .number()
     .int()
     .positive()
+    .max(50)
     .optional()
     .default(3)
-    .describe('For discussion: max rounds. For debate: max free-debate rounds.'),
+    .describe(
+      'For discussion: max rounds. For debate: max free-debate rounds. Capped at 50 to bound the number of serial LLM calls.',
+    ),
   summaryPrompt: z
     .string()
     .trim()

@@ -104,6 +104,43 @@ struct MatchEntry {
     line: String,
 }
 
+/// Cap on the total file content retained by the walker for content-mode
+/// output. The emitted excerpts are themselves capped at `MAX_OUTPUT_BYTES`,
+/// so anything beyond this budget is re-read per file at emission instead of
+/// being cached — without this, a large repo can buffer hundreds of MB.
+const CONTENT_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// Peek the reader's head for a NUL byte — the classic binary marker.
+/// Peek-only (`fill_buf` does not consume), so streaming can continue on
+/// the same reader. Binary file bytes must never reach the model output.
+fn starts_with_nul(reader: &mut BufReader<fs::File>) -> bool {
+    reader.fill_buf().map(|buf| buf.contains(&0)).unwrap_or(false)
+}
+
+/// Read the next line from `reader` into `out`, decoding lossy (invalid
+/// UTF-8 becomes U+FFFD). Returns `false` at EOF. Unlike `BufRead::lines`,
+/// an invalid-UTF-8 line does not abort the stream — a single decoded file
+/// used to silently drop every subsequent line.
+fn read_lossy_line(
+    reader: &mut BufReader<fs::File>,
+    buf: &mut Vec<u8>,
+    out: &mut String,
+) -> bool {
+    buf.clear();
+    let Ok(n) = reader.read_until(b'\n', buf) else {
+        return false;
+    };
+    if n == 0 {
+        return false;
+    }
+    let line = String::from_utf8_lossy(buf);
+    let line = line.strip_suffix('\n').unwrap_or(&line);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    out.clear();
+    out.push_str(line);
+    true
+}
+
 // ============================================================================
 // Structured grep (fs:grep service)
 // ============================================================================
@@ -297,7 +334,10 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     // This mirrors ripgrep's internal approach (same `ignore` crate).
     let file_matches: Mutex<Vec<(PathBuf, usize, std::time::SystemTime)>> = Mutex::new(Vec::new());
     // Cache file content for content mode to avoid re-reading matched files.
+    // Bounded by `CONTENT_CACHE_MAX_BYTES`; beyond it, files are re-read at
+    // emission instead of being buffered unboundedly.
     let content_cache: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+    let cached_bytes = std::sync::atomic::AtomicUsize::new(0);
     let filtered_sensitive: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let timed_out = AtomicBool::new(false);
     let deadline = config
@@ -310,6 +350,7 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
         let file_type_globs = &file_type_globs;
         let file_matches = &file_matches;
         let content_cache = &content_cache;
+        let cached_bytes = &cached_bytes;
         let filtered_sensitive = &filtered_sensitive;
         let timed_out = &timed_out;
         let deadline = &deadline;
@@ -371,13 +412,18 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 Ok(f) => f,
                 Err(_) => return ignore::WalkState::Continue,
             };
-            let reader = BufReader::new(file);
+            let mut reader = BufReader::new(file);
+            if starts_with_nul(&mut reader) {
+                return ignore::WalkState::Continue;
+            }
             let mut match_count: usize = 0;
             let mut accumulated_content = String::new();
+            let mut line_bytes = Vec::new();
+            let mut line = String::new();
 
             if is_files_with_matches {
                 // Early termination: stop reading as soon as we find one match.
-                for line in reader.lines().map_while(Result::ok) {
+                while read_lossy_line(&mut reader, &mut line_bytes, &mut line) {
                     if regex.find(&line).is_some() {
                         match_count = 1;
                         break;
@@ -385,14 +431,14 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 }
             } else if needs_full_content {
                 // Content mode: accumulate lines while counting matches.
-                for line in reader.lines().map_while(Result::ok) {
+                while read_lossy_line(&mut reader, &mut line_bytes, &mut line) {
                     match_count += regex.find_iter(&line).count();
                     accumulated_content.push_str(&line);
                     accumulated_content.push('\n');
                 }
             } else {
                 // Count mode: just count matches.
-                for line in reader.lines().map_while(Result::ok) {
+                while read_lossy_line(&mut reader, &mut line_bytes, &mut line) {
                     match_count += regex.find_iter(&line).count();
                 }
             }
@@ -403,7 +449,11 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                     .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 file_matches.lock().unwrap().push((path.to_path_buf(), match_count, mtime));
                 if needs_full_content && !accumulated_content.is_empty() {
-                    content_cache.lock().unwrap().push((path.to_path_buf(), accumulated_content));
+                    let len = accumulated_content.len();
+                    let previous = cached_bytes.fetch_add(len, Ordering::Relaxed);
+                    if previous + len <= CONTENT_CACHE_MAX_BYTES {
+                        content_cache.lock().unwrap().push((path.to_path_buf(), accumulated_content));
+                    }
                 }
             }
 
@@ -432,8 +482,8 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
         for (path, _, _) in &file_matches {
             let content_str = match content_map.get(path.as_path()) {
                 Some(c) => c.to_string(),
-                None => match fs::read_to_string(path) {
-                    Ok(c) => c,
+                None => match fs::read(path) {
+                    Ok(data) => String::from_utf8_lossy(&data).to_string(),
                     Err(_) => continue,
                 },
             };
@@ -790,8 +840,10 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
         };
     }
 
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
+    // Binary (NUL-containing) files are skipped entirely: their bytes must
+    // never reach the model output, and a text grep on them is meaningless.
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) => {
             return GrepResult {
                 content: String::new(),
@@ -803,6 +855,19 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
             };
         }
     };
+    if bytes.contains(&0) {
+        return GrepResult {
+            content: String::new(),
+            error: None,
+            match_count: 0,
+            file_count: 0,
+            filtered_sensitive: Vec::new(),
+            timed_out: false,
+        };
+    }
+    // Lossy decode: an invalid-UTF-8 (e.g. GBK) file is searched instead of
+    // erroring the whole call out.
+    let content = String::from_utf8_lossy(&bytes).to_string();
 
     let lines: Vec<&str> = content.split('\n').collect();
     let matched_lines: Vec<usize> = lines
@@ -980,6 +1045,70 @@ mod tests {
         });
         assert!(result.error.is_none());
         assert!(result.content.contains("1:hello world"));
+    }
+
+    // Binary files (NUL bytes) must be skipped — their content would
+    // otherwise flow verbatim into the model output.
+    #[test]
+    fn test_grep_binary_file_skipped() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("text.txt"), b"hello text\n").unwrap();
+        let mut binary = Vec::new();
+        binary.extend_from_slice(b"\x00\x01\x02hello\x00");
+        binary.extend_from_slice(&[0u8; 64]);
+        fs::write(dir.path().join("bin.dat"), binary).unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "hello".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::FilesWithMatches,
+            ..Default::default()
+        });
+        assert!(result.error.is_none());
+        assert_eq!(result.file_count, 1, "the binary file must be skipped");
+        assert!(result.content.contains("text.txt"));
+        assert!(!result.content.contains("bin.dat"));
+    }
+
+    // An invalid-UTF-8 line must not silently abort the rest of the file:
+    // a match on a later line used to be lost entirely.
+    #[test]
+    fn test_grep_invalid_utf8_does_not_truncate() {
+        let dir = TempDir::new().unwrap();
+        // First line contains an invalid UTF-8 byte; the matching line
+        // comes after it. `BufRead::lines` stopped at the invalid line.
+        let mut data: Vec<u8> = Vec::new();
+        data.extend_from_slice(b"\xff\xfe broken encoding line\n");
+        data.extend_from_slice(b"target match here\n");
+        fs::write(dir.path().join("mixed.dat"), data).unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "target match".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::FilesWithMatches,
+            ..Default::default()
+        });
+        assert!(result.error.is_none());
+        assert_eq!(result.file_count, 1, "the match after the bad line must be found");
+    }
+
+    #[test]
+    fn test_read_lossy_line_strips_eol_and_stops_at_eof() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("l.txt");
+        fs::write(&path, b"a\r\nb\nc\xffd\n").unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let mut reader = BufReader::new(file);
+        let mut buf = Vec::new();
+        let mut line = String::new();
+
+        assert!(read_lossy_line(&mut reader, &mut buf, &mut line));
+        assert_eq!(line, "a");
+        assert!(read_lossy_line(&mut reader, &mut buf, &mut line));
+        assert_eq!(line, "b");
+        assert!(read_lossy_line(&mut reader, &mut buf, &mut line));
+        assert_eq!(line, "c\u{FFFD}d");
+        assert!(!read_lossy_line(&mut reader, &mut buf, &mut line));
     }
 
     #[test]

@@ -283,9 +283,9 @@ describe('TeamCoordinator', () => {
     expect(stub.destroyed).toEqual(['agent-0', 'agent-1']);
   });
 
-  it('ends with failed and still destroys participants when a turn throws', async () => {
+  it('records a failing participant turn as an error entry and completes the discussion', async () => {
     const stub = createStubHost({
-      throwOnTurn: (index) => (index === 1 ? new Error('boom') : undefined),
+      throwOnTurn: (index) => (index % 2 === 1 ? new Error('boom') : undefined),
     });
     const coordinator = new TeamCoordinator(stub.host);
 
@@ -296,13 +296,17 @@ describe('TeamCoordinator', () => {
           { profileName: 'coder', roleDescription: 'Role A.' },
           { profileName: 'explore', roleDescription: 'Role B.' },
         ],
-        maxRounds: 3,
+        maxRounds: 2,
       },
-      controller.signal,
+      new AbortController().signal,
     );
 
-    expect(result.endedBy).toBe('failed');
-    expect(result.transcript).toHaveLength(1);
+    expect(result.endedBy).toBe('max_rounds');
+    const errorEntries = result.transcript.filter((e) => e.speaker === 'explore');
+    expect(errorEntries).toHaveLength(2);
+    for (const entry of errorEntries) {
+      expect(entry.content).toBe('[agent error] boom');
+    }
     expect(stub.destroyed).toEqual(['agent-0', 'agent-1']);
   });
 
@@ -524,7 +528,7 @@ describe('StructuredDebateCoordinator', () => {
     expect(stub.destroyed).toEqual(['agent-0', 'agent-1']);
   });
 
-  it('ends with failed and still destroys participants when a turn throws', async () => {
+  it('records a failing debate turn as an error entry and completes the debate', async () => {
     const stub = createStubHost({
       throwOnTurn: (index) => (index === 3 ? new Error('boom') : undefined),
     });
@@ -542,9 +546,14 @@ describe('StructuredDebateCoordinator', () => {
       controller.signal,
     );
 
-    expect(result.endedBy).toBe('failed');
-    expect(result.transcript).toHaveLength(3);
-    expect(result.positionChanges).toBe(0);
+    expect(result.endedBy).toBe('completed');
+    expect(result.transcript).toHaveLength(8);
+    const errorEntry = result.transcript.find((e) => e.content === '[agent error] boom');
+    expect(errorEntry).toBeDefined();
+    expect(errorEntry!.speaker).toBe('explore');
+    // Both speakers' stances evolve from opening to closing once the debate
+    // runs to completion (the failed round is skipped, not recorded).
+    expect(result.positionChanges).toBe(2);
     expect(stub.destroyed).toEqual(['agent-0', 'agent-1']);
   });
 });

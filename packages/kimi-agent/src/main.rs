@@ -116,19 +116,12 @@ async fn main() -> anyhow::Result<()> {
                     _ => base_callbacks.clone(),
                 };
 
-            // Build the LLM — native HTTP, MultiLLM, or host proxy.
-            let llm: Box<dyn LLM> = if let Some(cfg) = input.native_llm.clone() {
-                let sink_callbacks = callbacks.clone();
-                Box::new(
-                    NativeHttpLlm::new(cfg, input.system_prompt.clone())
-                        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
-                )
-            } else if input.providers.is_empty() {
-                Box::new(
-                    HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
-                        .with_callbacks(callbacks.clone()),
-                )
-            } else {
+            // Build the LLM — MultiLLM providers, native HTTP, or host proxy.
+            // Priority must match the napi channel (napi_bindings.rs):
+            // providers (concurrent MultiLLM race) → native_llm → host
+            // proxy. Checking native_llm first would silently route a
+            // MultiLLM session to a single model on this transport.
+            let llm: Box<dyn LLM> = if !input.providers.is_empty() {
                 let providers: Vec<LlmProvider> = input
                     .providers
                     .iter()
@@ -141,6 +134,17 @@ async fn main() -> anyhow::Result<()> {
                     .collect();
                 let multi = MultiLLM::new(providers);
                 Box::new(multi)
+            } else if let Some(cfg) = input.native_llm.clone() {
+                let sink_callbacks = callbacks.clone();
+                Box::new(
+                    NativeHttpLlm::new(cfg, input.system_prompt.clone())
+                        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
+                )
+            } else {
+                Box::new(
+                    HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
+                        .with_callbacks(callbacks.clone()),
+                )
             };
 
             let messages: Vec<LLMMessage> = input

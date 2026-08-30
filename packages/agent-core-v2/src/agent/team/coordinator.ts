@@ -119,7 +119,13 @@ export class TeamCoordinator {
               context,
             );
 
-            const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+            let content: string;
+            try {
+              content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
+            } catch (error) {
+              if (isCancelled(error, signal)) throw error;
+              content = turnFailureMessage(error);
+            }
 
             const speaker = participant.speakerName ?? participant.profileName;
             context.addEntry(speaker, agentId, content, round);
@@ -262,4 +268,9 @@ function isCancelled(error: unknown, signal: AbortSignal): boolean {
   if (signal.aborted) return true;
   if (error instanceof Error && error.name === 'AbortError') return true;
   return false;
+}
+
+export function turnFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `[agent error] ${detail}`;
 }

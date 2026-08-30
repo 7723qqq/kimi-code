@@ -373,11 +373,14 @@ impl StreamAccumulator {
                     id,
                     name,
                     input_json,
-                } if !name.is_empty() => Some(ToolCall {
-                    id,
-                    name,
-                    arguments: serde_json::from_str(&input_json).unwrap_or_else(|_| json!({})),
-                }),
+                } if !name.is_empty() => {
+                    // A truncated stream leaves input_json incomplete — never
+                    // fabricate an empty-argument call (it would execute a
+                    // tool with no real inputs); drop the call instead.
+                    serde_json::from_str(&input_json)
+                        .ok()
+                        .map(|arguments| ToolCall { id, name, arguments })
+                }
                 _ => None,
             })
             .collect();
@@ -667,5 +670,45 @@ mod tests {
         assert_eq!(resp.content, "hello");
         assert!(resp.finish_reason.is_none());
         assert_eq!(resp.usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn truncated_tool_use_input_is_dropped_not_fabricated() {
+        // A stream cut inside the input JSON must NOT execute a tool call
+        // with an empty argument object (e.g. Bash without a command).
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "tool_use", "id": "tu_1", "name": "Bash" }
+        }));
+        acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "input_json_delta", "partial_json": "{\"command\": \"ech" }
+        }));
+        let resp = acc.finish();
+        assert!(resp.tool_calls.is_empty(), "truncated call must be dropped");
+    }
+
+    #[test]
+    fn complete_tool_use_input_is_kept() {
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "tool_use", "id": "tu_1", "name": "Read" }
+        }));
+        for fragment in ["{\"path\"", ": \"a.txt\"}"] {
+            acc.feed(&json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "input_json_delta", "partial_json": fragment }
+            }));
+        }
+        let resp = acc.finish();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "Read");
+        assert_eq!(resp.tool_calls[0].arguments["path"], "a.txt");
     }
 }

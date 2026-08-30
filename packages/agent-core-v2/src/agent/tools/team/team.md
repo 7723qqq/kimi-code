@@ -17,7 +17,7 @@ Use this when you need multiple perspectives on a complex topic, want agents to 
   - `name`: Distinct speaker name shown in the transcript and used for stance tracking and cross-references (e.g. "researcher-1"). Each participant MUST get a unique name — if omitted, defaults to the profileName, which is the same for everyone.
   - `roleDescription`: The role this agent plays (e.g. "You are a senior database architect...").
   - `assignedStance`: (Debate only) Optional — assign a specific stance (e.g. "argue for migration").
-- `maxRounds`: For discussion: max rounds (default: 3). For debate: max free-debate rounds (default: 2).
+- `maxRounds`: For discussion: max rounds (default: 3). For debate: max free-debate rounds (default: 2). Capped at 50 to bound the number of serial LLM calls.
 - `summaryPrompt`: Optional. If provided, generates a summary (discussion) or consensus report (debate).
 - `enableVoting`: (Debate only) Whether to include a voting phase (default: false).
 
