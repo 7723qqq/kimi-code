@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveKimiHome: vi.fn(),
   createRunTurnOverride: vi.fn(),
   probeHostEnvironment: vi.fn(),
+  isRustEngineAvailable: vi.fn(),
 }));
 
 vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
@@ -20,6 +21,7 @@ vi.mock('@moonshot-ai/agent-core-v2', () => ({
 
 vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
   createRunTurnOverride: mocks.createRunTurnOverride,
+  isRustEngineAvailable: mocks.isRustEngineAvailable,
 }));
 
 import { normalizeBaseUrl } from '../../src/cli/rust-engine';
@@ -56,6 +58,7 @@ beforeEach(() => {
   mocks.resolveKimiHome.mockReset().mockReturnValue('/home/u');
   mocks.createRunTurnOverride.mockReset();
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
+  mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -78,10 +81,34 @@ describe('maybeLoadRustEngine', () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    expect(mocks.isRustEngineAvailable).toHaveBeenCalled();
 
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: { engine: 'js' } }) });
     const maybeLoadRustEngine2 = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine2('/home/u')).resolves.toBeUndefined();
+    // Explicit opt-out skips the capability probe.
+    expect(mocks.isRustEngineAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-enables the engine when agent.engine is unset and the bundle is loadable', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
+    mocks.isRustEngineAvailable.mockReturnValue(true);
+    const engine = vi.fn();
+    mocks.createRunTurnOverride.mockReturnValue(engine);
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+    expect(mocks.createRunTurnOverride).toHaveBeenCalledTimes(1);
+  });
+
+  it('respects an explicit agent.engine = "js" even when the bundle is loadable', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({ agent: { engine: 'js' } }),
+    });
+    mocks.isRustEngineAvailable.mockReturnValue(true);
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
   });
 
   it('returns undefined when the rust adapter module has no createRunTurnOverride', async () => {
@@ -232,7 +259,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('agent.multiLlm is set but agent.engine is not "rust"'),
+      expect.stringContaining('agent.multiLlm is set but the Rust engine is not active'),
     );
   });
 });

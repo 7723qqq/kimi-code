@@ -204,6 +204,20 @@ export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: stri
 }
 
 /**
+ * Capability probe: true when the engine bundle is present and loadable
+ * (napi addon or the bundled stdio CLI). Used by the auto-enable path when
+ * `agent.engine` is unset. Never loads the addon — only checks availability.
+ */
+async function isEngineLoadable(): Promise<boolean> {
+  try {
+    const { isRustEngineAvailable } = await import('@moonshot-ai/kimi-agent/rust-loop');
+    return typeof isRustEngineAvailable === 'function' && isRustEngineAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Try to wire the Rust agent engine based on config.
  * Reads the config file, checks `agent.engine`, and if `"rust"`,
  * dynamically imports the Rust adapter from the kimi-agent package.
@@ -228,11 +242,20 @@ export async function maybeLoadRustEngine(
   }
 
   const agentConfig = loaded.config.agent;
-  if (agentConfig?.engine !== 'rust') {
-    // Warn if multiLlm is set but engine isn't rust — it's a no-op in this case.
+  // Three-way engine gate:
+  // - agent.engine = "rust"  → always wired (explicit opt-in).
+  // - agent.engine = "js"    → never wired (explicit opt-out).
+  // - unset                  → capability probe: wire it when the engine
+  //   bundle is loadable (.node addon or bundled stdio CLI), quietly
+  //   falling back to the JS loop otherwise.
+  const engineMode = agentConfig?.engine;
+  const engineActive =
+    engineMode === 'rust' || (engineMode !== 'js' && (await isEngineLoadable()));
+  if (!engineActive) {
+    // Warn if multiLlm is set but the engine isn't active — it's a no-op in this case.
     if (agentConfig?.multiLlm && agentConfig.multiLlm.length > 0) {
       console.warn(
-        '[kimi-agent] agent.multiLlm is set but agent.engine is not "rust" — MultiLLM ignored.',
+        '[kimi-agent] agent.multiLlm is set but the Rust engine is not active — MultiLLM ignored.',
       );
     }
     return undefined;
@@ -244,7 +267,7 @@ export async function maybeLoadRustEngine(
   // config.toml), the Rust engine follows to the new model's provider instead
   // of forever calling the provider that was active at startup.
   const providers = extractMultiLlmProviders(loaded.config);
-  const nativeTools = agentConfig.nativeTools === true;
+  const nativeTools = agentConfig?.nativeTools === true;
   // Native Bash must run under the same shell the host Bash tool documents
   // (bash everywhere, Git Bash on Windows) — probe it once for the engine.
   let shellPath: string | undefined;
