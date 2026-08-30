@@ -4,11 +4,18 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { fail } from './exec.mjs';
-import { appRoot, nativeBinPath, nativeSmokeHome, targetTriple } from './paths.mjs';
+import {
+  appRoot,
+  nativeBinPath,
+  nativeSmokeHome,
+  nativeStdioCliPath,
+  targetTriple,
+} from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
 const target = targetTriple();
 const executablePath = nativeBinPath(target);
+const stdioCliPath = nativeStdioCliPath(target);
 const smokeHome = nativeSmokeHome();
 const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
 const expectedVersion = packageJson.version;
@@ -71,3 +78,18 @@ try {
 }
 
 console.log(`Native smoke passed: ${executablePath}`);
+
+// The Rust engine's stdio fallback, when staged by the build. `--health`
+// round-trips through the JSON-RPC server loop without spawning a Node
+// process, so it exercises the real binary cheaply.
+try {
+  await stat(stdioCliPath);
+} catch {
+  console.warn(`kimi-agent stdio CLI not found at ${stdioCliPath}; skipping its smoke check.`);
+  process.exit(0);
+}
+const health = await execFileAsync(stdioCliPath, ['--health']);
+if (!health.stdout.includes('"ok"')) {
+  fail(`kimi-agent stdio CLI health check failed.\n${health.stdout}${health.stderr}`);
+}
+console.log(`Native stdio CLI smoke passed: ${stdioCliPath}`);

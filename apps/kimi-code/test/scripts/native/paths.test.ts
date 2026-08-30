@@ -9,6 +9,8 @@ import {
   nativeBinDir,
   nativeBinPath,
   nativeJsBundlePath,
+  nativeStdioCliName,
+  nativeStdioCliPath,
   targetTriple,
   nativeDistRoot,
   nativeManifestDir,
@@ -65,6 +67,20 @@ describe('path helpers', () => {
 
   it('derives kimi.exe from the target triple without an explicit platform argument', () => {
     expect(nativeBinPath('win32-x64')).toBe(p('dist-native/bin/win32-x64/kimi.exe'));
+  });
+
+  it('names the engine stdio CLI with a platform-specific extension', () => {
+    expect(nativeStdioCliName('win32-x64'.split('-')[0])).toBe('kimi-agent-cli.exe');
+    expect(nativeStdioCliName('linux-x64'.split('-')[0])).toBe('kimi-agent-cli');
+  });
+
+  it('places the engine stdio CLI next to the executable', () => {
+    expect(nativeStdioCliPath('win32-x64')).toBe(
+      p('dist-native/bin/win32-x64/kimi-agent-cli.exe'),
+    );
+    expect(nativeStdioCliPath('darwin-arm64', 'darwin')).toBe(
+      p('dist-native/bin/darwin-arm64/kimi-agent-cli'),
+    );
   });
 
   it('returns intermediate artifact paths', () => {

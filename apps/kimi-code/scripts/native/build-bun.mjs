@@ -19,6 +19,8 @@ import {
   nativeIntermediatesDir,
   nativeJsBundlePath,
   nativeManifestDir,
+  nativeStdioCliPath,
+  nativeStdioCliName,
   targetTriple,
 } from './paths.mjs';
 import { collectWebAssets, webAssetManifestKey } from './web-assets.mjs';
@@ -53,6 +55,33 @@ function resolveBun() {
     '/usr/local/bin/bun',
   ].filter((candidate) => candidate !== null && existsSync(candidate));
   return candidates[0] ?? 'bun';
+}
+
+/**
+ * Stage a platform-native `kimi-agent-cli` (.exe) next to the compiled
+ * executable so the engine's stdio JSON-RPC fallback survives into a release
+ * bundle. The cargo artifact comes from a local `cargo build --release
+ * --features cli` — build:native runs on the host platform, so the cargo
+ * triple always matches the current Bun target; CI builds it explicitly
+ * before these steps. A missing binary is logged loudly but not fatal: the
+ * napi transport (the primary path) keeps working.
+ */
+function stageStdioCli(target) {
+  const cliName = nativeStdioCliName();
+  // `appRoot` is apps/kimi-code; the cargo workspace root is two levels up.
+  const source = resolve(appRoot, '..', '..', 'packages/kimi-agent/target/release', cliName);
+  if (!existsSync(source)) {
+    console.warn(
+      `==> kimi-agent stdio CLI not found at ${source}; the release bundle will not ` +
+        'include the stdio fallback. Run `cd packages/kimi-agent && cargo build ' +
+        '--release --features cli` before packaging to include it.',
+    );
+    return;
+  }
+  const dest = nativeStdioCliPath(target);
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(source, dest);
+  console.log(`==> Staged stdio CLI: ${dest}`);
 }
 
 async function buildBunNative() {
@@ -175,6 +204,8 @@ async function buildBunNative() {
     manifest: native.manifest,
     assets: native.assets,
   });
+
+  stageStdioCli(target);
 
   await runSignStep({
     identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',

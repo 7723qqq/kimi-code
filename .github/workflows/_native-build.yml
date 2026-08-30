@@ -78,6 +78,14 @@ jobs:
       - name: Build kimi-agent (.node for embedded assets)
         run: cd packages/kimi-agent && bun run build
 
+      - name: Build kimi-agent stdio CLI (for the release bundle)
+        # Together with the .node above this makes the engine complete in a
+        # release bundle: NAPI is the primary transport, and the stdio
+        # JSON-RPC fallback (found by the adapter at dist-native/bin/<target>/
+        # kimi-agent-cli) ships too. Running on the native matrix runner,
+        # cargo emits exactly the target platform's binary.
+        run: cd packages/kimi-agent && cargo build --release --features cli
+
       - name: Warn when Apple signing secrets are missing
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
         shell: bash

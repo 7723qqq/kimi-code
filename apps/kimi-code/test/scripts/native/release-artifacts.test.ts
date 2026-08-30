@@ -10,7 +10,7 @@ import { inflateRawSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SUPPORTED_TARGETS } from '../../../scripts/native/native-deps.mjs';
-import { appRoot } from '../../../scripts/native/paths.mjs';
+import { appRoot, nativeStdioCliPath } from '../../../scripts/native/paths.mjs';
 
 const execFileAsync = promisify(execFile);
 const packageScript = resolve(appRoot, 'scripts/native/package.mjs');
@@ -135,6 +135,26 @@ describe('native release artifacts', () => {
     expect(existsSync(archivePath)).toBe(true);
     expect(existsSync(`${archivePath}.sha256`)).toBe(true);
     expect(zipEntryNames(archivePath)).toEqual([executableName]);
+  });
+
+  it('includes a staged kimi-agent stdio CLI in the archive when present', async () => {
+    mkdirSync(resolve(appRoot, 'dist-native/bin', target), { recursive: true });
+    writeFileSync(fakeBinary, 'bun binary payload\n', { mode: 0o755 });
+    const stdioCliPath = nativeStdioCliPath(target);
+    writeFileSync(stdioCliPath, 'stdio fallback payload\n', { mode: 0o755 });
+
+    await execFileAsync(process.execPath, [packageScript], {
+      cwd: appRoot,
+      env: { ...process.env, KIMI_CODE_BUILD_TARGET: target },
+    });
+
+    const archivePath = resolve(artifactsDir, `kimi-code-${target}.zip`);
+    expect(zipEntryNames(archivePath)).toEqual(
+      expect.arrayContaining([executableName, 'kimi-agent-cli']),
+    );
+    expect(readZipEntry(archivePath, 'kimi-agent-cli').toString('utf-8')).toBe(
+      'stdio fallback payload\n',
+    );
   });
 
   function bunChecksum(target: string): string {

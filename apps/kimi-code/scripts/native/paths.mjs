@@ -14,6 +14,10 @@ export function executableName(platform = process.platform) {
   return platform === 'win32' ? 'kimi.exe' : 'kimi';
 }
 
+export function nativeStdioCliName(platform = process.platform.split('-')[0]) {
+  return platform === 'win32' ? 'kimi-agent-cli.exe' : 'kimi-agent-cli';
+}
+
 export function nativeDistRoot() {
   return resolve(appRoot, 'dist-native');
 }
@@ -28,6 +32,10 @@ export function nativeBinDir(target = targetTriple()) {
 
 export function nativeBinPath(target = targetTriple(), platform = target.split('-')[0]) {
   return resolve(nativeBinDir(target), executableName(platform));
+}
+
+export function nativeStdioCliPath(target = targetTriple(), platform = target.split('-')[0]) {
+  return resolve(nativeBinDir(target), nativeStdioCliName(platform));
 }
 
 export function nativeJsBundlePath() {
