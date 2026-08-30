@@ -355,9 +355,7 @@ mod tests {
         assert!(llm.is_retryable_error(
             "llm transport error transport: failed to lookup address information: Name or service not known"
         ));
-        assert!(llm.is_retryable_error(
-            "llm transport error decode: error decoding response body"
-        ));
+        assert!(llm.is_retryable_error("llm transport error decode: error decoding response body"));
         assert!(!llm.is_retryable_error(
             "llm transport error invalid_request: builder error: relative URL without a base"
         ));

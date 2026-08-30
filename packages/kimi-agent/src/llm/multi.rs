@@ -234,7 +234,7 @@ mod tests {
     use super::*;
     use crate::rpc::types::{
         BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
-        ToolExecuteRequest, ToolExecuteResponse, TokenUsage,
+        TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
     };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -614,21 +614,32 @@ mod tests {
                 &self,
                 _request: ToolExecuteRequest,
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-                Box::pin(async { Ok(ToolExecuteResponse { content: String::new(), is_error: false, note: None }) })
+                Box::pin(async {
+                    Ok(ToolExecuteResponse {
+                        content: String::new(),
+                        is_error: false,
+                        note: None,
+                    })
+                })
             }
             fn check_permission(
                 &self,
                 _request: PermissionCheckRequest,
             ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
                 Box::pin(async {
-                    Ok(PermissionDecision { decision: "allow".into(), reason: None })
+                    Ok(PermissionDecision {
+                        decision: "allow".into(),
+                        reason: None,
+                    })
                 })
             }
             fn emit_event(&self, event: serde_json::Value) {
                 self.events.lock().unwrap().push(event);
             }
         }
-        Arc::new(RecordingHost { events: std::sync::Mutex::new(Vec::new()) })
+        Arc::new(RecordingHost {
+            events: std::sync::Mutex::new(Vec::new()),
+        })
     }
 
     fn test_provider(name: &str) -> LlmProvider {
@@ -641,14 +652,20 @@ mod tests {
     }
 
     fn empty_params() -> LLMChatParams {
-        LLMChatParams { messages: vec![], tools: vec![] }
+        LLMChatParams {
+            messages: vec![],
+            tools: vec![],
+        }
     }
 
     #[test]
     fn multi_provider_count_reflects_input() {
         assert_eq!(MultiLLM::new(vec![]).provider_count(), 0);
         assert_eq!(MultiLLM::new(vec![test_provider("a")]).provider_count(), 1);
-        assert_eq!(MultiLLM::new(vec![test_provider("a"), test_provider("b")]).provider_count(), 2);
+        assert_eq!(
+            MultiLLM::new(vec![test_provider("a"), test_provider("b")]).provider_count(),
+            2
+        );
     }
 
     #[test]
@@ -662,7 +679,11 @@ mod tests {
         assert_eq!(one.model_name(), "a-model");
 
         // Many: "first + N-1 others".
-        let many = MultiLLM::new(vec![test_provider("a"), test_provider("b"), test_provider("c")]);
+        let many = MultiLLM::new(vec![
+            test_provider("a"),
+            test_provider("b"),
+            test_provider("c"),
+        ]);
         assert_eq!(many.model_name(), "a-model + 2 others");
     }
 
@@ -735,7 +756,10 @@ mod tests {
         assert!(names.contains("a"));
         assert!(names.contains("b"));
         for r in &results {
-            assert!(r.result.is_ok(), "recording host should always succeed: {r:?}");
+            assert!(
+                r.result.is_ok(),
+                "recording host should always succeed: {r:?}"
+            );
         }
     }
 
@@ -777,7 +801,11 @@ mod tests {
                 _request: ToolExecuteRequest,
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
                 Box::pin(async {
-                    Ok(ToolExecuteResponse { content: String::new(), is_error: false, note: None })
+                    Ok(ToolExecuteResponse {
+                        content: String::new(),
+                        is_error: false,
+                        note: None,
+                    })
                 })
             }
             fn check_permission(
@@ -785,7 +813,10 @@ mod tests {
                 _request: PermissionCheckRequest,
             ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
                 Box::pin(async {
-                    Ok(PermissionDecision { decision: "allow".into(), reason: None })
+                    Ok(PermissionDecision {
+                        decision: "allow".into(),
+                        reason: None,
+                    })
                 })
             }
             fn emit_event(&self, _event: serde_json::Value) {}
@@ -826,12 +857,19 @@ mod tests {
             callbacks: host_b,
         };
         let m = MultiLLM::new(vec![p1, p2]);
-        let err = m.first_past_the_post(empty_params()).await.unwrap_err().to_string();
+        let err = m
+            .first_past_the_post(empty_params())
+            .await
+            .unwrap_err()
+            .to_string();
         // Both providers errored; the joined error must mention both.
         assert!(err.contains("a"), "missing a in: {err}");
         assert!(err.contains("b"), "missing b in: {err}");
         // The all-error path records errors but does not cancel anyone.
         let cancelled = cancel_log.lock().unwrap();
-        assert!(cancelled.is_empty(), "no provider should be cancelled when all error: {cancelled:?}");
+        assert!(
+            cancelled.is_empty(),
+            "no provider should be cancelled when all error: {cancelled:?}"
+        );
     }
 }

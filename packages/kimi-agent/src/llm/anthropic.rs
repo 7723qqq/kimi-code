@@ -379,7 +379,11 @@ impl StreamAccumulator {
                     // tool with no real inputs); drop the call instead.
                     serde_json::from_str(&input_json)
                         .ok()
-                        .map(|arguments| ToolCall { id, name, arguments })
+                        .map(|arguments| ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        })
                 }
                 _ => None,
             })

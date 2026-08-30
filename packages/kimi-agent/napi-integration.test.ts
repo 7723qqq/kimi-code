@@ -300,28 +300,34 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — error handling', () => {
     ).rejects.toThrow(/LLM unavailable/);
   });
 
-  it('handles execute_tool callback throwing', async () => {
+  it('surfaces an execute_tool callback throw to the model as an error result', async () => {
     const mod = loadNativeModule();
+    const llmRequests: string[] = [];
 
-    await expect(
-      mod.runTurnRust(
-        {
-          ...validParams,
-          maxSteps: 3,
-          tools: [{ name: 'crash', description: 'Crashes', inputSchema: '{"type":"object"}' }],
-        },
-        makeCallback(mod, (_req) =>
-          JSON.stringify({
-            tool_calls: [{ id: 'call_1', name: 'crash', arguments: {} }],
-            finish_reason: 'tool_calls',
-            usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-          }),
-        ),
-        makeCallback(mod, (_req) => {
-          throw new Error('Tool crash');
-        }),
-      ),
-    ).rejects.toThrow(/Tool crash/);
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        tools: [{ name: 'crash', description: 'Crashes', inputSchema: '{"type":"object"}' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(req);
+        return JSON.stringify({
+          tool_calls: [{ id: 'call_1', name: 'crash', arguments: {} }],
+          finish_reason: 'tool_calls',
+          usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+        });
+      }),
+      makeCallback(mod, (_req) => {
+        throw new Error('Tool crash');
+      }),
+    );
+
+    // A failing tool call must not abort the turn: the round survives as an
+    // error result the model sees on its next request.
+    expect(result).toMatchObject({ steps: 2 });
+    expect(llmRequests.length).toBe(2);
+    expect(llmRequests[1]).toContain('Tool crash');
   });
 
   it('handles async callback rejection', async () => {

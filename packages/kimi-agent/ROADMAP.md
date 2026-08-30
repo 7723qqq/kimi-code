@@ -613,3 +613,97 @@ todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 Ag
 - 测试措辞：rust-engine.test.ts 两例改名为「unset+bundle 缺失→JS 回退 / unset+bundle 存在→默认启用」;rust-engine-cli-e2e 的 describe 改为「rust-first default (real bundle)」。
 
 验证：rust-engine.test.ts 21/21、rust-engine-cli-e2e（真 .node bundle）2/2、oxlint 0 errors。
+
+## P21 — 缺口地图：让 Rust 引擎替代 TS（2026-08-30，本轮只审计，未改码）
+
+目标由四个决策定死：**终态 = 工具也由 Rust 执行、最小化回调**；**路线 = 在 kimi-agent 内自扩实现，不引入 kimi-native-tools 作为 crate 依赖**；**addon 里重复的工具实现由引擎吸收后删除**；**验收 = cargo test/clippy/fmt 全绿 + 重建 addon 后再看 TS 套件**。以下全部是实测结论，未验证项单列。
+
+### 基线（实测）
+
+- `cargo test`：268 通过 / 0 失败（259 lib + 9 stdio_rpc_integration），另 1 bench + 1 doctest ignored。
+- `cargo clippy --all-targets`：4 warnings —— 3 × `redundant_closure`（`napi_bindings.rs` 的 tracing writer）、1 × 遍历 map 时应迭代 keys。
+- `cargo fmt --check`：**退出码 1**，HEAD 即不干净（`src/llm/anthropic.rs:379`）。
+- 按上面定的验收口径，这三项是任何功能工作之前的**第 0 批**，与功能缺口无关但阻塞「全绿」。
+- cargo test 的 lib 测试二进制会打出 26 行 `Load Node-API [...] from host runtime failed`（非 Node 进程里链接 napi 的正常噪声），不影响退出码，但污染日志。
+
+### 地形：`read` 有三份实现，生产在用的那份是 TS
+
+| 实现 | 位置 | 状态 |
+|------|------|------|
+| v2 TS read | `agent-core-v2/src/agent/tools/os/read/readTool.ts:272` → `IHostFileSystem` | **生产在用** |
+| addon Rust read | `kimi-native-tools/src/read.rs`（1216 行）→ 导出 `nativeRead` | 全仓只有 `.d.ts`、bridge `_base/native-tools.ts:106`、bridge 自身测试引用；**零生产调用点** |
+| 引擎 Rust read | `kimi-agent/src/tools/mod.rs:177` | 有实现，但默认不启用（见 G-1） |
+
+`nativeGrep` / `nativeGrepStructured` / `nativeWrite` 同样只有 bridge、无生产调用点；`nativeBatchRead` 连 bridge 都没接，只存在于 `index.d.ts`。v2 的 Grep 工具实际是 spawn 外部 `rg` 二进制再解析 stdout（`grepTool.ts:123`，并有 `grep_tool_rg_fallback` 遥测）。addon 里**确实被生产用上**的部分：edit（`app/edit/fileEditService.ts:30`）、bash、fetch_url、path-access、permission rules、compaction 助手、glob-match、result 截断/spill、knowledge、i18n 翻译、kosong 的 SSE 流。
+
+含义：「Rust 已经有 read」这句直觉半对——实现有，链路没接。所以「替代 TS」不是翻一个开关，而是把工具层从三份平行实现收敛成引擎内一份。
+
+### 缺口清单
+
+**G-1 原生工具执行默认关闭，与 P19 的 rust-first 自相矛盾。** 链路已跑通核实：`config.agent.nativeTools` → `apps/kimi-code/src/cli/rust-engine.ts:292`（`=== true` 严格判定）→ `rust-loop.ts:1044` → napi `native_tools` → `napi_bindings.rs:700` 的 `unwrap_or(false)`。未手写该配置的用户，六个原生工具一个都不启用，所有 tool call 都跨 napi 回宿主。而引擎在 napi 路径下 `RunTurnInput.tools` 直接传 `&[]`（`napi_bindings.rs:811`），原生执行是靠 `NativeToolCallbacks` decorator 包装 callbacks 实现的，不是引擎级 `ExecutableTool`。
+
+**G-2 引擎工具面 6 个，宿主侧约 40 个。** `tools/mod.rs:106` 的 `handles()` 白名单只有 `read|grep|glob|write|edit|bash`。宿主侧登记规模：20 个文件含 `registerAgentToolService(`，features 另有 16 处 `contributeTool(`（其中 tower 一处供 11 个 `Tower*` 工具），再加 MCP 动态工具。**但不能按「全部吸收」排工作量**——这些工具分两类，且第二类本质属于宿主：
+- *纯 I/O / 计算，可在引擎进程内做*：fetch-url、web-search、github、read-media-file、list-directory 语义、glob/grep/read/write/edit/bash 的完整语义。
+- *依赖宿主状态或人类交互，吸收即把 UI 拖进引擎*：ask-user-question、plan、todo、goal、skill、sessionQuery、memory、workflow、team、task 族（wait/output/list/stop）、agent 子代理、cron、lsp、codeRuntime、select-tools。
+建议按这条线定界（见 D-2）。
+
+**G-3 引擎的 read/grep/write/edit/bash 语义弱于 addon，且降级点密集。** `tools/mod.rs` 顶部硬上限：read 4 MiB / 1000 行 / 单行 2000 字符；grep 5000 文件 / 3 秒墙钟 / 单文件 4 MiB / 5000 输出行 / head_limit 250；glob 500 结果；bash 300 秒 / 256 KiB。全模块 40 处 `?;` 与 `return None` 降级分支，注释明写「任何本模块不认识的参数形状都回落宿主」。addon 侧另具备而引擎没有的能力：编码探测（`encoding.rs` 332 行）、行尾处理（`line_endings.rs`）、文件缓存（`file_cache.rs` 473 行）、文件类型识别（`file_type.rs` 847 行）、图像压缩（`image_compress.rs`）。既然路线定为引擎内自扩 + 最终删 addon 重复，则 addon 的 `read.rs`/`grep.rs` 是**移植参考实现**，而不是并行保留的第二份。
+
+**G-4 引擎内没有上下文压缩。** `compact` 在 Rust 侧只有「时长格式化」一处命中（`run_turn.rs:391`），`mcp`/`hook`/`todo`/`plan_mode`/`subagent`/`undo` 六个关键词在 13,080 行 Rust 里**零命中**。现在压缩完全依赖宿主在 turn 外投影好 messages，引擎无法在 step 之间自救——长会话撞上 context 上限时只能失败。JS 侧的对应物是 `agent/fullCompaction/strategy.ts` + `contextMemory/compactionHandoff.ts`（它们已经在调 addon 的 compact 助手）。已有基线 `long-session-memory.test.ts`（P20-C）可挂验收。
+
+**G-5 没有 transport/执行路径的观测出口。** 一次运行到底用了 native-LLM 还是 host-proxy、原生工具还是宿主工具，目前没有任何指示：`/status` 的 `nativeToolsStatus()`（`apps/kimi-code/src/native/native-require.ts:45`）只探测 addon 能否加载，与引擎是否真的本地执行无关。这条是 P11 已记录的教训（「错误字符串是唯一线索」）的延续，属于低成本高价值的先做项。
+
+**G-6 「最小化回调」目前反而多一次往返，并绕过了宿主工具生命周期。** 两条路径实测对比：
+- 关（现状）：1 次跨 napi（`host/execute_tool`）→ `rust-loop.ts:1301` 注释明写宿主 `input.executeTool` 跑的是「prepare, permission gate, execute, finalize —— 与 JS loop 完全相同的路径」。
+- 开：2 次跨 napi（`host/check_permission` + `emit_event tool.native`）→ 引擎内 Rust 执行 → `rust-loop.ts:1143` 把 `tool.native` 合成回 `tool.call` + `tool.result` 两个 dispatchEvent。
+
+即：权限判定未被省掉（`callbacks.rs:185` 对只读工具也先问宿主），只是把「宿主完整生命周期」换成「一次预检查 + 一条合成事件」。**transcript 配对是齐的**，但宿主生命周期里其余环节（结果截断/spill、display 格式化、遥测、`ToolAccesses` 冲突检测与并行调度、undo 锚点）在原生路径上是否等效，**尚未逐项核对**——这是翻默认前必须先量的东西，不是可以直接断言的收益。真正的「最小化回调」需要的是权限策略快照进引擎（一次传多个判定的授权），或让引擎把工具当 `ExecutableTool` 持有，而不是现有 decorator。
+
+**G-7 遗留项**：一处 stdio `allow → file lands natively` 用例在全量运行红、单跑绿（P11 记为未定论，P12 声称已定论，本轮未复现验证）；`target/` 与 `*.node` 是 gitignored 本地产物，TS 绿灯可能测的是旧二进制——任何功能验收前必须先 `bun run build` 重建 addon。
+
+### 排序计划（按已决策 D-1/D-2/D-3 重排）
+
+- **第 0 批（纯存量，无风险）**：`cargo fmt` 归零、clippy 4 warnings 归零。验收即口径本身。
+- **第 0.5 批（D-3 直接兑现）**：删除粒度要精确——**只删死的 napi 导出壳**（`napi_bindings.rs` 的 `native_read:136` / `native_write:275` / `native_grep:371` / `native_grep_structured:452`）+ `index.d.ts` 对应声明（含只有声明没有壳的 `nativeBatchRead`）+ v2 bridge 里的 `tryNative*` 及其测试。**保留 `read.rs` / `grep.rs` 实现模块**：它们是第 2/3 批的移植参考且自带 cargo 测试。注意 `write::write_file` 被 `edit.rs:176` 内部调用（`nativeEdit` 生产在用），不可动。删 addon 需重建 `.node` 并跑 TS 套件确认无回归。
+- **第 1 批（D-1 的「量」）**：G-5 传输/执行路径观测出口（`/status` 要能说清这次运行用的是 native 还是 host）；G-6 宿主生命周期等效逐项核对（结果截断/spill、display、遥测、`ToolAccesses` 并行冲突、undo 锚点）；工具执行路径基线（现有 bench 只覆盖 LLM 传输）。出数字，再定 `nativeTools` 默认值。
+- **第 2 批（read 对齐）**：以 addon `read.rs` 为参考在引擎内实现，去掉 4 MiB/1000 行降级，补编码与行尾处理；完成后按 D-3 退场 addon 对应实现。
+- **第 3 批（grep/glob/write/edit/bash 对齐）**：同法吸收 `grep.rs`；Windows 无 `KIMI_SHELL_PATH` 时 bash 归属宿主这条单独判定是否保留。
+- **第 4 批（协议前置，D-2 新增）**：引擎成为完整 runtime 的三个地基——反向交互协议（引擎向宿主发问并等回答，且不阻塞 step 循环）、状态层归属（todo/plan 的持久化 + undo 语义）、子代理递归（引擎内起子 turn）。**这批不写完，第 5/6 批无法验收**，且需要一份设计再落码。
+- **第 5 批（G-4 压缩）**：turn 内自主压缩。挂 `long-session-memory.test.ts`（P20-C）做基线。
+- **第 6 批（G-2 纯 I/O 工具）**：fetch-url / web-search / list-directory / github / read-media-file。
+- **第 7 批（状态与交互类工具）**：todo / plan / ask-user-question / task 族 / 子代理 / skill / sessionQuery / memory / cron / lsp / codeRuntime / tower / swarm。依赖第 4 批的协议与状态层设计。
+
+### 已决策（2026-08-30 拍板）
+
+- **D-1 → 先量再定。** 依 G-6：不预设翻 true，先做「G-5 观测出口 + G-6 宿主生命周期等效逐项核对 + 工具执行路径基线」，拿到收益数字再决定默认值。在此之前 P19 的 rust-first 只按「引擎本体」解释。
+- **D-2 → 全量吸收，引擎做完整 runtime。** 不按「纯 I/O 才吸收」划界；宿主状态与人机交互类（todo / plan / task / 子代理 / ask-user-question）也在目标范围内。这把本程序从「工具移植」升级为「引擎成为完整 runtime」，随之出现三个此前不在地图里的前置项：反向交互协议（引擎要能向宿主发问并等回答，非阻塞 step 循环）、宿主状态层的归属（todo/plan 的持久化与 undo 语义）、子代理递归（引擎内起子 turn）。
+- **D-3 → 先删死代码，再逐个退场。** `nativeRead` / `nativeGrep` / `nativeGrepStructured` / `nativeWrite` / `nativeBatchRead` 无生产调用点，立即删（连同 bridge 里对应的 `tryNative*` 与其测试），不等引擎对齐；其余导出按批次「引擎实现对齐 → 删 addon 那份」。不建双轨 guard 测试。
+
+### 本轮未验证
+
+- 未跑 TS 套件，也未重建 addon（第 0 批之后一起做，避免用旧二进制得出绿灯）。
+- 未量化 native 与 host 执行的实际耗时差；`bench-native-vs-proxy.test.ts`（P20-A）只覆盖 LLM 传输，不覆盖工具执行路径。
+- G-6 的 stdio flake 本轮未复现。
+- addon 52 个导出里，「无生产调用点」的判定来自跨仓字符串检索（排除 addon 自身、`dist*`、`node_modules`、测试目录），未逐个核对动态派发/字符串反射调用的可能。
+
+验证：本轮为纯审计，未改任何代码，故未重建 addon、未跑 TS 套件。测量证据为 `cargo test` 268/268、`cargo clippy --all-targets` 4 warnings、`cargo fmt --check` 退出码 1（后两项均为存量红，留待第 0 批）。
+
+## P22 — 第 0 批：存量绿（2026-08-30）
+
+P21 排序计划的第 0 批，纯 lint/格式，无行为变更。
+
+- **`cargo fmt` 归零**：4 个文件被重排（`llm/anthropic.rs`、`llm/http.rs`、`llm/multi.rs`、`napi_bindings.rs`）。HEAD 原本 `fmt --check` 退出码 1，说明此前多个提交未跑 fmt，漂移已累积。
+- **clippy 归零**：`napi_bindings.rs` 三处 tracing writer 由闭包改为直接传函数（`|| std::io::stderr()` → `std::io::stderr`，两处 stdout 同理）；callback payload 驱逐循环 `for (candidate, _) in registry.iter()` → `for candidate in registry.keys()`（值从未被用）。
+- **未动 addon 实现模块**：P21 第 0.5 批（删死 napi 导出壳）留作下一步单独一批，因为它要重建 `.node` 并跑 TS 套件回归，与本批「无行为变更」的性质不同。
+
+验证：`cargo fmt --check` 退出 0；`cargo clippy --all-targets` 0 warnings；`cargo test` 268/268（259 lib + 9 stdio_rpc_integration，另有 1 bench + 1 doctest ignored）。addon 已 `napi build --release` 重建（19.2s，release 全绿），随后 **本包 TS 套件 57 通过 / 5 跳过（真 key 用例按 `KIMI_E2E` 门禁跳过）/ 0 失败**、`apps/kimi-code` 侧 `test/cli/rust-engine*` 23 通过 / 1 跳过 —— 绿灯均出自这个新二进制。
+
+### 第 0 批顺带挖出的存量红：一个测试停在 13:29 之前的语义
+
+重建后 `napi-integration.test.ts` 的「handles execute_tool callback throwing」红：期望 `rejects.toThrow(/Tool crash/)`，实际 turn 正常 resolve（`stopReason: EndTurn`、`steps: 3`）。**归属已用二分定论**：还原 HEAD 的 `napi_bindings.rs` 重建后同一用例仍红 → 与本批改动无关，是 HEAD 就存在的红。
+
+根因：13:29 的 `7fa5f5a914`（"resilient callback registry"）有意改了语义 —— `tool_scheduler.rs:141-154` 注释写明「单个调用失败不得中断批次，失败项以 error result 交给模型反应，只有取消才中断这一轮」，但该测试未被同步更新。该新语义在 cargo 层已由 `test_execute_scheduled_single_failure_keeps_siblings`（`tool_scheduler.rs:912`）锁住。
+
+处置：按「实现未变则改测试」，用例重写为验证 napi 边界上真正独有的那件事 —— turn 不 reject，且崩溃文本出现在模型的下一轮请求里（`napi-integration.test.ts`，改名「surfaces an execute_tool callback throw to the model as an error result」）。
+
+**这条红为什么值得记**：它是 stale-binary 陷阱的又一实例——13:48 的 `.node` 比 13:29 的提交新，但套件此前没人跑过全量，红了一小时才被下一次重建暴露。「源文件改过就必须重建 + 全量跑」不是谨慎，是唯一能发现这类红的手段。

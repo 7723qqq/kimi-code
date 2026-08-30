@@ -91,7 +91,7 @@ fn store_payload(id: u32, payload: String) {
     let pending = CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
     let mut evicted = 0usize;
     let mut doomed: Vec<u32> = Vec::new();
-    for (candidate, _) in registry.iter() {
+    for candidate in registry.keys() {
         if evicted >= excess {
             break;
         }
@@ -173,18 +173,18 @@ pub fn init_tracing_from_env() -> napi::Result<bool> {
         let result = if use_stderr {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
-                .with_writer(|| std::io::stderr())
+                .with_writer(std::io::stderr)
                 .try_init()
         } else if use_json {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
                 .json()
-                .with_writer(|| std::io::stdout())
+                .with_writer(std::io::stdout)
                 .try_init()
         } else {
             tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
-                .with_writer(|| std::io::stdout())
+                .with_writer(std::io::stdout)
                 .try_init()
         };
         if result.is_ok() {
@@ -315,7 +315,8 @@ impl HostCallbacks for NapiHostCallbacks {
             // No timeout: this one waits on a human, and giving up would
             // discard an approval the user has already granted. A turn
             // cancellation still interrupts the wait.
-            let output = invoke_via_registry(&tsfn, input, "check_permission", None, cancel).await?;
+            let output =
+                invoke_via_registry(&tsfn, input, "check_permission", None, cancel).await?;
             serde_json::from_str(&output).map_err(|e| format!("check_permission parse: {e}"))
         })
     }
@@ -334,7 +335,10 @@ impl HostCallbacks for NapiHostCallbacks {
         store_payload(id, payload);
         let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
         if status != napi::Status::Ok {
-            PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            PAYLOAD_REGISTRY
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
         }
     }
 }
@@ -363,33 +367,49 @@ async fn invoke_via_registry(
     store_payload(id, input);
 
     // Register the sender so resolve_callback can find it.
-    CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
+    CALLBACK_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id, tx);
 
     // Fire the JS function with just the callback ID (a number).
     // ErrorStrategy::Fatal: no error-first null prepended, JS receives the id directly.
     let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
     if status != napi::Status::Ok {
         // Clean up on failure.
-        PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-        CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        PAYLOAD_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+        CALLBACK_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
         return Err(format!("{label} call: {status:?}"));
     }
 
     let pending = match timeout {
-        Some(limit) => match tokio::time::timeout(limit, wait_for_callback(rx, cancel, label)).await
-        {
-            Ok(outcome) => outcome,
-            Err(_) => Err(format!("{label} timed out after {}s", limit.as_secs())),
-        },
+        Some(limit) => {
+            match tokio::time::timeout(limit, wait_for_callback(rx, cancel, label)).await {
+                Ok(outcome) => outcome,
+                Err(_) => Err(format!("{label} timed out after {}s", limit.as_secs())),
+            }
+        }
         None => wait_for_callback(rx, cancel, label).await,
     };
 
     // Whatever ended the wait (resolution, timeout, cancellation, dropped
     // host), leave nothing behind: a late resolve_callback would find no
     // sender, and the payload would sit in the registry until pruned.
-    PAYLOAD_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    PAYLOAD_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
     if pending.is_err() {
-        CALLBACK_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        CALLBACK_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
     }
 
     pending.and_then(|inner| inner)
@@ -441,8 +461,14 @@ async fn napi_execute_tool(
     input: String,
     cancel: Option<Arc<AtomicBool>>,
 ) -> std::result::Result<ToolExecuteResponse, std::string::String> {
-    let output =
-        invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT), cancel).await?;
+    let output = invoke_via_registry(
+        &tsfn,
+        input,
+        "execute_tool",
+        Some(HOST_TOOL_TIMEOUT),
+        cancel,
+    )
+    .await?;
     serde_json::from_str(&output).map_err(|e| format!("execute_tool parse: {e}"))
 }
 
