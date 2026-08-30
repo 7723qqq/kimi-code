@@ -1073,10 +1073,14 @@ export function createRunTurnOverride(
     // end) closes it with step.end. buildMessages() re-reads `context` each
     // step, so these recorded events are exactly what thread history forward.
     let currentStep = 0;
+    /** Most recently closed (or current) step, indexed for events that arrive
+     *  after their producer step was already closed by llmChatHandler. */
+    let lastClosedStep: { uuid: string; step: number } | undefined;
     let openStep: { uuid: string; step: number; usage: HostTokenUsage } | undefined;
     const closeOpenStep = async (): Promise<void> => {
       if (openStep === undefined) return;
       const { uuid, step, usage } = openStep;
+      lastClosedStep = { uuid, step };
       openStep = undefined;
       await input.dispatchEvent({ type: 'step.end', uuid, turnId: turnIdStr, step, usage });
     };
@@ -1127,14 +1131,21 @@ export function createRunTurnOverride(
           break;
         }
         case 'tool.native': {
-          if (openStep === undefined) break;
+          // The tool ran inside the step that the next host/llm_chat may
+          // already have closed (llmChatHandler runs outside the event
+          // chain, so its openStep handover leaves a window where openStep
+          // is momentarily undefined). Fall back to the last closed step so
+          // the card is never dropped — dropping it loses the tool.call/
+          // tool.result transcript pair entirely.
+          const targetStep = openStep ?? lastClosedStep;
+          if (targetStep === undefined) break;
           const toolCallId = event.tool_call_id;
           await input.dispatchEvent({
             type: 'tool.call',
             uuid: toolCallId,
             turnId: turnIdStr,
-            step: openStep.step,
-            stepUuid: openStep.uuid,
+            step: targetStep.step,
+            stepUuid: targetStep.uuid,
             toolCallId,
             name: event.tool_name,
             args: event.arguments,
