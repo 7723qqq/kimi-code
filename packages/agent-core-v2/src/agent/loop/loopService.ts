@@ -18,6 +18,9 @@ import { type FinishReason } from '#/kosong/contract/provider';
 import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type TokenUsage } from '#/kosong/contract/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { AgentTodo } from '#/features/todo/todoAgentRuntime';
+import { readTodoItems } from '#/features/todo/todoItem';
 import { OrderedHookSlot } from '#/hooks';
 import {
   ISessionQuestionService,
@@ -25,6 +28,7 @@ import {
   type QuestionResponse,
   type QuestionResult,
 } from '#/session/question/question';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
@@ -1177,6 +1181,81 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }
         return { answers: mapQuestionAnswers(result) };
       },
+      stateRead: async (request) => {
+        if (request.domain === 'todo') {
+          const lifecycle = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentLifecycleService),
+          );
+          const todo = lifecycle.resolve(this.scopeContext.agentContext, AgentTodo);
+          return { value: todo.get() };
+        }
+        if (request.domain === 'plan') {
+          const plan = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentPlanService),
+          );
+          const status = await plan.status();
+          return {
+            value:
+              status === null
+                ? { active: false }
+                : { active: true, id: status.id, path: status.path },
+          };
+        }
+        throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
+      },
+      stateWrite: async (request) => {
+        if (request.domain === 'todo') {
+          if (!Array.isArray(request.value)) {
+            throw stateBridgeError(
+              -32003,
+              'invalid todo state value: expected an array of todo items',
+            );
+          }
+          const lifecycle = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentLifecycleService),
+          );
+          const todo = lifecycle.resolve(this.scopeContext.agentContext, AgentTodo);
+          await todo.replace(readTodoItems(request.value));
+          return { ok: true, value: todo.get() };
+        }
+        if (request.domain === 'plan') {
+          const value = request.value;
+          if (
+            typeof value !== 'object' ||
+            value === null ||
+            typeof (value as { active?: unknown }).active !== 'boolean'
+          ) {
+            throw stateBridgeError(
+              -32003,
+              'invalid plan state value: expected { active: boolean }',
+            );
+          }
+          const plan = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentPlanService),
+          );
+          if ((value as { active: boolean }).active) {
+            try {
+              await plan.enter();
+            } catch (error) {
+              if (isError2(error) && error.code === ErrorCodes.SESSION_PLAN_MODE_INVALID) {
+                throw stateBridgeError(-32004, error.message);
+              }
+              throw error;
+            }
+          } else {
+            plan.exit();
+          }
+          const status = await plan.status();
+          return {
+            ok: true,
+            value:
+              status === null
+                ? { active: false }
+                : { active: true, id: status.id, path: status.path },
+          };
+        }
+        throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
+      },
     };
   }
 
@@ -1502,6 +1581,12 @@ function normalizeFinishReason(reason: FinishReason): string {
   if (reason === 'completed') return 'end_turn';
   if (reason === 'truncated') return 'max_tokens';
   return reason;
+}
+
+function stateBridgeError(code: number, message: string): Error {
+  const error = new Error(message);
+  (error as { code?: number }).code = code;
+  return error;
 }
 
 function isCancelledQuestionResult(

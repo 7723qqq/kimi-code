@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
-    PermissionCheckRequest, PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
+    PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
+    StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
     ToolFinalizeRequest,
 };
 use crate::turn_loop::types::LLMMessage;
@@ -51,6 +52,33 @@ pub trait HostCallbacks: Send + Sync {
     ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
         let _ = request;
         Box::pin(async { Err("host does not support interactive questions".into()) })
+    }
+
+    /// Read host-owned durable state (state-bridge class tools). The host
+    /// stays the persistence and undo authority; the engine's native
+    /// todo/plan tools read through this seam. Bounded by
+    /// [`HOST_STATE_TIMEOUT`]: host bookkeeping, no human in the loop. The
+    /// default answers with an error so an unwired host gets a tool result
+    /// telling the model not to call the tool again.
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let _ = request;
+        Box::pin(async { Err("host does not support state bridge".into()) })
+    }
+
+    /// Write host-owned durable state (state-bridge class tools). The host
+    /// applies its domain semantics (re-normalization, undoable events) and
+    /// returns the resulting state. Bounded by [`HOST_STATE_TIMEOUT`]. The
+    /// default answers with an error so an unwired host gets a tool result
+    /// telling the model not to call the tool again.
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let _ = request;
+        Box::pin(async { Err("host does not support state bridge".into()) })
     }
 
     /// Hand a natively-executed result to the host for finalization before it
@@ -122,6 +150,11 @@ pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from
 /// host bookkeeping with no human in the loop, so a stalled answer must not
 /// hold the step open.
 pub const HOST_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Outer bound on a host state bridge call (state_read / state_write). The
+/// host applies domain semantics to durable state — bookkeeping with no
+/// human in the loop — so a stalled answer must not hold the step open.
+pub const HOST_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -211,6 +244,50 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Ask question error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Ask question response parse error: {e}"))
+        })
+    }
+
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("State read serialize error: {e}"))?;
+            // Bounded: host bookkeeping with no human in the loop.
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_STATE_READ,
+                    params,
+                    Some(HOST_STATE_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("State read error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("State read response parse error: {e}"))
+        })
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("State write serialize error: {e}"))?;
+            // Bounded: host bookkeeping with no human in the loop.
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_STATE_WRITE,
+                    params,
+                    Some(HOST_STATE_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("State write error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("State write response parse error: {e}"))
         })
     }
 
@@ -445,6 +522,20 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.ask_question(request)
     }
 
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        self.inner.state_read(request)
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        self.inner.state_write(request)
+    }
+
     fn finalize_tool_result(
         &self,
         request: ToolFinalizeRequest,
@@ -518,6 +609,20 @@ impl HostCallbacks for CountingCallbacks {
         request: AskQuestionRequest,
     ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
         self.inner.ask_question(request)
+    }
+
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        self.inner.state_read(request)
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        self.inner.state_write(request)
     }
 
     fn finalize_tool_result(
@@ -962,5 +1067,167 @@ mod tests {
         assert_eq!(req.question_id, "question_2");
         assert!(req.background);
         assert_eq!(req.timeout_ms, Some(30_000));
+    }
+
+    /// A stub that answers state bridge calls, recording the requests it
+    /// received.
+    struct StateBridgeCallbacks {
+        read_received: Arc<std::sync::Mutex<Option<StateReadRequest>>>,
+        write_received: Arc<std::sync::Mutex<Option<StateWriteRequest>>>,
+    }
+
+    impl HostCallbacks for StateBridgeCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+
+        fn state_read(
+            &self,
+            request: StateReadRequest,
+        ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+            *self.read_received.lock().unwrap() = Some(request);
+            Box::pin(async {
+                Ok(StateReadResponse {
+                    value: serde_json::json!([
+                        {"id": "T1", "title": "Read session-control.ts", "status": "in_progress"}
+                    ]),
+                })
+            })
+        }
+
+        fn state_write(
+            &self,
+            request: StateWriteRequest,
+        ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+            *self.write_received.lock().unwrap() = Some(request);
+            Box::pin(async {
+                Ok(StateWriteResponse {
+                    ok: true,
+                    value: serde_json::json!({"active": true, "id": "plan-7f3a"}),
+                })
+            })
+        }
+    }
+
+    fn sample_state_read_request() -> StateReadRequest {
+        StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_1".into(),
+        }
+    }
+
+    fn sample_state_write_request() -> StateWriteRequest {
+        StateWriteRequest {
+            domain: "plan".into(),
+            key: "plan".into(),
+            value: serde_json::json!({"active": true}),
+            undoable: true,
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_1".into(),
+        }
+    }
+
+    /// A host that never wired the state bridge seam must get the trait
+    /// default: an explicit "not supported" error, so the tool result tells
+    /// the model not to call the tool again.
+    #[tokio::test]
+    async fn test_state_read_default_impl_errors() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callbacks = RecordingCallbacks { events };
+        let err = callbacks
+            .state_read(sample_state_read_request())
+            .await
+            .unwrap_err();
+        assert!(err.contains("does not support state bridge"));
+    }
+
+    #[tokio::test]
+    async fn test_state_write_default_impl_errors() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callbacks = RecordingCallbacks { events };
+        let err = callbacks
+            .state_write(sample_state_write_request())
+            .await
+            .unwrap_err();
+        assert!(err.contains("does not support state bridge"));
+    }
+
+    #[tokio::test]
+    async fn test_counting_callbacks_forwards_state_bridge() {
+        let read_received = Arc::new(std::sync::Mutex::new(None));
+        let write_received = Arc::new(std::sync::Mutex::new(None));
+        let counting = CountingCallbacks::new(
+            Arc::new(StateBridgeCallbacks {
+                read_received: read_received.clone(),
+                write_received: write_received.clone(),
+            }),
+            Arc::new(AtomicU32::new(0)),
+        );
+        let read = counting
+            .state_read(sample_state_read_request())
+            .await
+            .unwrap();
+        assert_eq!(read.value[0]["id"], "T1");
+        let write = counting
+            .state_write(sample_state_write_request())
+            .await
+            .unwrap();
+        assert!(write.ok);
+        assert_eq!(write.value["id"], "plan-7f3a");
+        let read_req = read_received.lock().unwrap();
+        assert_eq!(read_req.as_ref().unwrap().domain, "todo");
+        assert_eq!(read_req.as_ref().unwrap().turn_id, "turn-1");
+        let write_req = write_received.lock().unwrap();
+        assert_eq!(write_req.as_ref().unwrap().domain, "plan");
+        assert!(write_req.as_ref().unwrap().undoable);
+    }
+
+    #[tokio::test]
+    async fn test_native_tool_callbacks_forwards_state_bridge() {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let read_received = Arc::new(std::sync::Mutex::new(None));
+        let write_received = Arc::new(std::sync::Mutex::new(None));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(StateBridgeCallbacks {
+                read_received: read_received.clone(),
+                write_received: write_received.clone(),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+        };
+        let mut read_request = sample_state_read_request();
+        read_request.turn_id = "turn-2".into();
+        let read = native.state_read(read_request).await.unwrap();
+        assert_eq!(read.value[0]["status"], "in_progress");
+        let mut write_request = sample_state_write_request();
+        write_request.undoable = false;
+        let write = native.state_write(write_request).await.unwrap();
+        assert!(write.ok);
+        let read_req = read_received.lock().unwrap();
+        assert_eq!(read_req.as_ref().unwrap().turn_id, "turn-2");
+        let write_req = write_received.lock().unwrap();
+        assert!(!write_req.as_ref().unwrap().undoable);
     }
 }

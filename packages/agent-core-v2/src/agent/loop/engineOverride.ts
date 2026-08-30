@@ -87,6 +87,31 @@ export interface AskQuestionWireResult {
   readonly reason?: string;
 }
 
+export interface StateReadWire {
+  readonly domain: string;
+  readonly key: string;
+  readonly turn_id?: string;
+  readonly tool_call_id?: string;
+}
+
+export interface StateReadWireResult {
+  readonly value: unknown;
+}
+
+export interface StateWriteWire {
+  readonly domain: string;
+  readonly key: string;
+  readonly value: unknown;
+  readonly undoable: boolean;
+  readonly turn_id?: string;
+  readonly tool_call_id?: string;
+}
+
+export interface StateWriteWireResult {
+  readonly ok: boolean;
+  readonly value: unknown;
+}
+
 /**
  * Goal snapshot handed to an external engine for budget-aware turns.
  * Mirrors the Rust `GoalContext` wire shape (snake_case) so the engine
@@ -141,6 +166,8 @@ export interface TurnEngineInput {
     result: TurnEngineToolResult,
   ): Promise<TurnEngineToolResult>;
   askUserQuestion?(request: AskQuestionWire): Promise<AskQuestionWireResult>;
+  stateRead?(request: StateReadWire): Promise<StateReadWireResult>;
+  stateWrite?(request: StateWriteWire): Promise<StateWriteWireResult>;
 }
 
 export interface TurnEngineResult {

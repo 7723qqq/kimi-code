@@ -45,7 +45,8 @@ use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
-    NativeLlmConfig, PermissionCheckRequest, PermissionDecision, ToolExecuteRequest,
+    NativeLlmConfig, PermissionCheckRequest, PermissionDecision, StateReadRequest,
+    StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse, ToolFinalizeRequest,
 };
 use crate::turn_loop::{run_turn::run_turn, types::*};
@@ -284,6 +285,12 @@ struct NapiHostCallbacks {
     /// Absent means the engine reports "host does not support interactive
     /// questions" as the tool result.
     ask_question_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional state bridge channels: the host reads/writes its durable
+    /// state (todo/plan domains) on the engine's behalf. Absent means the
+    /// engine reports "host does not support state bridge" as the tool
+    /// result.
+    state_read_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    state_write_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -361,6 +368,58 @@ impl HostCallbacks for NapiHostCallbacks {
             // cancellation still interrupts the wait.
             let output = invoke_via_registry(&tsfn, input, "ask_question", None, cancel).await?;
             serde_json::from_str(&output).map_err(|e| format!("ask_question parse: {e}"))
+        })
+    }
+
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let Some(ref tsfn) = self.state_read_fn else {
+            return Box::pin(async { Err("host does not support state bridge".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Bounded: host bookkeeping with no human in the loop. A turn
+            // cancellation still interrupts the wait.
+            let output = invoke_via_registry(
+                &tsfn,
+                input,
+                "state_read",
+                Some(crate::callbacks::HOST_STATE_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            serde_json::from_str(&output).map_err(|e| format!("state_read parse: {e}"))
+        })
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let Some(ref tsfn) = self.state_write_fn else {
+            return Box::pin(async { Err("host does not support state bridge".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Bounded: host bookkeeping with no human in the loop. A turn
+            // cancellation still interrupts the wait.
+            let output = invoke_via_registry(
+                &tsfn,
+                input,
+                "state_write",
+                Some(crate::callbacks::HOST_STATE_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            serde_json::from_str(&output).map_err(|e| format!("state_write parse: {e}"))
         })
     }
 
@@ -707,6 +766,12 @@ pub struct JsRunTurnResult {
 ///   payload. Fire-and-forget: the JS side must NOT call `resolveCallback`.
 /// * `ask_question_cb` — optional; receives callback ID, fetches an
 ///   `AskQuestionRequest` JSON payload and resolves with the host's answer.
+/// * `state_read_cb` — optional; receives callback ID, fetches a
+///   `StateReadRequest` JSON payload and resolves with the host's state
+///   value.
+/// * `state_write_cb` — optional; receives callback ID, fetches a
+///   `StateWriteRequest` JSON payload and resolves with the host's result
+///   state.
 ///
 /// JsFunction is converted to ThreadsafeFunction synchronously, then the
 /// async work is dispatched via `env.execute_tokio_future` so the JS event
@@ -723,6 +788,8 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -813,6 +880,33 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match state_read_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
+    let state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
+        match state_write_cb {
+            Some(cb) => Some(cb.create_threadsafe_function(
+                0,
+                |ctx: ThreadSafeCallContext<u32>| {
+                    let id = ctx.value;
+                    let js_num = ctx.env.create_uint32(id)?;
+                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                    Ok(args)
+                },
+            )?),
+            None => None,
+        };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -827,6 +921,8 @@ pub fn run_turn_rust(
                 finalize_tool_tsfn,
                 drain_steers_tsfn,
                 ask_question_tsfn,
+                state_read_tsfn,
+                state_write_tsfn,
             )
             .await
         },
@@ -865,6 +961,8 @@ async fn run_turn_rust_impl(
     finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -884,6 +982,8 @@ async fn run_turn_rust_impl(
         finalize_tool_fn: finalize_tool_tsfn.map(Arc::new),
         drain_steers_fn: drain_steers_tsfn.map(Arc::new),
         ask_question_fn: ask_question_tsfn.map(Arc::new),
+        state_read_fn: state_read_tsfn.map(Arc::new),
+        state_write_fn: state_write_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 

@@ -1144,6 +1144,19 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - 新增 `src/compaction/mod.rs`（476 行，9 单测）：镜像 `fullCompaction/strategy.ts` + `kimi-native-tools/src/compaction.rs`——system 提示永不压缩、`can_split_after` 分割安全规则（不拆 tool exchange）、`messages[1..count]` 替换为 user 角色摘要占位、最近尾部原样保留；token 估算 `chars/4`；默认窗口 128k（引擎无模型能力数据，接口预留 `max_context_tokens` 注入点）。
 - `run_turn.rs` 接线：每次 LLM 调用前估算，超阈值（0.85×窗口 或 50k 预留）时压缩并替换 messages；与 goal 预算检查共存（goal 停止 turn、压缩延续 turn）。
 
+### 状态桥接（host/state_read + host/state_write）— ✅ 落码完成（2026-09-01）
+
+> 第 7 批状态类工具迁移的地基。设计：`reports/rust-engine-state-bridge-design.md`（336 行）。
+
+- `rpc/types.rs`：`StateReadRequest/Response` + `StateWriteRequest/Response` + `HOST_STATE_READ/WRITE`（value opaque JSON 透传，+6 单测）
+- `callbacks.rs`：`HostCallbacks::state_read/state_write` 默认实现（"does not support state bridge"）+ `RpcHostCallbacks`（30s 超时）+ 装饰器转发（+4 单测）
+- `napi_bindings.rs`：`run_turn_rust` 第 9/10 可选参 `state_read_cb`/`state_write_cb`（30s 超时 + 取消观察）
+- `rust-loop.ts`：napi 第 9/10 回调 + stdio `setStateReadHandler`/`setStateWriteHandler` 分发（+8 测试）
+- `agent-core-v2`：`TurnEngineInput.stateRead?/stateWrite?` + `loopService.ts` 适配器（todo 经 `AgentTodo.replace` 全量替换、plan 经 `AgentPlanService.enter/exit`，undoable 链保持——只调 v2 既有服务方法；错误映射 -32001/-32003/-32004，+8 测试）
+- `tools/todo_item.rs`：纯函数移植（`read_todo_items`/`compute_todo_progress`/`render_todo_list`，golden 逐字符对齐 v2，20 单测）
+- `tools/todo_list.rs` + `tools/plan_mode.rs`：原生 TodoList（读/写/清空）+ EnterPlanMode（先读后写 + already-active），输出对齐 v2 文案（21 单测）
+- 遗留：napi 路径错误码只透传消息（兜底语义可接受）；ExitPlanMode 首版留 host；REPL 工具列表未接线（与 ask_user_question 一致，留待后续）
+
 ### 第 4 批反向交互协议 — ✅ 落码完成（2026-09-01）
 
 - `rpc/types.rs`：`AskQuestionRequest/Item/Option/Response` + `methods::HOST_ASK_QUESTION`（+210 行，序列化 round-trip 单测）

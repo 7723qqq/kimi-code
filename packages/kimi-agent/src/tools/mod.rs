@@ -55,7 +55,10 @@ pub mod ask_user_question;
 pub mod encoding;
 pub mod fetch_url;
 pub mod list_directory;
+pub mod plan_mode;
 pub mod subagent_tools;
+pub mod todo_item;
+pub mod todo_list;
 pub mod web_search;
 
 /// Tools whose native execution requires a host permission grant first.
@@ -179,6 +182,10 @@ impl NativeToolset {
                 | "define_subagent"
                 | "askuserquestion"
                 | "ask_user_question"
+                | "todolist"
+                | "todo_list"
+                | "enterplanmode"
+                | "enter_plan_mode"
         )
     }
 
@@ -212,6 +219,14 @@ impl NativeToolset {
             "askuserquestion" | "ask_user_question" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(ask_user_question::execute_ask_user_question(callbacks, args).await)
+            }
+            "todolist" | "todo_list" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(todo_list::execute_todo_list(callbacks, args).await)
+            }
+            "enterplanmode" | "enter_plan_mode" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(plan_mode::execute_enter_plan_mode(callbacks, args).await)
             }
             "write" => self.write(args),
             "edit" => self.edit(args),

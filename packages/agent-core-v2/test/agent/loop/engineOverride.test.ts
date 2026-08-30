@@ -11,12 +11,15 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import {
   IEngineOverrideService,
   type AskQuestionWireResult,
+  type StateReadWireResult,
+  type StateWriteWireResult,
   type TurnEngine,
   type TurnEngineInput,
 } from '#/agent/loop/engineOverride';
 import { IFlagService } from '#/app/flag/flag';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
 import type { ContentPart } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
@@ -682,5 +685,297 @@ describe('external engine × session question service bridge', () => {
     await end;
 
     expect(wireResult).toEqual({ cancelled: true, reason: 'turn_ended' });
+  });
+});
+
+describe('external engine × state bridge', () => {
+  let activeFs: IHostFileSystem;
+  let activeRunner: IHostProcessService;
+  let ctx: TestAgentContext | undefined;
+
+  afterEach(async () => {
+    if (ctx !== undefined) {
+      await ctx.dispose();
+      ctx = undefined;
+    }
+  });
+
+  function delegatingFs(): IHostFileSystem {
+    return new Proxy(
+      createFakeHostFs({
+        mkdir: async () => undefined,
+        readText: async () => '',
+      }),
+      {
+        get(_target, prop, receiver) {
+          const value = Reflect.get(activeFs, prop, receiver);
+          return typeof value === 'function' ? value.bind(activeFs) : value;
+        },
+      },
+    ) as IHostFileSystem;
+  }
+
+  function delegatingRunner(): IHostProcessService {
+    return new Proxy(createFakeProcessRunner(), {
+      get(_target, prop, receiver) {
+        const value = Reflect.get(activeRunner, prop, receiver);
+        return typeof value === 'function' ? value.bind(activeRunner) : value;
+      },
+    }) as IHostProcessService;
+  }
+
+  function makeStateEngine(run: (input: TurnEngineInput) => Promise<void>): TurnEngine {
+    return async (input) => {
+      await run(input);
+      await input.dispatchEvent({ type: 'step.begin', uuid: 's1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({ type: 'step.end', uuid: 's1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+  }
+
+  function planContext(engine: TurnEngine): TestAgentContext {
+    activeFs = createFakeHostFs({ mkdir: async () => undefined, readText: async () => '' });
+    activeRunner = createFakeProcessRunner();
+    return createTestAgent(
+      appService(IEngineOverrideService, { getEngine: () => engine }),
+      execEnvServices({ hostFs: delegatingFs(), processRunner: delegatingRunner() }),
+    );
+  }
+
+  async function driveTurn(): Promise<void> {
+    const end = ctx!.untilTurnEnd();
+    await ctx!.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+  }
+
+  async function captureError(run: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await run();
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it('reads the todo domain through the AgentTodo runtime', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'todo', key: 'todo' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentTodo).replace([
+      {
+        id: 'T1',
+        parentId: null,
+        kind: 'task',
+        title: 'Read session-control.ts',
+        status: 'in_progress',
+        progress: 40,
+      },
+    ]);
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: [
+        {
+          id: 'T1',
+          parentId: null,
+          kind: 'task',
+          title: 'Read session-control.ts',
+          status: 'in_progress',
+          progress: 40,
+        },
+      ],
+    });
+  });
+
+  it('writes the todo domain through the AgentTodo runtime with host normalization', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'todo',
+        key: 'todo',
+        value: [{ title: 'Read session-control.ts', status: 'in_progress' }],
+        undoable: true,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(writeResult).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 'T1',
+          parentId: null,
+          kind: 'task',
+          title: 'Read session-control.ts',
+          status: 'in_progress',
+        },
+      ],
+    });
+    expect(ctx.resolve(AgentTodo).get()).toEqual([
+      {
+        id: 'T1',
+        parentId: null,
+        kind: 'task',
+        title: 'Read session-control.ts',
+        status: 'in_progress',
+      },
+    ]);
+  });
+
+  it('reads the plan domain as inactive when no plan is active', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'plan', key: 'plan' });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(readResult).toEqual({ value: { active: false } });
+  });
+
+  it('reads the plan domain with the active plan id and file path', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'plan', key: 'plan' });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await ctx.get(IAgentPlanService).enter('engine-plan');
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: { active: true, id: 'engine-plan', path: expect.stringContaining('engine-plan.md') },
+    });
+  });
+
+  it('enters plan mode through the plan service and returns the applied state', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'plan',
+        key: 'plan',
+        value: { active: true },
+        undoable: true,
+      });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toMatchObject({
+      active: true,
+      id: expect.any(String),
+      path: expect.stringContaining('.md'),
+    });
+    expect(await ctx.get(IAgentPlanService).status()).not.toBeNull();
+  });
+
+  it('exits plan mode through the plan service and returns the applied state', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'plan',
+        key: 'plan',
+        value: { active: false },
+        undoable: true,
+      });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await ctx.get(IAgentPlanService).enter('engine-plan');
+    await driveTurn();
+
+    expect(writeResult).toEqual({ ok: true, value: { active: false } });
+    expect(await ctx.get(IAgentPlanService).status()).toBeNull();
+  });
+
+  it('rejects an unknown state domain with -32001', async () => {
+    let readError: unknown;
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      readError = await captureError(async () => {
+        await input.stateRead?.({ domain: 'goal', key: 'goal' });
+      });
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({ domain: 'goal', key: 'goal', value: {}, undoable: true });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((readError as { code?: number }).code).toBe(-32001);
+    expect((writeError as { code?: number }).code).toBe(-32001);
+  });
+
+  it('rejects an invalid todo value with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'todo',
+          key: 'todo',
+          value: { not: 'an array' },
+          undoable: true,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('rejects an invalid plan value with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'plan',
+          key: 'plan',
+          value: { active: 'yes' },
+          undoable: true,
+        });
+      });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('rejects a plan enter while plan mode is already active with -32004', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'plan',
+          key: 'plan',
+          value: { active: true },
+          undoable: true,
+        });
+      });
+    });
+    ctx = planContext(engine);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+    await ctx.get(IAgentPlanService).enter('engine-plan');
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32004);
   });
 });

@@ -1164,3 +1164,292 @@ describe('NapiEngine — ask_question callback passing', () => {
     expect(received[0]?.[7]).toBeUndefined();
   });
 });
+
+// ── stdio transport: host/state_read / host/state_write JS handlers ────────
+// The Rust engine sends the state bridge methods only once its native
+// TodoList / EnterPlanMode tools land; these tests exercise the JS-side
+// dispatch directly with a fake process so the seam is covered regardless of
+// the binary's Rust version.
+
+describe('stdio transport — host/state_read / host/state_write JS handlers', () => {
+  type HostRequestHandler = {
+    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+  };
+
+  function fakeProcess(): {
+    agent: AgentProcess;
+    written: string[];
+  } {
+    const agent = new AgentProcess();
+    const written: string[] = [];
+    (agent as unknown as { process: { stdin: { write(line: string): void } } }).process = {
+      stdin: { write: (line) => written.push(line) },
+    };
+    return { agent, written };
+  }
+
+  const readParams = { domain: 'todo', key: 'todo', turn_id: '1', tool_call_id: 'call-r' };
+  const writeParams = {
+    domain: 'todo',
+    key: 'todo',
+    value: [{ title: 'Read session-control.ts', status: 'in_progress' }],
+    undoable: true,
+    turn_id: '1',
+    tool_call_id: 'call-w',
+  };
+
+  it('dispatches host/state_read to the registered handler and writes the result', async () => {
+    const { agent, written } = fakeProcess();
+    const requests: unknown[] = [];
+    agent.setStateReadHandler(async (request) => {
+      requests.push(request);
+      return {
+        value: [{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'pending' }],
+      };
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'host/state_read',
+      params: readParams,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ domain: 'todo', key: 'todo', turn_id: '1' });
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 10,
+      result: {
+        value: [{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'pending' }],
+      },
+    });
+  });
+
+  it('dispatches host/state_write to the registered handler and writes the result', async () => {
+    const { agent, written } = fakeProcess();
+    const requests: unknown[] = [];
+    agent.setStateWriteHandler(async (request) => {
+      requests.push(request);
+      return {
+        ok: true,
+        value: [
+          { id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'in_progress' },
+        ],
+      };
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'host/state_write',
+      params: writeParams,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ domain: 'todo', key: 'todo', undoable: true });
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 11,
+      result: {
+        ok: true,
+        value: [{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'in_progress' }],
+      },
+    });
+  });
+
+  it('answers an unwired host/state_read with the unsupported error', async () => {
+    const { agent, written } = fakeProcess();
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'host/state_read',
+      params: readParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 12,
+      error: { code: -32603, message: 'host does not support state bridge' },
+    });
+  });
+
+  it('answers an unwired host/state_write with the unsupported error', async () => {
+    const { agent, written } = fakeProcess();
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'host/state_write',
+      params: writeParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 13,
+      error: { code: -32603, message: 'host does not support state bridge' },
+    });
+  });
+
+  it('propagates a handler failure with its JSON-RPC error code', async () => {
+    const { agent, written } = fakeProcess();
+    agent.setStateReadHandler(async () => {
+      const error = new Error('unknown state domain: goal');
+      (error as { code?: number }).code = -32001;
+      throw error;
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'host/state_read',
+      params: readParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 14,
+      error: { code: -32001, message: 'unknown state domain: goal' },
+    });
+  });
+
+  it('propagates a handler failure without a code as -32603', async () => {
+    const { agent, written } = fakeProcess();
+    agent.setStateWriteHandler(async () => {
+      throw new Error('state service exploded');
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 15,
+      method: 'host/state_write',
+      params: writeParams,
+    });
+
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 15,
+      error: { code: -32603, message: 'state service exploded' },
+    });
+  });
+});
+
+// ── napi adapter layer: state bridge callback passing ─────────────────────
+// The native addon invokes the 9th/10th runTurnRust callbacks only once the
+// Rust side lands; these tests verify the JS adapter passes them through
+// with a fake native module.
+
+describe('NapiEngine — state bridge callback passing', () => {
+  function fakeEngine(): {
+    engine: NapiEngine;
+    received: unknown[][];
+  } {
+    const engine = new NapiEngine();
+    const received: unknown[][] = [];
+    (engine as unknown as { nativeModule: unknown }).nativeModule = {
+      getCallbackPayload: () => null,
+      resolveCallback: () => {},
+      cancelTurn: () => {},
+      runTurnRust: (...args: unknown[]) => {
+        received.push(args);
+        return Promise.resolve({
+          stopReason: 'EndTurn',
+          steps: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          llmTransport: 'host-proxy',
+          nativeToolCalls: 0,
+        });
+      },
+    };
+    return { engine, received };
+  }
+
+  const emptyTurnParams = {
+    turnId: '1',
+    systemPrompt: 'test',
+    modelName: 'test-model',
+    messages: [],
+    tools: [],
+  };
+
+  it('passes stateReadCb and stateWriteCb as the 9th and 10th runTurnRust arguments and round-trips through the registry', async () => {
+    const engine = new NapiEngine();
+    const received: unknown[][] = [];
+    const payloads = new Map<number, string>();
+    const resolved: Array<{ id: number; error: string | null; result: string | null }> = [];
+    (engine as unknown as { nativeModule: unknown }).nativeModule = {
+      getCallbackPayload: (id: number) => payloads.get(id) ?? null,
+      resolveCallback: (id: number, error: string | null, result: string | null) => {
+        resolved.push({ id, error, result });
+      },
+      cancelTurn: () => {},
+      runTurnRust: (...args: unknown[]) => {
+        received.push(args);
+        return Promise.resolve({
+          stopReason: 'EndTurn',
+          steps: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+          llmTransport: 'host-proxy',
+          nativeToolCalls: 0,
+        });
+      },
+    };
+    const stateReadCb = async (request: { domain: string }) => ({
+      value: { domain: request.domain },
+    });
+    const stateWriteCb = async (request: { domain: string; value: unknown }) => ({
+      ok: true,
+      value: request.value,
+    });
+    await engine.runTurn(
+      emptyTurnParams,
+      async () => JSON.stringify({ tool_calls: [], usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }),
+      async () => JSON.stringify({ content: '', is_error: false }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      stateReadCb,
+      stateWriteCb,
+    );
+
+    expect(received).toHaveLength(1);
+    const stateReadHandler = received[0]?.[8];
+    const stateWriteHandler = received[0]?.[9];
+    expect(typeof stateReadHandler).toBe('function');
+    expect(typeof stateWriteHandler).toBe('function');
+    payloads.set(42, JSON.stringify({ domain: 'todo', key: 'todo' }));
+    (stateReadHandler as (callbackId: number) => void)(42);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved[0]).toEqual({
+      id: 42,
+      error: null,
+      result: JSON.stringify({ value: { domain: 'todo' } }),
+    });
+    payloads.set(43, JSON.stringify({ domain: 'todo', key: 'todo', value: [], undoable: true }));
+    (stateWriteHandler as (callbackId: number) => void)(43);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolved[1]).toEqual({
+      id: 43,
+      error: null,
+      result: JSON.stringify({ ok: true, value: [] }),
+    });
+  });
+
+  it('leaves the 9th and 10th runTurnRust arguments undefined without the callbacks', async () => {
+    const { engine, received } = fakeEngine();
+    await engine.runTurn(
+      emptyTurnParams,
+      async () => JSON.stringify({ tool_calls: [], usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }),
+      async () => JSON.stringify({ content: '', is_error: false }),
+    );
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.[8]).toBeUndefined();
+    expect(received[0]?.[9]).toBeUndefined();
+  });
+});

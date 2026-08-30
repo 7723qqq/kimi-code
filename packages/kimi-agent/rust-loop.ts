@@ -39,6 +39,10 @@ export type TurnEngineInputAdapter = import('@moonshot-ai/agent-core-v2').TurnEn
 export type TurnEngineToolResultAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineToolResult;
 export type AskQuestionWire = import('@moonshot-ai/agent-core-v2').AskQuestionWire;
 export type AskQuestionWireResult = import('@moonshot-ai/agent-core-v2').AskQuestionWireResult;
+export type StateReadWire = import('@moonshot-ai/agent-core-v2').StateReadWire;
+export type StateReadWireResult = import('@moonshot-ai/agent-core-v2').StateReadWireResult;
+export type StateWriteWire = import('@moonshot-ai/agent-core-v2').StateWriteWire;
+export type StateWriteWireResult = import('@moonshot-ai/agent-core-v2').StateWriteWireResult;
 
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
@@ -149,6 +153,20 @@ export interface RustEngineOptions {
    * result.
    */
   askUserQuestion?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>;
+  /**
+   * Read host-owned state (`host/state_read`) for a state domain (todo/plan).
+   * The per-turn engine input's `stateRead` takes precedence when both are
+   * wired; when neither is, the engine reports "host does not support state
+   * bridge" as the tool result.
+   */
+  stateRead?: (request: StateReadWire) => Promise<StateReadWireResult>;
+  /**
+   * Write host-owned state (`host/state_write`) for a state domain (todo/plan).
+   * The per-turn engine input's `stateWrite` takes precedence when both are
+   * wired; when neither is, the engine reports "host does not support state
+   * bridge" as the tool result.
+   */
+  stateWrite?: (request: StateWriteWire) => Promise<StateWriteWireResult>;
 }
 
 /** Snapshot of permission policies for in-Rust evaluation (P26 批 3). */
@@ -475,6 +493,8 @@ interface KimiAgentNativeModule {
     finalizeToolCb?: (callbackId: number) => void,
     drainSteersCb?: (callbackId: number) => void,
     askQuestionCb?: (callbackId: number) => void,
+    stateReadCb?: (callbackId: number) => void,
+    stateWriteCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -636,6 +656,8 @@ export class NapiEngine {
     finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
     drainSteersCb?: () => Promise<WireMessage[]>,
     askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
+    stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
+    stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -719,6 +741,26 @@ export class NapiEngine {
             return JSON.stringify(result);
           });
 
+    // State bridge channels: resolve like the request/response callbacks.
+    // The host owns the state (todo/plan) and answers with the wire value;
+    // a handler failure carries the JSON-RPC code the engine maps to a tool
+    // result error.
+    const stateReadHandler =
+      stateReadCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const result = await stateReadCb(JSON.parse(payload) as StateReadWire);
+            return JSON.stringify(result);
+          });
+
+    const stateWriteHandler =
+      stateWriteCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const result = await stateWriteCb(JSON.parse(payload) as StateWriteWire);
+            return JSON.stringify(result);
+          });
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -728,6 +770,8 @@ export class NapiEngine {
       finalizeHandler,
       drainHandler,
       askQuestionHandler,
+      stateReadHandler,
+      stateWriteHandler,
     );
   }
 
@@ -792,6 +836,16 @@ export class AgentProcess {
     | ((req: AskQuestionWire) => Promise<AskQuestionWireResult>)
     | null = null;
 
+  /** Callback for handling host/state_read requests from Rust. */
+  private stateReadHandler:
+    | ((req: StateReadWire) => Promise<StateReadWireResult>)
+    | null = null;
+
+  /** Callback for handling host/state_write requests from Rust. */
+  private stateWriteHandler:
+    | ((req: StateWriteWire) => Promise<StateWriteWireResult>)
+    | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -823,6 +877,14 @@ export class AgentProcess {
 
   setAskQuestionHandler(handler: (req: AskQuestionWire) => Promise<AskQuestionWireResult>) {
     this.askQuestionHandler = handler;
+  }
+
+  setStateReadHandler(handler: (req: StateReadWire) => Promise<StateReadWireResult>) {
+    this.stateReadHandler = handler;
+  }
+
+  setStateWriteHandler(handler: (req: StateWriteWire) => Promise<StateWriteWireResult>) {
+    this.stateWriteHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -951,6 +1013,10 @@ export class AgentProcess {
       await this.handleHostDrainSteers(msg);
     } else if (msg.method === 'host/ask_question') {
       await this.handleHostAskQuestion(msg);
+    } else if (msg.method === 'host/state_read') {
+      await this.handleHostStateRead(msg);
+    } else if (msg.method === 'host/state_write') {
+      await this.handleHostStateWrite(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -987,6 +1053,42 @@ export class AgentProcess {
       this.writeHostResult(msg.id, result);
     } catch (error) {
       this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async handleHostStateRead(msg: RpcMessage) {
+    if (!this.stateReadHandler) {
+      // Unwired host: the engine maps this error to a "state bridge not
+      // supported" tool result telling the model not to retry.
+      this.writeHostError(msg.id, 'host does not support state bridge');
+      return;
+    }
+    try {
+      const result = await this.stateReadHandler(msg.params as StateReadWire);
+      this.writeHostResult(msg.id, result);
+    } catch (error) {
+      this.writeHostError(
+        msg.id,
+        error instanceof Error ? error.message : String(error),
+        stateBridgeErrorCode(error),
+      );
+    }
+  }
+
+  private async handleHostStateWrite(msg: RpcMessage) {
+    if (!this.stateWriteHandler) {
+      this.writeHostError(msg.id, 'host does not support state bridge');
+      return;
+    }
+    try {
+      const result = await this.stateWriteHandler(msg.params as StateWriteWire);
+      this.writeHostResult(msg.id, result);
+    } catch (error) {
+      this.writeHostError(
+        msg.id,
+        error instanceof Error ? error.message : String(error),
+        stateBridgeErrorCode(error),
+      );
     }
   }
 
@@ -1071,9 +1173,9 @@ export class AgentProcess {
     this.process!.stdin!.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
   }
 
-  private writeHostError(id: unknown, message: string) {
+  private writeHostError(id: unknown, message: string, code = -32603) {
     this.process!.stdin!.write(
-      JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32603, message } }) + '\n',
+      JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } }) + '\n',
     );
   }
 
@@ -1544,6 +1646,8 @@ export function createRunTurnOverride(
     const goal = options?.getGoal?.();
     const policySnapshot = options?.getPolicySnapshot?.();
     const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
+    const stateRead = input.stateRead?.bind(input) ?? options?.stateRead;
+    const stateWrite = input.stateWrite?.bind(input) ?? options?.stateWrite;
     const policySnapshotJson =
       policySnapshot === undefined ? undefined : JSON.stringify(policySnapshot);
     // The host owns tool-result truncation and spill-to-disk, so a result the
@@ -1664,6 +1768,8 @@ export function createRunTurnOverride(
           finalizeNativeResult,
           drainSteers,
           askUserQuestion,
+          stateRead,
+          stateWrite,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1690,6 +1796,12 @@ export function createRunTurnOverride(
         agent.setDrainSteersHandler(drainSteers);
         if (askUserQuestion !== undefined) {
           agent.setAskQuestionHandler(askUserQuestion);
+        }
+        if (stateRead !== undefined) {
+          agent.setStateReadHandler(stateRead);
+        }
+        if (stateWrite !== undefined) {
+          agent.setStateWriteHandler(stateWrite);
         }
         agent.setPermissionHandler(async (req) => {
           if (input.checkToolPermission === undefined) {
@@ -1789,6 +1901,16 @@ function tryParseJson(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+/**
+ * Extract the JSON-RPC error code a host state-bridge adapter attached to a
+ * thrown error. Unknown shapes fall back to -32603 (the generic host error).
+ */
+function stateBridgeErrorCode(error: unknown): number {
+  if (typeof error !== 'object' || error === null) return -32603;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'number' ? code : -32603;
 }
 
 export function isRustEngineAvailable(): boolean {

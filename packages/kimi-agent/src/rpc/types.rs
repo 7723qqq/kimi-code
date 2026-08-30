@@ -122,6 +122,16 @@ pub mod methods {
     /// key, dismiss, turn-end cancellation — and answers with the v2
     /// `QuestionResult` three states (answered / dismissed / cancelled).
     pub const HOST_ASK_QUESTION: &str = "host/ask_question";
+
+    /// Read host-owned durable state (Rust → JS host). The engine's native
+    /// todo/plan tools read through this seam; the host stays the
+    /// persistence and undo authority.
+    pub const HOST_STATE_READ: &str = "host/state_read";
+
+    /// Write host-owned durable state (Rust → JS host). The host applies
+    /// its domain semantics (re-normalization, undoable events) and returns
+    /// the resulting state.
+    pub const HOST_STATE_WRITE: &str = "host/state_write";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -254,6 +264,65 @@ pub struct AskQuestionResponse {
     /// Cancellation reason: `turn_ended` / `agent_closed` / `timeout`.
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// A state read request (Rust → JS host). The engine's native todo/plan
+/// tools read host-owned durable state through this seam; the host stays
+/// the persistence and undo authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateReadRequest {
+    /// State domain discriminator: `"todo"` / `"plan"` (future `"goal"` /
+    /// `"cron"` / `"task"`). Unknown domains map to `-32001`.
+    pub domain: String,
+    /// Key within the domain. First version always equals the domain;
+    /// unknown keys map to `-32002`.
+    pub key: String,
+    /// Optional provenance; the host may ignore it.
+    #[serde(default)]
+    pub turn_id: String,
+    /// Optional provenance; the host may ignore it.
+    #[serde(default)]
+    pub tool_call_id: String,
+}
+
+/// The host's answer to a [`StateReadRequest`]: the domain wire value,
+/// opaque JSON serialized by the host (todo: `TodoItem[]`; plan:
+/// `{active, id?, path?}`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateReadResponse {
+    pub value: serde_json::Value,
+}
+
+/// A state write request (Rust → JS host). The engine submits a domain
+/// wire value; the host re-normalizes it (authoritative) and applies its
+/// domain semantics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateWriteRequest {
+    /// State domain discriminator, same as [`StateReadRequest::domain`].
+    pub domain: String,
+    /// Key within the domain, same as [`StateReadRequest::key`].
+    pub key: String,
+    /// Domain wire value. todo: `TodoItem[]`; plan: `{active: true}` =
+    /// enter, `{active: false}` = exit.
+    pub value: serde_json::Value,
+    /// The engine's undo-semantics declaration for this write. The host is
+    /// authoritative and may ignore it (todo/plan are always undoable).
+    pub undoable: bool,
+    /// Optional provenance; the host may ignore it.
+    #[serde(default)]
+    pub turn_id: String,
+    /// Optional provenance; the host may ignore it.
+    #[serde(default)]
+    pub tool_call_id: String,
+}
+
+/// The host's answer to a [`StateWriteRequest`]: `ok` plus the result
+/// state after domain semantics were applied (may differ from the
+/// submitted value — todo ids filled in, plan id/path attached).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateWriteResponse {
+    pub ok: bool,
+    pub value: serde_json::Value,
 }
 
 // ── Message content blocks (multimodal) ─────────────────────────────────
@@ -966,6 +1035,8 @@ mod tests {
         assert_eq!(methods::HOST_LLM_CHAT, "host/llm_chat");
         assert_eq!(methods::HOST_EXECUTE_TOOL, "host/execute_tool");
         assert_eq!(methods::HOST_ASK_QUESTION, "host/ask_question");
+        assert_eq!(methods::HOST_STATE_READ, "host/state_read");
+        assert_eq!(methods::HOST_STATE_WRITE, "host/state_write");
     }
 
     #[test]
@@ -1165,5 +1236,126 @@ mod tests {
         assert_eq!(cancelled.reason.as_deref(), Some("turn_ended"));
         assert!(cancelled.answers.is_empty());
         assert_eq!(cancelled.method, None);
+    }
+
+    #[test]
+    fn test_state_read_request_roundtrip() {
+        let req = StateReadRequest {
+            domain: "todo".to_string(),
+            key: "todo".to_string(),
+            turn_id: "turn-42".to_string(),
+            tool_call_id: "call_abc".to_string(),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["domain"], "todo");
+        assert_eq!(json["key"], "todo");
+        assert_eq!(json["turn_id"], "turn-42");
+        assert_eq!(json["tool_call_id"], "call_abc");
+
+        let deserialized: StateReadRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.domain, "todo");
+        assert_eq!(deserialized.key, "todo");
+        assert_eq!(deserialized.turn_id, "turn-42");
+        assert_eq!(deserialized.tool_call_id, "call_abc");
+    }
+
+    #[test]
+    fn test_state_read_request_defaults() {
+        // Provenance fields are optional on the wire; serde defaults keep
+        // older adapters backward-compatible.
+        let req: StateReadRequest = serde_json::from_value(serde_json::json!({
+            "domain": "plan",
+            "key": "plan",
+        }))
+        .unwrap();
+        assert_eq!(req.domain, "plan");
+        assert_eq!(req.key, "plan");
+        assert_eq!(req.turn_id, "");
+        assert_eq!(req.tool_call_id, "");
+    }
+
+    #[test]
+    fn test_state_read_response_opaque_value() {
+        // `value` is an opaque host-serialized domain wire value; it must
+        // round-trip verbatim.
+        let resp = StateReadResponse {
+            value: serde_json::json!([
+                {"id": "T1", "parentId": null, "kind": "task", "title": "Read session-control.ts", "status": "in_progress", "progress": 40},
+                {"id": "M1", "parentId": null, "kind": "milestone", "title": "Phase 1", "status": "pending"}
+            ]),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["value"][0]["id"], "T1");
+        assert_eq!(json["value"][0]["progress"], 40);
+        assert_eq!(json["value"][1]["kind"], "milestone");
+
+        let deserialized: StateReadResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.value[0]["title"], "Read session-control.ts");
+        assert_eq!(deserialized.value[1]["status"], "pending");
+    }
+
+    #[test]
+    fn test_state_write_request_roundtrip() {
+        let req = StateWriteRequest {
+            domain: "todo".to_string(),
+            key: "todo".to_string(),
+            value: serde_json::json!([
+                {"title": "Read session-control.ts", "status": "in_progress"}
+            ]),
+            undoable: true,
+            turn_id: "turn-42".to_string(),
+            tool_call_id: "call_abc".to_string(),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["domain"], "todo");
+        assert_eq!(json["undoable"], true);
+        assert_eq!(json["value"][0]["title"], "Read session-control.ts");
+        assert_eq!(json["turn_id"], "turn-42");
+        assert_eq!(json["tool_call_id"], "call_abc");
+
+        let deserialized: StateWriteRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.domain, "todo");
+        assert!(deserialized.undoable);
+        assert_eq!(deserialized.value[0]["status"], "in_progress");
+        assert_eq!(deserialized.turn_id, "turn-42");
+        assert_eq!(deserialized.tool_call_id, "call_abc");
+    }
+
+    #[test]
+    fn test_state_write_request_defaults() {
+        let req: StateWriteRequest = serde_json::from_value(serde_json::json!({
+            "domain": "plan",
+            "key": "plan",
+            "value": {"active": true},
+            "undoable": true,
+        }))
+        .unwrap();
+        assert_eq!(req.domain, "plan");
+        assert!(req.undoable);
+        assert_eq!(req.value["active"], true);
+        assert_eq!(req.turn_id, "");
+        assert_eq!(req.tool_call_id, "");
+    }
+
+    #[test]
+    fn test_state_write_response_roundtrip() {
+        let resp = StateWriteResponse {
+            ok: true,
+            value: serde_json::json!({
+                "active": true,
+                "id": "plan-7f3a",
+                "path": "<sessionDir>/agents/agent-1/plans/plan-7f3a.md"
+            }),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["value"]["id"], "plan-7f3a");
+
+        let deserialized: StateWriteResponse = serde_json::from_value(json).unwrap();
+        assert!(deserialized.ok);
+        assert_eq!(
+            deserialized.value["path"],
+            "<sessionDir>/agents/agent-1/plans/plan-7f3a.md"
+        );
     }
 }
