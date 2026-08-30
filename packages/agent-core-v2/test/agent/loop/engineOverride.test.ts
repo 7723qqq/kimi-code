@@ -17,6 +17,7 @@ import {
   type TurnEngineInput,
 } from '#/agent/loop/engineOverride';
 import { IFlagService } from '#/app/flag/flag';
+import { AgentCron } from '#/features/cron/cronAgentRuntime';
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
@@ -906,10 +907,10 @@ describe('external engine × state bridge', () => {
     let writeError: unknown;
     const engine = makeStateEngine(async (input) => {
       readError = await captureError(async () => {
-        await input.stateRead?.({ domain: 'cron', key: 'cron' });
+        await input.stateRead?.({ domain: 'unknown', key: 'unknown' });
       });
       writeError = await captureError(async () => {
-        await input.stateWrite?.({ domain: 'cron', key: 'cron', value: {}, undoable: true });
+        await input.stateWrite?.({ domain: 'unknown', key: 'unknown', value: {}, undoable: true });
       });
     });
     ctx = createTestAgentWithEngine(engine);
@@ -1013,7 +1014,226 @@ describe('external engine × state bridge', () => {
     });
   });
 
-  it('rejects a goal state write with -32004', async () => {
+  it('reads the cron domain through the AgentCron runtime', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'cron', key: 'cron' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    ctx.resolve(AgentCron).addTask({
+      cron: '0 9 * * *',
+      prompt: 'morning briefing',
+      recurring: true,
+    });
+    await driveTurn();
+
+    expect(readResult).toEqual({
+      value: [
+        expect.objectContaining({
+          id: expect.any(String),
+          cron: '0 9 * * *',
+          humanSchedule: expect.any(String),
+          prompt: 'morning briefing',
+          createdAt: expect.any(Number),
+          recurring: true,
+          nextFireAt: expect.any(String),
+          ageDays: expect.any(Number),
+          stale: false,
+        }),
+      ],
+    });
+  });
+
+  it('writes the cron domain create action through the AgentCron runtime', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'cron',
+        key: 'cron',
+        value: { action: 'create', cron: '0 9 * * *', prompt: 'morning briefing' },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toMatchObject({
+      id: expect.any(String),
+      cron: '0 9 * * *',
+      humanSchedule: expect.any(String),
+      prompt: 'morning briefing',
+      recurring: true,
+      nextFireAt: expect.any(String),
+    });
+    expect(ctx.resolve(AgentCron).list()).toHaveLength(1);
+  });
+
+  it('writes the cron domain delete action through the AgentCron runtime', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'cron',
+        key: 'cron',
+        value: { action: 'delete', id: task.id },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    const task = ctx.resolve(AgentCron).addTask({
+      cron: '0 9 * * *',
+      prompt: 'morning briefing',
+      recurring: true,
+    });
+    await driveTurn();
+
+    expect(writeResult).toEqual({ ok: true, value: [] });
+    expect(ctx.resolve(AgentCron).list()).toHaveLength(0);
+  });
+
+  it('rejects an invalid cron expression with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'cron',
+          key: 'cron',
+          value: { action: 'create', cron: 'not a cron', prompt: 'x' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('rejects deleting a missing cron job with -32004', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'cron',
+          key: 'cron',
+          value: { action: 'delete', id: '01HZ0000000000000000000000' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32004);
+  });
+
+  it('writes the goal domain update action through the AgentGoal runtime', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'goal',
+        key: 'goal',
+        value: { action: 'update', status: 'complete' },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentGoal).createGoal({ objective: 'Do the thing' });
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toEqual({
+      goal: expect.objectContaining({ objective: 'Do the thing', status: 'complete' }),
+    });
+  });
+
+  it('writes the goal domain set_budget action through the AgentGoal runtime', async () => {
+    let writeResult: StateWriteWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      writeResult = await input.stateWrite?.({
+        domain: 'goal',
+        key: 'goal',
+        value: { action: 'set_budget', value: 10, unit: 'turns' },
+        undoable: false,
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await ctx.resolve(AgentGoal).createGoal({ objective: 'Do the thing' });
+    await driveTurn();
+
+    expect(writeResult?.ok).toBe(true);
+    expect(writeResult?.value).toEqual({
+      goal: expect.objectContaining({
+        budget: expect.objectContaining({ turnBudget: 10 }),
+      }),
+    });
+  });
+
+  it('rejects a goal update with no current goal with -32004', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { action: 'update', status: 'complete' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32004);
+  });
+
+  it('rejects an invalid goal status with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { action: 'update', status: 'paused' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('rejects an unreasonable goal budget with -32003', async () => {
+    let writeError: unknown;
+    const engine = makeStateEngine(async (input) => {
+      writeError = await captureError(async () => {
+        await input.stateWrite?.({
+          domain: 'goal',
+          key: 'goal',
+          value: { action: 'set_budget', value: 1, unit: 'milliseconds' },
+          undoable: false,
+        });
+      });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+
+  it('rejects an invalid goal action with -32003', async () => {
     let writeError: unknown;
     const engine = makeStateEngine(async (input) => {
       writeError = await captureError(async () => {
@@ -1029,6 +1249,6 @@ describe('external engine × state bridge', () => {
     await ctx.restoreRuntimes();
     await driveTurn();
 
-    expect((writeError as { code?: number }).code).toBe(-32004);
+    expect((writeError as { code?: number }).code).toBe(-32003);
   });
 });

@@ -1150,6 +1150,13 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 第 7 批第二批：cron 工具族 + goal 写工具 — ✅ 完成（2026-09-01）
+
+- `src/tools/cron_tools.rs`（1100 行，24 单测）：CronList（state_read cron 域 + 渲染对齐 v2）/ CronCreate（引擎侧校验：parse/5 年窗口/8KiB/one-shot 350 天）/ CronDelete（id 格式校验）；tool def schema 对齐 v2
+- `src/tools/goal_tools.rs`（800 行，19 单测）：UpdateGoal（status 校验 + completion/blocked summary 渲染）/ SetGoalBudget（normalize_budget_input + 合理性校验）
+- `loopService.ts`：stateRead 加 cron 域（条目 wire：id/cron/humanSchedule/prompt/nextFireAt/stale 等宿主计算）；stateWrite 加 cron 域（create 全量校验/delete，错误 -32003/-32004）；stateWrite goal 域从拒绝改为支持（update 经 resumeGoal/markComplete/markBlocked、set_budget 经 setBudgetLimits，-32003/-32004）
+- engineOverride 测试 +11（cron 读/建/删、goal 写、错误映射），38/38
+
 ### 第 7 批第二批：GetGoal 直移 — ✅ 完成（2026-09-01）
 
 - `loopService.ts` stateRead 加 goal 域（经 `AgentGoal` runtime 返回 `{goal: GoalSnapshot|null}`）；stateWrite goal 域首版拒绝（-32004，goal 写经宿主工具路径）

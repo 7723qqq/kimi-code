@@ -52,9 +52,11 @@ const BASH_MAX_SECONDS: u64 = 300;
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 pub mod ask_user_question;
+pub mod cron_tools;
 pub mod encoding;
 pub mod fetch_url;
 pub mod get_goal;
+pub mod goal_tools;
 pub mod list_directory;
 pub mod plan_mode;
 pub mod subagent_tools;
@@ -190,6 +192,16 @@ impl NativeToolset {
                 | "todo_list"
                 | "enterplanmode"
                 | "enter_plan_mode"
+                | "cronlist"
+                | "cron_list"
+                | "croncreate"
+                | "cron_create"
+                | "crondelete"
+                | "cron_delete"
+                | "updategoal"
+                | "update_goal"
+                | "setgoalbudget"
+                | "set_goal_budget"
         )
     }
 
@@ -235,6 +247,26 @@ impl NativeToolset {
             "enterplanmode" | "enter_plan_mode" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(plan_mode::execute_enter_plan_mode(callbacks, args).await)
+            }
+            "cronlist" | "cron_list" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(cron_tools::execute_cron_list(callbacks, args).await)
+            }
+            "croncreate" | "cron_create" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(cron_tools::execute_cron_create(callbacks, args).await)
+            }
+            "crondelete" | "cron_delete" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(cron_tools::execute_cron_delete(callbacks, args).await)
+            }
+            "updategoal" | "update_goal" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(goal_tools::execute_update_goal(callbacks, args).await)
+            }
+            "setgoalbudget" | "set_goal_budget" => {
+                let callbacks = self.callbacks.as_deref()?;
+                Some(goal_tools::execute_set_goal_budget(callbacks, args).await)
             }
             "write" => self.write(args),
             "edit" => self.edit(args),

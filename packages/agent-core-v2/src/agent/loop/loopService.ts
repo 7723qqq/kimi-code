@@ -9,6 +9,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
@@ -18,7 +19,19 @@ import { type FinishReason } from '#/kosong/contract/provider';
 import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type TokenUsage } from '#/kosong/contract/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { AgentCron, type CronRuntime } from '#/features/cron/cronAgentRuntime';
+import {
+  computeNextCronRun,
+  cronToHuman,
+  hasFireWithinYears,
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/features/cron/internal/cron-expr';
+import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
+import type { CronTask } from '#/features/cron/cronTask';
+import { MAX_CRON_JOBS_PER_SESSION, MAX_PROMPT_BYTES } from '#/features/cron/tools/cron-create/cron-create';
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
+import type { GoalBudgetLimits } from '#/features/goal/types';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { readTodoItems } from '#/features/todo/todoItem';
@@ -1202,6 +1215,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 : { active: true, id: status.id, path: status.path },
           };
         }
+        if (request.domain === 'cron') {
+          const cron = cronRuntimeOf(this.instantiation, this.scopeContext.agentContext);
+          return { value: cronEntriesWire(cron) };
+        }
         if (request.domain === 'goal') {
           const lifecycle = this.instantiation.invokeFunction((accessor) =>
             accessor.get(IAgentLifecycleService),
@@ -1262,11 +1279,164 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 : { active: true, id: status.id, path: status.path },
           };
         }
+        if (request.domain === 'cron') {
+          const value = request.value;
+          if (typeof value !== 'object' || value === null) {
+            throw stateBridgeError(
+              -32003,
+              'invalid cron state value: expected { action: "create" | "delete", ... }',
+            );
+          }
+          const action = (value as { action?: unknown }).action;
+          const cron = cronRuntimeOf(this.instantiation, this.scopeContext.agentContext);
+          if (action === 'create') {
+            const input = value as { cron?: unknown; prompt?: unknown; recurring?: unknown };
+            if (typeof input.cron !== 'string' || typeof input.prompt !== 'string') {
+              throw stateBridgeError(
+                -32003,
+                'invalid cron create value: expected { action: "create", cron: string, prompt: string, recurring?: boolean }',
+              );
+            }
+            const recurring = input.recurring !== false;
+            const normalizedCron = input.cron.trim().split(/\s+/).join(' ');
+            let parsed: ParsedCronExpression;
+            try {
+              parsed = parseCronExpression(normalizedCron);
+            } catch (error) {
+              throw stateBridgeError(
+                -32003,
+                `Invalid cron expression: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            const nowMs = cron.now();
+            if (cron.isDisabled()) {
+              throw stateBridgeError(-32003, 'Cron scheduling is disabled (KIMI_DISABLE_CRON=1).');
+            }
+            if (!hasFireWithinYears(parsed, 5, nowMs)) {
+              throw stateBridgeError(
+                -32003,
+                `Cron expression ${JSON.stringify(normalizedCron)} has no fire within 5 years; refusing to schedule.`,
+              );
+            }
+            if (cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
+              throw stateBridgeError(
+                -32003,
+                `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
+              );
+            }
+            const byteLen = Buffer.byteLength(input.prompt, 'utf8');
+            if (byteLen > MAX_PROMPT_BYTES) {
+              throw stateBridgeError(
+                -32003,
+                `Prompt exceeds ${String(MAX_PROMPT_BYTES)} bytes (got ${String(byteLen)}).`,
+              );
+            }
+            if (!recurring) {
+              const firstFire = computeNextCronRun(parsed, nowMs);
+              if (firstFire !== null && firstFire - nowMs > ONE_SHOT_MAX_FUTURE_MS) {
+                throw stateBridgeError(
+                  -32003,
+                  `One-shot cron ${JSON.stringify(normalizedCron)} would not fire until ${formatLocalIsoWithOffset(firstFire)} (more than a year out). If you meant "today" or a near date, the pinned day/month has already passed this year — pick a future date or use wildcards.`,
+                );
+              }
+            }
+            const task = cron.addTask({ cron: normalizedCron, prompt: input.prompt, recurring });
+            cron.emitScheduled(task, this.scopeContext.agentId);
+            return { ok: true, value: cronEntryWire(cron, task) };
+          }
+          if (action === 'delete') {
+            const id = (value as { id?: unknown }).id;
+            if (typeof id !== 'string') {
+              throw stateBridgeError(
+                -32003,
+                'invalid cron delete value: expected { action: "delete", id: string }',
+              );
+            }
+            const removed = cron.removeTasks([id]);
+            if (removed.length === 0) {
+              throw stateBridgeError(-32004, `No cron job with id ${id}.`);
+            }
+            cron.emitDeleted(id, this.scopeContext.agentId);
+            return { ok: true, value: cronEntriesWire(cron) };
+          }
+          throw stateBridgeError(-32003, `invalid cron action: ${String(action)}`);
+        }
         if (request.domain === 'goal') {
-          throw stateBridgeError(
-            -32004,
-            'goal state writes are not supported: goal mutations must go through the host tool path',
+          const value = request.value;
+          if (typeof value !== 'object' || value === null) {
+            throw stateBridgeError(
+              -32003,
+              'invalid goal state value: expected { action: "update" | "set_budget", ... }',
+            );
+          }
+          const action = (value as { action?: unknown }).action;
+          const lifecycle = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentLifecycleService),
           );
+          const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
+          if (action === 'update') {
+            const status = (value as { status?: unknown }).status;
+            if (status !== 'active' && status !== 'complete' && status !== 'blocked') {
+              throw stateBridgeError(
+                -32003,
+                'Invalid goal status. Use `active`, `complete`, or `blocked`.',
+              );
+            }
+            try {
+              if (status === 'active') {
+                await goal.resumeGoal({}, 'model');
+                return { ok: true, value: goal.getGoal() };
+              }
+              if (status === 'complete') {
+                const completed = await goal.markComplete({}, 'model');
+                if (completed === null) {
+                  throw stateBridgeError(-32004, 'Goal not completed: no active goal.');
+                }
+                return { ok: true, value: { goal: completed } };
+              }
+              const blocked = await goal.markBlocked({}, 'model');
+              if (blocked === null) {
+                throw stateBridgeError(-32004, 'Goal not blocked: no active goal.');
+              }
+              return { ok: true, value: { goal: blocked } };
+            } catch (error) {
+              if (isError2(error)) {
+                throw stateBridgeError(-32004, error.message);
+              }
+              throw error;
+            }
+          }
+          if (action === 'set_budget') {
+            const input = value as { value?: unknown; unit?: unknown };
+            if (
+              typeof input.value !== 'number' ||
+              !Number.isFinite(input.value) ||
+              typeof input.unit !== 'string' ||
+              !isBudgetUnit(input.unit)
+            ) {
+              throw stateBridgeError(
+                -32003,
+                'invalid goal set_budget value: expected { action: "set_budget", value: number, unit: "turns" | "tokens" | "milliseconds" | "seconds" | "minutes" | "hours" }',
+              );
+            }
+            const budget = budgetLimitsFromWire(input.value, input.unit);
+            if (budget === null) {
+              throw stateBridgeError(
+                -32003,
+                `Goal budget not set: ${formatBudgetWire(input.value, input.unit)} is not a reasonable goal budget.`,
+              );
+            }
+            try {
+              const snapshot = await goal.setBudgetLimits({ budgetLimits: budget }, 'model');
+              return { ok: true, value: { goal: snapshot } };
+            } catch (error) {
+              if (isError2(error)) {
+                throw stateBridgeError(-32004, error.message);
+              }
+              throw error;
+            }
+          }
+          throw stateBridgeError(-32003, `invalid goal action: ${String(action)}`);
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },
@@ -1601,6 +1771,99 @@ function stateBridgeError(code: number, message: string): Error {
   const error = new Error(message);
   (error as { code?: number }).code = code;
   return error;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const ONE_SHOT_MAX_FUTURE_MS = 350 * 24 * 60 * 60 * 1000;
+const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
+const MAX_REASONABLE_TIME_BUDGET_MS = 24 * 60 * 60 * 1000;
+const BUDGET_UNITS = ['turns', 'tokens', 'milliseconds', 'seconds', 'minutes', 'hours'] as const;
+
+function cronRuntimeOf(instantiation: IInstantiationService, agentContext: AgentContext): CronRuntime {
+  const lifecycle = instantiation.invokeFunction((accessor) =>
+    accessor.get(IAgentLifecycleService),
+  );
+  return lifecycle.resolve(agentContext, AgentCron);
+}
+
+function cronEntryWire(cron: CronRuntime, task: CronTask): Record<string, unknown> {
+  const recurring = task.recurring !== false;
+  let humanSchedule = task.cron;
+  let nextFireAt: string | null = null;
+  try {
+    const parsed = parseCronExpression(task.cron);
+    humanSchedule = cronToHuman(parsed);
+    const nextFireMs = cron.getNextFireForTask(task.id);
+    if (nextFireMs !== null) nextFireAt = formatLocalIsoWithOffset(nextFireMs);
+  } catch {
+  }
+  const ageMs = cron.now() - task.createdAt;
+  return {
+    id: task.id,
+    cron: task.cron,
+    humanSchedule,
+    prompt: task.prompt,
+    createdAt: task.createdAt,
+    recurring,
+    lastFiredAt: task.lastFiredAt,
+    nextFireAt,
+    ageDays: Number.isFinite(ageMs) ? ageMs / MS_PER_DAY : 0,
+    stale: cron.isStale(task),
+  };
+}
+
+function cronEntriesWire(cron: CronRuntime): Record<string, unknown>[] {
+  return cron.list().map((task) => cronEntryWire(cron, task));
+}
+
+function isBudgetUnit(unit: string): unit is (typeof BUDGET_UNITS)[number] {
+  return (BUDGET_UNITS as readonly string[]).includes(unit);
+}
+
+function budgetLimitsFromWire(
+  value: number,
+  unit: (typeof BUDGET_UNITS)[number],
+): GoalBudgetLimits | null {
+  switch (unit) {
+    case 'turns':
+      return { turnBudget: Math.max(1, Math.round(value)) };
+    case 'tokens':
+      return { tokenBudget: Math.max(1, Math.round(value)) };
+    case 'milliseconds':
+    case 'seconds':
+    case 'minutes':
+    case 'hours': {
+      const wallClockBudgetMs = Math.round(toMilliseconds(value, unit));
+      if (
+        wallClockBudgetMs < MIN_REASONABLE_TIME_BUDGET_MS ||
+        wallClockBudgetMs > MAX_REASONABLE_TIME_BUDGET_MS
+      ) {
+        return null;
+      }
+      return { wallClockBudgetMs };
+    }
+  }
+}
+
+function toMilliseconds(
+  value: number,
+  unit: 'milliseconds' | 'seconds' | 'minutes' | 'hours',
+): number {
+  switch (unit) {
+    case 'milliseconds':
+      return value;
+    case 'seconds':
+      return value * 1000;
+    case 'minutes':
+      return value * 60 * 1000;
+    case 'hours':
+      return value * 60 * 60 * 1000;
+  }
+}
+
+function formatBudgetWire(value: number, unit: (typeof BUDGET_UNITS)[number]): string {
+  const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit;
+  return `${String(value)} ${value === 1 ? singular : unit}`;
 }
 
 function isCancelledQuestionResult(
