@@ -6,8 +6,8 @@
 //! - Uses stderr for logging/diagnostics
 
 use serde::{Deserialize, Serialize};
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
 
 /// A boxed future type alias for async handlers.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -153,9 +153,17 @@ pub enum ContentBlock {
     /// Image referenced by URL (https or data URL).
     ImageUrl { url: String },
     /// Audio referenced by URL, with an optional provider-side id.
-    AudioUrl { url: String, #[serde(default, skip_serializing_if = "Option::is_none")] id: Option<String> },
+    AudioUrl {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
     /// Video referenced by URL, with an optional provider-side id.
-    VideoUrl { url: String, #[serde(default, skip_serializing_if = "Option::is_none")] id: Option<String> },
+    VideoUrl {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
 }
 
 // ── Native LLM configuration (Rust-side HTTP transport) ───────────────────
@@ -500,8 +508,12 @@ mod tests {
         let result = RunTurnResult {
             stop_reason: "EndTurn".to_string(),
             steps: 3,
-            usage: TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 ,
-        ..Default::default()},
+            usage: TokenUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                total_tokens: 150,
+                ..Default::default()
+            },
             events_emitted: 7,
             llm_retries: 2,
         };
@@ -538,16 +550,16 @@ mod tests {
         let req = LlmChatRequest {
             system_prompt: "You are helpful.".to_string(),
             model_name: "gpt-4".to_string(),
-            messages: vec![
-                LlmChatMessage { role: "user".to_string(), content: "Hi".to_string(), blocks: Vec::new() },
-            ],
-            tools: vec![
-                ToolDef {
-                    name: "read".to_string(),
-                    description: "Read file".to_string(),
-                    input_schema: serde_json::json!({"type": "object"}),
-                },
-            ],
+            messages: vec![LlmChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+                blocks: Vec::new(),
+            }],
+            tools: vec![ToolDef {
+                name: "read".to_string(),
+                description: "Read file".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
             request_id: None,
         };
         let json = serde_json::to_value(&req).unwrap();
@@ -582,16 +594,18 @@ mod tests {
     fn test_llm_chat_response_roundtrip() {
         let resp = LlmChatResponse {
             content: String::new(),
-            tool_calls: vec![
-                LlmToolCall {
-                    id: "call_1".to_string(),
-                    name: "read".to_string(),
-                    arguments: serde_json::json!({"path": "/tmp/test.txt"}),
-                },
-            ],
+            tool_calls: vec![LlmToolCall {
+                id: "call_1".to_string(),
+                name: "read".to_string(),
+                arguments: serde_json::json!({"path": "/tmp/test.txt"}),
+            }],
             finish_reason: Some("stop".to_string()),
-            usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
-        ..Default::default()},
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                ..Default::default()
+            },
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["tool_calls"][0]["name"], "read");
@@ -712,7 +726,11 @@ mod tests {
         let json = serde_json::to_value(&def).unwrap();
         let deserialized: ToolDef = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.name, "grep");
-        assert!(deserialized.input_schema["properties"]["pattern"]["type"].as_str().is_some());
+        assert!(
+            deserialized.input_schema["properties"]["pattern"]["type"]
+                .as_str()
+                .is_some()
+        );
     }
 
     #[test]
@@ -725,8 +743,12 @@ mod tests {
 
     #[test]
     fn test_token_usage_roundtrip() {
-        let usage = TokenUsage { input_tokens: 100, output_tokens: 50, total_tokens: 150 ,
-        ..Default::default()};
+        let usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            ..Default::default()
+        };
         let json = serde_json::to_value(&usage).unwrap();
         assert_eq!(json["input_tokens"], 100);
         assert_eq!(json["output_tokens"], 50);
@@ -775,7 +797,8 @@ mod tests {
 
     #[test]
     fn test_json_rpc_error_response() {
-        let err = JsonRpcErrorResponse::new(serde_json::json!(null), -32700, "Parse error".to_string());
+        let err =
+            JsonRpcErrorResponse::new(serde_json::json!(null), -32700, "Parse error".to_string());
         let json = serde_json::to_value(&err).unwrap();
         assert_eq!(json["error"]["code"], -32700);
         assert_eq!(json["error"]["message"], "Parse error");

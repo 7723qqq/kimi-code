@@ -112,7 +112,10 @@ mod tests {
                 .min(config.max_delay_ms) as i64;
             let with_jitter = expected_max + expected_max / 4;
             let cap = with_jitter.max(100) as u64;
-            assert!(ms <= cap, "attempt {attempt}: delay {ms} exceeded cap {cap}");
+            assert!(
+                ms <= cap,
+                "attempt {attempt}: delay {ms} exceeded cap {cap}"
+            );
         }
     }
 

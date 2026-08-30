@@ -54,7 +54,13 @@ pub trait LLM: Send + Sync {
     /// Whether the given error is retryable.
     fn is_retryable_error(&self, error: &str) -> bool;
     /// Send a chat request and get a response.
-    fn chat(&self, params: LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>;
+    fn chat(
+        &self,
+        params: LLMChatParams,
+    ) -> crate::rpc::types::BoxFuture<
+        '_,
+        Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+    >;
 }
 
 /// Parameters for an LLM chat call.
@@ -466,21 +472,50 @@ mod tests {
 
     #[test]
     fn test_file_operation_writes() {
-        assert!(!ToolResourceAccess::file_operation_writes(FileOperation::Read));
-        assert!(ToolResourceAccess::file_operation_writes(FileOperation::Write));
-        assert!(ToolResourceAccess::file_operation_writes(FileOperation::ReadWrite));
-        assert!(!ToolResourceAccess::file_operation_writes(FileOperation::Search));
+        assert!(!ToolResourceAccess::file_operation_writes(
+            FileOperation::Read
+        ));
+        assert!(ToolResourceAccess::file_operation_writes(
+            FileOperation::Write
+        ));
+        assert!(ToolResourceAccess::file_operation_writes(
+            FileOperation::ReadWrite
+        ));
+        assert!(!ToolResourceAccess::file_operation_writes(
+            FileOperation::Search
+        ));
     }
 
     #[test]
     fn test_file_operations_conflict() {
-        assert!(!ToolResourceAccess::file_operations_conflict(FileOperation::Read, FileOperation::Read));
-        assert!(ToolResourceAccess::file_operations_conflict(FileOperation::Read, FileOperation::Write));
-        assert!(ToolResourceAccess::file_operations_conflict(FileOperation::Write, FileOperation::Read));
-        assert!(ToolResourceAccess::file_operations_conflict(FileOperation::Write, FileOperation::Write));
-        assert!(ToolResourceAccess::file_operations_conflict(FileOperation::Read, FileOperation::ReadWrite));
-        assert!(!ToolResourceAccess::file_operations_conflict(FileOperation::Search, FileOperation::Read));
-        assert!(ToolResourceAccess::file_operations_conflict(FileOperation::Search, FileOperation::Write));
+        assert!(!ToolResourceAccess::file_operations_conflict(
+            FileOperation::Read,
+            FileOperation::Read
+        ));
+        assert!(ToolResourceAccess::file_operations_conflict(
+            FileOperation::Read,
+            FileOperation::Write
+        ));
+        assert!(ToolResourceAccess::file_operations_conflict(
+            FileOperation::Write,
+            FileOperation::Read
+        ));
+        assert!(ToolResourceAccess::file_operations_conflict(
+            FileOperation::Write,
+            FileOperation::Write
+        ));
+        assert!(ToolResourceAccess::file_operations_conflict(
+            FileOperation::Read,
+            FileOperation::ReadWrite
+        ));
+        assert!(!ToolResourceAccess::file_operations_conflict(
+            FileOperation::Search,
+            FileOperation::Read
+        ));
+        assert!(ToolResourceAccess::file_operations_conflict(
+            FileOperation::Search,
+            FileOperation::Write
+        ));
     }
 
     #[test]
@@ -640,17 +675,20 @@ impl GoalContext {
         turn_wall_clock_ms: i64,
     ) -> bool {
         if let Some(budget) = self.token_budget
-            && self.tokens_used + turn_tokens >= budget {
-                return true;
-            }
+            && self.tokens_used + turn_tokens >= budget
+        {
+            return true;
+        }
         if let Some(budget) = self.turn_budget
-            && self.turns_used + turns_this_turn >= budget {
-                return true;
-            }
+            && self.turns_used + turns_this_turn >= budget
+        {
+            return true;
+        }
         if let Some(budget) = self.wall_clock_budget_ms
-            && self.wall_clock_ms + turn_wall_clock_ms >= budget {
-                return true;
-            }
+            && self.wall_clock_ms + turn_wall_clock_ms >= budget
+        {
+            return true;
+        }
         false
     }
 
@@ -664,17 +702,20 @@ impl GoalContext {
     ) -> f64 {
         let mut fractions = Vec::new();
         if let Some(budget) = self.token_budget
-            && budget > 0 {
-                fractions.push((self.tokens_used + turn_tokens) as f64 / budget as f64);
-            }
+            && budget > 0
+        {
+            fractions.push((self.tokens_used + turn_tokens) as f64 / budget as f64);
+        }
         if let Some(budget) = self.turn_budget
-            && budget > 0 {
-                fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
-            }
+            && budget > 0
+        {
+            fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
+        }
         if let Some(budget) = self.wall_clock_budget_ms
-            && budget > 0 {
-                fractions.push((self.wall_clock_ms + turn_wall_clock_ms) as f64 / budget as f64);
-            }
+            && budget > 0
+        {
+            fractions.push((self.wall_clock_ms + turn_wall_clock_ms) as f64 / budget as f64);
+        }
         fractions.iter().cloned().fold(0.0_f64, f64::max)
     }
 }
@@ -785,8 +826,14 @@ mod goal_tests {
     fn test_would_exceed_budget_turn_near_limit() {
         let mut g = active_goal();
         g.turns_used = 8;
-        assert!(!g.would_exceed_budget(0, 1, 0), "8+1=9 < 10, should not exceed");
-        assert!(g.would_exceed_budget(0, 2, 0), "8+2=10 >= 10, should exceed");
+        assert!(
+            !g.would_exceed_budget(0, 1, 0),
+            "8+1=9 < 10, should not exceed"
+        );
+        assert!(
+            g.would_exceed_budget(0, 2, 0),
+            "8+2=10 >= 10, should exceed"
+        );
     }
 
     #[test]
@@ -846,9 +893,18 @@ mod goal_tests {
     fn test_wall_clock_budget_at_limit() {
         let mut g = active_goal();
         g.wall_clock_budget_ms = Some(6000);
-        assert!(!g.would_exceed_budget(0, 0, 5000), "within wall-clock budget");
-        assert!(g.would_exceed_budget(0, 0, 6000), "at wall-clock limit should exceed");
-        assert!(g.would_exceed_budget(0, 0, 7000), "beyond wall-clock limit should exceed");
+        assert!(
+            !g.would_exceed_budget(0, 0, 5000),
+            "within wall-clock budget"
+        );
+        assert!(
+            g.would_exceed_budget(0, 0, 6000),
+            "at wall-clock limit should exceed"
+        );
+        assert!(
+            g.would_exceed_budget(0, 0, 7000),
+            "beyond wall-clock limit should exceed"
+        );
         assert_eq!(g.budget_fraction(0, 0, 3000), 0.5);
     }
 
@@ -865,14 +921,23 @@ mod goal_tests {
             tokens_used: 0,
             turns_used: 0,
         };
-        assert!(g.would_exceed_budget(0, 0, 1000), "cumulative elapsed pushes over budget");
-        assert!(!g.would_exceed_budget(0, 0, 999), "just under cumulative budget");
+        assert!(
+            g.would_exceed_budget(0, 0, 1000),
+            "cumulative elapsed pushes over budget"
+        );
+        assert!(
+            !g.would_exceed_budget(0, 0, 999),
+            "just under cumulative budget"
+        );
     }
 
     #[test]
     fn test_no_wall_clock_budget_never_triggers() {
         let g = active_goal();
-        assert!(!g.would_exceed_budget(0, 0, i64::MAX / 2), "no wall-clock budget configured");
+        assert!(
+            !g.would_exceed_budget(0, 0, i64::MAX / 2),
+            "no wall-clock budget configured"
+        );
     }
 
     #[test]

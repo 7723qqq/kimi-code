@@ -98,7 +98,11 @@ mod tests {
     #[test]
     fn to_wire_preserves_tool_structure() {
         let messages = vec![
-            LLMMessage { role: "user".into(), content: "hi".into(), ..Default::default() },
+            LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            },
             LLMMessage {
                 role: "assistant".into(),
                 content: String::new(),

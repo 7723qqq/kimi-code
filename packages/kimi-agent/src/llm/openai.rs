@@ -5,7 +5,7 @@
 //! JSON shape and are unit-tested against fixtures.
 #![allow(dead_code)]
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::llm::wire::WireMessage;
 use crate::rpc::types::TokenUsage;
@@ -158,7 +158,11 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
     let mut tool_calls = Vec::new();
     if let Some(tcs) = message.get("tool_calls").and_then(|t| t.as_array()) {
         for tc in tcs {
-            let id = tc.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let id = tc
+                .get("id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let func = tc
                 .get("function")
                 .ok_or("openai tool_call missing function")?;
@@ -169,9 +173,16 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 .to_string();
             // arguments is a JSON string; parse it back to a value (tolerating
             // a malformed/partial string by falling back to an empty object).
-            let args_str = func.get("arguments").and_then(|x| x.as_str()).unwrap_or("{}");
+            let args_str = func
+                .get("arguments")
+                .and_then(|x| x.as_str())
+                .unwrap_or("{}");
             let arguments = serde_json::from_str(args_str).unwrap_or_else(|_| json!({}));
-            tool_calls.push(ToolCall { id, name, arguments });
+            tool_calls.push(ToolCall {
+                id,
+                name,
+                arguments,
+            });
         }
     }
 
@@ -204,7 +215,13 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
-    TokenUsage { input_tokens, output_tokens, total_tokens, input_cache_read, input_cache_creation: 0 }
+    TokenUsage {
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        input_cache_read,
+        input_cache_creation: 0,
+    }
 }
 
 // ── Streaming (SSE) accumulation ───────────────────────────────────────
@@ -260,10 +277,14 @@ impl StreamAccumulator {
     pub fn feed(&mut self, v: &Value) -> Option<String> {
         // The final usage-only chunk has an empty `choices` array.
         if let Some(usage) = v.get("usage")
-            && !usage.is_null() {
-                self.usage = parse_usage(Some(usage));
-            }
-        let choice = v.get("choices").and_then(|c| c.as_array()).and_then(|a| a.first())?;
+            && !usage.is_null()
+        {
+            self.usage = parse_usage(Some(usage));
+        }
+        let choice = v
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.first())?;
         if let Some(fr) = choice.get("finish_reason").and_then(|f| f.as_str()) {
             self.finish_reason = Some(fr.to_string());
         }
@@ -361,7 +382,10 @@ mod tests {
         assert_eq!(tc["function"]["name"], "Read");
         // arguments must be a STRING, not an object.
         let args = tc["function"]["arguments"].as_str().unwrap();
-        assert_eq!(serde_json::from_str::<Value>(args).unwrap(), json!({ "path": "a.txt" }));
+        assert_eq!(
+            serde_json::from_str::<Value>(args).unwrap(),
+            json!({ "path": "a.txt" })
+        );
 
         // Tool result carries tool_call_id.
         let tool_msg = &msgs[3];
@@ -372,7 +396,10 @@ mod tests {
         // Tools projected under {type:function, function:{...}}.
         assert_eq!(req["tools"][0]["type"], "function");
         assert_eq!(req["tools"][0]["function"]["name"], "Read");
-        assert_eq!(req["tools"][0]["function"]["parameters"], json!({ "type": "object" }));
+        assert_eq!(
+            req["tools"][0]["function"]["parameters"],
+            json!({ "type": "object" })
+        );
     }
 
     #[test]
@@ -469,9 +496,16 @@ mod tests {
         let msg = WireMessage::with_blocks(
             "user",
             vec![
-                ContentBlock::Text { text: "what is this?".into() },
-                ContentBlock::Image { media_type: "image/png".into(), data: "AAAA".into() },
-                ContentBlock::ImageUrl { url: "https://example.com/x.png".into() },
+                ContentBlock::Text {
+                    text: "what is this?".into(),
+                },
+                ContentBlock::Image {
+                    media_type: "image/png".into(),
+                    data: "AAAA".into(),
+                },
+                ContentBlock::ImageUrl {
+                    url: "https://example.com/x.png".into(),
+                },
             ],
         );
         let req = build_request("m", &[msg], &[]);
@@ -490,8 +524,14 @@ mod tests {
         let msg = WireMessage::with_blocks(
             "user",
             vec![
-                ContentBlock::AudioUrl { url: "https://example.com/a.mp3".into(), id: None },
-                ContentBlock::VideoUrl { url: "https://example.com/v.mp4".into(), id: Some("v1".into()) },
+                ContentBlock::AudioUrl {
+                    url: "https://example.com/a.mp3".into(),
+                    id: None,
+                },
+                ContentBlock::VideoUrl {
+                    url: "https://example.com/v.mp4".into(),
+                    id: Some("v1".into()),
+                },
             ],
         );
         let req = build_request("m", &[msg], &[]);
@@ -534,7 +574,9 @@ mod tests {
 
         // Finish + usage-only chunk.
         acc.feed(&json!({ "choices": [{ "delta": {}, "finish_reason": "tool_calls" }] }));
-        acc.feed(&json!({ "choices": [], "usage": { "prompt_tokens": 7, "completion_tokens": 3 } }));
+        acc.feed(
+            &json!({ "choices": [], "usage": { "prompt_tokens": 7, "completion_tokens": 3 } }),
+        );
 
         let resp = acc.finish();
         assert_eq!(resp.content, "Hello");

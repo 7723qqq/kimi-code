@@ -46,7 +46,10 @@ const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 /// Tools whose native execution requires a host permission grant first.
 pub fn is_mutating_tool(tool_name: &str) -> bool {
-    matches!(tool_name.to_ascii_lowercase().as_str(), "write" | "edit" | "bash")
+    matches!(
+        tool_name.to_ascii_lowercase().as_str(),
+        "write" | "edit" | "bash"
+    )
 }
 
 /// Sandboxed native executor, rooted at the workspace.
@@ -176,7 +179,9 @@ impl NativeToolset {
         // Image crop / full-resolution rendering lives on the host (media
         // pipeline) — never half-handle it here.
         if args.get("region").is_some_and(|v| !v.is_null())
-            || args.get("full_resolution").is_some_and(|v| v.as_bool() == Some(true))
+            || args
+                .get("full_resolution")
+                .is_some_and(|v| v.as_bool() == Some(true))
         {
             return None;
         }
@@ -283,10 +288,16 @@ impl NativeToolset {
         if args.get("type").is_some_and(|t| !t.is_null()) {
             return None;
         }
-        if args.get("multiline").is_some_and(|v| v.as_bool() == Some(true)) {
+        if args
+            .get("multiline")
+            .is_some_and(|v| v.as_bool() == Some(true))
+        {
             return None;
         }
-        if args.get("include_ignored").is_some_and(|v| v.as_bool() == Some(true)) {
+        if args
+            .get("include_ignored")
+            .is_some_and(|v| v.as_bool() == Some(true))
+        {
             return None;
         }
         let case_insensitive = args.get("-i").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -295,7 +306,10 @@ impl NativeToolset {
             .get("output_mode")
             .and_then(|v| v.as_str())
             .unwrap_or("files_with_matches");
-        if !matches!(output_mode, "files_with_matches" | "content" | "count_matches") {
+        if !matches!(
+            output_mode,
+            "files_with_matches" | "content" | "count_matches"
+        ) {
             return None;
         }
         let context_after = args.get("-A").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
@@ -364,12 +378,16 @@ impl NativeToolset {
             }
             // Check the size before reading: every matching file's content
             // is held in memory until the result is rendered.
-            let Ok(metadata) = std::fs::metadata(path) else { continue };
+            let Ok(metadata) = std::fs::metadata(path) else {
+                continue;
+            };
             if metadata.len() > GREP_MAX_FILE_BYTES {
                 truncated = true;
                 continue;
             }
-            let Ok(bytes) = std::fs::read(path) else { continue };
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
             if bytes.contains(&0) {
                 continue;
             }
@@ -445,11 +463,7 @@ impl NativeToolset {
                             if line_numbers {
                                 rendered.push(format!(
                                     "{}{}{}{}{}",
-                                    file.display,
-                                    sep,
-                                    lineno,
-                                    sep,
-                                    line
+                                    file.display, sep, lineno, sep, line
                                 ));
                             } else {
                                 rendered.push(format!("{}{}{}", file.display, sep, line));
@@ -493,11 +507,17 @@ impl NativeToolset {
         let mut messages: Vec<String> = Vec::new();
         if output_mode == "count_matches" && !per_file.is_empty() {
             let total_occurrences: usize = per_file.iter().map(|f| f.total_matches).sum();
-            let occurrence_word =
-                if total_occurrences == 1 { "occurrence" } else { "occurrences" };
+            let occurrence_word = if total_occurrences == 1 {
+                "occurrence"
+            } else {
+                "occurrences"
+            };
             let file_word = if per_file.len() == 1 { "file" } else { "files" };
-            let scope =
-                if filtered_sensitive.is_empty() { "total" } else { "total non-sensitive" };
+            let scope = if filtered_sensitive.is_empty() {
+                "total"
+            } else {
+                "total non-sensitive"
+            };
             headers.push(format!(
                 "Found {total_occurrences} {scope} {occurrence_word} across {} {file_word}.",
                 per_file.len()
@@ -545,7 +565,10 @@ impl NativeToolset {
     fn glob(&self, args: &Value) -> Option<ExecutableToolResult> {
         let pattern = args.get("pattern")?.as_str()?;
         // include_ignored changes walker semantics — let the host handle it.
-        if args.get("include_ignored").is_some_and(|v| v.as_bool() == Some(true)) {
+        if args
+            .get("include_ignored")
+            .is_some_and(|v| v.as_bool() == Some(true))
+        {
             return None;
         }
         let glob = build_glob(pattern)?;
@@ -617,7 +640,11 @@ impl NativeToolset {
         // Output format mirrors the host Write tool.
         Some(ok_result(format!(
             "{} {bytes_written} bytes to {path}",
-            if mode == "append" { "Appended" } else { "Wrote" }
+            if mode == "append" {
+                "Appended"
+            } else {
+                "Wrote"
+            }
         )))
     }
 
@@ -641,9 +668,7 @@ impl NativeToolset {
         let occurrence_count = text.matches(old).count();
         let updated = if replace_all {
             if occurrence_count == 0 {
-                return Some(err_result(format!(
-                    "old_string not found in {path}"
-                )));
+                return Some(err_result(format!("old_string not found in {path}")));
             }
             text.replace(old, new)
         } else {
@@ -655,7 +680,10 @@ impl NativeToolset {
             text.replacen(old, new, 1)
         };
         std::fs::write(&resolved, updated).ok()?;
-        let display = resolved.strip_prefix(&self.root).unwrap_or(&resolved).display();
+        let display = resolved
+            .strip_prefix(&self.root)
+            .unwrap_or(&resolved)
+            .display();
         Some(ok_result(format!("Edited {display}")))
     }
 
@@ -714,29 +742,26 @@ impl NativeToolset {
         // as a killed command — never fall back to the host, which would
         // re-execute it.
         use tokio::io::AsyncReadExt;
-        let waited = tokio::time::timeout(
-            timeout,
-            async {
-                let (out, err, status) = tokio::join!(
-                    async {
-                        let mut buf = Vec::new();
-                        if let Some(pipe) = stdout_pipe.as_mut() {
-                            let _ = pipe.read_to_end(&mut buf).await;
-                        }
-                        buf
-                    },
-                    async {
-                        let mut buf = Vec::new();
-                        if let Some(pipe) = stderr_pipe.as_mut() {
-                            let _ = pipe.read_to_end(&mut buf).await;
-                        }
-                        buf
-                    },
-                    child.wait(),
-                );
-                (out, err, status)
-            },
-        )
+        let waited = tokio::time::timeout(timeout, async {
+            let (out, err, status) = tokio::join!(
+                async {
+                    let mut buf = Vec::new();
+                    if let Some(pipe) = stdout_pipe.as_mut() {
+                        let _ = pipe.read_to_end(&mut buf).await;
+                    }
+                    buf
+                },
+                async {
+                    let mut buf = Vec::new();
+                    if let Some(pipe) = stderr_pipe.as_mut() {
+                        let _ = pipe.read_to_end(&mut buf).await;
+                    }
+                    buf
+                },
+                child.wait(),
+            );
+            (out, err, status)
+        })
         .await;
         let (stdout_bytes, stderr_bytes, exit_code) = match waited {
             Ok((out, err, Ok(status))) => (out, err, status.code().unwrap_or(-1)),
@@ -785,7 +810,6 @@ impl NativeToolset {
     }
 }
 
-
 /// Compile a glob, auto-prefixing bare patterns with `**/` the way the JS
 /// Glob tool does, so `*.rs` matches at any depth.
 fn build_glob(pattern: &str) -> Option<globset::GlobSet> {
@@ -798,11 +822,19 @@ fn build_glob(pattern: &str) -> Option<globset::GlobSet> {
 }
 
 fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult { content, is_error: false, note: None }
+    ExecutableToolResult {
+        content,
+        is_error: false,
+        note: None,
+    }
 }
 
 fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult { content, is_error: true, note: None }
+    ExecutableToolResult {
+        content,
+        is_error: true,
+        note: None,
+    }
 }
 
 // ── Sensitive file detection (port of host path-access.ts) ────────────────
@@ -811,11 +843,19 @@ const SENSITIVE_BASENAMES: [&str; 5] = [".env", "id_rsa", "id_ed25519", "id_ecds
 const SENSITIVE_PATH_SUFFIXES: [&str; 2] = [".aws/credentials", ".gcp/credentials"];
 const ENV_PREFIX: &str = ".env.";
 const ENV_EXEMPTIONS: [&str; 3] = [".env.example", ".env.sample", ".env.template"];
-const SENSITIVE_BASENAME_PREFIXES: [&str; 4] =
-    ["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+const SENSITIVE_BASENAME_PREFIXES: [&str; 4] = ["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 const PUBLIC_KEY_BASENAMES: [&str; 3] = ["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
 const SENSITIVE_DOT_VARIANT_SUFFIXES: [&str; 10] = [
-    ".bak", ".backup", ".copy", ".disabled", ".key", ".old", ".orig", ".pem", ".save", ".tmp",
+    ".bak",
+    ".backup",
+    ".copy",
+    ".disabled",
+    ".key",
+    ".old",
+    ".orig",
+    ".pem",
+    ".save",
+    ".tmp",
 ];
 
 /// Mirror of the host's `isSensitiveFile` (path-access.ts), including the
@@ -879,7 +919,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "alpha\nbeta\ngamma\n").unwrap();
         std::fs::create_dir(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/lib.rs"), "fn main() {}\n// beta marker\n").unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "fn main() {}\n// beta marker\n",
+        )
+        .unwrap();
         let toolset = NativeToolset::new(dir.path().to_str().unwrap(), shell).unwrap();
         (dir, toolset)
     }
@@ -912,7 +956,11 @@ mod tests {
         let result = ts.execute("Read", &json!({ "path": "a.txt" })).unwrap();
         assert!(!result.is_error);
         // Host Read line format: `${lineNo}	${content}`.
-        assert!(result.content.contains("1	alpha"), "content: {}", result.content);
+        assert!(
+            result.content.contains("1	alpha"),
+            "content: {}",
+            result.content
+        );
         assert!(result.content.contains("3	gamma"));
     }
 
@@ -920,7 +968,10 @@ mod tests {
     fn read_respects_offset_and_count() {
         let (_dir, ts) = setup();
         let result = ts
-            .execute("read", &json!({ "path": "a.txt", "line_offset": 2, "n_lines": 1 }))
+            .execute(
+                "read",
+                &json!({ "path": "a.txt", "line_offset": 2, "n_lines": 1 }),
+            )
             .unwrap();
         assert!(result.content.contains("2	beta"));
         assert!(!result.content.contains("alpha"));
@@ -930,24 +981,40 @@ mod tests {
     #[test]
     fn read_image_region_args_fall_back() {
         let (_dir, ts) = setup();
-        assert!(ts
-            .execute(
+        assert!(
+            ts.execute(
                 "Read",
                 &json!({ "path": "a.txt", "region": { "x": 0, "y": 0, "width": 1, "height": 1 } })
             )
-            .is_none());
+            .is_none()
+        );
     }
 
     #[test]
     fn grep_filters_sensitive_files() {
         let (_dir, ts) = setup();
-        std::fs::write(_dir.path().join(".env"), "SECRET=leaked
-").unwrap();
-        std::fs::write(_dir.path().join("app.rs"), "SECRET=name
-").unwrap();
+        std::fs::write(
+            _dir.path().join(".env"),
+            "SECRET=leaked
+",
+        )
+        .unwrap();
+        std::fs::write(
+            _dir.path().join("app.rs"),
+            "SECRET=name
+",
+        )
+        .unwrap();
         let result = ts.execute("Grep", &json!({ "pattern": "SECRET" })).unwrap();
-        assert!(result.content.contains("app.rs"), "content: {}", result.content);
-        assert!(!result.content.contains("leaked"), "sensitive content must be filtered");
+        assert!(
+            result.content.contains("app.rs"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("leaked"),
+            "sensitive content must be filtered"
+        );
         assert!(result.content.contains("Filtered 1 sensitive file(s)"));
     }
 
@@ -975,9 +1042,13 @@ mod tests {
     #[test]
     fn write_unknown_mode_falls_back() {
         let (_dir, ts) = setup();
-        assert!(ts
-            .execute("Write", &json!({ "path": "a.txt", "content": "x", "mode": "truncate-half" }))
-            .is_none());
+        assert!(
+            ts.execute(
+                "Write",
+                &json!({ "path": "a.txt", "content": "x", "mode": "truncate-half" })
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -999,13 +1070,19 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret.txt"), "nope").unwrap();
         let escaped = outside.path().join("secret.txt");
-        assert!(ts.execute("Read", &json!({ "path": escaped.to_str().unwrap() })).is_none());
+        assert!(
+            ts.execute("Read", &json!({ "path": escaped.to_str().unwrap() }))
+                .is_none()
+        );
     }
 
     #[test]
     fn read_negative_offset_falls_back_to_host() {
         let (_dir, ts) = setup();
-        assert!(ts.execute("Read", &json!({ "path": "a.txt", "line_offset": -5 })).is_none());
+        assert!(
+            ts.execute("Read", &json!({ "path": "a.txt", "line_offset": -5 }))
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1018,8 +1095,16 @@ mod tests {
             )
             .unwrap();
         assert!(!result.is_error);
-        assert!(result.content.contains("a.txt:2"), "content: {}", result.content);
-        assert!(result.content.contains("lib.rs:2"), "content: {}", result.content);
+        assert!(
+            result.content.contains("a.txt:2"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("lib.rs:2"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -1030,7 +1115,11 @@ mod tests {
         let result = ts.execute("Grep", &json!({ "pattern": "beta" })).unwrap();
         assert!(!result.is_error);
         let lines: Vec<&str> = result.content.lines().collect();
-        let lib_rs = if cfg!(windows) { "src\\lib.rs" } else { "src/lib.rs" };
+        let lib_rs = if cfg!(windows) {
+            "src\\lib.rs"
+        } else {
+            "src/lib.rs"
+        };
         assert_eq!(lines, vec!["a.txt", lib_rs], "content: {}", result.content);
     }
 
@@ -1051,13 +1140,27 @@ mod tests {
     async fn grep_case_insensitive_flag() {
         let (_dir, ts) = setup();
         let sensitive = ts
-            .execute("Grep", &json!({ "pattern": "BETA", "output_mode": "content" }))
+            .execute(
+                "Grep",
+                &json!({ "pattern": "BETA", "output_mode": "content" }),
+            )
             .unwrap();
-        assert!(sensitive.content.contains("No matches"), "content: {}", sensitive.content);
+        assert!(
+            sensitive.content.contains("No matches"),
+            "content: {}",
+            sensitive.content
+        );
         let insensitive = ts
-            .execute("Grep", &json!({ "pattern": "BETA", "-i": true, "output_mode": "content" }))
+            .execute(
+                "Grep",
+                &json!({ "pattern": "BETA", "-i": true, "output_mode": "content" }),
+            )
             .unwrap();
-        assert!(insensitive.content.contains("beta"), "content: {}", insensitive.content);
+        assert!(
+            insensitive.content.contains("beta"),
+            "content: {}",
+            insensitive.content
+        );
     }
 
     #[tokio::test]
@@ -1075,22 +1178,38 @@ mod tests {
             .unwrap();
         // Context lines use `-` separators; matches use `:`. A single window
         // covering lines 1-3 has no `--` cluster separator.
-        assert!(result.content.contains("a.txt-1-alpha"), "content: {}", result.content);
-        assert!(result.content.contains("a.txt:2:beta"), "content: {}", result.content);
-        assert!(result.content.contains("a.txt-3-gamma"), "content: {}", result.content);
+        assert!(
+            result.content.contains("a.txt-1-alpha"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("a.txt:2:beta"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("a.txt-3-gamma"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
     async fn grep_context_clusters_separated_by_dash_dash() {
         let (_dir, ts) = setup();
         // Two matches five lines apart produce two disjoint clusters.
-        std::fs::write(_dir.path().join("spread.txt"), "m1
+        std::fs::write(
+            _dir.path().join("spread.txt"),
+            "m1
 
 
 
 
 m2
-").unwrap();
+",
+        )
+        .unwrap();
         let result = ts
             .execute(
                 "Grep",
@@ -1103,10 +1222,29 @@ m2
     #[tokio::test]
     async fn grep_count_matches_with_summary() {
         let (_dir, ts) = setup();
-        let result = ts.execute("Grep", &json!({ "pattern": "beta", "output_mode": "count_matches" })).unwrap();
-        let count_line = if cfg!(windows) { "src\\lib.rs:1" } else { "src/lib.rs:1" };
-        assert!(result.content.contains(count_line), "content: {}", result.content);
-        assert!(result.content.contains("Found 2 total occurrences across 2 files."), "content: {}", result.content);
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "beta", "output_mode": "count_matches" }),
+            )
+            .unwrap();
+        let count_line = if cfg!(windows) {
+            "src\\lib.rs:1"
+        } else {
+            "src/lib.rs:1"
+        };
+        assert!(
+            result.content.contains(count_line),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result
+                .content
+                .contains("Found 2 total occurrences across 2 files."),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -1120,13 +1258,19 @@ m2
             .unwrap();
         let first_line = result.content.lines().next().unwrap();
         assert!(first_line.contains("beta"), "content: {}", result.content);
-        assert!(result.content.contains("Results truncated to 1 lines"), "content: {}", result.content);
+        assert!(
+            result.content.contains("Results truncated to 1 lines"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[test]
     fn grep_invalid_regex_is_an_error_result() {
         let (_dir, ts) = setup();
-        let result = ts.execute("Grep", &json!({ "pattern": "([unclosed" })).unwrap();
+        let result = ts
+            .execute("Grep", &json!({ "pattern": "([unclosed" }))
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("invalid regex"));
     }
@@ -1134,14 +1278,21 @@ m2
     #[test]
     fn grep_with_type_filter_falls_back() {
         let (_dir, ts) = setup();
-        assert!(ts.execute("Grep", &json!({ "pattern": "x", "type": "rust" })).is_none());
+        assert!(
+            ts.execute("Grep", &json!({ "pattern": "x", "type": "rust" }))
+                .is_none()
+        );
     }
 
     #[test]
     fn glob_matches_at_any_depth() {
         let (_dir, ts) = setup();
         let result = ts.execute("Glob", &json!({ "pattern": "*.rs" })).unwrap();
-        assert!(result.content.contains("lib.rs"), "content: {}", result.content);
+        assert!(
+            result.content.contains("lib.rs"),
+            "content: {}",
+            result.content
+        );
         assert!(!result.content.contains("a.txt"));
     }
 
@@ -1157,16 +1308,25 @@ m2
     fn read_only_path_stays_on_execute() {
         let (_dir, ts) = setup();
         // The read-only entry point never handles mutating tools.
-        assert!(ts.execute("Write", &json!({ "path": "a.txt", "content": "x" })).is_none());
+        assert!(
+            ts.execute("Write", &json!({ "path": "a.txt", "content": "x" }))
+                .is_none()
+        );
         assert!(ts.execute("Edit", &json!({ "path": "a.txt" })).is_none());
-        assert!(ts.execute("Bash", &json!({ "command": "rm -rf /" })).is_none());
+        assert!(
+            ts.execute("Bash", &json!({ "command": "rm -rf /" }))
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn write_creates_file_inside_sandbox() {
         let (_dir, ts) = setup();
         let result = ts
-            .execute_mutating("Write", &json!({ "path": "out/new.txt", "content": "hello\n" }))
+            .execute_mutating(
+                "Write",
+                &json!({ "path": "out/new.txt", "content": "hello\n" }),
+            )
             .await
             .expect("native write handled");
         assert!(!result.is_error, "content: {}", result.content);
@@ -1180,9 +1340,12 @@ m2
         let outside = tempfile::tempdir().unwrap();
         let escaped = outside.path().join("evil.txt");
         assert!(
-            ts.execute_mutating("Write", &json!({ "path": escaped.to_str().unwrap(), "content": "x" }))
-                .await
-                .is_none(),
+            ts.execute_mutating(
+                "Write",
+                &json!({ "path": escaped.to_str().unwrap(), "content": "x" })
+            )
+            .await
+            .is_none(),
             "sandbox escape must fall back to the host"
         );
         assert!(!escaped.exists());
@@ -1217,7 +1380,10 @@ m2
         assert!(result.is_error, "content: {}", result.content);
         assert!(result.content.contains("matched 2 times"));
         // The file must be untouched.
-        assert_eq!(std::fs::read_to_string(_dir.path().join("dup.txt")).unwrap(), "x\nx\n");
+        assert_eq!(
+            std::fs::read_to_string(_dir.path().join("dup.txt")).unwrap(),
+            "x\nx\n"
+        );
     }
 
     #[tokio::test]
@@ -1232,7 +1398,10 @@ m2
             .await
             .unwrap();
         assert!(!result.is_error);
-        assert_eq!(std::fs::read_to_string(_dir.path().join("dup.txt")).unwrap(), "y\ny\n");
+        assert_eq!(
+            std::fs::read_to_string(_dir.path().join("dup.txt")).unwrap(),
+            "y\ny\n"
+        );
     }
 
     #[tokio::test]
@@ -1244,7 +1413,11 @@ m2
             .await
             .unwrap();
         assert!(!result.is_error, "content: {}", result.content);
-        assert!(result.content.contains("native-bash"), "content: {}", result.content);
+        assert!(
+            result.content.contains("native-bash"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -1272,7 +1445,11 @@ m2
             .await
             .unwrap();
         assert!(result.is_error);
-        assert!(result.content.contains("exit code: 3"), "content: {}", result.content);
+        assert!(
+            result.content.contains("exit code: 3"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -1305,7 +1482,11 @@ m2
             .await
             .expect("timeout must be reported, not handed to the host");
         assert!(result.is_error);
-        assert!(result.content.contains("killed by timeout"), "content: {}", result.content);
+        assert!(
+            result.content.contains("killed by timeout"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]

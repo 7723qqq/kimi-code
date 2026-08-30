@@ -128,7 +128,11 @@ impl HostCallbacks for RpcHostCallbacks {
             // No timeout: a permission check is answered by a human, and
             // giving up would discard an approval the user already granted.
             let response_value = server
-                .invoke(crate::rpc::types::methods::HOST_CHECK_PERMISSION, params, None)
+                .invoke(
+                    crate::rpc::types::methods::HOST_CHECK_PERMISSION,
+                    params,
+                    None,
+                )
                 .await
                 .map_err(|e| format!("Permission check error: {e}"))?;
             serde_json::from_value(response_value)
@@ -138,10 +142,7 @@ impl HostCallbacks for RpcHostCallbacks {
 
     fn emit_event(&self, event: serde_json::Value) {
         // JSON-RPC notification over stdout — fire-and-forget by design.
-        crate::rpc::server::RpcServer::notify_now(
-            crate::rpc::types::methods::HOST_EVENT,
-            &event,
-        );
+        crate::rpc::server::RpcServer::notify_now(crate::rpc::types::methods::HOST_EVENT, &event);
     }
 }
 
@@ -324,7 +325,12 @@ mod tests {
             &self,
             _: PermissionCheckRequest,
         ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
-            Box::pin(async { Ok(PermissionDecision { decision: "allow".into(), reason: None }) })
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "allow".into(),
+                    reason: None,
+                })
+            })
         }
 
         fn emit_event(&self, event: serde_json::Value) {
@@ -337,7 +343,9 @@ mod tests {
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let counter = Arc::new(AtomicU32::new(0));
         let callbacks = CountingCallbacks {
-            inner: Arc::new(RecordingCallbacks { events: events.clone() }),
+            inner: Arc::new(RecordingCallbacks {
+                events: events.clone(),
+            }),
             event_count: counter.clone(),
         };
 
@@ -345,7 +353,11 @@ mod tests {
         callbacks.emit_event(serde_json::json!({ "type": "b" }));
 
         assert_eq!(counter.load(Ordering::Relaxed), 2);
-        assert_eq!(events.lock().unwrap().len(), 2, "events must still be forwarded");
+        assert_eq!(
+            events.lock().unwrap().len(),
+            2,
+            "events must still be forwarded"
+        );
     }
 
     /// Base callbacks whose permission verdicts are scripted, recording any
@@ -370,7 +382,11 @@ mod tests {
         ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
-                Ok(ToolExecuteResponse { content: "host executed".into(), is_error: false, note: None })
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
             })
         }
 
@@ -386,7 +402,12 @@ mod tests {
 
     fn gate_setup(
         decision: PermissionDecision,
-    ) -> (tempfile::TempDir, NativeToolCallbacks, Arc<AtomicU32>, Arc<AtomicU32>) {
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
         let permission_calls = Arc::new(AtomicU32::new(0));
@@ -419,8 +440,16 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(permission_calls.load(Ordering::Relaxed), 1, "permission must be consulted");
-        assert_eq!(executed.load(Ordering::Relaxed), 0, "allowed calls never reach the host executor");
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            1,
+            "permission must be consulted"
+        );
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "allowed calls never reach the host executor"
+        );
         assert!(!response.is_error);
         assert!(dir.path().join("made.txt").exists());
     }
@@ -441,7 +470,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(permission_calls.load(Ordering::Relaxed), 1);
-        assert_eq!(executed.load(Ordering::Relaxed), 0, "denied calls must not fall back to the host");
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "denied calls must not fall back to the host"
+        );
         assert!(response.is_error);
         assert!(response.content.contains("user declined"));
         assert!(!_dir.path().join("made.txt").exists());
@@ -456,8 +489,12 @@ mod tests {
             decision: "deny".into(),
             reason: Some("sensitive file".into()),
         });
-        std::fs::write(_dir.path().join("a.txt"), "alpha
-").unwrap();
+        std::fs::write(
+            _dir.path().join("a.txt"),
+            "alpha
+",
+        )
+        .unwrap();
         let response = native
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),

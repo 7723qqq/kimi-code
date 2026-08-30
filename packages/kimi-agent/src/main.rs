@@ -4,23 +4,31 @@
 //!   kimi-agent [--health] [--test]
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 
 use kimi_agent::{
     callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks, RpcHostCallbacks},
-    llm::{http::NativeHttpLlm, proxy::HostLlmProxy, multi::{LlmProvider, MultiLLM}},
+    llm::{
+        http::NativeHttpLlm,
+        multi::{LlmProvider, MultiLLM},
+        proxy::HostLlmProxy,
+    },
     rpc::{
         server::RpcServer,
         types::{self, CancelTurnParams, HealthStatus, RunTurnResult, TokenUsage},
     },
-    turn_loop::{types::*, run_turn::run_turn},
+    turn_loop::{run_turn::run_turn, types::*},
 };
 
 #[derive(Parser)]
-#[command(name = "kimi-agent", version = "0.1.0", about = "Kimi Agent engine (Rust)")]
+#[command(
+    name = "kimi-agent",
+    version = "0.1.0",
+    about = "Kimi Agent engine (Rust)"
+)]
 struct Cli {
     /// Run a health check and exit
     #[arg(long)]
@@ -59,47 +67,40 @@ async fn main() -> anyhow::Result<()> {
     // Register run_turn handler
     let s = server.clone();
     let cm = cancel_map.clone();
-    RpcServer::register_arc(
-        &s.clone(),
-        types::methods::RUN_TURN,
-        move |params| {
-            let server = s.clone();
-            let cancel_map = cm.clone();
-            Box::pin(async move {
-                let input: types::RunTurnParams = serde_json::from_value(params)
-                    .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+    RpcServer::register_arc(&s.clone(), types::methods::RUN_TURN, move |params| {
+        let server = s.clone();
+        let cancel_map = cm.clone();
+        Box::pin(async move {
+            let input: types::RunTurnParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
 
-                let turn_id = input.turn_id.clone();
-                // None = unbounded, mirroring the JS loop (which only stops
-                // on a configured `maxStepsPerTurn`).
-                let max_steps = input.max_steps.unwrap_or(u32::MAX);
+            let turn_id = input.turn_id.clone();
+            // None = unbounded, mirroring the JS loop (which only stops
+            // on a configured `maxStepsPerTurn`).
+            let max_steps = input.max_steps.unwrap_or(u32::MAX);
 
-                // Create and register a cancellation flag for this turn.
-                let cancel_flag = Arc::new(AtomicBool::new(false));
-                {
-                    let mut map = cancel_map.lock().unwrap();
-                    map.insert(turn_id.clone(), cancel_flag.clone());
-                }
+            // Create and register a cancellation flag for this turn.
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            {
+                let mut map = cancel_map.lock().unwrap();
+                map.insert(turn_id.clone(), cancel_flag.clone());
+            }
 
-                // Build the HostCallbacks from the RPC server, optionally
-                // wrapped so read-only tools execute natively inside the
-                // workspace sandbox.
-                let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-                    RpcHostCallbacks { server: server.clone() },
-                );
-                // Count every event this turn emits (step lifecycle, deltas,
-                // native tools, goal budget limits) for the turn telemetry.
-                let turn_event_count = Arc::new(AtomicU32::new(0));
-                let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-                    CountingCallbacks {
-                        inner: base_callbacks,
-                        event_count: turn_event_count.clone(),
-                    },
-                );
-                let callbacks: Arc<dyn HostCallbacks> = match (
-                    input.native_tools,
-                    input.workspace_root.as_deref(),
-                ) {
+            // Build the HostCallbacks from the RPC server, optionally
+            // wrapped so read-only tools execute natively inside the
+            // workspace sandbox.
+            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks {
+                server: server.clone(),
+            });
+            // Count every event this turn emits (step lifecycle, deltas,
+            // native tools, goal budget limits) for the turn telemetry.
+            let turn_event_count = Arc::new(AtomicU32::new(0));
+            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(CountingCallbacks {
+                inner: base_callbacks,
+                event_count: turn_event_count.clone(),
+            });
+            let callbacks: Arc<dyn HostCallbacks> =
+                match (input.native_tools, input.workspace_root.as_deref()) {
                     (true, Some(root)) => {
                         match kimi_agent::tools::NativeToolset::new(
                             root,
@@ -115,163 +116,155 @@ async fn main() -> anyhow::Result<()> {
                     _ => base_callbacks.clone(),
                 };
 
-                // Build the LLM — native HTTP, MultiLLM, or host proxy.
-                let llm: Box<dyn LLM> = if let Some(cfg) = input.native_llm.clone() {
-                    let sink_callbacks = callbacks.clone();
-                    Box::new(
-                        NativeHttpLlm::new(cfg, input.system_prompt.clone())
-                            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
-                    )
-                } else if input.providers.is_empty() {
-                    Box::new(
-                        HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
-                            .with_callbacks(callbacks.clone()),
-                    )
-                } else {
-                    let providers: Vec<LlmProvider> = input
-                        .providers
-                        .iter()
-                        .map(|p| LlmProvider {
-                            name: p.name.clone(),
-                            system_prompt: p.system_prompt.clone(),
-                            model: p.model.clone(),
-                            callbacks: callbacks.clone(),
-                        })
-                        .collect();
-                    let multi = MultiLLM::new(providers);
-                    Box::new(multi)
-                };
-
-                let messages: Vec<LLMMessage> = input
-                    .messages
-                    .into_iter()
-                    .map(|m| LLMMessage {
-                        role: m.role,
-                        content: m.content,
-                        blocks: m.blocks,
-                        tool_calls: m
-                            .tool_calls
-                            .into_iter()
-                            .map(|tc| ToolCall { id: tc.id, name: tc.name, arguments: tc.arguments })
-                            .collect(),
-                        tool_call_id: m.tool_call_id,
+            // Build the LLM — native HTTP, MultiLLM, or host proxy.
+            let llm: Box<dyn LLM> = if let Some(cfg) = input.native_llm.clone() {
+                let sink_callbacks = callbacks.clone();
+                Box::new(
+                    NativeHttpLlm::new(cfg, input.system_prompt.clone())
+                        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
+                )
+            } else if input.providers.is_empty() {
+                Box::new(
+                    HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
+                        .with_callbacks(callbacks.clone()),
+                )
+            } else {
+                let providers: Vec<LlmProvider> = input
+                    .providers
+                    .iter()
+                    .map(|p| LlmProvider {
+                        name: p.name.clone(),
+                        system_prompt: p.system_prompt.clone(),
+                        model: p.model.clone(),
+                        callbacks: callbacks.clone(),
                     })
                     .collect();
+                let multi = MultiLLM::new(providers);
+                Box::new(multi)
+            };
 
-                let tool_defs: Vec<ToolInfo> = input
-                    .tools
-                    .into_iter()
-                    .map(|t| ToolInfo {
-                        name: t.name,
-                        description: t.description,
-                        input_schema: t.input_schema,
+            let messages: Vec<LLMMessage> = input
+                .messages
+                .into_iter()
+                .map(|m| LLMMessage {
+                    role: m.role,
+                    content: m.content,
+                    blocks: m.blocks,
+                    tool_calls: m
+                        .tool_calls
+                        .into_iter()
+                        .map(|tc| ToolCall {
+                            id: tc.id,
+                            name: tc.name,
+                            arguments: tc.arguments,
+                        })
+                        .collect(),
+                    tool_call_id: m.tool_call_id,
+                })
+                .collect();
+
+            let tool_defs: Vec<ToolInfo> = input
+                .tools
+                .into_iter()
+                .map(|t| ToolInfo {
+                    name: t.name,
+                    description: t.description,
+                    input_schema: t.input_schema,
+                })
+                .collect();
+
+            let tools: Vec<&dyn ExecutableTool> = vec![];
+
+            let run_input = RunTurnInput {
+                turn_id: turn_id.clone(),
+                llm: &*llm,
+                messages,
+                tools: &tools,
+                tool_defs,
+                max_steps,
+                goal: input.goal,
+                cancellation: Some(cancel_flag.clone()),
+            };
+
+            let result = run_turn(run_input, &callbacks).await;
+
+            // Clean up the cancellation flag.
+            {
+                let mut map = cancel_map.lock().unwrap();
+                map.remove(&turn_id);
+            }
+
+            match result {
+                Ok(res) => {
+                    let output = RunTurnResult {
+                        stop_reason: format!("{:?}", res.stop_reason),
+                        steps: res.steps,
+                        usage: res.usage,
+                        events_emitted: turn_event_count.load(Ordering::Relaxed),
+                        llm_retries: res.llm_retries,
+                    };
+                    serde_json::to_value(&output).map_err(|e| {
+                        types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
                     })
-                    .collect();
-
-                let tools: Vec<&dyn ExecutableTool> = vec![];
-
-                let run_input = RunTurnInput {
-                    turn_id: turn_id.clone(),
-                    llm: &*llm,
-                    messages,
-                    tools: &tools,
-                    tool_defs,
-                    max_steps,
-                    goal: input.goal,
-                    cancellation: Some(cancel_flag.clone()),
-                };
-
-                let result = run_turn(run_input, &callbacks).await;
-
-                // Clean up the cancellation flag.
-                {
-                    let mut map = cancel_map.lock().unwrap();
-                    map.remove(&turn_id);
                 }
-
-                match result {
-                    Ok(res) => {
-                        let output = RunTurnResult {
-                            stop_reason: format!("{:?}", res.stop_reason),
-                            steps: res.steps,
-                            usage: res.usage,
-                            events_emitted: turn_event_count.load(Ordering::Relaxed),
-                            llm_retries: res.llm_retries,
-                        };
-                        serde_json::to_value(&output).map_err(|e| {
-                            types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
-                        })
-                    }
-                    Err(e) => {
-                        let output = RunTurnResult {
-                            stop_reason: format!("Error: {e}"),
-                            steps: 0,
-                            usage: TokenUsage::default(),
-                            events_emitted: 0,
-                            llm_retries: 0,
-                        };
-                        serde_json::to_value(&output).map_err(|_| {
-                            types::JsonRpcError::internal_error(format!("Turn failed: {e}"))
-                        })
-                    }
+                Err(e) => {
+                    let output = RunTurnResult {
+                        stop_reason: format!("Error: {e}"),
+                        steps: 0,
+                        usage: TokenUsage::default(),
+                        events_emitted: 0,
+                        llm_retries: 0,
+                    };
+                    serde_json::to_value(&output).map_err(|_| {
+                        types::JsonRpcError::internal_error(format!("Turn failed: {e}"))
+                    })
                 }
-            })
-        },
-    );
+            }
+        })
+    });
 
     // Register cancel_turn handler
     let cm = cancel_map.clone();
-    RpcServer::register_arc(
-        &server,
-        types::methods::CANCEL_TURN,
-        move |params| {
-            let cancel_map = cm.clone();
-            Box::pin(async move {
-                let input: CancelTurnParams = serde_json::from_value(params)
-                    .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+    RpcServer::register_arc(&server, types::methods::CANCEL_TURN, move |params| {
+        let cancel_map = cm.clone();
+        Box::pin(async move {
+            let input: CancelTurnParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
 
-                let cancelled = {
-                    let map = cancel_map.lock().unwrap();
-                    if let Some(flag) = map.get(&input.turn_id) {
-                        flag.store(true, Ordering::Relaxed);
-                        true
-                    } else {
-                        false
-                    }
-                };
+            let cancelled = {
+                let map = cancel_map.lock().unwrap();
+                if let Some(flag) = map.get(&input.turn_id) {
+                    flag.store(true, Ordering::Relaxed);
+                    true
+                } else {
+                    false
+                }
+            };
 
-                let result = serde_json::json!({ "cancelled": cancelled });
-                Ok(result)
-            })
-        },
-    );
+            let result = serde_json::json!({ "cancelled": cancelled });
+            Ok(result)
+        })
+    });
 
     // Register health handler
-    RpcServer::register_arc(
-        &server,
-        types::methods::HEALTH,
-        |_| {
-            Box::pin(async move {
-                let status = HealthStatus {
-                    status: "ok".into(),
-                    version: "0.1.0".into(),
-                };
-                serde_json::to_value(&status)
-                    .map_err(|e| types::JsonRpcError::internal_error(format!("Serialization error: {e}")))
+    RpcServer::register_arc(&server, types::methods::HEALTH, |_| {
+        Box::pin(async move {
+            let status = HealthStatus {
+                status: "ok".into(),
+                version: "0.1.0".into(),
+            };
+            serde_json::to_value(&status).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
             })
-        },
-    );
+        })
+    });
 
     // Register shutdown handler
-    RpcServer::register_arc(
-        &server,
-        types::methods::SHUTDOWN,
-        |_| {
-            Box::pin(async move {
-                std::process::exit(0);
-            })
-        },
-    );
+    RpcServer::register_arc(&server, types::methods::SHUTDOWN, |_| {
+        Box::pin(async move {
+            std::process::exit(0);
+        })
+    });
 
     eprintln!("kimi-agent ready, listening on stdin/stdout");
 
@@ -310,9 +303,7 @@ async fn run_self_test() -> anyhow::Result<()> {
 
     // Create a minimal server for the test
     let server = Arc::new(RpcServer::new());
-    let callbacks: Arc<dyn HostCallbacks> = Arc::new(
-        RpcHostCallbacks { server },
-    );
+    let callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks { server });
 
     let result = run_turn(input, &callbacks).await;
 
@@ -322,9 +313,7 @@ async fn run_self_test() -> anyhow::Result<()> {
             eprintln!("  Steps: {}", res.steps);
             eprintln!(
                 "  Usage: {} in / {} out / {} total",
-                res.usage.input_tokens,
-                res.usage.output_tokens,
-                res.usage.total_tokens
+                res.usage.input_tokens, res.usage.output_tokens, res.usage.total_tokens
             );
             eprintln!("Self-test PASSED");
             Ok(())
@@ -356,7 +345,13 @@ impl LLM for MockLlm {
         false
     }
 
-    fn chat(&self, _params: LLMChatParams) -> kimi_agent::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+    fn chat(
+        &self,
+        _params: LLMChatParams,
+    ) -> kimi_agent::rpc::types::BoxFuture<
+        '_,
+        Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+    > {
         Box::pin(async move {
             Ok(LLMChatResponse {
                 content: String::new(),

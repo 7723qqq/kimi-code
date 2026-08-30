@@ -28,12 +28,11 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use napi::{
+    JsObject,
     bindgen_prelude::{Env, JsFunction},
     threadsafe_function::{
-        ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction,
-        ThreadsafeFunctionCallMode,
+        ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
     },
-    JsObject,
 };
 use napi_derive::napi;
 use tokio::sync::oneshot;
@@ -48,10 +47,7 @@ use crate::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
     PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
 };
-use crate::turn_loop::{
-    run_turn::run_turn,
-    types::*,
-};
+use crate::turn_loop::{run_turn::run_turn, types::*};
 
 // ── Global callback registry ───────────────────────────────────────────────
 
@@ -95,7 +91,6 @@ fn store_payload(id: u32, payload: String) {
     }
 }
 
-
 /// Monotonically increasing callback ID. Wrapping is fine because the ID
 /// space is large enough that collisions are impossible in practice.
 static NEXT_CALLBACK_ID: AtomicU32 = AtomicU32::new(1);
@@ -132,7 +127,11 @@ pub fn get_callback_payload(id: u32) -> napi::Result<Option<String>> {
 /// * `error` — if present, the callback failed with this error message
 /// * `result` — if present (and `error` is absent), the JSON-serialized response
 #[napi]
-pub fn resolve_callback(id: u32, error: Option<String>, result: Option<String>) -> napi::Result<()> {
+pub fn resolve_callback(
+    id: u32,
+    error: Option<String>,
+    result: Option<String>,
+) -> napi::Result<()> {
     if let Some(tx) = CALLBACK_REGISTRY.lock().unwrap().remove(&id) {
         let outcome = match (error, result) {
             (Some(err), _) => Err(err),
@@ -170,22 +169,26 @@ impl HostCallbacks for NapiHostCallbacks {
     fn llm_chat(
         &self,
         request: LlmChatRequest,
-    ) -> crate::rpc::types::BoxFuture<'static, std::result::Result<LlmChatResponse, std::string::String>> {
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        std::result::Result<LlmChatResponse, std::string::String>,
+    > {
         let tsfn = self.llm_chat_fn.clone();
-        let input = serde_json::to_string(&request).unwrap_or_else(|e| {
-            format!(r#"{{"error":"serialize: {}"}}"#, e)
-        });
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
         Box::pin(napi_llm_chat(tsfn, input))
     }
 
     fn execute_tool(
         &self,
         request: ToolExecuteRequest,
-    ) -> crate::rpc::types::BoxFuture<'static, std::result::Result<ToolExecuteResponse, std::string::String>> {
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        std::result::Result<ToolExecuteResponse, std::string::String>,
+    > {
         let tsfn = self.execute_tool_fn.clone();
-        let input = serde_json::to_string(&request).unwrap_or_else(|e| {
-            format!(r#"{{"error":"serialize: {}"}}"#, e)
-        });
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
         Box::pin(napi_execute_tool(tsfn, input))
     }
 
@@ -201,9 +204,8 @@ impl HostCallbacks for NapiHostCallbacks {
             });
         };
         let tsfn = tsfn.clone();
-        let input = serde_json::to_string(&request).unwrap_or_else(|e| {
-            format!(r#"{{"error":"serialize: {}"}}"#, e)
-        });
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
         Box::pin(async move {
             // No timeout: this one waits on a human, and giving up would
             // discard an approval the user has already granted.
@@ -213,8 +215,12 @@ impl HostCallbacks for NapiHostCallbacks {
     }
 
     fn emit_event(&self, event: serde_json::Value) {
-        let Some(ref tsfn) = self.emit_event_fn else { return };
-        let Ok(payload) = serde_json::to_string(&event) else { return };
+        let Some(ref tsfn) = self.emit_event_fn else {
+            return;
+        };
+        let Ok(payload) = serde_json::to_string(&event) else {
+            return;
+        };
         let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
         // Payload-only registration: no oneshot — JS fetches and forgets.
         // Pruning matters here too: an event the host never collects would
@@ -294,8 +300,7 @@ async fn napi_execute_tool(
     tsfn: Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     input: String,
 ) -> std::result::Result<ToolExecuteResponse, std::string::String> {
-    let output =
-        invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT)).await?;
+    let output = invoke_via_registry(&tsfn, input, "execute_tool", Some(HOST_TOOL_TIMEOUT)).await?;
     serde_json::from_str(&output).map_err(|e| format!("execute_tool parse: {e}"))
 }
 
@@ -440,40 +445,46 @@ pub fn run_turn_rust(
     // The TSFN passes only the callback ID (u32). The JS side fetches
     // the payload via getCallbackPayload(id) and resolves via resolveCallback.
     // ErrorStrategy::Fatal: no error-first null prepended, JS receives the id directly.
-    let llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
-        llm_chat_cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+    let llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> = llm_chat_cb
+        .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
             let id = ctx.value;
             let js_num = ctx.env.create_uint32(id)?;
             let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
             Ok(args)
         })?;
 
-    let execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
-        execute_tool_cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+    let execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> = execute_tool_cb
+        .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
             let id = ctx.value;
             let js_num = ctx.env.create_uint32(id)?;
             let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
             Ok(args)
         })?;
 
-    let emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match emit_event_cb {
-        Some(cb) => Some(cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
-            let id = ctx.value;
-            let js_num = ctx.env.create_uint32(id)?;
-            let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
-            Ok(args)
-        })?),
+    let emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match emit_event_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
         None => None,
     };
 
     let check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
         match check_permission_cb {
-            Some(cb) => Some(cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
-                let id = ctx.value;
-                let js_num = ctx.env.create_uint32(id)?;
-                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
-                Ok(args)
-            })?),
+            Some(cb) => Some(cb.create_threadsafe_function(
+                0,
+                |ctx: ThreadSafeCallContext<u32>| {
+                    let id = ctx.value;
+                    let js_num = ctx.env.create_uint32(id)?;
+                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                    Ok(args)
+                },
+            )?),
             None => None,
         };
 
@@ -536,13 +547,15 @@ async fn run_turn_rust_impl(
         params.native_tools.unwrap_or(false),
         params.workspace_root.as_deref(),
     ) {
-        (true, Some(root)) => match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
-            Some(toolset) => Arc::new(NativeToolCallbacks {
-                inner: base_callbacks.clone(),
-                toolset: Arc::new(toolset),
-            }),
-            None => base_callbacks.clone(),
-        },
+        (true, Some(root)) => {
+            match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
+                Some(toolset) => Arc::new(NativeToolCallbacks {
+                    inner: base_callbacks.clone(),
+                    toolset: Arc::new(toolset),
+                }),
+                None => base_callbacks.clone(),
+            }
+        }
         _ => base_callbacks.clone(),
     };
 
@@ -551,41 +564,42 @@ async fn run_turn_rust_impl(
     //      run in parallel and the first success wins
     //   2. native_llm — Rust calls a single provider directly via HTTP/SSE
     //   3. host proxy — caller (napi host) handles the actual LLM call
-    let llm: Box<dyn LLM> = if let Some(providers) = params.providers.as_ref().filter(|p| !p.is_empty()) {
-        let rust_providers: Vec<LlmProvider> = providers
-            .iter()
-            .map(|p| LlmProvider {
-                name: p.name.clone(),
-                system_prompt: p.system_prompt.clone(),
-                model: p.model.clone(),
-                callbacks: callbacks.clone(),
-            })
-            .collect();
-        Box::new(MultiLLM::new(rust_providers))
-    } else {
-        match params.native_llm {
-            Some(cfg) => {
-                let sink_callbacks = callbacks.clone();
-                let native = NativeHttpLlm::new(
-                    NativeLlmConfig {
-                        protocol: cfg.protocol,
-                        base_url: cfg.base_url,
-                        api_key: cfg.api_key,
-                        model: cfg.model,
-                        max_tokens: cfg.max_tokens,
-                        custom_headers: Default::default(),
-                    },
-                    params.system_prompt.clone(),
-                )
-                .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-                Box::new(native)
+    let llm: Box<dyn LLM> =
+        if let Some(providers) = params.providers.as_ref().filter(|p| !p.is_empty()) {
+            let rust_providers: Vec<LlmProvider> = providers
+                .iter()
+                .map(|p| LlmProvider {
+                    name: p.name.clone(),
+                    system_prompt: p.system_prompt.clone(),
+                    model: p.model.clone(),
+                    callbacks: callbacks.clone(),
+                })
+                .collect();
+            Box::new(MultiLLM::new(rust_providers))
+        } else {
+            match params.native_llm {
+                Some(cfg) => {
+                    let sink_callbacks = callbacks.clone();
+                    let native = NativeHttpLlm::new(
+                        NativeLlmConfig {
+                            protocol: cfg.protocol,
+                            base_url: cfg.base_url,
+                            api_key: cfg.api_key,
+                            model: cfg.model,
+                            max_tokens: cfg.max_tokens,
+                            custom_headers: Default::default(),
+                        },
+                        params.system_prompt.clone(),
+                    )
+                    .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+                    Box::new(native)
+                }
+                None => Box::new(
+                    HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
+                        .with_callbacks(callbacks.clone()),
+                ),
             }
-            None => Box::new(
-                HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
-                    .with_callbacks(callbacks.clone()),
-            ),
-        }
-    };
+        };
 
     let messages: Vec<LLMMessage> = params
         .messages
@@ -639,7 +653,10 @@ async fn run_turn_rust_impl(
 
     let turn_id = params.turn_id.clone();
     let cancellation = Arc::new(AtomicBool::new(false));
-    CANCEL_MAP.lock().unwrap().insert(turn_id.clone(), cancellation.clone());
+    CANCEL_MAP
+        .lock()
+        .unwrap()
+        .insert(turn_id.clone(), cancellation.clone());
 
     let input = RunTurnInput {
         turn_id: turn_id.clone(),
@@ -689,8 +706,14 @@ mod tests {
         }
 
         let registry = PAYLOAD_REGISTRY.lock().unwrap();
-        assert!(registry.len() <= PAYLOAD_REGISTRY_MAX_ENTRIES, "registry must stay bounded");
-        assert!(!registry.contains_key(&base), "the oldest payload must go first");
+        assert!(
+            registry.len() <= PAYLOAD_REGISTRY_MAX_ENTRIES,
+            "registry must stay bounded"
+        );
+        assert!(
+            !registry.contains_key(&base),
+            "the oldest payload must go first"
+        );
         assert!(
             registry.contains_key(&(base + total - 1)),
             "the newest payload must survive"

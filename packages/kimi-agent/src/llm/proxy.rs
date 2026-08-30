@@ -81,7 +81,13 @@ impl LLM for HostLlmProxy {
         RETRYABLE.iter().any(|s| lower.contains(s))
     }
 
-    fn chat(&self, params: LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+    fn chat(
+        &self,
+        params: LLMChatParams,
+    ) -> crate::rpc::types::BoxFuture<
+        '_,
+        Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+    > {
         let system_prompt = self.system_prompt.clone();
         let model_name = self.model_name.clone();
         let callbacks = self.callbacks.clone();
@@ -122,10 +128,11 @@ impl LLM for HostLlmProxy {
                 request_id,
             };
 
-            let response = callbacks.llm_chat(request).await
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            let response = callbacks.llm_chat(request).await.map_err(
+                |e| -> Box<dyn std::error::Error + Send + Sync> {
                     Box::new(std::io::Error::other(e))
-                })?;
+                },
+            )?;
 
             // Convert to turn_loop types
             let tool_calls: Vec<ToolCall> = response

@@ -25,7 +25,14 @@ use tokio::sync::oneshot;
 
 use crate::rpc::types::*;
 
-type AsyncMethodHandler = Arc<dyn Fn(serde_json::Value) -> crate::rpc::types::BoxFuture<'static, Result<serde_json::Value, JsonRpcError>> + Send + Sync>;
+type AsyncMethodHandler = Arc<
+    dyn Fn(
+            serde_json::Value,
+        )
+            -> crate::rpc::types::BoxFuture<'static, Result<serde_json::Value, JsonRpcError>>
+        + Send
+        + Sync,
+>;
 
 /// One side of an in-flight request: the oneshot sender awaiting a reply.
 type PendingRequest = oneshot::Sender<Result<serde_json::Value, String>>;
@@ -59,13 +66,10 @@ impl RpcServer {
         F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<serde_json::Value, JsonRpcError>> + Send + 'static,
     {
-        self.methods
-            .lock()
-            .unwrap()
-            .insert(
-                method.to_string(),
-                Arc::new(move |params| Box::pin(handler(params))),
-            );
+        self.methods.lock().unwrap().insert(
+            method.to_string(),
+            Arc::new(move |params| Box::pin(handler(params))),
+        );
     }
 
     /// Register an async handler on an Arc-wrapped server.
@@ -74,14 +78,10 @@ impl RpcServer {
         F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<serde_json::Value, JsonRpcError>> + Send + 'static,
     {
-        server
-            .methods
-            .lock()
-            .unwrap()
-            .insert(
-                method.to_string(),
-                Arc::new(move |params| Box::pin(handler(params))),
-            );
+        server.methods.lock().unwrap().insert(
+            method.to_string(),
+            Arc::new(move |params| Box::pin(handler(params))),
+        );
     }
 
     /// Send a JSON-RPC request to the host (JS side) and wait for a response.
@@ -282,26 +282,27 @@ impl RpcServer {
         if Self::is_response_message(&parsed) {
             // Case 1: Response to a pending call_host
             if let Some(id_val) = parsed.get("id")
-                && let Some(id) = id_val.as_u64() {
-                    let mut pending = match server.pending.lock() {
-                        Ok(p) => p,
-                        Err(_) => return,
-                    };
-                    if let Some(tx) = pending.remove(&(id as u32)) {
-                        if let Some(error) = parsed.get("error") {
-                            let msg = error
-                                .get("message")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or("unknown error");
-                            let _ = tx.send(Err(msg.to_string()));
-                        } else {
-                            let _ = tx.send(Ok(parsed
-                                .get("result")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null)));
-                        }
+                && let Some(id) = id_val.as_u64()
+            {
+                let mut pending = match server.pending.lock() {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                if let Some(tx) = pending.remove(&(id as u32)) {
+                    if let Some(error) = parsed.get("error") {
+                        let msg = error
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("unknown error");
+                        let _ = tx.send(Err(msg.to_string()));
+                    } else {
+                        let _ = tx.send(Ok(parsed
+                            .get("result")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null)));
                     }
                 }
+            }
             return;
         }
 
@@ -327,22 +328,20 @@ impl RpcServer {
         let response = {
             let handler = server.methods.lock().unwrap().get(&request.method).cloned();
             match handler {
-                Some(handler) => {
-                    match handler(request.params.clone()).await {
-                        Ok(result) => {
-                            let resp = JsonRpcResponse::ok(request.id.clone(), result);
-                            serde_json::to_value(&resp).unwrap_or_default()
-                        }
-                        Err(err) => {
-                            let resp = JsonRpcErrorResponse {
-                                jsonrpc: "2.0".into(),
-                                id: request.id.clone(),
-                                error: err,
-                            };
-                            serde_json::to_value(&resp).unwrap_or_default()
-                        }
+                Some(handler) => match handler(request.params.clone()).await {
+                    Ok(result) => {
+                        let resp = JsonRpcResponse::ok(request.id.clone(), result);
+                        serde_json::to_value(&resp).unwrap_or_default()
                     }
-                }
+                    Err(err) => {
+                        let resp = JsonRpcErrorResponse {
+                            jsonrpc: "2.0".into(),
+                            id: request.id.clone(),
+                            error: err,
+                        };
+                        serde_json::to_value(&resp).unwrap_or_default()
+                    }
+                },
                 None => {
                     let err = JsonRpcErrorResponse::new(
                         request.id.clone(),
@@ -399,23 +398,19 @@ impl RpcServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use serde_json::json;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_register_and_call_handler() {
         let mut server = RpcServer::new();
-        server.register("test/echo", |params| {
-            Box::pin(async move { Ok(params) })
-        });
+        server.register("test/echo", |params| Box::pin(async move { Ok(params) }));
 
         let server = Arc::new(server);
         let params = json!({"key": "value"});
 
         // Simulate what handle_incoming does: find handler, call it
-        let handler = {
-            server.methods.lock().unwrap().get("test/echo").cloned()
-        };
+        let handler = { server.methods.lock().unwrap().get("test/echo").cloned() };
         assert!(handler.is_some());
 
         let result = handler.unwrap()(params.clone()).await;
@@ -426,13 +421,16 @@ mod tests {
     #[tokio::test]
     async fn test_handler_not_found() {
         let mut server = RpcServer::new();
-        server.register("test/echo", |params| {
-            Box::pin(async move { Ok(params) })
-        });
+        server.register("test/echo", |params| Box::pin(async move { Ok(params) }));
 
         let server = Arc::new(server);
         let handler = {
-            server.methods.lock().unwrap().get("test/nonexistent").cloned()
+            server
+                .methods
+                .lock()
+                .unwrap()
+                .get("test/nonexistent")
+                .cloned()
         };
         assert!(handler.is_none());
     }
@@ -441,15 +439,11 @@ mod tests {
     async fn test_handler_error() {
         let mut server = RpcServer::new();
         server.register("test/error", |_| {
-            Box::pin(async move {
-                Err(JsonRpcError::internal_error("test error".to_string()))
-            })
+            Box::pin(async move { Err(JsonRpcError::internal_error("test error".to_string())) })
         });
 
         let server = Arc::new(server);
-        let handler = {
-            server.methods.lock().unwrap().get("test/error").cloned()
-        };
+        let handler = { server.methods.lock().unwrap().get("test/error").cloned() };
         assert!(handler.is_some());
 
         let result = handler.unwrap()(json!({})).await;
@@ -459,13 +453,13 @@ mod tests {
 
     #[test]
     fn test_pending_map_insert_and_remove() {
-        let pending: Arc<Mutex<HashMap<u32, PendingRequest>>> = 
+        let pending: Arc<Mutex<HashMap<u32, PendingRequest>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        
+
         let (tx, _rx) = oneshot::channel();
         pending.lock().unwrap().insert(42u32, tx);
         assert!(pending.lock().unwrap().contains_key(&42));
-        
+
         let removed = pending.lock().unwrap().remove(&42);
         assert!(removed.is_some());
         assert!(!pending.lock().unwrap().contains_key(&42));
@@ -474,8 +468,12 @@ mod tests {
     #[test]
     fn test_next_id_monotonic() {
         let server = RpcServer::new();
-        let id1 = server.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id2 = server.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id1 = server
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id2 = server
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(id2 > id1);
     }
 
@@ -488,20 +486,28 @@ mod tests {
                 Ok(params)
             })
         });
-        server.register("test/fast", |params| {
-            Box::pin(async move {
-                Ok(params)
-            })
-        });
+        server.register("test/fast", |params| Box::pin(async move { Ok(params) }));
 
         let server = Arc::new(server);
         let h1 = {
             let params = json!({"id": 1});
-            server.methods.lock().unwrap().get("test/slow").cloned().unwrap()(params)
+            server
+                .methods
+                .lock()
+                .unwrap()
+                .get("test/slow")
+                .cloned()
+                .unwrap()(params)
         };
         let h2 = {
             let params = json!({"id": 2});
-            server.methods.lock().unwrap().get("test/fast").cloned().unwrap()(params)
+            server
+                .methods
+                .lock()
+                .unwrap()
+                .get("test/fast")
+                .cloned()
+                .unwrap()(params)
         };
 
         let (r1, r2) = tokio::join!(h1, h2);
@@ -514,14 +520,12 @@ mod tests {
     #[tokio::test]
     async fn test_register_arc_works() {
         let server = Arc::new(RpcServer::new());
-        
+
         RpcServer::register_arc(&server, "test/arc", |params| {
             Box::pin(async move { Ok(params) })
         });
 
-        let handler = {
-            server.methods.lock().unwrap().get("test/arc").cloned()
-        };
+        let handler = { server.methods.lock().unwrap().get("test/arc").cloned() };
         assert!(handler.is_some());
 
         let result = handler.unwrap()(json!({"ok": true})).await;

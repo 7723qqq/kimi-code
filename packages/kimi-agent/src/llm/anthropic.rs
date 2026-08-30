@@ -7,7 +7,7 @@
 //! blocks carried on a `user` message.
 #![allow(dead_code)]
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::llm::wire::WireMessage;
 use crate::rpc::types::TokenUsage;
@@ -157,10 +157,22 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 }
             }
             Some("tool_use") => {
-                let id = block.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let name = block.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let id = block
+                    .get("id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let arguments = block.get("input").cloned().unwrap_or_else(|| json!({}));
-                tool_calls.push(ToolCall { id, name, arguments });
+                tool_calls.push(ToolCall {
+                    id,
+                    name,
+                    arguments,
+                });
             }
             _ => {}
         }
@@ -212,7 +224,11 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 #[derive(Debug, Clone)]
 enum PartialBlock {
     Text,
-    ToolUse { id: String, name: String, input_json: String },
+    ToolUse {
+        id: String,
+        name: String,
+        input_json: String,
+    },
 }
 
 /// Upper bound on content blocks a single streamed response may open.
@@ -280,8 +296,16 @@ impl StreamAccumulator {
                 let block = v.get("content_block")?;
                 let partial = match block.get("type").and_then(|t| t.as_str()) {
                     Some("tool_use") => PartialBlock::ToolUse {
-                        id: block.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        name: block.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        id: block
+                            .get("id")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        name: block
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         input_json: String::new(),
                     },
                     _ => PartialBlock::Text,
@@ -308,9 +332,9 @@ impl StreamAccumulator {
                             self.blocks.get_mut(index)
                             && let Some(fragment) =
                                 delta.get("partial_json").and_then(|x| x.as_str())
-                            {
-                                input_json.push_str(fragment);
-                            }
+                        {
+                            input_json.push_str(fragment);
+                        }
                         None
                     }
                     _ => None,
@@ -346,14 +370,15 @@ impl StreamAccumulator {
             .into_iter()
             .flatten()
             .filter_map(|b| match b {
-                PartialBlock::ToolUse { id, name, input_json } if !name.is_empty() => {
-                    Some(ToolCall {
-                        id,
-                        name,
-                        arguments: serde_json::from_str(&input_json)
-                            .unwrap_or_else(|_| json!({})),
-                    })
-                }
+                PartialBlock::ToolUse {
+                    id,
+                    name,
+                    input_json,
+                } if !name.is_empty() => Some(ToolCall {
+                    id,
+                    name,
+                    arguments: serde_json::from_str(&input_json).unwrap_or_else(|_| json!({})),
+                }),
                 _ => None,
             })
             .collect();
@@ -507,7 +532,8 @@ mod tests {
 
     #[test]
     fn build_request_streaming_sets_stream_flag() {
-        let req = build_request_with_options("m", 100, &[WireMessage::text("user", "x")], &[], true);
+        let req =
+            build_request_with_options("m", 100, &[WireMessage::text("user", "x")], &[], true);
         assert_eq!(req["stream"], true);
     }
 
@@ -517,8 +543,13 @@ mod tests {
         let msg = WireMessage::with_blocks(
             "user",
             vec![
-                ContentBlock::Text { text: "look".into() },
-                ContentBlock::Image { media_type: "image/jpeg".into(), data: "BBBB".into() },
+                ContentBlock::Text {
+                    text: "look".into(),
+                },
+                ContentBlock::Image {
+                    media_type: "image/jpeg".into(),
+                    data: "BBBB".into(),
+                },
             ],
         );
         let req = build_request("m", 100, &[msg], &[]);
@@ -538,24 +569,42 @@ mod tests {
         let msg = WireMessage::with_blocks(
             "user",
             vec![
-                ContentBlock::AudioUrl { url: "https://example.com/a.mp3".into(), id: None },
-                ContentBlock::VideoUrl { url: "https://example.com/v.mp4".into(), id: None },
+                ContentBlock::AudioUrl {
+                    url: "https://example.com/a.mp3".into(),
+                    id: None,
+                },
+                ContentBlock::VideoUrl {
+                    url: "https://example.com/v.mp4".into(),
+                    id: None,
+                },
             ],
         );
         let req = build_request("m", 100, &[msg], &[]);
         let content = req["messages"][0]["content"].as_array().unwrap();
         assert_eq!(content.len(), 2);
         assert_eq!(content[0]["type"], "text");
-        assert!(content[0]["text"].as_str().unwrap().contains("audio omitted"));
+        assert!(
+            content[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("audio omitted")
+        );
         assert_eq!(content[1]["type"], "text");
-        assert!(content[1]["text"].as_str().unwrap().contains("video omitted"));
+        assert!(
+            content[1]["text"]
+                .as_str()
+                .unwrap()
+                .contains("video omitted")
+        );
     }
 
     #[test]
     fn stream_accumulator_collects_text_tool_use_and_usage() {
         let mut acc = StreamAccumulator::new();
 
-        acc.feed(&json!({ "type": "message_start", "message": { "usage": { "input_tokens": 25 } } }));
+        acc.feed(
+            &json!({ "type": "message_start", "message": { "usage": { "input_tokens": 25 } } }),
+        );
         acc.feed(&json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text" } }));
         let d1 = acc.feed(&json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Hi " } }));
         assert_eq!(d1.as_deref(), Some("Hi "));
@@ -593,6 +642,10 @@ mod tests {
 
         assert!(acc.blocks.len() <= MAX_STREAM_BLOCKS);
         let resp = acc.finish();
-        assert_eq!(resp.tool_calls.len(), 0, "the out-of-range block must be dropped");
+        assert_eq!(
+            resp.tool_calls.len(),
+            0,
+            "the out-of-range block must be dropped"
+        );
     }
 }

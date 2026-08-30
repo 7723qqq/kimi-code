@@ -15,9 +15,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::turn_loop::types::{
-    read_file_access, read_tree_access, tool_accesses_conflict, write_file_access,
-    write_tree_access, ExecutableToolResult, ToolAccesses, ToolCall, ToolFileAccess,
-    ToolResourceAccess, FileOperation,
+    ExecutableToolResult, FileOperation, ToolAccesses, ToolCall, ToolFileAccess,
+    ToolResourceAccess, read_file_access, read_tree_access, tool_accesses_conflict,
+    write_file_access, write_tree_access,
 };
 
 /// A scheduled tool call with its resource accesses.
@@ -177,14 +177,8 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
     let name = tool_name.to_ascii_lowercase();
     let path = args.get("path").and_then(|p| p.as_str());
     match name.as_str() {
-        "read" => path
-            .map(read_file_access)
-            .into_iter()
-            .collect(),
-        "write" => path
-            .map(write_file_access)
-            .into_iter()
-            .collect(),
+        "read" => path.map(read_file_access).into_iter().collect(),
+        "write" => path.map(write_file_access).into_iter().collect(),
         "edit" => path
             .map(|p| {
                 ToolResourceAccess::File(ToolFileAccess {
@@ -195,10 +189,7 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
             })
             .into_iter()
             .collect(),
-        "grep" | "glob" => path
-            .map(read_tree_access)
-            .into_iter()
-            .collect(),
+        "grep" | "glob" => path.map(read_tree_access).into_iter().collect(),
         // A shell command mutates arbitrarily — serialize it against the
         // whole workspace so it never runs concurrently with any other
         // tool that touches the sandbox.
@@ -211,7 +202,8 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
 mod tests {
     use super::*;
     use crate::turn_loop::types::{
-        all_access, read_file_access, write_file_access, FileOperation, ToolFileAccess, ToolResourceAccess,
+        FileOperation, ToolFileAccess, ToolResourceAccess, all_access, read_file_access,
+        write_file_access,
     };
 
     #[test]
@@ -378,13 +370,13 @@ mod tests {
                     name: "write_tree".into(),
                     arguments: serde_json::json!({}),
                 },
-                accesses: vec![
-                    ToolResourceAccess::File(crate::turn_loop::types::ToolFileAccess {
+                accesses: vec![ToolResourceAccess::File(
+                    crate::turn_loop::types::ToolFileAccess {
                         operation: crate::turn_loop::types::FileOperation::Write,
                         path: "/foo".to_string(),
                         recursive: true,
-                    }),
-                ],
+                    },
+                )],
             },
             ScheduledToolCall {
                 tool_call: ToolCall {
@@ -403,15 +395,27 @@ mod tests {
     fn test_three_way_conflict() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/file.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/file.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/file.txt")],
             },
         ];
@@ -427,15 +431,27 @@ mod tests {
         // Two writes to different files + one write to same file as first
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/b.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
         ];
@@ -450,7 +466,11 @@ mod tests {
     fn test_search_no_conflict_with_read() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "search".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "search".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![ToolResourceAccess::File(ToolFileAccess {
                     operation: FileOperation::Search,
                     path: "/foo".to_string(),
@@ -458,7 +478,11 @@ mod tests {
                 })],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "read".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![read_file_access("/foo/bar.txt")],
             },
         ];
@@ -471,7 +495,11 @@ mod tests {
     fn test_search_conflicts_with_write() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "search".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "search".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![ToolResourceAccess::File(ToolFileAccess {
                     operation: FileOperation::Search,
                     path: "/foo".to_string(),
@@ -479,7 +507,11 @@ mod tests {
                 })],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/foo/bar.txt")],
             },
         ];
@@ -492,7 +524,11 @@ mod tests {
     fn test_readwrite_conflicts_with_both() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "rw".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "rw".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![ToolResourceAccess::File(ToolFileAccess {
                     operation: FileOperation::ReadWrite,
                     path: "/foo".to_string(),
@@ -500,11 +536,19 @@ mod tests {
                 })],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "read".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![read_file_access("/foo")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/foo")],
             },
         ];
@@ -518,11 +562,19 @@ mod tests {
         // Windows paths with backslashes should be normalized
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("C:\\foo\\bar.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("C:/foo/bar.txt")],
             },
         ];
@@ -535,11 +587,19 @@ mod tests {
         // One tool with multiple accesses
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "multi".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "multi".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![read_file_access("/a.txt"), write_file_access("/b.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
         ];
@@ -552,15 +612,27 @@ mod tests {
     fn test_all_access_blocks_all() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "all".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "all".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![all_access()],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "r".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "r".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![read_file_access("/x.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/y.txt")],
             },
         ];
@@ -573,12 +645,14 @@ mod tests {
 
     #[test]
     fn test_single_call_no_conflict() {
-        let calls = vec![
-            ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "only".into(), arguments: serde_json::json!({}) },
-                accesses: vec![write_file_access("/x.txt")],
+        let calls = vec![ScheduledToolCall {
+            tool_call: ToolCall {
+                id: "1".into(),
+                name: "only".into(),
+                arguments: serde_json::json!({}),
             },
-        ];
+            accesses: vec![write_file_access("/x.txt")],
+        }];
         let batches = schedule_tool_calls(calls);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 1);
@@ -588,15 +662,27 @@ mod tests {
     fn test_different_dirs_no_conflict() {
         let calls = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/project/a/src/main.rs")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/project/b/src/lib.rs")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "w".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/project/c/README.md")],
             },
         ];
@@ -622,11 +708,14 @@ mod tests {
     #[test]
     fn test_infer_edit_is_readwrite() {
         let accesses = infer_tool_accesses("edit", &serde_json::json!({"path": "/c.txt"}));
-        assert_eq!(accesses, vec![ToolResourceAccess::File(ToolFileAccess {
-            operation: FileOperation::ReadWrite,
-            path: "/c.txt".into(),
-            recursive: false,
-        })]);
+        assert_eq!(
+            accesses,
+            vec![ToolResourceAccess::File(ToolFileAccess {
+                operation: FileOperation::ReadWrite,
+                path: "/c.txt".into(),
+                recursive: false,
+            })]
+        );
     }
 
     #[test]
@@ -667,18 +756,26 @@ mod tests {
     /// call only starts after the first finishes.
     #[tokio::test]
     async fn test_execute_scheduled_conflicting_writes_serialized() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
         let scheduled = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/f.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/f.txt")],
             },
         ];
@@ -693,13 +790,21 @@ mod tests {
                     max_active.fetch_max(now, Ordering::SeqCst);
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
-                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
+                    Ok(ExecutableToolResult {
+                        content: "ok".into(),
+                        is_error: false,
+                        note: None,
+                    })
                 }
             }
         };
         let results = execute_scheduled(None, scheduled, executor).await.unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(max_active.load(Ordering::SeqCst), 1, "conflicting calls must never overlap");
+        assert_eq!(
+            max_active.load(Ordering::SeqCst),
+            1,
+            "conflicting calls must never overlap"
+        );
     }
 
     /// Flattening the batches must reproduce the input order: callers pair
@@ -712,24 +817,44 @@ mod tests {
         // backfill the first batch ahead of it.
         let scheduled = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/b.txt")],
             },
         ];
         let executor = move |tc: ToolCall| async move {
-            Ok(ExecutableToolResult { content: tc.id.clone(), is_error: false, note: None })
+            Ok(ExecutableToolResult {
+                content: tc.id.clone(),
+                is_error: false,
+                note: None,
+            })
         };
         let results = execute_scheduled(None, scheduled, executor).await.unwrap();
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
-        assert_eq!(ids, vec!["1", "2", "3"], "results must come back in call order");
+        assert_eq!(
+            ids,
+            vec!["1", "2", "3"],
+            "results must come back in call order"
+        );
     }
 
     /// A cancelled turn must stop launching work rather than running the
@@ -738,37 +863,60 @@ mod tests {
     async fn test_execute_scheduled_stops_on_cancellation() {
         let cancel = Arc::new(AtomicBool::new(true));
         let scheduled = vec![ScheduledToolCall {
-            tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+            tool_call: ToolCall {
+                id: "1".into(),
+                name: "write".into(),
+                arguments: serde_json::json!({}),
+            },
             accesses: vec![write_file_access("/a.txt")],
         }];
         let executor = move |_tc: ToolCall| async move {
-            Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
+            Ok(ExecutableToolResult {
+                content: "ok".into(),
+                is_error: false,
+                note: None,
+            })
         };
         let err = execute_scheduled(Some(&cancel), scheduled, executor)
             .await
             .expect_err("a cancelled turn must not run tools");
-        assert!(err.to_string().contains("cancelled"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("cancelled"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Non-conflicting calls must run concurrently (max active > 1).
     #[tokio::test]
     async fn test_execute_scheduled_non_conflicting_parallel() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
         let scheduled = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/a.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/b.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/c.txt")],
             },
         ];
@@ -783,23 +931,34 @@ mod tests {
                     max_active.fetch_max(now, Ordering::SeqCst);
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
-                    Ok(ExecutableToolResult { content: "ok".into(), is_error: false, note: None })
+                    Ok(ExecutableToolResult {
+                        content: "ok".into(),
+                        is_error: false,
+                        note: None,
+                    })
                 }
             }
         };
         let results = execute_scheduled(None, scheduled, executor).await.unwrap();
         assert_eq!(results.len(), 3);
-        assert!(max_active.load(Ordering::SeqCst) > 1, "non-conflicting calls should overlap");
+        assert!(
+            max_active.load(Ordering::SeqCst) > 1,
+            "non-conflicting calls should overlap"
+        );
     }
 
     /// Empty schedule yields an empty result.
     #[tokio::test]
     async fn test_execute_scheduled_empty() {
-        let results = execute_scheduled(
-            None,
-            vec![],
-            |_tc: ToolCall| async move { Ok(ExecutableToolResult { content: "x".into(), is_error: false, note: None }) },
-        ).await.unwrap();
+        let results = execute_scheduled(None, vec![], |_tc: ToolCall| async move {
+            Ok(ExecutableToolResult {
+                content: "x".into(),
+                is_error: false,
+                note: None,
+            })
+        })
+        .await
+        .unwrap();
         assert!(results.is_empty());
     }
 
@@ -808,23 +967,39 @@ mod tests {
     async fn test_execute_scheduled_preserves_order_across_batches() {
         let scheduled = vec![
             ScheduledToolCall {
-                tool_call: ToolCall { id: "1".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/f.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "2".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/g.txt")],
             },
             ScheduledToolCall {
-                tool_call: ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+                tool_call: ToolCall {
+                    id: "3".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
                 accesses: vec![write_file_access("/f.txt")],
             },
         ];
-        let results = execute_scheduled(
-            None,
-            scheduled,
-            |tc: ToolCall| async move { Ok(ExecutableToolResult { content: tc.id, is_error: false, note: None }) },
-        ).await.unwrap();
+        let results = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
+            Ok(ExecutableToolResult {
+                content: tc.id,
+                is_error: false,
+                note: None,
+            })
+        })
+        .await
+        .unwrap();
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(ids, vec!["1", "2", "3"]);
     }

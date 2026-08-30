@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
-use futures_util::StreamExt;
 use eventsource_stream::Eventsource;
+use futures_util::StreamExt;
 
 use crate::llm::wire::to_wire;
 use crate::llm::{anthropic, openai};
 use crate::rpc::types::{BoxFuture, NativeLlmConfig};
-use crate::turn_loop::types::{LLMChatParams, LLMChatResponse, LLM};
+use crate::turn_loop::types::{LLM, LLMChatParams, LLMChatResponse};
 
 /// Default `max_tokens` for the Anthropic Messages API when the host does
 /// not configure one (the field is mandatory there).
@@ -93,7 +93,9 @@ impl NativeHttpLlm {
         let body = if is_anthropic {
             anthropic::build_request_with_options(
                 &self.config.model,
-                self.config.max_tokens.unwrap_or(DEFAULT_ANTHROPIC_MAX_TOKENS),
+                self.config
+                    .max_tokens
+                    .unwrap_or(DEFAULT_ANTHROPIC_MAX_TOKENS),
                 &wire,
                 &params.tools,
                 true,
@@ -275,16 +277,28 @@ mod tests {
 
     #[test]
     fn endpoint_joins_openai_and_anthropic_paths() {
-        let llm = NativeHttpLlm::new(config("openai", "https://api.example.com/v1/"), String::new());
-        assert_eq!(llm.endpoint(), "https://api.example.com/v1/chat/completions");
+        let llm = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1/"),
+            String::new(),
+        );
+        assert_eq!(
+            llm.endpoint(),
+            "https://api.example.com/v1/chat/completions"
+        );
 
-        let llm = NativeHttpLlm::new(config("anthropic", "https://api.example.com/v1"), String::new());
+        let llm = NativeHttpLlm::new(
+            config("anthropic", "https://api.example.com/v1"),
+            String::new(),
+        );
         assert_eq!(llm.endpoint(), "https://api.example.com/v1/messages");
     }
 
     #[test]
     fn retryable_error_classification() {
-        let llm = NativeHttpLlm::new(config("openai", "https://api.example.com/v1"), String::new());
+        let llm = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1"),
+            String::new(),
+        );
         assert!(llm.is_retryable_error("llm http status 429 Too Many Requests: slow down"));
         assert!(llm.is_retryable_error("llm http status 503 Service Unavailable: busy"));
         assert!(llm.is_retryable_error("llm http request failed: connection reset"));
@@ -295,13 +309,16 @@ mod tests {
 
     #[test]
     fn retryable_error_ignores_status_body_keywords() {
-        let llm = NativeHttpLlm::new(config("openai", "https://api.example.com/v1"), String::new());
+        let llm = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1"),
+            String::new(),
+        );
         // A 400 whose body mentions connections, and a 401 that mentions a
         // session timeout, describe requests that can never succeed — no
         // amount of retrying changes that.
-        assert!(!llm.is_retryable_error(
-            "llm http status 400 Bad Request: unknown field 'connection'"
-        ));
+        assert!(
+            !llm.is_retryable_error("llm http status 400 Bad Request: unknown field 'connection'")
+        );
         assert!(!llm.is_retryable_error(
             "llm http status 401 Unauthorized: session timeout, please re-authenticate"
         ));
@@ -324,10 +341,16 @@ mod tests {
         cfg.custom_headers.insert("x-test".into(), "1".into());
         let llm = NativeHttpLlm::new(cfg, String::new());
         let result = llm
-            .chat(LLMChatParams { messages: vec![], tools: vec![] })
+            .chat(LLMChatParams {
+                messages: vec![],
+                tools: vec![],
+            })
             .await;
         assert!(result.is_err());
         let msg = result.err().unwrap().to_string();
-        assert!(msg.contains("llm http request failed"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("llm http request failed"),
+            "unexpected error: {msg}"
+        );
     }
 }

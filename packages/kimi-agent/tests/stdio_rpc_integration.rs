@@ -40,8 +40,12 @@ fn find_binary() -> Option<std::path::PathBuf> {
     let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     for candidate in candidates {
         let path = std::path::Path::new(manifest_dir).join(candidate);
-        let Ok(metadata) = path.metadata() else { continue };
-        let Ok(modified) = metadata.modified() else { continue };
+        let Ok(metadata) = path.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
         if newest.as_ref().is_none_or(|(best, _)| modified > *best) {
             newest = Some((modified, path));
         }
@@ -182,10 +186,12 @@ fn unknown_method_returns_error() {
     assert_eq!(resp["jsonrpc"], "2.0");
     let err = resp.get("error").expect("expected error field");
     assert_eq!(err["code"], -32601);
-    assert!(err["message"]
-        .as_str()
-        .unwrap_or("")
-        .contains("Method not found"));
+    assert!(
+        err["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Method not found")
+    );
 
     client.shutdown();
 }
@@ -370,9 +376,7 @@ fn run_turn_with_host_callbacks() {
         result_obj["steps"].as_u64() >= Some(2),
         "expected at least 2 steps, got: {result_obj}"
     );
-    let stop_reason = result_obj["stop_reason"]
-        .as_str()
-        .unwrap_or("");
+    let stop_reason = result_obj["stop_reason"].as_str().unwrap_or("");
     assert!(
         stop_reason.contains("EndTurn") || stop_reason.contains("End"),
         "expected EndTurn stop reason, got: {stop_reason}"
@@ -573,9 +577,11 @@ fn drive_native_turn(
                 })
             }
             "host/check_permission" => {
-                observation
-                    .permission_requests
-                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
+                observation.permission_requests.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": req_id,
@@ -591,9 +597,11 @@ fn drive_native_turn(
                 })
             }
             "host/event" => {
-                observation
-                    .events
-                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
+                observation.events.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
                 continue;
             }
             _ => serde_json::json!({
@@ -647,16 +655,27 @@ fn run_turn_native_write_permission_round_trip() {
         serde_json::json!({"path": "native.txt", "content": "written natively"}),
         serde_json::json!({"decision": "allow"}),
     );
-    let Some(resp) = require_observation(&observation) else { return; };
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
 
     assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
     let target = dir.join("native.txt");
     assert_eq!(
-        std::fs::read_to_string(&target).expect("native write landed").as_str(),
+        std::fs::read_to_string(&target)
+            .expect("native write landed")
+            .as_str(),
         "written natively"
     );
-    assert_eq!(observation.execute_tool_requests, 0, "host execute path must be untouched");
-    assert_eq!(observation.permission_requests.len(), 1, "exactly one permission round-trip");
+    assert_eq!(
+        observation.execute_tool_requests, 0,
+        "host execute path must be untouched"
+    );
+    assert_eq!(
+        observation.permission_requests.len(),
+        1,
+        "exactly one permission round-trip"
+    );
     let req = &observation.permission_requests[0];
     assert_eq!(req["tool_name"], "write");
     assert_eq!(req["arguments"]["path"], "native.txt");
@@ -682,11 +701,19 @@ fn run_turn_native_permission_deny_is_final() {
         serde_json::json!({"path": "denied.txt", "content": "should not exist"}),
         serde_json::json!({"decision": "deny", "reason": "denied by test policy"}),
     );
-    let Some(resp) = require_observation(&observation) else { return; };
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
 
     assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
-    assert!(!dir.join("denied.txt").exists(), "denied call must not write");
-    assert_eq!(observation.execute_tool_requests, 0, "deny must not fall back to the host");
+    assert!(
+        !dir.join("denied.txt").exists(),
+        "denied call must not write"
+    );
+    assert_eq!(
+        observation.execute_tool_requests, 0,
+        "deny must not fall back to the host"
+    );
     let native_events = native_events_of(&observation);
     assert_eq!(native_events.len(), 1, "the refusal is the tool result");
     assert_eq!(native_events[0]["is_error"], true);
@@ -717,14 +744,23 @@ fn native_bash_uses_host_shell() {
         serde_json::json!({"command": "echo $((20+3))"}),
         serde_json::json!({"decision": "allow"}),
     );
-    let Some(resp) = require_observation(&observation) else { return; };
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
 
     assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
     let native_events = native_events_of(&observation);
-    assert_eq!(native_events.len(), 1, "bash must execute natively, not on the host");
+    assert_eq!(
+        native_events.len(),
+        1,
+        "bash must execute natively, not on the host"
+    );
     assert_eq!(observation.execute_tool_requests, 0);
     let content = native_events[0]["content"].as_str().unwrap_or("");
-    assert!(content.contains("23"), "bash arithmetic must evaluate, got: {content}");
+    assert!(
+        content.contains("23"),
+        "bash arithmetic must evaluate, got: {content}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

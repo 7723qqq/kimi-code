@@ -48,7 +48,11 @@ fn retry_after_hint(error: &str) -> Option<Duration> {
     let start = error.rfind(marker)? + marker.len();
     let rest = &error[start..];
     let end = rest.find('s')?;
-    rest[..end].trim().parse::<u64>().ok().map(Duration::from_secs)
+    rest[..end]
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 /// Pick the wait before the next attempt: the provider's request when it is
@@ -72,7 +76,15 @@ pub fn execute_loop_step<'a>(
     tools: &'a [&'a dyn ExecutableTool],
     tool_defs: Vec<ToolInfo>,
 ) -> BoxFuture<'a, Result<StepResult, Box<dyn std::error::Error + Send + Sync>>> {
-    execute_loop_step_with_retry(turn_id, step, llm, messages, tools, tool_defs, &RetryConfig::default())
+    execute_loop_step_with_retry(
+        turn_id,
+        step,
+        llm,
+        messages,
+        tools,
+        tool_defs,
+        &RetryConfig::default(),
+    )
 }
 
 /// Execute a single LLM step: call the LLM using the current messages,
@@ -176,11 +188,21 @@ mod tests {
     }
 
     impl LLM for FlakyLlm {
-        fn system_prompt(&self) -> &str { &self.system_prompt }
-        fn model_name(&self) -> &str { &self.model_name }
-        fn is_retryable_error(&self, _error: &str) -> bool { self.retryable }
+        fn system_prompt(&self) -> &str {
+            &self.system_prompt
+        }
+        fn model_name(&self) -> &str {
+            &self.model_name
+        }
+        fn is_retryable_error(&self, _error: &str) -> bool {
+            self.retryable
+        }
 
-        fn chat(&self, _params: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
             let call = self.calls.fetch_add(1, Ordering::SeqCst);
             let fail_count = self.fail_count;
             Box::pin(async move {
@@ -191,8 +213,12 @@ mod tests {
                     content: String::new(),
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
-                    usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
-        ..Default::default()},
+                    usage: TokenUsage {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        total_tokens: 2,
+                        ..Default::default()
+                    },
                 })
             })
         }
@@ -207,10 +233,13 @@ mod tests {
             base_delay_ms: 1, // fast for tests
             max_delay_ms: 10,
         };
-        let result = execute_loop_step_with_retry(
-            "t1", 1, &llm, vec![], &[], vec![], &config,
-        ).await;
-        assert!(result.is_ok(), "should succeed after retries: {:?}", result.err());
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+        assert!(
+            result.is_ok(),
+            "should succeed after retries: {:?}",
+            result.err()
+        );
         assert_eq!(llm.calls.load(Ordering::SeqCst), 3);
     }
 
@@ -223,9 +252,8 @@ mod tests {
             base_delay_ms: 1,
             max_delay_ms: 10,
         };
-        let result = execute_loop_step_with_retry(
-            "t1", 1, &llm, vec![], &[], vec![], &config,
-        ).await;
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 2);
     }
@@ -239,9 +267,8 @@ mod tests {
             base_delay_ms: 1,
             max_delay_ms: 10,
         };
-        let result = execute_loop_step_with_retry(
-            "t1", 1, &llm, vec![], &[], vec![], &config,
-        ).await;
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -251,9 +278,8 @@ mod tests {
         // Succeeds on first try.
         let llm = FlakyLlm::new(0, true);
         let config = RetryConfig::default();
-        let result = execute_loop_step_with_retry(
-            "t1", 1, &llm, vec![], &[], vec![], &config,
-        ).await;
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_ok());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -265,29 +291,58 @@ mod tests {
             calls: Arc<AtomicU32>,
         }
         impl LLM for ToolCallLlm {
-            fn system_prompt(&self) -> &str { "test" }
-            fn model_name(&self) -> &str { "tool-llm" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, _: LLMChatParams) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "tool-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
                 let call = self.calls.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
                         tool_calls: if call == 0 {
-                            vec![ToolCall { id: "c1".into(), name: "read".into(), arguments: serde_json::json!({}) }]
+                            vec![ToolCall {
+                                id: "c1".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({}),
+                            }]
                         } else {
                             vec![]
                         },
                         finish_reason: Some("stop".into()),
-                        usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
-        ..Default::default()},
+                        usage: TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                            total_tokens: 2,
+                            ..Default::default()
+                        },
                     })
                 })
             }
         }
 
-        let llm = ToolCallLlm { calls: calls.clone() };
-        let result = execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &RetryConfig::default()).await;
+        let llm = ToolCallLlm {
+            calls: calls.clone(),
+        };
+        let result = execute_loop_step_with_retry(
+            "t1",
+            1,
+            &llm,
+            vec![],
+            &[],
+            vec![],
+            &RetryConfig::default(),
+        )
+        .await;
         assert!(result.is_ok());
         let step = result.unwrap();
         match step.stop_reason {
@@ -299,8 +354,13 @@ mod tests {
     #[tokio::test]
     async fn test_retry_max_attempts_one() {
         let llm = FlakyLlm::new(1, true);
-        let config = RetryConfig { max_attempts: 1, base_delay_ms: 1, max_delay_ms: 10 };
-        let result = execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+        let config = RetryConfig {
+            max_attempts: 1,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -308,8 +368,13 @@ mod tests {
     #[tokio::test]
     async fn test_retry_succeeds_on_first_retry() {
         let llm = FlakyLlm::new(1, true);
-        let config = RetryConfig { max_attempts: 2, base_delay_ms: 1, max_delay_ms: 10 };
-        let result = execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+        let config = RetryConfig {
+            max_attempts: 2,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+        let result =
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_ok());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 2);
     }
@@ -338,10 +403,19 @@ mod tests {
     #[tokio::test]
     async fn test_retry_waits_at_least_as_long_as_the_provider_asks() {
         // A provider asking for 30s must not be retried at the 1s backoff.
-        assert_eq!(step_delay(Duration::from_secs(1), Some(Duration::from_secs(30))), Duration::from_secs(30));
+        assert_eq!(
+            step_delay(Duration::from_secs(1), Some(Duration::from_secs(30))),
+            Duration::from_secs(30)
+        );
         // And a short hint must not shorten the backoff either.
-        assert_eq!(step_delay(Duration::from_secs(5), Some(Duration::from_millis(200))), Duration::from_secs(5));
+        assert_eq!(
+            step_delay(Duration::from_secs(5), Some(Duration::from_millis(200))),
+            Duration::from_secs(5)
+        );
         // No hint: the backoff stands.
-        assert_eq!(step_delay(Duration::from_secs(3), None), Duration::from_secs(3));
+        assert_eq!(
+            step_delay(Duration::from_secs(3), None),
+            Duration::from_secs(3)
+        );
     }
 }

@@ -58,7 +58,10 @@ pub struct MultiLLM {
 impl MultiLLM {
     pub fn new(providers: Vec<LlmProvider>) -> Self {
         let label = if providers.len() <= 1 {
-            providers.first().map(|p| p.model.clone()).unwrap_or_default()
+            providers
+                .first()
+                .map(|p| p.model.clone())
+                .unwrap_or_default()
         } else {
             format!("{} + {} others", providers[0].model, providers.len() - 1)
         };
@@ -195,7 +198,10 @@ async fn race_first_success(
 
 impl LLM for MultiLLM {
     fn system_prompt(&self) -> &str {
-        self.providers.first().map(|p| p.system_prompt.as_str()).unwrap_or("")
+        self.providers
+            .first()
+            .map(|p| p.system_prompt.as_str())
+            .unwrap_or("")
     }
 
     fn model_name(&self) -> &str {
@@ -203,13 +209,20 @@ impl LLM for MultiLLM {
     }
 
     fn is_retryable_error(&self, error: &str) -> bool {
-        self.providers.first().map(|p| p.to_llm().is_retryable_error(error)).unwrap_or(false)
+        self.providers
+            .first()
+            .map(|p| p.to_llm().is_retryable_error(error))
+            .unwrap_or(false)
     }
 
-    fn chat(&self, params: LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-        Box::pin(async move {
-            self.first_past_the_post(params).await
-        })
+    fn chat(
+        &self,
+        params: LLMChatParams,
+    ) -> crate::rpc::types::BoxFuture<
+        '_,
+        Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+    > {
+        Box::pin(async move { self.first_past_the_post(params).await })
     }
 }
 
@@ -237,15 +250,26 @@ mod tests {
                 call_count: Arc::new(AtomicU32::new(0)),
             }
         }
-
-        }
+    }
 
     impl LLM for MockTestLlm {
-        fn system_prompt(&self) -> &str { "mock" }
-        fn model_name(&self) -> &str { &self.name }
-        fn is_retryable_error(&self, _: &str) -> bool { false }
+        fn system_prompt(&self) -> &str {
+            "mock"
+        }
+        fn model_name(&self) -> &str {
+            &self.name
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
 
-        fn chat(&self, _params: LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> crate::rpc::types::BoxFuture<
+            '_,
+            Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+        > {
             let delay = self.delay_ms;
             let fail = self.should_fail;
             let name = self.name.clone();
@@ -261,8 +285,12 @@ mod tests {
                         content: String::new(),
                         tool_calls: vec![],
                         finish_reason: Some(name),
-                        usage: TokenUsage { input_tokens: 10, output_tokens: 5, total_tokens: 15 ,
-        ..Default::default()},
+                        usage: TokenUsage {
+                            input_tokens: 10,
+                            output_tokens: 5,
+                            total_tokens: 15,
+                            ..Default::default()
+                        },
                     })
                 }
             })
@@ -272,7 +300,10 @@ mod tests {
     #[tokio::test]
     async fn test_mock_llm_ok() {
         let mock = MockTestLlm::new("fast", 5, false);
-        let params = LLMChatParams { messages: vec![], tools: vec![] };
+        let params = LLMChatParams {
+            messages: vec![],
+            tools: vec![],
+        };
         let result = mock.chat(params).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().finish_reason.unwrap(), "fast");
@@ -281,7 +312,10 @@ mod tests {
     #[tokio::test]
     async fn test_mock_llm_fail() {
         let mock = MockTestLlm::new("failing", 5, true);
-        let params = LLMChatParams { messages: vec![], tools: vec![] };
+        let params = LLMChatParams {
+            messages: vec![],
+            tools: vec![],
+        };
         let result = mock.chat(params).await;
         assert!(result.is_err());
     }
@@ -291,8 +325,12 @@ mod tests {
             content: String::new(),
             tool_calls: vec![],
             finish_reason: Some(tag.to_string()),
-            usage: TokenUsage { input_tokens: 1, output_tokens: 1, total_tokens: 2 ,
-        ..Default::default()},
+            usage: TokenUsage {
+                input_tokens: 1,
+                output_tokens: 1,
+                total_tokens: 2,
+                ..Default::default()
+            },
         }
     }
 
@@ -322,7 +360,9 @@ mod tests {
                 },
             )
         });
-        let winner = race_first_success(vec![slow, fast], &HashMap::new()).await.unwrap();
+        let winner = race_first_success(vec![slow, fast], &HashMap::new())
+            .await
+            .unwrap();
         assert_eq!(winner.finish_reason.as_deref(), Some("fast"));
     }
 
@@ -352,7 +392,9 @@ mod tests {
                 },
             )
         });
-        let winner = race_first_success(vec![fast_fail, slow_ok], &HashMap::new()).await.unwrap();
+        let winner = race_first_success(vec![fast_fail, slow_ok], &HashMap::new())
+            .await
+            .unwrap();
         assert_eq!(winner.finish_reason.as_deref(), Some("ok"));
     }
 
@@ -366,7 +408,12 @@ mod tests {
     impl CancellationSpy {
         fn new() -> (Arc<CancellationSpy>, Arc<std::sync::Mutex<Vec<String>>>) {
             let log = Arc::new(std::sync::Mutex::new(Vec::new()));
-            (Arc::new(Self { cancelled: log.clone() }), log)
+            (
+                Arc::new(Self {
+                    cancelled: log.clone(),
+                }),
+                log,
+            )
         }
     }
 
@@ -394,8 +441,10 @@ mod tests {
         fn execute_tool(
             &self,
             _request: crate::rpc::types::ToolExecuteRequest,
-        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>>
-        {
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ToolExecuteResponse, String>,
+        > {
             Box::pin(async { Err("not used by this test".into()) })
         }
 
@@ -439,15 +488,26 @@ mod tests {
         ]);
 
         let winner = multi
-            .first_past_the_post(LLMChatParams { messages: vec![], tools: vec![] })
+            .first_past_the_post(LLMChatParams {
+                messages: vec![],
+                tools: vec![],
+            })
             .await
             .unwrap();
         assert_eq!(winner.finish_reason.as_deref(), Some("fast"));
 
         // The loser is cancelled; the winner is not.
         let cancelled = slow_log.lock().unwrap();
-        assert_eq!(cancelled.len(), 1, "the losing provider must be cancelled once");
-        assert!(cancelled[0].contains("slow"), "unexpected id: {}", cancelled[0]);
+        assert_eq!(
+            cancelled.len(),
+            1,
+            "the losing provider must be cancelled once"
+        );
+        assert!(
+            cancelled[0].contains("slow"),
+            "unexpected id: {}",
+            cancelled[0]
+        );
         drop(cancelled);
 
         assert!(
@@ -461,16 +521,27 @@ mod tests {
         let f1 = tokio::spawn(async {
             (
                 "f1-id".to_string(),
-                ProviderResult { provider_name: "f1".into(), result: Err("e1".into()), elapsed_ms: 1 },
+                ProviderResult {
+                    provider_name: "f1".into(),
+                    result: Err("e1".into()),
+                    elapsed_ms: 1,
+                },
             )
         });
         let f2 = tokio::spawn(async {
             (
                 "f2-id".to_string(),
-                ProviderResult { provider_name: "f2".into(), result: Err("e2".into()), elapsed_ms: 1 },
+                ProviderResult {
+                    provider_name: "f2".into(),
+                    result: Err("e2".into()),
+                    elapsed_ms: 1,
+                },
             )
         });
-        let err = race_first_success(vec![f1, f2], &HashMap::new()).await.unwrap_err().to_string();
+        let err = race_first_success(vec![f1, f2], &HashMap::new())
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("f1: e1"), "missing f1 error: {err}");
         assert!(err.contains("f2: e2"), "missing f2 error: {err}");
     }
@@ -480,7 +551,10 @@ mod tests {
         let p1 = MockTestLlm::new("p1", 10, false);
         let p2 = MockTestLlm::new("p2", 10, false);
 
-        let params = LLMChatParams { messages: vec![], tools: vec![] };
+        let params = LLMChatParams {
+            messages: vec![],
+            tools: vec![],
+        };
 
         let (r1, r2) = tokio::join!(p1.chat(params.clone()), p2.chat(params));
         assert!(r1.is_ok());
@@ -489,12 +563,18 @@ mod tests {
 
     #[test]
     fn test_label_logic() {
-        let label = if 2 <= 1 { "single".to_string() }
-            else { format!("{} + {} others", "a", 2 - 1) };
+        let label = if 2 <= 1 {
+            "single".to_string()
+        } else {
+            format!("{} + {} others", "a", 2 - 1)
+        };
         assert_eq!(label, "a + 1 others");
 
-        let label = if 1 <= 1 { "single".to_string() }
-            else { String::new() };
+        let label = if 1 <= 1 {
+            "single".to_string()
+        } else {
+            String::new()
+        };
         assert_eq!(label, "single");
     }
 }

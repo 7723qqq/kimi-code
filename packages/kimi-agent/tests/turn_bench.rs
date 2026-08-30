@@ -20,8 +20,7 @@ use std::time::{Duration, Instant};
 
 use kimi_agent::callbacks::{HostCallbacks, NativeToolCallbacks};
 use kimi_agent::rpc::types::{
-    BoxFuture, LlmChatRequest, LlmChatResponse, TokenUsage, ToolExecuteRequest,
-    ToolExecuteResponse,
+    BoxFuture, LlmChatRequest, LlmChatResponse, TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
 };
 use kimi_agent::tools::NativeToolset;
 use kimi_agent::turn_loop::run_turn::run_turn;
@@ -86,10 +85,7 @@ struct InstantHost {
 }
 
 impl HostCallbacks for InstantHost {
-    fn llm_chat(
-        &self,
-        _: LlmChatRequest,
-    ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+    fn llm_chat(&self, _: LlmChatRequest) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
         Box::pin(async { Err("llm_chat unused in bench".into()) })
     }
 
@@ -201,7 +197,9 @@ async fn bench_step_throughput(paths: &[String], label: &str) {
 /// host-stub dispatch floor for the same call volume.
 async fn bench_native_vs_host(dir: &std::path::Path) {
     let paths = make_sandbox(dir, 8);
-    let llm = BenchLlm { paths: paths.clone() };
+    let llm = BenchLlm {
+        paths: paths.clone(),
+    };
 
     // Host dispatch floor: same turns as the throughput bench, already run
     // there; re-measure for a back-to-back comparison under this sandbox.
@@ -214,7 +212,8 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
     let host_elapsed = started.elapsed();
 
     // Native path: Read executes inside the Rust process on real files.
-    let toolset = Arc::new(NativeToolset::new(dir.to_str().expect("utf8 path"), None).expect("sandbox"));
+    let toolset =
+        Arc::new(NativeToolset::new(dir.to_str().expect("utf8 path"), None).expect("sandbox"));
     let native: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: host.clone(),
         toolset,
@@ -225,7 +224,12 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
     let native_elapsed = started.elapsed();
 
     let calls = MEASURE_STEPS * paths.len() as u32;
-    report("host dispatch floor (stub)", host_elapsed, MEASURE_STEPS, calls);
+    report(
+        "host dispatch floor (stub)",
+        host_elapsed,
+        MEASURE_STEPS,
+        calls,
+    );
     report(
         "native in-process Read (real files)",
         native_elapsed,
@@ -240,7 +244,12 @@ async fn bench_turn_loop() {
     let dir = tempfile::tempdir().expect("tempdir");
     let one = vec![dir.path().join("f0.txt").to_string_lossy().into_owned()];
     let eight = (0..8)
-        .map(|i| dir.path().join(format!("f{i}.txt")).to_string_lossy().into_owned())
+        .map(|i| {
+            dir.path()
+                .join(format!("f{i}.txt"))
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect::<Vec<_>>();
     make_sandbox(dir.path(), 8);
 
