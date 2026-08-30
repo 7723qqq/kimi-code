@@ -14,7 +14,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { shutdownRustEngine } from '@moonshot-ai/kimi-agent/rust-loop';
 
@@ -185,3 +185,65 @@ describe.skipIf(!optedIn || !hasNativeAddon || !hosted)(
     );
   },
 );
+
+describe.skipIf(!hasNativeAddon)('capability-probe auto-enable (real bundle)', () => {
+  function writeConfig(homeDir: string, agentSection: string): string {
+    const path = join(homeDir, 'config.toml');
+    writeFileSync(
+      path,
+      [
+        'default_model = "example/example-model"',
+        '',
+        '[providers.example]',
+        'type = "openai"',
+        'api_key = "sk-test-key"',
+        'base_url = "https://example.com/v1"',
+        '',
+        '[models."example/example-model"]',
+        'provider = "example"',
+        'model = "example-model"',
+        '',
+        '[agent]',
+        agentSection,
+      ].join('\n'),
+    );
+    return path;
+  }
+
+  it(
+    'wires the engine from a loadable bundle when agent.engine is unset',
+    // First real import of rust-engine/agent-core-v2 in this worker is slow
+    // (module graph, not engine work); budget generously.
+    { timeout: 30_000 },
+    async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), 'kimi-auto-enable-'));
+      writeConfig(homeDir, '');
+      try {
+        const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
+        const engine = await maybeLoadRustEngine(homeDir);
+        // No agent.engine configured: the capability probe (real .node) must
+        // auto-wire the engine without any LLM call.
+        expect(engine).toBeDefined();
+        expect(typeof engine).toBe('function');
+      } finally {
+        rmSync(homeDir, { recursive: true, force: true });
+        shutdownRustEngine();
+      }
+    },
+  );
+
+  it('keeps the JS loop when agent.engine = "js" even with a loadable bundle', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kimi-auto-disable-'));
+    writeConfig(homeDir, 'engine = "js"');
+    try {
+      // The previous test cached the wired engine at module level; reload the
+      // module so this config's explicit opt-out is evaluated fresh.
+      vi.resetModules();
+      const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
+      const engine = await maybeLoadRustEngine(homeDir);
+      expect(engine).toBeUndefined();
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});

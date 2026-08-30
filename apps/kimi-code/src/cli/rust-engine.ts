@@ -1,9 +1,10 @@
 /**
  * Rust agent engine integration (v2).
  *
- * Reads the config and wires the Rust agent engine (kimi-agent) when
- * `agent.engine = "rust"` is configured. Falls back to the JS engine
- * if the Rust addon/binary is not found or fails to start.
+ * Wires the Rust agent engine (kimi-agent) based on the `agent.engine`
+ * gate: `"rust"` always, `"js"` never, and unset auto-enables it when the
+ * bundle is loadable (napi addon or bundled stdio CLI). Falls back to the
+ * JS engine when the addon/binary is missing or fails to start.
  *
  * MultiLLM support: when `agent.multiLlm` lists provider names, those
  * providers are extracted from the config and passed to the Rust engine

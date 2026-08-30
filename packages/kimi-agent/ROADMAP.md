@@ -463,6 +463,14 @@ P11 核实了「stdio 通道在发布产物里必然缺席」(dist-native/bin/<a
 
 验证:engineOverride 8→9 用例、plan 全量 130+ 用例无回归、goal 12、kimi-agent 55/55、oxlint 0 errors。
 
+### 3. 关键修正：schema 默认值阻塞了 auto 探测(真机审计)
+
+auto 探测上线后 mock 测试全绿,但**真机**验证暴露:`loadRuntimeConfigSafe` 把未配置的空 `[agent]` 段解析为 `{ engine: "js" }`——`AgentConfigSchema.engine` 的 zod 默认值就是 `'js'`(`node-sdk/src/config-local/schema.ts`),用户"未配置"在 schema 层被显式化,永远走不进探测分支。
+
+修正:`engine: z.enum(['js','rust']).default('js')` → `.optional()`(无默认)。三态语义落地:未配置→ schema 产出 undefined → 探测;显式 `"js"`(用户写)→ 禁用。真机 probe 验证:未配置时 `config.agent = {}`、`maybeLoadRustEngine` 返回 engine(function)。
+
+新增真机契约测试(`rust-engine-cli-e2e.test.ts`,skipIf 无 .node):未配置 + 真实 bundle → 引擎被装上(无 LLM 调用);`engine = "js"` + 真实 bundle → undefined(模块级 `rustTurnEngine` 缓存用 `vi.resetModules()` 隔离)。rust-engine 21/21 + e2e 2/2、tsc 0 errors。
+
 ### 诚实边界(沿用+新增)
 
 - 真实 LLM 会话端到端仍待真 key(引擎 auto-enable 后,用户侧将无感切换到 Rust——真实会话背书是发布前最后门槛)。
