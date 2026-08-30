@@ -1,0 +1,5 @@
+---
+"@moonshot-ai/kimi-code": patch
+---
+
+Add a MultiLLM multi-step performance baseline (`MultiLLM multi-step performance (P20-B)` in `multi-llm-real-key.test.ts`). The P16 test exercised MultiLLM in a single step where one provider won and the other was cancelled mid-flight; P20-B measures the same machinery over six tool-call steps so future regressions in the loser-cancellation path or winner-selection cost are caught deterministically. Two cases: a fake path (always runs, two fake providers + always-tool-call stub racing 6 Read steps; reports per-step winner-selection latency, total step latency, and per-provider call counts — on this run, per-step median 3ms across 6 steps, calls {minimax:7, deepseek:7} for a 6-tool-call + 1-stop pattern) and a real-key path (KIMI_E2E=1, same two live providers as P16) reporting the same dimensions for direct comparison with the fake baseline. Also extracts the symmetric `dispatchEvent` helper from `bench-native-vs-proxy.test.ts` into a shared `_simulate-ui-dispatch.ts` module so P20-A's fairness guarantee can be reused by future engine benchmarks.

@@ -17,6 +17,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { loadRuntimeConfigSafe } from '@moonshot-ai/kimi-code-sdk';
 
+import { simulateUiDispatch } from './_simulate-ui-dispatch';
+
 const HOME = process.env['KIMI_HOME'] ?? join(process.env['USERPROFILE'] ?? process.env['HOME'] ?? '', '.kimi-code');
 const CFG = join(HOME, 'config.toml');
 
@@ -120,22 +122,6 @@ async function sseFirstDeltaUntilDone(
     }
   }
   return { outputTokens, finishReason };
-}
-
-/** Symmetric dispatchEvent for both transports. P15 had proxy's
- *  `dispatchEvent` as an empty function — the bench therefore measured
- *  the cost of native-LLM's per-delta event chain against zero cost on
- *  the host-proxy path. This helper mirrors what the real event chain in
- *  `rust-loop.ts` does on the host side: append the event, then yield
- *  two microtask hops to simulate the promise-chain `then`
- *  continuation. Both transports now pay the same forwarding cost. */
-async function simulateUiDispatch(
-  event: { type: string },
-  events: Array<{ type: string; at: number }>,
-): Promise<void> {
-  events.push({ type: event.type, at: performance.now() });
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host-proxy', () => {
