@@ -652,3 +652,77 @@ describe('createLlmAbortRegistry — MultiLLM loser cancellation', () => {
     expect(() => request.finish()).not.toThrow();
   });
 });
+
+// ── stdio transport: MultiLLM provider model routing ─────────────────────
+// Guards the P16 seam fix on the stdio side: each racing provider's
+// host/llm_chat must carry its own model_name into input.llm.chat.
+describe.skipIf(!hasStdioCliBinary())('stdio transport — provider model routing', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    const { shutdownRustEngine } = await import('./rust-loop');
+    shutdownRustEngine();
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('hands each concurrent provider’s model to the host chat', async () => {
+    const mod = await import('./rust-loop');
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-stdio-models-'));
+    tempDirs.push(workspace);
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+
+    const providers = [
+      { name: 'alpha', model: 'alpha-model', system_prompt: 'be brief' },
+      { name: 'beta', model: 'beta-model', system_prompt: 'be brief' },
+    ];
+    const engine = mod.createRunTurnOverride(providers, workspace, {
+      nativeTools: false,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    const routed: string[] = [];
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'any',
+        modelId: 'any',
+        systemPrompt: 'test',
+        async chat(inputArg: { modelName?: string }) {
+          routed.push(inputArg.modelName ?? '');
+          const name = (inputArg.modelName ?? '').toLowerCase();
+          if (name === 'alpha-model') {
+            return { toolCalls: [], providerFinishReason: 'stop', usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 } };
+          }
+          if (name === 'beta-model') {
+            return { toolCalls: [], providerFinishReason: 'stop', usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 } };
+          }
+          throw new Error(`unroutable model: ${inputArg.modelName}`);
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent() {},
+      async executeTool() {
+        return { output: '', isError: true };
+      },
+      async checkToolPermission() {
+        return { decision: 'allow' as const };
+      },
+    };
+
+    const result = await (engine as (i: unknown) => Promise<{ stopReason: string; steps: number }>)(input);
+
+    expect(result.stopReason).toBe('completed');
+    expect(result.steps).toBeGreaterThanOrEqual(1);
+    expect(new Set(routed)).toEqual(new Set(['alpha-model', 'beta-model']));
+  });
+});
