@@ -113,6 +113,55 @@ pub fn cancel_turn(turn_id: String) -> napi::Result<()> {
     Ok(())
 }
 
+/// Emit a one-shot `tracing::info!` event. Used by the test harness to
+/// confirm the subscriber is wired (so trace files are non-empty even on
+/// trivial inputs that don't traverse instrumented hot paths).
+#[napi]
+pub fn emit_test_trace_event(message: String) -> napi::Result<()> {
+    tracing::info!(test_message = %message, "kimi-agent tracing smoke event");
+    Ok(())
+}
+
+/// Initialise tracing from `KIMI_AGENT_TRACE` / `KIMI_AGENT_TRACE_FORMAT`.
+///
+/// Returns `true` when the subscriber was installed by this call, `false`
+/// when one was already registered (a process-wide subscriber can only be
+/// set once) or when the env is not set (no-op). The test harness and
+/// future operators call this from JS to turn the P20-A/B/C / future
+/// performance work's tracing spans on without restarting the process.
+#[napi]
+pub fn init_tracing_from_env() -> napi::Result<bool> {
+    use std::sync::Once;
+    static STARTED: Once = Once::new();
+    let mut installed = false;
+    STARTED.call_once(|| {
+        let enabled = std::env::var("KIMI_AGENT_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if !enabled {
+            return;
+        }
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("kimi_agent=info"));
+        let result = if std::env::var("KIMI_AGENT_TRACE_FORMAT").as_deref() == Ok("json") {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .json()
+                .with_writer(std::io::stderr)
+                .try_init()
+        } else {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_writer(std::io::stderr)
+                .try_init()
+        };
+        if result.is_ok() {
+            installed = true;
+        }
+    });
+    Ok(installed)
+}
+
 /// Called by JS to fetch the payload for a given callback ID.
 /// Returns the JSON-serialized request payload, or null if not found.
 #[napi]

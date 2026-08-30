@@ -1,3 +1,5 @@
+import { realpathSync } from 'node:fs';
+
 import * as pathe from 'pathe';
 
 import {
@@ -268,6 +270,24 @@ export interface ResolvePathAccessPathOptions {
   readonly expandHome?: boolean;
 }
 
+function resolveForContainment(path: string): string {
+  const missing: string[] = [];
+  let current = path;
+  for (;;) {
+    try {
+      const normalized = realpathSync(current).replaceAll('\\', '/');
+      if (missing.length === 0) return normalized;
+      return pathe.join(normalized, ...missing.reverse());
+    } catch {
+      const parent = pathe.dirname(current);
+      const name = pathe.basename(current);
+      if (parent === current || name === '') return path;
+      missing.push(name);
+      current = parent;
+    }
+  }
+}
+
 function relativeOutsideMessage(path: string, operation: PathAccessOperation): string {
   const verb =
     operation === 'write'
@@ -293,10 +313,22 @@ export function resolvePathAccess(
   const expandedPath = expandUserPath(normalizedPath, options.homeDir, pathClass);
   const rawIsAbsolute = pathe.isAbsolute(expandedPath);
   const canonical = canonicalizePath(expandedPath, cwd, pathClass);
-  const outsideWorkspace = !isWithinWorkspace(canonical, config, pathClass);
+  // Judge containment and sensitive-file matches on the RESOLVED path, not
+  // the lexical one: a symlink or Windows junction inside the workspace can
+  // point at an outside directory (e.g. C:\Users\...\.ssh), and the lexical
+  // canonical path would let reads/writes silently pass through it.
+  const searchOperation = options.operation === 'search';
+  const enforcementPath = searchOperation ? canonical : resolveForContainment(canonical);
+  const enforcementWorkspace = searchOperation
+    ? config
+    : {
+        workspaceDir: resolveForContainment(config.workspaceDir),
+        additionalDirs: config.additionalDirs.map(resolveForContainment),
+      };
+  const outsideWorkspace = !isWithinWorkspace(enforcementPath, enforcementWorkspace, pathClass);
   const policy = options.policy ?? DEFAULT_WORKSPACE_ACCESS_POLICY;
 
-  if (policy.checkSensitive && isSensitiveFile(canonical)) {
+  if (policy.checkSensitive && isSensitiveFile(enforcementPath)) {
     throw new PathSecurityError(
       'PATH_SENSITIVE',
       path,

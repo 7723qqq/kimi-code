@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { ShellPathBridge } from '#/_base/execEnv/shellPathBridge';
@@ -283,5 +286,74 @@ describe('resolvePathAccess shell path bridge on win32', () => {
       },
     );
     expect(result).toEqual({ path: 'C:/Temp/notes.txt', outsideWorkspace: true });
+  });
+});
+
+describe('resolvePathAccess symlink/junction escape hardening', () => {
+  const pathClass: 'win32' | 'posix' =
+    process.platform === 'win32' ? 'win32' : 'posix';
+
+  function linkWorkspaceToOutside(workspace: string, outside: string): boolean {
+    const type: 'junction' | null = process.platform === 'win32' ? 'junction' : null;
+    try {
+      fs.symlinkSync(outside, path.join(workspace, 'escape'), type);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function options() {
+    return {
+      operation: 'read' as const,
+      pathClass,
+      policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
+    };
+  }
+
+  it('flags a sensitive file reached through a link as PATH_SENSITIVE', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-ws-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-out-'));
+    if (!linkWorkspaceToOutside(workspace, outside)) return;
+    fs.writeFileSync(path.join(outside, 'credentials'), 'secret');
+
+    // The link lives inside the workspace and its path passes every lexical
+    // check; only a real-path resolution reveals the escape.
+    expect(() =>
+      resolvePathAccess(
+        path.join(workspace, 'escape', 'credentials'),
+        workspace,
+        { workspaceDir: workspace, additionalDirs: [] },
+        options(),
+      ),
+    ).toThrow(/PATH_SENSITIVE/);
+  });
+
+  it('classifies a non-sensitive file reached through a link as outside the workspace', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-ws-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-out-'));
+    if (!linkWorkspaceToOutside(workspace, outside)) return;
+    fs.writeFileSync(path.join(outside, 'notes.txt'), 'hello');
+
+    const result = resolvePathAccess(
+      path.join(workspace, 'escape', 'notes.txt'),
+      workspace,
+      { workspaceDir: workspace, additionalDirs: [] },
+      options(),
+    );
+    expect(result.outsideWorkspace).toBe(true);
+  });
+
+  it('keeps a plain in-workspace file classified as inside', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-ws-'));
+    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'hello');
+
+    const result = resolvePathAccess(
+      path.join(workspace, 'notes.txt'),
+      workspace,
+      { workspaceDir: workspace, additionalDirs: [] },
+      options(),
+    );
+    expect(result.outsideWorkspace).toBe(false);
   });
 });

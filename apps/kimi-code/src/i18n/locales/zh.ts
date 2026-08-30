@@ -1585,6 +1585,7 @@ export default {
         approved: '已批准',
         approvedWithOption: '已批准：{{option}}',
         rejected: '已拒绝',
+        failed: '失败',
         suggestionLabel: '↪ 建议',
         couldNotCollectInput: '无法收集你的输入',
         startedBackgroundQuestion: '已启动后台问题',

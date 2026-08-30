@@ -170,9 +170,11 @@ fn read_line_count_and_preview(path: &Path, preview_lines: usize) -> (u32, Strin
 
         line_count += 1;
         if preview_lines_vec.len() < preview_lines {
-            // Truncate long lines in preview
+            // Truncate long lines in preview. `line.len()` is the BYTE length,
+            // so the cut must land on a char boundary — slicing `&line[..200]`
+            // panics when 200 lands inside a multi-byte CJK character.
             let truncated = if line.len() > 200 {
-                format!("{}...", &line[..200])
+                format!("{}...", &line[..line.floor_char_boundary(200)])
             } else {
                 line
             };
@@ -462,6 +464,29 @@ mod tests {
             .to_string()
             .replace('\\', "/");
         assert!(index.predict_read(&fwd).is_some());
+    }
+
+    #[test]
+    fn test_predict_read_cjk_long_line_no_panic() {
+        // Regression: `&line[..200]` sliced mid-UTF-8-sequence when a preview
+        // line exceeded 200 bytes in CJK and panicked the whole napi call.
+        let dir = TempDir::new().unwrap();
+        let line = "中".repeat(70); // 210 bytes, well past the 200 cut
+        let content = format!("{line}\n");
+        create_file(&dir, "cjk.txt", content.as_bytes());
+
+        let index = WorkspaceIndex::build(dir.path().to_str().unwrap());
+        let path = dir.path().join("cjk.txt");
+        let path_str = path.to_string_lossy().to_string().replace('\\', "/");
+
+        let pred = index.predict_read(&path_str).unwrap();
+        assert!(pred.preview.ends_with("..."), "preview: {}", pred.preview);
+        assert!(
+            pred.preview[..pred.preview.len() - 3]
+                .chars()
+                .all(|c| c == '中'),
+            "preview must contain only whole chars"
+        );
     }
 
     #[test]

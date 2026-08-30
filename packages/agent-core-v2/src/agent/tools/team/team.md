@@ -13,7 +13,8 @@ Use this when you need multiple perspectives on a complex topic, want agents to 
   - **Debate**: structured phases — opening, free debate (multiple rounds), closing, and optional consensus.
 - `topic`: The topic or question to discuss/debate.
 - `participants`: Array of participant configurations. Each participant has:
-  - `profileName`: Agent profile (e.g. "coder", "explore"). Defaults to "coder".
+  - `profileName`: Agent profile used to spawn the agent (e.g. "coder", "explore"). Defaults to "coder".
+  - `name`: Distinct speaker name shown in the transcript and used for stance tracking and cross-references (e.g. "researcher-1"). Each participant MUST get a unique name — if omitted, defaults to the profileName, which is the same for everyone.
   - `roleDescription`: The role this agent plays (e.g. "You are a senior database architect...").
   - `assignedStance`: (Debate only) Optional — assign a specific stance (e.g. "argue for migration").
 - `maxRounds`: For discussion: max rounds (default: 3). For debate: max free-debate rounds (default: 2).

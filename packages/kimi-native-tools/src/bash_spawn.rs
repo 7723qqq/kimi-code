@@ -29,6 +29,62 @@ use std::time::{Duration, Instant};
 
 use crate::bash::kill_process_tree;
 
+/// Incremental UTF-8 decoder that carries an incomplete trailing sequence
+/// over to the next read. Each 8 KB pipe read used to be decoded
+/// independently, so a multi-byte character straddling two reads became
+/// U+FFFD — garbling Chinese output and any JSON/tool payload parsed from
+/// the stream.
+struct Utf8DecodingBuffer {
+    pending: Vec<u8>,
+}
+
+impl Utf8DecodingBuffer {
+    fn new() -> Self {
+        Self { pending: Vec::new() }
+    }
+
+    /// Feed the next raw chunk; returns the text it completes. A truncated
+    /// sequence at the end is kept for the next call.
+    fn push(&mut self, chunk: &[u8]) -> String {
+        self.pending.extend_from_slice(chunk);
+        let mut out = String::new();
+        match std::str::from_utf8(&self.pending) {
+            Ok(valid) => {
+                out.push_str(valid);
+                self.pending.clear();
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                if valid_up_to > 0 {
+                    out.push_str(std::str::from_utf8(&self.pending[..valid_up_to]).unwrap());
+                }
+                match e.error_len() {
+                    // Truncated at the end — the lead may complete on a later
+                    // read, so keep it pending.
+                    None => {
+                        self.pending.drain(..valid_up_to);
+                    }
+                    // A genuine invalid sequence: replace it and keep whatever
+                    // valid start may follow it.
+                    Some(len) => {
+                        self.pending.drain(..valid_up_to + len);
+                        out.push('\u{FFFD}');
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// EOF: emit any never-completed tail lossy, matching one-shot decoding.
+    fn flush(self) -> String {
+        if self.pending.is_empty() {
+            return String::new();
+        }
+        String::from_utf8_lossy(&self.pending).to_string()
+    }
+}
+
 /// Registry of live managed processes, keyed by the handle id.
 static PROCESS_TABLE: OnceLock<Mutex<HashMap<i64, ManagedBash>>> = OnceLock::new();
 static NEXT_ID: AtomicI64 = AtomicI64::new(1);
@@ -175,11 +231,12 @@ pub fn native_bash_spawn(
         std::thread::spawn(move || {
             let mut reader = BufReader::new(pipe);
             let mut buf = vec![0u8; 8192];
+            let mut decoder = Utf8DecodingBuffer::new();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let data = decoder.push(&buf[..n]);
                         if data.is_empty() {
                             continue;
                         }
@@ -197,6 +254,19 @@ pub fn native_bash_spawn(
                     Err(_) => break,
                 }
             }
+            let tail = decoder.flush();
+            if !tail.is_empty() {
+                let _ = tsfn.call(
+                    Ok(NativeBashEvent {
+                        id,
+                        kind: "stdout".to_string(),
+                        data: Some(tail),
+                        exit_code: None,
+                        error: None,
+                    }),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+            }
         });
     }
     if let Some(pipe) = stderr_pipe {
@@ -204,11 +274,12 @@ pub fn native_bash_spawn(
         std::thread::spawn(move || {
             let mut reader = BufReader::new(pipe);
             let mut buf = vec![0u8; 8192];
+            let mut decoder = Utf8DecodingBuffer::new();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let data = decoder.push(&buf[..n]);
                         if data.is_empty() {
                             continue;
                         }
@@ -225,6 +296,19 @@ pub fn native_bash_spawn(
                     }
                     Err(_) => break,
                 }
+            }
+            let tail = decoder.flush();
+            if !tail.is_empty() {
+                let _ = tsfn.call(
+                    Ok(NativeBashEvent {
+                        id,
+                        kind: "stderr".to_string(),
+                        data: Some(tail),
+                        exit_code: None,
+                        error: None,
+                    }),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
             }
         });
     }
@@ -380,5 +464,68 @@ pub fn native_bash_dispose(id: i64) -> bool {
             true
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode_with_chunk_size(s: &str, chunk_size: usize) -> String {
+        let bytes = s.as_bytes();
+        let mut d = Utf8DecodingBuffer::new();
+        let mut acc = String::new();
+        for chunk in bytes.chunks(chunk_size) {
+            acc.push_str(&d.push(chunk));
+        }
+        acc.push_str(&d.flush());
+        acc
+    }
+
+    #[test]
+    fn test_utf8_decoder_ascii() {
+        assert_eq!(decode_with_chunk_size("hello world", 4), "hello world");
+    }
+
+    #[test]
+    fn test_utf8_decoder_cjk_chunk_boundary() {
+        // 3-byte chars cut into arbitrary pieces must reassemble exactly.
+        let s = "中文输出测试".repeat(500);
+        for chunk_size in 1..=4 {
+            assert_eq!(decode_with_chunk_size(&s, chunk_size), s, "chunk {chunk_size}");
+        }
+    }
+
+    #[test]
+    fn test_utf8_decoder_mixed_chunk_boundary() {
+        let s = "a中b文c".repeat(1000);
+        for chunk_size in 1..=5 {
+            assert_eq!(decode_with_chunk_size(&s, chunk_size), s, "chunk {chunk_size}");
+        }
+    }
+
+    #[test]
+    fn test_utf8_decoder_single_push() {
+        let mut d = Utf8DecodingBuffer::new();
+        assert_eq!(d.push("中文".as_bytes()), "中文");
+        assert!(d.flush().is_empty());
+    }
+
+    #[test]
+    fn test_utf8_decoder_truncated_tail_flushed_lossy() {
+        // A genuinely truncated final sequence degrades to U+FFFD on EOF,
+        // matching one-shot from_utf8_lossy semantics.
+        let mut d = Utf8DecodingBuffer::new();
+        assert_eq!(d.push(b"ok\xff\xfe"), "ok\u{FFFD}");
+        assert_eq!(d.flush(), "\u{FFFD}");
+    }
+
+    #[test]
+    fn test_utf8_decoder_leading_truncated_completes_next_chunk() {
+        let mut d = Utf8DecodingBuffer::new();
+        let bytes = "中".as_bytes(); // E4 B8 AD
+        assert!(d.push(&bytes[..1]).is_empty());
+        assert_eq!(d.push(&bytes[1..]), "中");
+        assert!(d.flush().is_empty());
     }
 }

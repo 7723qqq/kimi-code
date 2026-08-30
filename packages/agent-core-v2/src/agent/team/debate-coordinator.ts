@@ -10,6 +10,8 @@ import type { DiscussionObserver, DiscussionTurnEvent } from './coordinator';
 export interface DebateParticipantConfig {
   /** Agent profile name, e.g. 'researcher', 'coder', 'explore'. */
   readonly profileName: string;
+  /** Distinct speaker name used for transcript/stance/cross-reference bookkeeping. */
+  readonly speakerName?: string;
   /** Role description injected into the agent's prompt each turn. */
   readonly roleDescription: string;
   /** Optional stance this participant should take (e.g. "argue for migration"). */
@@ -101,6 +103,7 @@ export class StructuredDebateCoordinator {
       context.setPhase('opening');
       for (const [index, participant] of options.participants.entries()) {
         signal.throwIfAborted();
+        const speaker = participant.speakerName ?? participant.profileName;
         const content = await this.runOpeningStatement(
           index,
           participant,
@@ -108,13 +111,13 @@ export class StructuredDebateCoordinator {
           context,
           signal,
         );
-        context.addEntry(participant.profileName, this.agentIds[index]!, content, 1);
+        context.addEntry(speaker, this.agentIds[index]!, content, 1);
 
         const stance = this.extractStance(content);
-        initialPositions.set(participant.profileName, stance);
-        context.recordPosition(participant.profileName, stance, this.extractKeyPoints(content), 1);
+        initialPositions.set(speaker, stance);
+        context.recordPosition(speaker, stance, this.extractKeyPoints(content), 1);
 
-        this.emitTurn(participant.profileName, this.agentIds[index]!, 1, content);
+        this.emitTurn(speaker, this.agentIds[index]!, 1, content);
       }
 
       context.setPhase('free_debate');
@@ -127,29 +130,30 @@ export class StructuredDebateCoordinator {
         for (const [index, participant] of options.participants.entries()) {
           signal.throwIfAborted();
           const agentId = this.agentIds[index]!;
+          const speaker = participant.speakerName ?? participant.profileName;
 
           const prompt = this.buildDebateRoundPrompt(
             participant.roleDescription,
             options.topic,
-            participant.profileName,
+            speaker,
             context,
             currentRound,
           );
 
           const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
-          context.addEntry(participant.profileName, agentId, content, currentRound);
+          context.addEntry(speaker, agentId, content, currentRound);
 
           const newStance = this.extractStance(content);
-          if (newStance && newStance !== context.getPosition(participant.profileName)?.stance) {
+          if (newStance && newStance !== context.getPosition(speaker)?.stance) {
             context.recordPosition(
-              participant.profileName,
+              speaker,
               newStance,
               this.extractKeyPoints(content),
               currentRound,
             );
           }
 
-          this.emitTurn(participant.profileName, agentId, currentRound, content);
+          this.emitTurn(speaker, agentId, currentRound, content);
         }
       }
 
@@ -158,29 +162,25 @@ export class StructuredDebateCoordinator {
       for (const [index, participant] of options.participants.entries()) {
         signal.throwIfAborted();
         const agentId = this.agentIds[index]!;
+        const speaker = participant.speakerName ?? participant.profileName;
 
         const prompt = this.buildClosingPrompt(
           participant.roleDescription,
           options.topic,
-          participant.profileName,
+          speaker,
           context,
           closingRound,
         );
 
         const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
-        context.addEntry(participant.profileName, agentId, content, closingRound);
+        context.addEntry(speaker, agentId, content, closingRound);
 
         const finalStance = this.extractStance(content);
         if (finalStance) {
-          context.recordPosition(
-            participant.profileName,
-            finalStance,
-            this.extractKeyPoints(content),
-            closingRound,
-          );
+          context.recordPosition(speaker, finalStance, this.extractKeyPoints(content), closingRound);
         }
 
-        this.emitTurn(participant.profileName, agentId, closingRound, content);
+        this.emitTurn(speaker, agentId, closingRound, content);
       }
 
       let positionChanges = 0;

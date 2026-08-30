@@ -71,11 +71,19 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
     // which, ...) would be "command not found". Prepend the standard POSIX
     // dirs explicitly; harmless on Git Bash / POSIX where they already exist.
     let is_bash = shell_args.len() == 1 && shell_args[0] == "-c";
-    let command = if cfg!(windows) && is_bash {
+    let is_powershell = shell_args.iter().any(|a| a == "-Command");
+    let mut command = if cfg!(windows) && is_bash {
         format!("export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\"; {}", config.command)
     } else {
         config.command.clone()
     };
+    // PowerShell parses a statement that opens with a quoted path as a plain
+    // string expression (echoes it and exits 0) instead of invoking the
+    // program — so `"C:\Program Files\tool\app.exe" arg` silently does nothing.
+    // The call operator forces a command invocation.
+    if cfg!(windows) && is_powershell && starts_with_quote(&command) {
+        command = format!("& {command}");
+    }
     cmd.arg(&command);
 
     // Set working directory.
@@ -130,12 +138,21 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         }
     };
 
+    // Drain stdout/stderr on dedicated threads from the start. Without that,
+    // a child writing more than the pipe buffer (~64 KB) blocks forever while
+    // the poll loop below waits for it to exit — a fake timeout with only the
+    // prefix of the output recovered. The drain threads finish as soon as the
+    // pipes close (normally right after the process tree is gone).
+    let stdout_drain = child.stdout.take().map(drain_pipe);
+    let stderr_drain = child.stderr.take().map(drain_pipe);
+
     let start = Instant::now();
     let timeout_duration = Duration::from_secs(timeout);
 
     // Wait with timeout using a polling approach.
     // This is cross-platform and doesn't require tokio.
     let mut timed_out = false;
+    let mut fatal_error: Option<String> = None;
     let exit_status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
@@ -152,39 +169,24 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(e) => {
-                return BashResult {
-                    exit_code: -1,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    timed_out: false,
-                    error: Some(format!("Process error: {}", e)),
-                };
+                kill_process_tree(&mut child);
+                fatal_error = Some(format!("Process error: {e}"));
+                break None;
             }
         }
     };
 
-    // Collect output. Read with a grace deadline: the timeout kill may leave
-    // a backgrounded grandchild holding the pipe, and blocking forever here
-    // would freeze the whole napi call.
-    let stdout = if let Some(out) = child.stdout.take() {
-        if timed_out {
-            read_pipe_to_string_timeout(out, POST_KILL_READ_GRACE)
-        } else {
-            read_pipe_to_string(out)
-        }
+    // Collect what the drain threads accumulated. On the timeout/error paths
+    // a backgrounded grandchild may keep the pipe open (notably MSYS bash on
+    // Windows, where taskkill /T misses it), so bound the wait — blocking
+    // here forever would freeze the whole napi call.
+    let grace = if timed_out || fatal_error.is_some() {
+        Some(POST_KILL_READ_GRACE)
     } else {
-        String::new()
+        None
     };
-
-    let stderr = if let Some(err) = child.stderr.take() {
-        if timed_out {
-            read_pipe_to_string_timeout(err, POST_KILL_READ_GRACE)
-        } else {
-            read_pipe_to_string(err)
-        }
-    } else {
-        String::new()
-    };
+    let stdout = collect_pipe(stdout_drain, grace);
+    let stderr = collect_pipe(stderr_drain, grace);
 
     let exit_code = exit_status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
 
@@ -197,7 +199,7 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         stdout,
         stderr,
         timed_out,
-        error: None,
+        error: fatal_error,
     }
 }
 
@@ -412,33 +414,59 @@ fn which_bash() -> Result<String, ()> {
 
 use std::io::Read;
 
-fn read_pipe_to_string<R: Read>(mut reader: R) -> String {
-    let mut buf = Vec::new();
-    let _ = reader.read_to_end(&mut buf);
-    String::from_utf8_lossy(&buf).to_string()
+/// Spawn a background thread that reads a pipe to EOF and sends the decoded
+/// content over a channel. Mirrors the drain behaviour of `read_pipe_to_string`
+/// but runs concurrently with the exit-poll loop so the child can never block
+/// on a full pipe while we wait for it.
+struct PipeDrain {
+    receiver: std::sync::mpsc::Receiver<String>,
 }
 
-/// Read a pipe with a hard deadline.
-///
-/// The timeout kill may not always take every descendant down (notably MSYS
-/// bash on Windows: `taskkill /T` does not reliably reach backgrounded
-/// grandchildren). Without a deadline the sync read would hang the whole
-/// napi call forever in that case. On timeout we return what we have; the
-/// reader thread finishes on its own once the pipe actually closes.
-fn read_pipe_to_string_timeout<R: Read + Send + 'static>(
-    mut reader: R,
-    deadline: Duration,
-) -> String {
+fn drain_pipe<R: Read + Send + 'static>(reader: R) -> PipeDrain {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = reader.read_to_end(&mut buf);
+        let _ = read_all(reader, &mut buf);
         let _ = tx.send(String::from_utf8_lossy(&buf).to_string());
     });
-    match rx.recv_timeout(deadline) {
-        Ok(out) => out,
-        Err(_) => "<output read timed out — a background process still holds the pipe>".to_string(),
+    PipeDrain { receiver: rx }
+}
+
+fn read_all<R: Read>(mut reader: R, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => return Ok(()),
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
     }
+}
+
+/// Join a drained pipe, optionally bounding the wait. After a timeout kill a
+/// backgrounded grandchild may still hold the pipe open (notably MSYS bash on
+/// Windows, where `taskkill /T` does not reliably reach it), and a hard
+/// blocking wait would freeze the whole napi call. On drop, the drain thread
+/// simply leaks until the pipe actually closes.
+fn collect_pipe(drain: Option<PipeDrain>, grace: Option<Duration>) -> String {
+    match drain {
+        None => String::new(),
+        Some(d) => match grace {
+            Some(deadline) => match d.receiver.recv_timeout(deadline) {
+                Ok(out) => out,
+                Err(_) => "<output read timed out — a background process still holds the pipe>"
+                    .to_string(),
+            },
+            None => d.receiver.recv().unwrap_or_default(),
+        },
+    }
+}
+
+/// True when the command's first non-whitespace token opens with a quote.
+/// PowerShell would otherwise parse such a statement as a string expression.
+fn starts_with_quote(command: &str) -> bool {
+    matches!(command.trim_start().chars().next(), Some('"') | Some('\''))
 }
 
 /// Grace period after the timeout kill before we give up on the pipes.
@@ -586,6 +614,53 @@ mod tests {
         assert!(result.stdout.contains("line1"));
         assert!(result.stdout.contains("line2"));
         assert!(result.stdout.contains("line3"));
+    }
+
+    #[test]
+    fn test_bash_large_output_no_false_timeout() {
+        // Regression: output larger than the OS pipe buffer (~64 KB) used to
+        // deadlock the poll loop — the child blocks writing, never exits, and
+        // the call fake-timed-out at 60 s with only the prefix recovered.
+        let command = if is_powershell() {
+            "'x' * 300000".to_string()
+        } else {
+            "yes x | head -c 300000".to_string()
+        };
+        let result = bash_exec(&BashConfig {
+            command,
+            timeout: Some(10),
+            ..Default::default()
+        });
+        assert!(!result.timed_out, "stderr: {}", result.stderr);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.stdout.len(), 300000);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_bash_quoted_executable_path() {
+        // Regression: PowerShell parsed `"C:\Windows\System32\cmd.exe" /c …`
+        // as a string expression (echoed back, exit 0) and never ran the
+        // program. The call operator must be injected for quoted paths.
+        let command = "\"C:\\Windows\\System32\\cmd.exe\" /c echo quoted-path-ok".to_string();
+        let result = bash_exec(&BashConfig {
+            command,
+            // Git Bash / MSYS would otherwise translate the bare `/c` into a
+            // Windows path before cmd.exe ever sees it.
+            env: Some(vec![("MSYS_NO_PATHCONV".to_string(), "1".to_string())]),
+            ..Default::default()
+        });
+        assert_eq!(result.exit_code, 0, "stderr: {}", result.stderr);
+        assert!(result.stdout.contains("quoted-path-ok"), "stdout: {}", result.stdout);
+    }
+
+    #[test]
+    fn test_starts_with_quote() {
+        assert!(starts_with_quote("\"C:\\app\\x.exe\" arg"));
+        assert!(starts_with_quote("  'C:\\app\\x.exe'"));
+        assert!(!starts_with_quote("echo hi"));
+        assert!(!starts_with_quote(""));
+        assert!(!starts_with_quote("   x"));
     }
 
     #[test]

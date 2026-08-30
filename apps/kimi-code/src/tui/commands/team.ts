@@ -96,17 +96,20 @@ export async function handleTeamCommand(host: SlashCommandHost, args: string): P
   }
   host.setAppState({ swarmMode: true });
 
-  // Build participant configs
+  // Build participant configs. `profileName` stays "coder" (the only
+  // guaranteed built-in agent profile), while `name` carries the distinct
+  // speaker identity the transcript/stance/cross-reference bookkeeping keys
+  // on — sharing one profileName would turn every speech into [coder].
+  // Escape quotes/backslashes so user-supplied roles can't break the
+  // quoted string structure of the generated prompt.
   const participants = roles
     .map((role) => {
-      // Escape quotes/backslashes so user-supplied roles can't break the
-      // quoted string structure of the generated prompt.
       const safeRole = role.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
       const assignedStance = stances[role];
       const stanceField = assignedStance
         ? `, assignedStance: "${assignedStance.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
         : '';
-      return `{ profileName: "coder", roleDescription: "You are a ${safeRole} participating in a roundtable ${mode}.",${stanceField} }`;
+      return `{ profileName: "coder", name: "${safeRole}", roleDescription: "You are a ${safeRole} participating in a roundtable ${mode}.",${stanceField} }`;
     })
     .join(',\n      ');
 

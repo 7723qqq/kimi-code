@@ -1632,6 +1632,7 @@ export default {
         approved: 'Approved',
         approvedWithOption: 'Approved: {{option}}',
         rejected: 'Rejected',
+        failed: 'Failed',
         suggestionLabel: '↪ Suggestion',
         couldNotCollectInput: 'Could not collect your input',
         startedBackgroundQuestion: 'Started background question',

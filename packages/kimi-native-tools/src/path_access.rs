@@ -225,6 +225,11 @@ fn normalize_path(path: &str, path_class: PathClass) -> String {
         '\\'
     };
     let normalized = path.replace(slash_sep, &sep.to_string());
+    // Win32 UNC (`\\server\share`) and verbatim (`\\?\`) roots carry TWO
+    // leading separators — a distinct root from `\server` (drive-relative).
+    // The split below skips empty segments, so both are re-added explicitly
+    // or the path would be relocated to the current drive.
+    let double_sep_prefix = normalized.starts_with(&format!("{sep}{sep}"));
     let parts: Vec<&str> = normalized.split(sep).collect();
     let mut result: Vec<&str> = Vec::new();
     let is_abs = normalized.starts_with(sep);
@@ -247,7 +252,11 @@ fn normalize_path(path: &str, path_class: PathClass) -> String {
     }
     let joined = result.join(&sep.to_string());
     if is_abs {
-        format!("{}{}", sep, joined)
+        if double_sep_prefix {
+            format!("{sep}{sep}{joined}")
+        } else {
+            format!("{sep}{joined}")
+        }
     } else if joined.is_empty() {
         ".".to_string()
     } else {
@@ -447,6 +456,55 @@ mod tests {
             "c:/workspace",
             PathClass::Win32
         ));
+    }
+
+    #[test]
+    fn test_canonicalize_win32_unc_preserved() {
+        // Regression: `\\server\share\file` used to be collapsed to the
+        // single-separator form `\server\share\file` (drive-relative),
+        // silently relocating UNC/NAS workspace paths to the current drive.
+        assert_eq!(
+            canonicalize_path("\\\\server\\share\\file", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server\\share\\file"
+        );
+        assert_eq!(
+            canonicalize_path("//server/share/file", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server\\share\\file"
+        );
+        // Verbatim paths keep their double-separator root too.
+        assert_eq!(
+            canonicalize_path("\\\\?\\C:\\very\\long\\path", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\?\\C:\\very\\long\\path"
+        );
+        // Drive paths still collapse to a single separator.
+        assert_eq!(
+            canonicalize_path("C:/workspace/./a/../b", "/cwd", PathClass::Win32).unwrap(),
+            "C:\\workspace\\b"
+        );
+    }
+
+    #[test]
+    fn test_is_within_directory_win32_unc() {
+        let candidate = "\\\\server\\share\\work\\file";
+        let base = "\\\\server\\share\\work";
+        assert!(is_within_directory(candidate, base, PathClass::Win32));
+        assert!(!is_within_directory(
+            "\\\\server\\shared\\file",
+            base,
+            PathClass::Win32
+        ));
+    }
+
+    #[test]
+    fn test_canonicalize_untouched_pass() {
+        assert_eq!(
+            canonicalize_path("//server", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server"
+        );
+        assert_eq!(
+            canonicalize_path("/cwd", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd"
+        );
     }
 
     #[test]

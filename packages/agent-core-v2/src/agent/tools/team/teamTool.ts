@@ -85,6 +85,7 @@ export class TeamTool implements IAgentTeamTool {
         topic: args.topic,
         participants: args.participants.map((p) => ({
           profileName: p.profileName ?? 'coder',
+          speakerName: p.name,
           roleDescription: p.roleDescription,
           turnsPerRound: 1,
         })),
@@ -110,6 +111,7 @@ export class TeamTool implements IAgentTeamTool {
         topic: args.topic,
         participants: args.participants.map((p) => ({
           profileName: p.profileName ?? 'coder',
+          speakerName: p.name,
           roleDescription: p.roleDescription,
           assignedStance: p.assignedStance,
         })),

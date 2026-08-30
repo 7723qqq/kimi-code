@@ -406,6 +406,7 @@ interface KimiAgentNativeModule {
   getCallbackPayload(id: number): string | null;
   resolveCallback(id: number, error: string | null, result: string | null): void;
   cancelTurn(turnId: string): void;
+  initTracingFromEnv?(): boolean;
   runTurnRust(
     params: unknown,
     llmChatCb: (callbackId: number) => void,
@@ -501,6 +502,11 @@ class NapiEngine {
 
   isLoaded(): boolean {
     return this.loaded;
+  }
+
+  initTracing(): boolean {
+    if (!this.load()) return false;
+    return this.nativeModule.initTracingFromEnv?.() ?? false;
   }
 
   /**
@@ -1579,5 +1585,26 @@ export function forceEngineTransport(mode: 'napi' | 'stdio'): void {
  */
 export function activeAgentProcessForTests(): { stop(): void } | null {
   return agentProcess;
+}
+
+/**
+ * Initialise the Rust-side tracing subscriber from
+ * `KIMI_AGENT_TRACE` (presence enables) and `KIMI_AGENT_TRACE_FORMAT` (set to
+ * `json` for chrome://tracing / speedscope.app). Mirrors the CLI binary's
+ * `main.rs` setup so the vitest harness can opt into structured traces
+ * without re-launching the binary. Returns `true` when the subscriber was
+ * actually installed by this call, `false` when one was already registered
+ * (a process-wide subscriber can only be set once) or when the env is unset.
+ *
+ * Loads the native module directly so this can be called *before* the
+ * napiEngine is constructed (the test harness invokes it inside
+ * `describe()` setup, which runs before the first `createRunTurnOverride`).
+ */
+export function initRustTracing(): boolean {
+  const modulePath = NapiEngine.findModule();
+  if (!modulePath) return false;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require(modulePath) as KimiAgentNativeModule;
+  return mod.initTracingFromEnv?.() ?? false;
 }
 

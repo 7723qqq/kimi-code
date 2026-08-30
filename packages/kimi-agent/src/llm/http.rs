@@ -119,7 +119,7 @@ impl NativeHttpLlm {
         let response = req
             .send()
             .await
-            .map_err(|e| format!("llm http request failed: {e}"))?;
+            .map_err(|e| format!("{}: {e}", transport_error_message(&e)))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -199,6 +199,25 @@ impl NativeHttpLlm {
 /// rendered, so there is no reason to buffer an unbounded response first.
 const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
 
+/// Build the machine-readable transport-error prefix. reqwest 0.12's
+/// `Display` hides the actual cause (timeout / refused / DNS ...) behind
+/// `.source()`, so classify it here while the `reqwest::Error` is in hand —
+/// the retry layer matches this prefix instead of grepping free text.
+fn transport_error_message(e: &reqwest::Error) -> String {
+    let kind = if e.is_builder() {
+        "invalid_request"
+    } else if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() {
+        "connect"
+    } else if e.is_decode() || e.is_body() {
+        "decode"
+    } else {
+        "transport"
+    };
+    format!("llm transport error {kind}")
+}
+
 /// Read the start of an error body, bounded, for inclusion in the error
 /// message.
 async fn read_brief_body(response: reqwest::Response) -> String {
@@ -232,7 +251,17 @@ impl LLM for NativeHttpLlm {
             let code: u16 = digits.parse().unwrap_or(0);
             return matches!(code, 408 | 425 | 429 | 500..=599);
         }
-        // Transport-level failures carry no status code; classify by keyword.
+        // Transport-level failures are classified at the error site too:
+        // reqwest 0.12's Display only renders "error sending request for
+        // url (...)" — the underlying cause (dns timeout, connection
+        // refused/reset, ...) sits in `.source()` and keyword-matching the
+        // Display string would classify every transport failure as
+        // non-retryable. The transport step stamps a stable kind instead.
+        if let Some(rest) = error.strip_prefix("llm transport error ") {
+            return !rest.starts_with("invalid_request");
+        }
+        // Fallback keyword list for errors produced by older code paths
+        // (e.g. SSE decode failures, which carry their own prefix).
         const RETRYABLE: &[&str] = &[
             "overloaded",
             "timed out",
@@ -301,10 +330,37 @@ mod tests {
         );
         assert!(llm.is_retryable_error("llm http status 429 Too Many Requests: slow down"));
         assert!(llm.is_retryable_error("llm http status 503 Service Unavailable: busy"));
-        assert!(llm.is_retryable_error("llm http request failed: connection reset"));
-        assert!(llm.is_retryable_error("operation timed out"));
+        assert!(llm.is_retryable_error("llm transport error connect: connection refused"));
+        assert!(llm.is_retryable_error("llm transport error timeout: operation timed out"));
+        assert!(llm.is_retryable_error("llm sse decode error: expected value at line 1"));
         assert!(!llm.is_retryable_error("llm http status 401 Unauthorized: bad key"));
         assert!(!llm.is_retryable_error("llm http status 400 Bad Request: invalid schema"));
+    }
+
+    #[test]
+    fn transport_errors_are_classified_by_stamped_kind() {
+        // reqwest 0.12's Display only renders "error sending request for
+        // url (...)" — the retryable-ness must come from the stamped kind,
+        // not from keywords that never appear in that string.
+        let llm = NativeHttpLlm::new(
+            config("anthropic", "https://api.example.com/v1"),
+            String::new(),
+        );
+        assert!(llm.is_retryable_error(
+            "llm transport error timeout: error sending request for url (https://api.example.com): connection timed out"
+        ));
+        assert!(llm.is_retryable_error(
+            "llm transport error connect: error sending request for url (https://api.example.com)"
+        ));
+        assert!(llm.is_retryable_error(
+            "llm transport error transport: failed to lookup address information: Name or service not known"
+        ));
+        assert!(llm.is_retryable_error(
+            "llm transport error decode: error decoding response body"
+        ));
+        assert!(!llm.is_retryable_error(
+            "llm transport error invalid_request: builder error: relative URL without a base"
+        ));
     }
 
     #[test]
@@ -349,7 +405,7 @@ mod tests {
         assert!(result.is_err());
         let msg = result.err().unwrap().to_string();
         assert!(
-            msg.contains("llm http request failed"),
+            msg.contains("llm transport error"),
             "unexpected error: {msg}"
         );
     }

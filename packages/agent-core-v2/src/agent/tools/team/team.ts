@@ -10,7 +10,15 @@ export const DebateParticipantSchema = z.object({
     .min(1)
     .optional()
     .default('coder')
-    .describe('Agent profile name, e.g. "coder" or "explore".'),
+    .describe('Agent profile name used to spawn the agent, e.g. "coder" or "explore".'),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      'Distinct speaker name shown in the transcript and used for stance tracking and cross-references (e.g. "researcher-1"). Each participant needs a unique name; defaults to the profileName.',
+    ),
   roleDescription: z.string().trim().min(1).describe('Role description for this participant.'),
   assignedStance: z
     .string()

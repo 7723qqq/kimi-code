@@ -4,7 +4,10 @@
 //! the Node event loop stays responsive. The entire fetch + extract pipeline
 //! happens in Rust without touching libuv.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::collections::HashMap;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use scraper::{Html, Selector};
@@ -62,6 +65,7 @@ pub fn fetch_url(config: &FetchUrlConfig) -> FetchUrlResult {
 }
 
 fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
+    let pinned = PinnedHosts::new();
     let mut current_url = config.url.clone();
     let timeout = Duration::from_millis(config.timeout_ms);
 
@@ -70,14 +74,15 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
         .timeout_read(timeout)
         .timeout_write(timeout)
         .redirects(0) // We handle redirects manually for per-hop SSRF checks
+        .resolver(pinned.resolver())
         .user_agent(&config.user_agent)
         .build();
 
     let mut redirects: u32 = 0;
 
     loop {
-        // SSRF check on every hop
-        validate_url(&current_url, config.allow_private)?;
+        // SSRF check on every hop; resolves and pins the host in one step.
+        validate_url(&current_url, config.allow_private, &pinned)?;
 
         let response = agent.get(&current_url).call().map_err(|e| match e {
             ureq::Error::Status(code, resp) => {
@@ -154,7 +159,47 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
 
 // ── SSRF Protection ──────────────────────────────────────────────────────────
 
-fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
+/// Host→address pin table consulted by the custom resolver below.
+///
+/// Every hop is resolved and validated exactly once here; the connection then
+/// reuses these pinned addresses via ureq's resolver, so a DNS-rebinding
+/// attacker cannot swap the address between the validation step and the
+/// actual connect (the same defence the TS fallback path in
+/// `local-fetch-url.ts` applies by connecting to the address it checked).
+struct PinnedHosts {
+    entries: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
+}
+
+impl PinnedHosts {
+    fn new() -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn pin(&self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
+        let key = format!("{host}:{port}");
+        self.entries.lock().unwrap().insert(key, addrs);
+    }
+
+    /// The resolver handed to ureq: only hosts pinned by a prior validated
+    /// resolution may ever be connected to. Any other lookup fails hard.
+    fn resolver(&self) -> impl Fn(&str) -> io::Result<Vec<SocketAddr>> + Send + Sync + 'static {
+        let entries = self.entries.clone();
+        move |netloc: &str| {
+            let map = entries.lock().unwrap();
+            match map.get(netloc) {
+                Some(addrs) => Ok(addrs.clone()),
+                None => Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("{netloc} was not pre-resolved; refusing to connect"),
+                )),
+            }
+        }
+    }
+}
+
+fn validate_url(url_str: &str, allow_private: bool, pinned: &PinnedHosts) -> Result<(), String> {
     let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
 
     match parsed.scheme() {
@@ -169,8 +214,17 @@ fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
     let host = parsed
         .host_str()
         .ok_or_else(|| "URL has no host".to_string())?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+
+    // Resolve exactly once, then pin: the connection must reuse these
+    // addresses, never re-resolve the name at connect time.
+    let addrs: Vec<SocketAddr> = format!("{host}:{port}")
+        .to_socket_addrs()
+        .map_err(|e| format!("Cannot resolve host \"{host}\": {e}"))?
+        .collect();
 
     if allow_private {
+        pinned.pin(host, port, addrs);
         return Ok(());
     }
 
@@ -185,17 +239,15 @@ fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
         if is_private_ip(ip) {
             return Err(format!("Refusing to fetch private address: \"{host}\""));
         }
+        pinned.pin(host, port, addrs);
         return Ok(());
     }
 
-    // DNS resolve and check all addresses
-    let port = parsed.port_or_known_default().unwrap_or(80);
-    let socket_addr = format!("{host}:{port}");
-    let addrs = socket_addr
-        .to_socket_addrs()
-        .map_err(|e| format!("Cannot resolve host \"{host}\": {e}"))?;
-
-    for addr in addrs {
+    // Hostname: every resolved address must be public.
+    if addrs.is_empty() {
+        return Err(format!("Cannot resolve host \"{host}\": no addresses"));
+    }
+    for addr in &addrs {
         if is_private_ip(addr.ip()) {
             return Err(format!(
                 "Refusing to fetch host \"{host}\": resolves to private address \"{}\".",
@@ -204,6 +256,7 @@ fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
         }
     }
 
+    pinned.pin(host, port, addrs);
     Ok(())
 }
 
@@ -453,24 +506,50 @@ mod tests {
 
     #[test]
     fn test_validate_url_rejects_private() {
-        assert!(validate_url("http://127.0.0.1/secret", false).is_err());
-        assert!(validate_url("http://10.0.0.1/internal", false).is_err());
-        assert!(validate_url("http://192.168.1.1/router", false).is_err());
-        assert!(validate_url("http://localhost/admin", false).is_err());
-        assert!(validate_url("http://evil.localhost/", false).is_err());
-        assert!(validate_url("ftp://example.com/file", false).is_err());
+        let pinned = PinnedHosts::new();
+        assert!(validate_url("http://127.0.0.1/secret", false, &pinned).is_err());
+        assert!(validate_url("http://10.0.0.1/internal", false, &pinned).is_err());
+        assert!(validate_url("http://192.168.1.1/router", false, &pinned).is_err());
+        assert!(validate_url("http://localhost/admin", false, &pinned).is_err());
+        assert!(validate_url("http://evil.localhost/", false, &pinned).is_err());
+        assert!(validate_url("ftp://example.com/file", false, &pinned).is_err());
     }
 
     #[test]
     fn test_validate_url_allows_public() {
-        assert!(validate_url("https://example.com/page", false).is_ok());
-        assert!(validate_url("http://8.8.8.8/dns", false).is_ok());
+        let pinned = PinnedHosts::new();
+        assert!(validate_url("https://example.com/page", false, &pinned).is_ok());
+        assert!(validate_url("http://8.8.8.8/dns", false, &pinned).is_ok());
+        // Public URLs are pinned so the connection reuses the checked address.
+        assert!(validate_url("http://8.8.8.8/dns", false, &pinned).is_ok());
+        let resolver = pinned.resolver();
+        assert!(!resolver("8.8.8.8:80").unwrap().is_empty());
     }
 
     #[test]
     fn test_validate_url_allows_private_when_enabled() {
-        assert!(validate_url("http://127.0.0.1/secret", true).is_ok());
-        assert!(validate_url("http://192.168.1.1/router", true).is_ok());
+        let pinned = PinnedHosts::new();
+        assert!(validate_url("http://127.0.0.1/secret", true, &pinned).is_ok());
+        assert!(validate_url("http://192.168.1.1/router", true, &pinned).is_ok());
+        // Even the private-allowed path pins the resolved address.
+        let resolver = pinned.resolver();
+        assert!(!resolver("127.0.0.1:80").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_pinned_resolver_refuses_unknown_hosts() {
+        // The whole point of pinning: the connection layer must never be able
+        // to look up a host that was not validated — DNS rebinding relies on
+        // a second resolution at connect time.
+        let pinned = PinnedHosts::new();
+        let resolver = pinned.resolver();
+        assert!(resolver("attacker.example:443").is_err());
+        assert!(resolver("127.0.0.1:80").is_err());
+
+        pinned.pin("pinned.example", 443, vec!["1.2.3.4:443".parse().unwrap()]);
+        assert_eq!(resolver("pinned.example:443").unwrap()[0], "1.2.3.4:443".parse().unwrap());
+        // A different port on the same host is still refused.
+        assert!(resolver("pinned.example:80").is_err());
     }
 
     #[test]

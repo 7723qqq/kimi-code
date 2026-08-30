@@ -9,6 +9,8 @@ import { DiscussionContext, type DiscussionEntry } from './context';
 export interface DiscussionParticipantConfig {
   /** Agent profile name, e.g. 'researcher', 'coder', 'explore'. */
   readonly profileName: string;
+  /** Distinct speaker name used for transcript/stance/cross-reference bookkeeping. */
+  readonly speakerName?: string;
   /** Role description injected into the agent's prompt each turn. */
   readonly roleDescription: string;
   /** How many times this participant speaks per round (default: 1). */
@@ -119,11 +121,12 @@ export class TeamCoordinator {
 
             const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
 
-            context.addEntry(participant.profileName, agentId, content, round);
+            const speaker = participant.speakerName ?? participant.profileName;
+            context.addEntry(speaker, agentId, content, round);
 
             this.observer?.({
               agentId,
-              roleName: participant.profileName,
+              roleName: speaker,
               round,
               content,
             });

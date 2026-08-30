@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { loadRuntimeConfigSafe } from '@moonshot-ai/kimi-code-sdk';
 
 import { simulateUiDispatch } from './_simulate-ui-dispatch';
+import { initRustTracing } from './rust-loop';
 
 const HOME = process.env['KIMI_HOME'] ?? join(process.env['USERPROFILE'] ?? process.env['HOME'] ?? '', '.kimi-code');
 const CFG = join(HOME, 'config.toml');
@@ -105,6 +106,11 @@ interface TurnSample {
 describe.skipIf(!optedIn || !picked)('long-session memory growth (P20-C)', () => {
   const provider = picked!;
   const maskedKey = `${provider.apiKey.slice(0, 4)}…${provider.apiKey.slice(-2)}`;
+
+  // Activate Rust-side tracing if the host set KIMI_AGENT_TRACE.
+  // The native binding is a process-wide singleton (Once), so a
+  // second call returns false — that's fine, we only need one init.
+  initRustTracing();
 
   it(
     `runs ${TURN_COUNT} consecutive native-LLM turns and reports per-turn RSS`,
