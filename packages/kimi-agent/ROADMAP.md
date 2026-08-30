@@ -440,3 +440,30 @@ P11 核实了「stdio 通道在发布产物里必然缺席」(dist-native/bin/<a
 
 - 真实 LLM 会话端到端仍需真 key。
 - stdio 通道的 `tool.native → tool.call/result` 丢牌已用单机 windows 复现/修复,但多平台(linux/macos)风险未实测;Rust 侧顺序保证 + JS 兜底已覆盖其协议面。
+
+## P13 — 引擎默认启用 + feature 注入契约（2026-08-30）
+
+### 1. 能力探测自动启用（替换 TS 的第一块交付）
+
+`agent.engine` 从二值(rust/js)改为**三态门**:
+
+| 配置 | 行为 |
+|------|------|
+| `agent.engine = "rust"` | 恒启用(显式选入) |
+| `agent.engine = "js"` | 恒禁用(显式退出,跳过探测) |
+| 未设置 | **能力探测**:`isRustEngineAvailable()`(.node addon 或打包 stdio CLI 存在即真)为真则启用,否则安静回退 JS loop |
+
+实现:`maybeLoadRustEngine`(rust-engine.ts)在未配置时动态 import rust-loop 的 `isRustEngineAvailable`(纯文件存在检查,不加载 addon)。多 LLM/provider 不兼容不阻断——引擎以 host-proxy 兜底也有收益。
+
+验证:rust-engine.test.ts 21/21(新增3用例:auto 启用、js 优先于可用 bundle、退出跳过探测);apps/kimi-code tsc 0 errors。
+
+### 2. feature 注入到达引擎投影的契约(plan 代表)
+
+新增 engineOverride 契约测试「plan mode reminder 在引擎消息投影内」:激活 real plan mode(`PlanModeInjection` 注册 plan_mode variant)→ 驱动外部引擎 → 断言 `buildMessages()` 含 `Plan mode is active` + `<system-reminder>`。证明 P2 的注入门声明在 plan 上闭环(tower/swarm/dateChange/todo 等走同一 reminder 机制,机制已证)。
+
+验证:engineOverride 8→9 用例、plan 全量 130+ 用例无回归、goal 12、kimi-agent 55/55、oxlint 0 errors。
+
+### 诚实边界(沿用+新增)
+
+- 真实 LLM 会话端到端仍待真 key(引擎 auto-enable 后,用户侧将无感切换到 Rust——真实会话背书是发布前最后门槛)。
+- tower/swarm 的具体 variant 未单独写引擎契约(机制与 plan 同源,均经 onWillBeginStep→AgentReminder;真实会话 E2E 兜底)。
