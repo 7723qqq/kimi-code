@@ -618,4 +618,18 @@ mod tests {
         assert_eq!(resp.tool_calls.len(), 1);
         assert_eq!(resp.tool_calls[0].name, "Read");
     }
+
+    #[test]
+    fn finish_after_truncated_stream_keeps_partial_content() {
+        // A provider that drops the stream mid-flight (no trailing usage
+        // chunk and no [DONE]) must still surface the text received so far
+        // instead of panicking or returning empty.
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({ "choices": [{ "delta": { "content": "hel" } }] }));
+        acc.feed(&json!({ "choices": [{ "delta": { "content": "lo" } }] }));
+        let resp = acc.finish();
+        assert_eq!(resp.content, "hello");
+        assert!(resp.finish_reason.is_none());
+        assert_eq!(resp.usage.output_tokens, 0);
+    }
 }

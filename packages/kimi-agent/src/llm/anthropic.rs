@@ -648,4 +648,25 @@ mod tests {
             "the out-of-range block must be dropped"
         );
     }
+
+    #[test]
+    fn finish_after_truncated_stream_keeps_partial_content() {
+        // A provider that dies before message_stop (no message_delta, no
+        // usage) must still surface the streamed text and finish safely.
+        let mut acc = StreamAccumulator::default();
+        acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "text_delta", "text": "hel" }
+        }));
+        acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "text_delta", "text": "lo" }
+        }));
+        let resp = acc.finish();
+        assert_eq!(resp.content, "hello");
+        assert!(resp.finish_reason.is_none());
+        assert_eq!(resp.usage.total_tokens, 0);
+    }
 }
