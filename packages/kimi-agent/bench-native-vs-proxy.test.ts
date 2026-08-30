@@ -40,7 +40,7 @@ const minimax = await (async (): Promise<ProviderDef | null> => {
 })();
 
 const optedIn = process.env['KIMI_E2E'] === '1';
-const RUNS = 3;
+const RUNS = 5;
 
 interface TurnMetrics {
   ttftMs: number;
@@ -58,6 +58,7 @@ async function sseFirstDeltaUntilDone(
   apiKey: string,
   body: Record<string, unknown>,
   onFirstDelta: (atMs: number) => void,
+  onTextPart?: (text: string) => Promise<void>,
 ): Promise<{ outputTokens: number; finishReason: string }> {
   const res = await fetch(url, {
     method: 'POST',
@@ -72,30 +73,69 @@ async function sseFirstDeltaUntilDone(
     const brief = (await res.text()).slice(0, 200);
     throw new Error(`provider status ${res.status}: ${brief}`);
   }
-  const text = await res.text();
   let firstDeltaSent = false;
   let outputTokens = 0;
   let finishReason = 'stop';
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('data: ')) continue;
-    const data = line.slice(6);
-    if (data === '[DONE]') break;
-    let v: { type?: string; delta?: { type?: string; text?: string }; usage?: { output_tokens?: number; input_tokens?: number }; message?: { stop_reason?: string | null } };
-    try {
-      v = JSON.parse(data);
-    } catch {
-      continue;
-    }
-    if (v.type === 'content_block_delta' && v.delta?.type === 'text_delta' && !firstDeltaSent) {
-      firstDeltaSent = true;
-      onFirstDelta(performance.now());
-    }
-    if (v.type === 'message_delta' && v.usage) {
-      outputTokens = v.usage.output_tokens ?? 0;
-      if (v.message?.stop_reason) finishReason = v.message.stop_reason;
+  let buffer = '';
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('response body is not a readable stream');
+  }
+  const decoder = new TextDecoder();
+  let v:
+    | {
+        type?: string;
+        delta?: { type?: string; text?: string };
+        usage?: { output_tokens?: number; input_tokens?: number };
+        message?: { stop_reason?: string | null };
+      }
+    | undefined;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl);
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6);
+      if (data === '[DONE]') continue;
+      try {
+        v = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (v.type === 'content_block_delta' && v.delta?.type === 'text_delta') {
+        if (!firstDeltaSent) {
+          firstDeltaSent = true;
+          onFirstDelta(performance.now());
+        }
+        if (onTextPart) await onTextPart(v.delta.text ?? '');
+      }
+      if (v.type === 'message_delta' && v.usage) {
+        outputTokens = v.usage.output_tokens ?? 0;
+        if (v.message?.stop_reason) finishReason = v.message.stop_reason;
+      }
     }
   }
   return { outputTokens, finishReason };
+}
+
+/** Symmetric dispatchEvent for both transports. P15 had proxy's
+ *  `dispatchEvent` as an empty function — the bench therefore measured
+ *  the cost of native-LLM's per-delta event chain against zero cost on
+ *  the host-proxy path. This helper mirrors what the real event chain in
+ *  `rust-loop.ts` does on the host side: append the event, then yield
+ *  two microtask hops to simulate the promise-chain `then`
+ *  continuation. Both transports now pay the same forwarding cost. */
+async function simulateUiDispatch(
+  event: { type: string },
+  events: Array<{ type: string; at: number }>,
+): Promise<void> {
+  events.push({ type: event.type, at: performance.now() });
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host-proxy', () => {
@@ -138,7 +178,7 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
         return [];
       },
       async dispatchEvent(event: { type: string }) {
-        events.push({ type: event.type, at: performance.now() });
+        await simulateUiDispatch(event, events);
       },
       async executeTool() {
         return { output: '', isError: true };
@@ -161,6 +201,7 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
       nativeTools: false,
       shellPath: undefined,
     });
+    const events: Array<{ type: string; at: number }> = [];
     let firstDeltaAt = 0;
     const started = performance.now();
     const engineFn = engine as (i: unknown) => Promise<EngineResultShape>;
@@ -171,13 +212,16 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
         modelAlias: 'minimax-m3',
         modelId: MODEL,
         systemPrompt: 'You are concise.',
-        async chat() {
+        async chat({ onTextPart }: { onTextPart: (part: { type: 'text'; text: string }) => Promise<void> }) {
           const { outputTokens, finishReason } = await sseFirstDeltaUntilDone(
             ANTHROPIC_MESSAGES_BASE,
             provider.apiKey,
             anthropicBody(),
             (at) => {
               firstDeltaAt = at;
+            },
+            async (text) => {
+              await onTextPart({ type: 'text', text });
             },
           );
           return {
@@ -193,7 +237,9 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
       buildTools() {
         return [];
       },
-      async dispatchEvent() {},
+      async dispatchEvent(event: { type: string }) {
+        await simulateUiDispatch(event, events);
+      },
       async executeTool() {
         return { output: '', isError: true };
       },
@@ -201,8 +247,18 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
         return { decision: 'allow' as const };
       },
     });
+    // For host-proxy, first delta is captured from the inner fetch rather
+    // than the dispatchEvent chain, so the proxy's TTFT reflects the
+    // provider→host hop, not the host→engine hop. Use the same signal
+    // (content.part in dispatch) for fair comparison when present.
+    const firstPart = events.find((e) => e.type === 'content.part');
+    const proxyTtft = firstPart
+      ? firstPart.at - started
+      : firstDeltaAt > 0
+        ? firstDeltaAt - started
+        : performance.now() - started;
     return {
-      ttftMs: firstDeltaAt > 0 ? firstDeltaAt - started : performance.now() - started,
+      ttftMs: proxyTtft,
       totalMs: performance.now() - started,
       outputTokens: result.usage.output,
     };
@@ -231,13 +287,22 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
         return s.length % 2 === 1 ? s[(s.length - 1) / 2]! : (s[s.length / 2 - 1]! + s[s.length / 2]!) / 2;
       };
       const avg = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+      const pct = (xs: number[], p: number): number => {
+        const s = [...xs].sort((a, b) => a - b);
+        const idx = Math.min(s.length - 1, Math.max(0, Math.floor((p / 100) * (s.length - 1))));
+        return s[idx]!;
+      };
+      const fmt = (n: number): string => n.toFixed(0).padStart(5);
 
       // eslint-disable-next-line no-console
       console.log(
-        `\n[bench] ${MODEL} (${maskedKey}) — native-LLM vs host-proxy, ${RUNS} runs each\n` +
-          `transport   ttft(med)  ttft(avg)   total(med)  total(avg)\n` +
-          `native      ${median(native.map((m) => m.ttftMs)).toFixed(0).padStart(9)}ms  ${avg(native.map((m) => m.ttftMs)).toFixed(0).padStart(9)}ms  ${median(native.map((m) => m.totalMs)).toFixed(0).padStart(10)}ms  ${avg(native.map((m) => m.totalMs)).toFixed(0).padStart(10)}ms\n` +
-          `host-proxy  ${median(proxy.map((m) => m.ttftMs)).toFixed(0).padStart(9)}ms  ${avg(proxy.map((m) => m.ttftMs)).toFixed(0).padStart(9)}ms  ${median(proxy.map((m) => m.totalMs)).toFixed(0).padStart(10)}ms  ${avg(proxy.map((m) => m.totalMs)).toFixed(0).padStart(10)}ms\n` +
+        `\n[bench] ${MODEL} (${maskedKey}) — native-LLM vs host-proxy, ${RUNS} runs each ` +
+          `(symmetric UI dispatch; P15 baseline had proxy dispatch as no-op)\n` +
+          `transport   ttft(med/p90)   total(med/p90/p95)\n` +
+          `native      ${fmt(median(native.map((m) => m.ttftMs)))}/${fmt(pct(native.map((m) => m.ttftMs), 90))}ms   ` +
+          `${fmt(median(native.map((m) => m.totalMs)))}/${fmt(pct(native.map((m) => m.totalMs), 90))}/${fmt(pct(native.map((m) => m.totalMs), 95))}ms\n` +
+          `host-proxy  ${fmt(median(proxy.map((m) => m.ttftMs)))}/${fmt(pct(proxy.map((m) => m.ttftMs), 90))}ms   ` +
+          `${fmt(median(proxy.map((m) => m.totalMs)))}/${fmt(pct(proxy.map((m) => m.totalMs), 90))}/${fmt(pct(proxy.map((m) => m.totalMs), 95))}ms\n` +
           `native outputTokens: ${native.map((m) => m.outputTokens).join(', ')}\n` +
           `proxy  outputTokens: ${proxy.map((m) => m.outputTokens).join(', ')}`,
       );
