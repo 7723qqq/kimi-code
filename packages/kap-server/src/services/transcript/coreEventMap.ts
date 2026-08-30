@@ -230,6 +230,22 @@ export class AgentTranscriptProjector {
     }));
     return [{ op: 'task.upsert', task }];
   }
+
+  seedActiveTurn(info: { turnId: number; promptId?: string }): void {
+    const turnId = `t${info.turnId}`;
+    const prev = this.lookups?.turn?.(turnId);
+    this.currentTurn = {
+      kind: 'turn',
+      turnId,
+      ordinal: info.turnId,
+      state: 'running',
+      triggerPromptId: info.promptId ?? prev?.triggerPromptId,
+      origin: prev?.origin ?? { kind: 'other' },
+      prompt: prev?.prompt,
+      attachmentIds: prev?.attachmentIds,
+      startedAt: prev?.startedAt,
+    };
+  }
   private readonly interactions = new Map<string, TranscriptInteraction>();
   private readonly prompts = new Map<string, TranscriptPrompt>();
   private readonly stepUsageByTurn = new Map<string, StepUsage[]>();
@@ -343,6 +359,7 @@ export class AgentTranscriptProjector {
 
   private onTurnStarted(event: {
     turnId: number;
+    promptId?: string;
     origin: unknown;
     prompt?: string;
     promptAttachments?: readonly (
@@ -374,6 +391,7 @@ export class AgentTranscriptProjector {
     this.currentTurn = {
       kind: 'turn',
       turnId,
+      triggerPromptId: event.promptId,
       ordinal: n,
       state: 'running',
       origin: mapTurnOrigin(event.origin),
@@ -442,6 +460,7 @@ export class AgentTranscriptProjector {
       turnId,
       ordinal: event.turnId,
       state,
+      triggerPromptId: prev?.triggerPromptId,
       origin: prev?.origin ?? { kind: 'other' },
       prompt: prev?.prompt,
       attachmentIds: prev?.attachmentIds,

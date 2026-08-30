@@ -8,6 +8,7 @@ import {
   AgentInteraction,
   IAgentLifecycleService,
   IAgentLoopService,
+  IAgentPromptService,
   IAgentScopeContext,
   IAgentTaskService,
   IEventBus,
@@ -166,11 +167,18 @@ describe('AgentTranscriptProjector', () => {
       tx.apply(projector.map(event));
     };
 
-    feed(ev({ type: 'turn.started', turnId: 0, origin: { kind: 'user' }, prompt: 'fix the bug' }));
+    feed(ev({
+      type: 'turn.started',
+      turnId: 0,
+      promptId: 'prompt-1',
+      origin: { kind: 'user' },
+      prompt: 'fix the bug',
+    }));
     feed(ev({ type: 'assistant.delta', turnId: 0, delta: 'on it' }));
     feed(ev({ type: 'turn.ended', turnId: 0, reason: 'completed' }));
 
     const turn = turnOps('t0', tx.getItems());
+    expect(turn.triggerPromptId).toBe('prompt-1');
     expect(turn.prompt).toBe('fix the bug');
     expect(turn.state).toBe('completed');
   });
@@ -2585,14 +2593,16 @@ describe('AgentTranscriptProjector', () => {
       await mkdir(wireDir, { recursive: true });
       const write = async (records: unknown[]): Promise<void> =>
         writeFile(join(wireDir, 'wire.jsonl'), `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
-      const user = { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [], origin: { kind: 'user' } }, time: 1000 };
+      const user = { type: 'context.append_message', message: { id: 'prompt-1', role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [], origin: { kind: 'user' } }, time: 1000 };
       const assistant = { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] }, time: 2000 };
+      const boundary = { type: 'turn.prompt', input: [{ type: 'text', text: 'hi' }], origin: { kind: 'user' }, promptId: 'prompt-1', time: 500 };
 
-      await write([user, assistant, { type: 'turn.ended', turnId: 0, reason: 'completed', time: 3000 }]);
+      await write([boundary, user, assistant, { type: 'turn.ended', turnId: 0, reason: 'completed', time: 3000 }]);
       const ended = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
       expect(ended!.meta.activity).toBe('idle');
+      expect(ended!.items[0]).toMatchObject({ triggerPromptId: 'prompt-1' });
 
-      await write([user, assistant]);
+      await write([boundary, user, assistant]);
       const dangling = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
       expect(dangling!.meta.activity).toBe('idle');
     } finally {
@@ -3216,7 +3226,7 @@ describe('bindSessionTranscript', () => {
       this.closeHandlers.add(cb);
       return { dispose: () => this.closeHandlers.delete(cb) };
     }
-    add(id: string, opts?: { loopStatus?: unknown; tasks?: readonly unknown[] }): FakeAgentHandle {
+    add(id: string, opts?: { loopStatus?: unknown; tasks?: readonly unknown[]; activePromptId?: string }): FakeAgentHandle {
       const bus = new FakeBus();
       const scope = makeAgentScopeContext({
         agentId: id,
@@ -3235,6 +3245,27 @@ describe('bindSessionTranscript', () => {
             if (token === IEventBus) return bus;
             if (token === IAgentLoopService) {
               return { status: () => opts?.loopStatus ?? { state: 'idle' } };
+            }
+            if (token === IAgentPromptService) {
+              return {
+                list: () => ({
+                  active: opts?.activePromptId === undefined
+                    ? undefined
+                    : {
+                        id: opts.activePromptId,
+                        userMessageId: opts.activePromptId,
+                        createdAt: '2026-01-01T00:00:00.000Z',
+                        state: 'running',
+                        message: {
+                          role: 'user',
+                          content: [{ type: 'text', text: 'hi' }],
+                          toolCalls: [],
+                          origin: { kind: 'user' },
+                        },
+                      },
+                  pending: [],
+                }),
+              };
             }
             if (token === IAgentTaskService) {
               return { list: () => opts?.tasks ?? [] };
@@ -3553,6 +3584,22 @@ describe('bindSessionTranscript', () => {
     expect(fallback).toMatchObject({ turn: { attachmentIds: ['att_1'] } });
   });
 
+  it('heal keeps the live trigger prompt id over a cold turn without one', () => {
+    const makeTurn = (triggerPromptId: string | undefined): TranscriptTurn => ({
+      kind: 'turn',
+      turnId: 't0',
+      triggerPromptId,
+      ordinal: 0,
+      state: 'completed',
+      origin: { kind: 'user' },
+      steps: [],
+    });
+    const header = healTurnOps(makeTurn(undefined), makeTurn('prompt-1')).find(
+      (op) => op.op === 'turn.upsert',
+    );
+    expect(header).toMatchObject({ turn: { triggerPromptId: 'prompt-1' } });
+  });
+
   it('terminal turn.upsert inherits the backfilled header when the projector missed turn.started', () => {
     const agents = new FakeAgents();
     const store = new TranscriptStore('s1');
@@ -3755,11 +3802,32 @@ describe('bindSessionTranscript', () => {
     binding.dispose();
   });
 
+  it('seeds active prompt identity before a late-bound turn ends', () => {
+    const agents = new FakeAgents();
+    const main = agents.add('main', {
+      loopStatus: { state: 'running', activeTurnId: 0 },
+      activePromptId: 'prompt-1',
+    });
+    const store = new TranscriptStore('s1');
+    const binding = bindSessionTranscript(store, fakeSession(agents));
+
+    main.bus.emit(ev({ type: 'turn.ended', turnId: 0, reason: 'completed' }));
+
+    expect(store.getAgent('main')?.getTurn('t0')).toMatchObject({
+      state: 'completed',
+      triggerPromptId: 'prompt-1',
+    });
+    binding.dispose();
+  });
+
   it('overlays the in-flight turn as running after a backfill', async () => {
     const home = await seedWireHome();
     try {
       const agents = new FakeAgents();
-      agents.add('main', { loopStatus: { state: 'running', activeTurnId: 0 } });
+      agents.add('main', {
+        loopStatus: { state: 'running', activeTurnId: 0 },
+        activePromptId: 'prompt-1',
+      });
       const service = new TranscriptService({
         homeDir: home,
         core: fakeCoreWithAgents(agents),
@@ -3768,6 +3836,7 @@ describe('bindSessionTranscript', () => {
       await service.whenReady('s1');
       expect(store?.getAgent('main')?.getTurn('t0')).toMatchObject({
         state: 'running',
+        triggerPromptId: 'prompt-1',
         prompt: 'hi',
       });
       service.dropSession('s1');
