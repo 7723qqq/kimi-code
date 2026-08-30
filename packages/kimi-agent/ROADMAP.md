@@ -1150,6 +1150,13 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 第四批：Knowledge + Team 直移 — ✅ 完成（2026-09-01）
+
+- **Knowledge 直移**（用户批准 rusqlite 依赖）：Cargo.toml 加 `rusqlite 0.32 bundled` + `once_cell 1`（与 kimi-native-tools 同版本）；`src/knowledge/mod.rs` 去 napi 化移植（schema/FTS5/触发器/索引逐字保留，ulid/chrono 用 fastrand + 手写 RFC3339 替代）；`src/tools/knowledge_tool.rs` 工具壳（action 分发 + v2 渲染对齐 + DB 路径解析）；33+15 单测
+- **Team coordinator 直移**：`src/team/`（context.rs DiscussionContext + coordinator.rs TeamCoordinator/StructuredDebateCoordinator + format 渲染，24 单测）；`PersistentSubagentHost` trait + `SubagentManagerHost` 适配器（接 persistent 化接口）；`src/tools/team_tool.rs` 工具壳（discussion/debate 两模式，从 subagent runtime 注入 llm/callbacks）
+- REPL tool_defs 接入 knowledge + team
+- 修复：knowledge 测试并行冲突（TestWorkspace Drop 在锁外 close DB → 路径测试改用 plain tempdir）；clippy collapsible_if/match unwrap_or_default
+
 ### 第四批可直移项 — ✅ 完成（2026-09-01）
 
 - **SubagentManager persistent 化**（`subagent/manager.rs` +715 行，5 单测）：`spawn_persistent`（常驻实例 + 跨轮历史）/ `run_persistent_turn`（多轮 run_turn + usage 聚合）/ `get_persistent_usage` / `destroy_persistent`（取消传播与 kill 共享 flag）；Team/AgentSwarm 前置

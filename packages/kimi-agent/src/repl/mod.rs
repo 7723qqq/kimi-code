@@ -159,6 +159,8 @@ async fn build_repl_tool_defs(mcp_manager: &McpManager) -> Vec<crate::turn_loop:
     defs.push(crate::tools::exit_plan_mode::exit_plan_mode_tool_def());
     defs.push(crate::tools::create_goal::create_goal_tool_def());
     defs.push(crate::tools::skill::skill_tool_def());
+    defs.push(crate::tools::knowledge_tool::knowledge_tool_def());
+    defs.push(crate::tools::team_tool::team_tool_def());
     defs
 }
 

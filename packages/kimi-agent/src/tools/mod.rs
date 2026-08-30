@@ -59,6 +59,7 @@ pub mod exit_plan_mode;
 pub mod fetch_url;
 pub mod get_goal;
 pub mod goal_tools;
+pub mod knowledge_tool;
 pub mod list_directory;
 pub mod memory_paths;
 pub mod plan_mode;
@@ -66,6 +67,7 @@ pub mod skill;
 pub mod subagent_tools;
 pub mod task_format;
 pub mod task_tools;
+pub mod team_tool;
 pub mod todo_item;
 pub mod todo_list;
 pub mod web_search;
@@ -220,6 +222,8 @@ impl NativeToolset {
                 | "creategoal"
                 | "create_goal"
                 | "skill"
+                | "knowledge"
+                | "team"
         )
     }
 
@@ -314,6 +318,11 @@ impl NativeToolset {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(skill::execute_skill(callbacks, args).await)
             }
+            "team" => {
+                let mgr = self.subagent_manager.as_ref()?;
+                Some(team_tool::execute_team(mgr, args).await)
+            }
+            "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
             "write" => self.write(args),
             "edit" => self.edit(args),
             "bash" => self.bash(args).await,
