@@ -11,9 +11,16 @@ type InstanceEntry = (SubagentInstance, Arc<AtomicBool>);
 type InstanceMap = Arc<RwLock<HashMap<String, InstanceEntry>>>;
 type DefinitionMap = Arc<RwLock<HashMap<String, SubagentDefinition>>>;
 
+/// Execution runtime injected by the host so subagents can run real turns.
+pub struct SubagentRuntime {
+    pub llm: Arc<dyn crate::turn_loop::types::LLM>,
+    pub callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+}
+
 pub struct SubagentManager {
     definitions: DefinitionMap,
     instances: InstanceMap,
+    runtime: RwLock<Option<Arc<SubagentRuntime>>>,
 }
 
 impl Default for SubagentManager {
@@ -47,7 +54,23 @@ impl SubagentManager {
         Self {
             definitions: Arc::new(RwLock::new(defs)),
             instances: Arc::new(RwLock::new(HashMap::new())),
+            runtime: RwLock::new(None),
         }
+    }
+
+    /// Inject the execution runtime (LLM + callbacks) so subagents can run
+    /// autonomous turns. Called after the callback pipeline is assembled.
+    pub async fn set_runtime(
+        &self,
+        llm: Arc<dyn crate::turn_loop::types::LLM>,
+        callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    ) {
+        *self.runtime.write().await = Some(Arc::new(SubagentRuntime { llm, callbacks }));
+    }
+
+    /// Current execution runtime, if injected.
+    pub async fn runtime(&self) -> Option<Arc<SubagentRuntime>> {
+        self.runtime.read().await.clone()
     }
 
     /// Register or update a subagent definition.
@@ -362,5 +385,19 @@ mod tests {
         }
 
         panic!("Subagent did not reach Completed state within timeout");
+    }
+
+    #[tokio::test]
+    async fn test_subagent_runtime_injection() {
+        let manager = Arc::new(SubagentManager::new());
+        assert!(manager.runtime().await.is_none());
+
+        let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::new(MockSubagentLlm);
+        let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(MockCallbacks);
+        manager.set_runtime(llm.clone(), callbacks.clone()).await;
+
+        let runtime = manager.runtime().await.expect("runtime injected");
+        assert!(Arc::ptr_eq(&runtime.llm, &llm));
+        assert!(Arc::ptr_eq(&runtime.callbacks, &callbacks));
     }
 }

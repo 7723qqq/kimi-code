@@ -1386,3 +1386,72 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — local permission engine (P26
 });
 
 
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — native subagents (P28 批 3 接线)', () => {
+  it('executes invoke_subagent natively and runs a real subagent turn', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-p28-'));
+
+    const mod = loadNativeModule();
+    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
+    let hostExecuteCalls = 0;
+
+    await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        rustSelfContained: true,
+        providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
+        tools: [
+          {
+            name: 'invoke_subagent',
+            description: 'Launch subagents',
+            inputSchema:
+              '{"type":"object","properties":{"Subagents":{"type":"array","items":{"type":"object"}}}}',
+          },
+        ],
+        messages: [{ role: 'user', content: 'spawn a research subagent' }],
+      },
+      makeCallback(mod, (req) => {
+        llmRequests.push(JSON.parse(req));
+        const first = llmRequests.length === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-sub-1',
+                  name: 'invoke_subagent',
+                  arguments: {
+                    Subagents: [
+                      { TypeName: 'research', Role: 'Napi Searcher', Prompt: 'search the codebase' },
+                    ],
+                  },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecuteCalls += 1;
+        return JSON.stringify({ content: 'HOST WAS CALLED', is_error: false });
+      }),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+
+    // The subagent tool ran natively in Rust, not through the host.
+    expect(hostExecuteCalls).toBe(0);
+    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    expect(followUp).toContain('spawned');
+    expect(followUp).toContain('Napi Searcher');
+
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});

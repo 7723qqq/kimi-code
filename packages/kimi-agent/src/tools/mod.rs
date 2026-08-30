@@ -173,7 +173,7 @@ impl NativeToolset {
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args).await,
             "websearch" | "web_search" => web_search::execute_web_search(args).await,
             "invokesubagent" | "invoke_subagent" => {
-                let mgr = self.subagent_manager.as_deref()?;
+                let mgr = self.subagent_manager.as_ref()?;
                 Some(subagent_tools::execute_invoke_subagent(mgr, args).await)
             }
             "managesubagents" | "manage_subagents" => {

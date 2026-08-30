@@ -53,6 +53,26 @@ impl McpManager {
         cached.contains_key(tool_name)
     }
 
+    /// All discovered MCP tools as engine tool definitions (for the model).
+    pub async fn list_tool_infos(&self) -> Vec<crate::turn_loop::types::ToolInfo> {
+        let cached = self.cached_tools.read().await;
+        let mut seen = std::collections::HashSet::new();
+        let mut infos = Vec::new();
+        for (name, (_, tool)) in cached.iter() {
+            // Prefer the namespaced `mcp__<server>__<tool>` form; skip the
+            // plain-name alias when it duplicates a namespaced entry.
+            if !name.starts_with("mcp__") || !seen.insert(name.clone()) {
+                continue;
+            }
+            infos.push(crate::turn_loop::types::ToolInfo {
+                name: name.clone(),
+                description: tool.description.clone().unwrap_or_default(),
+                input_schema: tool.input_schema.clone(),
+            });
+        }
+        infos
+    }
+
     /// Call an MCP tool dynamically.
     pub async fn call_tool(
         &self,
@@ -140,5 +160,19 @@ mod tests {
         assert!(!res.is_error);
         assert!(res.content.contains("Mock execution"));
         assert_eq!(res.note.as_deref(), Some("mcp:github"));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manager_list_tool_infos() {
+        let manager = McpManager::new();
+        let client = McpClient::mock("github");
+        manager.add_client(client).await;
+
+        let infos = manager.list_tool_infos().await;
+        // Only the namespaced form is exposed to the model.
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].name, "mcp__github__github_sample_tool");
+        assert!(infos[0].description.contains("Sample"));
+        assert!(infos[0].input_schema.get("type").is_some());
     }
 }

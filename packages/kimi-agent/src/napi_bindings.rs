@@ -117,6 +117,12 @@ static NEXT_CALLBACK_ID: AtomicU32 = AtomicU32::new(1);
 static CANCEL_MAP: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Process-wide subagent manager (P28). Instance state (running/completed
+/// subagents) survives across turns; the execution runtime is re-injected
+/// per turn because llm/callbacks are turn-scoped.
+static SUBAGENT_MANAGER: LazyLock<Arc<crate::subagent::SubagentManager>> =
+    LazyLock::new(|| Arc::new(crate::subagent::SubagentManager::new()));
+
 /// Ask a running turn (identified by `turn_id`) to stop. The flag is
 /// observed by the turn loop between LLM/tool steps; if the turn has already
 /// finished this is a no-op.
@@ -875,7 +881,7 @@ async fn run_turn_rust_impl(
             match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
                 Some(toolset) => Arc::new(NativeToolCallbacks {
                     inner: base_callbacks.clone(),
-                    toolset: Arc::new(toolset),
+                    toolset: Arc::new(toolset.with_subagents(SUBAGENT_MANAGER.clone())),
                     native_count: native_tool_count.clone(),
                     truncator: truncator.clone(),
                     permission_engine,
@@ -940,6 +946,13 @@ async fn run_turn_rust_impl(
             }
         };
 
+    // P28 批 3 接线: subagents run real turns with this turn's llm and the
+    // native callback pipeline (tools + permission + truncation).
+    let llm: Arc<dyn LLM> = Arc::from(llm);
+    SUBAGENT_MANAGER
+        .set_runtime(llm.clone(), callbacks.clone())
+        .await;
+
     let messages: Vec<LLMMessage> = params
         .messages
         .iter()
@@ -992,7 +1005,7 @@ async fn run_turn_rust_impl(
 
     let input = RunTurnInput {
         turn_id: turn_id.clone(),
-        llm: &*llm,
+        llm: llm.as_ref(),
         messages,
         tools: &[],
         tool_defs,

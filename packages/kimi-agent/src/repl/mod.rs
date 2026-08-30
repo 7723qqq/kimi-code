@@ -30,7 +30,7 @@ use crate::subagent::SubagentManager;
 use crate::tool_result_truncation::ToolResultTruncator;
 use crate::tools::NativeToolset;
 use crate::turn_loop::run_turn::run_turn;
-use crate::turn_loop::types::{LLMMessage, RunTurnInput, ToolInfo};
+use crate::turn_loop::types::{LLMMessage, RunTurnInput};
 
 struct ReplDummyHostCallbacks;
 impl HostCallbacks for ReplDummyHostCallbacks {
@@ -71,6 +71,9 @@ pub async fn start_repl(
 
     let subagent_manager = Arc::new(SubagentManager::new());
     let mcp_manager = Arc::new(McpManager::new());
+    // P29 批 3 接线: connect MCP servers declared in config.toml so their
+    // tools are discovered and exposed to the model this session.
+    mcp_manager.spawn_from_config(&config.mcp_servers).await;
 
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
@@ -220,7 +223,7 @@ pub async fn start_repl(
         };
 
         let system_prompt = "You are Kimi, a helpful agentic coding assistant.".to_string();
-        let llm = NativeHttpLlm::new(
+        let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::new(NativeHttpLlm::new(
             NativeLlmConfig {
                 protocol: native_llm_def.protocol,
                 base_url: native_llm_def.base_url,
@@ -230,7 +233,7 @@ pub async fn start_repl(
                 custom_headers: HashMap::new(),
             },
             system_prompt,
-        );
+        ));
 
         // Add user prompt to conversation history
         let user_msg = LLMMessage {
@@ -291,6 +294,11 @@ pub async fn start_repl(
             permission_engine: Some(permission_engine),
             truncator: Some(tool_truncator),
         });
+        // P28 批 3 接线: give subagents the same llm + callback pipeline so
+        // invoke_subagent runs real autonomous turns instead of just records.
+        subagent_manager
+            .set_runtime(llm.clone(), tool_callbacks.clone())
+            .await;
 
         let cancellation = Arc::new(AtomicBool::new(false));
         let turn_id = format!("turn-{}", fastrand::u64(..));
@@ -299,10 +307,14 @@ pub async fn start_repl(
         let result = run_turn(
             RunTurnInput {
                 turn_id: turn_id.clone(),
-                llm: &llm,
+                llm: llm.as_ref(),
                 messages: messages.clone(),
                 tools: &[],
-                tool_defs: Vec::<ToolInfo>::new(),
+                tool_defs: {
+                    let mut defs = crate::tools::subagent_tools::subagent_tool_defs();
+                    defs.extend(mcp_manager.list_tool_infos().await);
+                    defs
+                },
                 max_steps: 25,
                 goal: None,
                 cancellation: Some(cancellation),

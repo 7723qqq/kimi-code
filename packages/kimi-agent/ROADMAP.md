@@ -1006,7 +1006,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 
 ---
 
-## P28 — 纯 Rust 多智能体协作引擎（In-Process Native Subagents）— 🔄 进行中
+## P28 — 纯 Rust 多智能体协作引擎（In-Process Native Subagents）— ✅ 已完成
 
 > **愿景**：在纯 Rust 独立引擎中内建轻量级、高并发的 Subagent 编排器，无需宿主 JS 环境即可并发衍生子智能体进行代码库探索、后台编译排错与工具调用。
 
@@ -1038,9 +1038,18 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
    - 包含独立提示词组装、子智能体工具白名单隔离、Token 消耗统计与完成结果自动汇总写回。
    - 异步测试套件验证完成状态机变迁与结果持久化。
 
+### 接线项 — ✅ 已完成（2026-09-01）
+
+> 此前 `spawn_and_run` 与 subagent 工具链在生产代码零调用点：REPL 的 `run_turn` 传空工具列表，模型看不到 subagent 工具；`invoke_subagent` 只写生命周期记录不真正执行。本轮补齐：
+
+1. **runtime 注入**：`SubagentManager::set_runtime(llm, callbacks)` 注入执行环境（llm + 回调管线），`invoke_subagent` 在有 runtime 时调用 `spawn_and_run` 真正跑自主 turn，无 runtime 时降级为纯记录（工具保持可用）。
+2. **REPL 路径**：`start_repl` 装配后注入 runtime；`run_turn` 的 `tool_defs` 填充 `subagent_tool_defs()`（invoke/manage/define 三个工具 schema），模型可见可调。
+3. **napi 路径**：进程级 `SUBAGENT_MANAGER` 单例（实例状态跨 turn 保留），每 turn 重注入 runtime；`NativeToolset` 装配 `with_subagents`，工具分发层完整（模型是否调用由 host 工具注册表决定）。
+4. **测试**：+5 cargo 单测（runtime 注入、invoke 真实执行至 Completed、无 runtime 降级、工具定义导出、MCP 工具列表）+ 1 napi 集成测试（`invoke_subagent` native 执行、host 零调用）。
+
 ---
 
-## P29 — 纯 Rust Model Context Protocol 客户端（Native MCP Integration）— 🔄 进行中
+## P29 — 纯 Rust Model Context Protocol 客户端（Native MCP Integration）— ✅ 已完成
 
 > **愿景**：在纯 Rust 独立运行时中直接连接外部 MCP Server（基于 stdio JSON-RPC 或 SSE），无需 Node/Bun 中转，实现外部工具能力的零开销动态发现与挂载。
 
@@ -1072,6 +1081,14 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
    - 新增 `McpSseTransport`（`src/mcp/sse.rs`）：支持基于 Server-Sent Events (SSE) 与 HTTP POST 的远程 MCP 节点双向长连接。
    - `McpClient::connect_sse`：动态解析服务端 `endpoint` 事件与请求-响应 `oneshot` 异步通道关联。
    - `McpManager::spawn_from_config`：自动根据 `config.toml` 中的 `[mcp_servers]` 批量拉起本地 stdio 进程或接入远程 SSE 实例。
+
+### 接线项 — ✅ 已完成（2026-09-01）
+
+> 此前 `spawn_from_config` 在生产代码零调用点：REPL 创建了 `McpManager` 但从不连接配置声明的 server，且 `run_turn` 传空工具列表，模型看不到 MCP 工具。本轮补齐：
+
+1. **REPL 路径**：`start_repl` 启动时调用 `spawn_from_config(&config.mcp_servers)` 批量连接；新增 `McpManager::list_tool_infos()` 把已发现工具（`mcp__<server>__<tool>` 命名空间形式）并入 `run_turn` 的 `tool_defs`，模型可见可调。
+2. **napi 路径**：不接入（JS 宿主已有自己的 MCP 层，避免重复连接与工具命名冲突）；`NativeToolset` 的 `with_mcp` 分支保持可用，未装配时 `mcp__*` 工具自然回退 host。
+3. **测试**：+1 cargo 单测（`list_tool_infos` 只暴露命名空间形式、schema 完整）。
 
 ---
 
