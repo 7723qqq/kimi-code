@@ -3,18 +3,23 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEngineOverrideService, type TurnEngine, type TurnEngineInput } from '#/agent/loop/engineOverride';
+import { IAgentPlanService } from '#/features/plan/plan';
 import type { ContentPart } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 import {
   appService,
   createTestAgent,
+  execEnvServices,
   permissionModeServices,
   telemetryServices,
   type TestAgentContext,
   type TestAgentServiceOverride,
 } from '../../harness';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 import { makeEchoTool, registerTool } from './helpers';
 
 function emitted(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -410,5 +415,92 @@ describe('external engine override', () => {
     await end;
 
     expect(decisions).toEqual(['allow', 'deny']);
+  });
+});
+
+describe('external engine × plan mode bridge', () => {
+  let activeFs: IHostFileSystem;
+  let activeRunner: IHostProcessService;
+  let ctx: TestAgentContext | undefined;
+  let engineInput: TurnEngineInput | undefined;
+
+  afterEach(async () => {
+    if (ctx !== undefined) {
+      await ctx.dispose();
+      ctx = undefined;
+    }
+  });
+
+  function delegatingFs(): IHostFileSystem {
+    return new Proxy(
+      createFakeHostFs({
+        mkdir: async () => undefined,
+        readText: async () => '',
+      }),
+      {
+        get(_target, prop, receiver) {
+          const value = Reflect.get(activeFs, prop, receiver);
+          return typeof value === 'function' ? value.bind(activeFs) : value;
+        },
+      },
+    ) as IHostFileSystem;
+  }
+
+  function delegatingRunner(): IHostProcessService {
+    return new Proxy(createFakeProcessRunner(), {
+      get(_target, prop, receiver) {
+        const value = Reflect.get(activeRunner, prop, receiver);
+        return typeof value === 'function' ? value.bind(activeRunner) : value;
+      },
+    }) as IHostProcessService;
+  }
+
+  function makeEngine(): TurnEngine {
+    return async (input) => {
+      engineInput = input;
+      await input.dispatchEvent({ type: 'step.begin', uuid: 's1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'content.part',
+        uuid: 'p1',
+        turnId: String(input.turnId),
+        step: 1,
+        stepUuid: 's1',
+        part: { type: 'text', text: 'planning' },
+      });
+      await input.dispatchEvent({ type: 'step.end', uuid: 's1', turnId: String(input.turnId), step: 1, usage: emptyUsage() });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+  }
+
+  it('surfaces the plan-mode reminder inside the engine message projection', async () => {
+    activeFs = createFakeHostFs({ mkdir: async () => undefined, readText: async () => '' });
+    activeRunner = createFakeProcessRunner();
+    const engine = makeEngine();
+
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, { getEngine: () => engine }),
+      execEnvServices({ hostFs: delegatingFs(), processRunner: delegatingRunner() }),
+    );
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
+
+    await ctx.get(IAgentPlanService).enter('engine-plan');
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Plan the work' }] });
+    await end;
+
+    expect(engineInput).toBeDefined();
+    const messages = await engineInput!.buildMessages();
+    const text = messages
+      .flatMap((m) => m.content)
+      .map((p) => (p.type === 'text' ? p.text : ''))
+      .join('\n');
+    // PlanModeInjection registers a reminder variant that reconcileAroundStep
+    // injects through the onWillBeginStep gate; the engine path runs that
+    // gate, so the projection the engine reads must carry the plan-mode
+    // reminder — proving feature injections reach the native engine.
+    expect(text).toContain('Plan mode is active');
+    expect(text).toContain('<system-reminder>');
   });
 });
