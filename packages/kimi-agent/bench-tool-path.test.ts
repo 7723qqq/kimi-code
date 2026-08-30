@@ -62,8 +62,21 @@ function hostRead(path: string): string {
   return text
     .split('\n')
     .slice(0, READ_CAP_LINES)
-    .map((line, i) => `${String(i + 1)} | ${line}`)
+    .map((line, i) => `${String(i + 1)}\t${line}`)
     .join('\n');
+}
+
+/**
+ * Realistic shape: many short lines. A single giant line would let the native
+ * arm truncate to READ_MAX_LINE_LENGTH while the host arm returned the whole
+ * thing, which measures output size rather than work.
+ */
+function syntheticFile(lines: number): string {
+  const out: string[] = [];
+  for (let i = 1; i <= lines; i += 1) {
+    out.push(`line ${String(i)}: ${'x'.repeat(50)}`);
+  }
+  return `${out.join('\n')}\n`;
 }
 
 let workspace: string;
@@ -72,19 +85,17 @@ let escapeName: string;
 
 beforeAll(() => {
   workspace = mkdtempSync(join(tmpdir(), 'kimi-tool-path-'));
-  const fit = 'fits.txt';
-  const escape = 'too_big.txt';
-  writeFileSync(join(workspace, fit), 'a'.repeat(3_000_000) + '\n');
-  writeFileSync(join(workspace, escape), 'b'.repeat(5_000_000) + '\n');
-  fitName = fit;
-  escapeName = escape;
+  fitName = 'fits.txt';
+  escapeName = 'too_big.txt';
+  writeFileSync(join(workspace, fitName), syntheticFile(50_000));
+  writeFileSync(join(workspace, escapeName), syntheticFile(85_000));
 });
 
 afterAll(() => {
   rmSync(workspace, { recursive: true, force: true });
 });
 
-type Counts = { hostExecutions: number; permissionChecks: number };
+type Counts = { hostExecutions: number; permissionChecks: number; nativeResults: string[] };
 
 async function runTurn(
   mod: NativeModule,
@@ -128,7 +139,13 @@ async function runTurn(
         is_error: false,
       });
     }),
-    makeCallback(mod, () => ''),
+    makeCallback(mod, (req) => {
+      const event = JSON.parse(req) as { type?: string; content?: string };
+      if (event.type === 'tool.native' && typeof event.content === 'string') {
+        opts.counts.nativeResults.push(event.content);
+      }
+      return '';
+    }),
     makeCallback(mod, () => {
       opts.counts.permissionChecks += 1;
       return JSON.stringify({ decision: 'allow' });
@@ -142,7 +159,7 @@ async function measure(
   file: string | null,
   nativeTools: boolean,
 ): Promise<{ medianMs: number; counts: Counts }> {
-  const counts: Counts = { hostExecutions: 0, permissionChecks: 0 };
+  const counts: Counts = { hostExecutions: 0, permissionChecks: 0, nativeResults: [] };
   const samples: number[] = [];
   for (let i = 0; i < REPS; i += 1) {
     samples.push(await runTurn(mod, file, { nativeTools, counts }));
@@ -158,24 +175,36 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
     const control = await measure(mod, null, false);
     const viaHost = await measure(mod, fitName, false);
     const viaNative = await measure(mod, fitName, true);
+    const oversizedHost = await measure(mod, escapeName, false);
     const nativeFallsBack = await measure(mod, escapeName, true);
 
     const toolCost = (turn: { medianMs: number }): number => turn.medianMs - control.medianMs;
 
     const lines = [
       `control (2 steps, no tool)        ${control.medianMs.toFixed(2)} ms`,
-      `host  read 3 MB                   ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
-      `native read 3 MB                  ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
-      `native attempted, 5 MB falls back ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
+      `host  read in-cap file            ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
+      `native read in-cap file           ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
+      `host  read oversized file         ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
+      `native oversized → falls back     ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
+      `fallback tax vs same-size host    ${(nativeFallsBack.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
     ];
     console.log(`\n── tool-execution path baseline (${REPS} reps/arm) ──\n${lines.join('\n')}\n`);
 
-    expect(control.counts).toEqual({ hostExecutions: 0, permissionChecks: 0 });
-    expect(viaHost.counts).toEqual({ hostExecutions: REPS, permissionChecks: 0 });
-    expect(viaNative.counts).toEqual({ hostExecutions: 0, permissionChecks: REPS });
-    expect(nativeFallsBack.counts).toEqual({
-      hostExecutions: REPS,
-      permissionChecks: REPS,
-    });
+    const routed = (c: Counts) => ({ host: c.hostExecutions, permission: c.permissionChecks });
+    expect(routed(control.counts)).toEqual({ host: 0, permission: 0 });
+    expect(routed(viaHost.counts)).toEqual({ host: REPS, permission: 0 });
+    expect(routed(viaNative.counts)).toEqual({ host: 0, permission: REPS });
+    expect(routed(oversizedHost.counts)).toEqual({ host: REPS, permission: 0 });
+    expect(routed(nativeFallsBack.counts)).toEqual({ host: REPS, permission: REPS });
+
+    // Guard against measuring unequal work: the native arm must hand back the
+    // same 1000 numbered lines the host arm does, not a shorter payload.
+    const hostShape = hostRead(join(workspace, fitName));
+    expect(viaNative.counts.nativeResults).toHaveLength(REPS);
+    for (const content of viaNative.counts.nativeResults) {
+      expect(content).toContain('1\tline 1:');
+      expect(content).toContain('1000\tline 1000:');
+      expect(content.length).toBeLessThan(hostShape.length * 2);
+    }
   });
 });
