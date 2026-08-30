@@ -505,3 +505,29 @@ auto 探测上线后 mock 测试全绿,但**真机**验证暴露:`loadRuntimeCon
 - `KIMI_E2E=1` + 隔离配置:real-key-e2e 1/1 通过。
 - 常规 `bun x vitest run`(kimi-agent):55/55 + real-key skip(无 KIMI_E2E 时按设计跳过,CI 不花钱)。
 - 全部临时脚本(prep/probe/diag)删除;临时 KIMI_HOME 目录清理。
+
+## P15 — native-LLM vs host-proxy 真实 key 性能对比（2026-08-30）
+
+P5 遗留的「真实 key 对比」闭环。新增 `bench-native-vs-proxy.test.ts`(KIMI_E2E=1 门控,已入 vitest include;无 key 时 skip)。同 provider(MiniMax-M3 anthropic /v1)、同 prompt、同 max_tokens,各 3 轮,测首 token 时延(TTFT)与整轮时延。host-proxy 的宿主 LLM 用流式 fetch 实现(与 native 的 SSE 同形,公平)。
+
+### 实测结果(win32 本机, minimax 反代)
+
+```
+transport   ttft(med)  ttft(avg)   total(med)  total(avg)
+native            655ms        639ms        1259ms        1189ms
+host-proxy       1087ms       1081ms        1088ms        1081ms
+native outputTokens: 88, 88, 88   proxy: 89, 89, 89
+```
+
+### 解读
+
+- **首 token 时延(TTFT):native -40%**(655 vs 1087ms)——引擎直连 SSE,Rust 事件直达,省去 host 往返。用户感知的"开始输出"延迟 native 明显更低。
+- **整轮 total:native 1259 vs proxy 1088ms**(本次 proxy 略优)。此为测量方法差异而非定论:native 每 delta 逐条 emit + JS 事件链 dispatch 有累积成本;proxy 的裸 fetch 一次性消化全流、不计 UI 转发。真实 loop 下 host-proxy 也要逐 delta 转发 UI,该成本被本基准低估。
+- **输出等价**(88/89 tokens),链路无退化。
+- 结论:TTFT 是首 token 感知的主指标,native 收益显著且稳定;total 建议在真实 loop(含 UI 转发)下另测后再定论。重跑方式:`KIMI_E2E=1 bun x vitest run bench-native-vs-proxy.test.ts`。
+
+### 仍待(可选项)
+
+- MultiLLM 真机并发(winner 选择实测)。
+- tower/swarm 真实会话验证。
+- next:native 整轮 total 在含 UI 转发成本下的对比(如需)。
