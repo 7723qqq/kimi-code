@@ -444,6 +444,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const loopControl = this.config.get<LoopControl>('loopControl');
     return {
       modelAlias,
+      modelId: model.name,
       modelCapabilities: model.capabilities,
       maxOutputSize: model.maxOutputSize,
       alwaysThinking: model.alwaysThinking || undefined,

@@ -1058,10 +1058,11 @@ export function createRunTurnOverride(
     // Guard: when the user switches models in the TUI, the session's LLM
     // adapter (input.llm) is updated to the new provider/model, but the
     // nativeLlm config (read from config.toml) may still point to the old
-    // provider. If the models don't match, fall back to the host proxy
-    // (host/llm_chat) which always follows the session's current model.
+    // provider. Both sides are compared as wire model ids — `nativeLlm.model`
+    // is what the engine sends to the provider, so comparing it against the
+    // session's alias (often `provider/id`) would never match.
     const nativeLlm =
-      resolvedNativeLlm !== undefined && resolvedNativeLlm.model !== input.llm.modelName
+      resolvedNativeLlm !== undefined && resolvedNativeLlm.model !== input.llm.modelId
         ? undefined
         : resolvedNativeLlm;
 
@@ -1330,7 +1331,7 @@ export function createRunTurnOverride(
           {
             turnId: turnIdStr,
             systemPrompt: input.llm.systemPrompt,
-            modelName: input.llm.modelName,
+            modelName: input.llm.modelAlias,
             messages: wireMessages.map((m) => ({
               role: m.role,
               content: m.content,
@@ -1446,7 +1447,7 @@ export function createRunTurnOverride(
         const result = await agent.request('agent/run_turn', {
           turn_id: turnIdStr,
           system_prompt: input.llm.systemPrompt,
-          model_name: input.llm.modelName,
+          model_name: input.llm.modelAlias,
           messages: wireMessages,
           tools: wireTools.map((t) => ({
             name: t.name,

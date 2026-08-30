@@ -219,7 +219,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       turnId: 1,
       signal: new AbortController().signal,
       llm: {
-        modelName: 'test-model',
+        modelAlias: 'test-model',
+        modelId: 'test-model',
         systemPrompt: 'You are a test driver.',
         async chat() {
           const call = llmCallCount++;
@@ -374,7 +375,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       turnId: 2,
       signal: controller.signal,
       llm: {
-        modelName: 'test-model',
+        modelAlias: 'test-model',
+        modelId: 'test-model',
         systemPrompt: 'test',
         async chat({ signal: chatSignal }: { signal: AbortSignal }) {
           const call = chatCallCount++;
@@ -454,7 +456,8 @@ describe.skipIf(!napiEntry)('createRunTurnOverride — napi adapter cancellation
       turnId: 100,
       signal: controller.signal,
       llm: {
-        modelName: 'test-model',
+        modelAlias: 'test-model',
+        modelId: 'test-model',
         systemPrompt: 'test',
         async chat({ signal: chatSignal }: { signal: AbortSignal }) {
           chatCallCount += 1;
@@ -498,6 +501,108 @@ describe.skipIf(!napiEntry)('createRunTurnOverride — napi adapter cancellation
     expect((result as { stopReason: string }).stopReason).toBe('other');
     expect((result as { steps: number }).steps).toBe(1);
     expect(chatCallCount).toBe(1);
+  });
+});
+
+describe('native-LLM staleness guard', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Port 9 (discard) refuses connections instantly, so a turn that really
+  // picks the native transport fails locally instead of reaching a provider.
+  async function driveGuardTurn(opts: {
+    alias: string;
+    modelId: string;
+    nativeModel: string;
+  }): Promise<{ hostChatCalls: number; stopReason: string }> {
+    const mod = await import('./rust-loop');
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-native-llm-guard-'));
+    tempDirs.push(workspace);
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: false,
+      shellPath: undefined,
+      nativeLlm: () => ({
+        protocol: 'openai' as const,
+        base_url: 'http://127.0.0.1:9/v1',
+        api_key: 'sk-test',
+        model: opts.nativeModel,
+      }),
+    });
+    expect(engine).toBeDefined();
+
+    let hostChatCalls = 0;
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: opts.alias,
+        modelId: opts.modelId,
+        systemPrompt: 'test',
+        async chat() {
+          hostChatCalls += 1;
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent() {},
+      async executeTool() {
+        return { output: 'ok' };
+      },
+    };
+
+    let stopReason = 'rejected';
+    try {
+      const result = await (engine as (i: typeof input) => Promise<{ stopReason: string }>)(input);
+      stopReason = result.stopReason;
+    } catch {
+      // The native transport exhausted its retries against a dead port.
+    }
+    return { hostChatCalls, stopReason };
+  }
+
+  it(
+    'keeps the native transport when the wire model id matches a prefixed alias',
+    { timeout: 30_000 },
+    async () => {
+      const { hostChatCalls, stopReason } = await driveGuardTurn({
+        alias: 'provider-x/deepseek-v4-flash',
+        modelId: 'deepseek-v4-flash',
+        nativeModel: 'deepseek-v4-flash',
+      });
+
+      expect(hostChatCalls).toBe(0);
+      expect(stopReason).not.toBe('completed');
+    },
+  );
+
+  it('falls back to the host proxy when the config still points at another model', async () => {
+    const { hostChatCalls, stopReason } = await driveGuardTurn({
+      alias: 'provider-x/deepseek-v4-flash',
+      modelId: 'deepseek-v4-flash',
+      nativeModel: 'other-model',
+    });
+
+    expect(hostChatCalls).toBeGreaterThan(0);
+    expect(stopReason).toBe('completed');
   });
 });
 

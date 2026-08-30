@@ -1007,11 +1007,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     signal: AbortSignal,
     step: number,
   ): TurnEngineInput {
+    const modelContext = this.profile.resolveModelContext();
     return {
       turnId,
       signal,
       llm: {
-        modelName: this.profile.resolveModelContext().modelAlias,
+        modelAlias: modelContext.modelAlias,
+        modelId: modelContext.modelId,
         systemPrompt: this.profile.getSystemPrompt(),
         chat: async (chatInput) => {
           const finish = await this.llmRequester.request(

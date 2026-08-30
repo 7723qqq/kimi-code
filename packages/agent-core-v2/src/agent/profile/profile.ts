@@ -88,6 +88,7 @@ export interface ApplyProfileOptions {
 
 export interface ProfileModelContext {
   readonly modelAlias: string;
+  readonly modelId: string;
   readonly modelCapabilities: ModelCapability;
   readonly maxOutputSize: number | undefined;
   readonly alwaysThinking: boolean | undefined;

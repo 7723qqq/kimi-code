@@ -495,7 +495,8 @@ describe.skipIf(!nativeEntry)('createRunTurnOverride — engine selection', () =
       turnId: 1,
       signal: new AbortController().signal,
       llm: {
-        modelName: 'test-model',
+        modelAlias: 'test-model',
+        modelId: 'test-model',
         systemPrompt: 'You are a test assistant.',
         chat: () =>
           Promise.resolve({

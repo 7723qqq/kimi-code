@@ -35,7 +35,8 @@ export interface TurnEngineLLMChatResult {
 }
 
 export interface TurnEngineLLM {
-  readonly modelName: string;
+  readonly modelAlias: string;
+  readonly modelId: string;
   readonly systemPrompt: string;
   chat(input: TurnEngineLLMChatInput): Promise<TurnEngineLLMChatResult>;
 }

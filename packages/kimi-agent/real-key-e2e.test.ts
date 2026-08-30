@@ -45,49 +45,21 @@ interface ResolvedProvider {
   resolvedBaseUrl: string;
 }
 
-/** Find the first model whose provider has a static baseUrl + apiKey and whose
- *  resulting kimi-agent endpoint matches a known-good URL shape. When the
- *  stored baseUrl omits the `/v1` segment that the openai path expects, we
- *  resolve it locally so the test still exercises a real provider. */
-function pickProvider(cfg: ReturnType<typeof loadRuntimeConfigSafe>): ResolvedProvider | null {
-  const c = cfg.config;
-  const alias = c.defaultModel;
-  const m = c.models?.[alias];
-  if (!m) return null;
-  const p = c.providers?.[m.provider];
-  if (!p) return null;
-  if (!p.baseUrl || !p.apiKey) return null;
-  const protocol: 'openai' | 'anthropic' = p.type === 'anthropic' ? 'anthropic' : 'openai';
-  let resolvedBaseUrl = p.baseUrl;
-  // kimi-agent's openai path appends `/chat/completions` without a `/v1`
-  // segment, so the stored baseUrl must already include the version path
-  // (e.g. `https://openrouter.ai/api/v1`). If it's bare like
-  // `https://api.deepseek.com`, the request would hit the wrong path.
-  if (protocol === 'openai' && !/\/v\d+($|\/)/.test(resolvedBaseUrl)) {
-    return null;
-  }
-  // kimi-agent's anthropic path appends `/messages` to baseUrl with no
-  // version segment. Reverse-proxy bases that embed a path component
-  // (e.g. `…/anthropic`) do not match this expectation and 404. Probe
-  // a `/v1` sibling — that's where most reverse proxies (including the
-  // minimax anthropic mirror) actually serve the Messages API.
-  if (protocol === 'anthropic' && !/^https?:\/\/[^/]+$/.test(resolvedBaseUrl)) {
-    resolvedBaseUrl = `${resolvedBaseUrl.replace(/\/$/, '')}/v1`;
-  }
-  return {
-    alias,
-    provider: m.provider,
-    model: m.model,
-    protocol,
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    resolvedBaseUrl,
-  };
+/** Resolve a stored baseUrl to the endpoint kimi-agent actually builds.
+ *  kimi-agent appends `/chat/completions` (openai) or `/messages` (anthropic)
+ *  with no version segment, so a bare openai host needs `/v1`, and a reverse
+ *  proxy that embeds a path component (e.g. `…/anthropic`) needs a `/v1`
+ *  sibling. */
+function resolveKimiAgentBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, '');
+  if (/\/v\d+($|\/)/.test(trimmed)) return trimmed;
+  if (protocol === 'openai') return `${trimmed}/v1`;
+  return /^https?:\/\/[^/]+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
 function pickAnyProvider(cfg: ReturnType<typeof loadRuntimeConfigSafe>): ResolvedProvider | null {
   // Prefer the default model; otherwise walk models until we find a
-  // provider whose stored baseUrl matches the engine's URL construction.
+  // provider with a static key that kimi-agent can address.
   const c = cfg.config;
   const order = [
     c.defaultModel,
@@ -102,9 +74,7 @@ function pickAnyProvider(cfg: ReturnType<typeof loadRuntimeConfigSafe>): Resolve
       if (!p) return null;
       if (!p.baseUrl || !p.apiKey) return null;
       const protocol: 'openai' | 'anthropic' = p.type === 'anthropic' ? 'anthropic' : 'openai';
-      const resolvedBaseUrl = p.baseUrl;
-      if (protocol === 'openai' && !/\/v\d+($|\/)/.test(resolvedBaseUrl)) return null;
-      if (protocol === 'anthropic' && !/^https?:\/\/[^/]+$/.test(resolvedBaseUrl)) return null;
+      const resolvedBaseUrl = resolveKimiAgentBaseUrl(protocol, p.baseUrl);
       return { alias, provider: m.provider, model: m.model, protocol, baseUrl: p.baseUrl, apiKey: p.apiKey, resolvedBaseUrl };
     })();
     if (candidate) return candidate;
@@ -157,7 +127,8 @@ describe.skipIf(!optedIn || !picked)('real-key E2E — native LLM via kimi-agent
       turnId: Date.now(),
       signal: new AbortController().signal,
       llm: {
-        modelName: provider.model,
+        modelAlias: provider.alias,
+        modelId: provider.model,
         systemPrompt: 'You are a careful test driver. Use the Read tool when asked to inspect a file.',
       },
       async buildMessages() {

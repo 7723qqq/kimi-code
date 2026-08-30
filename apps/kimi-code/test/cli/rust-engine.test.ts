@@ -5,12 +5,17 @@ const mocks = vi.hoisted(() => ({
   resolveConfigPath: vi.fn(),
   resolveKimiHome: vi.fn(),
   createRunTurnOverride: vi.fn(),
+  probeHostEnvironment: vi.fn(),
 }));
 
 vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
   loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
   resolveConfigPath: mocks.resolveConfigPath,
   resolveKimiHome: mocks.resolveKimiHome,
+}));
+
+vi.mock('@moonshot-ai/agent-core-v2', () => ({
+  probeHostEnvironment: mocks.probeHostEnvironment,
 }));
 
 vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
@@ -48,6 +53,7 @@ beforeEach(() => {
   mocks.resolveConfigPath.mockReset().mockReturnValue('/home/u/config.toml');
   mocks.resolveKimiHome.mockReset().mockReturnValue('/home/u');
   mocks.createRunTurnOverride.mockReset();
+  mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
 });
 
 afterEach(() => {
