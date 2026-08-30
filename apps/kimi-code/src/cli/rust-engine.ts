@@ -171,10 +171,36 @@ function tryResolveNativeLlm(
 
   return {
     protocol,
-    base_url: provider.baseUrl,
+    base_url: normalizeBaseUrl(protocol, provider.baseUrl),
     api_key: provider.apiKey,
     model,
   };
+}
+
+/**
+ * Adapt provider `baseUrl` values to the URL shape the kimi-agent engine
+ * expects.
+ *
+ * - `anthropic`: the engine appends `/messages` to `baseUrl` with no
+ *   version segment. Reverse proxies that embed a path component (e.g.
+ *   `…/anthropic`) must expose Messages at `…/anthropic/v1/messages`; we
+ *   inject the `/v1` sibling here. Bare-host base URLs (e.g.
+ *   `https://api.anthropic.com`) are passed through unchanged.
+ * - `openai`: the engine appends `/chat/completions` with no version
+ *   segment, so the stored base URL must already include the version
+ *   path (`…/v1`). When the URL is bare (`https://api.example.com`) we
+ *   append `/v1`. URLs that already end in `/vN` (including `/v1`) are
+ *   passed through.
+ */
+export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, '');
+  if (protocol === 'openai') {
+    return /\/v\d+($|\/)/.test(trimmed) ? trimmed : `${trimmed}/v1`;
+  }
+  // anthropic
+  return /\/v\d+($|\/)/.test(trimmed) || /^https?:\/\/[^/]+$/.test(trimmed)
+    ? trimmed
+    : `${trimmed}/v1`;
 }
 
 /**

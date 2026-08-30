@@ -22,6 +22,8 @@ vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
   createRunTurnOverride: mocks.createRunTurnOverride,
 }));
 
+import { normalizeBaseUrl } from '../../src/cli/rust-engine';
+
 /** Fresh module per test so the module-level rustTurnEngine cache resets. */
 async function loadMaybeRustEngine() {
   vi.resetModules();
@@ -232,5 +234,124 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('agent.multiLlm is set but agent.engine is not "rust"'),
     );
+  });
+});
+
+describe('normalizeBaseUrl', () => {
+  it('appends /v1 to anthropic baseUrls that carry a path component', () => {
+    expect(normalizeBaseUrl('anthropic', 'https://api.minimaxi.com/anthropic')).toBe(
+      'https://api.minimaxi.com/anthropic/v1',
+    );
+  });
+
+  it('passes bare-host anthropic baseUrls through unchanged', () => {
+    expect(normalizeBaseUrl('anthropic', 'https://api.anthropic.com')).toBe(
+      'https://api.anthropic.com',
+    );
+  });
+
+  it('passes anthropic baseUrls with /v1 already through unchanged', () => {
+    expect(normalizeBaseUrl('anthropic', 'https://api.anthropic.com/v1')).toBe(
+      'https://api.anthropic.com/v1',
+    );
+  });
+
+  it('appends /v1 to bare-host openai baseUrls', () => {
+    expect(normalizeBaseUrl('openai', 'https://api.deepseek.com')).toBe(
+      'https://api.deepseek.com/v1',
+    );
+  });
+
+  it('passes openai baseUrls with /vN already through unchanged', () => {
+    expect(normalizeBaseUrl('openai', 'https://api.example.com/v1')).toBe(
+      'https://api.example.com/v1',
+    );
+    expect(normalizeBaseUrl('openai', 'https://api.z.ai/api/paas/v4')).toBe(
+      'https://api.z.ai/api/paas/v4',
+    );
+  });
+
+  it('strips trailing slashes before normalization', () => {
+    expect(normalizeBaseUrl('anthropic', 'https://api.minimaxi.com/anthropic/')).toBe(
+      'https://api.minimaxi.com/anthropic/v1',
+    );
+    expect(normalizeBaseUrl('openai', 'https://api.deepseek.com/')).toBe(
+      'https://api.deepseek.com/v1',
+    );
+  });
+});
+
+describe('nativeLlm config extraction with /v1 normalization', () => {
+  it('injects /v1 for the minimax-cn-coding-plan anthropic reverse proxy', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: {
+        defaultModel: 'minimax-cn-coding-plan/MiniMax-M3',
+        providers: {
+          'minimax-cn-coding-plan': {
+            type: 'anthropic',
+            apiKey: 'sk-test',
+            baseUrl: 'https://api.minimaxi.com/anthropic',
+          },
+        },
+        models: {
+          'minimax-cn-coding-plan/MiniMax-M3': {
+            provider: 'minimax-cn-coding-plan',
+            model: 'MiniMax-M3',
+          },
+        },
+        agent: { engine: 'rust' },
+      },
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+
+    expect(capturedNativeLlm).toEqual({
+      protocol: 'anthropic',
+      base_url: 'https://api.minimaxi.com/anthropic/v1',
+      api_key: 'sk-test',
+      model: 'MiniMax-M3',
+    });
+  });
+
+  it('appends /v1 to a bare-host openai provider (e.g. deepseek)', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: {
+        defaultModel: 'deepseek-v4-flash',
+        providers: {
+          deepseek: {
+            type: 'openai',
+            apiKey: 'sk-deepseek',
+            baseUrl: 'https://api.deepseek.com',
+          },
+        },
+        models: {
+          'deepseek-v4-flash': { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        },
+        agent: { engine: 'rust' },
+      },
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+
+    expect(capturedNativeLlm).toEqual({
+      protocol: 'openai',
+      base_url: 'https://api.deepseek.com/v1',
+      api_key: 'sk-deepseek',
+      model: 'deepseek-v4-flash',
+    });
   });
 });
