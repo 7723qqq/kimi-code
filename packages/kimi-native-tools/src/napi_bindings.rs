@@ -3,6 +3,7 @@
 /// This module defines the `#[napi]` functions that TypeScript calls.
 /// Each function wraps the corresponding Rust implementation.
 use crate::bash::{self, BashConfig, BashResult, DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S};
+use crate::bash_spawn;
 use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta};
 use crate::edit::{self, EditResult};
 use crate::escape;
@@ -22,6 +23,7 @@ use napi::bindgen_prelude::JsFunction;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 // ============================================================================
@@ -431,6 +433,157 @@ pub async fn native_bash(
     tokio::task::spawn_blocking(move || bash::bash_exec(&config))
         .await
         .map_err(|e| napi::Error::from_reason(format!("bash task failed: {}", e)))
+}
+
+// ============================================================================
+// Managed bash processes — spawn / wait / kill / dispose
+// ============================================================================
+
+/// Configuration for `native_bash_spawn`. `argv` is the full command line:
+/// `argv[0]` is the program (typically the shell) and the rest are its
+/// arguments — no shell detection happens on the native side.
+#[napi(object)]
+pub struct NativeBashSpawnConfig {
+    pub argv: Vec<String>,
+    pub cwd: Option<String>,
+    /// Wall-clock timeout in milliseconds; `null` means no timeout.
+    pub timeout_ms: Option<i64>,
+    /// Environment overrides as `[key, value]` pairs (inherited env is kept).
+    pub env: Option<Vec<Vec<String>>>,
+}
+
+/// Handle of a spawned managed process.
+#[napi(object)]
+pub struct NativeBashSpawnResult {
+    pub id: u32,
+    pub pid: u32,
+}
+
+/// Lifecycle / output event forwarded to the JS callback.
+#[napi(object)]
+pub struct NativeBashEvent {
+    pub id: u32,
+    pub kind: String,
+    pub data: Option<String>,
+    pub exit_code: Option<i32>,
+    pub error: Option<String>,
+}
+
+/// Final exit verdict, resolved by `native_bash_wait`.
+#[napi(object)]
+pub struct NativeBashExitResult {
+    pub exit_code: i32,
+    pub timed_out: bool,
+    pub error: Option<String>,
+}
+
+/// Spawn a managed process and stream its output to `on_event`.
+///
+/// Returns immediately with the handle. Events arrive via the JS callback as
+/// `(err, event)` — `err` is `null` on success; `event` is
+/// `{ id, kind: 'stdout'|'stderr'|'exit'|'error', data?, exitCode?, error? }`.
+/// A spawn failure throws synchronously so the host can fall back to its own
+/// spawn path. Stdin is closed at spawn. When `timeoutMs` elapses the whole
+/// process tree is killed and the exit event still fires.
+#[napi]
+pub fn native_bash_spawn(
+    config: NativeBashSpawnConfig,
+    on_event: JsFunction,
+) -> Result<NativeBashSpawnResult, napi::Error> {
+    use napi::threadsafe_function::ThreadsafeFunction;
+
+    let tsfn: ThreadsafeFunction<NativeBashEvent> = on_event
+        .create_threadsafe_function(
+            0,
+            |ctx: napi::threadsafe_function::ThreadSafeCallContext<NativeBashEvent>| {
+                ctx.env.create_object().and_then(|mut obj| {
+                    obj.set("id", ctx.value.id)?;
+                    obj.set("kind", ctx.value.kind)?;
+                    if let Some(data) = ctx.value.data {
+                        obj.set("data", data)?;
+                    }
+                    if let Some(exit_code) = ctx.value.exit_code {
+                        obj.set("exitCode", exit_code)?;
+                    }
+                    if let Some(error) = ctx.value.error {
+                        obj.set("error", error)?;
+                    }
+                    Ok(vec![obj])
+                })
+            },
+        )
+        .map_err(|e| napi::Error::from_reason(format!("create_threadsafe_function failed: {e}")))?;
+
+    let env_pairs: Option<Vec<(String, String)>> = config.env.map(|pairs| {
+        pairs
+            .into_iter()
+            .filter_map(|mut pair| {
+                if pair.len() >= 2 {
+                    let value = pair.pop()?;
+                    let key = pair.pop()?;
+                    Some((key, value))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    });
+
+    let callback: Arc<dyn Fn(bash_spawn::BashSpawnEvent) + Send + Sync> = Arc::new(move |event| {
+        let _ = tsfn.call(
+            Ok(NativeBashEvent {
+                id: event.id,
+                kind: event.kind.as_str().to_string(),
+                data: event.data,
+                exit_code: event.exit_code,
+                error: event.error,
+            }),
+            napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+        );
+    });
+
+    let (id, pid) = bash_spawn::spawn_managed(
+        &config.argv,
+        config.cwd.as_deref(),
+        config.timeout_ms,
+        env_pairs.as_deref(),
+        callback,
+    )
+    .map_err(napi::Error::from_reason)?;
+
+    Ok(NativeBashSpawnResult { id, pid })
+}
+
+/// Resolve with the cached exit result of a managed bash process. Resolves
+/// `null` when the handle is unknown or was disposed before exiting.
+#[napi]
+pub async fn native_bash_wait(id: u32) -> Option<NativeBashExitResult> {
+    loop {
+        if let Some(outcome) = bash_spawn::exit_snapshot(id) {
+            return Some(NativeBashExitResult {
+                exit_code: outcome.exit_code,
+                timed_out: outcome.timed_out,
+                error: outcome.error,
+            });
+        }
+        if !bash_spawn::is_managed(id) {
+            return None;
+        }
+        std::thread::sleep(bash_spawn::POLL_INTERVAL);
+    }
+}
+
+/// Kill a managed bash process tree. Returns false when the handle is unknown.
+#[napi]
+pub fn native_bash_kill(id: u32) -> bool {
+    bash_spawn::kill_managed(id)
+}
+
+/// Drop a managed bash process handle, killing the tree first if it is still
+/// running. Returns false when the handle is unknown.
+#[napi]
+pub fn native_bash_dispose(id: u32) -> bool {
+    bash_spawn::dispose_managed(id)
 }
 
 // ============================================================================

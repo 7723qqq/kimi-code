@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
 
 mod bash;
+mod bash_spawn;
 mod compaction;
 mod edit;
 mod encoding;

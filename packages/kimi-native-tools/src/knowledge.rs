@@ -7,7 +7,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS entries (
     scope       TEXT DEFAULT NULL,
     confidence  REAL NOT NULL DEFAULT 1.0,
     source      TEXT NOT NULL CHECK(source IN ('human','ai-learned','ai-confirmed')),
+    status      TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('pending','confirmed','rejected')),
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -49,7 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_entries_confidence ON entries(confidence);
 
 // ─── Models ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 struct KnowledgeEntry {
     id: String,
     category: String,
@@ -59,6 +60,7 @@ struct KnowledgeEntry {
     scope: Option<String>,
     confidence: f64,
     source: String,
+    status: String,
     created_at: String,
     updated_at: String,
 }
@@ -75,6 +77,7 @@ struct Stats {
     total: usize,
     by_category: HashMap<String, usize>,
     by_source: HashMap<String, usize>,
+    by_status: HashMap<String, usize>,
     avg_confidence: f64,
 }
 
@@ -116,8 +119,9 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntry> {
         scope: row.get(5)?,
         confidence: row.get(6)?,
         source: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        status: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -143,21 +147,45 @@ pub fn knowledge_open(db_path: String) -> Result<()> {
         Connection::open(&db_path).map_err(|e| Error::from_reason(format!("Open DB: {e}")))?;
     conn.execute_batch("PRAGMA journal_mode = WAL;")
         .map_err(|e| Error::from_reason(format!("{e}")))?;
-    // Check if schema exists
-    let has_table: bool = conn
-        .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='entries'")
+    // Databases created before the FTS table existed would otherwise index
+    // nothing (the FTS triggers only fire on later writes).
+    let had_fts: bool = conn
+        .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='entries_fts'")
         .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
         .map(|c| c > 0)
         .unwrap_or(false);
-    if !has_table {
-        conn.execute_batch(SCHEMA_SQL)
-            .map_err(|e| Error::from_reason(format!("Schema: {e}")))?;
+    // Always apply the schema: every statement is IF NOT EXISTS, so this is
+    // idempotent for existing databases and backfills the FTS table,
+    // triggers, and indexes for databases created before those existed.
+    conn.execute_batch(SCHEMA_SQL)
+        .map_err(|e| Error::from_reason(format!("Schema: {e}")))?;
+    if !had_fts {
+        // Backfill the FTS index from the entries table so pre-existing rows
+        // become searchable.
+        conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')", [])
+            .map_err(|e| Error::from_reason(format!("FTS rebuild: {e}")))?;
+    }
+    // Migrate databases created before the status column existed: add it
+    // backfilled with 'confirmed' so existing entries stay searchable.
+    let has_status: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('entries') WHERE name = 'status'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if has_status == 0 {
+        conn.execute_batch(
+            "ALTER TABLE entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('pending','confirmed','rejected'));",
+        )
+        .map_err(|e| Error::from_reason(format!("Migrate status column: {e}")))?;
     }
     *guard = Some(conn);
     Ok(())
 }
 
 #[napi]
+#[allow(clippy::too_many_arguments)]
 pub fn knowledge_add(
     title: String,
     category: String,
@@ -166,14 +194,18 @@ pub fn knowledge_add(
     scope: Option<String>,
     source: String,
     confidence: f64,
+    status: Option<String>,
 ) -> Result<String> {
     with_db(|conn| {
         let id = generate_id();
         let now = now_iso();
         let scope = scope.filter(|s| !s.is_empty());
+        let status = status
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "confirmed".to_string());
         conn.execute(
-            "INSERT INTO entries (id, category, title, content, tags, scope, confidence, source, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-            params![id, category, title, content, tags, scope, confidence, source, now, now],
+            "INSERT INTO entries (id, category, title, content, tags, scope, confidence, source, status, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![id, category, title, content, tags, scope, confidence, source, status, now, now],
         ).map_err(|e| format!("Insert: {e}"))?;
 
         let entry = KnowledgeEntry {
@@ -189,6 +221,7 @@ pub fn knowledge_add(
             scope,
             confidence,
             source,
+            status,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -210,7 +243,7 @@ pub fn knowledge_search(
         // 1. Scope match
         if let Some(ref path) = scope_path {
             let mut stmt = conn.prepare(
-                "SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND (scope IS NULL OR substr(?2, 1, length(scope)) = scope) ORDER BY confidence DESC LIMIT 20"
+                "SELECT id,category,title,content,tags,scope,confidence,source,status,created_at,updated_at FROM entries WHERE confidence >= ?1 AND status != 'rejected' AND (scope IS NULL OR substr(?2, 1, length(scope)) = scope) ORDER BY confidence DESC LIMIT 20"
             ).map_err(|e| format!("{e}"))?;
             let rows = stmt
                 .query_map(params![min_confidence, path], row_to_entry)
@@ -235,11 +268,11 @@ pub fn knowledge_search(
                     .collect::<Vec<_>>()
                     .join(" OR ")
             };
-            let sql = "SELECT e.id,e.category,e.title,e.content,e.tags,e.scope,e.confidence,e.source,e.created_at,e.updated_at,rank FROM entries_fts f JOIN entries e ON e.rowid=f.rowid WHERE entries_fts MATCH ?1 AND e.confidence >= ?2 ORDER BY rank LIMIT 20";
+            let sql = "SELECT e.id,e.category,e.title,e.content,e.tags,e.scope,e.confidence,e.source,e.status,e.created_at,e.updated_at,rank FROM entries_fts f JOIN entries e ON e.rowid=f.rowid WHERE entries_fts MATCH ?1 AND e.confidence >= ?2 AND e.status != 'rejected' ORDER BY rank LIMIT 20";
             if let Ok(mut stmt) = conn.prepare(sql) {
                 if let Ok(rows) = stmt.query_map(params![fts_query, min_confidence], |r| {
                     let entry = row_to_entry(r)?;
-                    let rank: f64 = r.get(10)?;
+                    let rank: f64 = r.get(11)?;
                     Ok((entry, rank))
                 }) {
                     for row in rows.flatten() {
@@ -264,7 +297,7 @@ pub fn knowledge_search(
                 .filter(|s| !s.is_empty())
                 .collect();
             if !query_tags.is_empty() {
-                let mut stmt = conn.prepare("SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND tags != ''").map_err(|e| format!("{e}"))?;
+                let mut stmt = conn.prepare("SELECT id,category,title,content,tags,scope,confidence,source,status,created_at,updated_at FROM entries WHERE confidence >= ?1 AND status != 'rejected' AND tags != ''").map_err(|e| format!("{e}"))?;
                 let rows = stmt
                     .query_map(params![min_confidence], row_to_entry)
                     .map_err(|e| format!("{e}"))?;
@@ -319,12 +352,38 @@ pub fn knowledge_remove(id: String) -> Result<bool> {
     })
 }
 
+/// Close the open database (the `db_path` argument is informational; the
+/// process holds a single connection). Flushes WAL and releases the handle.
+#[napi]
+pub fn knowledge_close(db_path: Option<String>) -> Result<()> {
+    let _ = db_path;
+    let mut guard = DB
+        .lock()
+        .map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
+    *guard = None;
+    Ok(())
+}
+
 #[napi]
 pub fn knowledge_confirm(id: String) -> Result<bool> {
     with_db(|conn| {
         let now = now_iso();
         let affected = conn.execute(
-            "UPDATE entries SET confidence = 1.0, source = 'ai-confirmed', updated_at = ?1 WHERE id = ?2",
+            "UPDATE entries SET confidence = 1.0, source = 'ai-confirmed', status = 'confirmed', updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        ).map_err(|e| format!("{e}"))?;
+        Ok(affected > 0)
+    })
+}
+
+/// Mark an entry as rejected: it stays in the database for audit but is
+/// excluded from search results.
+#[napi]
+pub fn knowledge_reject(id: String) -> Result<bool> {
+    with_db(|conn| {
+        let now = now_iso();
+        let affected = conn.execute(
+            "UPDATE entries SET status = 'rejected', updated_at = ?1 WHERE id = ?2",
             params![now, id],
         ).map_err(|e| format!("{e}"))?;
         Ok(affected > 0)
@@ -359,6 +418,17 @@ pub fn knowledge_stats() -> Result<String> {
             by_source.insert(row.0, row.1);
         }
 
+        let mut by_status = HashMap::new();
+        let mut stmt = conn
+            .prepare("SELECT status, count(*) FROM entries GROUP BY status")
+            .map_err(|e| format!("{e}"))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, usize>(1)?)))
+            .map_err(|e| format!("{e}"))?;
+        for row in rows.flatten() {
+            by_status.insert(row.0, row.1);
+        }
+
         let avg_confidence: f64 = conn
             .query_row("SELECT COALESCE(avg(confidence),0) FROM entries", [], |r| {
                 r.get(0)
@@ -369,6 +439,7 @@ pub fn knowledge_stats() -> Result<String> {
             total,
             by_category,
             by_source,
+            by_status,
             avg_confidence,
         };
         serde_json::to_string(&stats).map_err(|e| format!("JSON: {e}"))
@@ -436,10 +507,10 @@ pub fn knowledge_import(markdown: String) -> Result<String> {
             let id = generate_id();
             let now = now_iso();
             if conn.execute(
-                "INSERT INTO entries (id,category,title,content,tags,scope,confidence,source,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,1.0,'human',?7,?8)",
+                "INSERT INTO entries (id,category,title,content,tags,scope,confidence,source,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,1.0,'human','confirmed',?7,?8)",
                 params![id, cat_str, title, entry_content, tags, scope, now, now],
             ).is_ok() {
-                entries.push(KnowledgeEntry { id, category: cat_str.to_string(), title: title.to_string(), content: entry_content, tags: if tags.is_empty() { vec![] } else { tags.split(',').map(|s| s.to_string()).collect() }, scope, confidence: 1.0, source: "human".to_string(), created_at: now.clone(), updated_at: now });
+                entries.push(KnowledgeEntry { id, category: cat_str.to_string(), title: title.to_string(), content: entry_content, tags: if tags.is_empty() { vec![] } else { tags.split(',').map(|s| s.to_string()).collect() }, scope, confidence: 1.0, source: "human".to_string(), status: "confirmed".to_string(), created_at: now.clone(), updated_at: now });
             }
         }
 
@@ -490,6 +561,7 @@ mod tests {
             None,
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap()
     }
@@ -518,6 +590,7 @@ mod tests {
         assert_eq!(entry["title"], "Rust lifetimes");
         assert_eq!(entry["category"], "coding-style");
         assert_eq!(entry["source"], "human");
+        assert_eq!(entry["status"], "confirmed");
         assert_eq!(entry["confidence"], 1.0);
         assert!(!entry["id"].as_str().unwrap().is_empty());
         assert!(!entry["created_at"].as_str().unwrap().is_empty());
@@ -561,6 +634,7 @@ mod tests {
             Some("G:/repo".to_string()),
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap();
         knowledge_add(
@@ -571,6 +645,7 @@ mod tests {
             None,
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap();
 
@@ -604,6 +679,7 @@ mod tests {
             None,
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap();
 
@@ -627,6 +703,7 @@ mod tests {
             None,
             "ai-learned".to_string(),
             0.3,
+            None,
         )
         .unwrap();
         add_entry("High confidence", "coding-style", "Definitely right.");
@@ -675,6 +752,7 @@ mod tests {
             None,
             "ai-learned".to_string(),
             0.4,
+            Some("pending".to_string()),
         )
         .unwrap();
         let id: serde_json::Value = serde_json::from_str(&id).unwrap();
@@ -703,7 +781,117 @@ mod tests {
         assert_eq!(stats["by_category"]["coding-style"], 2);
         assert_eq!(stats["by_category"]["pitfall"], 1);
         assert_eq!(stats["by_source"]["human"], 3);
+        assert_eq!(stats["by_status"]["confirmed"], 3);
         assert_eq!(stats["avg_confidence"], 1.0);
+    }
+
+    #[test]
+    fn test_add_with_explicit_status() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let json = knowledge_add(
+            "Pending entry".to_string(),
+            "pitfall".to_string(),
+            "Needs review.".to_string(),
+            "".to_string(),
+            None,
+            "ai-learned".to_string(),
+            0.7,
+            Some("pending".to_string()),
+        )
+        .unwrap();
+        let entry: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(entry["status"], "pending");
+        // Native search keeps pending entries visible; the TS layer filters
+        // them out itself.
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("review".to_string(), None, None, 10, 0.0).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["status"], "pending");
+    }
+
+    #[test]
+    fn test_reject_excludes_from_search() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let id = add_entry_id("Wrong rule", "pitfall", "This one is wrong.");
+        add_entry("Right rule", "coding-style", "This one is right.");
+
+        assert!(knowledge_reject(id.clone()).unwrap());
+        // Reject of a missing id is a no-op.
+        assert!(!knowledge_reject("missing-id".to_string()).unwrap());
+
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("rule".to_string(), None, None, 10, 0.0).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["title"], "Right rule");
+
+        // Rejected entries stay in the database and show up in stats.
+        let stats: serde_json::Value =
+            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        assert_eq!(stats["total"], 2);
+        assert_eq!(stats["by_status"]["rejected"], 1);
+        assert_eq!(stats["by_status"]["confirmed"], 1);
+    }
+
+    #[test]
+    fn test_close_releases_the_database() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let db = TestDb::new();
+        add_entry("Before close", "pitfall", "Content.");
+        knowledge_close(Some("whatever".to_string())).unwrap();
+        assert!(knowledge_stats().is_err(), "operations must fail after close");
+
+        // Re-opening restores a working (fresh) database.
+        let dir2 = tempfile::tempdir().unwrap();
+        knowledge_open(dir2.path().join("kb3.db").to_string_lossy().to_string()).unwrap();
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap());
+        assert!(results.is_empty());
+        *DB.lock().unwrap() = None;
+        drop(db);
+        drop(dir2);
+    }
+
+    #[test]
+    fn test_open_migrates_legacy_schema_without_status() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        *DB.lock().unwrap() = None;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+
+        // Simulate a database written by a build before the status column.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE entries (
+                    id          TEXT PRIMARY KEY,
+                    category    TEXT NOT NULL,
+                    title       TEXT NOT NULL,
+                    content     TEXT NOT NULL,
+                    tags        TEXT NOT NULL DEFAULT '',
+                    scope       TEXT DEFAULT NULL,
+                    confidence  REAL NOT NULL DEFAULT 1.0,
+                    source      TEXT NOT NULL,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                );
+                INSERT INTO entries (id, category, title, content, tags, scope, confidence, source, created_at, updated_at)
+                VALUES ('legacy-1', 'coding-style', 'Legacy rule', 'Body.', '', NULL, 1.0, 'human', '2026-01-01', '2026-01-01');",
+            )
+            .unwrap();
+        }
+
+        knowledge_open(path.to_string_lossy().to_string()).unwrap();
+        let stats: serde_json::Value =
+            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        assert_eq!(stats["total"], 1);
+        assert_eq!(stats["by_status"]["confirmed"], 1, "legacy rows backfill as confirmed");
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("legacy".to_string(), None, None, 10, 0.0).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["status"], "confirmed");
+        *DB.lock().unwrap() = None;
     }
 
     #[test]
@@ -774,6 +962,7 @@ Good content.
             None,
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("CHECK"), "got: {err}");
@@ -792,6 +981,7 @@ Good content.
             None,
             "human".to_string(),
             1.0,
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("not opened"), "got: {err}");

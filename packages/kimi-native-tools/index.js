@@ -215,23 +215,6 @@ async function nativeRead(path, options = {}) {
 }
 
 // ============================================================================
-// Batch Read — parallel multi-file read
-// ============================================================================
-
-/**
- * Read multiple files in parallel.
- *
- * @param {string[]} paths - Array of file paths to read.
- * @param {object} [options] - Read options.
- * @param {Array<number|null>} [options.lineOffsets] - Per-file line offsets.
- * @param {Array<number|null>} [options.nLinesArray] - Per-file line counts.
- * @returns {Promise<Array<{ content: string, lineCount: number, error?: string }>>}
- */
-async function nativeBatchRead(paths, options = {}) {
-  return binding.nativeBatchRead(paths, options.lineOffsets ?? null, options.nLinesArray ?? null);
-}
-
-// ============================================================================
 // Write tool
 // ============================================================================
 
@@ -247,18 +230,6 @@ async function nativeBatchRead(paths, options = {}) {
  */
 async function nativeWrite(path, content, options = {}) {
   return binding.nativeWrite(path, content, options.mode ?? null, options.atomic ?? null);
-}
-// ============================================================================
-// File cache
-// ============================================================================
-
-/**
- * Invalidate the file read cache entry for a path (call after write/edit).
- *
- * @param {string} path - Path to the file that was written or edited.
- */
-function nativeFileCacheInvalidate(path) {
-  return binding.nativeFileCacheInvalidate(path);
 }
 
 // ============================================================================
@@ -497,6 +468,8 @@ function nativeBash(command, options = {}) {
  * @returns {{ id: number, pid: number }}
  */
 function nativeBashSpawn(config, onEvent) {
+  // `?? undefined` (not null): napi object-struct Option fields reject null
+  // and only treat undefined as None.
   return binding.nativeBashSpawn(
     {
       argv: config.argv,
@@ -666,61 +639,6 @@ function nativeCropImage(data, mimeType, regionX, regionY, regionWidth, regionHe
     regionWidth,
     regionHeight,
     config,
-  );
-}
-
-// ============================================================================
-// Structured grep
-// ============================================================================
-
-/**
- * Structured grep — returns typed match data instead of formatted strings.
- *
- * Used by fsSearchService when rg is not available on PATH. Walks the
- * directory tree, applies include/exclude globs, reads each file, and
- * collects matches with context lines.
- *
- * @param {string} pattern - Pattern to search for.
- * @param {string} path - Directory to search in.
- * @param {boolean} literal - If true, treat pattern as literal (not regex).
- * @param {boolean} caseInsensitive - Case-insensitive search.
- * @param {string[]} includeGlobs - Only scan files matching these globs.
- * @param {string[]} excludeGlobs - Skip files matching these globs.
- * @param {number} contextLines - Number of context lines before/after each match.
- * @param {number} maxFiles - Max files to scan.
- * @param {number} maxMatchesPerFile - Max matches per file.
- * @param {number} maxTotalMatches - Max total matches across all files.
- * @param {number} timeoutMs - Timeout in milliseconds.
- * @param {boolean} followGitignore - Whether to respect .gitignore rules.
- * @returns {{ files: Array<{path: string, matches: Array<{line: number, col: number, text: string, before: string[], after: string[]}>}>, filesScanned: number, truncated: boolean, error?: string }}
- */
-function nativeGrepStructured(
-  pattern,
-  path,
-  literal,
-  caseInsensitive,
-  includeGlobs,
-  excludeGlobs,
-  contextLines,
-  maxFiles,
-  maxMatchesPerFile,
-  maxTotalMatches,
-  timeoutMs,
-  followGitignore,
-) {
-  return binding.nativeGrepStructured(
-    pattern,
-    path,
-    literal,
-    caseInsensitive,
-    includeGlobs ?? [],
-    excludeGlobs ?? [],
-    contextLines,
-    maxFiles,
-    maxMatchesPerFile,
-    maxTotalMatches,
-    timeoutMs,
-    followGitignore,
   );
 }
 
@@ -1019,14 +937,136 @@ function nativeGoalEngineRenderPausedNote(json) {
 }
 
 // ============================================================================
+// Knowledge base (SQLite + FTS5)
+// ============================================================================
+
+/**
+ * Open (or re-open) the knowledge database. Applies schema migrations
+ * idempotently; closing any previously-open database first.
+ *
+ * @param {string} dbPath - SQLite database file path.
+ * @returns {void}
+ */
+function nativeKnowledgeOpen(dbPath) {
+  return binding.knowledgeOpen(dbPath);
+}
+
+/**
+ * Close the open knowledge database (flushes WAL, releases the file handle).
+ * The argument is informational — the process holds a single connection.
+ *
+ * @param {string} [dbPath] - Path of the database being closed.
+ * @returns {void}
+ */
+function nativeKnowledgeClose(dbPath) {
+  return binding.knowledgeClose(dbPath ?? null);
+}
+
+/**
+ * Insert a knowledge entry.
+ *
+ * @param {object} input - Entry fields.
+ * @param {string} input.title - Entry title.
+ * @param {string} input.category - One of coding-style / pitfall / architecture / workflow.
+ * @param {string} input.content - Entry body.
+ * @param {string} input.tags - Comma-separated tags.
+ * @param {string|null} input.scope - Scope path prefix, or null.
+ * @param {string} input.source - One of human / ai-learned / ai-confirmed.
+ * @param {number} input.confidence - 0..1 relevance confidence.
+ * @param {string|null} input.status - One of pending / confirmed / rejected; null defaults to confirmed.
+ * @returns {string} JSON of the inserted entry.
+ */
+function nativeKnowledgeAdd(input) {
+  return binding.knowledgeAdd(
+    input.title,
+    input.category,
+    input.content,
+    input.tags,
+    input.scope ?? null,
+    input.source,
+    input.confidence,
+    input.status ?? null,
+  );
+}
+
+/**
+ * Search knowledge entries by scope prefix, full-text query, and tag overlap.
+ * Rejected entries are excluded; pending entries are included (the caller filters).
+ *
+ * @param {object} options - Search options.
+ * @param {string} options.query - Full-text query; empty or "*" matches all.
+ * @param {string|null} options.scopePath - Path whose prefix-matching scopes rank higher.
+ * @param {string|null} options.tags - Comma-separated tag filter.
+ * @param {number} options.limit - Maximum number of results.
+ * @param {number} options.minConfidence - Minimum entry confidence.
+ * @returns {string} JSON array of `{ entry, relevance, match_source }`.
+ */
+function nativeKnowledgeSearch(options) {
+  return binding.knowledgeSearch(
+    options.query,
+    options.scopePath ?? null,
+    options.tags ?? null,
+    options.limit,
+    options.minConfidence,
+  );
+}
+
+/**
+ * Delete a knowledge entry.
+ *
+ * @param {string} id - Entry id.
+ * @returns {boolean} True when the entry existed.
+ */
+function nativeKnowledgeRemove(id) {
+  return binding.knowledgeRemove(id);
+}
+
+/**
+ * Confirm an AI-learned entry (confidence 1.0, source ai-confirmed).
+ *
+ * @param {string} id - Entry id.
+ * @returns {boolean} True when the entry existed.
+ */
+function nativeKnowledgeConfirm(id) {
+  return binding.knowledgeConfirm(id);
+}
+
+/**
+ * Mark an entry as rejected: kept for audit, excluded from search.
+ *
+ * @param {string} id - Entry id.
+ * @returns {boolean} True when the entry existed.
+ */
+function nativeKnowledgeReject(id) {
+  return binding.knowledgeReject(id);
+}
+
+/**
+ * Aggregate statistics of the knowledge database.
+ *
+ * @returns {string} JSON `{ total, by_category, by_source, by_status, avg_confidence }`.
+ */
+function nativeKnowledgeStats() {
+  return binding.knowledgeStats();
+}
+
+/**
+ * Import entries from markdown blocks (`# category: title` + `tags:`/`scope:` headers).
+ *
+ * @param {string} markdown - Markdown document.
+ * @returns {string} JSON array of the imported entries.
+ */
+function nativeKnowledgeImport(markdown) {
+  return binding.knowledgeImport(markdown);
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
 module.exports = {
   // Tools
   nativeRead,
-  nativeBatchRead,
-  nativeFileCacheInvalidate,
   nativeWrite,
   nativeEdit,
   nativeGrep,
@@ -1063,9 +1103,6 @@ module.exports = {
 
   // Tool output truncation
   nativeWriteToolOutputChunk,
-
-  // Structured grep
-  nativeGrepStructured,
 
   // XML / HTML escaping
   nativeEscapeXml,
@@ -1133,6 +1170,17 @@ module.exports = {
 
   // WebSearch
   nativeWebSearch,
+
+  // Knowledge base (SQLite + FTS5)
+  nativeKnowledgeOpen,
+  nativeKnowledgeClose,
+  nativeKnowledgeAdd,
+  nativeKnowledgeSearch,
+  nativeKnowledgeRemove,
+  nativeKnowledgeConfirm,
+  nativeKnowledgeReject,
+  nativeKnowledgeStats,
+  nativeKnowledgeImport,
 
   // LLM Stream
   nativeLlmStream,

@@ -600,3 +600,62 @@ export function nativeLlmStreamStreaming(
   config: NativeLlmStreamConfig,
   onEvent: (error: unknown, event: NativeLlmStreamEvent) => void,
 ): void;
+
+// ============================================================================
+// Knowledge base (SQLite + FTS5)
+// ============================================================================
+
+export type KnowledgeEntryStatus = 'pending' | 'confirmed' | 'rejected';
+
+/**
+ * Open (or re-open) the knowledge database. Schema application and migrations
+ * are idempotent; any previously-open database is closed first.
+ */
+export function nativeKnowledgeOpen(dbPath: string): void;
+
+/** Close the open database (flushes WAL, releases the handle). */
+export function nativeKnowledgeClose(dbPath?: string | null): void;
+
+export interface KnowledgeAddInput {
+  title: string;
+  category: string;
+  content: string;
+  tags: string;
+  scope?: string | null;
+  source: string;
+  confidence: number;
+  status?: KnowledgeEntryStatus | null;
+}
+
+/** Insert an entry; resolves to the JSON of the inserted entry. */
+export function nativeKnowledgeAdd(input: KnowledgeAddInput): string;
+
+export interface KnowledgeSearchOptions {
+  query: string;
+  scopePath?: string | null;
+  tags?: string | null;
+  limit: number;
+  minConfidence: number;
+}
+
+/**
+ * Search by scope prefix, full-text query, and tag overlap. Rejected entries
+ * are excluded; pending entries are included (the caller filters them).
+ * Resolves to a JSON array of `{ entry, relevance, match_source }`.
+ */
+export function nativeKnowledgeSearch(options: KnowledgeSearchOptions): string;
+
+/** Delete an entry; true when it existed. */
+export function nativeKnowledgeRemove(id: string): boolean;
+
+/** Confirm an AI-learned entry (confidence 1.0, source ai-confirmed). */
+export function nativeKnowledgeConfirm(id: string): boolean;
+
+/** Mark an entry as rejected: kept for audit, excluded from search. */
+export function nativeKnowledgeReject(id: string): boolean;
+
+/** Resolves to JSON `{ total, by_category, by_source, by_status, avg_confidence }`. */
+export function nativeKnowledgeStats(): string;
+
+/** Import markdown blocks; resolves to a JSON array of the imported entries. */
+export function nativeKnowledgeImport(markdown: string): string;

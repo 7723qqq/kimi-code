@@ -20,36 +20,43 @@ import { KnowledgeLearner } from './knowledgeLearner';
 
 let nativeKnowledge:
   | {
-      knowledgeOpen(dbPath: string): void;
-      knowledgeClose(dbPath?: string | null): void;
-      knowledgeAdd(
-        title: string,
-        category: string,
-        content: string,
-        tags: string,
-        scope: string | null | undefined,
-        source: string,
-        confidence: number,
-        status: string,
-      ): string;
-      knowledgeSearch(
-        query: string,
-        scopePath: string | null | undefined,
-        tags: string | null | undefined,
-        limit: number,
-        minConfidence: number,
-      ): string;
-      knowledgeRemove(id: string): boolean;
-      knowledgeConfirm(id: string): boolean;
-      knowledgeReject(id: string): boolean;
-      knowledgeStats(): string;
-      knowledgeImport(markdown: string): string;
+      nativeKnowledgeOpen(dbPath: string): void;
+      nativeKnowledgeClose(dbPath?: string | null): void;
+      nativeKnowledgeAdd(input: {
+        title: string;
+        category: string;
+        content: string;
+        tags: string;
+        scope?: string | null;
+        source: string;
+        confidence: number;
+        status?: string | null;
+      }): string;
+      nativeKnowledgeSearch(options: {
+        query: string;
+        scopePath?: string | null;
+        tags?: string | null;
+        limit: number;
+        minConfidence: number;
+      }): string;
+      nativeKnowledgeRemove(id: string): boolean;
+      nativeKnowledgeConfirm(id: string): boolean;
+      nativeKnowledgeReject(id: string): boolean;
+      nativeKnowledgeStats(): string;
+      nativeKnowledgeImport(markdown: string): string;
     }
   | undefined;
 
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  nativeKnowledge = require('@moonshot-ai/kimi-native-tools');
+  const candidate = require('@moonshot-ai/kimi-native-tools') as
+    | Record<string, unknown>
+    | undefined;
+  // A stale native binary predating the knowledge functions must degrade to
+  // "module unavailable" instead of failing on every call below.
+  if (candidate && typeof candidate['nativeKnowledgeOpen'] === 'function') {
+    nativeKnowledge = candidate as NonNullable<typeof nativeKnowledge>;
+  }
 } catch (error) {
   void error;
 }
@@ -85,7 +92,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     if (!nativeKnowledge || this.initialized) return;
     const projectDb = `${this.bootstrap.cwd}/.kimi-code/knowledge.db`;
     try {
-      nativeKnowledge.knowledgeOpen(projectDb);
+      nativeKnowledge.nativeKnowledgeOpen(projectDb);
       this.initialized = true;
       this.currentDbPath = projectDb;
     } catch (error) {
@@ -95,7 +102,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       });
       try {
         const userDb = `${this.bootstrap.homeDir}/knowledge.db`;
-        nativeKnowledge.knowledgeOpen(userDb);
+        nativeKnowledge.nativeKnowledgeOpen(userDb);
         this.initialized = true;
         this.currentDbPath = userDb;
       } catch (error) {
@@ -109,11 +116,11 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     try {
       if (this.currentDbPath !== null) {
         try {
-          nativeKnowledge.knowledgeClose(this.currentDbPath);
+          nativeKnowledge.nativeKnowledgeClose(this.currentDbPath);
         } catch {
         }
       }
-      nativeKnowledge.knowledgeOpen(projectDbPath);
+      nativeKnowledge.nativeKnowledgeOpen(projectDbPath);
       this.initialized = true;
       this.currentDbPath = projectDbPath;
     } catch (error) {
@@ -122,7 +129,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
         projectDbPath,
       });
       try {
-        nativeKnowledge.knowledgeOpen(userDbPath);
+        nativeKnowledge.nativeKnowledgeOpen(userDbPath);
         this.initialized = true;
         this.currentDbPath = userDbPath;
       } catch (error) {
@@ -135,8 +142,13 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   search(query: string, scopePath?: string, tags?: string[], limit = 5): KnowledgeSearchResult[] {
     if (!nativeKnowledge || !this.initialized) return [];
     try {
-      const tagsStr = tags?.join(',') ?? null;
-      const json = nativeKnowledge.knowledgeSearch(query, scopePath ?? null, tagsStr, limit, 0.5);
+      const json = nativeKnowledge.nativeKnowledgeSearch({
+        query,
+        scopePath: scopePath ?? null,
+        tags: tags?.join(',') ?? null,
+        limit,
+        minConfidence: 0.5,
+      });
       const results: KnowledgeSearchResult[] = JSON.parse(json);
       return results.filter((r) => r.entry.status !== 'pending');
     } catch (error) {
@@ -148,16 +160,16 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   add(input: KnowledgeAddInput): KnowledgeEntry | null {
     if (!nativeKnowledge || !this.initialized) return null;
     try {
-      const json = nativeKnowledge.knowledgeAdd(
-        input.title,
-        input.category,
-        input.content,
-        input.tags?.join(',') ?? '',
-        input.scope ?? null,
-        input.source ?? 'ai-learned',
-        input.confidence ?? 0.7,
-        input.status ?? (input.source === 'human' ? 'confirmed' : 'pending'),
-      );
+      const json = nativeKnowledge.nativeKnowledgeAdd({
+        title: input.title,
+        category: input.category,
+        content: input.content,
+        tags: input.tags?.join(',') ?? '',
+        scope: input.scope ?? null,
+        source: input.source ?? 'ai-learned',
+        confidence: input.confidence ?? 0.7,
+        status: input.status ?? (input.source === 'human' ? 'confirmed' : 'pending'),
+      });
       return JSON.parse(json);
     } catch (error) {
       this.log.warn('knowledge.add failed (may be a duplicate)', {
@@ -171,7 +183,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   confirm(id: string): boolean {
     if (!nativeKnowledge || !this.initialized) return false;
     try {
-      return nativeKnowledge.knowledgeConfirm(id);
+      return nativeKnowledge.nativeKnowledgeConfirm(id);
     } catch (error) {
       this.log.error('knowledge.confirm failed', { error: error, id });
       return false;
@@ -181,7 +193,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   reject(id: string): boolean {
     if (!nativeKnowledge || !this.initialized) return false;
     try {
-      return nativeKnowledge.knowledgeReject(id);
+      return nativeKnowledge.nativeKnowledgeReject(id);
     } catch (error) {
       this.log.error('knowledge.reject failed', { error: error, id });
       return false;
@@ -191,7 +203,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   remove(id: string): boolean {
     if (!nativeKnowledge || !this.initialized) return false;
     try {
-      return nativeKnowledge.knowledgeRemove(id);
+      return nativeKnowledge.nativeKnowledgeRemove(id);
     } catch (error) {
       this.log.error('knowledge.remove failed', { error: error, id });
       return false;
@@ -202,7 +214,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     if (!nativeKnowledge || !this.initialized)
       return { total: 0, by_category: {}, by_source: {}, by_status: {}, avg_confidence: 0 };
     try {
-      return JSON.parse(nativeKnowledge.knowledgeStats());
+      return JSON.parse(nativeKnowledge.nativeKnowledgeStats());
     } catch (error) {
       this.log.error('knowledge.stats failed', error);
       return { total: 0, by_category: {}, by_source: {}, by_status: {}, avg_confidence: 0 };
@@ -212,7 +224,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   importMarkdown(markdown: string): KnowledgeEntry[] {
     if (!nativeKnowledge || !this.initialized) return [];
     try {
-      const json = nativeKnowledge.knowledgeImport(markdown);
+      const json = nativeKnowledge.nativeKnowledgeImport(markdown);
       const parsed = JSON.parse(json) as
         | { entries: KnowledgeEntry[]; skipped: string[] }
         | KnowledgeEntry[];
