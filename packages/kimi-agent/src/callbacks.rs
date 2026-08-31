@@ -689,10 +689,8 @@ impl HostCallbacks for CountingCallbacks {
         // Not counted: `event_count` reports content events (deltas, tool
         // results) as a per-turn overhead figure, and lifecycle records are a
         // fixed four per turn regardless of how much work the turn did.
-        if let Some(ref bus) = self.bus {
-            if let Ok(payload) = serde_json::to_value(&event) {
-                bus.publish_json(payload);
-            }
+        if let (Some(bus), Ok(payload)) = (&self.bus, serde_json::to_value(&event)) {
+            bus.publish_json(payload);
         }
         self.inner.turn_event(event);
     }

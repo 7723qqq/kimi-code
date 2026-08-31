@@ -664,13 +664,10 @@ pub async fn start_repl(
             tool_call_id: None,
         };
         let mut receipt = engine_session
-            .enqueue_turn(crate::session::TurnRequest {
-                prompt: user_msg.clone(),
-                admission: crate::session::Admission::NewTurn,
-                // Echoed back verbatim on the durable turn.prompt event.
-                input: serde_json::json!([{ "type": "text", "text": line.clone() }]),
-                origin: serde_json::json!({ "kind": "user" }),
-            })
+            .enqueue_turn(crate::session::TurnRequest::user(
+                user_msg.clone(),
+                crate::session::Admission::NewTurn,
+            ))
             .expect("session is alive");
 
         println!(); // Linebreak before streaming

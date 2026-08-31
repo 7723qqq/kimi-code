@@ -311,7 +311,9 @@ impl StateStore {
             TurnEvent::Cancel {
                 turn_id, target, ..
             } => {
-                if !target.map_or(true, |t| t == TurnCancelTarget::Queued) {
+                // A cancellation aimed at the active turn is accounted for by
+                // turn.ended; only a queued one reserves an id.
+                if target.is_some_and(|t| t != TurnCancelTarget::Queued) {
                     return;
                 }
                 let Some(turn_id) = (*turn_id).filter(|id| *id >= next_turn_id) else {

@@ -13,9 +13,8 @@
 //! durable [`TurnEvent::Prompt`], so the host's own `turnKey` fold stays the
 //! single writer of persisted turn state.
 //!
-//! Deliberately out of scope (see
-//! `reports/rust-engine-turn-lifecycle-design.md`): quiescence/backpressure
-//! and telemetry (M1c), `host/list_tools` (M1d).
+//! Deliberately out of scope (see the M1 section of `ROADMAP.md`):
+//! quiescence/backpressure and telemetry (M1c), `host/list_tools` (M1d).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -85,13 +84,17 @@ pub struct TurnRequest {
     pub origin: serde_json::Value,
 }
 
-impl Default for TurnRequest {
-    fn default() -> Self {
+impl TurnRequest {
+    /// A plain text prompt from the user — the minimum the host can fold:
+    /// v2's undo-anchor check reads `origin.kind`, so a missing origin would
+    /// throw inside the fold rather than degrade.
+    pub fn user(prompt: LLMMessage, admission: Admission) -> Self {
+        let input = serde_json::json!([{ "type": "text", "text": prompt.content.clone() }]);
         Self {
-            prompt: LLMMessage::default(),
-            admission: Admission::NewTurn,
-            input: serde_json::Value::Array(Vec::new()),
-            origin: serde_json::Value::Null,
+            input,
+            origin: serde_json::json!({ "kind": "user" }),
+            prompt,
+            admission,
         }
     }
 }
@@ -334,7 +337,11 @@ impl EngineSession {
                 None => match &core.active_cancel {
                     Some(flag) => {
                         flag.store(true, Ordering::SeqCst);
-                        Decision::CancelActive { turn_id: None }
+                        // v2 always attributes the cancellation to the active
+                        // turn's id, even when the caller said "cancel all".
+                        Decision::CancelActive {
+                            turn_id: core.active_turn_id,
+                        }
                     }
                     None => Decision::Nothing,
                 },
@@ -765,18 +772,10 @@ mod tests {
         let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "hello"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "hello"), Admission::NewTurn))
             .unwrap();
         let mut r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "world"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "world"), Admission::NewTurn))
             .unwrap();
         let o1 = r1.outcome().await.unwrap();
         let o2 = r2.outcome().await.unwrap();
@@ -809,25 +808,13 @@ mod tests {
         ]));
         let session = make_session(llm, rpc_callbacks(server)).await;
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "a"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "a"), Admission::NewTurn))
             .unwrap();
         let mut r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "b"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "b"), Admission::NewTurn))
             .unwrap();
         let mut r3 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "c"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "c"), Admission::NewTurn))
             .unwrap();
         let o1 = r1.outcome().await.unwrap();
         let o2 = r2.outcome().await.unwrap();
@@ -849,19 +836,11 @@ mod tests {
         let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "first"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "first"), Admission::NewTurn))
             .unwrap();
         wait_until(|| !requests.lock().unwrap().is_empty()).await;
         let mut r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "second"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "second"), Admission::NewTurn))
             .unwrap();
         assert!(session.cancel_turn(Some(r2.turn_id)));
         let o2 = r2.outcome().await.unwrap();
@@ -880,19 +859,14 @@ mod tests {
         let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "first"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "first"), Admission::NewTurn))
             .unwrap();
         wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
         let mut r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "steer-me"),
-                admission: Admission::ActiveOrNewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "steer-me"),
+                Admission::ActiveOrNewTurn,
+            ))
             .unwrap();
         assert_eq!(r2.turn_id, r1.turn_id);
         gates.into_iter().next().unwrap().send(()).unwrap();
@@ -907,11 +881,10 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let llm = Arc::new(ScriptedLlm::simple(vec![]));
         let session = make_session(llm, rpc_callbacks(server)).await;
-        let result = session.enqueue_turn(TurnRequest {
-            prompt: msg("user", "x"),
-            admission: Admission::ActiveTurnOnly,
-            ..Default::default()
-        });
+        let result = session.enqueue_turn(TurnRequest::user(
+            msg("user", "x"),
+            Admission::ActiveTurnOnly,
+        ));
         assert!(result.is_err());
         let err = match result {
             Err(e) => e,
@@ -933,11 +906,7 @@ mod tests {
         let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "a"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "a"), Admission::NewTurn))
             .unwrap();
         assert!(matches!(
             tokio::time::timeout(std::time::Duration::from_secs(5), r1.outcome())
@@ -950,11 +919,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let mut r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "b"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "b"), Admission::NewTurn))
             .unwrap();
         assert!(matches!(
             tokio::time::timeout(std::time::Duration::from_secs(5), r2.outcome())
@@ -1081,19 +1046,11 @@ mod tests {
         let session = make_session(llm, Arc::new(callbacks)).await;
 
         let mut r1 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "first"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "first"), Admission::NewTurn))
             .unwrap();
         wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
         let r2 = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "second"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(msg("user", "second"), Admission::NewTurn))
             .unwrap();
 
         assert!(session.cancel_turn(Some(r2.turn_id)));
@@ -1112,7 +1069,7 @@ mod tests {
 
         gates.into_iter().next().unwrap().send(()).unwrap();
         r1.outcome().await.unwrap();
-        assert_eq!(session.cancel_turn(Some(9999)), false);
+        assert!(!session.cancel_turn(Some(9999)));
         assert_eq!(
             recorded(&events)
                 .iter()
@@ -1133,11 +1090,10 @@ mod tests {
         let session = make_session(llm, Arc::new(callbacks)).await;
 
         let mut receipt = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "after resume"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "after resume"),
+                Admission::NewTurn,
+            ))
             .unwrap();
         assert_eq!(receipt.turn_id, 41);
         receipt.outcome().await.unwrap();
@@ -1154,12 +1110,98 @@ mod tests {
         // RpcHostCallbacks has no state bridge wired, so the read fails.
         let session = make_session(llm, rpc_callbacks(server)).await;
         let receipt = session
-            .enqueue_turn(TurnRequest {
-                prompt: msg("user", "first-ever"),
-                admission: Admission::NewTurn,
-                ..Default::default()
-            })
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "first-ever"),
+                Admission::NewTurn,
+            ))
             .unwrap();
         assert_eq!(receipt.turn_id, 0);
+    }
+
+    #[test]
+    fn turn_end_reasons_map_onto_v2s_four_values() {
+        use crate::turn_loop::types::LoopTurnStopReason as Stop;
+        let cases = [
+            (Stop::EndTurn, TurnEndReason::Completed),
+            (Stop::MaxTokens, TurnEndReason::Completed),
+            (Stop::Filtered, TurnEndReason::Completed),
+            (Stop::Paused, TurnEndReason::Blocked),
+            (Stop::BudgetLimited, TurnEndReason::Blocked),
+            (Stop::Aborted, TurnEndReason::Cancelled),
+            (Stop::Unknown, TurnEndReason::Failed),
+        ];
+        for (stop, expected) in cases {
+            assert_eq!(end_reason_of(&stop), expected, "{stop:?}");
+        }
+    }
+
+    struct FailingLlm;
+
+    impl LLM for FailingLlm {
+        fn system_prompt(&self) -> &str {
+            "test"
+        }
+        fn model_name(&self) -> &str {
+            "failing-llm"
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+        fn transport(&self) -> &'static str {
+            "native-http"
+        }
+        fn chat(
+            &self,
+            _: LLMChatParams,
+        ) -> futures_util::future::BoxFuture<
+            'static,
+            Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+        > {
+            Box::pin(async { Err("provider is offline".into()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_failed_turn_reports_ended_with_error() {
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let session = make_session(Arc::new(FailingLlm), Arc::new(callbacks)).await;
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "boom"), Admission::NewTurn))
+            .unwrap();
+        assert!(receipt.outcome().await.is_err());
+        let seen = recorded(&events);
+        assert!(
+            matches!(
+                seen.last(),
+                Some(TurnEvent::Ended {
+                    reason: TurnEndReason::Failed,
+                    error: Some(_),
+                    ..
+                })
+            ),
+            "a turn that never produced a stop reason must still close: {seen:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cancel_without_id_reports_the_active_turn_id() {
+        let (llm, gates) = ScriptedLlm::with_gate(vec![text_response("first")]);
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let session = make_session(Arc::new(llm), Arc::new(callbacks)).await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "a"), Admission::NewTurn))
+            .unwrap();
+        wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
+
+        assert!(session.cancel_turn(None));
+        assert!(recorded(&events).contains(&TurnEvent::Cancel {
+            turn_id: Some(r1.turn_id),
+            target: Some(TurnCancelTarget::Active),
+            reason: Some(TurnCancelReason::UserCancelled),
+        }));
+
+        gates.into_iter().next().unwrap().send(()).unwrap();
+        let _ = r1.outcome().await;
     }
 }

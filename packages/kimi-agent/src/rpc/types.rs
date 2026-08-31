@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(params.providers[1].name, "smart");
     }
 
-    /// Contract fixture (M0, `reports/rust-engine-contract-ownership.md`):
+    /// Contract fixture (M0, see the M0 bullet in `ROADMAP.md`):
     /// pins the stdio wire shape of the message contract — snake_case field
     /// names, `ContentBlock` tag names, optional-field omission. The TS side
     /// (`rust-loop.ts`) must produce exactly these shapes; a round-trip

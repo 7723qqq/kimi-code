@@ -1444,7 +1444,8 @@ gateway 2/2，tsc 0 错误。
 
 每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。
 
-- **M0 — 契约归属决策（先决）** — ✅ 完成（2026-08-31，`reports/rust-engine-contract-ownership.md`）
+- **M0 — 契约归属决策（先决）** — ✅ 完成（2026-08-31，决策文档 `reports/rust-engine-contract-ownership.md`）
+  ⚠️ 本节引用的 `reports/*.md` 设计文档在 **gitignore 的 `reports/`** 下（可追踪的单一事实源只有本 ROADMAP），新克隆取不到——关键结论已同步进对应里程碑条目。
   现状：同一契约存在 **4 份**且已漂移，**无编译期检查**——kosong TS（`usage.ts:7`、`message.ts:38`）、
   **v2 contract 物理拷贝**（`agent-core-v2/src/kosong/contract/`，message.ts 语义相同、tokens.ts 已分叉）、
   Rust（`rpc/types.rs:335/583`、`turn_loop/types.rs:92`）、napi 边界 `JsMessage:694`。
@@ -1505,6 +1506,14 @@ gateway 2/2，tsc 0 错误。
     - **宿主 dispatch 桥（turn_event → `dispatcher.dispatch(new TurnPrompt(…))`）刻意未做**：
       今天 v2 loop 仍自己派发这些事件，桥一接就是双份折叠。它属于 M1d 删
       `executeTurnViaEngine`、turn 所有权真正翻转的那一步。
+    - 收尾打磨（同一轮）：`TurnRequest::user(prompt, admission)` 取代 `Default` ——
+      `origin` 为 `null` 时宿主折叠里的 `isUndoAnchorOrigin(origin)` 会直接读 `origin.kind`
+      抛 TypeError（durable 记录不可折叠比不写更糟），所以构造器保证 `input`/`origin`
+      至少是合法的 text part + `kind:'user'`，宿主有真实 ContentPart 时直接构造结构体；
+      `cancel_turn(None)`（「取消全部」）现在带上当时活跃 turn 的 id —— v2
+      `cancelActiveTurn` 一直发 `job.turn.id`，无 id 的取消事件宿主没法归属；
+      `end_reason_of` 七变体映射表 + 失败 turn 的 `turn.ended{failed,error}` +
+      无 id 取消三条测试补齐；`cargo clippy --all-targets` 0 警告（本轮引入的 4 条已清）。
     - 顺带修掉 **M1a 的潜伏死锁**：`EngineSession::new` 存进 handle 的是新建的
       `Arc<Notify>`，pump 等的是另一个 —— `enqueue_turn` 的 `notify_one` 打在了没人等的
       通道上，pump 一旦因空闲 park，后续入队永不唤醒。REPL 交互路径（第一个 turn 跑完

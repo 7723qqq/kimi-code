@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn every_variant_carries_a_dotted_type_tag() {
-        let events = vec![
+        let events = [
             TurnEvent::Prompt {
                 turn_id: 0,
                 input: json!([]),
