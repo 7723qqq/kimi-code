@@ -62,6 +62,7 @@ packages/kimi-native-tools/.*.rollback.tmp
 packages/kimi-native-tools/.napi-rs-swp-bak-*
 packages/kimi-agent/.*.tmp.*
 packages/kimi-agent/.*.rollback.tmp
+packages/kimi-agent/index.js
 packages/.kimi-*-napi-stage-*/
 
 # Debug session bundles dumped at the repo root

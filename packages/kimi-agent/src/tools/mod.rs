@@ -59,6 +59,7 @@ pub mod encoding;
 pub mod exit_plan_mode;
 pub mod fetch_url;
 pub mod get_goal;
+pub mod github;
 pub mod goal_tools;
 pub mod knowledge_tool;
 pub mod list_directory;
@@ -95,6 +96,10 @@ pub struct NativeToolset {
     /// the tool falls back to the host path, which owns the interaction
     /// runtime anyway.
     callbacks: Option<std::sync::Arc<dyn crate::callbacks::HostCallbacks>>,
+    /// Host-resolved `[github]` config credentials for the native GitHub
+    /// tools (v2 `configSection.ts`). Env fallbacks live in the github
+    /// module itself (v2 `envOverlay.ts` semantics).
+    github_credentials: Option<github::GitHubCredentials>,
 }
 
 impl NativeToolset {
@@ -128,6 +133,7 @@ impl NativeToolset {
             subagent_manager: None,
             mcp_manager: None,
             callbacks: None,
+            github_credentials: None,
         })
     }
 
@@ -152,6 +158,13 @@ impl NativeToolset {
         callbacks: std::sync::Arc<dyn crate::callbacks::HostCallbacks>,
     ) -> Self {
         self.callbacks = Some(callbacks);
+        self
+    }
+
+    /// Attach host-resolved `[github]` config credentials for the native
+    /// GitHub tools.
+    pub fn with_github_credentials(mut self, credentials: github::GitHubCredentials) -> Self {
+        self.github_credentials = Some(credentials);
         self
     }
 
@@ -225,7 +238,7 @@ impl NativeToolset {
                 | "skill"
                 | "knowledge"
                 | "team"
-        )
+        ) || github::is_github_tool(tool_name)
     }
 
     /// Execute a tool natively (async).
@@ -327,6 +340,9 @@ impl NativeToolset {
             "write" => self.write(args),
             "edit" => self.edit(args),
             "bash" => self.bash(args).await,
+            _ if github::is_github_tool(tool_name) => {
+                github::execute_github_tool(tool_name, args, self.github_credentials.as_ref()).await
+            }
             _ => {
                 if let Some(ref mcp) = self.mcp_manager
                     && mcp.handles(tool_name).await

@@ -440,6 +440,13 @@ pub struct RunTurnParams {
     /// Optional permission policy snapshot for local evaluation (P26 批 3).
     #[serde(default)]
     pub policy_snapshot: Option<crate::permission::PolicySnapshot>,
+    /// Host-resolved `[github]` config credentials for the native GitHub
+    /// tools (v2 `configSection.ts`). Env fallbacks are applied Rust-side
+    /// (v2 `envOverlay.ts` semantics: config wins, env fills the gap).
+    #[serde(default)]
+    pub github_token: Option<String>,
+    #[serde(default)]
+    pub github_base_url: Option<String>,
 }
 
 /// LLM provider definition for MultiLLM.
@@ -704,6 +711,62 @@ mod tests {
         assert_eq!(params.providers[0].name, "fast");
         assert_eq!(params.providers[0].model, "gpt-4o-mini");
         assert_eq!(params.providers[1].name, "smart");
+    }
+
+    /// Contract fixture (M0, `reports/rust-engine-contract-ownership.md`):
+    /// pins the stdio wire shape of the message contract — snake_case field
+    /// names, `ContentBlock` tag names, optional-field omission. The TS side
+    /// (`rust-loop.ts`) must produce exactly these shapes; a round-trip
+    /// mismatch here is a wire break, not a refactor.
+    #[test]
+    fn test_message_wire_contract_roundtrip() {
+        let fixture = serde_json::json!({
+            "role": "user",
+            "content": "fallback text",
+            "blocks": [
+                {"type": "text", "text": "hello"},
+                {"type": "image", "media_type": "image/png", "data": "aGk="},
+                {"type": "image_url", "url": "https://example.com/a.png"},
+                {"type": "audio_url", "url": "https://example.com/a.mp3", "id": "aud-1"},
+                {"type": "video_url", "url": "https://example.com/a.mp4"}
+            ],
+            "tool_calls": [
+                {"id": "call-1", "name": "Read", "arguments": {"path": "a.rs"}}
+            ],
+            "tool_call_id": "call-0"
+        });
+        let message: Message = serde_json::from_value(fixture.clone()).unwrap();
+        assert_eq!(message.role, "user");
+        assert_eq!(message.blocks.len(), 5);
+        assert_eq!(message.tool_calls.len(), 1);
+        let reserialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(reserialized, fixture, "wire round-trip must be identity");
+
+        // Optional fields are omitted from the wire when absent.
+        let bare: Message = serde_json::from_value(serde_json::json!({
+            "role": "assistant", "content": "hi"
+        }))
+        .unwrap();
+        let wire = serde_json::to_value(&bare).unwrap();
+        assert_eq!(
+            wire,
+            serde_json::json!({"role": "assistant", "content": "hi"})
+        );
+
+        // TokenUsage wire field names (drifted from kosong's camelCase on
+        // purpose — the mapping lives in rust-loop.ts).
+        let usage: TokenUsage = serde_json::from_value(serde_json::json!({
+            "input_tokens": 1, "output_tokens": 2, "total_tokens": 3,
+            "input_cache_read": 4, "input_cache_creation": 5
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&usage).unwrap(),
+            serde_json::json!({
+                "input_tokens": 1, "output_tokens": 2, "total_tokens": 3,
+                "input_cache_read": 4, "input_cache_creation": 5
+            })
+        );
     }
 
     #[test]

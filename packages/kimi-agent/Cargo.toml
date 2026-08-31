@@ -21,7 +21,7 @@ cli = []
 
 [dependencies]
 napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"] }
-napi-derive = "2"
+napi-derive = { version = "2", features = ["type-def"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

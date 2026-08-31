@@ -351,16 +351,29 @@ export async function maybeLoadRustEngine(
       nativeTools,
       rustSelfContained,
       shellPath,
+      getGithubCredentials: () => {
+        // Re-read the config file fresh so token rotation in config.toml is
+        // reflected on the next turn. Env fallbacks (GITHUB_TOKEN / GH_TOKEN
+        // / GITHUB_API_URL) are applied Rust-side — only the config values
+        // cross the boundary here.
+        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+        if (reloaded.fileError !== undefined) return undefined;
+        const github = reloaded.config.github;
+        const token = github?.token;
+        const baseUrl = github?.baseUrl;
+        if (token === undefined && baseUrl === undefined) return undefined;
+        return { token, baseUrl };
+      },
       getPolicySnapshot: () => {
         const reloaded = loadRuntimeConfigSafe(resolvedConfig);
         if (reloaded.fileError !== undefined) return;
         const cfg = reloaded.config as Record<string, unknown>;
-        const perm = cfg.permission as Record<string, unknown> | undefined;
-        const agent = cfg.agent as Record<string, unknown> | undefined;
-        const mode = (agent?.yolo === true
+        const perm = cfg['permission'] as Record<string, unknown> | undefined;
+        const agent = cfg['agent'] as Record<string, unknown> | undefined;
+        const mode = (agent?.['yolo'] === true
           ? 'yolo'
-          : (perm?.mode as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
-        const rules = (perm?.rules as Array<{ decision?: string; pattern?: string }>) ?? [];
+          : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
+        const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
         return {
           mode,
           deny_rules: rules

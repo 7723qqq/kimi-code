@@ -1159,6 +1159,37 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 8 轮：GitHub 工具族原生移植（34 工具）+ [github] 凭据管道 — ✅ 完成（2026-08-31）
+
+> ⚠️ **本轮顺带修复一个关键回归**（见下方「回归修复」）：重建 `.node` 后暴露
+> `run_turn` 历史遮蔽 bug——多步 turn 每轮从 `[system]` 重新开始，模型永远看不到
+> 工具结果。回归由第 1 轮（`8475bfcd29`）引入；本地 `.node` 是第 1 轮前构建的，
+> napi-integration 12 个测试一直跑在陈旧产物上，掩盖了它。
+
+- **34 个 GitHub 工具原生执行**（`src/tools/github.rs`，spec 表由 `.tmp/extract-github-specs.mjs` 从 v2 `GITHUB_SPECS` 生成，名称/描述/路径/query/body 模板逐字对齐；执行语义对齐 `github-request.ts`：Bearer 认证、`X-GitHub-Api-Version` 2022-11-28、30s 超时、5MB body 上限、rate-limit 提示、zod 风格参数校验错误）；`tools/mod.rs` handles/execute 接线，REPL tool_defs 接入——引擎路径下 github 族不再委托 `host/execute_tool`
+- **[github] 凭据管道**（config 优先、env 兜底，对齐 v2 `configSection.ts` + `envOverlay.ts`）：`GitHubCredentials`（token/base_url）经 `NativeToolset.with_github_credentials` 注入；napi `JsRunTurnParams` 与 stdio `RunTurnParams` 新增 `github_token`/`github_base_url`（每轮传，config 编辑即时生效）；`rust-loop.ts` 新增 `getGithubCredentials` getter；`apps/kimi-code` rust-engine.ts 从 config 读取；REPL 从 `KimiConfig.github` 读取（`config/mod.rs` 新增 `[github]` 段）。修复：此前 Rust 只读 env，只在 config.toml 配 token 的用户在 rust-first 默认路径下 GitHub 工具全部失效
+- **权限语义对齐**（v2 `default-tool-approve.ts` + `spec.subject`）：`is_readonly_tool`/`is_mutating_tool`（22 只读 / 12 变更，从 v2 权威清单提取）——只读 GitHub 工具进本地 `DefaultToolApprove`（此前 manual 模式每次都回落 host 询问）；`rule_subject`（repo 工具 `owner/repo`、搜索工具 `q`、GetMe `me`）接入 `extract_rule_subject`——`GitHubCreateIssue(octocat/repo)` 形状的 subject 规则现在本地可匹配
+- **REPL 注册门控**：`build_repl_tool_defs` 按 `has_token`（config 或 env）门控 GitHub defs——对齐 v2 `when: hasGitHubToken`，无 token 时模型不再看到 34 个必然失败的工具
+- **34 工具 schema 语义对齐验证**（`.tmp/dump-github-defs.mjs` dump v2 `toInputJsonSchema` 权威输出 + 深比较）：修复 3 类漂移——补根级 `$schema`（draft-7，与 core_tool_defs 先例一致）、无界 int 补 zod 隐式 `±9007199254740991` min/max、CreateTree 的 mode enum 顺序对齐 v2；终态 **ALL 34 TOOLS SEMANTICALLY IDENTICAL**
+- **顺带修复**：`main.rs`（stdio）`NativeToolCallbacks` 缺 `plan_guard` 字段——P32 第 6 轮加字段时漏了 stdio 路径，`cargo check --features cli` 才暴露（默认构建不含该 bin）
+- 验证：cargo 790 lib + 9 stdio 全绿（新增 14 测试：凭据优先级 / mutating 只读划分 / subject 形状 / token 门控 / 权限三态 / REPL 门控），clippy 0，fmt 干净，vitest 90/5，apps/kimi-code tsc 0 错误（顺带修 5 个遗留 TS4111）；agent-core-v2 loop 套件 159 过 / 1 失败为 HEAD 既有快照失配（tools hash，与本次无关）
+
+### 回归修复：run_turn 历史遮蔽（第 1 轮引入，重建 .node 后暴露）— ✅ 已修（2026-08-31）
+
+- **现象**：重建本地 `.node` 后，napi-integration 12 个测试失败——多步 turn 的第 2 步请求只含 `[system]`，工具结果永远进不了模型上下文（execute_tool 报错不可见、截断不可见、native 工具结果不可见）。
+- **根因**（`git log -L` 定位）：第 1 轮（`8475bfcd29`）给 run_turn 加注入层时，把压缩回写从 `messages = compacted;`（赋值外层绑定）改成了 `let mut messages = compacted;`（**循环体内新绑定，遮蔽外层**）——每轮的 assistant/tool_calls/tool 结果追加都写进内层绑定，迭代结束即丢弃；下一步从外层的 `[system] + user` 重新开始。native-LLM 模式同样受影响（多步工具 turn 的历史全丢）。
+- **修复**：`run_turn.rs` 改回 `messages = compacted;`（外层赋值，语义即「压缩后的历史作为后续累积的基线」）。
+- **回归测试**：`test_history_accumulates_across_steps`——记录型 mock LLM 断言 step 2 的请求包含 assistant(tool_calls) 与 tool 结果消息。
+- **教训**：本地 `.node` 是 gitignored 构建产物，长期不重建会让 napi-integration 套件跑在陈旧产物上（本次 12 个失败被掩盖了整整一轮）。重建产物应是验证流程的一部分。
+- 验证：cargo 792 lib（+1 回归测试）+ 9 stdio 全绿，clippy 0，fmt 干净；重建 release `.node` 后 vitest **90/5 全绿**（12 个既有失败全部修复）。
+
+### M0 切片 1b：napi 契约 `.d.ts` 生成修复 + 编译期校验 — ✅ 完成（2026-08-31）
+
+- **根因链**（读 CLI 3.8.2 与 napi-derive 2.16.13 源码确认）：① `napi-derive` 的 type-def 输出被 `#[cfg(feature = "type-def")]` 门控，两包均未启用——kimi-agent 已补；② **协议错配**：CLI 3.x 设 `NAPI_TYPE_DEF_TMP_FOLDER`（目录），napi-derive 2.x 只读 `TYPE_DEF_TMP_PATH`（单文件）——CLI 的 typedef pass 跑了但宏找不到 env，空目录 → 空 dts；③ v2 宏函数 def 自带 `export declare` 前缀 + v3 渲染器再加一次 → 非法 TS。
+- **修复**：`build.rs` 桥接（检测到 v3 目录 env 时 `cargo:rustc-env=TYPE_DEF_TMP_PATH=<folder>/kimi_agent.def.jsonl`，先删旧文件防追加累积；CLI 逐行 JSON.parse 与 v2 输出格式兼容）+ `scripts/fix-napi-dts.mjs` 折叠双重 `export declare`（`bun run build` 链式执行）。
+- **结果**：提交 `napi-contract.d.ts`（约 7.9KB，13 导出）；`rust-loop.ts` 的 `NapiRunTurnResult` 改为生成 `JsRunTurnResult` 的别名、`runTurn` 首参改用 `JsRunTurnParams`——**napi 边界参数形状编译期校验**。生成物与 `.node` 同批更新。kimi-native-tools 的同款修复留待其下次需要时照搬（其已提交的 `index.d.ts` 是旧工具链产物）。
+- 详细根因链与协议分析：`reports/rust-engine-contract-ownership.md` §4。
+
 ### 替换 v2 第 7 轮：plan 文件创建 + execute_tool 兜底 — ✅ 完成（2026-09-01）
 
 - **plan 文件创建**（`state_store.rs` apply_plan_write）：enter plan 时创建空 plan 文件（v2 `writeEmptyPlanFile` 语义）——此前只生成 id/path 不建文件，模型无法在写入前 Read 它
@@ -1353,7 +1384,7 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | `host/check_permission` | 宿主为权限权威 | 进程内 `PermissionEngine`（`repl/mod.rs:425`） | ✅ 已具备 |
 | `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 已具备 |
 | `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ⚠️ checkpoint 仅内存，重启即失 |
-| `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 约 13 个原生 / 16 个状态桥接 / 其余委托 |
+| `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 原生工具集持续扩充（第 8 轮并入 GitHub 34 件）/ 16 个状态桥接 / 其余委托 |
 | `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ⚠️ |
 | `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
 | `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ❌ 缺失 |
@@ -1413,13 +1444,21 @@ gateway 2/2，tsc 0 错误。
 
 每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。
 
-- **M0 — 契约归属决策（先决）**
-  现状：同一契约存在 3 份且已漂移，**无编译期检查**——kosong TS（`usage.ts:7`、`message.ts:38`）、
+- **M0 — 契约归属决策（先决）** — 🔄 决策已落（2026-08-31，`reports/rust-engine-contract-ownership.md`）
+  现状：同一契约存在 **4 份**且已漂移，**无编译期检查**——kosong TS（`usage.ts:7`、`message.ts:38`）、
+  **v2 contract 物理拷贝**（`agent-core-v2/src/kosong/contract/`，message.ts 语义相同、tokens.ts 已分叉）、
   Rust（`rpc/types.rs:335/583`、`turn_loop/types.rs:92`）、napi 边界 `JsMessage:694`。
   已知漂移：`TokenUsage` 字段名不同；`ContentBlock` 无 `ThinkPart`；`LLMMessage` 是 text-first
-  而 kosong 是 blocks-first。
-  决策：Rust 的 `rpc/types.rs` 升为契约源单向生成 TS，**或**抽共享 schema 双向生成。
-  退出：决策落文档 + 一个方向落地 + 三处类型可编译期校验一致。
+  而 kosong 是 blocks-first；`ToolCall` 缺 `extras`；`image_url` 缺 `id`；无消息级工具声明。
+  **决策（分层归属，非一刀切）**：引擎传输契约（Rust ↔ 宿主）以 Rust 为源单向生成 TS；
+  provider 契约（kosong）保持 TS 手写权威（golden fixture 对齐，不做生成）；
+  v2 contract 拷贝不投资，M5 随 v2 删除。
+  落地：切片 1 ✅（stdio wire fixture round-trip 测试）；切片 1b ✅
+  （napi dts 生成修复：`napi-derive` 补 `type-def` feature + build.rs 桥接
+  CLI 3.x `NAPI_TYPE_DEF_TMP_FOLDER` ↔ 宏 v2 `TYPE_DEF_TMP_PATH` 协议错配 +
+  `scripts/fix-napi-dts.mjs` 折叠双重 `export declare`；提交 `napi-contract.d.ts`，
+  `rust-loop.ts` 参数/结果形状编译期校验——根因链见决策文档 §4）；切片 2/3 待做。
+  退出：决策落文档 ✅ + 一个方向落地（切片 1 ✅ / 1b ⚠️）+ 三处类型可编译期校验一致（待切片 3）。
 
 - **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）**
   ⚠️ 措辞更正：不是「翻转主循环」——Rust 早已拥有 step 循环（`loopService.ts:718-723`）。

@@ -13,7 +13,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "napi build --platform --release --dts target/napi-generated.d.ts"
+    "build": "napi build --platform --release --dts target/napi-generated.d.ts && bun scripts/fix-napi-dts.mjs"
   },
   "napi": {
     "binaryName": "kimi_agent"

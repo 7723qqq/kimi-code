@@ -155,10 +155,20 @@ async fn main() -> anyhow::Result<()> {
                         ) {
                             Some(toolset) => Arc::new(NativeToolCallbacks {
                                 inner: base_callbacks.clone(),
-                                toolset: Arc::new(toolset.with_callbacks(base_callbacks.clone())),
+                                toolset: Arc::new(
+                                    toolset
+                                        .with_callbacks(base_callbacks.clone())
+                                        .with_github_credentials(
+                                            kimi_agent::tools::github::GitHubCredentials {
+                                                token: input.github_token.clone(),
+                                                base_url: input.github_base_url.clone(),
+                                            },
+                                        ),
+                                ),
                                 native_count: native_tool_count.clone(),
                                 truncator: truncator.clone(),
                                 permission_engine,
+                                plan_guard: None,
                             }),
                             None => base_callbacks.clone(),
                         }

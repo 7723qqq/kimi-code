@@ -306,7 +306,8 @@ impl PermissionEngine {
                 | "fetch_url"
                 | "websearch"
                 | "web_search"
-        ) {
+        ) || crate::tools::github::is_readonly_tool(tool_name)
+        {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "DefaultToolApprove".into(),
@@ -370,6 +371,9 @@ fn extract_rule_subject(tool_lower: &str, args: &Value) -> Option<String> {
             .get("command")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        _ if crate::tools::github::is_github_tool(tool_lower) => {
+            crate::tools::github::rule_subject(tool_lower, args)
+        }
         _ => None,
     }
 }
@@ -457,6 +461,56 @@ mod tests {
             ..Default::default()
         });
         let verdict = engine.evaluate("Write", &json!({ "path": "package.json" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "FallbackAsk");
+    }
+
+    #[test]
+    fn test_readonly_github_tools_approved_by_default() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            ..Default::default()
+        });
+        let verdict = engine.evaluate(
+            "GitHubGetRepo",
+            &json!({ "owner": "octocat", "repo": "hello-world" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "DefaultToolApprove");
+    }
+
+    #[test]
+    fn test_mutating_github_tools_fall_back_to_ask() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            ..Default::default()
+        });
+        let verdict = engine.evaluate(
+            "GitHubCreateIssue",
+            &json!({ "owner": "octocat", "repo": "hello-world", "title": "t" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "FallbackAsk");
+    }
+
+    #[test]
+    fn test_github_subject_rules_match() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            deny_rules: vec!["GitHubCreateIssue(octocat/hello-world)".into()],
+            ..Default::default()
+        });
+        let verdict = engine.evaluate(
+            "GitHubCreateIssue",
+            &json!({ "owner": "octocat", "repo": "hello-world", "title": "t" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Deny);
+        assert_eq!(verdict.policy_name, "UserConfiguredDeny");
+        // A different repo does not match the subject-scoped rule.
+        let verdict = engine.evaluate(
+            "GitHubCreateIssue",
+            &json!({ "owner": "other", "repo": "repo", "title": "t" }),
+        );
         assert_eq!(verdict.decision, VerdictDecision::Ask);
         assert_eq!(verdict.policy_name, "FallbackAsk");
     }

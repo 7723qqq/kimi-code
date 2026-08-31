@@ -283,10 +283,18 @@ fn plan_mode_guard(
 /// All tool definitions exposed to the model in the REPL: the core native
 /// tools (read/grep/glob/write/edit/bash/fetch_url/web_search), subagent
 /// tools, MCP-discovered tools, and the natively-executed tool set
-/// (todo/plan/goal/cron/task/ask-question/skill classes).
-async fn build_repl_tool_defs(mcp_manager: &McpManager) -> Vec<crate::turn_loop::types::ToolInfo> {
+/// (todo/plan/goal/cron/task/ask-question/skill classes). GitHub tools are
+/// gated on token presence (v2 `when: hasGitHubToken`) — without one the
+/// model would only see 34 tools that always fail.
+async fn build_repl_tool_defs(
+    mcp_manager: &McpManager,
+    github_credentials: Option<&crate::tools::github::GitHubCredentials>,
+) -> Vec<crate::turn_loop::types::ToolInfo> {
     let mut defs = crate::tools::core_tool_defs::core_tool_defs();
     defs.extend(crate::tools::subagent_tools::subagent_tool_defs());
+    if crate::tools::github::has_token(github_credentials) {
+        defs.extend(crate::tools::github::github_tool_defs());
+    }
     defs.extend(mcp_manager.list_tool_infos().await);
     defs.push(crate::tools::ask_user_question::ask_user_question_tool_def());
     defs.push(crate::tools::todo_list::todo_list_tool_def());
@@ -349,13 +357,14 @@ pub async fn start_repl(
     {
         let pending = cron_pending.clone();
         let tz_offset = chrono::Local::now().offset().local_minus_utc();
-        let _cron_handle = crate::cron::scheduler::CronScheduler::start(entries, tz_offset, move |entry| {
-            println!("\n⏰ [cron] {} — press Enter to run it.", entry.prompt);
-            pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(entry.prompt.clone());
-        });
+        let _cron_handle =
+            crate::cron::scheduler::CronScheduler::start(entries, tz_offset, move |entry| {
+                println!("\n⏰ [cron] {} — press Enter to run it.", entry.prompt);
+                pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(entry.prompt.clone());
+            });
     }
 
     loop {
@@ -593,12 +602,17 @@ pub async fn start_repl(
 
         let native_count = Arc::new(AtomicU32::new(0));
         let workspace_str = workspace.to_string_lossy().to_string();
+        let github_credentials = crate::tools::github::GitHubCredentials {
+            token: config.github.token.clone(),
+            base_url: config.github.base_url.clone(),
+        };
         let toolset = Arc::new(
             NativeToolset::new(&workspace_str, None)
                 .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
                 .with_subagents(subagent_manager.clone())
                 .with_mcp(mcp_manager.clone())
-                .with_callbacks(base_callbacks.clone()),
+                .with_callbacks(base_callbacks.clone())
+                .with_github_credentials(github_credentials.clone()),
         );
         let plan_guard_store = state_store.clone();
         let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
@@ -633,7 +647,7 @@ pub async fn start_repl(
                 llm: llm.as_ref(),
                 messages: messages.clone(),
                 tools: &[],
-                tool_defs: build_repl_tool_defs(&mcp_manager).await,
+                tool_defs: build_repl_tool_defs(&mcp_manager, Some(&github_credentials)).await,
                 max_steps: 25,
                 goal: state_store.goal_context(),
                 cancellation: Some(cancellation),
@@ -782,7 +796,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_repl_tool_defs_complete() {
-        let defs = build_repl_tool_defs(&McpManager::new()).await;
+        let saved_token = std::env::var("GITHUB_TOKEN").ok();
+        let saved_gh = std::env::var("GH_TOKEN").ok();
+        unsafe {
+            std::env::remove_var("GITHUB_TOKEN");
+            std::env::remove_var("GH_TOKEN");
+        }
+        let defs = build_repl_tool_defs(&McpManager::new(), None).await;
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         for expected in [
             "invoke_subagent",
@@ -807,6 +827,28 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "missing tool def: {expected}");
         }
+        // Without a resolvable token the 34 GitHub defs are gated off
+        // (v2 `when: hasGitHubToken`).
+        assert!(!names.iter().any(|name| name.starts_with("GitHub")));
+        match saved_token {
+            Some(value) => unsafe { std::env::set_var("GITHUB_TOKEN", value) },
+            None => unsafe { std::env::remove_var("GITHUB_TOKEN") },
+        }
+        match saved_gh {
+            Some(value) => unsafe { std::env::set_var("GH_TOKEN", value) },
+            None => unsafe { std::env::remove_var("GH_TOKEN") },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_repl_tool_defs_include_github_with_token() {
+        let credentials = crate::tools::github::GitHubCredentials {
+            token: Some("t".into()),
+            base_url: None,
+        };
+        let defs = build_repl_tool_defs(&McpManager::new(), Some(&credentials)).await;
+        let github = defs.iter().filter(|d| d.name.starts_with("GitHub")).count();
+        assert_eq!(github, 34);
     }
 
     #[tokio::test]
@@ -878,7 +920,9 @@ mod tests {
     fn test_plan_mode_guard_passes_when_inactive() {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
-        assert!(plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none());
+        assert!(
+            plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none()
+        );
         assert!(plan_mode_guard(&store, "taskstop", &serde_json::json!({})).is_none());
     }
 
@@ -920,12 +964,16 @@ mod tests {
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
         let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
-        let denied = plan_mode_guard(&store, "write", &serde_json::json!({ "path": "other.txt" }))
-            .unwrap();
+        let denied =
+            plan_mode_guard(&store, "write", &serde_json::json!({ "path": "other.txt" })).unwrap();
         assert!(denied.contains("Plan mode is active"));
         assert!(denied.contains(&plan_path));
-        assert!(plan_mode_guard(&store, "edit", &serde_json::json!({ "path": "other.txt" })).is_some());
-        assert!(plan_mode_guard(&store, "read", &serde_json::json!({ "path": "other.txt" })).is_none());
+        assert!(
+            plan_mode_guard(&store, "edit", &serde_json::json!({ "path": "other.txt" })).is_some()
+        );
+        assert!(
+            plan_mode_guard(&store, "read", &serde_json::json!({ "path": "other.txt" })).is_none()
+        );
     }
 
     #[test]
@@ -937,14 +985,18 @@ mod tests {
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
         let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
-        assert!(plan_mode_guard(&store, "write", &serde_json::json!({ "path": plan_path })).is_none());
+        assert!(
+            plan_mode_guard(&store, "write", &serde_json::json!({ "path": plan_path })).is_none()
+        );
         let workspace = store.state_dir().parent().unwrap();
         let relative = std::path::Path::new(&plan_path)
             .strip_prefix(workspace)
             .unwrap()
             .to_string_lossy()
             .into_owned();
-        assert!(plan_mode_guard(&store, "edit", &serde_json::json!({ "path": relative })).is_none());
+        assert!(
+            plan_mode_guard(&store, "edit", &serde_json::json!({ "path": relative })).is_none()
+        );
     }
 
     #[test]
@@ -955,7 +1007,8 @@ mod tests {
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
-        let denied = plan_mode_guard(&store, "taskstop", &serde_json::json!({ "id": "t1" })).unwrap();
+        let denied =
+            plan_mode_guard(&store, "taskstop", &serde_json::json!({ "id": "t1" })).unwrap();
         assert!(denied.contains("TaskStop is not available in plan mode"));
     }
 }

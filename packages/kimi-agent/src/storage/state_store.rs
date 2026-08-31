@@ -280,8 +280,7 @@ impl StateStore {
         let path = plans_dir.join(format!("{id}.md"));
         // v2 `writeEmptyPlanFile`: the plan file exists from the moment plan
         // mode is entered, so the model can Read it before writing.
-        fs::write(&path, "")
-            .map_err(|e| format!("create plan file {}: {e}", path.display()))?;
+        fs::write(&path, "").map_err(|e| format!("create plan file {}: {e}", path.display()))?;
         let stored = json!({
             "active": true,
             "id": id,
@@ -600,7 +599,10 @@ impl StateStore {
     /// The task output log path (`<state_dir>/tasks/<task_id>/output.log`),
     /// mirroring the v2 `tasks/<taskId>/output.log` layout.
     pub fn task_output_path(&self, task_id: &str) -> PathBuf {
-        self.state_dir.join("tasks").join(task_id).join("output.log")
+        self.state_dir
+            .join("tasks")
+            .join(task_id)
+            .join("output.log")
     }
 
     /// Persist a task's output log (v2 `writeTaskOutputData` semantics:
@@ -1147,11 +1149,13 @@ mod tests {
         assert_eq!(snapshot["previewBytes"], 18);
         assert_eq!(snapshot["truncated"], false);
         assert_eq!(snapshot["preview"], "line one\nline two\n");
-        assert!(snapshot["outputPath"]
-            .as_str()
-            .unwrap()
-            .replace('\\', "/")
-            .ends_with("tasks/task-1/output.log"));
+        assert!(
+            snapshot["outputPath"]
+                .as_str()
+                .unwrap()
+                .replace('\\', "/")
+                .ends_with("tasks/task-1/output.log")
+        );
     }
 
     #[test]

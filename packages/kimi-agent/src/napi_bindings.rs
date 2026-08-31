@@ -664,6 +664,11 @@ pub struct JsRunTurnParams {
     pub shell_path: Option<String>,
     /// Optional JSON-serialized PolicySnapshot for local permission evaluation (P26 批 3).
     pub policy_snapshot_json: Option<String>,
+    /// Host-resolved `[github]` config credentials for the native GitHub
+    /// tools (v2 `configSection.ts`). Env fallbacks are applied Rust-side
+    /// (v2 `envOverlay.ts` semantics: config wins, env fills the gap).
+    pub github_token: Option<String>,
+    pub github_base_url: Option<String>,
 }
 
 #[napi(object)]
@@ -1033,7 +1038,11 @@ async fn run_turn_rust_impl(
                     toolset: Arc::new(
                         toolset
                             .with_subagents(SUBAGENT_MANAGER.clone())
-                            .with_callbacks(base_callbacks.clone()),
+                            .with_callbacks(base_callbacks.clone())
+                            .with_github_credentials(crate::tools::github::GitHubCredentials {
+                                token: params.github_token.clone(),
+                                base_url: params.github_base_url.clone(),
+                            }),
                     ),
                     native_count: native_tool_count.clone(),
                     truncator: truncator.clone(),

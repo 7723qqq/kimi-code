@@ -78,6 +78,14 @@ pub struct McpServerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitHubConfig {
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KimiConfig {
     #[serde(rename = "default_model", default)]
     pub default_model: Option<String>,
@@ -91,6 +99,8 @@ pub struct KimiConfig {
     pub permission: Option<PermissionConfig>,
     #[serde(rename = "mcp_servers", default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
+    #[serde(default)]
+    pub github: GitHubConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
