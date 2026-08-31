@@ -58,6 +58,7 @@ describe('RestGateway', () => {
       submit: () => Promise.resolve(undefined),
       submitSteer: () => Promise.resolve(undefined),
       steer: () => Promise.resolve([]),
+      drainSteered: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
       drain: () => Promise.resolve(),

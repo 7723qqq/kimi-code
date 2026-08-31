@@ -1369,6 +1369,14 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 的 `steered` Map）没有可被引擎消费的 drain 方法，steered prompt 在引擎路径下依旧要等到
 turn 结束。接线属 M2 范畴。
 
+**已修（2026-09-01）**：`IAgentPromptService` 新增 `drainSteered()`——取出 active prompt
+的 steered 记录（`drainedSteerIds` 去重，重复 drain 不重复返回），按到达顺序 append 进
+context（对齐 JS 路径 `SteerStepRequest` materialize 的语义，`buildMessages` 投影即包含），
+记录保留在 `steered` Map 让 `settle()` 正常 resolve 调用方；`buildEngineInput` 接线
+`drainSteers` 回调。验证：engineOverride 套件 57/57（新增 2 个测试：drain 返回 + context
+包含 + 重复 drain 空、turn 结束后 steered completion 正常 settle），promptService 23/23，
+gateway 2/2，tsc 0 错误。
+
 ### 里程碑
 
 每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。

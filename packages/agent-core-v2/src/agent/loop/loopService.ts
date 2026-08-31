@@ -49,6 +49,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -1572,6 +1573,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           throw stateBridgeError(-32003, `invalid goal action: ${String(action)}`);
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
+      },
+      drainSteers: async () => {
+        const prompt = this.instantiation.invokeFunction((accessor) =>
+          accessor.get(IAgentPromptService),
+        );
+        return prompt.drainSteered();
       },
     };
   }

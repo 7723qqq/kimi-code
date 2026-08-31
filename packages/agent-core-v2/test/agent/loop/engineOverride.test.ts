@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import {
   IEngineOverrideService,
   type AskQuestionWireResult,
@@ -25,7 +26,7 @@ import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart, Message } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
@@ -282,6 +283,78 @@ describe('external engine override', () => {
     expect(finished[0]!.step).toBe(1);
     expect(finished[0]!.firstStepOfTurn).toBe(true);
     expect(finished[0]!.finishReason).toBe('completed');
+  });
+
+  it('drains steered prompts into the engine mid-turn and appends them to context', async () => {
+    const drained: Message[][] = [];
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      let steered: readonly Message[] = [];
+      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
+        steered = (await input.drainSteers?.()) ?? [];
+        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      drained.push([...steered]);
+      drained.push([...(await input.drainSteers?.()) ?? []]);
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await ctx.rpc.steer({ input: [{ type: 'text', text: 'Steered!' }] });
+    await end;
+
+    expect(drained[0]).toHaveLength(1);
+    expect(drained[0]?.[0]).toMatchObject({ role: 'user' });
+    expect(drained[0]?.[0]?.content).toEqual([{ type: 'text', text: 'Steered!' }]);
+    expect(drained[1]).toHaveLength(0);
+
+    const messages = await engineInput!.buildMessages();
+    expect(
+      messages.some(
+        (m) => m.role === 'user' && m.content.some((p) => p.type === 'text' && p.text === 'Steered!'),
+      ),
+    ).toBe(true);
+  });
+
+  it('settles steered prompts when the engine turn ends', async () => {
+    const engine: TurnEngine = async (input) => {
+      let steered: readonly Message[] = [];
+      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
+        steered = (await input.drainSteers?.()) ?? [];
+        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    const prompt = ctx.get(IAgentPromptService);
+    const queued = await prompt.enqueue({ message: { role: 'user', content: [{ type: 'text', text: 'Steered!' }], toolCalls: [] } });
+    const [steered] = await prompt.steer([queued.id]);
+    const completion = steered!.completion;
+    await end;
+    await expect(completion).resolves.toMatchObject({ promptId: queued.id, state: 'completed' });
   });
 
   it('runs session-level auto compaction across turns on the engine path', async () => {
