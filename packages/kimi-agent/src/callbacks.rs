@@ -362,7 +362,14 @@ pub struct NativeToolCallbacks {
     /// Rust, bypassing the host `host/check_permission` seam for allow/deny
     /// verdicts.
     pub permission_engine: Option<Arc<crate::permission::PermissionEngine>>,
+    /// Optional plan-mode guard (REPL). When plan mode is active, write/edit
+    /// tools may only target the plan file and TaskStop is denied; the
+    /// closure returns the denial reason, or `None` to let the call through.
+    pub plan_guard: Option<Arc<PlanGuard>>,
 }
+
+/// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`.
+pub type PlanGuard = dyn Fn(&str, &serde_json::Value) -> Option<String> + Send + Sync;
 
 impl HostCallbacks for NativeToolCallbacks {
     fn llm_chat(
@@ -385,8 +392,18 @@ impl HostCallbacks for NativeToolCallbacks {
             native_count: self.native_count.clone(),
             truncator: self.truncator.clone(),
             permission_engine: self.permission_engine.clone(),
+            plan_guard: self.plan_guard.clone(),
         };
         Box::pin(async move {
+            if let Some(guard) = &this.plan_guard
+                && let Some(reason) = guard(&request.tool_name, &request.arguments)
+            {
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
             let decision = if let Some(ref engine) = this.permission_engine {
                 let verdict = engine.evaluate(&request.tool_name, &request.arguments);
                 match verdict.decision {
@@ -812,6 +829,7 @@ mod tests {
             native_count: native_count.clone(),
             truncator: None,
             permission_engine: None,
+            plan_guard: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
@@ -1055,6 +1073,7 @@ mod tests {
             native_count: Arc::new(AtomicU32::new(0)),
             truncator: None,
             permission_engine: None,
+            plan_guard: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -1216,6 +1235,7 @@ mod tests {
             native_count: Arc::new(AtomicU32::new(0)),
             truncator: None,
             permission_engine: None,
+            plan_guard: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();

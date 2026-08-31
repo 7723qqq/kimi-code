@@ -235,6 +235,46 @@ fn answer_questions_interactive(
     }
 }
 
+/// The plan-mode tool guard (v2 `AgentPlanService.guardToolExecution`
+/// semantics): when plan mode is active, write/edit may only target the
+/// plan file and TaskStop is denied. Returns the denial reason, or `None`
+/// to let the call through.
+fn plan_mode_guard(
+    store: &crate::storage::state_store::StateStore,
+    tool_name: &str,
+    args: &serde_json::Value,
+) -> Option<String> {
+    let plan = store.read_state("plan", "plan").ok()?;
+    if plan.get("active").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    let plan_path = plan.get("path").and_then(|p| p.as_str());
+    match tool_name.to_ascii_lowercase().as_str() {
+        "write" | "edit" => {
+            let path = args.get("path").and_then(|p| p.as_str())?;
+            let resolved = if std::path::Path::new(path).is_absolute() {
+                path.to_string()
+            } else if let Some(workspace) = store.state_dir().parent() {
+                workspace.join(path).to_string_lossy().into_owned()
+            } else {
+                path.to_string()
+            };
+            if plan_path == Some(resolved.as_str()) {
+                return None;
+            }
+            Some(format!(
+                "Plan mode is active. You may only write to the current plan file: {}. Call ExitPlanMode to exit plan mode before editing other files.",
+                plan_path.unwrap_or("(no plan file selected yet)")
+            ))
+        }
+        "taskstop" | "task_stop" => Some(
+            "TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task."
+                .into(),
+        ),
+        _ => None,
+    }
+}
+
 /// All tool definitions exposed to the model in the REPL: the core native
 /// tools (read/grep/glob/write/edit/bash/fetch_url/web_search), subagent
 /// tools, MCP-discovered tools, and the natively-executed tool set
@@ -555,12 +595,16 @@ pub async fn start_repl(
                 .with_mcp(mcp_manager.clone())
                 .with_callbacks(base_callbacks.clone()),
         );
+        let plan_guard_store = state_store.clone();
         let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
             inner: base_callbacks,
             toolset,
             native_count,
             permission_engine: Some(permission_engine),
             truncator: Some(tool_truncator),
+            plan_guard: Some(Arc::new(move |tool_name, args| {
+                plan_mode_guard(&plan_guard_store, tool_name, args)
+            })),
         });
         // P28 批 3 接线: give subagents the same llm + callback pipeline so
         // invoke_subagent runs real autonomous turns instead of just records.
@@ -823,5 +867,61 @@ mod tests {
         let value = read("plan").await.unwrap().value;
         assert_eq!(value["active"], true);
         assert_eq!(value["id"], write.value["id"]);
+    }
+
+    #[test]
+    fn test_plan_mode_guard_passes_when_inactive() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        assert!(plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none());
+        assert!(plan_mode_guard(&store, "taskstop", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn test_plan_mode_guard_denies_non_plan_writes() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let outcome = store
+            .apply_write("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        store.write_domain("plan", &outcome.stored).unwrap();
+        let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
+        let denied = plan_mode_guard(&store, "write", &serde_json::json!({ "path": "other.txt" }))
+            .unwrap();
+        assert!(denied.contains("Plan mode is active"));
+        assert!(denied.contains(&plan_path));
+        assert!(plan_mode_guard(&store, "edit", &serde_json::json!({ "path": "other.txt" })).is_some());
+        assert!(plan_mode_guard(&store, "read", &serde_json::json!({ "path": "other.txt" })).is_none());
+    }
+
+    #[test]
+    fn test_plan_mode_guard_allows_plan_file_write() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let outcome = store
+            .apply_write("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        store.write_domain("plan", &outcome.stored).unwrap();
+        let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
+        assert!(plan_mode_guard(&store, "write", &serde_json::json!({ "path": plan_path })).is_none());
+        let workspace = store.state_dir().parent().unwrap();
+        let relative = std::path::Path::new(&plan_path)
+            .strip_prefix(workspace)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(plan_mode_guard(&store, "edit", &serde_json::json!({ "path": relative })).is_none());
+    }
+
+    #[test]
+    fn test_plan_mode_guard_denies_task_stop() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let outcome = store
+            .apply_write("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        store.write_domain("plan", &outcome.stored).unwrap();
+        let denied = plan_mode_guard(&store, "taskstop", &serde_json::json!({ "id": "t1" })).unwrap();
+        assert!(denied.contains("TaskStop is not available in plan mode"));
     }
 }

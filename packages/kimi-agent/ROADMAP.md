@@ -1159,6 +1159,11 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 6 轮：plan-mode 文件写拦截 — ✅ 完成（2026-09-01）
+
+- **plan-mode 守卫**（`callbacks.rs` `NativeToolCallbacks.plan_guard` + `repl/mod.rs` `plan_mode_guard` + 4 单测）：REPL 的 EnterPlanMode/ExitPlanMode 此前只切换 plan 状态，模型在 plan-mode 下可随意写文件——v2 `AgentPlanService.guardToolExecution` 会 veto 非 plan 文件的 Write/Edit 并拒绝 TaskStop；现在 `NativeToolCallbacks` 带可选 `plan_guard`（仅 REPL 接线，napi 路径 None）：plan 激活时 Write/Edit 必须解析到 plan 文件路径（绝对或工作区相对），TaskStop 拒绝，文案对齐 v2
+- 验证：cargo 765 全绿（新增 4 测试），clippy 0，fmt 干净，vitest 90/5
+
 ### 替换 v2 第 5 轮：goal usage 跨 turn 累计 + /status goal 显示 — ✅ 完成（2026-09-01）
 
 - **goal usage 累计**（`state_store.rs` `goal_record_usage` + 2 单测）：每轮 turn 结束后把 usage 折入存储的 goal（v2 `incrementGoalTurn` + `accountTokenUsage` 语义——turns_used +1、tokens_used += output token，仅 active goal）；此前 REPL 只读 goal 进 `GoalContext`（预算检查/steering）从不写回，turns_used/tokens_used 恒 0，token 预算只看到当前 turn 的 token，跨 turn 累计失效

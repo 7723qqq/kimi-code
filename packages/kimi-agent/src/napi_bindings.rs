@@ -1038,6 +1038,7 @@ async fn run_turn_rust_impl(
                     native_count: native_tool_count.clone(),
                     truncator: truncator.clone(),
                     permission_engine,
+                    plan_guard: None,
                 }),
                 None => base_callbacks.clone(),
             }
