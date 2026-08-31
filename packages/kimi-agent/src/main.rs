@@ -153,23 +153,65 @@ async fn main() -> anyhow::Result<()> {
                             root,
                             input.shell_path.as_deref(),
                         ) {
-                            Some(toolset) => Arc::new(NativeToolCallbacks {
-                                inner: base_callbacks.clone(),
-                                toolset: Arc::new(
-                                    toolset
-                                        .with_callbacks(base_callbacks.clone())
-                                        .with_github_credentials(
-                                            kimi_agent::tools::github::GitHubCredentials {
-                                                token: input.github_token.clone(),
-                                                base_url: input.github_base_url.clone(),
-                                            },
-                                        ),
-                                ),
-                                native_count: native_tool_count.clone(),
-                                truncator: truncator.clone(),
-                                permission_engine,
-                                plan_guard: None,
-                            }),
+                            Some(toolset) => {
+                                // Plan-mode guard (v2
+                                // `AgentPlanService.guardToolExecution`):
+                                // guarded native calls read the host's plan
+                                // state through the state bridge and are
+                                // denied when plan mode forbids them.
+                                // Unguarded tools skip the round-trip.
+                                let plan_callbacks = base_callbacks.clone();
+                                let plan_workspace = input.workspace_root.clone();
+                                Arc::new(NativeToolCallbacks {
+                                    inner: base_callbacks.clone(),
+                                    toolset: Arc::new(
+                                        toolset
+                                            .with_callbacks(base_callbacks.clone())
+                                            .with_github_credentials(
+                                                kimi_agent::tools::github::GitHubCredentials {
+                                                    token: input.github_token.clone(),
+                                                    base_url: input.github_base_url.clone(),
+                                                },
+                                            ),
+                                    ),
+                                    native_count: native_tool_count.clone(),
+                                    truncator: truncator.clone(),
+                                    permission_engine,
+                                    plan_guard: Some(Arc::new(move |tool_name, args| {
+                                        if !kimi_agent::tools::plan_mode::plan_guarded_tool(
+                                            tool_name,
+                                        ) {
+                                            return Box::pin(async { None });
+                                        }
+                                        let callbacks = plan_callbacks.clone();
+                                        let tool_name = tool_name.to_string();
+                                        let args = args.clone();
+                                        let workspace = plan_workspace.clone();
+                                        Box::pin(async move {
+                                            let request =
+                                                kimi_agent::rpc::types::StateReadRequest {
+                                                    domain: "plan".into(),
+                                                    key: "plan".into(),
+                                                    turn_id: String::new(),
+                                                    tool_call_id: String::new(),
+                                                };
+                                            match callbacks.state_read(request).await {
+                                                Ok(response) => {
+                                                    kimi_agent::tools::plan_mode::plan_denial(
+                                                        &response.value,
+                                                        &tool_name,
+                                                        &args,
+                                                        workspace
+                                                            .as_deref()
+                                                            .map(std::path::Path::new),
+                                                    )
+                                                }
+                                                Err(_) => None,
+                                            }
+                                        })
+                                    })),
+                                })
+                            }
                             None => base_callbacks.clone(),
                         }
                     }

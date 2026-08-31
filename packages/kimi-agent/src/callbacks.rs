@@ -382,14 +382,21 @@ pub struct NativeToolCallbacks {
     /// Rust, bypassing the host `host/check_permission` seam for allow/deny
     /// verdicts.
     pub permission_engine: Option<Arc<crate::permission::PermissionEngine>>,
-    /// Optional plan-mode guard (REPL). When plan mode is active, write/edit
-    /// tools may only target the plan file and TaskStop is denied; the
-    /// closure returns the denial reason, or `None` to let the call through.
+    /// Optional plan-mode guard. When plan mode is active, write/edit tools
+    /// may only target the plan file and TaskStop / CronCreate / CronDelete
+    /// are denied; the closure returns the denial reason, or `None` to let
+    /// the call through. The REPL reads its local store; the napi/stdio
+    /// paths read the host's plan state through the state bridge per
+    /// guarded call.
     pub plan_guard: Option<Arc<PlanGuard>>,
 }
 
-/// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`.
-pub type PlanGuard = dyn Fn(&str, &serde_json::Value) -> Option<String> + Send + Sync;
+/// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
+/// resolved asynchronously (the product paths read the host's plan state
+/// through the state bridge; see
+/// [`crate::tools::plan_mode::plan_denial`] for the decision semantics).
+pub type PlanGuard =
+    dyn Fn(&str, &serde_json::Value) -> BoxFuture<'static, Option<String>> + Send + Sync;
 
 impl HostCallbacks for NativeToolCallbacks {
     fn llm_chat(
@@ -416,8 +423,21 @@ impl HostCallbacks for NativeToolCallbacks {
         };
         Box::pin(async move {
             if let Some(guard) = &this.plan_guard
-                && let Some(reason) = guard(&request.tool_name, &request.arguments)
+                && let Some(reason) = guard(&request.tool_name, &request.arguments).await
             {
+                // The refusal is the tool result the model sees — report it so
+                // the host transcript records the card's terminal state too
+                // (same contract as the permission denial below).
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
                 return Ok(ToolExecuteResponse {
                     content: reason,
                     is_error: true,

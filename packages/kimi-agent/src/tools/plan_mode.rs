@@ -16,6 +16,77 @@ use crate::turn_loop::types::ExecutableToolResult;
 const PLAN_MODE_ALREADY_ACTIVE_MESSAGE: &str =
     "Plan mode is already active. Use ExitPlanMode when the plan is ready.";
 
+/// Whether the plan-mode guard applies to this tool (v2
+/// `AgentPlanService.guardToolExecution` guarded set). Both spellings are
+/// matched because the product path registers PascalCase names while the
+/// REPL uses snake_case for some tools.
+pub fn plan_guarded_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name.to_ascii_lowercase().as_str(),
+        "write"
+            | "edit"
+            | "taskstop"
+            | "task_stop"
+            | "croncreate"
+            | "cron_create"
+            | "crondelete"
+            | "cron_delete"
+    )
+}
+
+/// The plan-mode tool denial (v2 `AgentPlanService.guardToolExecution`):
+/// when plan mode is active, write/edit may only target the current plan
+/// file, and TaskStop / CronCreate / CronDelete are denied. `plan` is the
+/// state-bridge plan value (`{active, id?, path?}`); `workspace_root`
+/// resolves relative write paths. Returns the denial reason, or `None` to
+/// let the call through.
+pub fn plan_denial(
+    plan: &Value,
+    tool_name: &str,
+    args: &Value,
+    workspace_root: Option<&std::path::Path>,
+) -> Option<String> {
+    if plan.get("active").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    let plan_path = plan.get("path").and_then(|p| p.as_str());
+    match tool_name.to_ascii_lowercase().as_str() {
+        "write" | "edit" => {
+            let path = args.get("path").and_then(|p| p.as_str())?;
+            let resolved = if std::path::Path::new(path).is_absolute() {
+                path.to_string()
+            } else if let Some(root) = workspace_root {
+                root.join(path).to_string_lossy().into_owned()
+            } else {
+                path.to_string()
+            };
+            let Some(plan_path) = plan_path else {
+                return Some(format!(
+                    "Plan mode is active. You may only write to the current plan file: {}. Call ExitPlanMode to exit plan mode before editing other files.",
+                    "(no plan file selected yet)"
+                ));
+            };
+            // Component-wise comparison: the host's plan path and the model's
+            // argument may mix separators (`/` vs `\` on Windows).
+            if std::path::Path::new(plan_path) == std::path::Path::new(&resolved) {
+                return None;
+            }
+            Some(format!(
+                "Plan mode is active. You may only write to the current plan file: {plan_path}. Call ExitPlanMode to exit plan mode before editing other files."
+            ))
+        }
+        "taskstop" | "task_stop" => Some(
+            "TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task."
+                .into(),
+        ),
+        "croncreate" | "cron_create" | "crondelete" | "cron_delete" => Some(format!(
+            "{} is not available in plan mode because it would mutate scheduled work that runs after plan exit. Call ExitPlanMode first.",
+            tool_name
+        )),
+        _ => None,
+    }
+}
+
 /// Failure message when the connected host does not implement the state
 /// bridge. The model must not retry the tool — the host cannot activate plan
 /// mode for this session.
@@ -358,5 +429,161 @@ mod tests {
         assert!(def.input_schema["properties"].is_object());
         assert!(def.description.contains("non-trivial implementation task"));
         assert!(def.description.contains("ExitPlanMode"));
+    }
+
+    fn active_plan(path: &str) -> Value {
+        serde_json::json!({ "active": true, "id": "plan-1", "path": path })
+    }
+
+    #[test]
+    fn test_plan_denial_inactive_plan_lets_everything_through() {
+        for plan in [
+            serde_json::json!({ "active": false }),
+            serde_json::json!({}),
+            Value::Null,
+        ] {
+            assert!(
+                plan_denial(
+                    &plan,
+                    "write",
+                    &serde_json::json!({ "path": "a.txt" }),
+                    None
+                )
+                .is_none()
+            );
+            assert!(plan_denial(&plan, "taskstop", &serde_json::json!({}), None).is_none());
+        }
+    }
+
+    #[test]
+    fn test_plan_denial_unguarded_tools_pass() {
+        let plan = active_plan("/w/plans/plan-1.md");
+        for tool in [
+            "read",
+            "grep",
+            "bash",
+            "todolist",
+            "enterplanmode",
+            "exitplanmode",
+        ] {
+            assert!(
+                plan_denial(&plan, tool, &serde_json::json!({}), None).is_none(),
+                "tool: {tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_plan_denial_allows_plan_file_writes() {
+        let plan = active_plan("/w/plans/plan-1.md");
+        assert!(
+            plan_denial(
+                &plan,
+                "Write",
+                &serde_json::json!({ "path": "/w/plans/plan-1.md" }),
+                None
+            )
+            .is_none()
+        );
+        assert!(
+            plan_denial(
+                &plan,
+                "Edit",
+                &serde_json::json!({ "path": "/w/plans/plan-1.md" }),
+                None
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn test_plan_denial_denies_other_writes_with_v2_message() {
+        let plan = active_plan("/w/plans/plan-1.md");
+        let denial = plan_denial(
+            &plan,
+            "Write",
+            &serde_json::json!({ "path": "/w/src/main.rs" }),
+            None,
+        );
+        assert_eq!(
+            denial.unwrap(),
+            "Plan mode is active. You may only write to the current plan file: /w/plans/plan-1.md. Call ExitPlanMode to exit plan mode before editing other files."
+        );
+    }
+
+    #[test]
+    fn test_plan_denial_resolves_relative_paths_against_workspace() {
+        let plan = active_plan("/w/plans/plan-1.md");
+        let root = std::path::Path::new("/w");
+        assert!(
+            plan_denial(
+                &plan,
+                "write",
+                &serde_json::json!({ "path": "plans/plan-1.md" }),
+                Some(root)
+            )
+            .is_none()
+        );
+        assert!(
+            plan_denial(
+                &plan,
+                "write",
+                &serde_json::json!({ "path": "src/main.rs" }),
+                Some(root)
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn test_plan_denial_without_plan_path_denies_all_writes() {
+        let plan = serde_json::json!({ "active": true });
+        let denial = plan_denial(
+            &plan,
+            "write",
+            &serde_json::json!({ "path": "a.txt" }),
+            None,
+        );
+        assert_eq!(
+            denial.unwrap(),
+            "Plan mode is active. You may only write to the current plan file: (no plan file selected yet). Call ExitPlanMode to exit plan mode before editing other files."
+        );
+    }
+
+    #[test]
+    fn test_plan_denial_denies_taskstop_and_cron_mutations() {
+        let plan = active_plan("/w/plans/plan-1.md");
+        for tool in ["TaskStop", "taskstop", "task_stop"] {
+            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None);
+            assert!(
+                denial
+                    .unwrap()
+                    .contains("TaskStop is not available in plan mode")
+            );
+        }
+        for tool in ["CronCreate", "cron_create", "CronDelete", "cron_delete"] {
+            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None);
+            assert!(
+                denial.unwrap().contains("would mutate scheduled work"),
+                "tool: {tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_plan_guarded_tool_covers_both_spellings() {
+        for tool in [
+            "Write",
+            "write",
+            "Edit",
+            "TaskStop",
+            "CronCreate",
+            "cron_delete",
+        ] {
+            assert!(plan_guarded_tool(tool), "tool: {tool}");
+        }
+        for tool in ["Read", "Grep", "Bash", "ExitPlanMode", "EnterPlanMode"] {
+            assert!(!plan_guarded_tool(tool), "tool: {tool}");
+        }
     }
 }

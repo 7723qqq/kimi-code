@@ -1868,7 +1868,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 | 1 | `permissionGateService.ts:30` | 全工具权限裁决（mode/rules/policies/交互审批） | 宿主执行工具：钩子触发 ✓。原生工具：本地 `PermissionEngine`（PolicySnapshot 镜像）+ 变更类 Ask 上抛 `host/check_permission` → `gate.authorize` 全机制 | **等价**——权限权威仍在宿主（P33 契约），本地链保真度是 P26 批 3 自身的测试面 |
 | 2 | `toolDedupeService.ts:190` | 相邻重复调用去重（veto 合成结果） | 宿主执行工具：触发 ✓。原生工具（恰是最常重复的 Read/Grep）：不触发；且步界粒度已粗化（P33：per-turn） | **缺口 → M2 迁移**：引擎 `run_turn` 内做 per-step 去重（状态在引擎侧，天然归属） |
 | 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **缺口（高价值）→ M2 迁移**：数据保护；Rust Edit 的 old_string 匹配天然防盲改，Write(overwrite) 是裸奔面 |
-| 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 原生执行 → 审批 ask 也不触发 | **缺口（产品默认路径缺陷）→ 下一批迁移**：宿主每 turn 传 plan 状态（同 `getGoal` 模式）+ Rust guard + ExitPlanMode 审批通道。P34「已落进 Rust」只对 REPL 成立 |
+| 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | ~~REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 审批：原生 `exit_plan_mode.rs` 已实现完整审批流（经 `ask_question`，auto 直通）~~ **✅ 已落地（2026-09-01，见 P39）**：`PlanGuard` 异步化，napi/stdio 产品路径经 state 桥每次受护调用现读 plan 状态并按 v2 语义否决（Write/Edit 只许写 plan 文件 + TaskStop/CronCreate/CronDelete 拒绝，后两项同时补齐了 REPL 缺口）；ExitPlanMode 审批原本已由原生工具自带 | **已迁移** |
 | 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
 | 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **缺口（用户可见）→ M2 迁移**：Rust 侧执行 PreToolUse 命令；迁移前在文档标注「原生路径不触发用户钩子」 |
 | 7 | `goalAgentRuntime.ts:1295` | CreateGoal 启动审批（非 auto 模式） | CreateGoal 原生（走 state 桥）→ 审批 ask 不触发，goal 静默启动 | **缺口 → M2 迁移**：审批需宿主 ask 通道（`host/ask_question` 已存在，可承载） |
@@ -1885,8 +1885,8 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
   全机制承载）。无需动作。
 - **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
   不算静默丢失。
-- **7 处真缺口 → 迁移队列**：#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）、#3（staleGuard）、
-  #7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
+- **7 处真缺口 → 迁移队列**：~~#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）~~ ✅ 已落地（P39）、
+  #3（staleGuard）、#7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
   #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
 
 ### 验证说明
@@ -1896,3 +1896,34 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 `callbacks.rs:402-443`（原生执行门：plan_guard → permission_engine → check_permission）、
 `napi_bindings.rs:1073-1099`（产品路径装配，`plan_guard: None`）、`permissionPolicy/policies/*`
 （无 plan 策略）、`repl/mod.rs:448-458`（REPL plan_guard 接线）。
+
+## P39 — G-6 队列头：plan 拦截接入产品引擎路径（2026-09-01）
+
+P38 判定的 #4 落地：plan 模式 Write/Edit/TaskStop/CronCreate/CronDelete 拦截从「仅 REPL」扩展到
+napi 与 stdio 产品路径。**零 wire 改动**——guard 经既有 state 桥（`host/state_read {domain:"plan"}`）
+在每次受护原生调用前现读 plan 状态，与 REPL 每调用读本地 store 的语义一致，且天然覆盖 turn 中途的
+EnterPlanMode/ExitPlanMode（per-turn 快照方案会在这里变脏，故弃用）。
+
+### 落码
+
+- **纯函数**（`tools/plan_mode.rs`）：`plan_guarded_tool`（受护工具集，双拼写）+ `plan_denial`
+  （v2 `guardToolExecution` 决策：plan 激活时 Write/Edit 只许写 plan 文件、TaskStop/CronCreate/CronDelete
+  拒绝；路径按组件比较——宿主 plan path 与模型参数可能混用 `/`/`\`；plan path 缺失时拒绝全部写，
+  文案带 `(no plan file selected yet)`，对齐 v2）。
+- **`PlanGuard` 异步化**（`callbacks.rs`）：`dyn Fn(&str, &Value) -> BoxFuture<Option<String>>`；
+  调用点 `.await`。guard 拒绝路径补发 `tool.native` 事件（与权限拒绝同一契约：refusal 是模型看到的
+  结果，transcript 必须记录卡片终态）。
+- **三条路径接线**：REPL 闭包包异步（本地 store 现读）；napi（`napi_bindings.rs`）与 stdio（`main.rs`）
+  闭包经 `base_callbacks.state_read` 现读——`plan_guarded_tool` 早退让非受护工具（Read/Grep 等高频调用）
+  零额外往返；state 读失败 fail-open（与 REPL `.ok()?` 一致，变更类工具仍有权限层兜底）。
+- **顺带修正**：REPL guard 原本缺 CronCreate/CronDelete 否决（v2 有）——纯函数统一后两条路径都补齐。
+
+### 验证
+
+- `cargo test --lib` 824 全绿（新增 8 个 `plan_denial` 单测：激活/未激活、plan 文件放行、
+  相对路径解析、无 plan path 拒绝、TaskStop/Cron 双拼写、受护集边界）；REPL guard 测试补 Cron 用例。
+- **stdio 端到端**（`stdio_rpc_integration.rs` 新用例）：plan 激活 + 原生 Write 到非 plan 文件 →
+  guard 先于权限轮询否决（`permission_requests` 为空）、state 桥恰一次 plan 读、`tool.native`
+  事件携带拒绝文案、磁盘无文件、不回退宿主。10/10 全绿。
+- `cargo clippy --lib --all-targets` 0 警告；`cargo fmt --check` 干净；bun 侧 97 passed（无 wire 改动）。
+- 已知噪声：`test_github_token_env` 一次并行 env flaky（单跑即过，P37 已记录同类）。

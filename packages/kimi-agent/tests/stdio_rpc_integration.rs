@@ -465,6 +465,7 @@ fn find_bash_for_test() -> Option<String> {
 #[derive(Default)]
 struct NativeTurnObservation {
     permission_requests: Vec<serde_json::Value>,
+    state_read_requests: Vec<serde_json::Value>,
     execute_tool_requests: usize,
     events: Vec<serde_json::Value>,
     run_turn_response: Option<serde_json::Value>,
@@ -472,14 +473,17 @@ struct NativeTurnObservation {
 
 /// Run one `agent/run_turn` with native tools enabled. The host side scripts
 /// a single tool call on step 0 and `stop` on step 1, answers
-/// `host/check_permission` with `permission_decision`, and records everything
-/// it sees. `tool_arguments` is the LLM's tool-call arguments for step 0.
+/// `host/check_permission` with `permission_decision`, answers
+/// `host/state_read` with `plan_state` (the state-bridge plan domain value),
+/// and records everything it sees. `tool_arguments` is the LLM's tool-call
+/// arguments for step 0.
 fn drive_native_turn(
     workspace_root: &std::path::Path,
     shell_path: Option<&str>,
     tool_name: &str,
     tool_arguments: serde_json::Value,
     permission_decision: serde_json::Value,
+    plan_state: serde_json::Value,
 ) -> NativeTurnObservation {
     let binary = match find_binary() {
         Some(b) => b,
@@ -588,6 +592,18 @@ fn drive_native_turn(
                     "result": permission_decision
                 })
             }
+            "host/state_read" => {
+                observation.state_read_requests.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"value": plan_state}
+                })
+            }
             "host/execute_tool" => {
                 observation.execute_tool_requests += 1;
                 serde_json::json!({
@@ -654,6 +670,7 @@ fn run_turn_native_write_permission_round_trip() {
         "write",
         serde_json::json!({"path": "native.txt", "content": "written natively"}),
         serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
     );
     let Some(resp) = require_observation(&observation) else {
         return;
@@ -700,6 +717,7 @@ fn run_turn_native_permission_deny_is_final() {
         "write",
         serde_json::json!({"path": "denied.txt", "content": "should not exist"}),
         serde_json::json!({"decision": "deny", "reason": "denied by test policy"}),
+        serde_json::Value::Null,
     );
     let Some(resp) = require_observation(&observation) else {
         return;
@@ -743,6 +761,7 @@ fn native_bash_uses_host_shell() {
         "bash",
         serde_json::json!({"command": "echo $((20+3))"}),
         serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
     );
     let Some(resp) = require_observation(&observation) else {
         return;
@@ -761,6 +780,61 @@ fn native_bash_uses_host_shell() {
         content.contains("23"),
         "bash arithmetic must evaluate, got: {content}"
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Plan-mode guard (v2 `AgentPlanService.guardToolExecution`): with plan mode
+/// active, a native Write outside the plan file is denied before permission —
+/// the refusal is the tool result, nothing lands on disk, and the host's
+/// plan state was read through the state bridge.
+#[test]
+fn run_turn_native_write_denied_in_plan_mode() {
+    let dir = std::env::temp_dir().join(format!("kimi-native-plan-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let plan_path = dir.join("plans").join("plan-1.md");
+    std::fs::create_dir_all(plan_path.parent().unwrap()).expect("create plans dir");
+    std::fs::write(&plan_path, "# plan").expect("seed plan file");
+
+    let observation = drive_native_turn(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "src/main.rs", "content": "should not exist"}),
+        serde_json::json!({"decision": "allow"}),
+        serde_json::json!({"active": true, "id": "plan-1", "path": plan_path.to_string_lossy()}),
+    );
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert!(
+        !dir.join("src").exists(),
+        "plan-mode write must not land on disk"
+    );
+    assert_eq!(
+        observation.execute_tool_requests, 0,
+        "denial must not fall back to the host"
+    );
+    assert!(
+        observation.permission_requests.is_empty(),
+        "the plan guard vetoes before the permission round-trip"
+    );
+    let read_requests = &observation.state_read_requests;
+    assert_eq!(read_requests.len(), 1, "one plan-state read");
+    assert_eq!(read_requests[0]["domain"], "plan");
+    assert_eq!(read_requests[0]["key"], "plan");
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "the refusal is the tool result");
+    assert_eq!(native_events[0]["is_error"], true);
+    let content = native_events[0]["content"].as_str().unwrap_or("");
+    assert!(
+        content.contains("Plan mode is active"),
+        "denial must carry the plan-mode reason, got: {content}"
+    );
+    assert!(content.contains(plan_path.to_string_lossy().as_ref()));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

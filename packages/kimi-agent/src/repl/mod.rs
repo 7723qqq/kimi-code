@@ -246,42 +246,20 @@ fn answer_questions_interactive(
 
 /// The plan-mode tool guard (v2 `AgentPlanService.guardToolExecution`
 /// semantics): when plan mode is active, write/edit may only target the
-/// plan file and TaskStop is denied. Returns the denial reason, or `None`
-/// to let the call through.
+/// plan file and TaskStop / CronCreate / CronDelete are denied. Returns the
+/// denial reason, or `None` to let the call through. The decision lives in
+/// [`crate::tools::plan_mode::plan_denial`]; this wrapper only reads the
+/// local plan state.
 fn plan_mode_guard(
     store: &crate::storage::state_store::StateStore,
     tool_name: &str,
     args: &serde_json::Value,
 ) -> Option<String> {
-    let plan = store.read_state("plan", "plan").ok()?;
-    if plan.get("active").and_then(|v| v.as_bool()) != Some(true) {
+    if !crate::tools::plan_mode::plan_guarded_tool(tool_name) {
         return None;
     }
-    let plan_path = plan.get("path").and_then(|p| p.as_str());
-    match tool_name.to_ascii_lowercase().as_str() {
-        "write" | "edit" => {
-            let path = args.get("path").and_then(|p| p.as_str())?;
-            let resolved = if std::path::Path::new(path).is_absolute() {
-                path.to_string()
-            } else if let Some(workspace) = store.state_dir().parent() {
-                workspace.join(path).to_string_lossy().into_owned()
-            } else {
-                path.to_string()
-            };
-            if plan_path == Some(resolved.as_str()) {
-                return None;
-            }
-            Some(format!(
-                "Plan mode is active. You may only write to the current plan file: {}. Call ExitPlanMode to exit plan mode before editing other files.",
-                plan_path.unwrap_or("(no plan file selected yet)")
-            ))
-        }
-        "taskstop" | "task_stop" => Some(
-            "TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task."
-                .into(),
-        ),
-        _ => None,
-    }
+    let plan = store.read_state("plan", "plan").ok()?;
+    crate::tools::plan_mode::plan_denial(&plan, tool_name, args, store.state_dir().parent())
 }
 
 /// All tool definitions exposed to the model in the REPL: the core native
@@ -453,7 +431,10 @@ pub async fn start_repl(
         permission_engine: Some(permission_engine),
         truncator: Some(tool_truncator),
         plan_guard: Some(Arc::new(move |tool_name, args| {
-            plan_mode_guard(&plan_guard_store, tool_name, args)
+            let store = plan_guard_store.clone();
+            let tool_name = tool_name.to_string();
+            let args = args.clone();
+            Box::pin(async move { plan_mode_guard(&store, &tool_name, &args) })
         })),
     });
     subagent_manager
@@ -1011,6 +992,30 @@ mod tests {
         assert!(
             plan_mode_guard(&store, "edit", &serde_json::json!({ "path": relative })).is_none()
         );
+    }
+
+    #[test]
+    fn test_plan_mode_guard_denies_taskstop_and_cron_mutations() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let outcome = store
+            .apply_write("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        store.write_domain("plan", &outcome.stored).unwrap();
+        for tool in ["TaskStop", "taskstop", "task_stop"] {
+            let denial = plan_mode_guard(&store, tool, &serde_json::json!({})).unwrap();
+            assert!(
+                denial.contains("TaskStop is not available in plan mode"),
+                "tool: {tool}"
+            );
+        }
+        for tool in ["CronCreate", "cron_create", "CronDelete", "cron_delete"] {
+            let denial = plan_mode_guard(&store, tool, &serde_json::json!({})).unwrap();
+            assert!(
+                denial.contains("would mutate scheduled work"),
+                "tool: {tool}"
+            );
+        }
     }
 
     #[test]
