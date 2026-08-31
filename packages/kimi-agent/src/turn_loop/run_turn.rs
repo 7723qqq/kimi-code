@@ -115,11 +115,17 @@ pub fn run_turn<'a>(
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
-        // goal/plan-mode providers register from the local state store
-        // (empty state yields no injection, so this is a no-op on paths
-        // whose state lives in the host).
+        // goal/plan-mode providers register from the local state store.
+        //
+        // The state store is created only on the paths that actually build
+        // injections: `StateStore::for_workspace` creates `<cwd>/.kimi/state/`,
+        // and in host-proxy mode the host owns both the transcript and the
+        // state, so creating that directory here would be a side effect with
+        // no consumer — it would leave an untracked directory behind in
+        // whatever workspace the user happened to run in.
         let mut injection_registry = crate::injection::InjectionRegistry::with_defaults();
-        if let Ok(cwd) = std::env::current_dir()
+        if input.llm.transport() != "host-proxy"
+            && let Ok(cwd) = std::env::current_dir()
             && let Ok(store) = crate::storage::state_store::StateStore::for_workspace(&cwd)
         {
             crate::injection::goal_plan::register_goal_plan_injections(

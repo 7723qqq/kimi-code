@@ -1333,9 +1333,23 @@ agent-core-v2/.../loop/loopService.ts:722        engineOverride.getEngine()   //
   退出：三者均有书面结论，不存在「默认继续依赖 v2」的悬空项。
 
 - **M4 — 数据与持久化**
-  `~/.kimi-code/` 既有会话与状态、minidb 的 WAL / snapshot 格式，以及 P32 新增的
-  `<workspace>/.kimi/state/`（该目录**未进 `.gitignore`**，会污染用户工作区）。
-  退出：迁移路径落地，或对数据丢失作出明确且已告知用户的决定。
+  两个待决问题：
+
+  1. **既有数据**：`~/.kimi-code/` 下的会话与状态、minidb 的 WAL / snapshot 格式。
+     退出：迁移路径落地，或对数据丢失作出明确且已告知用户的决定。
+  2. **状态该写在哪里**（P32 引入的设计分歧）：`StateStore::for_workspace`（`storage/state_store.rs:59`）
+     把状态写到 **`<cwd>/.kimi/state/`**，与项目既有的 `~/.kimi-code/` 约定不一致，且会在任意
+     工作区留下目录。已做的缓解：
+     - `run_turn` 只在 `transport() != "host-proxy"` 时创建该目录（host-proxy 模式下宿主拥有状态，
+       此前是无消费者的副作用，实测 `cargo test` 就会在本仓库留下空的 `.kimi/state/`）；
+     - `.gitignore` 加 `.kimi/state/`。**必须精确到 `state/`**：`packages/migration-legacy`
+       有 8 个已跟踪的 `test/fixtures/**/.kimi/` 夹具，blanket `.kimi/` 会误伤。
+
+     ⚠️ **上述 gitignore 只对本仓库有效，对最终用户的工作区完全无效**——用户仓库用的是它自己的
+     `.gitignore`。所以这不是修复，只是防止本仓库开发者误提交。
+     **真正的选择**：把状态改到 `~/.kimi-code/`（对齐既有约定，不碰用户工作区），
+     或明确接受工作区局部存储（那么需要为用户提供忽略规则，或改用不被 git 关注的位置）。
+     退出：该选择作出并落码。
 
 - **M5 — 删除**
   删 `packages/agent-core-v2`；移除 `engineOverride` 接缝、`rustSelfContained` 开关、
