@@ -86,7 +86,7 @@ pub struct GoalState {
     pub wall_clock_ms: u64,
     #[serde(default)]
     pub wall_clock_resumed_at: Option<u64>,
-    #[serde(default)]
+    #[serde(default, alias = "budget")]
     pub budget_limits: GoalBudgetLimits,
     #[serde(default)]
     pub terminal_reason: Option<String>,

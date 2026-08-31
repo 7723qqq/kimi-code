@@ -580,6 +580,34 @@ impl StateStore {
         }
         serde_json::from_value(goal).ok()
     }
+
+    /// The stored goal projected into the turn-loop `GoalContext`, with the
+    /// live wall-clock figure folded in for active goals. `None` when no
+    /// goal is stored.
+    pub fn goal_context(&self) -> Option<crate::turn_loop::types::GoalContext> {
+        let state = self.read_goal_state()?;
+        let now = now_ms();
+        let status = match state.status {
+            GoalStatus::Active => crate::turn_loop::types::GoalStatus::Active,
+            GoalStatus::Paused => crate::turn_loop::types::GoalStatus::Paused,
+            GoalStatus::Blocked => crate::turn_loop::types::GoalStatus::Blocked,
+            GoalStatus::Complete => crate::turn_loop::types::GoalStatus::Complete,
+            GoalStatus::BudgetLimited => crate::turn_loop::types::GoalStatus::BudgetLimited,
+            GoalStatus::UsageLimited => crate::turn_loop::types::GoalStatus::UsageLimited,
+        };
+        let wall_clock_ms = live_wall_clock_ms(&state, now) as i64;
+        Some(crate::turn_loop::types::GoalContext {
+            goal_id: state.goal_id,
+            objective: state.objective,
+            status,
+            token_budget: state.budget_limits.token_budget.map(|v| v as i64),
+            turn_budget: state.budget_limits.turn_budget.map(|v| v as i64),
+            wall_clock_budget_ms: state.budget_limits.wall_clock_budget_ms.map(|v| v as i64),
+            wall_clock_ms,
+            tokens_used: state.tokens_used as i64,
+            turns_used: state.turns_used as i64,
+        })
+    }
 }
 
 /// The stored goal domain value `{goal: <snapshot> | null}` with the live
@@ -937,5 +965,59 @@ mod tests {
         assert!(id.bytes().all(|b| b.is_ascii_alphanumeric()));
         assert!(!id.contains('I') && !id.contains('L') && !id.contains('O') && !id.contains('U'));
         assert_ne!(ulid(), id);
+    }
+
+    #[test]
+    fn test_goal_context_none_without_goal() {
+        let (_tmp, store) = store();
+        assert!(store.goal_context().is_none());
+    }
+
+    #[test]
+    fn test_goal_context_projects_active_goal_with_live_wall_clock() {
+        let (_tmp, store) = store();
+        let outcome = store
+            .apply_write(
+                "goal",
+                &json!({ "action": "create", "objective": "Ship the feature" }),
+            )
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        let ctx = store.goal_context().unwrap();
+        assert!(ctx.goal_id.starts_with("goal-"));
+        assert_eq!(ctx.objective, "Ship the feature");
+        assert_eq!(ctx.status, crate::turn_loop::types::GoalStatus::Active);
+        assert_eq!(ctx.tokens_used, 0);
+        assert_eq!(ctx.turns_used, 0);
+        assert!(ctx.wall_clock_ms >= 0);
+        assert!(ctx.token_budget.is_none());
+        assert!(ctx.turn_budget.is_none());
+    }
+
+    #[test]
+    fn test_goal_context_maps_budgets_and_terminal_status() {
+        let (_tmp, store) = store();
+        let outcome = store
+            .apply_write(
+                "goal",
+                &json!({ "action": "create", "objective": "Ship the feature" }),
+            )
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        let outcome = store
+            .apply_write(
+                "goal",
+                &json!({ "action": "set_budget", "value": 20, "unit": "turns" }),
+            )
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        let outcome = store
+            .apply_write("goal", &json!({ "action": "update", "status": "complete" }))
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        let ctx = store.goal_context().unwrap();
+        assert_eq!(ctx.status, crate::turn_loop::types::GoalStatus::Complete);
+        assert_eq!(ctx.turn_budget, Some(20));
+        assert!(ctx.token_budget.is_none());
     }
 }

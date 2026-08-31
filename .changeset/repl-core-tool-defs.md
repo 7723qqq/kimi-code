@@ -1,0 +1,5 @@
+---
+"@moonshot-ai/kimi-code": patch
+---
+
+Give the standalone Rust REPL (`kimi-agent-cli`) the core native tool definitions it was missing. The REPL's `build_repl_tool_defs` previously exposed only the state/interaction tool classes (todo/plan/goal/cron/task/skill/knowledge/team/subagent/MCP/ask-question), so the model could not discover or call Read/Grep/Glob/Write/Edit/Bash/FetchURL/WebSearch even though `NativeToolset` already executed them natively. New `core_tool_defs.rs` renders the 8 tool descriptions and input schemas byte-identical to the v2 definitions (generated from the v2 zod schemas and `.md` templates, verified by a byte-level comparison script), and the REPL now wires the stored goal into `run_turn`'s `GoalContext` so goal budget checks and steering text work in the standalone CLI. Also fixes a latent serde round-trip bug: `GoalState.budget_limits` did not deserialize from the stored snapshot's `budget` key, so goal budgets set via `set_budget` were lost on the next read (the goal-plan injection path was affected too, though it does not consume budgets). `cargo test --lib` 756 passed, clippy 0 warnings, fmt clean.

@@ -52,6 +52,7 @@ const BASH_MAX_SECONDS: u64 = 300;
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 pub mod ask_user_question;
+pub mod core_tool_defs;
 pub mod create_goal;
 pub mod cron_tools;
 pub mod encoding;

@@ -1159,6 +1159,15 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 3 轮：核心工具 def 补全 + goal 接线 — ✅ 完成（2026-09-01）
+
+> 目标：REPL 的 LLM 能发现并调用核心原生工具，goal 预算检查在 REPL 生效。
+
+- **核心工具 def**（`src/tools/core_tool_defs.rs`，656 行，4 单测）：Read/Grep/Glob/Write/Edit/Bash/FetchURL/WebSearch 8 个工具 def——description 与 input_schema **字节级对齐 v2**（用 v2 自己的 zod schema + `.md` 模板经 `toInputJsonSchema`/`renderPrompt` 生成权威输出，Python 生成器产出 Rust 代码，`.tmp/verify_alignment.py` 逐字节比对全绿）；`build_repl_tool_defs` 核心工具打头（此前 LLM 看不到这 8 个工具，`NativeToolset` 执行路径早已就绪）
+- **REPL goal 接线**（`state_store.rs` `goal_context()` + 3 单测）：run_turn 的 `goal` 参数从 `StateStore` 读取（此前恒 `None`，goal 预算检查与 steering 在 REPL 不生效）；`GoalState` → `GoalContext` 转换含 live wall-clock 折叠与 status 映射
+- **修复 serde round-trip bug**（`goal/mod.rs`）：`GoalState.budget_limits` 加 `alias = "budget"`——存储的 snapshot 用 `budget` 键（camelCase），反序列化时映射不到 `budgetLimits`，**set_budget 后预算在下次读取时丢失**（goal_plan 注入路径同样受影响，只是不消费预算未暴露）
+- 验证：cargo 756 全绿（新增 7 测试），clippy 0，fmt 干净，vitest 90/5
+
 ### 替换 v2 第 2 轮：undo 语义 + cron 调度器 + task 运行器 — ✅ 完成（2026-09-01）
 
 - **undo/compaction 语义**（`state_store.rs` checkpoint/rollback/checkpoint_depth，6 单测）：每轮 checkpoint 全域快照（v2 undo-anchor 语义，多层栈），/undo 命令 rollback；checkpoint 为内存态（与 v2 一致）

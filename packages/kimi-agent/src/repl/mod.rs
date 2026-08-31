@@ -235,11 +235,13 @@ fn answer_questions_interactive(
     }
 }
 
-/// All tool definitions exposed to the model in the REPL: subagent tools,
-/// MCP-discovered tools, and the natively-executed tool set (todo/plan/goal/
-/// cron/task/ask-question/skill classes).
+/// All tool definitions exposed to the model in the REPL: the core native
+/// tools (read/grep/glob/write/edit/bash/fetch_url/web_search), subagent
+/// tools, MCP-discovered tools, and the natively-executed tool set
+/// (todo/plan/goal/cron/task/ask-question/skill classes).
 async fn build_repl_tool_defs(mcp_manager: &McpManager) -> Vec<crate::turn_loop::types::ToolInfo> {
-    let mut defs = crate::tools::subagent_tools::subagent_tool_defs();
+    let mut defs = crate::tools::core_tool_defs::core_tool_defs();
+    defs.extend(crate::tools::subagent_tools::subagent_tool_defs());
     defs.extend(mcp_manager.list_tool_infos().await);
     defs.push(crate::tools::ask_user_question::ask_user_question_tool_def());
     defs.push(crate::tools::todo_list::todo_list_tool_def());
@@ -581,7 +583,7 @@ pub async fn start_repl(
                 tools: &[],
                 tool_defs: build_repl_tool_defs(&mcp_manager).await,
                 max_steps: 25,
-                goal: None,
+                goal: state_store.goal_context(),
                 cancellation: Some(cancellation),
             },
             &tool_callbacks,
