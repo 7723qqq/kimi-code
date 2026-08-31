@@ -1605,6 +1605,48 @@ gateway 2/2，tsc 0 错误。
   另有一项跨切面：工具注册表在 `buildTools`（`:1080`）被**一次性快照**进引擎输入，
   没有 `host/list_tools` 回调，因此 turn 中途的工具集变化（MCP 重连、skills 增删）传不到 Rust。
 
+  ### 翻转设计定稿（2026-09-01 推演，切片 3 执行前必读）
+
+  前提已全部就绪（切片 1/2a/2b/2c）。翻转动的是 durable 事件单写者，以下决策先钉死：
+
+  **张力：会话的引擎侧历史 vs 产品路径的宿主持有上下文。** EngineSession 的
+  `history + prompt` 模型假设引擎拥有上下文（REPL 语义）；产品路径（host-proxy）的上下文
+  由宿主持有——`host/llm_chat` 内宿主从自己的 context 现建消息，引擎侧 messages/history
+  只是控制流管道，模型永远看不到。native 模式下引擎消息**就是**模型上下文，而今天
+  per-turn 路径每 turn 由宿主投影全量 context（`buildWireMessages`）——引擎侧自累积历史
+  会与宿主漂移（compaction/undo/steer 都发生在宿主侧）。
+
+  **裁决：宿主上下文保持唯一权威。** 产品路径每 turn 由门面执行
+  `setHistory(投影消息去掉最后一条) + enqueueTurn(最后一条 = 本 turn 的 user prompt)`——
+  turn 开始时 context 的末尾就是 prompt（v2 在准入时追加），引擎侧累积被每 turn 覆盖，
+  仅作控制流管道。host-proxy 模式下引擎消息本就不被消费，此模式同样成立。REPL
+  （引擎自有上下文）继续用纯 `enqueueTurn`，不 set_history。
+
+  **步骤序（每步行为保持可回归验证）：**
+  1. **3a — 门面 napi 路径切会话（行为保持）**：`createRunTurnOverride` 的 napi 分支改为
+     惰性建会话（`EngineSessionHandle.create`，13 路会话级 handler 路由到「当前活跃
+     per-turn 注册」——串行 pump 保证单槽即可）；per-turn：`buildMessages` 拆
+     history/prompt → setHistory + enqueue → await outcome → 映射 `TurnEngineResult`；
+     `input.signal` abort → `cancelTurn(引擎 turn id)`。**turn_event/telemetry 保持不接线**
+     （引擎侧丢弃）——v2 继续自发 durable 事件与遥测，无双份折叠/上报。stdio 分支不动
+     （仍 per-turn）。回归面：rust-loop 全套 + rustEngineE2E + CLI e2e。
+  2. **3b — stdio 会话 RPC**：main.rs 管线抽取（镜像 `build_engine_pipeline`）+ 会话注册表
+     + `session.*` RPC 方法；`AgentProcess` 宿主侧分发；`EngineSessionHandle` 抽传输接口
+     （napi/stdio 双实现）。翻转需要两个传输都在会话契约上（rust-only 门禁下 stdio 是
+     唯一回退，不能掉队）。
+  3. **3c — 事件单写者移交**：v2 `loopService` 检测会话型引擎 → startTurn 改 enqueue、
+     停发 `TurnPrompt`/`TurnStarted`/`TurnEnded`（改由 `turn_event` 派发桥折叠——M1b 搁置
+     的桥在此激活，接线即无双份）；runTurn finally 停发 turn 遥测（引擎 `host/telemetry`
+     → track2，M1c 搁置的另一半；`trace_id` 缺口随引擎捕获 provider request id 解决）。
+     turn id 以引擎分配为准（时钟已在引擎侧，宿主 turn.prompt 折叠推进）。
+  4. **3d — 删接缝 + 断言**：删 `executeTurnViaEngine` 与 per-turn `run_turn_rust` 产品
+     路径（保留 REPL）；G-5 覆盖率断言扩展到 turn 外壳（`check:engine-zero-js-loop`）。
+
+  **已知开放点**：① steer 的 `drainSteers` 在会话模型下由引擎 pump 每步拉取（已接线），
+  v2 侧 step 队列的 steer 语义需在 3c 对齐；② quiescence 消费方（undo/compaction）在
+  v2 侧，3c 需经句柄暴露 `try_acquire_quiescence`（napi 表面尚未含）；③ 会话 pump 的
+  join 式回收（dispose 后 pump 停靠）在 3d 处理。
+
   ⚠️ 本条退出标准依赖的 G-5 观测出口**至今未成立**（P34 复核），盘点另新增 G-8 与对 G-6 / P33 的两处量化补充。
   退出：`engine: 'rust'` 下**没有任何 v2 loop 代码执行**——用 P24 已建的 G-5 观测出口
   （`/status`）加覆盖率断言证明，不靠人工判断；
