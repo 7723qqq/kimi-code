@@ -62,6 +62,136 @@ fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReas
     }
 }
 
+/// Run a single turn with engine-side telemetry emission (M1c).
+///
+/// Wraps [`run_turn`] and emits `turn_started` / `turn_ended` /
+/// `turn_interrupted` through the `host/telemetry` seam, merging the
+/// host-injected [`TelemetryContext`] (mode / provider_type / protocol /
+/// thinking_effort) with the engine-observed outcome (reason, duration_ms,
+/// steps, at_step, interrupt_reason). The host forwards one track2 per event
+/// and suppresses its own turn-lifecycle telemetry for engine-driven turns —
+/// this is the ownership hand-over for telemetry.
+///
+/// `trace_id` is a known gap: the engine does not yet capture the provider
+/// request id from native LLM responses, and in host-proxy mode the host
+/// never sees the value either.
+pub fn run_turn_with_telemetry<'a>(
+    input: RunTurnInput<'a>,
+    telemetry: TelemetryContext,
+    callbacks: &'a Arc<dyn HostCallbacks>,
+) -> BoxFuture<'a, Result<TurnResult, Box<dyn std::error::Error + 'a>>> {
+    let turn_id = input.turn_id.clone();
+    callbacks.telemetry(telemetry_payload(
+        "turn_started",
+        &telemetry,
+        &turn_id,
+        None,
+    ));
+    Box::pin(async move {
+        let started = std::time::Instant::now();
+        let result = run_turn(input, callbacks).await;
+        match &result {
+            Ok(result) => {
+                let reason = telemetry_reason(&result.stop_reason);
+                callbacks.telemetry(telemetry_payload(
+                    "turn_ended",
+                    &telemetry,
+                    &turn_id,
+                    Some(serde_json::json!({
+                        "reason": reason,
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                        "steps": result.steps,
+                    })),
+                ));
+                if reason != "completed" {
+                    callbacks.telemetry(telemetry_payload(
+                        "turn_interrupted",
+                        &telemetry,
+                        &turn_id,
+                        Some(serde_json::json!({
+                            "at_step": result.steps,
+                            "interrupt_reason": telemetry_interrupt_reason(&result.stop_reason),
+                        })),
+                    ));
+                }
+            }
+            Err(_) => {
+                callbacks.telemetry(telemetry_payload(
+                    "turn_ended",
+                    &telemetry,
+                    &turn_id,
+                    Some(serde_json::json!({
+                        "reason": "failed",
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                    })),
+                ));
+                callbacks.telemetry(telemetry_payload(
+                    "turn_interrupted",
+                    &telemetry,
+                    &turn_id,
+                    Some(serde_json::json!({ "interrupt_reason": "error" })),
+                ));
+            }
+        }
+        result
+    })
+}
+
+/// Map the stop reason onto v2's `TurnResult.type` telemetry vocabulary
+/// (`completed` / `cancelled` / `failed`). The engine path never produces
+/// `max_tokens`-style types: `MaxTokens` / `Filtered` are finish reasons on
+/// a response the model did produce, and `Paused` / `BudgetLimited` surface
+/// as normal turn ends with a blocked marker.
+fn telemetry_reason(stop: &LoopTurnStopReason) -> &'static str {
+    match stop {
+        LoopTurnStopReason::EndTurn
+        | LoopTurnStopReason::MaxTokens
+        | LoopTurnStopReason::Filtered
+        | LoopTurnStopReason::Paused
+        | LoopTurnStopReason::BudgetLimited => "completed",
+        LoopTurnStopReason::Aborted => "cancelled",
+        LoopTurnStopReason::Unknown => "failed",
+    }
+}
+
+/// The engine sees only the cancellation flag, not the host's abort reason —
+/// `user_cancelled` vs `aborted` cannot be distinguished here, so every
+/// engine-side cancellation reports `aborted` until the reason travels with
+/// the cancel request.
+fn telemetry_interrupt_reason(stop: &LoopTurnStopReason) -> &'static str {
+    match stop {
+        LoopTurnStopReason::Aborted => "aborted",
+        _ => "error",
+    }
+}
+
+fn telemetry_payload(
+    event: &str,
+    ctx: &TelemetryContext,
+    turn_id: &str,
+    extra: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "event": event,
+        "turn_id": turn_id,
+        "mode": ctx.mode,
+        "provider_type": ctx.provider_type,
+        "protocol": ctx.protocol,
+    });
+    if let Some(effort) = &ctx.thinking_effort {
+        value["thinking_effort"] = serde_json::Value::String(effort.clone());
+    }
+    if let (Some(extra_obj), Some(obj)) = (
+        extra.as_ref().and_then(|extra| extra.as_object()),
+        value.as_object_mut(),
+    ) {
+        for (key, val) in extra_obj {
+            obj.insert(key.clone(), val.clone());
+        }
+    }
+    value
+}
+
 /// Run a single turn.
 #[tracing::instrument(name = "run_turn", skip_all, fields(turn_id = %input.turn_id, max_steps = input.max_steps, has_goal = input.goal.is_some()))]
 pub fn run_turn<'a>(
@@ -565,6 +695,11 @@ mod tests {
         fn emit_event(&self, event: serde_json::Value) {
             self.events.lock().unwrap().push(event.clone());
             self.inner.emit_event(event);
+        }
+
+        fn telemetry(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event.clone());
+            self.inner.telemetry(event);
         }
     }
 
@@ -2012,5 +2147,121 @@ mod tests {
         assert_eq!(date_injection.role, "user");
         assert!(date_injection.content.starts_with("<system-reminder>\n"));
         assert!(date_injection.content.ends_with("\n</system-reminder>"));
+    }
+
+    // ── Telemetry emission tests (M1c `host/telemetry`) ─────────────────
+
+    /// The telemetry events must carry the host-injected context merged with
+    /// the engine-observed outcome, in v2's payload vocabulary — the host
+    /// forwards these to track2 verbatim, so a field drift here is a
+    /// dashboard drift.
+    #[tokio::test]
+    async fn test_run_turn_with_telemetry_emits_started_and_ended() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            turn_id: "test-telemetry-ok".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        let telemetry = TelemetryContext {
+            mode: "agent".into(),
+            provider_type: "kimi".into(),
+            protocol: "openai".into(),
+            thinking_effort: Some("high".into()),
+        };
+
+        let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;
+        assert!(result.is_ok());
+
+        let events = events.lock().unwrap();
+        let emitted: Vec<&serde_json::Value> =
+            events.iter().filter(|e| e.get("event").is_some()).collect();
+        assert_eq!(emitted.len(), 2, "started + ended, nothing else");
+        assert_eq!(emitted[0]["event"], "turn_started");
+        assert_eq!(emitted[0]["turn_id"], "test-telemetry-ok");
+        assert_eq!(emitted[0]["mode"], "agent");
+        assert_eq!(emitted[0]["provider_type"], "kimi");
+        assert_eq!(emitted[0]["protocol"], "openai");
+        assert_eq!(emitted[0]["thinking_effort"], "high");
+        assert_eq!(emitted[1]["event"], "turn_ended");
+        assert_eq!(emitted[1]["reason"], "completed");
+        assert_eq!(emitted[1]["steps"], 1);
+        assert!(emitted[1]["duration_ms"].is_u64());
+    }
+
+    /// An aborted turn ends as `cancelled` and additionally reports
+    /// `turn_interrupted` with the engine-side interrupt reason.
+    #[tokio::test]
+    async fn test_run_turn_with_telemetry_reports_cancellation_as_interrupted() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let input = RunTurnInput {
+            turn_id: "test-telemetry-cancel".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: Some(cancel_flag),
+        };
+        let telemetry = TelemetryContext {
+            mode: "agent".into(),
+            provider_type: "kimi".into(),
+            protocol: "openai".into(),
+            thinking_effort: None,
+        };
+
+        let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;
+        assert!(matches!(
+            result.unwrap().stop_reason,
+            LoopTurnStopReason::Aborted
+        ));
+
+        let events = events.lock().unwrap();
+        let emitted: Vec<&serde_json::Value> =
+            events.iter().filter(|e| e.get("event").is_some()).collect();
+        assert_eq!(emitted.len(), 3, "started + ended + interrupted");
+        assert_eq!(emitted[1]["event"], "turn_ended");
+        assert_eq!(emitted[1]["reason"], "cancelled");
+        assert_eq!(emitted[1]["steps"], 0);
+        assert_eq!(emitted[2]["event"], "turn_interrupted");
+        assert_eq!(emitted[2]["at_step"], 0);
+        assert_eq!(emitted[2]["interrupt_reason"], "aborted");
+        assert!(
+            emitted[2].get("thinking_effort").is_none(),
+            "an absent context field must not be emitted"
+        );
     }
 }

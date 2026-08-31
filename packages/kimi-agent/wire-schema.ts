@@ -89,6 +89,45 @@ export const turnEventSchema = z.discriminatedUnion('type', [
 
 export type TurnEventWire = z.infer<typeof turnEventSchema>;
 
+// ── Rust→JS: turn telemetry (`run_turn_with_telemetry`, `host/telemetry`) ──
+// Fire-and-forget lifecycle telemetry: the host forwards one track2 per
+// event and suppresses its own turn telemetry for engine-driven turns.
+// Field names mirror the v2 telemetry vocabulary (snake_case); `trace_id`
+// is a known gap — the engine cannot capture the provider request id yet.
+export const telemetryEventSchema = z.discriminatedUnion('event', [
+  z.object({
+    event: z.literal('turn_started'),
+    turn_id: z.string(),
+    mode: z.string(),
+    provider_type: z.string(),
+    protocol: z.string(),
+    thinking_effort: z.string().optional(),
+  }),
+  z.object({
+    event: z.literal('turn_ended'),
+    turn_id: z.string(),
+    mode: z.string(),
+    provider_type: z.string(),
+    protocol: z.string(),
+    thinking_effort: z.string().optional(),
+    reason: z.enum(['completed', 'cancelled', 'failed']),
+    duration_ms: z.number(),
+    steps: z.number().optional(),
+  }),
+  z.object({
+    event: z.literal('turn_interrupted'),
+    turn_id: z.string(),
+    mode: z.string(),
+    provider_type: z.string(),
+    protocol: z.string(),
+    thinking_effort: z.string().optional(),
+    at_step: z.number().optional(),
+    interrupt_reason: z.enum(['aborted', 'error']),
+  }),
+]);
+
+export type TelemetryEventWire = z.infer<typeof telemetryEventSchema>;
+
 export const runTurnResultSchema = z.object({
   stop_reason: z.string(),
   steps: z.number(),
@@ -134,6 +173,13 @@ const policySnapshot = z.object({
   git_cwd: z.string().optional(),
 });
 
+const telemetryContext = z.object({
+  mode: z.string(),
+  provider_type: z.string(),
+  protocol: z.string(),
+  thinking_effort: z.string().nullish(),
+});
+
 export const runTurnParamsSchema = z.object({
   turn_id: z.string(),
   system_prompt: z.string(),
@@ -163,4 +209,5 @@ export const runTurnParamsSchema = z.object({
   policy_snapshot: policySnapshot.optional(),
   github_token: z.string().optional(),
   github_base_url: z.string().optional(),
+  telemetry: telemetryContext.optional(),
 });

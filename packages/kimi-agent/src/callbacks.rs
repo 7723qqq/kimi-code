@@ -125,6 +125,16 @@ pub trait HostCallbacks: Send + Sync {
     /// model the engine-owned turn lifecycle can safely no-op.
     fn turn_event(&self, _event: crate::turn_events::TurnEvent) {}
 
+    /// Fire-and-forget turn telemetry from the engine (M1c: `host/telemetry`).
+    /// The payload is a JSON object whose `event` field carries the event name
+    /// (`turn_started` / `turn_ended` / `turn_interrupted`) plus the v2
+    /// telemetry payload fields (turn_id, mode, provider_type, protocol,
+    /// thinking_effort, reason, duration_ms, steps, at_step,
+    /// interrupt_reason). The host forwards these to its telemetry sink —
+    /// one track2 per event, no host-side duplicates. The default drops the
+    /// event, so hosts without the seam keep owning their turn telemetry.
+    fn telemetry(&self, _event: serde_json::Value) {}
+
     /// Tell the host it may stop working on an LLM request that lost a race.
     ///
     /// Aborting the Rust task is not enough: the request has already been
@@ -350,6 +360,15 @@ impl HostCallbacks for RpcHostCallbacks {
         crate::rpc::server::RpcServer::notify_now(
             crate::rpc::types::methods::HOST_TURN_EVENT,
             &payload,
+        );
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        // Fire-and-forget notification over stdout, same contract as
+        // `host/event` / `host/turn_event`.
+        crate::rpc::server::RpcServer::notify_now(
+            crate::rpc::types::methods::HOST_TELEMETRY,
+            &event,
         );
     }
 }
@@ -611,6 +630,10 @@ impl HostCallbacks for NativeToolCallbacks {
     fn turn_event(&self, event: crate::turn_events::TurnEvent) {
         self.inner.turn_event(event);
     }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        self.inner.telemetry(event);
+    }
 }
 
 /// A [`HostCallbacks`] decorator that counts fire-and-forget events
@@ -713,6 +736,15 @@ impl HostCallbacks for CountingCallbacks {
             bus.publish_json(payload);
         }
         self.inner.turn_event(event);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        // Not counted, same reasoning as `turn_event`: fixed three events per
+        // turn (started / [interrupted] / ended), not overhead telemetry.
+        if let Some(ref bus) = self.bus {
+            bus.publish_json(event.clone());
+        }
+        self.inner.telemetry(event);
     }
 }
 

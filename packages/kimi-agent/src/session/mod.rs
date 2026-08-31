@@ -1,4 +1,4 @@
-//! EngineSession — the turn lifecycle owner (M1a/M1b).
+//! EngineSession — the turn lifecycle owner (M1a/M1b/M1c).
 //!
 //! Owns what v2's `loopService.ts` owns today: turn admission (four modes),
 //! the pending-turn FIFO, serial turn execution, turn-id assignment, and
@@ -13,8 +13,15 @@
 //! durable [`TurnEvent::Prompt`], so the host's own `turnKey` fold stays the
 //! single writer of persisted turn state.
 //!
+//! M1c adds the quiescence/backpressure half of `loopService.ts`
+//! (`tryAcquireQuiescence` / `settled`): while a quiescence guard is held,
+//! enqueued turns are held back instead of admitted; releasing the guard
+//! replays them in FIFO order; [`EngineSession::settled`] resolves once no
+//! turn is active, pending, or held.
+//!
 //! Deliberately out of scope (see the M1 section of `ROADMAP.md`):
-//! quiescence/backpressure and telemetry (M1c), `host/list_tools` (M1d).
+//! telemetry is served by the `host/telemetry` callback (M1c, emitted from
+//! `run_turn`), `host/list_tools` is M1d.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -177,6 +184,33 @@ struct Core {
     /// Cross-turn conversation history (system message excluded — run_turn
     /// rebuilds it per turn from the LLM's system prompt).
     history: Vec<LLMMessage>,
+    /// M1c: while > 0 (a [`QuiescenceGuard`] is alive) enqueued turns are
+    /// parked in `held` instead of admitted.
+    quiescence_depth: usize,
+    /// Turns enqueued during quiescence, replayed in FIFO order on release.
+    held: Vec<HeldTurn>,
+    /// Waiters resolved by [`EngineSession::settled`] once nothing is
+    /// active, pending, or held.
+    settle_waiters: Vec<oneshot::Sender<()>>,
+}
+
+/// A turn parked by quiescence: the id was allocated at enqueue time (the
+/// receipt is already in the caller's hands), the turn itself starts only
+/// when the guard is released.
+struct HeldTurn {
+    turn_id: u64,
+    request: TurnRequest,
+    cancel: Arc<AtomicBool>,
+    outcome: Option<oneshot::Sender<Result<TurnOutcome, String>>>,
+}
+
+/// Resolve every [`Core::settle_waiters`] when the session is fully idle.
+fn maybe_settle_locked(core: &mut Core) {
+    if core.active_turn_id.is_none() && core.pending.is_empty() && core.held.is_empty() {
+        for tx in std::mem::take(&mut core.settle_waiters) {
+            let _ = tx.send(());
+        }
+    }
 }
 
 struct SessionContext {
@@ -210,6 +244,9 @@ impl EngineSession {
             active_cancel: None,
             steer_waiters: Vec::new(),
             history: Vec::new(),
+            quiescence_depth: 0,
+            held: Vec::new(),
+            settle_waiters: Vec::new(),
         }));
         let steer_queue = Arc::new(Mutex::new(Vec::new()));
         let ctx = Arc::new(SessionContext {
@@ -237,13 +274,67 @@ impl EngineSession {
     /// Enqueue a prompt. The turn id is assigned synchronously (monotonic,
     /// never reused — cancelled queued turns consume their id, matching v2's
     /// reserved-id clock), so the caller can cancel by id immediately.
+    ///
+    /// While a [`QuiescenceGuard`] is alive the request is parked (M1c
+    /// backpressure, v2 `heldAdmissions`) and only admitted on guard release.
     pub fn enqueue_turn(&self, request: TurnRequest) -> Result<TurnReceipt, String> {
         let (outcome_tx, outcome_rx) = oneshot::channel();
         let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+        if core.quiescence_depth > 0 {
+            // Quiescence: park the request. The id is allocated now (the
+            // receipt is already in the caller's hands); admission happens on
+            // guard release. There is never an active turn during
+            // quiescence, so steering admissions park too.
+            let turn_id = core.next_turn_id;
+            core.next_turn_id += 1;
+            core.held.push(HeldTurn {
+                turn_id,
+                request,
+                cancel: Arc::new(AtomicBool::new(false)),
+                outcome: Some(outcome_tx),
+            });
+            return Ok(TurnReceipt {
+                turn_id,
+                outcome: outcome_rx,
+            });
+        }
+        let turn_id = Self::admit_locked(
+            &mut core,
+            request,
+            outcome_tx,
+            None,
+            &self.steer_queue,
+            &self.wakeup,
+        )?;
+        Ok(TurnReceipt {
+            turn_id,
+            outcome: outcome_rx,
+        })
+    }
+
+    /// Shared admission logic (v2 `admit`, :242-265). `preallocated_id` is
+    /// set when replaying a quiescence-held turn whose id was already handed
+    /// out at enqueue time. Notifies the pump after queueing; the caller may
+    /// still hold the core lock — `Notify` is non-blocking and the pump
+    /// takes the lock only after waking.
+    fn admit_locked(
+        core: &mut Core,
+        request: TurnRequest,
+        outcome_tx: oneshot::Sender<Result<TurnOutcome, String>>,
+        preallocated_id: Option<u64>,
+        steer_queue: &Mutex<Vec<LLMMessage>>,
+        wakeup: &Notify,
+    ) -> Result<u64, String> {
         match request.admission {
             Admission::NewTurn | Admission::ActiveOrNextTurn => {
-                let turn_id = core.next_turn_id;
-                core.next_turn_id += 1;
+                let turn_id = match preallocated_id {
+                    Some(id) => id,
+                    None => {
+                        let id = core.next_turn_id;
+                        core.next_turn_id += 1;
+                        id
+                    }
+                };
                 core.pending.push(PendingTurn {
                     turn_id,
                     prompt: request.prompt,
@@ -252,34 +343,31 @@ impl EngineSession {
                     cancel: Arc::new(AtomicBool::new(false)),
                     outcome: Some(outcome_tx),
                 });
-                drop(core);
-                self.wakeup.notify_one();
-                Ok(TurnReceipt {
-                    turn_id,
-                    outcome: outcome_rx,
-                })
+                wakeup.notify_one();
+                Ok(turn_id)
             }
             Admission::ActiveOrNewTurn | Admission::ActiveTurnOnly => {
-                if core.active_turn_id.is_some() {
+                if let Some(active) = core.active_turn_id {
                     // Steer: the prompt joins the active turn through the
                     // drain_steers seam; the receipt resolves with the active
                     // turn's outcome.
-                    let turn_id = core.active_turn_id.unwrap_or_else(|| core.next_turn_id);
-                    core.steer_waiters.push((turn_id, outcome_tx));
-                    drop(core);
-                    self.steer_queue
+                    core.steer_waiters.push((active, outcome_tx));
+                    steer_queue
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .push(request.prompt);
-                    Ok(TurnReceipt {
-                        turn_id,
-                        outcome: outcome_rx,
-                    })
+                    Ok(active)
                 } else if request.admission == Admission::ActiveTurnOnly {
                     Err("Step request requires an active turn".to_string())
                 } else {
-                    let turn_id = core.next_turn_id;
-                    core.next_turn_id += 1;
+                    let turn_id = match preallocated_id {
+                        Some(id) => id,
+                        None => {
+                            let id = core.next_turn_id;
+                            core.next_turn_id += 1;
+                            id
+                        }
+                    };
                     core.pending.push(PendingTurn {
                         turn_id,
                         prompt: request.prompt,
@@ -288,22 +376,18 @@ impl EngineSession {
                         cancel: Arc::new(AtomicBool::new(false)),
                         outcome: Some(outcome_tx),
                     });
-                    drop(core);
-                    self.wakeup.notify_one();
-                    Ok(TurnReceipt {
-                        turn_id,
-                        outcome: outcome_rx,
-                    })
+                    wakeup.notify_one();
+                    Ok(turn_id)
                 }
             }
         }
     }
 
     /// Cancel a turn by id. An active turn is interrupted at the next step
-    /// boundary; a queued turn is dropped before starting (its receipt
-    /// resolves with [`TurnOutcome::CancelledBeforeStart`]). Without an id
-    /// the active turn (if any) is cancelled. Returns whether anything was
-    /// cancelled.
+    /// boundary; a queued or quiescence-held turn is dropped before starting
+    /// (its receipt resolves with [`TurnOutcome::CancelledBeforeStart`]).
+    /// Without an id the active turn (if any) is cancelled. Returns whether
+    /// anything was cancelled.
     pub fn cancel_turn(&self, turn_id: Option<u64>) -> bool {
         // Decide under the lock, dispatch after releasing it: `turn_event`
         // hands the event to the host, which must never run while the core
@@ -315,7 +399,7 @@ impl EngineSession {
         }
         let decision = {
             let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
-            match turn_id {
+            let decision = match turn_id {
                 Some(id) if core.active_turn_id == Some(id) => match &core.active_cancel {
                     Some(flag) => {
                         flag.store(true, Ordering::SeqCst);
@@ -332,7 +416,17 @@ impl EngineSession {
                         }
                         Decision::CancelQueued { turn_id: id }
                     }
-                    None => Decision::Nothing,
+                    None => match core.held.iter().position(|t| t.turn_id == id) {
+                        Some(pos) => {
+                            let mut entry = core.held.remove(pos);
+                            entry.cancel.store(true, Ordering::SeqCst);
+                            if let Some(tx) = entry.outcome.take() {
+                                let _ = tx.send(Ok(TurnOutcome::CancelledBeforeStart));
+                            }
+                            Decision::CancelQueued { turn_id: id }
+                        }
+                        None => Decision::Nothing,
+                    },
                 },
                 None => match &core.active_cancel {
                     Some(flag) => {
@@ -345,7 +439,9 @@ impl EngineSession {
                     }
                     None => Decision::Nothing,
                 },
-            }
+            };
+            maybe_settle_locked(&mut core);
+            decision
         };
         match decision {
             Decision::CancelActive { turn_id } => {
@@ -375,6 +471,53 @@ impl EngineSession {
             active_turn_id: core.active_turn_id,
             pending_turn_ids: core.pending.iter().map(|t| t.turn_id).collect(),
         }
+    }
+
+    /// Try to acquire quiescence (v2 `tryAcquireQuiescence`): an exclusive
+    /// window in which enqueued turns are parked instead of admitted. Fails
+    /// (`None`) when a guard is already held or any turn is active, pending,
+    /// or held — the caller must wait for [`EngineSession::settled`] and
+    /// retry. Undo checkpoints, compaction, and reminder injection run
+    /// inside this window (v2 consumers: undoService, fullCompactionService,
+    /// reminderAgentRuntime).
+    pub fn try_acquire_quiescence(&self) -> Option<QuiescenceGuard> {
+        let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+        if core.quiescence_depth > 0
+            || core.active_turn_id.is_some()
+            || !core.pending.is_empty()
+            || !core.held.is_empty()
+        {
+            return None;
+        }
+        core.quiescence_depth += 1;
+        Some(QuiescenceGuard {
+            core: self.core.clone(),
+            steer_queue: self.steer_queue.clone(),
+            wakeup: self.wakeup.clone(),
+        })
+    }
+
+    /// Whether the session is fully idle (nothing active, pending, or held)
+    /// right now — the non-blocking probe behind [`EngineSession::settled`].
+    pub fn is_settled(&self) -> bool {
+        let core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+        core.active_turn_id.is_none() && core.pending.is_empty() && core.held.is_empty()
+    }
+
+    /// Resolves once the session is fully idle: no active turn, no pending
+    /// or held turns (v2 `settled`). Session teardown awaits this before
+    /// disposing engine-owned resources.
+    pub async fn settled(&self) {
+        let rx = {
+            let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+            if core.active_turn_id.is_none() && core.pending.is_empty() && core.held.is_empty() {
+                return;
+            }
+            let (tx, rx) = oneshot::channel();
+            core.settle_waiters.push(tx);
+            rx
+        };
+        let _ = rx.await;
     }
 
     /// Replace the session's cross-turn history. The next enqueued turn
@@ -411,6 +554,61 @@ impl EngineSession {
             .unwrap_or_else(|e| e.into_inner())
             .history
             .len()
+    }
+}
+
+/// Exclusive quiescence window (v2 `IDisposable` from
+/// `tryAcquireQuiescence`). Releasing the guard — explicit `drop` or scope
+/// exit — replays every held turn in FIFO order and wakes the pump. RAII
+/// replaces v2's manual `dispose()`, so an early return inside the window
+/// cannot strand the session in quiescence.
+pub struct QuiescenceGuard {
+    core: Arc<Mutex<Core>>,
+    steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+    wakeup: Arc<Notify>,
+}
+
+impl Drop for QuiescenceGuard {
+    fn drop(&mut self) {
+        let held = {
+            let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+            core.quiescence_depth = core.quiescence_depth.saturating_sub(1);
+            if core.quiescence_depth > 0 {
+                return;
+            }
+            std::mem::take(&mut core.held)
+        };
+        // Replay held turns in FIFO order. Admission modes are preserved; a
+        // replayed steer admission with no active turn queues a new turn,
+        // matching v2's admit-on-replay.
+        {
+            let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+            for entry in held {
+                let HeldTurn {
+                    turn_id,
+                    request,
+                    cancel: _,
+                    outcome,
+                } = entry;
+                // The outcome sender is always `Some` here — only the cancel
+                // path takes it, and a cancelled held turn never reaches the
+                // replay. The fallback keeps the compiler happy without a
+                // panic path.
+                let outcome = outcome.unwrap_or_else(|| {
+                    let (tx, _rx) = oneshot::channel();
+                    tx
+                });
+                let _ = EngineSession::admit_locked(
+                    &mut core,
+                    request,
+                    outcome,
+                    Some(turn_id),
+                    &self.steer_queue,
+                    &self.wakeup,
+                );
+            }
+        }
+        self.wakeup.notify_one();
     }
 }
 
@@ -474,6 +672,8 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             if let Ok(TurnOutcome::Ran(result)) = &outcome {
                 core.history.extend(result.messages.iter().skip(1).cloned());
             }
+            // Wake `settled()` waiters when nothing else is queued (M1c).
+            maybe_settle_locked(&mut core);
             std::mem::take(&mut core.steer_waiters)
         };
         // Durable: the host folds this into `turnKey.lastEnded` and drives any
@@ -622,6 +822,10 @@ impl HostCallbacks for SteerQueueCallbacks {
 
     fn turn_event(&self, event: TurnEvent) {
         self.inner.turn_event(event);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        self.inner.telemetry(event);
     }
 
     fn cancel_llm_chat(&self, request_id: &str) {
@@ -1203,5 +1407,147 @@ mod tests {
 
         gates.into_iter().next().unwrap().send(()).unwrap();
         let _ = r1.outcome().await;
+    }
+
+    // ── M1c: quiescence / backpressure / settled ────────────────────────────
+
+    #[tokio::test]
+    async fn test_settled_resolves_immediately_when_idle() {
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(
+            Arc::new(ScriptedLlm::simple(vec![text_response("unused")])),
+            rpc_callbacks(server),
+        )
+        .await;
+        tokio::time::timeout(std::time::Duration::from_millis(100), session.settled())
+            .await
+            .expect("settled must resolve immediately on an idle session");
+    }
+
+    #[tokio::test]
+    async fn test_settled_waits_for_active_turn() {
+        let (llm, mut gates) = ScriptedLlm::with_gate(vec![text_response("gated")]);
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(Arc::new(llm), rpc_callbacks(server)).await;
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "a"), Admission::NewTurn))
+            .unwrap();
+        wait_until(|| session.status().active_turn_id.is_some()).await;
+
+        let settled = session.settled();
+        tokio::pin!(settled);
+        // The turn is gated open — settled must not resolve while it runs.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut settled)
+                .await
+                .is_err(),
+            "settled resolved while a turn was active"
+        );
+
+        gates.remove(0).send(()).unwrap();
+        let _ = receipt.outcome().await;
+        tokio::time::timeout(std::time::Duration::from_millis(1000), settled)
+            .await
+            .expect("settled must resolve once the turn finished");
+    }
+
+    #[tokio::test]
+    async fn test_quiescence_holds_turns_and_release_replays_in_order() {
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("first"),
+            text_response("second"),
+        ]));
+        let requests = llm.requests.clone();
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(llm, rpc_callbacks(server)).await;
+
+        let guard = session
+            .try_acquire_quiescence()
+            .expect("an idle session must grant quiescence");
+        let mut held1 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "held-a"), Admission::NewTurn))
+            .unwrap();
+        let mut held2 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "held-b"), Admission::NewTurn))
+            .unwrap();
+        assert!(
+            requests.lock().unwrap().is_empty(),
+            "no turn may start while quiescence is held"
+        );
+
+        drop(guard);
+
+        let o1 = held1.outcome().await.unwrap();
+        let o2 = held2.outcome().await.unwrap();
+        assert!(matches!(o1, TurnOutcome::Ran(_)));
+        assert!(matches!(o2, TurnOutcome::Ran(_)));
+        let calls = requests.lock().unwrap();
+        assert_eq!(calls.len(), 2, "both held turns must run after release");
+        assert!(calls[0].iter().any(|m| m.content == "held-a"));
+        assert!(calls[1].iter().any(|m| m.content == "held-b"));
+    }
+
+    #[tokio::test]
+    async fn test_try_acquire_quiescence_fails_while_turns_outstanding() {
+        let (llm, mut gates) = ScriptedLlm::with_gate(vec![text_response("b"), text_response("a")]);
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(Arc::new(llm), rpc_callbacks(server)).await;
+        let mut receipt_a = session
+            .enqueue_turn(TurnRequest::user(msg("user", "a"), Admission::NewTurn))
+            .unwrap();
+        wait_until(|| session.status().active_turn_id == Some(receipt_a.turn_id)).await;
+        // chat pops gates LIFO, so turn a is parked on gates[1].
+        assert!(
+            session.try_acquire_quiescence().is_none(),
+            "an active turn must deny quiescence"
+        );
+        // A pending turn denies too.
+        let mut receipt_b = session
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "b"),
+                Admission::ActiveOrNextTurn,
+            ))
+            .unwrap();
+        assert!(
+            session.try_acquire_quiescence().is_none(),
+            "a pending turn must deny quiescence"
+        );
+        // Finish turn a; turn b starts and parks on the remaining gate.
+        gates.swap_remove(1).send(()).unwrap();
+        let _ = receipt_a.outcome().await;
+        wait_until(|| session.status().active_turn_id == Some(receipt_b.turn_id)).await;
+        assert!(session.try_acquire_quiescence().is_none());
+        gates.swap_remove(0).send(()).unwrap();
+        let _ = receipt_b.outcome().await;
+        wait_until(|| session.is_settled()).await;
+        assert!(session.try_acquire_quiescence().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_held_turn_resolves_and_settles() {
+        let llm = Arc::new(ScriptedLlm::simple(vec![text_response("unused")]));
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let session = make_session(llm, Arc::new(callbacks)).await;
+
+        let guard = session.try_acquire_quiescence().unwrap();
+        let mut held = session
+            .enqueue_turn(TurnRequest::user(msg("user", "held"), Admission::NewTurn))
+            .unwrap();
+        assert!(session.cancel_turn(Some(held.turn_id)));
+        drop(guard);
+
+        let outcome = held.outcome().await.unwrap();
+        assert!(
+            matches!(outcome, TurnOutcome::CancelledBeforeStart),
+            "a cancelled held turn must never run"
+        );
+        assert!(recorded(&events).contains(&TurnEvent::Cancel {
+            turn_id: Some(held.turn_id),
+            target: Some(TurnCancelTarget::Queued),
+            reason: Some(TurnCancelReason::UserCancelled),
+        }));
+        tokio::time::timeout(std::time::Duration::from_millis(1000), session.settled())
+            .await
+            .expect("cancelling the only held turn must settle the session");
     }
 }

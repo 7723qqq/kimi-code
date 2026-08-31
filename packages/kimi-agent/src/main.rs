@@ -300,7 +300,10 @@ async fn main() -> anyhow::Result<()> {
                 cancellation: Some(cancel_flag.clone()),
             };
 
-            let result = run_turn(run_input, &callbacks).await;
+            let result = match input.telemetry {
+                Some(context) => run_turn_with_telemetry(run_input, context, &callbacks).await,
+                None => run_turn(run_input, &callbacks).await,
+            };
 
             // Clean up the cancellation flag.
             {

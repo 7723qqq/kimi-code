@@ -124,6 +124,15 @@ pub mod methods {
     /// engine has already assigned the turn id locally.
     pub const HOST_TURN_EVENT: &str = "host/turn_event";
 
+    /// Turn telemetry notification (Rust → JS host, M1c). Carries a JSON
+    /// object whose `event` field names the v2 telemetry event
+    /// (`turn_started` / `turn_ended` / `turn_interrupted`) followed by the
+    /// v2 payload fields (turn_id, mode, provider_type, protocol,
+    /// thinking_effort, reason, duration_ms, steps, at_step,
+    /// interrupt_reason). Fire-and-forget — the host forwards one track2 per
+    /// event.
+    pub const HOST_TELEMETRY: &str = "host/telemetry";
+
     /// Ask the host an interactive question and wait for a human answer
     /// (Rust → JS host). The host owns the interaction runtime — pending
     /// key, dismiss, turn-end cancellation — and answers with the v2
@@ -454,6 +463,10 @@ pub struct RunTurnParams {
     pub github_token: Option<String>,
     #[serde(default)]
     pub github_base_url: Option<String>,
+    /// Host-injected telemetry context (M1c): the host's model configuration
+    /// merged into the engine-emitted `host/telemetry` events.
+    #[serde(default)]
+    pub telemetry: Option<crate::turn_loop::types::TelemetryContext>,
 }
 
 /// LLM provider definition for MultiLLM.

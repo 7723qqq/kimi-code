@@ -49,7 +49,7 @@ use crate::rpc::types::{
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse, ToolFinalizeRequest,
 };
-use crate::turn_loop::{run_turn::run_turn, types::*};
+use crate::turn_loop::{run_turn::run_turn, run_turn::run_turn_with_telemetry, types::*};
 
 // ── Global callback registry ───────────────────────────────────────────────
 
@@ -297,6 +297,11 @@ struct NapiHostCallbacks {
     /// host keeps owning the turn lifecycle end to end, which is the
     /// pre-existing behaviour while `run_turn` is a stateless per-turn call.
     turn_event_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional turn telemetry channel (M1c): the engine emits
+    /// `turn_started` / `turn_ended` / `turn_interrupted` payloads the host
+    /// forwards to its telemetry sink. Absent means the host keeps owning
+    /// its turn telemetry end to end.
+    telemetry_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -490,6 +495,16 @@ impl HostCallbacks for NapiHostCallbacks {
 
     fn turn_event(&self, event: crate::turn_events::TurnEvent) {
         let Some(ref tsfn) = self.turn_event_fn else {
+            return;
+        };
+        let Ok(payload) = serde_json::to_string(&event) else {
+            return;
+        };
+        fire_payload_only(tsfn, payload);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        let Some(ref tsfn) = self.telemetry_fn else {
             return;
         };
         let Ok(payload) = serde_json::to_string(&event) else {
@@ -691,6 +706,21 @@ pub struct JsRunTurnParams {
     /// (v2 `envOverlay.ts` semantics: config wins, env fills the gap).
     pub github_token: Option<String>,
     pub github_base_url: Option<String>,
+    /// Host-injected telemetry context (M1c): the host's model configuration
+    /// merged into the engine-emitted `host/telemetry` events.
+    pub telemetry: Option<JsTelemetryContext>,
+}
+
+/// The host-side half of the turn telemetry payload (M1c): fields the host
+/// knows from its model configuration; the engine contributes the outcome
+/// fields (reason / duration_ms / steps / at_step / interrupt_reason).
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsTelemetryContext {
+    pub mode: String,
+    pub provider_type: String,
+    pub protocol: String,
+    pub thinking_effort: Option<String>,
 }
 
 #[napi(object)]
@@ -822,6 +852,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -952,6 +983,18 @@ pub fn run_turn_rust(
         None => None,
     };
 
+    let telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match telemetry_cb {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -969,6 +1012,7 @@ pub fn run_turn_rust(
                 state_read_tsfn,
                 state_write_tsfn,
                 turn_event_tsfn,
+                telemetry_tsfn,
             )
             .await
         },
@@ -1010,6 +1054,7 @@ async fn run_turn_rust_impl(
     state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -1032,6 +1077,7 @@ async fn run_turn_rust_impl(
         state_read_fn: state_read_tsfn.map(Arc::new),
         state_write_fn: state_write_tsfn.map(Arc::new),
         turn_event_fn: turn_event_tsfn.map(Arc::new),
+        telemetry_fn: telemetry_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 
@@ -1255,7 +1301,16 @@ async fn run_turn_rust_impl(
         cancellation: Some(cancellation),
     };
 
-    let result = run_turn(input, &callbacks).await;
+    let telemetry_context = params.telemetry.map(|t| TelemetryContext {
+        mode: t.mode,
+        provider_type: t.provider_type,
+        protocol: t.protocol,
+        thinking_effort: t.thinking_effort,
+    });
+    let result = match telemetry_context {
+        Some(context) => run_turn_with_telemetry(input, context, &callbacks).await,
+        None => run_turn(input, &callbacks).await,
+    };
 
     CANCEL_MAP
         .lock()

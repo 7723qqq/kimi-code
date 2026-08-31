@@ -14,7 +14,7 @@ import {
   type AskQuestionWire,
   type AskQuestionWireResult,
 } from './rust-loop';
-import { runTurnParamsSchema, runTurnResultSchema, turnEventSchema } from './wire-schema';
+import { runTurnParamsSchema, runTurnResultSchema, telemetryEventSchema, turnEventSchema } from './wire-schema';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -1613,4 +1613,279 @@ describe('host/turn_event transport', () => {
       turnEventSchema.safeParse({ type: 'turn.ended', turnId: 2, reason: 'nope' }).success,
     ).toBe(false);
   });
+});
+
+// ── host/telemetry (engine turn telemetry, M1c) ────────────────────────────
+// The engine emits turn_started / turn_ended / turn_interrupted when the host
+// injects a telemetry context; the host forwards one track2 per event. A
+// payload that does not match the wire mirror must be reported rather than
+// dropped in silence — a shape drift here is a dashboard drift.
+
+describe('host/telemetry wire schema', () => {
+  it('accepts every event shape the engine emits', () => {
+    for (const params of [
+      {
+        event: 'turn_started',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+      },
+      {
+        event: 'turn_started',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        thinking_effort: 'high',
+      },
+      {
+        event: 'turn_ended',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        reason: 'completed',
+        duration_ms: 12,
+        steps: 2,
+      },
+      {
+        event: 'turn_ended',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        reason: 'failed',
+        duration_ms: 3,
+      },
+      {
+        event: 'turn_interrupted',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        at_step: 1,
+        interrupt_reason: 'aborted',
+      },
+      {
+        event: 'turn_interrupted',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        interrupt_reason: 'error',
+      },
+    ]) {
+      expect(telemetryEventSchema.safeParse(params).success, JSON.stringify(params)).toBe(true);
+    }
+  });
+
+  it('rejects drifted payloads: camelCase id, unknown reason, unknown interrupt reason', () => {
+    expect(
+      telemetryEventSchema.safeParse({
+        event: 'turn_started',
+        turnId: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+      }).success,
+    ).toBe(false);
+    expect(
+      telemetryEventSchema.safeParse({
+        event: 'turn_ended',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        reason: 'exploded',
+        duration_ms: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      telemetryEventSchema.safeParse({
+        event: 'turn_interrupted',
+        turn_id: 't1',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        interrupt_reason: 'meh',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('host/telemetry transport', () => {
+  it('dispatches a telemetry event to the registered handler', () => {
+    const agent = new AgentProcess();
+    const seen: unknown[] = [];
+    agent.setTelemetryHandler((event) => seen.push(event));
+    const target = agent as unknown as { buffer: string; processBuffer(): void };
+    // A trailing fragment is held back for the next read, so a line needs its terminator.
+    const newline = String.fromCharCode(10);
+    const feed = (message: unknown) => {
+      target.buffer = JSON.stringify(message) + newline;
+      target.processBuffer();
+    };
+
+    feed({
+      jsonrpc: '2.0',
+      method: 'host/telemetry',
+      params: {
+        event: 'turn_started',
+        turn_id: 'turn-9',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        thinking_effort: 'high',
+      },
+    });
+    feed({
+      jsonrpc: '2.0',
+      method: 'host/telemetry',
+      params: {
+        event: 'turn_ended',
+        turn_id: 'turn-9',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        reason: 'completed',
+        duration_ms: 42,
+        steps: 2,
+      },
+    });
+
+    expect(seen).toEqual([
+      {
+        event: 'turn_started',
+        turn_id: 'turn-9',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        thinking_effort: 'high',
+      },
+      {
+        event: 'turn_ended',
+        turn_id: 'turn-9',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        reason: 'completed',
+        duration_ms: 42,
+        steps: 2,
+      },
+    ]);
+  });
+
+  it('rejects a malformed telemetry event instead of handing it to the host', () => {
+    const agent = new AgentProcess();
+    const seen: unknown[] = [];
+    agent.setTelemetryHandler((event) => seen.push(event));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const target = agent as unknown as { buffer: string; processBuffer(): void };
+    target.buffer =
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'host/telemetry',
+        params: {
+          event: 'turn_ended',
+          turn_id: 'turn-9',
+          mode: 'agent',
+          provider_type: 'kimi',
+          protocol: 'openai',
+          reason: 'exploded',
+          duration_ms: 1,
+        },
+      }) + String.fromCharCode(10);
+    target.processBuffer();
+
+    expect(seen).toEqual([]);
+    expect(errors).toHaveBeenCalledOnce();
+    errors.mockRestore();
+  });
+});
+
+describe.skipIf(!napiEntry)('createRunTurnOverride — napi turn telemetry (M1c)', () => {
+  beforeEach(async () => {
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+  });
+
+  afterEach(async () => {
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+  });
+
+  it(
+    'emits turn_started / turn_ended with the host context merged in',
+    { timeout: 15_000 },
+    async () => {
+      const mod = await import('./rust-loop');
+      mod.forceEngineTransport('napi');
+
+      const seen: unknown[] = [];
+      const engine = mod.createRunTurnOverride(undefined, undefined, {
+        getTelemetryContext: () => ({
+          mode: 'agent',
+          provider_type: 'kimi',
+          protocol: 'openai',
+          thinking_effort: 'high',
+        }),
+        onTelemetry: (event) => seen.push(event),
+      });
+      expect(engine).toBeDefined();
+
+      const input = {
+        turnId: 7,
+        signal: new AbortController().signal,
+        llm: {
+          modelAlias: 'test-model',
+          modelId: 'test-model',
+          systemPrompt: 'test',
+          async chat() {
+            return {
+              toolCalls: [],
+              providerFinishReason: 'stop',
+              usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          },
+        },
+        async buildMessages() {
+          return [];
+        },
+        buildTools() {
+          return [];
+        },
+        async dispatchEvent() {},
+        async executeTool() {
+          return { output: 'ok' };
+        },
+      };
+
+      const result = (await (engine as (i: typeof input) => Promise<unknown>)(input)) as {
+        stopReason: string;
+      };
+      expect(result.stopReason).toBe('completed');
+
+      expect(seen.length).toBe(2);
+      expect(seen[0]).toMatchObject({
+        event: 'turn_started',
+        turn_id: '7',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        thinking_effort: 'high',
+      });
+      expect(seen[1]).toMatchObject({
+        event: 'turn_ended',
+        turn_id: '7',
+        mode: 'agent',
+        provider_type: 'kimi',
+        protocol: 'openai',
+        thinking_effort: 'high',
+        reason: 'completed',
+        steps: 1,
+      });
+      expect(typeof (seen[1] as { duration_ms: number }).duration_ms).toBe('number');
+    },
+  );
 });

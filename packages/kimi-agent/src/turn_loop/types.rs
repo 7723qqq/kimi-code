@@ -766,6 +766,18 @@ pub struct RunTurnInput<'a> {
     pub cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
+/// Host-injected context for the engine's turn telemetry (M1c). The host
+/// knows the model configuration; the engine observes the turn outcome and
+/// emits `turn_started` / `turn_ended` / `turn_interrupted` through
+/// `host/telemetry` with both merged.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TelemetryContext {
+    pub mode: String,
+    pub provider_type: String,
+    pub protocol: String,
+    pub thinking_effort: Option<String>,
+}
+
 // ── Step-level types ───────────────────────────────────────────────────────
 
 /// Result of a single step.

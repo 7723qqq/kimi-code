@@ -1466,7 +1466,7 @@ gateway 2/2，tsc 0 错误。
   （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
   口径修订记录在决策文档 §4）。
 
-- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a + M1b 完成（2026-08-31）；M1c–M1d 待做
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a + M1b + M1c 完成（2026-09-01）；M1d 待做
   - **M1a — EngineSession 骨架 + REPL 消费**（✅）：`packages/kimi-agent/src/session/mod.rs`（~520 行）实现
     `EngineSession`——admission 四模式（`NewTurn` / `ActiveOrNewTurn` / `ActiveOrNextTurn` /
     `ActiveTurnOnly`）、pending FIFO + 串行 pump（`tokio::spawn` + `Notify` 唤醒 + 锁内
@@ -1523,10 +1523,29 @@ gateway 2/2，tsc 0 错误。
       `EngineSession::new` 同时改为 `async fn`：原来在同步构造里
       `Handle::current().block_on(state_read)`，而构造点本身就在 async 上下文里 ——
       从 runtime 内部 block 会直接 panic。
-  - **M1c** — 取消/背压/遥测：session 已有 `cancel_turn` 基础；补 `quiescence_depth` +
-    `held_admissions` + `settled` 等待者；`host/telemetry` 回调承载 `turn_started` /
-    `turn_ended` / `turn_interrupted`（mode / provider_type / protocol /
-    thinking_effort / trace_id）。
+  - **M1c** — 取消/背压/遥测（✅ 2026-09-01）：
+    - **静默期/背压**（session）：`try_acquire_quiescence`（v2 `tryAcquireQuiescence`）——独占窗口，
+      活跃/排队/held 任一存在即拒绝；窗口内 `enqueue_turn` 停靠 `held`（id 入队时分配，receipt
+      已在调用方手里），guard drop（RAII 取代 v2 手动 `dispose()`，窗口内提前返回不会把 session
+      困死在静默期）按 FIFO 重放并唤醒 pump；`settled()` 等待者 + `is_settled()` 探针，
+      `maybe_settle_locked` 在 turn 结束/取消后解析。取消覆盖 held turn（`CancelledBeforeStart`）。
+      7 个新 session 测试：空闲即决、活跃等待、停靠重放顺序、三类拒绝条件、held 取消后 settle。
+    - **遥测**：`run_turn_with_telemetry` 包装 `run_turn`，经 `host/telemetry` 回调发
+      `turn_started` / `turn_ended` / `turn_interrupted`（v2 track2 词汇表：reason 映射
+      completed/cancelled/failed；引擎只见取消标志，interrupt_reason 统一报 `aborted`）。
+      宿主注入 `TelemetryContext`（mode/provider_type/protocol/thinking_effort）与引擎观测
+      （reason/duration_ms/steps/at_step）合并；`trace_id` 是已知缺口（引擎拿不到 provider
+      request id，host-proxy 模式宿主也看不到）。wire：`HOST_TELEMETRY` 通知（stdio）+
+      `JsRunTurnParams.telemetry` + 第 12 个 TSFN（napi）；三层装饰器全转发。
+      宿主 seam：`telemetryEventSchema`（zod 镜像，畸形报错不静默）+ napi/stdio 两路 handler +
+      门面 `onTelemetry`/`getTelemetryContext` 选项。
+    - **激活刻意未做**（对齐 M1b turn_event dispatch 桥的先例）：CLI 尚不传
+      `getTelemetryContext`/`onTelemetry`，v2 loopService 仍自己发 turn 遥测——现在接通就是
+      双份上报，且引擎给不了 `trace_id`（v2 自发路径有）。接管（转发 track2 + 抑制 v2 自发）
+      随 M1d 的 turn 所有权翻转一起做。
+    - 测试：Rust 遥测契约 2 条（payload 合并 + 取消→interrupted 映射）；TS wire-schema 2 条 +
+      stdio 传输 2 条 + napi 端到端 1 条（`createRunTurnOverride` 注入 context →
+      started/ended 到达，字段逐项断言）。
   - **M1d** — 工具快照收尾：`host/list_tools` 回调（每 LLM 调用前拉取，替代
     `buildTools` 一次性快照），删 `executeTurnViaEngine` 接缝，`engine: 'rust'` 下
     零 v2 loop 代码（G-5 `/status` 观测 + 覆盖率断言）。

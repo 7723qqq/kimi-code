@@ -28,12 +28,13 @@ import { resolve } from 'node:path';
 
 import type { JsRunTurnParams, JsRunTurnResult } from './napi-contract';
 import type { ZodType } from 'zod';
-import type { TurnEventWire } from './wire-schema';
+import type { TelemetryEventWire, TurnEventWire } from './wire-schema';
 import {
   llmChatRequestSchema,
   permissionCheckRequestSchema,
   runTurnParamsSchema,
   runTurnResultSchema,
+  telemetryEventSchema,
   toolExecuteRequestSchema,
   toolFinalizeRequestSchema,
   turnEventSchema,
@@ -195,6 +196,29 @@ export interface RustEngineOptions {
    * bridge" as the tool result.
    */
   stateWrite?: (request: StateWriteWire) => Promise<StateWriteWireResult>;
+  /**
+   * Sink for engine turn telemetry (`host/telemetry`): the engine emits
+   * `turn_started` / `turn_ended` / `turn_interrupted` per turn and the host
+   * forwards one track2 per event. When undefined the events are dropped at
+   * the transport.
+   */
+  onTelemetry?: (event: TelemetryEventWire) => void;
+  /**
+   * Host-injected telemetry context merged into the engine's turn telemetry
+   * events (mode / provider_type / protocol / thinking_effort — the fields
+   * the host knows from its model configuration). Read fresh on each turn.
+   * When undefined the engine runs the plain `run_turn` path and emits no
+   * telemetry: the host keeps owning its turn telemetry end to end.
+   */
+  getTelemetryContext?: () => EngineTelemetryContext | undefined;
+}
+
+/** Host-side half of the engine turn telemetry payload (M1c). */
+export interface EngineTelemetryContext {
+  mode: string;
+  provider_type: string;
+  protocol: string;
+  thinking_effort?: string;
 }
 
 /** Snapshot of permission policies for in-Rust evaluation (P26 批 3). */
@@ -512,6 +536,7 @@ interface KimiAgentNativeModule {
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
     turnEventCb?: (callbackId: number) => void,
+    telemetryCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -635,6 +660,7 @@ export class NapiEngine {
     stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
     turnEventCb?: (event: TurnEventWire) => void,
+    telemetryCb?: (event: TelemetryEventWire) => void,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -756,6 +782,23 @@ export class NapiEngine {
             }
           };
 
+    // Turn telemetry channel: fetch the payload but never resolve. A rejected
+    // payload is reported like turn_event — the host forwards these to its
+    // telemetry sink, so a shape drift is a dashboard drift, not a display
+    // glitch.
+    const telemetryHandler =
+      telemetryCb === undefined
+        ? undefined
+        : (callbackId: number) => {
+            const payload = nativeModule.getCallbackPayload(callbackId);
+            if (!payload) return;
+            try {
+              telemetryCb(parseWire(telemetryEventSchema, payload, 'host/telemetry'));
+            } catch (error: unknown) {
+              console.error('[kimi-agent] rejected host/telemetry:', error);
+            }
+          };
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -768,6 +811,7 @@ export class NapiEngine {
       stateReadHandler,
       stateWriteHandler,
       turnEventHandler,
+      telemetryHandler,
     );
   }
 
@@ -848,6 +892,9 @@ export class AgentProcess {
   /** Callback for engine turn lifecycle records (`host/turn_event`). */
   private turnEventHandler: ((event: TurnEventWire) => void) | null = null;
 
+  /** Callback for engine turn telemetry (`host/telemetry`). */
+  private telemetryHandler: ((event: TelemetryEventWire) => void) | null = null;
+
   setLlmChatHandler(
     handler: (signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>,
   ) {
@@ -892,6 +939,10 @@ export class AgentProcess {
 
   setTurnEventHandler(handler: (event: TurnEventWire) => void) {
     this.turnEventHandler = handler;
+  }
+
+  setTelemetryHandler(handler: (event: TelemetryEventWire) => void) {
+    this.telemetryHandler = handler;
   }
 
   static findBinary(): string | null {
@@ -1001,6 +1052,14 @@ export class AgentProcess {
                 );
               } catch (error: unknown) {
                 console.error('[kimi-agent] rejected host/turn_event:', error);
+              }
+            } else if (msg.method === 'host/telemetry' && this.telemetryHandler) {
+              try {
+                this.telemetryHandler(
+                  parseWireObject(telemetryEventSchema, msg.params, 'host/telemetry'),
+                );
+              } catch (error: unknown) {
+                console.error('[kimi-agent] rejected host/telemetry:', error);
               }
             }
             break;
@@ -1667,6 +1726,7 @@ export function createRunTurnOverride(
     const goal = options?.getGoal?.();
     const policySnapshot = options?.getPolicySnapshot?.();
     const githubCredentials = options?.getGithubCredentials?.();
+    const telemetryContext = options?.getTelemetryContext?.();
     const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
     const stateRead = input.stateRead?.bind(input) ?? options?.stateRead;
     const stateWrite = input.stateWrite?.bind(input) ?? options?.stateWrite;
@@ -1756,6 +1816,17 @@ export function createRunTurnOverride(
               model: p.model,
               systemPrompt: p.system_prompt,
             })),
+            // The napi object wire is camelCase (napi-rs converts Rust field
+            // names), so project the telemetry context explicitly.
+            telemetry:
+              telemetryContext === undefined
+                ? undefined
+                : {
+                    mode: telemetryContext.mode,
+                    providerType: telemetryContext.provider_type,
+                    protocol: telemetryContext.protocol,
+                    thinkingEffort: telemetryContext.thinking_effort,
+                  },
           },
           // Wrap structured handler with JSON serialization for napi
           async (requestJson: string) => {
@@ -1794,6 +1865,10 @@ export function createRunTurnOverride(
           askUserQuestion,
           stateRead,
           stateWrite,
+          // The turn_event consumer is the M1d dispatch bridge — not wired
+          // yet, so the slot stays empty and telemetry takes the next one.
+          undefined,
+          options?.onTelemetry,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1842,6 +1917,9 @@ export function createRunTurnOverride(
           });
         });
         agent.setEventHandler(handleEngineEvent);
+        if (options?.onTelemetry !== undefined) {
+          agent.setTelemetryHandler(options.onTelemetry);
+        }
 
         const runTurnRequest = parseWireObject(
           runTurnParamsSchema,
@@ -1866,6 +1944,7 @@ export function createRunTurnOverride(
             policy_snapshot: policySnapshot,
             github_token: githubCredentials?.token,
             github_base_url: githubCredentials?.baseUrl,
+            telemetry: telemetryContext,
           },
           'agent/run_turn request',
         );

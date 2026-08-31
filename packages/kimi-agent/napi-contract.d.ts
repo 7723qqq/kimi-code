@@ -133,6 +133,11 @@ export interface JsRunTurnParams {
    */
   githubToken?: string
   githubBaseUrl?: string
+  /**
+   * Host-injected telemetry context (M1c): the host's model configuration
+   * merged into the engine-emitted `host/telemetry` events.
+   */
+  telemetry?: JsTelemetryContext
 }
 
 export interface JsRunTurnResult {
@@ -153,6 +158,18 @@ export interface JsRunTurnResult {
   llmTransport: string
   /** Tool calls executed inside the engine; the rest round-tripped to the host. */
   nativeToolCalls: number
+}
+
+/**
+ * The host-side half of the turn telemetry payload (M1c): fields the host
+ * knows from its model configuration; the engine contributes the outcome
+ * fields (reason / duration_ms / steps / at_step / interrupt_reason).
+ */
+export interface JsTelemetryContext {
+  mode: string
+  providerType: string
+  protocol: string
+  thinkingEffort?: string
 }
 
 export interface JsToolDef {
@@ -205,4 +222,4 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * async work is dispatched via `env.execute_tokio_future` so the JS event
  * loop stays alive to process TSFN callbacks.
  */
-export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void): object
+export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void): object
