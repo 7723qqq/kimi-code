@@ -1465,7 +1465,35 @@ gateway 2/2，tsc 0 错误。
   （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
   口径修订记录在决策文档 §4）。
 
-- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 📐 设计完成（2026-08-31，`reports/rust-engine-turn-lifecycle-design.md`），未落码
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a 完成（2026-08-31）；M1b–M1d 待做
+  - **M1a — EngineSession 骨架 + REPL 消费**（✅）：`packages/kimi-agent/src/session/mod.rs`（~520 行）实现
+    `EngineSession`——admission 四模式（`NewTurn` / `ActiveOrNewTurn` / `ActiveOrNextTurn` /
+    `ActiveTurnOnly`）、pending FIFO + 串行 pump（`tokio::spawn` + `Notify` 唤醒 + 锁内
+    状态过渡）、turn 取消（活跃 → run_turn 观察 `Arc<AtomicBool>`；排队 → 立即
+    `CancelledBeforeStart`）、steer 经 `SteerQueueCallbacks` 装饰器的 `drain_steers`
+    通道；`turn_turn` 扩展为返回最终消息历史（`TurnResult.messages`，含 system），
+    session 折叠到 `Core.history`（skip system），下一个 turn 自动延续跨 turn 上下文——
+    修复了 v2 时代遗留的 assistant 回复不进历史的缺陷；7 个 session 单元测试覆盖
+    多 turn 历史、排队顺序、排队取消、steer 复用、ActiveTurnOnly 拒绝。REPL 主循环
+    改为消费 `EngineSession`（`start_repl` 一次性构建 session + 一次性 event bus 订阅流式
+    打印 + 一次性 PermissionEngine/Toolset/callbacks pipeline），单条 prompt 经
+    `session.enqueue_turn → receipt.outcome().await` 完成一次 turn；`/resume` / `/clear`
+    / `/new` 通过 `set_history` / `clear_history` / `extend_history` 操作 session。
+    - M1a 已知限制：`/model` 与 `/yolo` 在 session 固化 LLM/PermissionEngine 之下退化为
+    「下次 REPL 重启生效」（文档在命令输出里）；未来 hot-swap 提升为 provider
+    时取消这一限制。`/status` 的 `messages.len() / 2` 改为 `engine_session.history_len() / 2`。
+  - **M1b** — turn 时钟 + durable 事件：state bridge 新 turn 域（`next_turn_id` /
+    `cancelled_turn_ids` 读写，session 当前是内存单调时钟）；`host/turn_event` 回调
+    （napi TSFN + stdio method）承载 `TurnPrompt` / `TurnStarted` / `TurnCancel` /
+    `TurnEnded`（`turn.started` 仅 observable）—— 引擎 dispatch，宿主 append log +
+    `turnKey` 折叠保持原状；`PromptOrigin` 的 wire 表示需扩契约。
+  - **M1c** — 取消/背压/遥测：session 已有 `cancel_turn` 基础；补 `quiescence_depth` +
+    `held_admissions` + `settled` 等待者；`host/telemetry` 回调承载 `turn_started` /
+    `turn_ended` / `turn_interrupted`（mode / provider_type / protocol /
+    thinking_effort / trace_id）。
+  - **M1d** — 工具快照收尾：`host/list_tools` 回调（每 LLM 调用前拉取，替代
+    `buildTools` 一次性快照），删 `executeTurnViaEngine` 接缝，`engine: 'rust'` 下
+    零 v2 loop 代码（G-5 `/status` 观测 + 覆盖率断言）。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；

@@ -39,6 +39,13 @@ pub struct TurnResult {
     /// execution was not engaged for this turn".
     #[serde(default)]
     pub native_tool_calls: u32,
+    /// The turn's final message history, system message included (index 0).
+    /// Callers that own cross-turn conversation history (the engine session,
+    /// the REPL) adopt `messages[1..]` as the next turn's input; the wire
+    /// mappings (napi / stdio) ignore this field — the host owns the
+    /// transcript there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<LLMMessage>,
 }
 
 /// Reasons a turn can stop.

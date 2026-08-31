@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::AtomicU32;
 
 use futures_util::future::BoxFuture;
 
@@ -30,8 +30,7 @@ use crate::storage::{SessionStore, StateStore};
 use crate::subagent::SubagentManager;
 use crate::tool_result_truncation::ToolResultTruncator;
 use crate::tools::NativeToolset;
-use crate::turn_loop::run_turn::run_turn;
-use crate::turn_loop::types::{LLMMessage, RunTurnInput};
+use crate::turn_loop::types::LLMMessage;
 
 /// Host callbacks for the standalone REPL: LLM/tool execution are
 /// unsupported (the REPL runs the native toolset in-process), permission is
@@ -323,7 +322,6 @@ pub async fn start_repl(
     target_model: Option<String>,
 ) -> anyhow::Result<()> {
     let mut current_model = target_model.or_else(|| config.default_model.clone());
-    let mut messages: Vec<LLMMessage> = Vec::new();
     let mut total_usage = TokenUsage::default();
 
     let session_store = SessionStore::for_workspace(&workspace)?;
@@ -367,6 +365,119 @@ pub async fn start_repl(
             });
     }
 
+    // ── One-time per-REPL-session setup ──────────────────────────────────
+    // The EngineSession is persistent for the loop's lifetime so turns run
+    // serially through one pump (preserves the M1a exit: multi-turn +
+    // queuing + cancellation). M1a limitation: the LLM and PermissionEngine
+    // are fixed at this point — /model and /yolo print a notice that they
+    // take effect on next REPL restart. Future work can lift both to
+    // providers so the session can hot-swap them.
+    let initial_model = current_model.as_deref().unwrap_or("default");
+    let native_llm_def = match config.extract_native_llm(Some(initial_model)) {
+        Some(def) => def,
+        None => {
+            return Err(anyhow::anyhow!(
+                "No valid provider/key for model '{initial_model}'"
+            ));
+        }
+    };
+    let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::new(NativeHttpLlm::new(
+        NativeLlmConfig {
+            protocol: native_llm_def.protocol,
+            base_url: native_llm_def.base_url,
+            api_key: native_llm_def.api_key,
+            model: native_llm_def.model,
+            max_tokens: native_llm_def.max_tokens,
+            custom_headers: HashMap::new(),
+        },
+        "You are Kimi, a helpful agentic coding assistant.".to_string(),
+    ));
+
+    let policy_snapshot = config.build_policy_snapshot(Some(workspace.clone()));
+    let permission_engine = Arc::new(PermissionEngine::new(policy_snapshot));
+    let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
+
+    let event_bus = Arc::new(EventBus::new());
+    event_bus.subscribe(|event| match event {
+        EngineEvent::LlmDelta { part, .. } => {
+            if let Some(delta) = part.get("delta").and_then(|d| d.as_str()) {
+                print!("{delta}");
+                let _ = io::stdout().flush();
+            } else if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                print!("{text}");
+                let _ = io::stdout().flush();
+            }
+        }
+        EngineEvent::ToolNative {
+            tool_name,
+            arguments,
+            is_error,
+            ..
+        } => {
+            ui::render_tool_call(tool_name, arguments, *is_error, None);
+        }
+        _ => {}
+    });
+
+    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
+        ReplDummyHostCallbacks::new(state_store.clone()).with_task_runner(task_runner.clone()),
+    );
+    let event_counter = Arc::new(AtomicU32::new(0));
+    let base_callbacks: Arc<dyn HostCallbacks> =
+        Arc::new(CountingCallbacks::new(base_callbacks, event_counter).with_bus(event_bus.clone()));
+
+    let native_count = Arc::new(AtomicU32::new(0));
+    let workspace_str = workspace.to_string_lossy().to_string();
+    let github_credentials = crate::tools::github::GitHubCredentials {
+        token: config.github.token.clone(),
+        base_url: config.github.base_url.clone(),
+    };
+    let toolset = Arc::new(
+        NativeToolset::new(&workspace_str, None)
+            .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
+            .with_subagents(subagent_manager.clone())
+            .with_mcp(mcp_manager.clone())
+            .with_callbacks(base_callbacks.clone())
+            .with_github_credentials(github_credentials.clone()),
+    );
+    let plan_guard_store = state_store.clone();
+    let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
+        inner: base_callbacks,
+        toolset,
+        native_count,
+        permission_engine: Some(permission_engine),
+        truncator: Some(tool_truncator),
+        plan_guard: Some(Arc::new(move |tool_name, args| {
+            plan_mode_guard(&plan_guard_store, tool_name, args)
+        })),
+    });
+    subagent_manager
+        .set_runtime(llm.clone(), tool_callbacks.clone())
+        .await;
+
+    // Build the EngineSession — owns turn lifecycle for the loop.
+    let mcp_for_defs = mcp_manager.clone();
+    let gh_for_defs = github_credentials.clone();
+    let state_for_goal = state_store.clone();
+    let state_for_checkpoint = state_store.clone();
+    let session_config = crate::session::SessionConfig {
+        llm: llm.clone(),
+        callbacks: tool_callbacks.clone(),
+        max_steps: 25,
+        tool_defs: Arc::new(move || {
+            let mcp = mcp_for_defs.clone();
+            let gh = gh_for_defs.clone();
+            Box::pin(async move { build_repl_tool_defs(&mcp, Some(&gh)).await })
+        }),
+        goal: Some(Arc::new(move || state_for_goal.goal_context())),
+        on_before_turn: Some(Arc::new(move || {
+            if let Err(e) = state_for_checkpoint.checkpoint() {
+                eprintln!("[Checkpoint error]: {e}");
+            }
+        })),
+    };
+    let engine_session = crate::session::EngineSession::new(session_config);
+
     loop {
         ui::render_prompt();
 
@@ -388,17 +499,17 @@ pub async fn start_repl(
 
         if line.is_empty() {
             // An empty line consumes a pending cron prompt, if any: the
-            // prompt joins the message history and the next non-empty input
-            // runs the normal turn pipeline with it.
+            // prompt joins the session's history and the next non-empty
+            // input runs the normal turn pipeline with it.
             if let Some(prompt) = cron_pending.lock().unwrap_or_else(|e| e.into_inner()).pop() {
                 println!("[cron] Queued: {prompt}");
-                messages.push(LLMMessage {
+                engine_session.extend_history(vec![LLMMessage {
                     role: "user".into(),
                     content: prompt,
                     blocks: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
-                });
+                }]);
             }
             continue;
         }
@@ -457,11 +568,11 @@ pub async fn start_repl(
                         match session_store.load_history(id) {
                             Ok(history) => {
                                 current_session_id = id.to_string();
-                                messages = history;
+                                engine_session.set_history(history);
                                 println!(
                                     "Resumed session '{}' with {} messages.",
                                     id,
-                                    messages.len()
+                                    engine_session.history_len()
                                 );
                             }
                             Err(e) => eprintln!("[Error loading session]: {e}"),
@@ -473,7 +584,7 @@ pub async fn start_repl(
                 }
                 "/new" => {
                     current_session_id = format!("session-{}", fastrand::u64(..));
-                    messages.clear();
+                    engine_session.clear_history();
                     total_usage = TokenUsage::default();
                     println!("Started new session: {current_session_id}");
                     continue;
@@ -492,32 +603,42 @@ pub async fn start_repl(
                         current_model.as_deref().unwrap_or("default"),
                         &current_session_id,
                         config.agent.yolo.unwrap_or(false),
-                        messages.len() / 2,
+                        engine_session.history_len() / 2,
                         &total_usage,
                         state_store.goal_context().as_ref(),
                     );
                     continue;
                 }
                 "/yolo" => {
+                    // M1a limitation: the EngineSession's PermissionEngine
+                    // is built once from the startup policy snapshot; /yolo
+                    // mutates config but the snapshot is fixed. Future work
+                    // can make the snapshot a provider.
                     let current = config.agent.yolo.unwrap_or(false);
                     config.agent.yolo = Some(!current);
                     println!(
-                        "YOLO Mode {}",
+                        "YOLO Mode {} (active on next REPL restart; M1a limitation)",
                         if !current { "ENABLED" } else { "DISABLED" }
                     );
                     continue;
                 }
                 "/model" => {
+                    // M1a limitation: the EngineSession fixes the LLM at
+                    // creation, so /model takes effect on the next session
+                    // restart. Documented in ROADMAP; future work adds a
+                    // hot-swap provider.
                     if let Some(m) = arg {
                         current_model = Some(m.to_string());
-                        println!("Switched model to: {m}");
+                        println!(
+                            "Model switched to '{m}' (active on next REPL restart; M1a limitation)"
+                        );
                     } else {
                         println!("Usage: /model <model-name>");
                     }
                     continue;
                 }
                 "/clear" => {
-                    messages.clear();
+                    engine_session.clear_history();
                     println!("Conversation history cleared.");
                     continue;
                 }
@@ -528,33 +649,8 @@ pub async fn start_repl(
             }
         }
 
-        // Build native LLM from current config
-        let native_llm_def = match config.extract_native_llm(current_model.as_deref()) {
-            Some(def) => def,
-            None => {
-                eprintln!(
-                    "[Configuration Error] No valid provider/key found for model '{}'.",
-                    current_model.as_deref().unwrap_or("default")
-                );
-                eprintln!("Check your ~/.kimi-code/config.toml credentials.");
-                continue;
-            }
-        };
-
-        let system_prompt = "You are Kimi, a helpful agentic coding assistant.".to_string();
-        let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::new(NativeHttpLlm::new(
-            NativeLlmConfig {
-                protocol: native_llm_def.protocol,
-                base_url: native_llm_def.base_url,
-                api_key: native_llm_def.api_key,
-                model: native_llm_def.model,
-                max_tokens: native_llm_def.max_tokens,
-                custom_headers: HashMap::new(),
-            },
-            system_prompt,
-        ));
-
-        // Add user prompt to conversation history
+        // Build the user message and enqueue it. The session takes
+        // ownership of cross-turn history from here.
         let user_msg = LLMMessage {
             role: "user".into(),
             content: line.clone(),
@@ -562,122 +658,39 @@ pub async fn start_repl(
             tool_calls: Vec::new(),
             tool_call_id: None,
         };
-        messages.push(user_msg.clone());
-
-        // Set up in-process event bus with real-time token streaming to terminal
-        let event_bus = Arc::new(EventBus::new());
-        event_bus.subscribe(|event| match event {
-            EngineEvent::LlmDelta { part, .. } => {
-                if let Some(delta) = part.get("delta").and_then(|d| d.as_str()) {
-                    print!("{delta}");
-                    let _ = io::stdout().flush();
-                } else if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    print!("{text}");
-                    let _ = io::stdout().flush();
-                }
-            }
-            EngineEvent::ToolNative {
-                tool_name,
-                arguments,
-                is_error,
-                ..
-            } => {
-                ui::render_tool_call(tool_name, arguments, *is_error, None);
-            }
-            _ => {}
-        });
-
-        let policy_snapshot = config.build_policy_snapshot(Some(workspace.clone()));
-        let permission_engine = Arc::new(PermissionEngine::new(policy_snapshot));
-        let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
-
-        // Build callback pipeline
-        let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-            ReplDummyHostCallbacks::new(state_store.clone()).with_task_runner(task_runner.clone()),
-        );
-        let event_counter = Arc::new(AtomicU32::new(0));
-        let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-            CountingCallbacks::new(base_callbacks, event_counter).with_bus(event_bus.clone()),
-        );
-
-        let native_count = Arc::new(AtomicU32::new(0));
-        let workspace_str = workspace.to_string_lossy().to_string();
-        let github_credentials = crate::tools::github::GitHubCredentials {
-            token: config.github.token.clone(),
-            base_url: config.github.base_url.clone(),
-        };
-        let toolset = Arc::new(
-            NativeToolset::new(&workspace_str, None)
-                .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
-                .with_subagents(subagent_manager.clone())
-                .with_mcp(mcp_manager.clone())
-                .with_callbacks(base_callbacks.clone())
-                .with_github_credentials(github_credentials.clone()),
-        );
-        let plan_guard_store = state_store.clone();
-        let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
-            inner: base_callbacks,
-            toolset,
-            native_count,
-            permission_engine: Some(permission_engine),
-            truncator: Some(tool_truncator),
-            plan_guard: Some(Arc::new(move |tool_name, args| {
-                plan_mode_guard(&plan_guard_store, tool_name, args)
-            })),
-        });
-        // P28 批 3 接线: give subagents the same llm + callback pipeline so
-        // invoke_subagent runs real autonomous turns instead of just records.
-        subagent_manager
-            .set_runtime(llm.clone(), tool_callbacks.clone())
-            .await;
-
-        let cancellation = Arc::new(AtomicBool::new(false));
-        let turn_id = format!("turn-{}", fastrand::u64(..));
-
-        // Undo checkpoint: snapshot all state domains before the turn so
-        // /undo can roll back this turn's state changes.
-        if let Err(e) = state_store.checkpoint() {
-            eprintln!("[Checkpoint error]: {e}");
-        }
+        let turn_id_str = format!("turn-{}", fastrand::u64(..));
+        let mut receipt = engine_session
+            .enqueue_turn(crate::session::TurnRequest {
+                prompt: user_msg.clone(),
+                admission: crate::session::Admission::NewTurn,
+            })
+            .expect("session is alive");
+        // The session's internal turn id is a monotonic u64; the REPL
+        // uses the random string for session_store.append_turn only.
+        let _ = turn_id_str;
 
         println!(); // Linebreak before streaming
-        let result = run_turn(
-            RunTurnInput {
-                turn_id: turn_id.clone(),
-                llm: llm.as_ref(),
-                messages: messages.clone(),
-                tools: &[],
-                tool_defs: build_repl_tool_defs(&mcp_manager, Some(&github_credentials)).await,
-                max_steps: 25,
-                goal: state_store.goal_context(),
-                cancellation: Some(cancellation),
-            },
-            &tool_callbacks,
-        )
-        .await;
-
+        let outcome = receipt.outcome().await;
         println!(); // Linebreak after completion
 
-        match result {
-            Ok(turn_res) => {
-                total_usage.input_tokens += turn_res.usage.input_tokens;
-                total_usage.output_tokens += turn_res.usage.output_tokens;
-                total_usage.total_tokens += turn_res.usage.total_tokens;
-                total_usage.input_cache_read += turn_res.usage.input_cache_read;
-                total_usage.input_cache_creation += turn_res.usage.input_cache_creation;
-
+        match outcome {
+            Ok(crate::session::TurnOutcome::Ran(turn_res)) => {
                 // Fold the turn into the stored goal (v2 turn-end usage
                 // accounting): turns_used +1, tokens_used += output.
                 state_store.goal_record_usage(1, turn_res.usage.output_tokens.into());
 
-                // Persist turn to session store
+                // Persist turn to session store. The session's internal id
+                // is exposed for callers that need it.
                 let _ = session_store.append_turn(
                     &current_session_id,
-                    &turn_id,
+                    &format!("turn-{}", receipt.turn_id),
                     &user_msg,
                     None,
                     &turn_res.usage,
                 );
+            }
+            Ok(crate::session::TurnOutcome::CancelledBeforeStart) => {
+                eprintln!("\n[Turn Cancelled]");
             }
             Err(e) => {
                 eprintln!("\n[Turn Error] {e}");

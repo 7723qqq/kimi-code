@@ -17,6 +17,7 @@ pub mod napi_bindings;
 pub mod permission;
 pub mod repl;
 pub mod rpc;
+pub mod session;
 pub mod storage;
 pub mod subagent;
 pub mod swarm;

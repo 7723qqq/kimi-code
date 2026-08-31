@@ -35,6 +35,7 @@ fn turn_result(
     usage: TokenUsage,
     events_emitted: u32,
     llm_retries: u32,
+    messages: Vec<LLMMessage>,
 ) -> TurnResult {
     TurnResult {
         stop_reason,
@@ -44,6 +45,7 @@ fn turn_result(
         llm_retries,
         llm_transport: String::new(),
         native_tool_calls: 0,
+        messages,
     }
 }
 
@@ -155,6 +157,7 @@ pub fn run_turn<'a>(
                         total_usage,
                         0,
                         llm_retries,
+                        messages.clone(),
                     ));
                 }
                 // Check budgets with cumulative usage so far.
@@ -172,6 +175,7 @@ pub fn run_turn<'a>(
                         total_usage,
                         0,
                         llm_retries,
+                        messages.clone(),
                     ));
                 }
                 // Update steering text in system prompt with current progress.
@@ -192,6 +196,7 @@ pub fn run_turn<'a>(
                     total_usage,
                     0,
                     llm_retries,
+                    messages.clone(),
                 ));
             }
 
@@ -266,12 +271,26 @@ pub fn run_turn<'a>(
 
             match step_result.stop_reason {
                 LoopStepStopReason::Complete => {
+                    // Persist the assistant text into the in-turn history so
+                    // the session (and any future cross-turn caller) sees the
+                    // model's reply. For ToolCalls the assistant message is
+                    // pushed below with the tool_calls payload.
+                    if !step_result.content.is_empty() {
+                        messages.push(LLMMessage {
+                            role: "assistant".into(),
+                            content: step_result.content.clone(),
+                            blocks: Vec::new(),
+                            tool_calls: Vec::new(),
+                            tool_call_id: None,
+                        });
+                    }
                     return Ok(turn_result(
                         turn_stop_reason_from_finish(step_result.finish_reason.as_deref()),
                         steps,
                         total_usage,
                         0,
                         llm_retries,
+                        messages.clone(),
                     ));
                 }
                 LoopStepStopReason::ToolCalls(tool_calls) => {
@@ -345,6 +364,7 @@ pub fn run_turn<'a>(
                                     total_usage,
                                     0,
                                     llm_retries,
+                                    messages.clone(),
                                 ));
                             }
                             return Err(err);
@@ -370,6 +390,7 @@ pub fn run_turn<'a>(
                         total_usage,
                         0,
                         llm_retries,
+                        messages.clone(),
                     ));
                 }
             }
@@ -384,6 +405,7 @@ pub fn run_turn<'a>(
             total_usage,
             0,
             llm_retries,
+            messages.clone(),
         ))
     })
 }
