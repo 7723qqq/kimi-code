@@ -27,6 +27,14 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import type { JsRunTurnParams, JsRunTurnResult } from './napi-contract';
+import type { ZodType } from 'zod';
+import {
+  llmChatRequestSchema,
+  permissionCheckRequestSchema,
+  runTurnResultSchema,
+  toolExecuteRequestSchema,
+  toolFinalizeRequestSchema,
+} from './wire-schema';
 
 // Project root: packages/kimi-agent/rust-loop.ts → ../../ (project root)
 const projectRoot = resolve(import.meta.dirname, '..', '..');
@@ -669,7 +677,7 @@ export class NapiEngine {
         ? undefined
         : makeCallbackHandler(async (payload: string) => {
             const decision = await checkPermissionCb(
-              JSON.parse(payload) as PermissionCheckRequest,
+              parseWire(permissionCheckRequestSchema, payload, 'host/check_permission request'),
             );
             return JSON.stringify(decision);
           });
@@ -678,7 +686,9 @@ export class NapiEngine {
       finalizeToolCb === undefined
         ? undefined
         : makeCallbackHandler(async (payload: string) => {
-            const finalized = await finalizeToolCb(JSON.parse(payload) as ToolFinalizeRequest);
+            const finalized = await finalizeToolCb(
+              parseWire(toolFinalizeRequestSchema, payload, 'host/finalize_tool_result request'),
+            );
             return JSON.stringify(finalized);
           });
 
@@ -1695,7 +1705,7 @@ export function createRunTurnOverride(
           },
           // Wrap structured handler with JSON serialization for napi
           async (requestJson: string) => {
-            const params = JSON.parse(requestJson) as LlmChatRequest;
+            const params = parseWire(llmChatRequestSchema, requestJson, 'host/llm_chat request');
             const request = llmAbortRegistry.begin(params.request_id);
             try {
               const response = await llmChatHandler(request.signal, params.model_name);
@@ -1705,7 +1715,7 @@ export function createRunTurnOverride(
             }
           },
           async (requestJson: string) => {
-            const req = JSON.parse(requestJson) as ToolExecuteRequest;
+            const req = parseWire(toolExecuteRequestSchema, requestJson, 'host/execute_tool request');
             const response = await toolExecuteHandler(req);
             return JSON.stringify(response);
           },
@@ -1804,7 +1814,7 @@ export function createRunTurnOverride(
         if (!result) {
           throw new Error('Rust engine returned null result');
         }
-        rustResult = result as RunTurnResult;
+        rustResult = parseWireObject(runTurnResultSchema, result, 'agent/run_turn result');
       }
     } finally {
       // Flush queued engine events before closing the last step so the
@@ -1863,6 +1873,35 @@ function tryParseJson(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+/**
+ * Parse and validate an engine→host wire payload against its zod mirror
+ * (`wire-schema.ts`). The napi boundary crosses these as JSON strings, so the
+ * compile-time check on `napi-contract.d.ts` does not reach them — a Rust-side
+ * shape change must fail here with a named payload instead of silently
+ * misbehaving downstream. Throws (the callback error path surfaces it to the
+ * engine as a failed host call).
+ */
+function parseWire<T>(schema: ZodType<T>, payload: string, what: string): T {
+  let value: unknown;
+  try {
+    value = JSON.parse(payload);
+  } catch (error) {
+    throw new Error(
+      `Malformed ${what}: payload is not JSON (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  return parseWireObject(schema, value, what);
+}
+
+/** Validate an already-parsed engine→host wire value (see {@link parseWire}). */
+function parseWireObject<T>(schema: ZodType<T>, value: unknown, what: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Malformed ${what}: ${parsed.error.message}`);
+  }
+  return parsed.data;
 }
 
 /**

@@ -28,7 +28,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "0.39.0",
+      "version": "0.39.1",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -327,6 +327,7 @@
       "devDependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:*",
         "@napi-rs/cli": "^3.0.0",
+        "zod": "^4.3.6",
       },
     },
     "packages/kimi-native-tools": {
