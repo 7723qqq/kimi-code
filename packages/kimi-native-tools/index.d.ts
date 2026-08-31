@@ -1,7 +1,15 @@
 // Type declarations for @moonshot-ai/kimi-native-tools
 //
-// This file provides TypeScript types for all native Rust functions exposed
-// via napi-rs. The actual implementations are in the platform-specific .node
+// This file provides TypeScript types for the WRAPPER surface exported by
+// index.js (options-object signatures, renamed re-exports) — not the raw
+// napi binding. It is maintained by hand because `napi build --dts` (CLI 3.x
+// against the napi 2 crate) silently emits an empty file; revisit if the
+// crate ever moves to napi 3.
+//
+// Drift between this file, index.js, and the Rust exports is guarded by
+// test/surface-contract.test.ts: ghost wrappers, broken wrapper chains, and
+// undeclared exports all fail in CI.
+// The actual implementations are in the platform-specific .node
 // files loaded by index.js.
 
 // ============================================================================
@@ -600,6 +608,125 @@ export function nativeLlmStreamStreaming(
   config: NativeLlmStreamConfig,
   onEvent: (error: unknown, event: NativeLlmStreamEvent) => void,
 ): void;
+
+// ============================================================================
+// LLM Stream (buffered)
+// ============================================================================
+
+export interface NativeLlmStreamResult {
+  parts: NativeLlmStreamPart[];
+  metadata: NativeLlmStreamMetadata;
+  error?: string;
+}
+
+/** Execute an LLM streaming request and return all decoded parts at once. */
+export function nativeLlmStream(config: NativeLlmStreamConfig): Promise<NativeLlmStreamResult>;
+
+// ============================================================================
+// GitHub REST
+// ============================================================================
+
+export interface NativeGithubResponse {
+  status: number;
+  ok: boolean;
+  body: string;
+  error?: string;
+  rateRemaining?: number;
+}
+
+/** Authenticated GitHub REST request with pagination support (direct pass-through). */
+export function nativeGithubRequest(
+  method: string,
+  path: string,
+  queryJson: string,
+  bodyJson: string,
+  paginate?: boolean | null,
+  accept?: string | null,
+  token?: string | null,
+): Promise<NativeGithubResponse>;
+
+// ============================================================================
+// FetchUrl — HTTP fetch with SSRF protection and HTML extraction
+// ============================================================================
+
+export interface NativeFetchUrlResult {
+  content: string;
+  kind: string;
+  status: number;
+  error?: string;
+}
+
+export function nativeFetchUrl(
+  url: string,
+  options?: {
+    userAgent?: string | null;
+    maxBytes?: number | null;
+    allowPrivate?: boolean | null;
+    timeoutMs?: number | null;
+  },
+): Promise<NativeFetchUrlResult>;
+
+// ============================================================================
+// WebSearch — DuckDuckGo HTML scraping
+// ============================================================================
+
+export interface NativeWebSearchEntry {
+  title: string;
+  url: string;
+  snippet: string;
+  siteName?: string;
+}
+
+export interface NativeWebSearchResult {
+  results: NativeWebSearchEntry[];
+  error?: string;
+}
+
+export function nativeWebSearch(
+  query: string,
+  options?: { timeoutMs?: number | null; maxResults?: number | null },
+): Promise<NativeWebSearchResult>;
+
+// ============================================================================
+// Goal engine — JSON-in / JSON-out decision & rendering primitives
+// ============================================================================
+
+export function nativeGoalEngineValidateCreateInput(json: string): string;
+export function nativeGoalEngineValidateBudgetInput(json: string): string;
+export function nativeGoalEngineComputeBudgetReport(json: string): string;
+export function nativeGoalEngineApplyUsage(json: string): string;
+export function nativeGoalEngineDecideContinuation(json: string): string;
+export function nativeGoalEngineDecideBlockedAudit(json: string): string;
+export function nativeGoalEngineDecideStatusTransition(json: string): string;
+export function nativeGoalEngineRenderGoalReminder(json: string): string;
+export function nativeGoalEngineRenderBlockedNote(json: string): string;
+export function nativeGoalEngineRenderPausedNote(json: string): string;
+
+// ============================================================================
+// XML / HTML escaping
+// ============================================================================
+
+/** Escape `& < > "` for XML/HTML text content. */
+export function nativeEscapeXml(text: string): string;
+
+/** Escape `& "` for XML/HTML attribute values. */
+export function nativeEscapeXmlAttr(text: string): string;
+
+/** Escape `< >` only (Markdown-safe tag escaping). */
+export function nativeEscapeXmlTags(text: string): string;
+
+// ============================================================================
+// MCP tool naming
+// ============================================================================
+
+/** Replace unsafe characters with `_` and collapse runs of underscores. */
+export function nativeSanitizeMcpNamePart(part: string): string;
+
+/** True when the name starts with the `mcp__` prefix. */
+export function nativeIsMcpToolName(name: string): boolean;
+
+/** Build `mcp__<server>__<tool>`; names over 64 chars get a hash suffix. */
+export function nativeQualifyMcpToolName(serverName: string, toolName: string): string;
 
 // ============================================================================
 // Knowledge base (SQLite + FTS5)

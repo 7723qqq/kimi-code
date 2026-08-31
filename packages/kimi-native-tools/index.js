@@ -1188,3 +1188,12 @@ module.exports = {
   // LLM Stream (incremental)
   nativeLlmStreamStreaming,
 };
+
+// Non-enumerable handle to the raw binding, for the surface-contract test to
+// introspect the true native export surface (excluded from Object.keys and
+// from the documented wrapper API).
+Object.defineProperty(module.exports, '__binding', {
+  value: binding,
+  enumerable: false,
+  writable: false,
+});
