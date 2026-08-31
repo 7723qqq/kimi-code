@@ -24,6 +24,9 @@ use crate::goal::{GoalBudgetLimits, GoalState, GoalStatus, to_snapshot};
 /// The five state domains the REPL persists locally.
 pub const STATE_DOMAINS: [&str; 5] = ["todo", "plan", "goal", "cron", "task"];
 
+/// The task output preview cap, matching the v2 `TASK_OUTPUT_PREVIEW_BYTES`.
+pub const TASK_OUTPUT_PREVIEW_BYTES: usize = 32 * 1024;
+
 /// The result of applying a domain write: the value to persist and the
 /// value to return to the caller (the v2 host response value). They differ
 /// for the action-shaped domains — cron create returns the created entry
@@ -192,11 +195,20 @@ impl StateStore {
                 .read_domain("task")
                 .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default();
-            return tasks
+            let mut entry = tasks
                 .iter()
                 .find(|t| t.get("taskId").and_then(|i| i.as_str()) == Some(key))
                 .cloned()
-                .ok_or_else(|| format!("State read error: [-32002] Task not found: {key}"));
+                .ok_or_else(|| format!("State read error: [-32002] Task not found: {key}"))?;
+            if let Some(snapshot) = self.read_task_output(key, TASK_OUTPUT_PREVIEW_BYTES)
+                && let Some(obj) = entry.as_object_mut()
+                && let Some(fields) = snapshot.as_object()
+            {
+                for (field, value) in fields {
+                    obj.insert(field.clone(), value.clone());
+                }
+            }
+            return Ok(entry);
         }
         match self.read_domain(domain) {
             Some(value) => Ok(value),
@@ -579,6 +591,48 @@ impl StateStore {
             return None;
         }
         serde_json::from_value(goal).ok()
+    }
+
+    /// The task output log path (`<state_dir>/tasks/<task_id>/output.log`),
+    /// mirroring the v2 `tasks/<taskId>/output.log` layout.
+    pub fn task_output_path(&self, task_id: &str) -> PathBuf {
+        self.state_dir.join("tasks").join(task_id).join("output.log")
+    }
+
+    /// Persist a task's output log (v2 `writeTaskOutputData` semantics:
+    /// the full output is written to disk so `TaskOutput` survives a
+    /// restart). Best-effort: a failed write only logs.
+    pub fn write_task_output(&self, task_id: &str, output: &str) {
+        let path = self.task_output_path(task_id);
+        if let Some(parent) = path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            eprintln!("[Task output write error]: {e}");
+            return;
+        }
+        if let Err(e) = fs::write(&path, output) {
+            eprintln!("[Task output write error]: {e}");
+        }
+    }
+
+    /// Read a task's output snapshot from its log file, mirroring the v2
+    /// `readTaskOutputSnapshot` shape (`outputPath` / `outputSizeBytes` /
+    /// `previewBytes` / `truncated` / `preview`). `None` when no log
+    /// exists.
+    pub fn read_task_output(&self, task_id: &str, max_preview_bytes: usize) -> Option<Value> {
+        let path = self.task_output_path(task_id);
+        let data = fs::read(&path).ok()?;
+        let preview_limit = max_preview_bytes.min(data.len());
+        let preview_offset = data.len() - preview_limit;
+        let preview = String::from_utf8_lossy(&data[preview_offset..]).into_owned();
+        Some(json!({
+            "outputPath": path.to_string_lossy(),
+            "outputSizeBytes": data.len(),
+            "previewBytes": preview_limit,
+            "truncated": preview_offset > 0,
+            "fullOutputAvailable": true,
+            "preview": preview,
+        }))
     }
 
     /// The stored goal projected into the turn-loop `GoalContext`, with the
@@ -1019,5 +1073,54 @@ mod tests {
         assert_eq!(ctx.status, crate::turn_loop::types::GoalStatus::Complete);
         assert_eq!(ctx.turn_budget, Some(20));
         assert!(ctx.token_budget.is_none());
+    }
+
+    #[test]
+    fn test_task_output_round_trip() {
+        let (_tmp, store) = store();
+        assert!(store.read_task_output("task-1", 1024).is_none());
+        store.write_task_output("task-1", "line one\nline two\n");
+        let snapshot = store.read_task_output("task-1", 1024).unwrap();
+        assert_eq!(snapshot["outputSizeBytes"], 18);
+        assert_eq!(snapshot["previewBytes"], 18);
+        assert_eq!(snapshot["truncated"], false);
+        assert_eq!(snapshot["preview"], "line one\nline two\n");
+        assert!(snapshot["outputPath"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+            .ends_with("tasks/task-1/output.log"));
+    }
+
+    #[test]
+    fn test_task_output_truncated_preview_takes_tail() {
+        let (_tmp, store) = store();
+        let output = "x".repeat(40 * 1024);
+        store.write_task_output("task-1", &output);
+        let snapshot = store.read_task_output("task-1", 1024).unwrap();
+        assert_eq!(snapshot["outputSizeBytes"], 40 * 1024);
+        assert_eq!(snapshot["previewBytes"], 1024);
+        assert_eq!(snapshot["truncated"], true);
+        assert_eq!(snapshot["preview"], "x".repeat(1024));
+    }
+
+    #[test]
+    fn test_read_state_task_attaches_output_snapshot() {
+        let (_tmp, store) = store();
+        store
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-1", "description": "build", "status": "completed", "startedAt": 1, "endedAt": 2 }]),
+            )
+            .unwrap();
+        store.write_task_output("task-1", "build output");
+        let entry = store.read_state("task", "task-1").unwrap();
+        assert_eq!(entry["taskId"], "task-1");
+        assert_eq!(entry["status"], "completed");
+        assert_eq!(entry["preview"], "build output");
+        assert_eq!(entry["truncated"], false);
+        assert_eq!(entry["fullOutputAvailable"], true);
+        let list = store.read_state("task", "task").unwrap();
+        assert!(list.as_array().unwrap()[0].get("preview").is_none());
     }
 }

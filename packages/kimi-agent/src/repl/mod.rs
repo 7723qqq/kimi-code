@@ -293,7 +293,8 @@ pub async fn start_repl(
 
     // Cron scheduler: fire entries from the local cron state. Fired prompts
     // land in a pending queue consumed at the next prompt (press Enter on an
-    // empty line to run them). UTC offset 0 — std has no timezone data.
+    // empty line to run them). The scheduler runs in the local timezone
+    // (v2 `getTimezoneOffset` semantics), not UTC.
     let cron_pending: Arc<std::sync::Mutex<Vec<String>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     if let Some(entries_value) = state_store.read_domain("cron")
@@ -302,7 +303,8 @@ pub async fn start_repl(
         && !entries.is_empty()
     {
         let pending = cron_pending.clone();
-        let _cron_handle = crate::cron::scheduler::CronScheduler::start(entries, 0, move |entry| {
+        let tz_offset = chrono::Local::now().offset().local_minus_utc();
+        let _cron_handle = crate::cron::scheduler::CronScheduler::start(entries, tz_offset, move |entry| {
             println!("\n⏰ [cron] {} — press Enter to run it.", entry.prompt);
             pending
                 .lock()

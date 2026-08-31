@@ -1159,6 +1159,12 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 4 轮：task 输出落盘 + cron 本地时区 — ✅ 完成（2026-09-01）
+
+- **task 输出快照落盘**（`state_store.rs` `write_task_output`/`read_task_output` + 3 单测）：settle 时把输出写入 `<state_dir>/tasks/<taskId>/output.log`（v2 `tasks/<taskId>/output.log` 布局）；`read_state` task 域读条目后从日志补 v2 形状快照（`outputPath`/`outputSizeBytes`/`previewBytes`/`truncated`/`fullOutputAvailable`/`preview`，32 KiB preview 上限对齐 v2 `TASK_OUTPUT_PREVIEW_BYTES`）——重启后 TaskOutput 不再读不到输出（此前仅内存，第 2 轮遗留）
+- **cron 本地时区**（Cargo.toml 加 `chrono 0.4`，与 kimi-native-tools 同版本）：REPL 装配 `CronScheduler::start` 传 `chrono::Local::now().offset().local_minus_utc()`（v2 `getTimezoneOffset` 语义）——此前恒 UTC 偏移 0（std 无时区数据，第 2 轮遗留），`0 9 * * *` 现在按本地 9 点触发
+- 验证：cargo 759 全绿（新增 3 测试），clippy 0，fmt 干净，vitest 90/5
+
 ### 替换 v2 第 3 轮：核心工具 def 补全 + goal 接线 — ✅ 完成（2026-09-01）
 
 > 目标：REPL 的 LLM 能发现并调用核心原生工具，goal 预算检查在 REPL 生效。

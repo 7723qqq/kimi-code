@@ -300,6 +300,11 @@ impl TaskRunner {
             }
             self.entry_wire(entry)
         };
+        if let Some(output) = wire.get("output").and_then(|v| v.as_str())
+            && let Some(store) = &self.store
+        {
+            store.write_task_output(id, output);
+        }
         self.persist_wire(&wire);
     }
 
@@ -327,8 +332,9 @@ impl TaskRunner {
 
     /// Mirror an entry wire into the `task` domain of the state store
     /// (best-effort: a missing store or a failed write only logs). The
-    /// output snapshot is not persisted — the task domain file carries
-    /// the v2 task entry shape only.
+    /// task domain file carries the v2 task entry shape only; the output
+    /// log is persisted separately by `settle_task` via
+    /// `StateStore::write_task_output`.
     fn persist_wire(&self, wire: &Value) {
         let Some(store) = &self.store else {
             return;
