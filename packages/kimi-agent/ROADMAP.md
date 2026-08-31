@@ -1345,9 +1345,20 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | **externalHooks** | `agentExternalHooksService.ts:237` | ❌ **零对应**。用户可在配置里写 `hooks[]`（`schema.ts:433`、`:486`），**配了也不触发** |
 | **toolDedupe** | `toolDedupeService.ts:186` | ❌ **零对应** |
 
-前两项是真实的用户可见功能丢失，应作为独立缺陷修（不依赖 M1）。
-修复方向二选一：让 `executeTurnViaEngine` 也跑 `onDidFinishStep`（回到 v2 语义，但引擎已跑完整个 turn，
-「step 结束」的时点需要重新定义），或在 Rust 侧实现对应能力并删除 v2 侧注册。
+前两项是真实的用户可见功能丢失。**已修（2026-08-31，`00d7b8f4a8`）**：`executeTurnViaEngine`
+在 `engine(input)` 返回后调用 `runAfterStep`，与 `onWillBeginStep`（`:1000`）形成对称。
+取「跑钩子但丢弃 `stopTurn`」的方案而非「Rust 侧重实现」——因为 `completeLoopStep` 对
+engine 路径的两个分支返回逐字段相同的结果（`:821-822` vs 调用处 `:727-731`），丢 `stopTurn`
+零控制流影响；而那 4 项 Rust 已补偿的能力只是缺 v2 侧记账（step-retry 重置计数、
+micro-compaction 记时间戳都是无害状态维护），full-compaction 的 `afterStep` 是阈值门控且
+不抛异常的会话级检查，正补上「rust 模式下会话上下文跨 turn 无界增长」这个最重的洞。
+验证：engineOverride 套件 54/54（新增钩子执行断言），全套 vitest 失败集合与改动前逐条
+diff 一致（12 条，stash 基线确认为预先存在），tsc 0 错误，oxlint 0 错误。
+
+**遗留**：`host/drain_steers` 仍未接线——`rust-loop.ts:1511` 消费的 `input.drainSteers`
+现已声明在 `TurnEngineInput`（类型修复，同提交），但宿主 steer 队列（`promptService.ts:182`
+的 `steered` Map）没有可被引擎消费的 drain 方法，steered prompt 在引擎路径下依旧要等到
+turn 结束。接线属 M2 范畴。
 
 ### 里程碑
 
