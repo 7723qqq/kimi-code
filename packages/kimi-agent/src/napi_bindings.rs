@@ -50,6 +50,10 @@ use crate::rpc::types::{
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse, ToolFinalizeRequest,
 };
+use crate::session::{
+    Admission, EngineSession, GoalProvider, SessionConfig, ToolDefsProvider, TurnOutcome,
+    TurnRequest,
+};
 use crate::turn_loop::{run_turn::run_turn, run_turn::run_turn_with_telemetry, types::*};
 
 // ── Global callback registry ───────────────────────────────────────────────
@@ -1057,27 +1061,7 @@ pub fn run_turn_rust(
             )
             .await
         },
-        |env: &mut Env, val: JsRunTurnResult| {
-            let mut obj = env.create_object()?;
-            obj.set_named_property("stopReason", env.create_string_from_std(val.stop_reason)?)?;
-            obj.set_named_property("steps", env.create_uint32(val.steps)?)?;
-            obj.set_named_property("inputTokens", env.create_uint32(val.input_tokens)?)?;
-            obj.set_named_property("outputTokens", env.create_uint32(val.output_tokens)?)?;
-            obj.set_named_property("totalTokens", env.create_uint32(val.total_tokens)?)?;
-            obj.set_named_property("inputCacheRead", env.create_uint32(val.input_cache_read)?)?;
-            obj.set_named_property(
-                "inputCacheCreation",
-                env.create_uint32(val.input_cache_creation)?,
-            )?;
-            obj.set_named_property("eventsEmitted", env.create_uint32(val.events_emitted)?)?;
-            obj.set_named_property("llmRetries", env.create_uint32(val.llm_retries)?)?;
-            obj.set_named_property(
-                "llmTransport",
-                env.create_string_from_std(val.llm_transport)?,
-            )?;
-            obj.set_named_property("nativeToolCalls", env.create_uint32(val.native_tool_calls)?)?;
-            Ok(obj)
-        },
+        |env: &mut Env, val: JsRunTurnResult| js_object_from_run_turn_result(env, val),
     )
 }
 
@@ -1437,18 +1421,489 @@ async fn run_turn_rust_impl(
 
     let result = result.map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
 
-    Ok(JsRunTurnResult {
+    Ok(js_run_turn_result(
+        result,
+        &turn_event_count,
+        &native_tool_count,
+        llm.transport(),
+    ))
+}
+
+/// Project a `TurnResult` onto the napi result shape. The counters come from
+/// the pipeline's wrappers (per turn today; per session for the M1d handle).
+fn js_run_turn_result(
+    result: TurnResult,
+    turn_event_count: &std::sync::atomic::AtomicU32,
+    native_tool_count: &std::sync::atomic::AtomicU32,
+    llm_transport: &str,
+) -> JsRunTurnResult {
+    JsRunTurnResult {
         stop_reason: format!("{:?}", result.stop_reason),
         steps: result.steps,
-        input_tokens: result.usage.input_tokens as u32,
-        output_tokens: result.usage.output_tokens as u32,
-        total_tokens: result.usage.total_tokens as u32,
-        input_cache_read: result.usage.input_cache_read as u32,
-        input_cache_creation: result.usage.input_cache_creation as u32,
+        input_tokens: result.usage.input_tokens,
+        output_tokens: result.usage.output_tokens,
+        total_tokens: result.usage.total_tokens,
+        input_cache_read: result.usage.input_cache_read,
+        input_cache_creation: result.usage.input_cache_creation,
         events_emitted: turn_event_count.load(std::sync::atomic::Ordering::Relaxed),
         llm_retries: result.llm_retries,
-        llm_transport: llm.transport().to_string(),
+        llm_transport: llm_transport.to_string(),
         native_tool_calls: native_tool_count.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+/// Build the JS object for a `JsRunTurnResult` — shared by the per-turn
+/// deferred and the session outcome deferred.
+fn js_object_from_run_turn_result(env: &mut Env, val: JsRunTurnResult) -> napi::Result<JsObject> {
+    let mut obj = env.create_object()?;
+    obj.set_named_property("stopReason", env.create_string_from_std(val.stop_reason)?)?;
+    obj.set_named_property("steps", env.create_uint32(val.steps)?)?;
+    obj.set_named_property("inputTokens", env.create_uint32(val.input_tokens)?)?;
+    obj.set_named_property("outputTokens", env.create_uint32(val.output_tokens)?)?;
+    obj.set_named_property("totalTokens", env.create_uint32(val.total_tokens)?)?;
+    obj.set_named_property("inputCacheRead", env.create_uint32(val.input_cache_read)?)?;
+    obj.set_named_property(
+        "inputCacheCreation",
+        env.create_uint32(val.input_cache_creation)?,
+    )?;
+    obj.set_named_property("eventsEmitted", env.create_uint32(val.events_emitted)?)?;
+    obj.set_named_property("llmRetries", env.create_uint32(val.llm_retries)?)?;
+    obj.set_named_property(
+        "llmTransport",
+        env.create_string_from_std(val.llm_transport)?,
+    )?;
+    obj.set_named_property("nativeToolCalls", env.create_uint32(val.native_tool_calls)?)?;
+    Ok(obj)
+}
+
+// ── EngineSession handle (M1d) ─────────────────────────────────────────────
+// The napi boundary upgrades from "one call per turn" to a session handle:
+// the pipeline is built once, and admission (four modes), the pending FIFO,
+// the pump, turn ids, cancellation, and quiescence live engine-side. This is
+// the foundation for deleting `executeTurnViaEngine` and flipping turn
+// ownership; the JS side addresses sessions by id (the CANCEL_MAP registry
+// style — no napi class surface yet).
+
+/// Live sessions keyed by id. One CLI process runs one session today; the
+/// registry keeps the surface uniform for tests and future multi-session
+/// hosts. A disposed session's pump task parks forever on its wakeup channel
+/// (bounded: one session per process) — teardown joins it in M2.
+static SESSION_REGISTRY: LazyLock<Mutex<HashMap<String, SessionEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Outcome receivers for enqueued turns, keyed by (session, turn). Enqueue
+/// stores the receiver; `session_turn_outcome` takes it and resolves the JS
+/// promise when the pump finishes the turn.
+type SessionOutcomeMap = HashMap<(String, u64), oneshot::Receiver<Result<TurnOutcome, String>>>;
+static SESSION_OUTCOMES: LazyLock<Mutex<SessionOutcomeMap>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static SESSION_NEXT_ID: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Clone)]
+struct SessionEntry {
+    session: Arc<EngineSession>,
+    turn_event_count: Arc<std::sync::atomic::AtomicU32>,
+    native_tool_count: Arc<std::sync::atomic::AtomicU32>,
+    llm_transport: String,
+}
+
+fn session_entry(session_id: &str) -> napi::Result<SessionEntry> {
+    SESSION_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| napi::Error::from_reason(format!("unknown session: {session_id}")))
+}
+
+fn make_tsfn(
+    cb: Option<JsFunction>,
+) -> napi::Result<Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>> {
+    match cb {
+        Some(cb) => Ok(Some(cb.create_threadsafe_function(
+            0,
+            |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            },
+        )?)),
+        None => Ok(None),
+    }
+}
+
+fn make_required_tsfn(
+    cb: JsFunction,
+) -> napi::Result<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> {
+    cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+        let id = ctx.value;
+        let js_num = ctx.env.create_uint32(id)?;
+        let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+        Ok(args)
+    })
+}
+
+/// Live session shape for the JS side (v2 `AgentLoopStatus`).
+#[napi(object)]
+pub struct JsSessionStatus {
+    pub active_turn_id: Option<f64>,
+    pub pending_turn_ids: Vec<f64>,
+}
+
+/// The outcome of one enqueued turn. Engine-side failures reject the outcome
+/// promise; `cancelledBeforeStart` means the turn was dropped from the queue
+/// without running.
+#[napi(object)]
+pub struct JsTurnOutcome {
+    pub status: String,
+    pub result: Option<JsRunTurnResult>,
+}
+
+/// Create a session handle: the engine pipeline is built once and every
+/// enqueued turn runs through it. The turn clock is read from the host's
+/// `turn` state domain at construction (M1b single-writer contract). The
+/// tool table is pulled fresh per turn through `list_tools_cb` (native
+/// transports only — host-proxy rebuilds tools inside `llm_chat`), and the
+/// goal snapshot through `goal_cb` per turn (snake_case wire goal, or null).
+#[napi]
+#[allow(clippy::too_many_arguments)]
+pub fn create_engine_session(
+    env: Env,
+    params: JsRunTurnParams,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] llm_chat_cb: JsFunction,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] execute_tool_cb: JsFunction,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] goal_cb: Option<JsFunction>,
+) -> napi::Result<JsObject> {
+    let llm_chat_tsfn = make_required_tsfn(llm_chat_cb)?;
+    let execute_tool_tsfn = make_required_tsfn(execute_tool_cb)?;
+    let emit_event_tsfn = make_tsfn(emit_event_cb)?;
+    let check_permission_tsfn = make_tsfn(check_permission_cb)?;
+    let finalize_tool_tsfn = make_tsfn(finalize_tool_cb)?;
+    let drain_steers_tsfn = make_tsfn(drain_steers_cb)?;
+    let ask_question_tsfn = make_tsfn(ask_question_cb)?;
+    let state_read_tsfn = make_tsfn(state_read_cb)?;
+    let state_write_tsfn = make_tsfn(state_write_cb)?;
+    let turn_event_tsfn = make_tsfn(turn_event_cb)?;
+    let telemetry_tsfn = make_tsfn(telemetry_cb)?;
+    let list_tools_tsfn = make_tsfn(list_tools_cb)?;
+    let goal_tsfn = make_tsfn(goal_cb)?;
+    let list_tools_for_defs = list_tools_tsfn.clone();
+
+    env.execute_tokio_future(
+        async move {
+            let pipeline = build_engine_pipeline(
+                &params,
+                EngineCallbackTsfns {
+                    llm_chat: llm_chat_tsfn,
+                    execute_tool: execute_tool_tsfn,
+                    emit_event: emit_event_tsfn,
+                    check_permission: check_permission_tsfn,
+                    finalize_tool: finalize_tool_tsfn,
+                    drain_steers: drain_steers_tsfn,
+                    ask_question: ask_question_tsfn,
+                    state_read: state_read_tsfn,
+                    state_write: state_write_tsfn,
+                    turn_event: turn_event_tsfn,
+                    telemetry: telemetry_tsfn,
+                    list_tools: list_tools_tsfn,
+                    cancellation: None,
+                },
+            )
+            .await?;
+
+            // Turn-start tool table: pulled fresh from the host per turn on
+            // native transports (host-proxy rebuilds tools inside llm_chat
+            // and never consults the engine's table). run_turn's per-step
+            // `host/list_tools` refresh stays the authoritative source; this
+            // provider only seeds the snapshot fallback.
+            let is_host_proxy = pipeline.llm.transport() == "host-proxy";
+            let tool_defs_provider: ToolDefsProvider = if is_host_proxy {
+                Arc::new(|| Box::pin(async { Vec::new() }))
+            } else {
+                match list_tools_for_defs {
+                    Some(tsfn) => Arc::new(move || {
+                        let tsfn = Arc::new(tsfn.clone());
+                        Box::pin(async move {
+                            match invoke_via_registry(
+                                &tsfn,
+                                "{}".to_string(),
+                                "list_tools",
+                                Some(HOST_LIST_TOOLS_TIMEOUT),
+                                None,
+                            )
+                            .await
+                            {
+                                Ok(output) => serde_json::from_str::<ListToolsResponse>(&output)
+                                    .map(|r| r.tools)
+                                    .unwrap_or_default(),
+                                Err(_) => Vec::new(),
+                            }
+                        })
+                    }),
+                    None => Arc::new(|| Box::pin(async { Vec::new() })),
+                }
+            };
+
+            // Fresh goal snapshot per turn (budget checks + steering). The
+            // callback returns the snake_case wire goal JSON, or null.
+            let goal_provider: Option<GoalProvider> = goal_tsfn.map(|tsfn| {
+                let provider: GoalProvider = Arc::new(move || {
+                    let tsfn = Arc::new(tsfn.clone());
+                    Box::pin(async move {
+                        let output = invoke_via_registry(
+                            &tsfn,
+                            "{}".to_string(),
+                            "session_goal",
+                            None,
+                            None,
+                        )
+                        .await
+                        .ok()?;
+                        serde_json::from_str::<GoalContext>(&output).ok()
+                    })
+                });
+                provider
+            });
+
+            let session = EngineSession::new(SessionConfig {
+                llm: pipeline.llm.clone(),
+                callbacks: pipeline.callbacks.clone(),
+                max_steps: params.max_steps.unwrap_or(u32::MAX),
+                tool_defs: tool_defs_provider,
+                goal: goal_provider,
+                on_before_turn: None,
+            })
+            .await;
+
+            let session_id = format!("session-{}", SESSION_NEXT_ID.fetch_add(1, Ordering::SeqCst));
+            SESSION_REGISTRY
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    session_id.clone(),
+                    SessionEntry {
+                        session: Arc::new(session),
+                        turn_event_count: pipeline.turn_event_count,
+                        native_tool_count: pipeline.native_tool_count,
+                        llm_transport: pipeline.llm.transport().to_string(),
+                    },
+                );
+            Ok(session_id)
+        },
+        |env, id: String| env.create_string(&id),
+    )
+}
+
+/// Enqueue a prompt. The turn id is assigned synchronously (monotonic, never
+/// reused), so the caller can cancel by id immediately; the outcome resolves
+/// through `session_turn_outcome`. `prompt` is a serialized `LLMMessage`
+/// JSON (role/content/blocks/tool_calls/tool_call_id).
+#[napi]
+pub fn session_enqueue_turn(
+    session_id: String,
+    prompt: String,
+    admission: String,
+) -> napi::Result<f64> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let prompt: LLMMessage = serde_json::from_str(&prompt)
+            .map_err(|e| napi::Error::from_reason(format!("prompt parse: {e}")))?;
+        let admission = match admission.as_str() {
+            "newTurn" => Admission::NewTurn,
+            "activeOrNewTurn" => Admission::ActiveOrNewTurn,
+            "activeOrNextTurn" => Admission::ActiveOrNextTurn,
+            "activeTurnOnly" => Admission::ActiveTurnOnly,
+            other => {
+                return Err(napi::Error::from_reason(format!(
+                    "unknown admission mode: {other}"
+                )));
+            }
+        };
+        let receipt = entry
+            .session
+            .enqueue_turn(TurnRequest::user(prompt, admission))
+            .map_err(napi::Error::from_reason)?;
+        let (turn_id, outcome) = receipt.into_parts();
+        SESSION_OUTCOMES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((session_id, turn_id), outcome);
+        Ok(turn_id as f64)
+    })
+}
+
+/// Resolve with the outcome of one enqueued turn. Takes the stored receiver —
+/// the outcome is delivered exactly once.
+#[napi]
+pub fn session_turn_outcome(env: Env, session_id: String, turn_id: f64) -> napi::Result<JsObject> {
+    let receiver = {
+        let mut outcomes = SESSION_OUTCOMES.lock().unwrap_or_else(|e| e.into_inner());
+        outcomes
+            .remove(&(session_id.clone(), turn_id as u64))
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!(
+                    "no outcome pending for {session_id} turn {turn_id}"
+                ))
+            })?
+    };
+    let entry = session_entry(&session_id)?;
+    let turn_event_count = entry.turn_event_count;
+    let native_tool_count = entry.native_tool_count;
+    let llm_transport = entry.llm_transport;
+
+    env.execute_tokio_future(
+        async move {
+            let outcome = receiver
+                .await
+                .map_err(|_| napi::Error::from_reason("session dropped"))?
+                .map_err(napi::Error::from_reason)?;
+            Ok(outcome)
+        },
+        move |env, outcome: TurnOutcome| {
+            let mut obj = env.create_object()?;
+            match outcome {
+                TurnOutcome::Ran(result) => {
+                    obj.set_named_property("status", env.create_string("ran")?)?;
+                    let result_obj = js_object_from_run_turn_result(
+                        env,
+                        js_run_turn_result(
+                            result,
+                            &turn_event_count,
+                            &native_tool_count,
+                            &llm_transport,
+                        ),
+                    )?;
+                    obj.set_named_property("result", result_obj)?;
+                }
+                TurnOutcome::CancelledBeforeStart => {
+                    obj.set_named_property("status", env.create_string("cancelledBeforeStart")?)?;
+                    obj.set_named_property("result", env.get_null()?)?;
+                }
+            }
+            Ok(obj)
+        },
+    )
+}
+
+/// Cancel a turn by id (active → interrupted at the next step boundary;
+/// queued or quiescence-held → dropped with `cancelledBeforeStart`). Without
+/// an id the active turn (if any) is cancelled. Returns whether anything was
+/// cancelled.
+#[napi]
+pub fn session_cancel_turn(session_id: String, turn_id: Option<f64>) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        Ok(entry.session.cancel_turn(turn_id.map(|id| id as u64)))
+    })
+}
+
+/// Live session shape: the active turn id and the queued turn ids.
+#[napi]
+pub fn session_status(session_id: String) -> napi::Result<JsSessionStatus> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let status = entry.session.status();
+        Ok(JsSessionStatus {
+            active_turn_id: status.active_turn_id.map(|id| id as f64),
+            pending_turn_ids: status
+                .pending_turn_ids
+                .into_iter()
+                .map(|id| id as f64)
+                .collect(),
+        })
+    })
+}
+
+/// Whether the session is fully idle right now (nothing active, pending, or
+/// held).
+#[napi]
+pub fn session_is_settled(session_id: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        Ok(entry.session.is_settled())
+    })
+}
+
+/// Resolves once the session is fully idle: no active turn, no pending or
+/// held turns.
+#[napi]
+pub fn session_settled(env: Env, session_id: String) -> napi::Result<JsObject> {
+    let entry = session_entry(&session_id)?;
+    let session = entry.session;
+    env.execute_tokio_future(
+        async move {
+            session.settled().await;
+            Ok(())
+        },
+        |env, ()| env.get_undefined(),
+    )
+}
+
+/// Replace the session's cross-turn history (the next enqueued turn starts
+/// from it, with the new prompt appended).
+#[napi]
+pub fn session_set_history(session_id: String, history_json: String) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let history: Vec<LLMMessage> = serde_json::from_str(&history_json)
+            .map_err(|e| napi::Error::from_reason(format!("history parse: {e}")))?;
+        entry.session.set_history(history);
+        Ok(())
+    })
+}
+
+#[napi]
+pub fn session_clear_history(session_id: String) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        entry.session.clear_history();
+        Ok(())
+    })
+}
+
+/// Append messages to the cross-turn history (e.g. a resumed transcript).
+#[napi]
+pub fn session_extend_history(session_id: String, history_json: String) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let history: Vec<LLMMessage> = serde_json::from_str(&history_json)
+            .map_err(|e| napi::Error::from_reason(format!("history parse: {e}")))?;
+        entry.session.extend_history(history);
+        Ok(())
+    })
+}
+
+#[napi]
+pub fn session_history_len(session_id: String) -> napi::Result<u32> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        Ok(entry.session.history_len() as u32)
+    })
+}
+
+/// Drop the session handle. The engine-owned pump task parks forever once the
+/// process has no other session reference (bounded: one session per process
+/// today); a joined teardown belongs to the ownership flip.
+#[napi]
+pub fn session_dispose(session_id: String) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        SESSION_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session_id);
+        Ok(())
     })
 }
 

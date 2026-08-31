@@ -1566,6 +1566,16 @@ gateway 2/2，tsc 0 错误。
       Counting → NativeTool/plan-guard）+ LLM 选择（multi > native-http > host-proxy）抽成
       `build_engine_pipeline(params, EngineCallbackTsfns)`，per-turn 入口与 M1d 会话工厂共用
       同一条管线；行为不变（834 全绿）。
+    - **会话句柄跨 napi 边界（翻转的前提）**：id 寻址注册表（`CANCEL_MAP` 模式，不引入首个
+      napi class）+ `create_engine_session`（管线建一次 + `EngineSession::new` 经 state 桥读
+      turn 时钟）/ `session_enqueue_turn`（四准入模式，id 同步分配）/ `session_turn_outcome`
+      （Promise，receiver 恰一次）/ `session_cancel_turn` / `session_status` / `session_settled`
+      / `session_is_settled` / history 四操作 / `session_dispose`。`SessionConfig.goal` 提供者
+      异步化（napi 侧经 `goal_cb` 每 turn 现读，snake_case wire goal）；tool_defs 提供者 =
+      list_tools TSFN（host-proxy 置空——引擎表在那里不被消费）。pump 任务随进程存活
+      （每进程一会话，有界）；join 式回收属翻转切片。集成测试 2 条：create→enqueue→outcome
+      →history 折叠→settled→dispose 全链；gated 活跃 turn + 排队取消→`cancelledBeforeStart`
+      →活跃 turn 释放后照常完成。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；

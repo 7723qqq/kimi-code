@@ -8,6 +8,16 @@
 export declare function cancelTurn(turnId: string): void
 
 /**
+ * Create a session handle: the engine pipeline is built once and every
+ * enqueued turn runs through it. The turn clock is read from the host's
+ * `turn` state domain at construction (M1b single-writer contract). The
+ * tool table is pulled fresh per turn through `list_tools_cb` (native
+ * transports only — host-proxy rebuilds tools inside `llm_chat`), and the
+ * goal snapshot through `goal_cb` per turn (snake_case wire goal, or null).
+ */
+export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
+
+/**
  * Emit a one-shot `tracing::info!` event. Used by the test harness to
  * confirm the subscriber is wired (so trace files are non-empty even on
  * trivial inputs that don't traverse instrumented hot paths).
@@ -160,6 +170,12 @@ export interface JsRunTurnResult {
   nativeToolCalls: number
 }
 
+/** Live session shape for the JS side (v2 `AgentLoopStatus`). */
+export interface JsSessionStatus {
+  activeTurnId?: number
+  pendingTurnIds: Array<number>
+}
+
 /**
  * The host-side half of the turn telemetry payload (M1c): fields the host
  * knows from its model configuration; the engine contributes the outcome
@@ -181,6 +197,16 @@ export interface JsToolDef {
    * so we pass the schema as a serialized JSON string.
    */
   inputSchema: string
+}
+
+/**
+ * The outcome of one enqueued turn. Engine-side failures reject the outcome
+ * promise; `cancelledBeforeStart` means the turn was dropped from the queue
+ * without running.
+ */
+export interface JsTurnOutcome {
+  status: string
+  result?: JsRunTurnResult
 }
 
 /**
@@ -223,3 +249,60 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * loop stays alive to process TSFN callbacks.
  */
 export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
+
+/**
+ * Cancel a turn by id (active → interrupted at the next step boundary;
+ * queued or quiescence-held → dropped with `cancelledBeforeStart`). Without
+ * an id the active turn (if any) is cancelled. Returns whether anything was
+ * cancelled.
+ */
+export declare function sessionCancelTurn(sessionId: string, turnId?: number | undefined | null): boolean
+
+export declare function sessionClearHistory(sessionId: string): void
+
+/**
+ * Drop the session handle. The engine-owned pump task parks forever once the
+ * process has no other session reference (bounded: one session per process
+ * today); a joined teardown belongs to the ownership flip.
+ */
+export declare function sessionDispose(sessionId: string): void
+
+/**
+ * Enqueue a prompt. The turn id is assigned synchronously (monotonic, never
+ * reused), so the caller can cancel by id immediately; the outcome resolves
+ * through `session_turn_outcome`. `prompt` is a serialized `LLMMessage`
+ * JSON (role/content/blocks/tool_calls/tool_call_id).
+ */
+export declare function sessionEnqueueTurn(sessionId: string, prompt: string, admission: string): number
+
+/** Append messages to the cross-turn history (e.g. a resumed transcript). */
+export declare function sessionExtendHistory(sessionId: string, historyJson: string): void
+
+export declare function sessionHistoryLen(sessionId: string): number
+
+/**
+ * Whether the session is fully idle right now (nothing active, pending, or
+ * held).
+ */
+export declare function sessionIsSettled(sessionId: string): boolean
+
+/**
+ * Replace the session's cross-turn history (the next enqueued turn starts
+ * from it, with the new prompt appended).
+ */
+export declare function sessionSetHistory(sessionId: string, historyJson: string): void
+
+/**
+ * Resolves once the session is fully idle: no active turn, no pending or
+ * held turns.
+ */
+export declare function sessionSettled(sessionId: string): object
+
+/** Live session shape: the active turn id and the queued turn ids. */
+export declare function sessionStatus(sessionId: string): JsSessionStatus
+
+/**
+ * Resolve with the outcome of one enqueued turn. Takes the stored receiver —
+ * the outcome is delivered exactly once.
+ */
+export declare function sessionTurnOutcome(sessionId: string, turnId: number): object

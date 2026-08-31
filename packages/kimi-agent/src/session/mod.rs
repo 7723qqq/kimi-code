@@ -135,6 +135,13 @@ impl TurnReceipt {
             .await
             .map_err(|_| "session dropped".to_string())?
     }
+
+    /// Split the receipt into its turn id and the outcome receiver — the
+    /// shape the napi session surface stores to serve `turn_outcome`
+    /// promises.
+    pub fn into_parts(self) -> (u64, oneshot::Receiver<Result<TurnOutcome, String>>) {
+        (self.turn_id, self.outcome)
+    }
 }
 
 /// Live session shape (v2 `AgentLoopStatus`).
@@ -144,6 +151,16 @@ pub struct SessionStatus {
     pub pending_turn_ids: Vec<u64>,
 }
 
+/// Fresh-per-turn tool-table provider (the turn-start snapshot source; the
+/// per-step refresh goes through `host/list_tools`).
+pub type ToolDefsProvider =
+    Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, Vec<ToolInfo>> + Send + Sync>;
+
+/// Fresh-per-turn async goal provider (budget checks + steering). Async like
+/// `tool_defs`: the napi session reads it through a host callback.
+pub type GoalProvider =
+    Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, Option<GoalContext>> + Send + Sync>;
+
 /// Session-level configuration, fixed for the session's lifetime.
 pub struct SessionConfig {
     pub llm: Arc<dyn LLM>,
@@ -152,10 +169,10 @@ pub struct SessionConfig {
     pub max_steps: u32,
     /// Fresh tool definitions per turn (MCP tools can change mid-session;
     /// M1d replaces this provider with `host/list_tools`).
-    pub tool_defs:
-        Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, Vec<ToolInfo>> + Send + Sync>,
-    /// Fresh goal snapshot per turn (budget checks + steering).
-    pub goal: Option<Arc<dyn Fn() -> Option<GoalContext> + Send + Sync>>,
+    pub tool_defs: ToolDefsProvider,
+    /// Fresh goal snapshot per turn (budget checks + steering). Async like
+    /// `tool_defs`: the napi session reads it through a host callback.
+    pub goal: Option<GoalProvider>,
     /// Ran before each turn's first step (REPL: the undo checkpoint).
     pub on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -216,9 +233,8 @@ fn maybe_settle_locked(core: &mut Core) {
 struct SessionContext {
     llm: Arc<dyn LLM>,
     callbacks: Arc<dyn HostCallbacks>,
-    tool_defs:
-        Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, Vec<ToolInfo>> + Send + Sync>,
-    goal: Option<Arc<dyn Fn() -> Option<GoalContext> + Send + Sync>>,
+    tool_defs: ToolDefsProvider,
+    goal: Option<GoalProvider>,
     on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
     max_steps: u32,
 }
@@ -728,7 +744,10 @@ async fn run_session_turn(
         hook();
     }
     let tool_defs = (ctx.tool_defs)().await;
-    let goal = ctx.goal.as_ref().and_then(|provider| provider());
+    let goal = match ctx.goal.as_ref() {
+        Some(provider) => provider().await,
+        None => None,
+    };
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {

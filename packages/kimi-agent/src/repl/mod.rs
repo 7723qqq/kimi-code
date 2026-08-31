@@ -455,7 +455,10 @@ pub async fn start_repl(
             let gh = gh_for_defs.clone();
             Box::pin(async move { build_repl_tool_defs(&mcp, Some(&gh)).await })
         }),
-        goal: Some(Arc::new(move || state_for_goal.goal_context())),
+        goal: Some(Arc::new(move || {
+            let state = state_for_goal.clone();
+            Box::pin(async move { state.goal_context() })
+        })),
         on_before_turn: Some(Arc::new(move || {
             if let Err(e) = state_for_checkpoint.checkpoint() {
                 eprintln!("[Checkpoint error]: {e}");

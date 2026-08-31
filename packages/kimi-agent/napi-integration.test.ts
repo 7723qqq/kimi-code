@@ -1626,3 +1626,118 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
     expect(followUp).toContain('status: running');
   });
 });
+
+// ── EngineSession handle (M1d) ─────────────────────────────────────────────
+// The napi boundary upgrades from "one call per turn" to a session handle:
+// admission, the pending FIFO, the pump, turn ids, cancellation, and
+// quiescence live engine-side across turns.
+
+describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
+  const stopResponse = JSON.stringify({
+    content: 'hello!',
+    tool_calls: [],
+    finish_reason: 'stop',
+    usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+  });
+
+  function createSession(mod: ReturnType<typeof loadNativeModule>): Promise<string> {
+    return mod.createEngineSession(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'You are a test assistant.',
+        modelName: 'test-model',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      makeCallback(mod, () => stopResponse),
+      makeCallback(mod, () => JSON.stringify({ content: 'ok', is_error: false })),
+    ) as Promise<string>;
+  }
+
+  it('creates a session, runs an enqueued turn, and folds history', async () => {
+    const mod = loadNativeModule();
+    const sessionId = (await createSession(mod)) as string;
+    expect(sessionId).toMatch(/^session-/);
+
+    const turnId = mod.sessionEnqueueTurn(
+      sessionId,
+      JSON.stringify({ role: 'user', content: 'hi' }),
+      'newTurn',
+    ) as number;
+    expect(typeof turnId).toBe('number');
+
+    const outcome = (await mod.sessionTurnOutcome(sessionId, turnId)) as {
+      status: string;
+      result: { stopReason: string; steps: number } | null;
+    };
+    expect(outcome.status).toBe('ran');
+    expect(outcome.result?.stopReason).toBe('EndTurn');
+    expect(outcome.result?.steps).toBe(1);
+
+    // The turn's messages fold into the cross-turn history (assistant reply
+    // + user prompt; the system message is excluded).
+    expect(mod.sessionHistoryLen(sessionId)).toBe(2);
+    expect(mod.sessionIsSettled(sessionId)).toBe(true);
+    await mod.sessionSettled(sessionId);
+
+    mod.sessionDispose(sessionId);
+  });
+
+  it('cancels a queued turn before it starts and keeps the active turn running', async () => {
+    const mod = loadNativeModule();
+    let release: (() => void) | undefined;
+    const sessionId = (await mod.createEngineSession(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'You are a test assistant.',
+        modelName: 'test-model',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      // Step 0 of the first turn parks on this gate; the response resolves
+      // when the test releases it.
+      makeCallback(mod, () => {
+        return new Promise<string>((resolve) => {
+          release = () => resolve(stopResponse);
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: 'ok', is_error: false })),
+    )) as string;
+
+    const activeId = mod.sessionEnqueueTurn(
+      sessionId,
+      JSON.stringify({ role: 'user', content: 'gated' }),
+      'newTurn',
+    ) as number;
+    // Wait until the pump claims the first turn.
+    for (let i = 0; i < 100; i += 1) {
+      const status = mod.sessionStatus(sessionId) as { activeTurnId: number | null };
+      if (status.activeTurnId === activeId) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const status = mod.sessionStatus(sessionId) as { activeTurnId: number | null };
+    expect(status.activeTurnId).toBe(activeId);
+
+    const queuedId = mod.sessionEnqueueTurn(
+      sessionId,
+      JSON.stringify({ role: 'user', content: 'queued' }),
+      'newTurn',
+    ) as number;
+    expect(mod.sessionCancelTurn(sessionId, queuedId)).toBe(true);
+    const queuedOutcome = (await mod.sessionTurnOutcome(sessionId, queuedId)) as {
+      status: string;
+    };
+    expect(queuedOutcome.status).toBe('cancelledBeforeStart');
+
+    // Release the gate; the active turn runs to completion.
+    release?.();
+    const activeOutcome = (await mod.sessionTurnOutcome(sessionId, activeId)) as {
+      status: string;
+    };
+    expect(activeOutcome.status).toBe('ran');
+    await mod.sessionSettled(sessionId);
+    mod.sessionDispose(sessionId);
+  });
+});
