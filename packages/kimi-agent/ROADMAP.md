@@ -1465,7 +1465,7 @@ gateway 2/2，tsc 0 错误。
   （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
   口径修订记录在决策文档 §4）。
 
-- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a 完成（2026-08-31）；M1b–M1d 待做
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a + M1b 完成（2026-08-31）；M1c–M1d 待做
   - **M1a — EngineSession 骨架 + REPL 消费**（✅）：`packages/kimi-agent/src/session/mod.rs`（~520 行）实现
     `EngineSession`——admission 四模式（`NewTurn` / `ActiveOrNewTurn` / `ActiveOrNextTurn` /
     `ActiveTurnOnly`）、pending FIFO + 串行 pump（`tokio::spawn` + `Notify` 唤醒 + 锁内
@@ -1482,11 +1482,38 @@ gateway 2/2，tsc 0 错误。
     - M1a 已知限制：`/model` 与 `/yolo` 在 session 固化 LLM/PermissionEngine 之下退化为
     「下次 REPL 重启生效」（文档在命令输出里）；未来 hot-swap 提升为 provider
     时取消这一限制。`/status` 的 `messages.len() / 2` 改为 `engine_session.history_len() / 2`。
-  - **M1b** — turn 时钟 + durable 事件：state bridge 新 turn 域（`next_turn_id` /
-    `cancelled_turn_ids` 读写，session 当前是内存单调时钟）；`host/turn_event` 回调
-    （napi TSFN + stdio method）承载 `TurnPrompt` / `TurnStarted` / `TurnCancel` /
-    `TurnEnded`（`turn.started` 仅 observable）—— 引擎 dispatch，宿主 append log +
-    `turnKey` 折叠保持原状；`PromptOrigin` 的 wire 表示需扩契约。
+  - **M1b** — turn 时钟 + durable 事件（✅ 2026-08-31）：
+    - `src/turn_events.rs`：`TurnEvent` 四变体，序列化形状 = v2 durable `Event2` payload
+      去掉 `agentId`（宿主补），字段名 camelCase（`turnId` / `durationMs`），`reason` /
+      `target` 用 Rust 枚举钉死 v2 的字面量联合；5 个 wire 测试直接断言 JSON 字面量。
+    - **时钟改为只读**（原案是 turn 域「读写」）：宿主 `turnKey` 的折叠是事件的纯函数，
+      引擎整值回写会连带清掉宿主独有的 `anchorTurnIds` / `lastEnded`；`nextTurnId` 由
+      `turn.prompt` 折叠推进即可 —— 单写者、无回写竞态。引擎构造时读一次，之后本地单调递增。
+      turn 域仍实现了 `state_write`，语义是**单调钳制**（低值不回退），防止未来的写者复用 id。
+    - `turn.started` 不带 `prompt` / `promptAttachments`：v2 由
+      `turnPromptText` / `turnPromptAttachments(input, origin)` 推导（含 skill-activation
+      块跳过规则），宿主拿同一份 `input` 自己推，避免两个引擎各推一份对不上。
+    - transport：`HOST_TURN_EVENT` stdio 通知（`RpcHostCallbacks::turn_event`）+
+      `run_turn_rust` 第 11 个可选参 `turn_event_cb`（TSFN，与 `emit_event` 共用抽出的
+      `fire_payload_only`）；`SteerQueueCallbacks` / `NativeToolCallbacks` /
+      `CountingCallbacks` 三层装饰器全部补转发（装饰器漏一行 = 事件静默丢失）。
+    - 宿主接收端：`wire-schema.ts` 加 `turnEventSchema`（`input` / `origin` 保持不校验，
+      v2 侧本就是 `z.custom`，这里校验更严会拒掉合法流量）；`rust-loop.ts` napi + stdio
+      两路 `host/turn_event` → `setTurnEventHandler`，畸形载荷**报错不静默**——
+      丢一条 durable 记录就是 transcript 损坏，不是掉一次显示。
+    - v2 `stateRead` 新增 `turn` 域（返回 `turnKey` 当前值）：引擎在宿主模式下取时钟的入口。
+    - **宿主 dispatch 桥（turn_event → `dispatcher.dispatch(new TurnPrompt(…))`）刻意未做**：
+      今天 v2 loop 仍自己派发这些事件，桥一接就是双份折叠。它属于 M1d 删
+      `executeTurnViaEngine`、turn 所有权真正翻转的那一步。
+    - 顺带修掉 **M1a 的潜伏死锁**：`EngineSession::new` 存进 handle 的是新建的
+      `Arc<Notify>`，pump 等的是另一个 —— `enqueue_turn` 的 `notify_one` 打在了没人等的
+      通道上，pump 一旦因空闲 park，后续入队永不唤醒。REPL 交互路径（第一个 turn 跑完
+      再问第二个）必挂。M1a 的 5 个测试全绿是因为它们都「先全部入队再等」，从未让 pump
+      park 过。证据：HEAD worktree 里加 `pump_wakes_after_idle_gap` 探针 → HEAD 超时失败，
+      修复后通过（`test_pump_wakes_after_idle_gap` 已进 session 测试）。
+      `EngineSession::new` 同时改为 `async fn`：原来在同步构造里
+      `Handle::current().block_on(state_read)`，而构造点本身就在 async 上下文里 ——
+      从 runtime 内部 block 会直接 panic。
   - **M1c** — 取消/背压/遥测：session 已有 `cancel_turn` 基础；补 `quiescence_depth` +
     `held_admissions` + `settled` 等待者；`host/telemetry` 回调承载 `turn_started` /
     `turn_ended` / `turn_interrupted`（mode / provider_type / protocol /

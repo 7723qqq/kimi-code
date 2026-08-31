@@ -28,6 +28,7 @@ import { resolve } from 'node:path';
 
 import type { JsRunTurnParams, JsRunTurnResult } from './napi-contract';
 import type { ZodType } from 'zod';
+import type { TurnEventWire } from './wire-schema';
 import {
   llmChatRequestSchema,
   permissionCheckRequestSchema,
@@ -35,6 +36,7 @@ import {
   runTurnResultSchema,
   toolExecuteRequestSchema,
   toolFinalizeRequestSchema,
+  turnEventSchema,
 } from './wire-schema';
 
 // Project root: packages/kimi-agent/rust-loop.ts → ../../ (project root)
@@ -502,6 +504,7 @@ interface KimiAgentNativeModule {
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
+    turnEventCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -624,6 +627,7 @@ export class NapiEngine {
     askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
     stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
+    turnEventCb?: (event: TurnEventWire) => void,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -729,6 +733,22 @@ export class NapiEngine {
             return JSON.stringify(result);
           });
 
+    // Turn lifecycle channel: fetch the payload but never resolve. Unlike a
+    // display event, a dropped durable record corrupts the transcript, so a
+    // rejected payload is reported instead of swallowed.
+    const turnEventHandler =
+      turnEventCb === undefined
+        ? undefined
+        : (callbackId: number) => {
+            const payload = nativeModule.getCallbackPayload(callbackId);
+            if (!payload) return;
+            try {
+              turnEventCb(parseWire(turnEventSchema, payload, 'host/turn_event'));
+            } catch (error: unknown) {
+              console.error('[kimi-agent] rejected host/turn_event:', error);
+            }
+          };
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -740,6 +760,7 @@ export class NapiEngine {
       askQuestionHandler,
       stateReadHandler,
       stateWriteHandler,
+      turnEventHandler,
     );
   }
 
@@ -817,6 +838,9 @@ export class AgentProcess {
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
+  /** Callback for engine turn lifecycle records (`host/turn_event`). */
+  private turnEventHandler: ((event: TurnEventWire) => void) | null = null;
+
   setLlmChatHandler(
     handler: (signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>,
   ) {
@@ -857,6 +881,10 @@ export class AgentProcess {
 
   setEventHandler(handler: (event: EngineEvent) => void) {
     this.eventHandler = handler;
+  }
+
+  setTurnEventHandler(handler: (event: TurnEventWire) => void) {
+    this.turnEventHandler = handler;
   }
 
   static findBinary(): string | null {
@@ -958,6 +986,14 @@ export class AgentProcess {
                 this.eventHandler(msg.params as EngineEvent);
               } catch {
                 // Event handler failures must never break the RPC loop.
+              }
+            } else if (msg.method === 'host/turn_event' && this.turnEventHandler) {
+              try {
+                this.turnEventHandler(
+                  parseWireObject(turnEventSchema, msg.params, 'host/turn_event'),
+                );
+              } catch (error: unknown) {
+                console.error('[kimi-agent] rejected host/turn_event:', error);
               }
             }
             break;

@@ -196,9 +196,13 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * * `state_write_cb` — optional; receives callback ID, fetches a
  *   `StateWriteRequest` JSON payload and resolves with the host's result
  *   state.
+ * * `turn_event_cb` — optional; receives callback ID, fetches a
+ *   `TurnEvent` JSON payload (see `crate::turn_events`) and must NOT resolve
+ *   it. Only used once the engine owns the turn lifecycle; hosts that drive
+ *   `run_turn` per turn keep dispatching their own turn events.
  *
  * JsFunction is converted to ThreadsafeFunction synchronously, then the
  * async work is dispatched via `env.execute_tokio_future` so the JS event
  * loop stays alive to process TSFN callbacks.
  */
-export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void): object
+export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void): object

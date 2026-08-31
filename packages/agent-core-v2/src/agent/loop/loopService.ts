@@ -1257,6 +1257,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           const output = await tasks.getOutputSnapshot(request.key, TASK_OUTPUT_PREVIEW_BYTES);
           return { value: taskOutputWire(info, output) };
         }
+        if (request.domain === 'turn') {
+          return { value: this.states.get(turnKey) };
+        }
         if (request.domain === 'skill') {
           const catalog = this.instantiation.invokeFunction((accessor) =>
             accessor.get(ISessionSkillCatalog),

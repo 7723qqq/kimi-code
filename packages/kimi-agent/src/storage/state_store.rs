@@ -2,11 +2,13 @@
 //!
 //! Provides per-domain durable state under `<workspace>/.kimi/state/` with
 //! one JSON file per domain (`todo.json` / `plan.json` / `goal.json` /
-//! `cron.json` / `task.json`). Writes are atomic (tmp file + rename).
+//! `cron.json` / `task.json` / `turn.json`). Writes are atomic (tmp file +
+//! rename).
 //!
 //! Wire shapes align with the v2 state bridge domains: todo = `TodoItem[]`
 //! (full replacement), plan = `{active, id?, path?}`, goal =
-//! `{goal: <snapshot> | null}`, cron = entry list, task = task list. The
+//! `{goal: <snapshot> | null}`, cron = entry list, task = task list, turn =
+//! `{nextTurnId, cancelledTurnIds, anchorTurnIds, lastEnded?}`. The
 //! action-shaped writes the engine submits (goal `create`/`update`/
 //! `set_budget`, cron `create`/`delete`, task `stop`/`wait`) are applied
 //! here with the v2 domain semantics, so the ported native tools render
@@ -20,9 +22,10 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use crate::goal::{GoalBudgetLimits, GoalState, GoalStatus, to_snapshot};
+use crate::turn_events::{TurnCancelTarget, TurnEvent};
 
-/// The five state domains the REPL persists locally.
-pub const STATE_DOMAINS: [&str; 5] = ["todo", "plan", "goal", "cron", "task"];
+/// The six state domains the REPL persists locally.
+pub const STATE_DOMAINS: [&str; 6] = ["todo", "plan", "goal", "cron", "task", "turn"];
 
 /// The task output preview cap, matching the v2 `TASK_OUTPUT_PREVIEW_BYTES`.
 pub const TASK_OUTPUT_PREVIEW_BYTES: usize = 32 * 1024;
@@ -180,6 +183,11 @@ impl StateStore {
             "goal" => Some(json!({ "goal": null })),
             "cron" => Some(json!([])),
             "task" => Some(json!([])),
+            "turn" => Some(json!({
+                "nextTurnId": 0u64,
+                "cancelledTurnIds": [],
+                "anchorTurnIds": [],
+            })),
             _ => None,
         }
     }
@@ -240,10 +248,101 @@ impl StateStore {
             "goal" => self.apply_goal_write(value),
             "cron" => self.apply_cron_write(value),
             "task" => self.apply_task_write(value),
+            "turn" => self.apply_turn_write(value),
             _ => Err(format!(
                 "State write error: [-32001] unknown state domain: {domain}"
             )),
         }
+    }
+
+    fn apply_turn_write(&self, value: &Value) -> Result<StateWriteOutcome, String> {
+        let next_turn_id = value
+            .get("nextTurnId")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                "State write error: [-32003] invalid turn state value: missing nextTurnId"
+                    .to_string()
+            })?;
+        let mut state = match self.read_domain("turn") {
+            Some(Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        // The clock never rewinds: a lower value would hand out an id that
+        // durable turn events have already been recorded against.
+        let stored = state
+            .get("nextTurnId")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        state.insert("nextTurnId".into(), json!(next_turn_id.max(stored)));
+        for field in ["cancelledTurnIds", "anchorTurnIds", "lastEnded"] {
+            match value.get(field) {
+                Some(incoming) => {
+                    state.insert(field.into(), incoming.clone());
+                }
+                None => {
+                    state.remove(field);
+                }
+            }
+        }
+        let stored = Value::Object(state);
+        Ok(StateWriteOutcome {
+            stored: stored.clone(),
+            response: stored,
+        })
+    }
+
+    /// Fold one engine turn lifecycle event into the persisted turn clock —
+    /// the REPL host's stand-in for v2's `turnKey` fold. `turn.started` is
+    /// observable-only and changes nothing; `anchorTurnIds` is not modelled
+    /// here because the REPL has no undo protocol.
+    pub fn fold_turn_event(&self, event: &TurnEvent) {
+        let mut state = match self.read_domain("turn") {
+            Some(Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        let next_turn_id = state
+            .get("nextTurnId")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        match event {
+            TurnEvent::Prompt { turn_id, .. } => {
+                state.insert("nextTurnId".into(), json!(next_turn_id.max(turn_id + 1)));
+            }
+            TurnEvent::Cancel {
+                turn_id, target, ..
+            } => {
+                if !target.map_or(true, |t| t == TurnCancelTarget::Queued) {
+                    return;
+                }
+                let Some(turn_id) = (*turn_id).filter(|id| *id >= next_turn_id) else {
+                    return;
+                };
+                let mut cancelled = state
+                    .get("cancelledTurnIds")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect::<Vec<u64>>())
+                    .unwrap_or_default();
+                if cancelled.contains(&turn_id) {
+                    return;
+                }
+                cancelled.push(turn_id);
+                cancelled.sort_unstable();
+                state.insert("cancelledTurnIds".into(), json!(cancelled));
+            }
+            TurnEvent::Ended {
+                turn_id,
+                reason,
+                duration_ms,
+                ..
+            } => {
+                state.insert(
+                    "lastEnded".into(),
+                    json!({ "turnId": turn_id, "reason": reason, "durationMs": duration_ms }),
+                );
+            }
+            TurnEvent::Started { .. } => return,
+        }
+        let _ = self.write_domain("turn", &Value::Object(state));
     }
 
     fn apply_plan_write(&self, value: &Value) -> Result<StateWriteOutcome, String> {
@@ -1188,5 +1287,86 @@ mod tests {
         assert_eq!(entry["fullOutputAvailable"], true);
         let list = store.read_state("task", "task").unwrap();
         assert!(list.as_array().unwrap()[0].get("preview").is_none());
+    }
+
+    #[test]
+    fn test_fold_turn_event_advances_clock_once_per_prompt() {
+        use crate::turn_events::TurnEndReason;
+
+        let (_tmp, store) = store();
+        assert_eq!(store.read_state("turn", "").unwrap()["nextTurnId"], 0);
+        for turn_id in 0..3u64 {
+            store.fold_turn_event(&TurnEvent::Prompt {
+                turn_id,
+                input: json!([]),
+                origin: json!({ "kind": "user" }),
+            });
+            store.fold_turn_event(&TurnEvent::Started {
+                turn_id,
+                origin: json!({ "kind": "user" }),
+            });
+            store.fold_turn_event(&TurnEvent::Ended {
+                turn_id,
+                reason: TurnEndReason::Completed,
+                error: None,
+                duration_ms: Some(5),
+            });
+        }
+        let state = store.read_state("turn", "").unwrap();
+        assert_eq!(state["nextTurnId"], 3, "one clock step per prompt");
+        assert_eq!(state["lastEnded"]["turnId"], 2);
+        assert_eq!(state["lastEnded"]["reason"], "completed");
+    }
+
+    #[test]
+    fn test_fold_turn_event_reserves_only_unconsumed_queued_ids() {
+        let (_tmp, store) = store();
+        store
+            .write_domain("turn", &json!({ "nextTurnId": 7, "cancelledTurnIds": [] }))
+            .unwrap();
+        store.fold_turn_event(&TurnEvent::Cancel {
+            turn_id: Some(9),
+            target: Some(TurnCancelTarget::Queued),
+            reason: None,
+        });
+        // Already ran (id below the clock) — the clock must not grow backwards.
+        store.fold_turn_event(&TurnEvent::Cancel {
+            turn_id: Some(3),
+            target: Some(TurnCancelTarget::Queued),
+            reason: None,
+        });
+        // An active turn is accounted for by turn.ended, not by the clock.
+        store.fold_turn_event(&TurnEvent::Cancel {
+            turn_id: Some(9),
+            target: Some(TurnCancelTarget::Active),
+            reason: None,
+        });
+        let state = store.read_state("turn", "").unwrap();
+        assert_eq!(state["cancelledTurnIds"], json!([9]));
+        assert_eq!(state["nextTurnId"], 7);
+    }
+
+    #[test]
+    fn test_turn_write_never_rewinds_clock() {
+        let (_tmp, store) = store();
+        store
+            .write_domain(
+                "turn",
+                &json!({ "nextTurnId": 12, "cancelledTurnIds": [4] }),
+            )
+            .unwrap();
+        let outcome = store
+            .apply_write("turn", &json!({ "nextTurnId": 3 }))
+            .expect("a lower clock is accepted, clamped");
+        assert_eq!(
+            outcome.stored["nextTurnId"], 12,
+            "a stale write must not hand out an id that was already used"
+        );
+        assert!(
+            outcome.stored.get("cancelledTurnIds").is_none(),
+            "fields the write omits are cleared"
+        );
+        let err = store.apply_write("turn", &json!({})).unwrap_err();
+        assert!(err.contains("-32003"), "{err}");
     }
 }

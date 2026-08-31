@@ -1,4 +1,4 @@
-//! EngineSession — the turn lifecycle owner (M1a).
+//! EngineSession — the turn lifecycle owner (M1a/M1b).
 //!
 //! Owns what v2's `loopService.ts` owns today: turn admission (four modes),
 //! the pending-turn FIFO, serial turn execution, turn-id assignment, and
@@ -8,10 +8,14 @@
 //! turn's final messages (assistant/tool turns included) fold back into the
 //! history for the next turn.
 //!
-//! Deliberately out of scope for M1a (see
-//! `reports/rust-engine-turn-lifecycle-design.md`): durable turn events and
-//! the persisted turn clock (M1b), quiescence/backpressure and telemetry
-//! (M1c), `host/list_tools` (M1d).
+//! The turn clock is hydrated once from the host's `turn` state domain and
+//! then advanced locally; every id assignment is mirrored to the host by a
+//! durable [`TurnEvent::Prompt`], so the host's own `turnKey` fold stays the
+//! single writer of persisted turn state.
+//!
+//! Deliberately out of scope (see
+//! `reports/rust-engine-turn-lifecycle-design.md`): quiescence/backpressure
+//! and telemetry (M1c), `host/list_tools` (M1d).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,6 +29,7 @@ use crate::rpc::types::{
     StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
     ToolFinalizeRequest,
 };
+use crate::turn_events::{TurnCancelReason, TurnCancelTarget, TurnEndReason, TurnEvent};
 use crate::turn_loop::run_turn::run_turn;
 use crate::turn_loop::types::{GoalContext, LLM, LLMMessage, RunTurnInput, ToolInfo, TurnResult};
 
@@ -41,11 +46,54 @@ pub enum Admission {
     ActiveTurnOnly,
 }
 
-/// A prompt enqueued into the session.
+/// The host's persisted turn clock, read once at session construction so a
+/// resumed session continues its id sequence instead of restarting at zero.
+///
+/// Read-only by design. The host owns the clock: it advances from the durable
+/// [`TurnEvent::Prompt`] the engine emits per turn, and its `turn` state also
+/// carries host-only fields (undo anchors, last-end summary) that a whole-value
+/// write from the engine would clobber.
+async fn read_turn_clock(callbacks: &Arc<dyn HostCallbacks>) -> u64 {
+    let read = StateReadRequest {
+        domain: "turn".into(),
+        key: String::new(),
+        turn_id: String::new(),
+        tool_call_id: String::new(),
+    };
+    match callbacks.state_read(read).await {
+        Ok(resp) => resp
+            .value
+            .get("nextTurnId")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+/// A prompt to enqueue, plus the payload the host wants mirrored back on the
+/// durable `turn.prompt` event.
 #[derive(Debug, Clone)]
 pub struct TurnRequest {
     pub prompt: LLMMessage,
     pub admission: Admission,
+    /// The prompt as the host wrote it — a `ContentPart[]` JSON array the
+    /// engine echoes back verbatim on the durable `turn.prompt` event, so the
+    /// host persists exactly what it sent rather than the engine's re-render.
+    pub input: serde_json::Value,
+    /// v2 `PromptOrigin` JSON, echoed back verbatim. The engine does not model
+    /// origin variants; the host needs them for the undo anchor and transcript.
+    pub origin: serde_json::Value,
+}
+
+impl Default for TurnRequest {
+    fn default() -> Self {
+        Self {
+            prompt: LLMMessage::default(),
+            admission: Admission::NewTurn,
+            input: serde_json::Value::Array(Vec::new()),
+            origin: serde_json::Value::Null,
+        }
+    }
 }
 
 /// The outcome of an enqueued turn.
@@ -105,6 +153,8 @@ pub struct SessionConfig {
 struct PendingTurn {
     turn_id: u64,
     prompt: LLMMessage,
+    input: serde_json::Value,
+    origin: serde_json::Value,
     cancel: Arc<AtomicBool>,
     /// `Some(sender)` until the pump claims it to resolve the receipt; the
     /// cancel path takes it out to deliver `CancelledBeforeStart`. `None`
@@ -143,12 +193,15 @@ pub struct EngineSession {
     core: Arc<Mutex<Core>>,
     wakeup: Arc<Notify>,
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+    /// Steer-queue-decorated callbacks (for event dispatch + state bridge).
+    callbacks: Arc<dyn HostCallbacks>,
 }
 
 impl EngineSession {
-    pub fn new(config: SessionConfig) -> Self {
+    pub async fn new(config: SessionConfig) -> Self {
+        let initial_clock = read_turn_clock(&config.callbacks).await;
         let core = Arc::new(Mutex::new(Core {
-            next_turn_id: 1,
+            next_turn_id: initial_clock,
             pending: Vec::new(),
             active_turn_id: None,
             active_cancel: None,
@@ -168,11 +221,13 @@ impl EngineSession {
             max_steps: config.max_steps,
         });
         let wakeup = Arc::new(Notify::new());
+        let callbacks = ctx.callbacks.clone();
         tokio::spawn(pump(core.clone(), ctx, wakeup.clone()));
         Self {
             core,
-            wakeup: Arc::new(Notify::new()),
+            wakeup,
             steer_queue,
+            callbacks,
         }
     }
 
@@ -189,6 +244,8 @@ impl EngineSession {
                 core.pending.push(PendingTurn {
                     turn_id,
                     prompt: request.prompt,
+                    input: request.input,
+                    origin: request.origin,
                     cancel: Arc::new(AtomicBool::new(false)),
                     outcome: Some(outcome_tx),
                 });
@@ -223,6 +280,8 @@ impl EngineSession {
                     core.pending.push(PendingTurn {
                         turn_id,
                         prompt: request.prompt,
+                        input: request.input,
+                        origin: request.origin,
                         cancel: Arc::new(AtomicBool::new(false)),
                         outcome: Some(outcome_tx),
                     });
@@ -243,34 +302,62 @@ impl EngineSession {
     /// the active turn (if any) is cancelled. Returns whether anything was
     /// cancelled.
     pub fn cancel_turn(&self, turn_id: Option<u64>) -> bool {
-        let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
-        match turn_id {
-            Some(id) if core.active_turn_id == Some(id) => {
-                if let Some(flag) = &core.active_cancel {
-                    flag.store(true, Ordering::SeqCst);
-                    return true;
-                }
-                false
-            }
-            Some(id) => {
-                if let Some(pos) = core.pending.iter().position(|t| t.turn_id == id) {
-                    let mut entry = core.pending.remove(pos);
-                    entry.cancel.store(true, Ordering::SeqCst);
-                    if let Some(tx) = entry.outcome.take() {
-                        let _ = tx.send(Ok(TurnOutcome::CancelledBeforeStart));
+        // Decide under the lock, dispatch after releasing it: `turn_event`
+        // hands the event to the host, which must never run while the core
+        // mutex is held.
+        enum Decision {
+            CancelActive { turn_id: Option<u64> },
+            CancelQueued { turn_id: u64 },
+            Nothing,
+        }
+        let decision = {
+            let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+            match turn_id {
+                Some(id) if core.active_turn_id == Some(id) => match &core.active_cancel {
+                    Some(flag) => {
+                        flag.store(true, Ordering::SeqCst);
+                        Decision::CancelActive { turn_id: Some(id) }
                     }
-                    true
-                } else {
-                    false
-                }
+                    None => Decision::Nothing,
+                },
+                Some(id) => match core.pending.iter().position(|t| t.turn_id == id) {
+                    Some(pos) => {
+                        let mut entry = core.pending.remove(pos);
+                        entry.cancel.store(true, Ordering::SeqCst);
+                        if let Some(tx) = entry.outcome.take() {
+                            let _ = tx.send(Ok(TurnOutcome::CancelledBeforeStart));
+                        }
+                        Decision::CancelQueued { turn_id: id }
+                    }
+                    None => Decision::Nothing,
+                },
+                None => match &core.active_cancel {
+                    Some(flag) => {
+                        flag.store(true, Ordering::SeqCst);
+                        Decision::CancelActive { turn_id: None }
+                    }
+                    None => Decision::Nothing,
+                },
             }
-            None => match &core.active_cancel {
-                Some(flag) => {
-                    flag.store(true, Ordering::SeqCst);
-                    core.active_turn_id.is_some()
-                }
-                None => false,
-            },
+        };
+        match decision {
+            Decision::CancelActive { turn_id } => {
+                self.callbacks.turn_event(TurnEvent::Cancel {
+                    turn_id,
+                    target: Some(TurnCancelTarget::Active),
+                    reason: Some(TurnCancelReason::UserCancelled),
+                });
+                true
+            }
+            Decision::CancelQueued { turn_id } => {
+                self.callbacks.turn_event(TurnEvent::Cancel {
+                    turn_id: Some(turn_id),
+                    target: Some(TurnCancelTarget::Queued),
+                    reason: Some(TurnCancelReason::UserCancelled),
+                });
+                true
+            }
+            Decision::Nothing => false,
         }
     }
 
@@ -355,9 +442,19 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
         let PendingTurn {
             turn_id,
             prompt,
+            input,
+            origin,
             cancel,
             ..
         } = entry;
+        let started = std::time::Instant::now();
+        ctx.callbacks.turn_event(TurnEvent::Prompt {
+            turn_id,
+            input,
+            origin: origin.clone(),
+        });
+        ctx.callbacks
+            .turn_event(TurnEvent::Started { turn_id, origin });
         let outcome = run_session_turn(&ctx, turn_id, prompt, cancel, history).await;
 
         // Fold the turn's final messages into the session history (system
@@ -372,12 +469,44 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             }
             std::mem::take(&mut core.steer_waiters)
         };
+        // Durable: the host folds this into `turnKey.lastEnded` and drives any
+        // terminal-state display from it.
+        if let Ok(TurnOutcome::Ran(result)) = &outcome {
+            ctx.callbacks.turn_event(TurnEvent::Ended {
+                turn_id,
+                reason: end_reason_of(&result.stop_reason),
+                error: None,
+                duration_ms: Some(started.elapsed().as_millis() as u64),
+            });
+        } else if let Err(e) = &outcome {
+            ctx.callbacks.turn_event(TurnEvent::Ended {
+                turn_id,
+                reason: TurnEndReason::Failed,
+                error: Some(serde_json::Value::String(e.clone())),
+                duration_ms: Some(started.elapsed().as_millis() as u64),
+            });
+        }
         if let Some(tx) = entry_outcome {
             let _ = tx.send(outcome.clone());
         }
         for (_, receipt) in steer_receipts {
             let _ = receipt.send(outcome.clone());
         }
+    }
+}
+
+/// Map the engine's step-level stop reason onto v2's four-value turn end
+/// reason. `MaxTokens` / `Filtered` are finish reasons on a response the model
+/// did produce, so the turn completed; `Paused` / `BudgetLimited` stop because
+/// the goal cannot progress right now, which v2 reports as blocked; `Aborted`
+/// is the cancellation flag (also how a blocked goal stops).
+fn end_reason_of(stop: &crate::turn_loop::types::LoopTurnStopReason) -> TurnEndReason {
+    use crate::turn_loop::types::LoopTurnStopReason as Stop;
+    match stop {
+        Stop::EndTurn | Stop::MaxTokens | Stop::Filtered => TurnEndReason::Completed,
+        Stop::Paused | Stop::BudgetLimited => TurnEndReason::Blocked,
+        Stop::Aborted => TurnEndReason::Cancelled,
+        Stop::Unknown => TurnEndReason::Failed,
     }
 }
 
@@ -482,6 +611,10 @@ impl HostCallbacks for SteerQueueCallbacks {
 
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
+    }
+
+    fn turn_event(&self, event: TurnEvent) {
+        self.inner.turn_event(event);
     }
 
     fn cancel_llm_chat(&self, request_id: &str) {
@@ -599,7 +732,7 @@ mod tests {
         }
     }
 
-    fn make_session(llm: Arc<dyn LLM>, callbacks: Arc<dyn HostCallbacks>) -> EngineSession {
+    async fn make_session(llm: Arc<dyn LLM>, callbacks: Arc<dyn HostCallbacks>) -> EngineSession {
         let config = SessionConfig {
             llm,
             callbacks,
@@ -608,7 +741,7 @@ mod tests {
             goal: None,
             on_before_turn: None,
         };
-        EngineSession::new(config)
+        EngineSession::new(config).await
     }
 
     async fn wait_until<F: FnMut() -> bool>(mut pred: F) {
@@ -629,18 +762,20 @@ mod tests {
             text_response("second-response"),
         ]));
         let requests = llm.requests.clone();
-        let session = make_session(llm, rpc_callbacks(server));
+        let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "hello"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         let mut r2 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "world"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         let o1 = r1.outcome().await.unwrap();
@@ -672,23 +807,26 @@ mod tests {
             text_response("2"),
             text_response("3"),
         ]));
-        let session = make_session(llm, rpc_callbacks(server));
+        let session = make_session(llm, rpc_callbacks(server)).await;
         let mut r1 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "a"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         let mut r2 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "b"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         let mut r3 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "c"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         let o1 = r1.outcome().await.unwrap();
@@ -708,12 +846,13 @@ mod tests {
         let llm = Arc::new(llm);
         let requests = llm.requests.clone();
         let server = Arc::new(RpcServer::new());
-        let session = make_session(llm, rpc_callbacks(server));
+        let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "first"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         wait_until(|| !requests.lock().unwrap().is_empty()).await;
@@ -721,6 +860,7 @@ mod tests {
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "second"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         assert!(session.cancel_turn(Some(r2.turn_id)));
@@ -737,12 +877,13 @@ mod tests {
         let (llm, gates) = ScriptedLlm::with_gate(vec![text_response("active-response")]);
         let llm = Arc::new(llm);
         let server = Arc::new(RpcServer::new());
-        let session = make_session(llm, rpc_callbacks(server));
+        let session = make_session(llm, rpc_callbacks(server)).await;
 
         let mut r1 = session
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "first"),
                 admission: Admission::NewTurn,
+                ..Default::default()
             })
             .unwrap();
         wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
@@ -750,6 +891,7 @@ mod tests {
             .enqueue_turn(TurnRequest {
                 prompt: msg("user", "steer-me"),
                 admission: Admission::ActiveOrNewTurn,
+                ..Default::default()
             })
             .unwrap();
         assert_eq!(r2.turn_id, r1.turn_id);
@@ -764,10 +906,11 @@ mod tests {
     async fn test_active_turn_only_without_active_errors() {
         let server = Arc::new(RpcServer::new());
         let llm = Arc::new(ScriptedLlm::simple(vec![]));
-        let session = make_session(llm, rpc_callbacks(server));
+        let session = make_session(llm, rpc_callbacks(server)).await;
         let result = session.enqueue_turn(TurnRequest {
             prompt: msg("user", "x"),
             admission: Admission::ActiveTurnOnly,
+            ..Default::default()
         });
         assert!(result.is_err());
         let err = match result {
@@ -775,5 +918,248 @@ mod tests {
             Ok(_) => panic!("expected ActiveTurnOnly without an active turn to error"),
         };
         assert!(err.contains("requires an active turn"));
+    }
+
+    #[tokio::test]
+    async fn test_pump_wakes_after_idle_gap() {
+        // Regression: the handle must share the pump's wakeup `Notify`. With a
+        // second one, an enqueue arriving after the pump parked for an idle gap
+        // never woke it — the REPL hung on its second prompt.
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("one"),
+            text_response("two"),
+        ]));
+        let session = make_session(llm, rpc_callbacks(server)).await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "a"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), r1.outcome())
+                .await
+                .expect("turn 1 never ran"),
+            Ok(TurnOutcome::Ran(_))
+        ));
+
+        // Let the pump reach its idle await before the next enqueue.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut r2 = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "b"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), r2.outcome())
+                .await
+                .expect("turn 2 never ran — pump stayed parked after the idle gap"),
+            Ok(TurnOutcome::Ran(_))
+        ));
+    }
+
+    /// Records every turn event and answers the `turn` state domain from a
+    /// fixed value, so clock hydration and event dispatch share one harness.
+    struct TurnRecordingCallbacks {
+        events: Arc<Mutex<Vec<TurnEvent>>>,
+        turn_state: serde_json::Value,
+    }
+
+    impl TurnRecordingCallbacks {
+        fn new(turn_state: serde_json::Value) -> (Self, Arc<Mutex<Vec<TurnEvent>>>) {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    events: events.clone(),
+                    turn_state,
+                },
+                events,
+            )
+        }
+    }
+
+    impl HostCallbacks for TurnRecordingCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> futures_util::future::BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> futures_util::future::BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> futures_util::future::BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+        fn state_read(
+            &self,
+            request: StateReadRequest,
+        ) -> futures_util::future::BoxFuture<'static, Result<StateReadResponse, String>> {
+            let value = if request.domain == "turn" {
+                self.turn_state.clone()
+            } else {
+                serde_json::Value::Null
+            };
+            Box::pin(async move { Ok(StateReadResponse { value }) })
+        }
+        fn turn_event(&self, event: TurnEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    fn recorded(events: &Arc<Mutex<Vec<TurnEvent>>>) -> Vec<TurnEvent> {
+        events.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn test_turn_events_dispatch_in_order() {
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let llm = Arc::new(ScriptedLlm::simple(vec![text_response("answer")]));
+        let session = make_session(llm, Arc::new(callbacks)).await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "hello"),
+                admission: Admission::NewTurn,
+                input: serde_json::json!([{"type": "text", "text": "hello"}]),
+                origin: serde_json::json!({"kind": "user"}),
+            })
+            .unwrap();
+        receipt.outcome().await.unwrap();
+
+        let seen = recorded(&events);
+        assert_eq!(seen.len(), 3, "prompt + started + ended: {seen:?}");
+        assert_eq!(
+            seen[0],
+            TurnEvent::Prompt {
+                turn_id: 0,
+                input: serde_json::json!([{"type": "text", "text": "hello"}]),
+                origin: serde_json::json!({"kind": "user"}),
+            },
+            "the host's own payload must come back unchanged"
+        );
+        assert_eq!(
+            seen[1],
+            TurnEvent::Started {
+                turn_id: 0,
+                origin: serde_json::json!({"kind": "user"}),
+            }
+        );
+        match &seen[2] {
+            TurnEvent::Ended {
+                turn_id,
+                reason,
+                error,
+                duration_ms,
+            } => {
+                assert_eq!(*turn_id, 0);
+                assert_eq!(*reason, TurnEndReason::Completed);
+                assert!(error.is_none());
+                assert!(duration_ms.is_some());
+            }
+            other => panic!("expected turn.ended, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cancel_dispatches_turn_cancel() {
+        let (llm, gates) = ScriptedLlm::with_gate(vec![text_response("first")]);
+        let llm = Arc::new(llm);
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let session = make_session(llm, Arc::new(callbacks)).await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "first"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+        wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
+        let r2 = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "second"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert!(session.cancel_turn(Some(r2.turn_id)));
+        assert!(recorded(&events).contains(&TurnEvent::Cancel {
+            turn_id: Some(r2.turn_id),
+            target: Some(TurnCancelTarget::Queued),
+            reason: Some(TurnCancelReason::UserCancelled),
+        }));
+
+        assert!(session.cancel_turn(Some(r1.turn_id)));
+        assert!(recorded(&events).contains(&TurnEvent::Cancel {
+            turn_id: Some(r1.turn_id),
+            target: Some(TurnCancelTarget::Active),
+            reason: Some(TurnCancelReason::UserCancelled),
+        }));
+
+        gates.into_iter().next().unwrap().send(()).unwrap();
+        r1.outcome().await.unwrap();
+        assert_eq!(session.cancel_turn(Some(9999)), false);
+        assert_eq!(
+            recorded(&events)
+                .iter()
+                .filter(|e| matches!(e, TurnEvent::Cancel { .. }))
+                .count(),
+            2,
+            "an id matching nothing must not report a cancellation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clock_continues_host_turn_sequence() {
+        // A resumed session keeps counting where the host's fold left off
+        // (v2 `turnKey.nextTurnId` is 0-based), rather than restarting at zero.
+        let (callbacks, events) =
+            TurnRecordingCallbacks::new(serde_json::json!({ "nextTurnId": 41 }));
+        let llm = Arc::new(ScriptedLlm::simple(vec![text_response("ok")]));
+        let session = make_session(llm, Arc::new(callbacks)).await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "after resume"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(receipt.turn_id, 41);
+        receipt.outcome().await.unwrap();
+        assert!(matches!(
+            recorded(&events)[0],
+            TurnEvent::Prompt { turn_id: 41, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_host_without_turn_domain_starts_at_zero() {
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![text_response("ok")]));
+        // RpcHostCallbacks has no state bridge wired, so the read fails.
+        let session = make_session(llm, rpc_callbacks(server)).await;
+        let receipt = session
+            .enqueue_turn(TurnRequest {
+                prompt: msg("user", "first-ever"),
+                admission: Admission::NewTurn,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(receipt.turn_id, 0);
     }
 }

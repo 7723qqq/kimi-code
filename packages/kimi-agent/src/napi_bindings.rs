@@ -291,6 +291,12 @@ struct NapiHostCallbacks {
     /// result.
     state_read_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     state_write_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional turn lifecycle channel: the engine reports the durable
+    /// `turn.prompt` / `turn.cancel` / `turn.ended` records and the observable
+    /// `turn.started` so the host can append and fold them. Absent means the
+    /// host keeps owning the turn lifecycle end to end, which is the
+    /// pre-existing behaviour while `run_turn` is a stateless per-turn call.
+    turn_event_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -479,18 +485,34 @@ impl HostCallbacks for NapiHostCallbacks {
         let Ok(payload) = serde_json::to_string(&event) else {
             return;
         };
-        let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
-        // Payload-only registration: no oneshot — JS fetches and forgets.
-        // Pruning matters here too: an event the host never collects would
-        // otherwise accumulate for the life of the process.
-        store_payload(id, payload);
-        let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
-        if status != napi::Status::Ok {
-            PAYLOAD_REGISTRY
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
-        }
+        fire_payload_only(tsfn, payload);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        let Some(ref tsfn) = self.turn_event_fn else {
+            return;
+        };
+        let Ok(payload) = serde_json::to_string(&event) else {
+            return;
+        };
+        fire_payload_only(tsfn, payload);
+    }
+}
+
+/// Fire a fire-and-forget TSFN that carries a payload the JS side collects by
+/// callback id, with no oneshot to resolve.
+///
+/// Pruning matters here: an event the host never collects would otherwise
+/// accumulate in the payload registry for the life of the process.
+fn fire_payload_only(tsfn: &ThreadsafeFunction<u32, ErrorStrategy::Fatal>, payload: String) {
+    let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
+    store_payload(id, payload);
+    let status = tsfn.call(id, ThreadsafeFunctionCallMode::NonBlocking);
+    if status != napi::Status::Ok {
+        PAYLOAD_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
     }
 }
 
@@ -777,6 +799,10 @@ pub struct JsRunTurnResult {
 /// * `state_write_cb` — optional; receives callback ID, fetches a
 ///   `StateWriteRequest` JSON payload and resolves with the host's result
 ///   state.
+/// * `turn_event_cb` — optional; receives callback ID, fetches a
+///   `TurnEvent` JSON payload (see `crate::turn_events`) and must NOT resolve
+///   it. Only used once the engine owns the turn lifecycle; hosts that drive
+///   `run_turn` per turn keep dispatching their own turn events.
 ///
 /// JsFunction is converted to ThreadsafeFunction synchronously, then the
 /// async work is dispatched via `env.execute_tokio_future` so the JS event
@@ -795,6 +821,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -912,6 +939,19 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match turn_event_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -928,6 +968,7 @@ pub fn run_turn_rust(
                 ask_question_tsfn,
                 state_read_tsfn,
                 state_write_tsfn,
+                turn_event_tsfn,
             )
             .await
         },
@@ -968,6 +1009,7 @@ async fn run_turn_rust_impl(
     ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -989,6 +1031,7 @@ async fn run_turn_rust_impl(
         ask_question_fn: ask_question_tsfn.map(Arc::new),
         state_read_fn: state_read_tsfn.map(Arc::new),
         state_write_fn: state_write_tsfn.map(Arc::new),
+        turn_event_fn: turn_event_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 

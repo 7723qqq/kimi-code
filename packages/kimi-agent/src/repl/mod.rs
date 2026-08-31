@@ -171,6 +171,11 @@ impl HostCallbacks for ReplDummyHostCallbacks {
             })
         })
     }
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        // The engine assigns turn ids; this host is what persists them, so a
+        // resumed REPL continues the sequence instead of restarting at zero.
+        self.state_store.fold_turn_event(&event);
+    }
 }
 
 /// Mirrors the v2 `QUESTION_DISMISSED_MESSAGE` constant so the native
@@ -476,7 +481,7 @@ pub async fn start_repl(
             }
         })),
     };
-    let engine_session = crate::session::EngineSession::new(session_config);
+    let engine_session = crate::session::EngineSession::new(session_config).await;
 
     loop {
         ui::render_prompt();
@@ -658,16 +663,15 @@ pub async fn start_repl(
             tool_calls: Vec::new(),
             tool_call_id: None,
         };
-        let turn_id_str = format!("turn-{}", fastrand::u64(..));
         let mut receipt = engine_session
             .enqueue_turn(crate::session::TurnRequest {
                 prompt: user_msg.clone(),
                 admission: crate::session::Admission::NewTurn,
+                // Echoed back verbatim on the durable turn.prompt event.
+                input: serde_json::json!([{ "type": "text", "text": line.clone() }]),
+                origin: serde_json::json!({ "kind": "user" }),
             })
             .expect("session is alive");
-        // The session's internal turn id is a monotonic u64; the REPL
-        // uses the random string for session_store.append_turn only.
-        let _ = turn_id_str;
 
         println!(); // Linebreak before streaming
         let outcome = receipt.outcome().await;

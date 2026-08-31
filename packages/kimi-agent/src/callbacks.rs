@@ -117,6 +117,14 @@ pub trait HostCallbacks: Send + Sync {
         let _ = event;
     }
 
+    /// Receive a turn lifecycle event from the engine (M1b: `host/turn_event`).
+    /// The host is expected to dispatch the durable events (`prompt`,
+    /// `cancel`, `ended`) into its append log + state fold (v2 `Event2`
+    /// pipeline) and to surface the observable ones (`started`) to the UI.
+    /// The default implementation drops the event — hosts that don't yet
+    /// model the engine-owned turn lifecycle can safely no-op.
+    fn turn_event(&self, _event: crate::turn_events::TurnEvent) {}
+
     /// Tell the host it may stop working on an LLM request that lost a race.
     ///
     /// Aborting the Rust task is not enough: the request has already been
@@ -331,6 +339,18 @@ impl HostCallbacks for RpcHostCallbacks {
     fn emit_event(&self, event: serde_json::Value) {
         // JSON-RPC notification over stdout — fire-and-forget by design.
         crate::rpc::server::RpcServer::notify_now(crate::rpc::types::methods::HOST_EVENT, &event);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        // Structurally infallible — every field is already JSON — but a
+        // failure must not pass silently: the host's schema rejects the
+        // marker and reports it, which beats dropping a durable record.
+        let payload = serde_json::to_value(&event)
+            .unwrap_or_else(|e| serde_json::json!({ "error": format!("turn_event: {e}") }));
+        crate::rpc::server::RpcServer::notify_now(
+            crate::rpc::types::methods::HOST_TURN_EVENT,
+            &payload,
+        );
     }
 }
 
@@ -567,6 +587,10 @@ impl HostCallbacks for NativeToolCallbacks {
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        self.inner.turn_event(event);
+    }
 }
 
 /// A [`HostCallbacks`] decorator that counts fire-and-forget events
@@ -659,6 +683,18 @@ impl HostCallbacks for CountingCallbacks {
             bus.publish_json(event.clone());
         }
         self.inner.emit_event(event);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        // Not counted: `event_count` reports content events (deltas, tool
+        // results) as a per-turn overhead figure, and lifecycle records are a
+        // fixed four per turn regardless of how much work the turn did.
+        if let Some(ref bus) = self.bus {
+            if let Ok(payload) = serde_json::to_value(&event) {
+                bus.publish_json(payload);
+            }
+        }
+        self.inner.turn_event(event);
     }
 }
 

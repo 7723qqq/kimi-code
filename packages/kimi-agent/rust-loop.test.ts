@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentProcess,
@@ -14,7 +14,7 @@ import {
   type AskQuestionWire,
   type AskQuestionWireResult,
 } from './rust-loop';
-import { runTurnParamsSchema, runTurnResultSchema } from './wire-schema';
+import { runTurnParamsSchema, runTurnResultSchema, turnEventSchema } from './wire-schema';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -1512,6 +1512,91 @@ describe('wire-schema', () => {
     expect(
       runTurnResultSchema.safeParse({ steps: 1, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } })
         .success,
+    ).toBe(false);
+  });
+});
+
+// ── host/turn_event (engine turn lifecycle) ────────────────────────────────
+// From M1b on the engine assigns turn ids and reports them over this channel.
+// The durable records drive the host append log, so a payload that does not
+// match the wire mirror must be reported rather than dropped in silence.
+
+describe('host/turn_event transport', () => {
+  it('dispatches a durable turn event to the registered handler', () => {
+    const agent = new AgentProcess();
+    const seen: unknown[] = [];
+    agent.setTurnEventHandler((event) => seen.push(event));
+    const target = agent as unknown as { buffer: string; processBuffer(): void };
+    // A trailing fragment is held back for the next read, so a line needs its terminator.
+    const newline = String.fromCharCode(10);
+    const feed = (message: unknown) => {
+      target.buffer = JSON.stringify(message) + newline;
+      target.processBuffer();
+    };
+
+    feed({
+      jsonrpc: '2.0',
+      method: 'host/turn_event',
+      params: {
+        type: 'turn.prompt',
+        turnId: 3,
+        input: [{ type: 'text', text: 'hi' }],
+        origin: { kind: 'user' },
+      },
+    });
+    feed({
+      jsonrpc: '2.0',
+      method: 'host/turn_event',
+      params: { type: 'turn.ended', turnId: 3, reason: 'completed', durationMs: 12 },
+    });
+
+    expect(seen).toEqual([
+      {
+        type: 'turn.prompt',
+        turnId: 3,
+        input: [{ type: 'text', text: 'hi' }],
+        origin: { kind: 'user' },
+      },
+      { type: 'turn.ended', turnId: 3, reason: 'completed', durationMs: 12 },
+    ]);
+  });
+
+  it('rejects a malformed turn event instead of handing it to the host', () => {
+    const agent = new AgentProcess();
+    const seen: unknown[] = [];
+    agent.setTurnEventHandler((event) => seen.push(event));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const target = agent as unknown as { buffer: string; processBuffer(): void };
+    target.buffer =
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'host/turn_event',
+        params: { type: 'turn.ended', turnId: 3, reason: 'exploded' },
+      }) + String.fromCharCode(10);
+    target.processBuffer();
+
+    expect(seen).toEqual([]);
+    expect(errors).toHaveBeenCalledOnce();
+    errors.mockRestore();
+  });
+
+  it('accepts every event shape the engine emits', () => {
+    for (const params of [
+      { type: 'turn.prompt', turnId: 0, input: [], origin: { kind: 'user' } },
+      { type: 'turn.started', turnId: 0, origin: { kind: 'user' } },
+      { type: 'turn.cancel', turnId: 1, target: 'queued', reason: 'user_cancelled' },
+      { type: 'turn.ended', turnId: 2, reason: 'blocked', durationMs: 5 },
+    ]) {
+      expect(turnEventSchema.safeParse(params).success, JSON.stringify(params)).toBe(true);
+    }
+  });
+
+  it('rejects a drifted payload: a snake_case id or an unknown end reason', () => {
+    expect(
+      turnEventSchema.safeParse({ type: 'turn.ended', turn_id: 2, reason: 'completed' }).success,
+    ).toBe(false);
+    expect(
+      turnEventSchema.safeParse({ type: 'turn.ended', turnId: 2, reason: 'nope' }).success,
     ).toBe(false);
   });
 });

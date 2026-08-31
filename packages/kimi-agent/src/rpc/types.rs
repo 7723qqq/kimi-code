@@ -117,6 +117,13 @@ pub mod methods {
     /// so the host can record them in the transcript.
     pub const HOST_EVENT: &str = "host/event";
 
+    /// Turn lifecycle notification (Rust → JS host). Carries a
+    /// [`crate::turn_events::TurnEvent`]: the durable records (`turn.prompt` /
+    /// `turn.cancel` / `turn.ended`) the host appends to its log and folds into
+    /// its turn state, plus the observable `turn.started`. Fire-and-forget — the
+    /// engine has already assigned the turn id locally.
+    pub const HOST_TURN_EVENT: &str = "host/turn_event";
+
     /// Ask the host an interactive question and wait for a human answer
     /// (Rust → JS host). The host owns the interaction runtime — pending
     /// key, dismiss, turn-end cancellation — and answers with the v2

@@ -24,4 +24,5 @@ pub mod swarm;
 pub mod team;
 pub mod tool_result_truncation;
 pub mod tools;
+pub mod turn_events;
 pub mod turn_loop;

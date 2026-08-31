@@ -54,6 +54,41 @@ export const toolFinalizeRequestSchema = z.object({
   note: z.string().optional(),
 });
 
+// ── Rust→JS: turn lifecycle (`turn_events.rs`, `host/turn_event`) ──────────
+// The three durable records drive the host's append log and turn-state fold,
+// so a shape drift here corrupts the transcript rather than just a display.
+// `input` and `origin` stay unvalidated on purpose: the engine echoes back
+// whatever the host handed it, and v2 declares both as opaque custom types
+// (`z.custom<ContentPart[]>` / `z.custom<PromptOrigin>`).
+export const turnEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('turn.prompt'),
+    turnId: z.number(),
+    input: z.unknown(),
+    origin: z.unknown(),
+  }),
+  z.object({
+    type: z.literal('turn.started'),
+    turnId: z.number(),
+    origin: z.unknown(),
+  }),
+  z.object({
+    type: z.literal('turn.cancel'),
+    turnId: z.number().optional(),
+    target: z.enum(['active', 'queued']).optional(),
+    reason: z.enum(['user_cancelled', 'aborted']).optional(),
+  }),
+  z.object({
+    type: z.literal('turn.ended'),
+    turnId: z.number(),
+    reason: z.enum(['completed', 'cancelled', 'failed', 'blocked']),
+    error: z.unknown().optional(),
+    durationMs: z.number().optional(),
+  }),
+]);
+
+export type TurnEventWire = z.infer<typeof turnEventSchema>;
+
 export const runTurnResultSchema = z.object({
   stop_reason: z.string(),
   steps: z.number(),

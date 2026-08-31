@@ -1191,6 +1191,23 @@ describe('external engine × state bridge', () => {
     expect(await ctx.get(IAgentPlanService).status()).toBeNull();
   });
 
+  it('reads the turn domain the engine hydrates its turn clock from', async () => {
+    let readResult: StateReadWireResult | undefined;
+    const engine = makeStateEngine(async (input) => {
+      readResult = await input.stateRead?.({ domain: 'turn', key: '' });
+    });
+    ctx = createTestAgentWithEngine(engine);
+    await ctx.restoreRuntimes();
+    await driveTurn();
+
+    const state = readResult?.value as
+      | { nextTurnId?: number; cancelledTurnIds?: unknown[]; anchorTurnIds?: unknown[] }
+      | undefined;
+    expect(Array.isArray(state?.cancelledTurnIds)).toBe(true);
+    expect(Array.isArray(state?.anchorTurnIds)).toBe(true);
+    expect(state?.nextTurnId).toBeGreaterThan(0);
+  });
+
   it('rejects an unknown state domain with -32001', async () => {
     let readError: unknown;
     let writeError: unknown;
