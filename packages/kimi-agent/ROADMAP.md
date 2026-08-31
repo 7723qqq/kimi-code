@@ -1159,6 +1159,12 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 7 轮：plan 文件创建 + execute_tool 兜底 — ✅ 完成（2026-09-01）
+
+- **plan 文件创建**（`state_store.rs` apply_plan_write）：enter plan 时创建空 plan 文件（v2 `writeEmptyPlanFile` 语义）——此前只生成 id/path 不建文件，模型无法在写入前 Read 它
+- **execute_tool 兜底**（`repl/mod.rs` ReplDummyHostCallbacks）：未覆盖工具（github 族等）此前报通用 "not supported"——现在点名工具并列出可用原生工具集，模型不会重试
+- 验证：cargo 767 全绿（新增 2 测试），clippy 0，fmt 干净，vitest 90/5
+
 ### 替换 v2 第 6 轮：plan-mode 文件写拦截 — ✅ 完成（2026-09-01）
 
 - **plan-mode 守卫**（`callbacks.rs` `NativeToolCallbacks.plan_guard` + `repl/mod.rs` `plan_mode_guard` + 4 单测）：REPL 的 EnterPlanMode/ExitPlanMode 此前只切换 plan 状态，模型在 plan-mode 下可随意写文件——v2 `AgentPlanService.guardToolExecution` 会 veto 非 plan 文件的 Write/Edit 并拒绝 TaskStop；现在 `NativeToolCallbacks` 带可选 `plan_guard`（仅 REPL 接线，napi 路径 None）：plan 激活时 Write/Edit 必须解析到 plan 文件路径（绝对或工作区相对），TaskStop 拒绝，文案对齐 v2

@@ -278,6 +278,10 @@ impl StateStore {
         fs::create_dir_all(&plans_dir)
             .map_err(|e| format!("create plan directory {}: {e}", plans_dir.display()))?;
         let path = plans_dir.join(format!("{id}.md"));
+        // v2 `writeEmptyPlanFile`: the plan file exists from the moment plan
+        // mode is entered, so the model can Read it before writing.
+        fs::write(&path, "")
+            .map_err(|e| format!("create plan file {}: {e}", path.display()))?;
         let stored = json!({
             "active": true,
             "id": id,

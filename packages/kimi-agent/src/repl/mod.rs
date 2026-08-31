@@ -66,9 +66,14 @@ impl HostCallbacks for ReplDummyHostCallbacks {
     }
     fn execute_tool(
         &self,
-        _req: ToolExecuteRequest,
+        req: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        Box::pin(async { Err("Host execute_tool not supported in standalone REPL".into()) })
+        let tool_name = req.tool_name;
+        Box::pin(async move {
+            Err(format!(
+                "Tool \"{tool_name}\" is not available in the standalone REPL. Do NOT call this tool again — the REPL executes only the native tool set (read/grep/glob/write/edit/bash/fetch_url/web_search, todo/plan/goal/cron/task/skill/knowledge/team, subagents, MCP)."
+            ))
+        })
     }
     fn check_permission(
         &self,
@@ -875,6 +880,35 @@ mod tests {
         let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
         assert!(plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none());
         assert!(plan_mode_guard(&store, "taskstop", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn test_plan_enter_creates_empty_plan_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let outcome = store
+            .apply_write("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        let path = std::path::Path::new(outcome.stored["path"].as_str().unwrap());
+        assert!(path.is_file());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_repl_execute_tool_fallback_names_the_tool() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let callbacks = ReplDummyHostCallbacks::new(std::sync::Arc::new(store));
+        let request = crate::rpc::types::ToolExecuteRequest {
+            tool_name: "GitHubGetRepo".into(),
+            tool_call_id: "call-1".into(),
+            arguments: serde_json::json!({ "owner": "a", "repo": "b" }),
+            turn_id: "turn-1".into(),
+        };
+        let result = callbacks.execute_tool(request).await;
+        let err = result.unwrap_err();
+        assert!(err.contains("GitHubGetRepo"));
+        assert!(err.contains("not available in the standalone REPL"));
     }
 
     #[test]
