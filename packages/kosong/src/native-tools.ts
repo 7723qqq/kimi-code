@@ -38,7 +38,12 @@ function callNativeSync<T>(name: string, args: unknown[]): T | undefined {
     return (result as T) ?? undefined;
   } catch (error) {
     // A thrown native call is never silently treated as "module missing" —
-    // report it so a broken addon is distinguishable from an absent one.
+    // the JS fallback still runs, and callers that surface the failure
+    // (e.g. the Bash tool's onThrown callback) report it through their own
+    // channel. The stderr note is opt-in: a raw write mid-frame corrupts an
+    // interactive TUI's differential screen model, so it is gated behind
+    // KIMI_NATIVE_TOOLS_DEBUG=1.
+    if (process.env['KIMI_NATIVE_TOOLS_DEBUG'] !== '1') return undefined;
     const message = error instanceof Error ? error.message : String(error);
     try {
       process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);

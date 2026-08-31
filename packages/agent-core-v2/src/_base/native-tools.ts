@@ -5,6 +5,7 @@ const requireNative = createRequire(import.meta.url);
 let nativeModule: Record<string, unknown> | null | undefined;
 
 function reportNativeFailure(name: string, error: unknown): void {
+  if (process.env['KIMI_NATIVE_TOOLS_DEBUG'] !== '1') return;
   const message = error instanceof Error ? error.message : String(error);
   try {
     process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);

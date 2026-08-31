@@ -199,8 +199,10 @@ export function createProxyDispatcher(
     }
     return undefined;
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`kimi: ignoring invalid proxy configuration (${reason}); connecting directly\n`);
+    if (process.env['KIMI_PROXY_DEBUG'] === '1') {
+      const reason = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`kimi: ignoring invalid proxy configuration (${reason}); connecting directly\n`);
+    }
     return undefined;
   }
 }

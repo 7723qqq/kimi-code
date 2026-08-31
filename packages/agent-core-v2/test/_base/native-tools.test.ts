@@ -25,6 +25,7 @@ describe('native-tools failure classes', () => {
     }
     nativeModule.nativeEscapeXml.mockImplementation((s: string) => `esc:${s}`);
     nativeModule.nativeListDirectory.mockReturnValue({ output: 'dir', error: undefined });
+    delete process.env['KIMI_NATIVE_TOOLS_DEBUG'];
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
@@ -45,8 +46,15 @@ describe('native-tools failure classes', () => {
     expect(result?.error).toContain('boom');
     expect(result?.errorKind).toBe('native_error');
     expect(result?.content).toBe('');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[native-tools]'));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeRead'));
+    expect(stderrSpy).not.toHaveBeenCalled();
+    process.env['KIMI_NATIVE_TOOLS_DEBUG'] = '1';
+    try {
+      await expect(tryNativeRead('/f')).resolves.toEqual(result);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[native-tools]'));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeRead'));
+    } finally {
+      delete process.env['KIMI_NATIVE_TOOLS_DEBUG'];
+    }
   });
 
   it('turns a thrown sync native call into a final error verdict', () => {
@@ -56,15 +64,29 @@ describe('native-tools failure classes', () => {
     const result = tryNativeListDirectory({});
     expect(result?.error).toContain('native list-directory failed');
     expect(result?.error).toContain('sync boom');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeListDirectory'));
+    expect(stderrSpy).not.toHaveBeenCalled();
+    process.env['KIMI_NATIVE_TOOLS_DEBUG'] = '1';
+    try {
+      tryNativeListDirectory({});
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeListDirectory'));
+    } finally {
+      delete process.env['KIMI_NATIVE_TOOLS_DEBUG'];
+    }
   });
 
-  it('returns undefined for scalar helpers when the call throws (fallback allowed, still logged)', () => {
+  it('returns undefined for scalar helpers when the call throws (fallback allowed, logged only with debug)', () => {
     nativeModule.nativeEscapeXml.mockImplementation(() => {
       throw new Error('escape boom');
     });
     expect(tryNativeEscapeXml('<')).toBeUndefined();
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeEscapeXml'));
+    expect(stderrSpy).not.toHaveBeenCalled();
+    process.env['KIMI_NATIVE_TOOLS_DEBUG'] = '1';
+    try {
+      expect(tryNativeEscapeXml('<')).toBeUndefined();
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeEscapeXml'));
+    } finally {
+      delete process.env['KIMI_NATIVE_TOOLS_DEBUG'];
+    }
   });
 
   it('returns undefined when the module cannot be loaded (designed fallback)', async () => {
