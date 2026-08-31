@@ -1889,3 +1889,74 @@ describe.skipIf(!napiEntry)('createRunTurnOverride — napi turn telemetry (M1c)
     },
   );
 });
+
+// ── host/list_tools (engine tool-table refresh, M1d) ───────────────────────
+// The engine pulls the fresh tool table before each native LLM call; the
+// turn-start snapshot is only the fallback. The stdio dispatch must answer
+// with the handler's table and must not hand the engine a silent default.
+
+describe('host/list_tools transport', () => {
+  it('answers the engine with the registered handler’s tool table', async () => {
+    const agent = new AgentProcess();
+    let calls = 0;
+    agent.setListToolsHandler(async () => {
+      calls += 1;
+      return {
+        tools: [{ name: 'fresh_tool', description: 'fresh', input_schema: { type: 'object' } }],
+      };
+    });
+    const written: string[] = [];
+    const target = agent as unknown as {
+      buffer: string;
+      processBuffer(): void;
+      writeHostResult(id: unknown, result: unknown): void;
+    };
+    const originalWrite = target.writeHostResult.bind(target);
+    target.writeHostResult = (id, result) => {
+      written.push(JSON.stringify(result));
+      originalWrite(id, result);
+    };
+    target.buffer =
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'host/list_tools',
+        params: {},
+      }) + String.fromCharCode(10);
+    target.processBuffer();
+    // The handler is async: the response lands on a later microtask.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(calls).toBe(1);
+    expect(written).toEqual([
+      JSON.stringify({
+        tools: [{ name: 'fresh_tool', description: 'fresh', input_schema: { type: 'object' } }],
+      }),
+    ]);
+  });
+
+  it('errors an unwired list_tools request so the engine falls back to the snapshot', () => {
+    const agent = new AgentProcess();
+    const errors: string[] = [];
+    const target = agent as unknown as {
+      buffer: string;
+      processBuffer(): void;
+      writeHostError(id: unknown, message: string): void;
+    };
+    const originalWrite = target.writeHostError.bind(target);
+    target.writeHostError = (id, message) => {
+      errors.push(message);
+      originalWrite(id, message);
+    };
+    target.buffer =
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'host/list_tools',
+        params: {},
+      }) + String.fromCharCode(10);
+    target.processBuffer();
+
+    expect(errors).toEqual(['host does not support list_tools']);
+  });
+});

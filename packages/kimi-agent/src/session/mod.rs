@@ -30,7 +30,7 @@ use tokio::sync::{Notify, oneshot};
 
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, LlmChatRequest, LlmChatResponse,
+    AskQuestionRequest, AskQuestionResponse, ListToolsResponse, LlmChatRequest, LlmChatResponse,
     PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
     StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
     ToolFinalizeRequest,
@@ -816,6 +816,12 @@ impl HostCallbacks for SteerQueueCallbacks {
         })
     }
 
+    fn list_tools(
+        &self,
+    ) -> futures_util::future::BoxFuture<'static, Result<ListToolsResponse, String>> {
+        self.inner.list_tools()
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }
@@ -932,6 +938,21 @@ mod tests {
     }
 
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
+        // The engine pulls the tool table before every LLM call (M1d). With
+        // no local handler the server falls back to a stdio round-trip that
+        // stalls for the full timeout, so the session tests answer it here
+        // with an empty table.
+        RpcServer::register_arc(
+            &server,
+            crate::rpc::types::methods::HOST_LIST_TOOLS,
+            |_params| {
+                Box::pin(async move {
+                    let resp = crate::rpc::types::ListToolsResponse { tools: vec![] };
+                    serde_json::to_value(&resp)
+                        .map_err(|e| crate::rpc::types::JsonRpcError::internal_error(e.to_string()))
+                })
+            },
+        );
         Arc::new(RpcHostCallbacks { server })
     }
 

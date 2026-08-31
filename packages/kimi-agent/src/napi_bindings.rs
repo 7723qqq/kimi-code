@@ -38,14 +38,15 @@ use napi_derive::napi;
 use tokio::sync::oneshot;
 
 use crate::callbacks::{
-    CountingCallbacks, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks, NativeToolCallbacks,
+    CountingCallbacks, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks,
+    NativeToolCallbacks,
 };
 use crate::llm::http::NativeHttpLlm;
 use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
-    NativeLlmConfig, PermissionCheckRequest, PermissionDecision, StateReadRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
+    LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision, StateReadRequest,
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse, ToolFinalizeRequest,
 };
@@ -302,6 +303,10 @@ struct NapiHostCallbacks {
     /// forwards to its telemetry sink. Absent means the host keeps owning
     /// its turn telemetry end to end.
     telemetry_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional tool-table channel (M1d: `host/list_tools`). The engine
+    /// pulls the host's current tool table before each LLM call on native
+    /// transports; absent means the turn-start snapshot is the only table.
+    list_tools_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -511,6 +516,27 @@ impl HostCallbacks for NapiHostCallbacks {
             return;
         };
         fire_payload_only(tsfn, payload);
+    }
+
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        let Some(ref tsfn) = self.list_tools_fn else {
+            return Box::pin(async { Err("host does not support list_tools".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Bounded: host bookkeeping with no human in the loop; on timeout
+            // run_turn falls back to the turn-start snapshot.
+            let output = invoke_via_registry(
+                &tsfn,
+                "{}".to_string(),
+                "list_tools",
+                Some(HOST_LIST_TOOLS_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            serde_json::from_str(&output).map_err(|e| format!("list_tools parse: {e}"))
+        })
     }
 }
 
@@ -853,6 +879,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -995,6 +1022,19 @@ pub fn run_turn_rust(
         None => None,
     };
 
+    let list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match list_tools_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -1013,6 +1053,7 @@ pub fn run_turn_rust(
                 state_write_tsfn,
                 turn_event_tsfn,
                 telemetry_tsfn,
+                list_tools_tsfn,
             )
             .await
         },
@@ -1055,6 +1096,7 @@ async fn run_turn_rust_impl(
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation flag up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -1078,6 +1120,7 @@ async fn run_turn_rust_impl(
         state_write_fn: state_write_tsfn.map(Arc::new),
         turn_event_fn: turn_event_tsfn.map(Arc::new),
         telemetry_fn: telemetry_tsfn.map(Arc::new),
+        list_tools_fn: list_tools_tsfn.map(Arc::new),
         cancellation: Some(cancellation.clone()),
     });
 

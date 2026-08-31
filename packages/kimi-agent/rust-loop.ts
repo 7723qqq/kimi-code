@@ -518,6 +518,13 @@ type NapiRunTurnResult = JsRunTurnResult;
 
 // ── Napi engine (in-process native addon) ─────────────────────────────────
 
+/** The host's answer to `host/list_tools` (M1d): the current tool table in
+ *  the same shape as the `agent/run_turn` snapshot entries, so the engine
+ *  can swap them interchangeably. */
+export interface ListToolsResult {
+  tools: { name: string; description: string; input_schema: unknown }[];
+}
+
 /** Shape of the loaded `kimi_agent.node` native addon. */
 interface KimiAgentNativeModule {
   getCallbackPayload(id: number): string | null;
@@ -537,6 +544,7 @@ interface KimiAgentNativeModule {
     stateWriteCb?: (callbackId: number) => void,
     turnEventCb?: (callbackId: number) => void,
     telemetryCb?: (callbackId: number) => void,
+    listToolsCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -661,6 +669,7 @@ export class NapiEngine {
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
     turnEventCb?: (event: TurnEventWire) => void,
     telemetryCb?: (event: TelemetryEventWire) => void,
+    listToolsCb?: () => Promise<ListToolsResult>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -799,6 +808,14 @@ export class NapiEngine {
             }
           };
 
+    // Tool-table channel: resolve like the request/response callbacks. The
+    // engine pulls the fresh table before each native LLM call; an unwired
+    // host leaves the turn-start snapshot as the only table.
+    const listToolsHandler =
+      listToolsCb === undefined
+        ? undefined
+        : makeCallbackHandler(async () => JSON.stringify(await listToolsCb()));
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -812,6 +829,7 @@ export class NapiEngine {
       stateWriteHandler,
       turnEventHandler,
       telemetryHandler,
+      listToolsHandler,
     );
   }
 
@@ -895,6 +913,9 @@ export class AgentProcess {
   /** Callback for engine turn telemetry (`host/telemetry`). */
   private telemetryHandler: ((event: TelemetryEventWire) => void) | null = null;
 
+  /** Callback for answering `host/list_tools` with the current tool table. */
+  private listToolsHandler: (() => Promise<ListToolsResult>) | null = null;
+
   setLlmChatHandler(
     handler: (signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>,
   ) {
@@ -943,6 +964,10 @@ export class AgentProcess {
 
   setTelemetryHandler(handler: (event: TelemetryEventWire) => void) {
     this.telemetryHandler = handler;
+  }
+
+  setListToolsHandler(handler: () => Promise<ListToolsResult>) {
+    this.listToolsHandler = handler;
   }
 
   static findBinary(): string | null {
@@ -1087,6 +1112,8 @@ export class AgentProcess {
       await this.handleHostStateRead(msg);
     } else if (msg.method === 'host/state_write') {
       await this.handleHostStateWrite(msg);
+    } else if (msg.method === 'host/list_tools') {
+      await this.handleHostListTools(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -1159,6 +1186,19 @@ export class AgentProcess {
         error instanceof Error ? error.message : String(error),
         stateBridgeErrorCode(error),
       );
+    }
+  }
+
+  private async handleHostListTools(msg: RpcMessage) {
+    if (!this.listToolsHandler) {
+      // Unwired host: the engine falls back to the turn-start snapshot.
+      this.writeHostError(msg.id, 'host does not support list_tools');
+      return;
+    }
+    try {
+      this.writeHostResult(msg.id, await this.listToolsHandler());
+    } catch (error) {
+      this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -1581,6 +1621,18 @@ export function createRunTurnOverride(
       }));
     };
 
+    // M1d: the engine pulls the fresh tool table before each native LLM call
+    // (host/list_tools) — same source as the turn-start snapshot but read per
+    // call, so mid-turn registry changes reach the model. Host-proxy mode
+    // never consults it (the host rebuilds tools inside llm_chat).
+    const listToolsHandler = async (): Promise<ListToolsResult> => ({
+      tools: input.buildTools().map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: (t as { parameters?: unknown }).parameters ?? {},
+      })),
+    });
+
     // Mid-turn steering lands in the host's step queue, which the JS loop would
     // normally drain at the next step head. An engine driving the whole turn
     // has to ask, or a steered prompt waits for the turn to end. Awaiting the
@@ -1869,6 +1921,7 @@ export function createRunTurnOverride(
           // yet, so the slot stays empty and telemetry takes the next one.
           undefined,
           options?.onTelemetry,
+          listToolsHandler,
         );
         rustResult = {
           stop_reason: napiResult.stopReason,
@@ -1920,6 +1973,7 @@ export function createRunTurnOverride(
         if (options?.onTelemetry !== undefined) {
           agent.setTelemetryHandler(options.onTelemetry);
         }
+        agent.setListToolsHandler(listToolsHandler);
 
         const runTurnRequest = parseWireObject(
           runTurnParamsSchema,

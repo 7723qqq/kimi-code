@@ -148,6 +148,14 @@ pub mod methods {
     /// its domain semantics (re-normalization, undoable events) and returns
     /// the resulting state.
     pub const HOST_STATE_WRITE: &str = "host/state_write";
+
+    /// Fetch the host's current tool table (Rust → JS host, M1d). Called
+    /// before each LLM call on native transports so mid-turn registry
+    /// changes (feature tools, MCP reconnects) reach the model — the
+    /// turn-start snapshot in `agent/run_turn` is only the fallback for
+    /// hosts without this seam. Host-proxy mode rebuilds tools host-side
+    /// per call and never consults this.
+    pub const HOST_LIST_TOOLS: &str = "host/list_tools";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -339,6 +347,14 @@ pub struct StateWriteRequest {
 pub struct StateWriteResponse {
     pub ok: bool,
     pub value: serde_json::Value,
+}
+
+/// The host's answer to `host/list_tools` (M1d): the current tool table in
+/// the same shape as the `agent/run_turn` snapshot entries, so the engine
+/// can swap them interchangeably.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListToolsResponse {
+    pub tools: Vec<crate::turn_loop::types::ToolInfo>,
 }
 
 // ── Message content blocks (multimodal) ─────────────────────────────────

@@ -375,6 +375,20 @@ pub fn run_turn<'a>(
                 }
             }
 
+            // M1d: pull the host's current tool table before each LLM call so
+            // mid-turn registry changes (feature tools, MCP reconnects) reach
+            // the model. Host-proxy mode rebuilds tools host-side per call and
+            // never consults the engine's table; a host without the seam (or a
+            // failed pull) falls back to the turn-start snapshot.
+            let step_tool_defs = if input.llm.transport() != "host-proxy" {
+                match callbacks.list_tools().await {
+                    Ok(response) => response.tools,
+                    Err(_) => tool_defs.clone(),
+                }
+            } else {
+                tool_defs.clone()
+            };
+
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
             let step_result = execute_loop_step_with_retry(
@@ -383,7 +397,7 @@ pub fn run_turn<'a>(
                 input.llm,
                 messages.clone(),
                 input.tools,
-                tool_defs.clone(),
+                step_tool_defs,
                 &retry_config,
             )
             .await
@@ -639,7 +653,21 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     /// Helper: create an RpcHostCallbacks from an RpcServer.
+    ///
+    /// Registers the per-step host seams (`drain_steers`, `list_tools`) with
+    /// no-op answers: with no local handler the server falls back to a stdio
+    /// round-trip that stalls for the full timeout, which used to cost every
+    /// native-transport test 30s per step.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
+        RpcServer::register_arc(&server, types::methods::HOST_DRAIN_STEERS, |_params| {
+            Box::pin(async move { Ok(serde_json::json!([])) })
+        });
+        RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, |_params| {
+            Box::pin(async move {
+                let resp = types::ListToolsResponse { tools: vec![] };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
         Arc::new(RpcHostCallbacks { server })
     }
 
@@ -2262,6 +2290,292 @@ mod tests {
         assert!(
             emitted[2].get("thinking_effort").is_none(),
             "an absent context field must not be emitted"
+        );
+    }
+
+    // ── Tool-table refresh tests (M1d `host/list_tools`) ────────────────
+
+    /// The engine must pull the host's current tool table before every LLM
+    /// call on native transports: a table captured at turn start goes stale
+    /// the moment the registry changes mid-turn (feature tools, MCP
+    /// reconnects), and the model would keep calling a tool that no longer
+    /// exists.
+    #[tokio::test]
+    async fn test_list_tools_refreshes_table_per_step() {
+        struct ToolsRecordingLlm {
+            call: AtomicU32,
+            seen_tools: Mutex<Vec<Vec<String>>>,
+        }
+        impl LLM for ToolsRecordingLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "tools-recording-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                self.seen_tools.lock().unwrap().push(
+                    params
+                        .tools
+                        .iter()
+                        .map(|t| t.name.clone())
+                        .collect::<Vec<_>>(),
+                );
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![ToolCall {
+                                id: "tc1".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({"path": "/a.txt"}),
+                            }],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = ToolsRecordingLlm {
+            call: AtomicU32::new(0),
+            seen_tools: Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let list_tools_calls = Arc::new(AtomicU32::new(0));
+        let calls_for_handler = list_tools_calls.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, move |_params| {
+            let call = calls_for_handler.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                let name = if call == 0 { "fresh_a" } else { "fresh_b" };
+                let resp = types::ListToolsResponse {
+                    tools: vec![crate::turn_loop::types::ToolInfo {
+                        name: name.into(),
+                        description: "fresh".into(),
+                        input_schema: serde_json::json!({}),
+                    }],
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+
+        let input = RunTurnInput {
+            turn_id: "test-list-tools-refresh".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            // The turn-start snapshot must never reach the LLM here: the
+            // host answers list_tools with a fresh table on every step.
+            tool_defs: vec![crate::turn_loop::types::ToolInfo {
+                name: "snapshot".into(),
+                description: "stale".into(),
+                input_schema: serde_json::json!({}),
+            }],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            list_tools_calls.load(Ordering::SeqCst),
+            2,
+            "one pull per step"
+        );
+        let seen = llm.seen_tools.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0], vec!["fresh_a".to_string()]);
+        assert_eq!(seen[1], vec!["fresh_b".to_string()]);
+    }
+
+    /// A host without the seam (or with a failing one) must not break the
+    /// turn: run_turn falls back to the turn-start snapshot.
+    #[tokio::test]
+    async fn test_list_tools_failure_falls_back_to_snapshot() {
+        struct ToolsRecordingLlm {
+            seen_tools: Mutex<Vec<Vec<String>>>,
+        }
+        impl LLM for ToolsRecordingLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "tools-recording-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                self.seen_tools.lock().unwrap().push(
+                    params
+                        .tools
+                        .iter()
+                        .map(|t| t.name.clone())
+                        .collect::<Vec<_>>(),
+                );
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+
+        let llm = ToolsRecordingLlm {
+            seen_tools: Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        // The seam is wired but the host answers with an error — the same
+        // Err branch in run_turn as an unwired host, without the stdio
+        // round-trip timeout a missing handler would cost. Registered after
+        // the helper so it wins over the no-op default.
+        RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, |_params| {
+            Box::pin(async move { Err(JsonRpcError::method_not_found("host/list_tools")) })
+        });
+
+        let input = RunTurnInput {
+            turn_id: "test-list-tools-fallback".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![crate::turn_loop::types::ToolInfo {
+                name: "snapshot".into(),
+                description: "stale".into(),
+                input_schema: serde_json::json!({}),
+            }],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        let seen = llm.seen_tools.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0], vec!["snapshot".to_string()]);
+    }
+
+    /// Host-proxy mode rebuilds tools host-side per call; the engine must
+    /// not spend a round trip pulling a table it never uses.
+    #[tokio::test]
+    async fn test_list_tools_skipped_in_host_proxy_mode() {
+        struct HostProxyLlm {
+            seen_tools: Mutex<Vec<Vec<String>>>,
+        }
+        impl LLM for HostProxyLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "host-proxy-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "host-proxy"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                self.seen_tools.lock().unwrap().push(
+                    params
+                        .tools
+                        .iter()
+                        .map(|t| t.name.clone())
+                        .collect::<Vec<_>>(),
+                );
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+
+        let llm = HostProxyLlm {
+            seen_tools: Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        let list_tools_calls = Arc::new(AtomicU32::new(0));
+        let calls_for_handler = list_tools_calls.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, move |_params| {
+            let calls = calls_for_handler.clone();
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let resp = types::ListToolsResponse { tools: vec![] };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+
+        let input = RunTurnInput {
+            turn_id: "test-list-tools-host-proxy".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            list_tools_calls.load(Ordering::SeqCst),
+            0,
+            "host-proxy mode must not pull the engine-side tool table"
         );
     }
 }

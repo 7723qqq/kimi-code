@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
-    PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
-    StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
-    ToolFinalizeRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
+    LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
+    StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
+    ToolExecuteResponse, ToolFinalizeRequest,
 };
 use crate::turn_loop::types::LLMMessage;
 
@@ -79,6 +79,17 @@ pub trait HostCallbacks: Send + Sync {
     ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
         let _ = request;
         Box::pin(async { Err("host does not support state bridge".into()) })
+    }
+
+    /// Fetch the host's current tool table (M1d: `host/list_tools`). Called
+    /// before each LLM call on native transports so mid-turn registry
+    /// changes (feature tools, MCP reconnects) reach the model — the
+    /// turn-start snapshot is only the fallback. Bounded by
+    /// [`HOST_LIST_TOOLS_TIMEOUT`]: host bookkeeping, no human in the loop.
+    /// The default answers with an error so run_turn falls back to the
+    /// snapshot, matching the pre-seam behaviour.
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        Box::pin(async { Err("host does not support list_tools".into()) })
     }
 
     /// Hand a natively-executed result to the host for finalization before it
@@ -173,6 +184,12 @@ pub const HOST_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 /// host applies domain semantics to durable state — bookkeeping with no
 /// human in the loop — so a stalled answer must not hold the step open.
 pub const HOST_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Outer bound on a `host/list_tools` call. Building the tool table is host
+/// bookkeeping (registry read + schema shaping) with no human in the loop,
+/// so a stalled answer must not hold the step open; on timeout run_turn
+/// falls back to the turn-start snapshot.
+pub const HOST_LIST_TOOLS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -343,6 +360,22 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Drain steers error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Drain steers parse error: {e}"))
+        })
+    }
+
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_LIST_TOOLS,
+                    serde_json::json!({}),
+                    Some(HOST_LIST_TOOLS_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("List tools error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("List tools response parse error: {e}"))
         })
     }
 
@@ -623,6 +656,10 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.drain_steers()
     }
 
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        self.inner.list_tools()
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }
@@ -718,6 +755,10 @@ impl HostCallbacks for CountingCallbacks {
 
     fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
         self.inner.drain_steers()
+    }
+
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        self.inner.list_tools()
     }
 
     fn emit_event(&self, event: serde_json::Value) {

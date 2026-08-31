@@ -1546,9 +1546,22 @@ gateway 2/2，tsc 0 错误。
     - 测试：Rust 遥测契约 2 条（payload 合并 + 取消→interrupted 映射）；TS wire-schema 2 条 +
       stdio 传输 2 条 + napi 端到端 1 条（`createRunTurnOverride` 注入 context →
       started/ended 到达，字段逐项断言）。
-  - **M1d** — 工具快照收尾：`host/list_tools` 回调（每 LLM 调用前拉取，替代
-    `buildTools` 一次性快照），删 `executeTurnViaEngine` 接缝，`engine: 'rust'` 下
-    零 v2 loop 代码（G-5 `/status` 观测 + 覆盖率断言）。
+  - **M1d** — 工具快照收尾 — 🔄 `host/list_tools` 完成（2026-09-01）；`executeTurnViaEngine`
+    删除 + 零 v2 loop 代码待做：
+    - **`host/list_tools`（每 LLM 调用前拉取，替代 `buildTools` 一次性快照）**：native 传输
+      （transport ≠ host-proxy）下 run_turn 每步先 `callbacks.list_tools()` 拉宿主当前工具表，
+      失败/未接线回退 turn-start 快照（trait 默认 Err，REPL 的 `ReplDummyHostCallbacks` 走此路，
+      无额外往返）；host-proxy 模式宿主本就在 `llm_chat` 内现拉 `buildTools()`，引擎不发此调用。
+      wire：`HOST_LIST_TOOLS` 请求/响应（`ListToolsResponse.tools`，与 run_turn 快照条目同形）+
+      `HOST_LIST_TOOLS_TIMEOUT` 30s（宿主簿记，无人在环）；napi 第 13 个 TSFN
+      （`invoke_via_registry` 请求/响应模式）；三层装饰器全转发；宿主门面
+      `listToolsHandler` = 每调用现读 `input.buildTools()`。
+    - 测试：Rust 3 条（每步刷新且快照不落地、宿主报错→回退快照、host-proxy 零调用）+
+      TS stdio 传输 2 条（已接线应答 / 未接线报错）。
+    - ⚠️ 顺带定位一个**既有**套件性能问题：`run_turn` 每步 `drain_steers()` 在未注册
+      handler 的 RpcServer 上回退 stdio 等满 30s 超时（`HOST_DRAIN_TIMEOUT`），多步测试
+      因此 60s+/步（`test_history_accumulates_across_steps` 单跑 120s）。新测试通过注册
+      drain_steers 桩 + list_tools 走 handler 报错路径规避；存量测试的修复是独立小活。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；
