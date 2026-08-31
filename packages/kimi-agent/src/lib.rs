@@ -9,6 +9,7 @@ pub mod config;
 pub mod cron;
 pub mod events;
 pub mod goal;
+pub mod injection;
 pub mod knowledge;
 pub mod llm;
 pub mod mcp;

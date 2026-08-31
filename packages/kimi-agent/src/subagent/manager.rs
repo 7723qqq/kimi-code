@@ -969,9 +969,10 @@ mod tests {
         assert_eq!(usage.output_tokens, 30);
         assert_eq!(usage.total_tokens, 50);
 
-        // History reuse: turn 1 saw system+user (2 messages), turn 2 saw
-        // system+user+assistant+user (4 messages).
-        assert_eq!(llm.message_counts(), vec![2, 4]);
+        // History reuse: turn 1 saw system+user+injection (3 messages), turn 2
+        // saw system+user+assistant+user+injection (5 messages). The
+        // injection message is the turn-level date reminder.
+        assert_eq!(llm.message_counts(), vec![3, 5]);
 
         // The instance is idle between turns and still listed.
         let inst = manager.get_instance(&id).await.unwrap();

@@ -1150,6 +1150,17 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 1 轮：状态存储 + 注入层 — ✅ 完成（2026-09-01）
+
+> 目标：纯 Rust CLI（REPL）成为 v2 的完整替代（无 TS 中转）。本轮补两个硬缺口。
+
+- **状态存储**（`src/storage/state_store.rs`，10 单测）：5 域本地 JSON 存储（`.kimi/state/` 每域一文件，原子写 tmp+rename）；域语义对齐 v2（todo 全量替换、plan enter/exit 生成 id+路径、goal create/update/set_budget、cron create/delete ULID、task stop/wait）；`ReplDummyHostCallbacks` 实现 state_read/state_write（本地读写，不再报"不支持"）——16 个原生工具在 REPL 真正可用
+- **注入层**（`src/injection/mod.rs`，14 单测）：注入注册表（v2 reminder 语义）+ `<system-reminder>` 格式逐字符对齐；日期变化提醒（跨天注入）+ AGENTS.md 提醒；run_turn 接线（LLM 调用前注入，注入消息不参与压缩裁剪——v2 kind:'injection' 语义）
+- **goal/plan-mode 注入**（`src/injection/goal_plan.rs`，806 行，17 单测）：goal 状态注入（active/blocked/paused 三态模板逐字移植 v2 goalInjection.ts）+ plan-mode 注入（full/sparse/reentry/exit 全套）；run_turn 内从本地 StateStore 注册
+- 修复：wrap_system_reminder 双换行 bug（suffix 已含 
+）、persistent 测试消息数断言（注入 +1）、StateWriteOutcome 缺 Debug、StateStore 缺 goal_plan trait impl
+- 遗留：cron 无本地调度器（nextFireAt 恒 null）、task 无后台运行器（wait 立即超时）、日期为 UTC（std 无时区）
+
 ### 第四批：Knowledge + Team 直移 — ✅ 完成（2026-09-01）
 
 - **Knowledge 直移**（用户批准 rusqlite 依赖）：Cargo.toml 加 `rusqlite 0.32 bundled` + `once_cell 1`（与 kimi-native-tools 同版本）；`src/knowledge/mod.rs` 去 napi 化移植（schema/FTS5/触发器/索引逐字保留，ulid/chrono 用 fastrand + 手写 RFC3339 替代）；`src/tools/knowledge_tool.rs` 工具壳（action 分发 + v2 渲染对齐 + DB 路径解析）；33+15 单测

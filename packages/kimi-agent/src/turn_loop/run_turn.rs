@@ -113,6 +113,21 @@ pub fn run_turn<'a>(
         // data, so the window defaults to a fixed 128k-token budget.
         let compaction_config = crate::compaction::CompactionConfig::default();
 
+        // Turn-level injection registry. The built-in date-change and
+        // workspace-AGENTS.md reminders are registered by `with_defaults`;
+        // goal/plan-mode providers register from the local state store
+        // (empty state yields no injection, so this is a no-op on paths
+        // whose state lives in the host).
+        let mut injection_registry = crate::injection::InjectionRegistry::with_defaults();
+        if let Ok(cwd) = std::env::current_dir()
+            && let Ok(store) = crate::storage::state_store::StateStore::for_workspace(&cwd)
+        {
+            crate::injection::goal_plan::register_goal_plan_injections(
+                &mut injection_registry,
+                std::sync::Arc::new(store),
+            );
+        }
+
         for step_num in 0..max_steps {
             steps = step_num + 1;
             let turn_wall_clock_ms = elapsed_wall_clock_ms(turn_started);
@@ -188,6 +203,12 @@ pub fn run_turn<'a>(
             // the turn can continue instead of failing on a context
             // overflow. Independent of the goal budget check above: the
             // goal budget stops the turn, compaction keeps it running.
+            //
+            // Injection messages never participate in compaction trimming
+            // (v2 classifies them with `origin.kind === 'injection'`): they
+            // are pulled out before compacting and re-appended after, so
+            // reminders survive the windowing.
+            let injections = crate::injection::split_injections(&mut messages);
             let compacted = crate::compaction::compact_messages(&messages, &compaction_config);
             if compacted.len() != messages.len() {
                 tracing::debug!(
@@ -197,7 +218,20 @@ pub fn run_turn<'a>(
                     after = compacted.len(),
                     "compacted turn context before LLM call"
                 );
-                messages = compacted;
+            }
+            let mut messages = compacted;
+            messages.extend(injections);
+
+            // ── Injection pass ───────────────────────────────────────────
+            // Mirror v2's `onWillBeginStep` injection gate: build this
+            // step's reminders (date change, workspace AGENTS.md, …) and
+            // append them right before the LLM call. In host-proxy mode
+            // the host owns the transcript and injects itself, so the
+            // pass is skipped there to avoid duplicate reminders.
+            if input.llm.transport() != "host-proxy" {
+                for text in injection_registry.build_injections() {
+                    messages.push(crate::injection::injection_message(text));
+                }
             }
 
             // Delegate LLM call (with retry) to turn_step module.
@@ -1746,7 +1780,10 @@ mod tests {
         assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
 
         let captured = captured.lock().unwrap();
-        assert_eq!(captured.len(), 3, "system + placeholder + recent user");
+        assert!(
+            captured.len() >= 4,
+            "system + placeholder + recent user + injections"
+        );
         assert_eq!(captured[0].role, "system");
         assert_eq!(captured[1].role, "user");
         assert!(
@@ -1754,5 +1791,96 @@ mod tests {
             "placeholder must mention compaction"
         );
         assert_eq!(captured[2].content, big, "most recent message preserved");
+        assert!(
+            captured[2..]
+                .iter()
+                .any(|m| m.content.starts_with("<system-reminder>\n")),
+            "injection appended after compaction"
+        );
+    }
+
+    // ── Injection wiring tests ─────────────────────────────────────────
+
+    /// The injection pass must append the date-change reminder right before
+    /// the LLM call: the captured request contains a `<system-reminder>`
+    /// user message with the baseline date text.
+    #[tokio::test]
+    async fn test_injections_appended_before_llm_call() {
+        use std::sync::Mutex;
+
+        struct CaptureLlm {
+            captured: Arc<Mutex<Vec<LLMMessage>>>,
+        }
+        impl LLM for CaptureLlm {
+            fn system_prompt(&self) -> &str {
+                "base prompt"
+            }
+            fn model_name(&self) -> &str {
+                "capture"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let captured = self.captured.clone();
+                Box::pin(async move {
+                    *captured.lock().unwrap() = params.messages.clone();
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                            total_tokens: 2,
+                            ..Default::default()
+                        },
+                    })
+                })
+            }
+        }
+
+        let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = CaptureLlm {
+            captured: captured.clone(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-injection".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+
+        let captured = captured.lock().unwrap();
+        assert!(
+            captured.len() >= 3,
+            "system + user + at least the date injection"
+        );
+        assert_eq!(captured[0].role, "system");
+        assert_eq!(captured[1].content, "hi");
+        let date_injection = captured
+            .iter()
+            .find(|m| m.content.contains("Today's date is"));
+        let date_injection = date_injection.expect("date reminder must be injected");
+        assert_eq!(date_injection.role, "user");
+        assert!(date_injection.content.starts_with("<system-reminder>\n"));
+        assert!(date_injection.content.ends_with("\n</system-reminder>"));
     }
 }

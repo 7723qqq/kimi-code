@@ -23,17 +23,31 @@ use crate::mcp::McpManager;
 use crate::permission::PermissionEngine;
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, LlmChatRequest, LlmChatResponse, NativeLlmConfig,
-    PermissionCheckRequest, PermissionDecision, TokenUsage, ToolExecuteRequest,
-    ToolExecuteResponse,
+    PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
+    StateWriteRequest, StateWriteResponse, TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
 };
-use crate::storage::SessionStore;
+use crate::storage::{SessionStore, StateStore};
 use crate::subagent::SubagentManager;
 use crate::tool_result_truncation::ToolResultTruncator;
 use crate::tools::NativeToolset;
 use crate::turn_loop::run_turn::run_turn;
 use crate::turn_loop::types::{LLMMessage, RunTurnInput};
 
-struct ReplDummyHostCallbacks;
+/// Host callbacks for the standalone REPL: LLM/tool execution are
+/// unsupported (the REPL runs the native toolset in-process), permission is
+/// always allowed, questions are answered interactively on stdin, and the
+/// state bridge reads/writes the local per-domain state store (P32 批 1) so
+/// the todo/plan/goal/cron/task tools work without a JS host.
+struct ReplDummyHostCallbacks {
+    state_store: Arc<StateStore>,
+}
+
+impl ReplDummyHostCallbacks {
+    fn new(state_store: Arc<StateStore>) -> Self {
+        Self { state_store }
+    }
+}
+
 impl HostCallbacks for ReplDummyHostCallbacks {
     fn llm_chat(
         &self,
@@ -67,6 +81,30 @@ impl HostCallbacks for ReplDummyHostCallbacks {
                 &mut reader,
                 &mut writer,
             ))
+        })
+    }
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let store = self.state_store.clone();
+        Box::pin(async move {
+            let value = store.read_state(&request.domain, &request.key)?;
+            Ok(StateReadResponse { value })
+        })
+    }
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let store = self.state_store.clone();
+        Box::pin(async move {
+            let outcome = store.apply_write(&request.domain, &request.value)?;
+            store.write_domain(&request.domain, &outcome.stored)?;
+            Ok(StateWriteResponse {
+                ok: true,
+                value: outcome.response,
+            })
         })
     }
 }
@@ -174,6 +212,7 @@ pub async fn start_repl(
     let mut total_usage = TokenUsage::default();
 
     let session_store = SessionStore::for_workspace(&workspace)?;
+    let state_store = Arc::new(StateStore::for_workspace(&workspace)?);
     let mut current_session_id = format!("session-{}", fastrand::u64(..));
 
     let active_model_str = current_model.as_deref().unwrap_or("default");
@@ -387,7 +426,8 @@ pub async fn start_repl(
         let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
 
         // Build callback pipeline
-        let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(ReplDummyHostCallbacks);
+        let base_callbacks: Arc<dyn HostCallbacks> =
+            Arc::new(ReplDummyHostCallbacks::new(state_store.clone()));
         let event_counter = Arc::new(AtomicU32::new(0));
         let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
             CountingCallbacks::new(base_callbacks, event_counter).with_bus(event_bus.clone()),
@@ -595,5 +635,70 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "missing tool def: {expected}");
         }
+    }
+
+    #[tokio::test]
+    async fn test_repl_state_bridge_reads_defaults_and_round_trips() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let callbacks =
+            ReplDummyHostCallbacks::new(Arc::new(StateStore::for_workspace(tmp.path()).unwrap()));
+        let read = |domain: &str| {
+            callbacks.state_read(StateReadRequest {
+                domain: domain.into(),
+                key: domain.into(),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            })
+        };
+        // Empty domains read their v2 defaults.
+        assert_eq!(read("todo").await.unwrap().value, serde_json::json!([]));
+        assert_eq!(
+            read("plan").await.unwrap().value,
+            serde_json::json!({ "active": false })
+        );
+        assert_eq!(
+            read("goal").await.unwrap().value,
+            serde_json::json!({ "goal": null })
+        );
+        // Unknown domains error with the -32001 code.
+        let err = read("skill").await.unwrap_err();
+        assert!(err.contains("-32001"));
+        // A todo write persists and reads back.
+        let write = callbacks
+            .state_write(StateWriteRequest {
+                domain: "todo".into(),
+                key: "todo".into(),
+                value: serde_json::json!([
+                    { "id": "T1", "parentId": null, "kind": "task", "title": "Read", "status": "in_progress", "progress": 40 }
+                ]),
+                undoable: true,
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            })
+            .await
+            .unwrap();
+        assert!(write.ok);
+        assert_eq!(write.value[0]["id"], "T1");
+        let value = read("todo").await.unwrap().value;
+        assert_eq!(value[0]["title"], "Read");
+        assert_eq!(value[0]["status"], "in_progress");
+        // A plan enter returns the generated id/path and persists.
+        let write = callbacks
+            .state_write(StateWriteRequest {
+                domain: "plan".into(),
+                key: "plan".into(),
+                value: serde_json::json!({ "active": true }),
+                undoable: true,
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            })
+            .await
+            .unwrap();
+        assert!(write.value["active"].as_bool() == Some(true));
+        assert!(write.value["id"].is_string());
+        assert!(write.value["path"].is_string());
+        let value = read("plan").await.unwrap().value;
+        assert_eq!(value["active"], true);
+        assert_eq!(value["id"], write.value["id"]);
     }
 }
