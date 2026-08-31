@@ -1562,6 +1562,10 @@ gateway 2/2，tsc 0 错误。
       handler 的 RpcServer 上回退 stdio 等满 30s 超时（`HOST_DRAIN_TIMEOUT`），多步测试
       因此 60s+/步（`test_history_accumulates_across_steps` 单跑 120s）。新测试通过注册
       drain_steers 桩 + list_tools 走 handler 报错路径规避；存量测试的修复是独立小活。
+    - **管线抽取（会话句柄前提）**：`run_turn_rust_impl` 的 callbacks 链（NapiHostCallbacks →
+      Counting → NativeTool/plan-guard）+ LLM 选择（multi > native-http > host-proxy）抽成
+      `build_engine_pipeline(params, EngineCallbackTsfns)`，per-turn 入口与 M1d 会话工厂共用
+      同一条管线；行为不变（834 全绿）。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；

@@ -1081,47 +1081,63 @@ pub fn run_turn_rust(
     )
 }
 
-/// Inner async implementation — all captured values are `Send`.
-#[allow(clippy::too_many_arguments)]
-async fn run_turn_rust_impl(
-    params: JsRunTurnParams,
-    llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
-    execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
-    emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-) -> napi::Result<JsRunTurnResult> {
-    // Register the turn's cancellation flag up front so a JS-side
-    // `cancel_turn` can interrupt host callbacks (permission waits
-    // included) while this turn is in flight.
-    let turn_id = params.turn_id.clone();
-    let cancellation = Arc::new(AtomicBool::new(false));
-    CANCEL_MAP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(turn_id.clone(), cancellation.clone());
+/// The TSFN set the JS host wires for one engine attachment — per turn today
+/// (`run_turn_rust`), per session once the M1d session handle lands.
+struct EngineCallbackTsfns {
+    llm_chat: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
+    execute_tool: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
+    emit_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    check_permission: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    finalize_tool: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    drain_steers: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    ask_question: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_read: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_write: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    turn_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    telemetry: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    list_tools: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    /// The cancellation flag the host callbacks observe (per turn today; the
+    /// session handle passes its own per-turn flag through `cancel_turn`).
+    cancellation: Option<Arc<AtomicBool>>,
+}
 
+/// The engine pipeline shared by the per-turn `run_turn_rust` entry and the
+/// M1d session handle: the host callback chain (counting + native-tool
+/// execution over the TSFN set) plus the LLM selection (multi / native-http /
+/// host-proxy).
+struct EnginePipeline {
+    llm: Arc<dyn LLM>,
+    callbacks: Arc<dyn HostCallbacks>,
+    /// Event counter from the counting wrapper (turn result telemetry).
+    turn_event_count: Arc<std::sync::atomic::AtomicU32>,
+    /// Native tool call counter from the native-tool wrapper.
+    native_tool_count: Arc<std::sync::atomic::AtomicU32>,
+}
+
+/// Build the callback chain and the LLM for one engine context. The chain is
+/// identical for every entry path: NapiHostCallbacks over the TSFN set →
+/// counting wrapper (all event paths counted) → native-tool wrapper
+/// (in-process Read/Grep/Glob/Write/Edit/Bash, permission engine, truncation,
+/// plan-mode guard). The LLM picks multi > native-http > host-proxy, with the
+/// self-contained mode refusing the host-proxy fallback.
+async fn build_engine_pipeline(
+    params: &JsRunTurnParams,
+    tsfns: EngineCallbackTsfns,
+) -> napi::Result<EnginePipeline> {
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(NapiHostCallbacks {
-        llm_chat_fn: Arc::new(llm_chat_tsfn),
-        execute_tool_fn: Arc::new(execute_tool_tsfn),
-        emit_event_fn: emit_event_tsfn.map(Arc::new),
-        check_permission_fn: check_permission_tsfn.map(Arc::new),
-        finalize_tool_fn: finalize_tool_tsfn.map(Arc::new),
-        drain_steers_fn: drain_steers_tsfn.map(Arc::new),
-        ask_question_fn: ask_question_tsfn.map(Arc::new),
-        state_read_fn: state_read_tsfn.map(Arc::new),
-        state_write_fn: state_write_tsfn.map(Arc::new),
-        turn_event_fn: turn_event_tsfn.map(Arc::new),
-        telemetry_fn: telemetry_tsfn.map(Arc::new),
-        list_tools_fn: list_tools_tsfn.map(Arc::new),
-        cancellation: Some(cancellation.clone()),
+        llm_chat_fn: Arc::new(tsfns.llm_chat),
+        execute_tool_fn: Arc::new(tsfns.execute_tool),
+        emit_event_fn: tsfns.emit_event.map(Arc::new),
+        check_permission_fn: tsfns.check_permission.map(Arc::new),
+        finalize_tool_fn: tsfns.finalize_tool.map(Arc::new),
+        drain_steers_fn: tsfns.drain_steers.map(Arc::new),
+        ask_question_fn: tsfns.ask_question.map(Arc::new),
+        state_read_fn: tsfns.state_read.map(Arc::new),
+        state_write_fn: tsfns.state_write.map(Arc::new),
+        turn_event_fn: tsfns.turn_event.map(Arc::new),
+        telemetry_fn: tsfns.telemetry.map(Arc::new),
+        list_tools_fn: tsfns.list_tools.map(Arc::new),
+        cancellation: tsfns.cancellation,
     });
 
     // Count every event this turn emits (step lifecycle, deltas, native
@@ -1240,15 +1256,15 @@ async fn run_turn_rust_impl(
                 .collect();
             Box::new(MultiLLM::new(rust_providers))
         } else {
-            match params.native_llm {
+            match &params.native_llm {
                 Some(cfg) => {
                     let sink_callbacks = callbacks.clone();
                     let native = NativeHttpLlm::new(
                         NativeLlmConfig {
-                            protocol: cfg.protocol,
-                            base_url: cfg.base_url,
-                            api_key: cfg.api_key,
-                            model: cfg.model,
+                            protocol: cfg.protocol.clone(),
+                            base_url: cfg.base_url.clone(),
+                            api_key: cfg.api_key.clone(),
+                            model: cfg.model.clone(),
                             max_tokens: cfg.max_tokens,
                             custom_headers: Default::default(),
                         },
@@ -1280,6 +1296,65 @@ async fn run_turn_rust_impl(
     SUBAGENT_MANAGER
         .set_runtime(llm.clone(), callbacks.clone())
         .await;
+
+    Ok(EnginePipeline {
+        llm,
+        callbacks,
+        turn_event_count,
+        native_tool_count,
+    })
+}
+
+/// Inner async implementation — all captured values are `Send`.
+#[allow(clippy::too_many_arguments)]
+async fn run_turn_rust_impl(
+    params: JsRunTurnParams,
+    llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
+    execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
+    emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+) -> napi::Result<JsRunTurnResult> {
+    // Register the turn's cancellation flag up front so a JS-side
+    // `cancel_turn` can interrupt host callbacks (permission waits
+    // included) while this turn is in flight.
+    let turn_id = params.turn_id.clone();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    CANCEL_MAP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(turn_id.clone(), cancellation.clone());
+
+    let pipeline = build_engine_pipeline(
+        &params,
+        EngineCallbackTsfns {
+            llm_chat: llm_chat_tsfn,
+            execute_tool: execute_tool_tsfn,
+            emit_event: emit_event_tsfn,
+            check_permission: check_permission_tsfn,
+            finalize_tool: finalize_tool_tsfn,
+            drain_steers: drain_steers_tsfn,
+            ask_question: ask_question_tsfn,
+            state_read: state_read_tsfn,
+            state_write: state_write_tsfn,
+            turn_event: turn_event_tsfn,
+            telemetry: telemetry_tsfn,
+            list_tools: list_tools_tsfn,
+            cancellation: Some(cancellation.clone()),
+        },
+    )
+    .await?;
+    let llm = pipeline.llm;
+    let callbacks = pipeline.callbacks;
+    let turn_event_count = pipeline.turn_event_count;
+    let native_tool_count = pipeline.native_tool_count;
 
     let messages: Vec<LLMMessage> = params
         .messages
