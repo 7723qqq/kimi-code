@@ -1465,7 +1465,14 @@ gateway 2/2，tsc 0 错误。
   （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
   口径修订记录在决策文档 §4）。
 
-- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）**
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 📐 设计完成（2026-08-31，`reports/rust-engine-turn-lifecycle-design.md`），未落码
+  设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
+  （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
+  经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；
+  turn 时钟经 state bridge 新 turn 域读写；新增 `host/telemetry` 与 `host/list_tools`
+  （消除工具一次性快照）；loopService 降级为门面。迁移顺序 M1a（session 骨架，
+  REPL 先行）→ M1b（时钟 + durable 事件）→ M1c（取消/背压/遥测）→ M1d
+  （list_tools + executeTurnViaEngine 删除 + G-5 覆盖率断言）。
   ⚠️ 措辞更正：不是「翻转主循环」——Rust 早已拥有 step 循环（`loopService.ts:718-723`）。
   M1 要做的是把 v2 仍握着的 **turn 生命周期**移出去，让 `run_turn` 成为 turn 的入口：
   - turn 准入与排队（`loopService.ts:224-260`、`437-501`）
