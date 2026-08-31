@@ -440,6 +440,7 @@ pub async fn start_repl(
                         config.agent.yolo.unwrap_or(false),
                         messages.len() / 2,
                         &total_usage,
+                        state_store.goal_context().as_ref(),
                     );
                     continue;
                 }
@@ -601,6 +602,10 @@ pub async fn start_repl(
                 total_usage.total_tokens += turn_res.usage.total_tokens;
                 total_usage.input_cache_read += turn_res.usage.input_cache_read;
                 total_usage.input_cache_creation += turn_res.usage.input_cache_creation;
+
+                // Fold the turn into the stored goal (v2 turn-end usage
+                // accounting): turns_used +1, tokens_used += output.
+                state_store.goal_record_usage(1, turn_res.usage.output_tokens.into());
 
                 // Persist turn to session store
                 let _ = session_store.append_turn(

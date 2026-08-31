@@ -635,6 +635,26 @@ impl StateStore {
         }))
     }
 
+    /// Fold one turn's usage into the stored goal (v2 `incrementGoalTurn` +
+    /// `accountTokenUsage` semantics): only an active goal is updated, and
+    /// the turn count and output tokens accumulate across turns. No-op
+    /// when no goal is stored or it is not active.
+    pub fn goal_record_usage(&self, turns_delta: u64, output_tokens_delta: u64) {
+        let Some(mut state) = self.read_goal_state() else {
+            return;
+        };
+        if state.status != GoalStatus::Active {
+            return;
+        }
+        let now = now_ms();
+        state.turns_used += turns_delta;
+        state.tokens_used += output_tokens_delta;
+        state.output_tokens_used += output_tokens_delta;
+        state.updated_at = now;
+        let outcome = goal_outcome(&state, now);
+        let _ = self.write_domain("goal", &outcome.stored);
+    }
+
     /// The stored goal projected into the turn-loop `GoalContext`, with the
     /// live wall-clock figure folded in for active goals. `None` when no
     /// goal is stored.
@@ -1073,6 +1093,44 @@ mod tests {
         assert_eq!(ctx.status, crate::turn_loop::types::GoalStatus::Complete);
         assert_eq!(ctx.turn_budget, Some(20));
         assert!(ctx.token_budget.is_none());
+    }
+
+    #[test]
+    fn test_goal_record_usage_accumulates_across_turns() {
+        let (_tmp, store) = store();
+        store.goal_record_usage(1, 10);
+        let outcome = store
+            .apply_write(
+                "goal",
+                &json!({ "action": "create", "objective": "Ship the feature" }),
+            )
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        store.goal_record_usage(1, 10);
+        store.goal_record_usage(1, 20);
+        let ctx = store.goal_context().unwrap();
+        assert_eq!(ctx.turns_used, 2);
+        assert_eq!(ctx.tokens_used, 30);
+    }
+
+    #[test]
+    fn test_goal_record_usage_skips_inactive_goal() {
+        let (_tmp, store) = store();
+        let outcome = store
+            .apply_write(
+                "goal",
+                &json!({ "action": "create", "objective": "Ship the feature" }),
+            )
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        let outcome = store
+            .apply_write("goal", &json!({ "action": "update", "status": "complete" }))
+            .unwrap();
+        store.write_domain("goal", &outcome.stored).unwrap();
+        store.goal_record_usage(1, 10);
+        let ctx = store.goal_context().unwrap();
+        assert_eq!(ctx.turns_used, 0);
+        assert_eq!(ctx.tokens_used, 0);
     }
 
     #[test]

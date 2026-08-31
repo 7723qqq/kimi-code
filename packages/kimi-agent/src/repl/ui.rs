@@ -138,6 +138,7 @@ pub fn render_status_panel(
     yolo: bool,
     turns_count: usize,
     usage: &TokenUsage,
+    goal: Option<&crate::turn_loop::types::GoalContext>,
 ) {
     println!(
         "\n{}── Session Status ──────────────────────────────────────────{}",
@@ -195,6 +196,38 @@ pub fn render_status_panel(
         usage.total_tokens,
         Colors::RESET
     );
+    if let Some(goal) = goal {
+        let status_color = match goal.status {
+            crate::turn_loop::types::GoalStatus::Active => Colors::BRIGHT_GREEN,
+            crate::turn_loop::types::GoalStatus::Paused => Colors::BRIGHT_YELLOW,
+            crate::turn_loop::types::GoalStatus::Blocked => Colors::RED,
+            _ => Colors::GRAY,
+        };
+        let status = match goal.status {
+            crate::turn_loop::types::GoalStatus::Active => "active",
+            crate::turn_loop::types::GoalStatus::Paused => "paused",
+            crate::turn_loop::types::GoalStatus::Blocked => "blocked",
+            crate::turn_loop::types::GoalStatus::Complete => "complete",
+            crate::turn_loop::types::GoalStatus::BudgetLimited => "budget_limited",
+            crate::turn_loop::types::GoalStatus::UsageLimited => "usage_limited",
+        };
+        println!(
+            "  Goal:       {}{}{} — {}",
+            status_color,
+            status,
+            Colors::RESET,
+            truncate_str(&goal.objective, 60)
+        );
+        println!(
+            "  Goal Usage: {} turns | {} tokens{}",
+            goal.turns_used,
+            goal.tokens_used,
+            match goal.turn_budget {
+                Some(budget) => format!(" / {budget} turn budget"),
+                None => String::new(),
+            }
+        );
+    }
     println!(
         "{}────────────────────────────────────────────────────────────{}\n",
         Colors::CYAN,
