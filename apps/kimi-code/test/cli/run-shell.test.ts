@@ -118,10 +118,8 @@ vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
   };
 });
 
-vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
-  createRunTurnOverride: () => undefined,
-  isRustEngineAvailable: () => false,
-  shutdownRustEngine: () => {},
+vi.mock('#/cli/rust-engine', () => ({
+  maybeLoadRustEngine: vi.fn(async () => undefined),
 }));
 
 vi.mock('@moonshot-ai/agent-core-v2', () => ({

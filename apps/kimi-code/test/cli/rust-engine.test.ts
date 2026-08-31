@@ -93,8 +93,10 @@ beforeEach(() => {
   mocks.activeEngineMode.mockReset().mockReturnValue('napi');
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
-  // Bundle-absent default keeps the rust-first fallback path hermetic.
-  mocks.existsSync.mockReset().mockReturnValue(false);
+  // Bundle-present default: the rust-only gate requires a loadable bundle,
+  // so the happy paths run against a loadable fixture; gate tests that pin
+  // the missing-bundle error flip this back to false explicitly.
+  mocks.existsSync.mockReset().mockReturnValue(true);
   mocks.readdirSync.mockReset().mockImplementation(() => {
     throw new Error('engine addon dir not present in this fixture');
   });
@@ -105,31 +107,35 @@ afterEach(() => {
 });
 
 describe('maybeLoadRustEngine', () => {
-  it('returns undefined when the config file cannot be read', async () => {
+  it('throws when the config file cannot be read and no bundle is present (TS engine disabled)', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
       config: makeConfig(),
       fileError: new Error('unreadable'),
     });
+    mocks.existsSync.mockReturnValue(false);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    // An unreadable config cannot express an engine preference, so the gate
+    // treats it as unset — and unset requires the rust bundle.
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('TS agent engine is disabled');
     expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
   });
 
-  it('falls back to the JS loop when unset and the bundle is missing, and on explicit "js"', async () => {
+  it('throws when the engine is unset and the bundle is missing (TS engine disabled)', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: {} }) });
+    mocks.existsSync.mockReturnValue(false);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
     // Unset defaults to rust, so the bundle-presence guard is consulted and
-    // finds nothing in this fixture.
+    // finds nothing in this fixture — a startup error, not a JS fallback.
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('TS agent engine is disabled');
     expect(mocks.existsSync).toHaveBeenCalled();
+  });
 
-    mocks.existsSync.mockClear();
-    mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig({ agent: { engine: 'js' } }) });
-    const maybeLoadRustEngine2 = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine2('/home/u')).resolves.toBeUndefined();
-    // Explicit opt-out skips the bundle-presence guard entirely.
-    expect(mocks.existsSync).not.toHaveBeenCalled();
+  it('throws on explicit agent.engine = "rust" when the bundle is missing', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig() });
+    mocks.existsSync.mockReturnValue(false);
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('TS agent engine is disabled');
   });
 
   it('defaults to the engine when agent.engine is unset and the bundle is loadable', async () => {
@@ -142,26 +148,42 @@ describe('maybeLoadRustEngine', () => {
     expect(mocks.createRunTurnOverride).toHaveBeenCalledTimes(1);
   });
 
-  it('respects an explicit agent.engine = "js" even when the bundle is loadable', async () => {
+  it('ignores agent.engine = "js": warned, then the bundle guard applies like unset', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
       config: makeConfig({ agent: { engine: 'js' } }),
     });
-    mocks.existsSync.mockReturnValue(true);
+    mocks.existsSync.mockReturnValue(false);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    // No opt-out during the migration: "js" does not bypass the rust-only
+    // gate, so a missing bundle still fails startup.
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('TS agent engine is disabled');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
     expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
-    expect(mocks.existsSync).not.toHaveBeenCalled();
   });
 
-  it('records the JS loop when the engine is declined', async () => {
+  it('wires the engine even on explicit agent.engine = "js" when the bundle is loadable', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({ agent: { engine: 'js' } }),
+    });
+    const engine = vi.fn();
+    mocks.createRunTurnOverride.mockReturnValue(engine);
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
+  });
+
+  it('records the rust engine even when the config says "js" (value ignored)', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
       config: makeConfig({ agent: { engine: 'js' } }),
     });
     const { maybeLoadRustEngine, snapshot } = await loadEngineAndSnapshot();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
-    expect(snapshot.engineExecution()).toEqual({ rust: false });
+    await maybeLoadRustEngine('/home/u');
+    expect(snapshot.engineExecution()).toEqual({ rust: true });
   });
 
   it('hands the adapter an observer that records the last turn for /status', async () => {
@@ -195,11 +217,11 @@ describe('maybeLoadRustEngine', () => {
     });
   });
 
-  it('returns undefined when the rust adapter module has no createRunTurnOverride', async () => {
+  it('throws when the adapter yields no engine (broken install, TS engine disabled)', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig() });
     mocks.createRunTurnOverride.mockReturnValue(undefined);
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('failed to initialize');
   });
 
   it('wires the rust engine when agent.engine = "rust" and the adapter is available', async () => {
@@ -211,13 +233,13 @@ describe('maybeLoadRustEngine', () => {
     expect(mocks.createRunTurnOverride).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to JS when createRunTurnOverride throws (adapter unavailable)', async () => {
+  it('surfaces createRunTurnOverride failures instead of falling back to JS', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig() });
     mocks.createRunTurnOverride.mockImplementation(() => {
       throw new Error('native addon missing');
     });
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    await expect(maybeLoadRustEngine('/home/u')).rejects.toThrow('native addon missing');
   });
 
   it('passes a per-turn nativeLlm resolver that re-reads the config', async () => {
@@ -334,17 +356,24 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     expect(capturedNativeLlm).toBeUndefined();
   });
 
-  it('warns when multiLlm is set but engine is not rust (no-op)', async () => {
+  it('honours multiLlm even when engine = "js" is configured (value ignored)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
       config: makeConfig({ agent: { engine: 'js', multiLlm: ['kimi'] } }),
     });
+    const engine = vi.fn();
+    let capturedProviders: unknown;
+    mocks.createRunTurnOverride.mockImplementation((providers) => {
+      capturedProviders = providers;
+      return engine;
+    });
     const maybeLoadRustEngine = await loadMaybeRustEngine();
-    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('agent.multiLlm is set but the Rust engine is not active'),
-    );
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+    expect(capturedProviders).toEqual([
+      { name: 'kimi', model: 'kimi-k2', system_prompt: 'default prompt' },
+    ]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
   });
 });
 

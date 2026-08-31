@@ -66,9 +66,14 @@ export async function runShell(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  // Rust engine override: when `agent.engine = "rust"` is configured the
-  // whole TUI runs on the Rust engine; otherwise the JS engine stays active.
-  const engineOverride = await maybeLoadRustEngine(telemetryBootstrap.homeDir);
+  // Rust engine override: the TS engine is explicitly disabled, so a missing
+  // or broken rust bundle exits here instead of silently running the JS loop.
+  const engineOverride = await maybeLoadRustEngine(telemetryBootstrap.homeDir).catch(
+    (error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    },
+  );
   const harnessOptions: KimiHarnessOptions = {
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),

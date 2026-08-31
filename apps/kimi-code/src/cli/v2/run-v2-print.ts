@@ -151,9 +151,12 @@ export async function runV2Print(
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
   const identity = createKimiCodeHostIdentity(version);
   const hostHeaders = createKimiDefaultHeaders({ homeDir, ...identity });
-  // Rust engine override: when `agent.engine = "rust"` is configured the
-  // turn is driven by the Rust engine; otherwise the JS engine stays active.
-  const engineOverride = await maybeLoadRustEngine(homeDir);
+  // Rust engine override: the TS engine is explicitly disabled, so a missing
+  // or broken rust bundle exits here instead of silently running the JS loop.
+  const engineOverride = await maybeLoadRustEngine(homeDir).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 
   const { app } = bootstrap(
     {

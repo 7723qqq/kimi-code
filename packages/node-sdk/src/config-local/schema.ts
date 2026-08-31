@@ -217,10 +217,11 @@ export const AgentConfigSchema = z.object({
   /**
    * Which agent engine to use.
    * - `"rust"`: the Rust agent engine (kimi-agent binary via stdio JSON-RPC)
-   * - `"js"`: the existing TypeScript agent engine (explicit opt-out)
-   * - unset: auto — the CLI wires the Rust engine when its bundle is
-   *   loadable (.node addon or bundled stdio CLI) and falls back to the JS
-   *   engine otherwise.
+   * - `"js"`: ignored — the TypeScript agent engine is disabled for the
+   *   duration of the rust migration (a warning is printed; there is no
+   *   opt-out). Kept in the enum so existing configs still parse.
+   * - unset: the Rust engine, required — a missing or broken bundle is a
+   *   startup error, not a JS fallback.
    */
   engine: z.enum(['js', 'rust']).optional(),
   /**

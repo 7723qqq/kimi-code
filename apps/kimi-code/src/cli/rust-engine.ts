@@ -2,10 +2,10 @@
  * Rust agent engine integration (v2).
  *
  * Wires the Rust agent engine (kimi-agent) based on the `agent.engine`
- * gate. The default is rust-first: `"js"` is an explicit opt-out, while a
- * missing `agent.engine` (or `"rust"`) enables the engine whenever the
- * bundle is loadable (napi addon or bundled stdio CLI), falling back to the
- * JS engine only when the bundle is missing or fails to start.
+ * gate. The gate is rust-only: the TS agent engine is explicitly disabled
+ * for the duration of the rust migration, so a missing or broken rust
+ * bundle is a startup error, never a silent fallback to the JS loop.
+ * `agent.engine = "js"` is ignored (with a warning) — there is no opt-out.
  *
  * MultiLLM support: when `agent.multiLlm` lists provider names, those
  * providers are extracted from the config and passed to the Rust engine
@@ -245,22 +245,20 @@ function isEngineLoadable(): boolean {
 }
 
 /**
- * Try to wire the Rust agent engine based on config.
- * Reads the config file, checks `agent.engine`, and if `"rust"`,
- * dynamically imports the Rust adapter from the kimi-agent package.
+ * Wire the Rust agent engine. The gate is rust-only: the TS engine is
+ * disabled for the duration of the rust migration, so this either returns
+ * the engine or throws (the callers exit on the error) — it never returns
+ * `undefined` today, but the optional signature keeps the harness wiring
+ * (`engineOverride !== undefined` spread) honest.
  *
  * When `agent.multiLlm` is configured, extracts matching providers
  * and passes them to the Rust engine for concurrent MultiLLM execution.
- *
- * @returns The v2 `TurnEngine` function, or `undefined` to use the JS engine.
  */
 export async function maybeLoadRustEngine(
   homeDir?: string,
   configPath?: string,
 ): Promise<TurnEngine | undefined> {
-  const engine = await resolveRustEngine(homeDir, configPath);
-  if (engine === undefined) setEngineExecution({ rust: false });
-  return engine;
+  return resolveRustEngine(homeDir, configPath);
 }
 
 async function resolveRustEngine(
@@ -273,26 +271,26 @@ async function resolveRustEngine(
   const resolvedHome = resolveKimiHome(homeDir);
   const resolvedConfig = resolveConfigPath({ homeDir: resolvedHome, configPath });
   const loaded = loadRuntimeConfigSafe(resolvedConfig);
-  if (loaded.fileError !== undefined) {
-    return undefined;
-  }
+  // An unreadable config cannot express an engine preference, so the gate
+  // treats it as unset — and unset means the rust engine (below).
+  const agentConfig = loaded.fileError === undefined ? loaded.config.agent : undefined;
 
-  const agentConfig = loaded.config.agent;
-  // Engine gate — rust-first:
-  // - agent.engine = "js"    → never wired (explicit opt-out).
-  // - agent.engine = "rust"  → always wired (explicit opt-in).
-  // - unset (default)        → wired whenever the bundle is loadable; the
-  //   JS loop is the fallback only when the bundle is missing.
-  const engineMode = agentConfig?.engine;
-  const engineActive = engineMode !== 'js' && (engineMode === 'rust' || isEngineLoadable());
-  if (!engineActive) {
-    // Warn if multiLlm is set but the engine isn't active — it's a no-op in this case.
-    if (agentConfig?.multiLlm && agentConfig.multiLlm.length > 0) {
-      console.warn(
-        '[kimi-agent] agent.multiLlm is set but the Rust engine is not active — MultiLLM ignored.',
-      );
-    }
-    return undefined;
+  // Engine gate — rust-only, no opt-out during the migration:
+  // - agent.engine = "js"    → ignored (warned): the TS engine stays disabled.
+  // - agent.engine = "rust"  → rust engine required.
+  // - unset (default)        → rust engine required.
+  // A missing or broken rust bundle is a startup error, never a silent JS
+  // fallback.
+  if (agentConfig?.engine === 'js') {
+    console.warn(
+      '[kimi-agent] `[agent] engine = "js"` is ignored — the TS agent engine is disabled for the rust migration.',
+    );
+  }
+  if (!isEngineLoadable()) {
+    throw new Error(
+      '[kimi-agent] Rust engine bundle not found — the TS agent engine is disabled. ' +
+        'Build the native bundle (start-native.bat / `make rust-build`).',
+    );
   }
 
   // Extract MultiLLM providers and native execution options when configured.
@@ -343,80 +341,84 @@ async function resolveRustEngine(
     shellPath = undefined;
   }
 
-  // Dynamic import of the Rust adapter via the workspace package.
-  try {
-    const { createRunTurnOverride, activeEngineMode } = await import('@moonshot-ai/kimi-agent/rust-loop');
-    if (typeof createRunTurnOverride !== 'function') {
-      return undefined;
-    }
-    // The workspace root anchors the Read-prediction fast-path and the
-    // native tool sandbox; the session working directory is the workspace.
-    const engine = createRunTurnOverride(providers ?? undefined, process.cwd(), {
-      nativeLlm: () => {
-        // Re-read the config file fresh so model switches in the TUI
-        // (which update `default_model` in config.toml) are reflected.
-        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
-        if (reloaded.fileError !== undefined) return;
-        return extractNativeLlm(reloaded.config);
-      },
-      nativeTools,
-      rustSelfContained,
-      shellPath,
-      getGithubCredentials: () => {
-        // Re-read the config file fresh so token rotation in config.toml is
-        // reflected on the next turn. Env fallbacks (GITHUB_TOKEN / GH_TOKEN
-        // / GITHUB_API_URL) are applied Rust-side — only the config values
-        // cross the boundary here.
-        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
-        if (reloaded.fileError !== undefined) return undefined;
-        const github = reloaded.config.github;
-        const token = github?.token;
-        const baseUrl = github?.baseUrl;
-        if (token === undefined && baseUrl === undefined) return undefined;
-        return { token, baseUrl };
-      },
-      onTurnResult: (result) => {
-        // The transport is read, never resolved: a status-backed observation
-        // must not spawn the stdio child process.
-        setEngineExecution({
-          rust: true,
-          transport: activeEngineMode(),
-          llmTransport: result.telemetry?.llmTransport,
-          nativeToolCalls: result.telemetry?.nativeToolCallCount,
-        });
-      },
-      getPolicySnapshot: () => {
-        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
-        if (reloaded.fileError !== undefined) return;
-        const cfg = reloaded.config as Record<string, unknown>;
-        const perm = cfg['permission'] as Record<string, unknown> | undefined;
-        const agent = cfg['agent'] as Record<string, unknown> | undefined;
-        const mode = (agent?.['yolo'] === true
-          ? 'yolo'
-          : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
-        const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
-        return {
-          mode,
-          deny_rules: rules
-            .filter((r) => r.decision === 'deny' && typeof r.pattern === 'string')
-            .map((r) => r.pattern!),
-          ask_rules: rules
-            .filter((r) => r.decision === 'ask' && typeof r.pattern === 'string')
-            .map((r) => r.pattern!),
-          allow_rules: rules
-            .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
-            .map((r) => r.pattern!),
-        };
-      },
-    });
-    if (engine !== undefined) {
-      // Wired but unrun: the report says so rather than guessing a transport.
-      setEngineExecution({ rust: true });
-      rustTurnEngine = engine;
-    }
-    return rustTurnEngine;
-  } catch {
-    // Rust adapter not available — fall back to JS engine
-    return undefined;
+  // Dynamic import of the Rust adapter via the workspace package. The gate
+  // above already established the bundle is loadable, so a failure here is a
+  // broken install — surfaced, never silently traded for the TS loop.
+  const { createRunTurnOverride, activeEngineMode } = await import('@moonshot-ai/kimi-agent/rust-loop');
+  if (typeof createRunTurnOverride !== 'function') {
+    throw new Error(
+      '[kimi-agent] rust adapter module has no createRunTurnOverride — broken install; the TS agent engine is disabled.',
+    );
   }
+  // The workspace root anchors the Read-prediction fast-path and the
+  // native tool sandbox; the session working directory is the workspace.
+  const engine = createRunTurnOverride(providers ?? undefined, process.cwd(), {
+    nativeLlm: () => {
+      // Re-read the config file fresh so model switches in the TUI
+      // (which update `default_model` in config.toml) are reflected.
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return;
+      return extractNativeLlm(reloaded.config);
+    },
+    nativeTools,
+    rustSelfContained,
+    shellPath,
+    getGithubCredentials: () => {
+      // Re-read the config file fresh so token rotation in config.toml is
+      // reflected on the next turn. Env fallbacks (GITHUB_TOKEN / GH_TOKEN
+      // / GITHUB_API_URL) are applied Rust-side — only the config values
+      // cross the boundary here.
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      const github = reloaded.config.github;
+      const token = github?.token;
+      const baseUrl = github?.baseUrl;
+      if (token === undefined && baseUrl === undefined) return undefined;
+      return { token, baseUrl };
+    },
+    onTurnResult: (result) => {
+      // The transport is read, never resolved: a status-backed observation
+      // must not spawn the stdio child process.
+      setEngineExecution({
+        rust: true,
+        transport: activeEngineMode(),
+        llmTransport: result.telemetry?.llmTransport,
+        nativeToolCalls: result.telemetry?.nativeToolCallCount,
+      });
+    },
+    getPolicySnapshot: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return;
+      const cfg = reloaded.config as Record<string, unknown>;
+      const perm = cfg['permission'] as Record<string, unknown> | undefined;
+      const agent = cfg['agent'] as Record<string, unknown> | undefined;
+      const mode = (agent?.['yolo'] === true
+        ? 'yolo'
+        : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
+      const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
+      return {
+        mode,
+        deny_rules: rules
+          .filter((r) => r.decision === 'deny' && typeof r.pattern === 'string')
+          .map((r) => r.pattern!),
+        ask_rules: rules
+          .filter((r) => r.decision === 'ask' && typeof r.pattern === 'string')
+          .map((r) => r.pattern!),
+        allow_rules: rules
+          .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
+          .map((r) => r.pattern!),
+      };
+    },
+  });
+  if (engine === undefined) {
+    // The gate verified the bundle is loadable, so both transports failing
+    // at init means the install is broken — surfaced, never a JS fallback.
+    throw new Error(
+      '[kimi-agent] rust engine failed to initialize (napi addon unloadable and stdio CLI failed to start) — the TS agent engine is disabled.',
+    );
+  }
+  // Wired but unrun: the report says so rather than guessing a transport.
+  setEngineExecution({ rust: true });
+  rustTurnEngine = engine;
+  return rustTurnEngine;
 }

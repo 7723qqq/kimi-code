@@ -7,7 +7,8 @@
  * synchronously by the `/status` report.
  */
 export interface EngineExecution {
-  /** The Rust engine is wired as the turn executor (`agent.engine !== 'js'`). */
+  /** The Rust engine is wired as the turn executor (the gate is rust-only;
+   *  the TS engine is disabled for the rust migration). */
   readonly rust: boolean;
   /** Transport the adapter resolved to. Absent before its first turn — the
    *  adapter picks napi vs stdio lazily, and a status read must not force it. */

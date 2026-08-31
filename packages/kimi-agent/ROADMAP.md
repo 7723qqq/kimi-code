@@ -1946,3 +1946,39 @@ EnterPlanMode/ExitPlanMode（per-turn 快照方案会在这里变脏，故弃用
   事件携带拒绝文案、磁盘无文件、不回退宿主。10/10 全绿。
 - `cargo clippy --lib --all-targets` 0 警告；`cargo fmt --check` 干净；bun 侧 97 passed（无 wire 改动）。
 - 已知噪声：`test_github_token_env` 一次并行 env flaky（单跑即过，P37 已记录同类）。
+
+## P40 — 产品决策：TS 引擎显式禁用，门禁改 rust-only（2026-09-01）
+
+P19 的 rust-first 默认（unset → rust，bundle 缺失静默回退 JS）走到头了：回退把 rust 引擎的
+故障掩埋成「悄悄变慢的 JS」。本决策把 TS agent 引擎从「隐式兜底」改为「显式禁用」——
+rust bundle 缺失或损坏是启动错误，不再静默跑 JS loop。
+
+**决策修订（同日补）**：初版保留了 `agent.engine = "js"` 作为显式逃生门；复核后撤掉——
+迁移期不需要过渡档位，`"js"` 一律忽略（打印警告），TS 引擎在整个迁移期间不可运行。
+枚举值保留（旧 config 不炸），但门禁不再赋予它任何语义。
+
+### 门禁语义（`apps/kimi-code/src/cli/rust-engine.ts`）
+
+- `agent.engine = "js"` → **忽略**（`console.warn` 提示值已废弃），照常走 rust 门禁——
+  没有逃生门，multiLlm 照常生效（原「multiLlm set but engine not active」警告随之删除）。
+- `agent.engine = "rust"` 或 unset（默认）→ rust 引擎**必需**：
+  - bundle 不可加载 → 抛错（修复指引：构建 native bundle）；
+  - 配置不可读 → 视同 unset（无法表达引擎偏好时走默认 = rust）；
+  - adapter 模块缺 `createRunTurnOverride`、或 `createRunTurnOverride` 抛错/返回 undefined
+    （gate 已确认 bundle 可加载，双传输 init 失败 = 安装损坏）→ 抛错，不再吞掉。
+- 调用点（`run-shell.ts` / `run-v2-print.ts`）兜底：打印错误 + `process.exit(1)`——
+  顶层 `main()` 无 catch，不兜底就是裸 unhandled rejection。
+- 原 `catch { return undefined }`（「Rust adapter not available — fall back to JS」）删除；
+  `maybeLoadRustEngine` 的 `setEngineExecution({ rust: false })` 分支随之死亡，一并删除
+  （`/status` 快照不再有 `{ rust: false }` 态）。
+
+### 验证
+
+- `rust-engine.test.ts` 26 全绿：unset/rust + bundle 缺失 → 抛错（3 条）、`"js"` 忽略 +
+  警告（bundle 缺失照抛 / bundle 可加载照接线 / 快照记 rust / multiLlm 照常生效，4 条）、
+  adapter 无引擎/抛错 → 上抛不回退（2 条）、config 不可读视同 unset（1 条）；
+  bundle-present 默认翻转（原 fixture 默认无 bundle 是为回退路径服务的）。
+- `run-shell.test.ts` 18 全绿：`#/cli/rust-engine` 整模块 mock（run-shell 测试不测门禁，
+  mock 掉后真实门禁的抛错路径不会泄漏进启动测试）。
+- `run-v2-print.test.ts` 只测纯函数，不受影响；`rust-engine-cli-e2e.test.ts` 显式
+  `engine = "rust"` + skipIf 守卫，不受影响。
