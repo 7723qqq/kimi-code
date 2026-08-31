@@ -1249,3 +1249,114 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 
 - `cargo test`: 340 lib + 9 stdio 全绿（新增 44 测试）；`cargo clippy --all-targets` 0 warnings；`cargo fmt --check` 干净；`bun x vitest` 70 passed / 5 skipped。
 - 3 个并行子代理测试断言错误已修复（未配对代理输入、CR 可见化期望、grep count 未计 setup 目录既有文件）。
+
+## P33 — v2 删除路线（终态：agent-core-v2 从仓库消失）
+
+> 目标：**删除 `packages/agent-core-v2`**。这是本文件唯一的终态。
+> P0–P32 全部完成也不改变「v2 是运行时权威」这一事实——只有本节会改变它。
+> 功能等效在本节中只作为**迁移期的验收手段**：v2 删除后，所有以 v2 为参照的 golden 断言
+> （「逐字符对齐 v2」）失去参照对象，应随之删除而非改写。
+
+### 为什么 P0–P32 不等于替代
+
+架构是**倒置**的：v2 的 loop 拥有主循环，Rust 是它每轮调用的插件。
+
+```
+apps/kimi-code/src/cli/rust-engine.ts:337        await import('@moonshot-ai/kimi-agent/rust-loop')
+agent-core-v2/.../loop/loopService.ts:722        engineOverride.getEngine()   // v2 决定这一轮给不给 Rust
+```
+
+配置 `engine: 'js' | 'rust'`（`node-sdk/src/config-local/schema.ts:225`）里，`'js'` 的含义是
+「退回 v2 循环」——**没有任何取值代表「v2 不在」**。
+
+**REPL 完善不等于替代。** 纯 Rust CLI（`Cargo.toml:14-16` `[[bin]] kimi-agent-cli`、
+`repl/mod.rs:205`）已能独立运行（零 `todo!()`，自带 `NativeHttpLlm` / `PermissionEngine` /
+`StateStore`），但发布产品走的是 napi 路径——**主循环仍在 v2 手里**。把 REPL 做到完美不会删掉 v2。
+
+### 阻塞面：v2 的消费方（删除的真实成本）
+
+| 消费方 | 依赖类型 | `src` 内引用点 | 备注 |
+|---|---|---|---|
+| `packages/kap-server` | **dependencies** | **175** | 最大阻塞 |
+| `packages/klient` | **dependencies** | **122** | 第二大阻塞 |
+| `packages/acp-server` | dependencies | 14 | |
+| `apps/kimi-inspect` | dependencies | — | |
+| `apps/kimi-code` | devDependencies | 17 | devDep 但被 tsdown **打包进产物**，实际随发布包分发 |
+| `packages/node-sdk` | devDependencies | 42 | 公开 SDK 的类型面 |
+| `packages/kimi-agent` | devDependencies | 类型导入 | 仅 `rust-loop.ts:37-45`，**零运行时耦合** |
+
+结论：`kimi-agent` 侧是干净的，成本全在 **`kap-server` + `klient` 约 300 个引用点**。
+这两个包不是 CLI，是服务端与客户端 SDK——它们的去留决定 v2 是「被删除」还是「被降级为库」。
+
+### 9 条 host 回调：归属与到期条件
+
+全部是**过渡脚手架**，不是架构。每条给出 Rust 侧前置与现状（方法常量见 `rpc/types.rs:91-134`）。
+
+| 回调 | 用途 | Rust 侧前置 | 现状 |
+|---|---|---|---|
+| `host/llm_chat` | LLM 请求代理到 JS | `NativeHttpLlm`（`llm/http.rs:33`） | ✅ 已具备 |
+| `host/check_permission` | 宿主为权限权威 | 进程内 `PermissionEngine`（`repl/mod.rs:425`） | ✅ 已具备 |
+| `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 已具备 |
+| `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ⚠️ checkpoint 仅内存，重启即失 |
+| `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 约 13 个原生 / 16 个状态桥接 / 其余委托 |
+| `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ⚠️ |
+| `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
+| `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ❌ 缺失 |
+| `host/event` | transcript / 遥测落点 | Rust 侧 sink | ❌ 缺失 |
+
+### 里程碑
+
+每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。
+
+- **M0 — 契约归属决策（先决）**
+  现状：同一契约存在 3 份且已漂移，**无编译期检查**——kosong TS（`usage.ts:7`、`message.ts:38`）、
+  Rust（`rpc/types.rs:335/583`、`turn_loop/types.rs:92`）、napi 边界 `JsMessage:694`。
+  已知漂移：`TokenUsage` 字段名不同；`ContentBlock` 无 `ThinkPart`；`LLMMessage` 是 text-first
+  而 kosong 是 blocks-first。
+  决策：Rust 的 `rpc/types.rs` 升为契约源单向生成 TS，**或**抽共享 schema 双向生成。
+  退出：决策落文档 + 一个方向落地 + 三处类型可编译期校验一致。
+
+- **M1 — 翻转产品路径主循环（枢轴）**
+  让 Rust 的 `run_turn` 成为入口，v2 循环退为 flag 后的 fallback。
+  改动面：`apps/kimi-code/src/cli/rust-engine.ts:337`、
+  `agent-core-v2/src/agent/loop/loopService.ts:722`。
+  退出：`engine: 'rust'` 下**没有任何 v2 loop 代码执行**——用 P24 已建的 G-5 观测出口
+  （`/status`）加覆盖率断言证明，不靠人工判断。
+
+- **M2 — 9 条回调逐条到期**
+  按上表逐条补齐 Rust 侧前置，每补齐一条即删除 v2 侧对应实现。
+  退出：9 条全部删除；`rustSelfContained` 开关自身一并移除（它只是验证手段，见 P26）。
+
+- **M3 — 消费方处置**
+  对 `kap-server`（175）、`klient`（122）、`acp-server`（14）逐个给出结论：
+  改接 Rust 引擎的中立接口 / 保留 v2 作为库（**这等于 v2 未被删除，须明确标注而非默认**）/ 移植。
+  退出：三者均有书面结论，不存在「默认继续依赖 v2」的悬空项。
+
+- **M4 — 数据与持久化**
+  `~/.kimi-code/` 既有会话与状态、minidb 的 WAL / snapshot 格式，以及 P32 新增的
+  `<workspace>/.kimi/state/`（该目录**未进 `.gitignore`**，会污染用户工作区）。
+  退出：迁移路径落地，或对数据丢失作出明确且已告知用户的决定。
+
+- **M5 — 删除**
+  删 `packages/agent-core-v2`；移除 `engineOverride` 接缝、`rustSelfContained` 开关、
+  `engine: 'js' | 'rust'` 配置（或重新定义其语义）。
+  同时清理以 v2 为参照的 golden 断言——它们失去参照对象，应删除而非改写。
+  退出：仓库可构建，`cargo test` + `vitest` 全绿，除 git 历史外无 `agent-core-v2` 残留引用。
+
+### 风险
+
+- **并发冲突（现实风险）**：当前有多个会话同时在推进，本节与「替换 v2 第 1 轮」
+  （`8475bfcd29`）存在口径分歧——后者目标是「纯 Rust CLI（REPL）成为 v2 的完整替代」，
+  而 REPL 不是发布路径。需先对齐，否则 M1 会被重复实现或互相覆盖。
+- **宿主独有能力无处安放**：v2 删除后 host 侧不复存在，tower / swarm / lsp / run_code 等
+  （P21 归为「建议保留 host」）必须在 Rust 侧落地，或重新定义宿主分层。归入 M3。
+- **测试资产作废**：大量断言以 v2 行为为参照。v2 删除后它们不再是回归保护，
+  若改写而非删除，会留下「对齐一个已不存在的东西」的伪测试。
+- **数据**：M4 处理不当会丢失用户既有会话。
+
+### 验收口径
+
+与既有批次一致：`cargo test` 全绿 + `cargo clippy --all-targets` 0 warnings +
+`cargo fmt --check` 干净 + `bun --bun run test`。
+**额外增加一条**：每个里程碑必须能指出「本轮删除了 v2 的哪部分代码」——
+说不出来，就说明该里程碑不是删除，只是又一次对齐。
