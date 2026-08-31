@@ -1550,6 +1550,7 @@ gateway 2/2，tsc 0 错误。
   另有一项跨切面：工具注册表在 `buildTools`（`:1080`）被**一次性快照**进引擎输入，
   没有 `host/list_tools` 回调，因此 turn 中途的工具集变化（MCP 重连、skills 增删）传不到 Rust。
 
+  ⚠️ 本条退出标准依赖的 G-5 观测出口**至今未成立**（P34 复核），盘点另新增 G-8 与对 G-6 / P33 的两处量化补充。
   退出：`engine: 'rust'` 下**没有任何 v2 loop 代码执行**——用 P24 已建的 G-5 观测出口
   （`/status`）加覆盖率断言证明，不靠人工判断；
   且上述每一项都要有 Rust 侧落点或明确的宿主分层，否则就是功能丢失而非迁移。
@@ -1605,3 +1606,89 @@ gateway 2/2，tsc 0 错误。
 `cargo fmt --check` 干净 + `bun --bun run test`。
 **额外增加一条**：每个里程碑必须能指出「本轮删除了 v2 的哪部分代码」——
 说不出来，就说明该里程碑不是删除，只是又一次对齐。
+
+## P34 — 剩余工作量盘点：从「能跑」到「v2 消失」的实测边界（2026-09-01，本轮只测量，未改码）
+
+先立一条口径：**代码行数不是度量，所有权才是**。`packages/kimi-agent` 已 47,236 行 > `agent-core-v2` 的
+35,559 行，但 `engine: 'rust'` 下 v2 仍握着 turn 逻辑的约 88%。Rust 真正替掉的只有 step 循环本身。
+
+### 基线（实测）
+
+| 度量 | 值 | 出处 |
+|---|---|---|
+| `loopService.ts` 总长 | 2,227 行 | `wc -l` |
+| 其中 rust 路径仍执行 | ≈1,950 行（**88%**） | `:139-919` 共享外壳（准入/排队/时钟/取消/背压/durable 事件/遥测/错误链）+ `:1055-1587` `buildEngineInput`（533 行）+ `:1639-1651` UI 桥 + `:1905-2141` wire 映射 |
+| 仅 JS 路径（已被 Rust 取代） | ≈280 行 | `executeLoopStep :920-982`、`beginStep`…`finishStep` `:1653-1900` |
+| 引擎入口 | `:723` `getEngine() && runtime.steps === 1` → `executeTurnViaEngine :992-1053` | 该处注释自证：「override 每 turn 只在第一步跑一次，引擎把整个 turn 消费完」 |
+
+### 两种「完整」的剩余量
+
+**口径 A —— 产品路径功能不丢 + 引擎真正拥有 turn**（= M1 收尾 + M2 主体）：待迁移/删除的 v2 代码约 2k 行，
+Rust 侧主要是**接线**——`EngineSession`（M1a 骨架 + M1b 事件，clippy 0）今天**只有 REPL 能构造**，
+`napi_bindings.rs` 对 `session` 零引用。M1c：`quiescence_depth` + `held_admissions` + `settled()`
+（v2 落点 `:308-333`、`:376-406`）+ `host/telemetry`（`:547-623`）。M1d：`host/list_tools`
+消掉 `buildTools` 一次性快照（`:1092`）+ 删 `executeTurnViaEngine`。量级：连续会话一到两周。
+
+**口径 B —— P33 终态：`agent-core-v2` 从仓库消失**（M3/M4/M5）。没有 Rust 对应物、或只有一半的 v2 域：
+
+| 域 | v2 行数 | Rust 侧现状 |
+|---|---|---|
+| tower | 3,535 | 无 |
+| transcript 投影 | 3,363 | 无（若永久留在宿主层，即「v2 未被删除」） |
+| profiles + subagent | 3,933 | Rust 有 1.6k 行实现，但**不在产品路径上**（见 G-8） |
+| skill | 2,882 | 部分：`tools/skill.rs` 331 行只读，经 `state_read` |
+| media / 图片压缩 | 2,461 | 无——明确宿主所有（`tools/mod.rs:423`） |
+| task runner | 2,331 | 部分：`storage/task_runner.rs` 600 行 |
+| context memory + 对话时钟 | 2,054 | 无 |
+| permission 策略链 | 1,803 | 部分：`permission/mod.rs` 517 行，依赖宿主 `PolicySnapshot` |
+| external hooks | 1,419 | 无 |
+| session index / 持久化 | 1,327 | 无（宿主） |
+| undo + checkpoint | 527 | 无——只有 `undoable` 线位标记 |
+
+量级：保守为已投入的 **2–4 倍**，且卡在两个未决设计问题上——M3 的宿主分层（tower/swarm/lsp/run_code
+在 v2 删除后无处安放，P33 风险条目 `:1596` 已承认）与 M4 的数据迁移 + 状态存储位置。
+
+### 本轮的三处结论：一处新增、两处是对既有条目的量化/边界补充
+
+**G-8（新增）工具名级平价缺口，并暴露一条隐式匹配规则。** `NativeToolset::handles`（`tools/mod.rs:186`）
+按 `tool_name.to_ascii_lowercase()` 匹配，且同时列 snake_case 与 collapsed 两种写法——所以 v2 的
+`WaitFor`→`taskwait` 能命中，而这些 v2 注册名**命不中**：`Agent`、`AgentSwarm`、`ReadMediaFile`、
+`select_tools`、`run_code`、`lsp`、`session_query`、`Tower*`（11 个），外加**全部 MCP 运行时发现工具**
+（与 `buildTools` 一次性快照叠加，turn 中途的工具集变化传不到引擎）。反向：Rust 的
+`invoke_subagent` / `manage_subagents` / `define_subagent` / `list_directory` 四组在产品命名下永不命中，
+只在 REPL 自建工具表（`build_repl_tool_defs`）里可达——即 `subagent/manager.rs`(1,119) +
+`tools/subagent_tools.rs`(478) = **1.6k 行不在产品路径上**。两侧命名至今没有一份对照表，
+这条匹配全靠大小写折叠巧合成立，属应显式化的契约。
+
+**G-6 的量化补充：否决链的完整清单。** G-6 原文只说原生路径「绕过宿主工具生命周期」；本轮把范围量清了——
+`onBeforeExecuteTool` 的注册方共 **9 个文件 / 13 处**：`permissionGateService.ts:30`、
+`toolDedupeService.ts:190`、`staleGuardService.ts:57`、`planService.ts:97`、`btwService.ts:34`、
+`agentExternalHooksService.ts:162`、`goalAgentRuntime.ts:1295,1296`、`swarmService.ts:45,63`、
+`towerService.ts:105,118,132`。Rust 原生执行只走 `host/check_permission`（`authorize` 不触发该事件）。
+「不触发」≠「行为缺失」：plan-mode 写拦截已在「替换 v2 第 6 轮」落进 Rust，那条是等价实现；
+其余需逐项判定「迁到引擎 / 明确接受不触发」，否则 M5 删 v2 时会连钩子一起消失。
+
+**对 P33「`onDidFinishStep` 从不执行」条目的边界补充。** 该缺陷已于 2026-08-31 修复
+（`00d7b8f4a8`：引擎返回后补跑 `runAfterStep`），且该节 `:1419-1423` 已更正过「跨 turn 压缩从不触发」
+的过度论断——本轮复核确认两处都成立。需要补的是**频率边界**：修复达成的是「每 turn 一次」，
+而 JS 路径是「每步一次」（`executeLoopStep :930` / `:960`）。门内语义本身是 per-step 的参与者因此在
+引擎路径上被粗化：toolDedupe 的相邻调用去重、externalHooks 的 PostToolUse、以及**turn 内**的
+压缩检查与提醒补注入（跨 turn 的那部分已在 turn 开始生效）。这不是新缺陷，是 M1 完成度与
+`host/step_finished` 需求强度的说明：它补的是「步内」这一层，不是「有没有跑钩子」。
+
+### 未核实项（下轮补，勿当结论引用）
+
+- 各域行数是 `src/` 目录级 `wc -l`，含类型与测试辅助，作为量级参考够用，不是净迁移量。
+- G-8 的 v2 工具名清单来自 `name = '...'` 字面量抽取（含错误类名噪声），已交叉核对到
+  「命中/不命中」结论级，但未逐条对照 v2 工具注册表的最终全集。
+- `swarm/`、`mcp/`、`session` 在 `napi_bindings.rs` 零引用是实测；「仅 REPL 可达」的结论未覆盖
+  `main.rs` 之外的其他潜在装配点。
+
+### 结论与排序建议
+
+口径 A 是**做完就有真价值**的一段：引擎拥有 turn、v2 loop 退成门面，且功能等价可测。
+建议顺序：**G-5 → G-8 → G-6 逐项判定 → M1c → M1d → M2**。
+G-5 排最前的理由：它是 M1 与 M5 退出标准的载体，而现在**仍然是空的**——`/status` 面板无 engine 行
+（`status-panel.ts:115-128`）、`nativeToolsStatus()` 零代码调用点且探的是 `kimi-native-tools`
+而非 `kimi-agent`（`native-require.ts:45-57`）、`vitest.config.ts` 无覆盖率阈值。
+P33 的验收口径明确写着「不靠人工判断」，但没有观测出口时无从判断。
