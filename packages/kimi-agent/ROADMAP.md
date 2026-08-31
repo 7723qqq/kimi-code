@@ -1647,6 +1647,13 @@ gateway 2/2，tsc 0 错误。
   v2 侧，3c 需经句柄暴露 `try_acquire_quiescence`（napi 表面尚未含）；③ 会话 pump 的
   join 式回收（dispose 后 pump 停靠）在 3d 处理。
 
+  **补充裁决（3a 动刀前）：会话固化 vs 每 turn 现读。** 会话把 LLM/权限引擎/GitHub 凭据
+  固化在创建时，而产品路径今天每 turn 现读（TUI 模型切换写 `default_model`、token 轮换、
+  `[permission]` 变更）。裁决：**配置指纹变更 → 会话重建**。门面每 turn 现读
+  nativeLlm/policy/github（现有闭包不动），与活跃会话的指纹比对；不一致 → 旧会话
+  `dispose` + 重建。历史由宿主每 turn `set_history` 推送，重建零损失；turn 时钟经 state
+  桥读取，新会话拿到的值不回退。重建成本只在用户显式变更配置时发生（低频）。
+
   ⚠️ 本条退出标准依赖的 G-5 观测出口**至今未成立**（P34 复核），盘点另新增 G-8 与对 G-6 / P33 的两处量化补充。
   退出：`engine: 'rust'` 下**没有任何 v2 loop 代码执行**——用 P24 已建的 G-5 观测出口
   （`/status`）加覆盖率断言证明，不靠人工判断；
