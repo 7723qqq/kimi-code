@@ -189,4 +189,49 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
     expect(text).toContain('<system-reminder>');
     expect(text).toContain('Plan mode is active');
   });
+
+  it('continues cross-turn history across engine-driven turns', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-multi-'));
+    tempDirs.push(workspace);
+
+    const adapterModule = (await import(
+      '../../../../kimi-agent/rust-loop.ts'
+    )) as typeof import('../../../../kimi-agent/rust-loop');
+    const { shutdownRustEngine } = adapterModule;
+    const engine = adapterModule.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+    shutdownRustEngine();
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine as unknown as TurnEngine,
+      }),
+    );
+    void ctx.restoreRuntimes();
+
+    ctx.mockNextResponse({ type: 'text', text: 'first reply' });
+    let end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first prompt' }] });
+    await end;
+
+    ctx.mockNextResponse({ type: 'text', text: 'second reply' });
+    end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'second prompt' }] });
+    await end;
+
+    // Turn 2's request must carry turn 1's exchange: the host context is the
+    // single source of truth, whichever transport drives the turn.
+    expect(ctx.llmCalls.length).toBe(2);
+    const second = ctx.llmCalls[1]?.history ?? [];
+    const text = second
+      .flatMap((m) =>
+        typeof m.content === 'string' ? [m.content] : m.content.map((c) => ('text' in c ? c.text : '')),
+      )
+      .join('\n');
+    expect(text).toContain('first prompt');
+    expect(text).toContain('first reply');
+    expect(text).toContain('second prompt');
+  });
 });
