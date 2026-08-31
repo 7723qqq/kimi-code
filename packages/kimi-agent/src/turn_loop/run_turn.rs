@@ -225,7 +225,7 @@ pub fn run_turn<'a>(
                     "compacted turn context before LLM call"
                 );
             }
-            let mut messages = compacted;
+            messages = compacted;
             messages.extend(injections);
 
             // ── Injection pass ───────────────────────────────────────────
@@ -949,6 +949,108 @@ mod tests {
         assert_eq!(turn.usage.output_tokens, 7);
         assert_eq!(turn.usage.input_cache_read, 10);
         assert_eq!(turn.usage.input_cache_creation, 4);
+    }
+
+    /// Regression (found via the napi-integration suite after a fresh
+    /// `.node` build): the compaction rebind inside the step loop
+    /// (`let mut messages = compacted;`) shadowed the outer history
+    /// binding, so every step restarted from `[system] + user` and the
+    /// model never saw tool results. The history must accumulate across
+    /// steps: the second request carries the assistant tool_calls message
+    /// and the tool result.
+    #[tokio::test]
+    async fn test_history_accumulates_across_steps() {
+        struct RecordingLlm {
+            call: AtomicU32,
+            requests: std::sync::Mutex<Vec<Vec<LLMMessage>>>,
+        }
+        impl LLM for RecordingLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "recording-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(params.messages.clone());
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![ToolCall {
+                                id: "tc1".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({"path": "/a.txt"}),
+                            }],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = RecordingLlm {
+            call: AtomicU32::new(0),
+            requests: std::sync::Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-history-accumulation".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+        let requests = llm.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        // Step 2's history: system + user + assistant(tool_calls) + tool result.
+        let second = &requests[1];
+        assert!(
+            second
+                .iter()
+                .any(|m| m.role == "assistant" && m.tool_calls.iter().any(|tc| tc.id == "tc1")),
+            "step 2 history must contain the assistant tool_calls message: {second:?}"
+        );
+        assert!(
+            second.iter().any(|m| m.role == "tool"
+                && m.tool_call_id.as_deref() == Some("tc1")
+                && m.content == "stub"),
+            "step 2 history must contain the tool result: {second:?}"
+        );
     }
 
     // ── Turn telemetry counters ─────────────────────────────────────────
