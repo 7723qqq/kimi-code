@@ -1159,6 +1159,15 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `src/goal/mod.rs`（700 行，18 单测）：goal 序列化（wire 对齐 v2 `GoalSnapshot`）、预算换算（`normalize_budget_input`/`budget_limits_from_input`/`to_milliseconds`）、渲染辅助（`format_elapsed`/`format_budgets`/`is_nearing_budget`）
 - `src/tools/task_format.rs`（150 行，6 单测）：`format_plain_object` 移植
 
+### 替换 v2 第 2 轮：undo 语义 + cron 调度器 + task 运行器 — ✅ 完成（2026-09-01）
+
+- **undo/compaction 语义**（`state_store.rs` checkpoint/rollback/checkpoint_depth，6 单测）：每轮 checkpoint 全域快照（v2 undo-anchor 语义，多层栈），/undo 命令 rollback；checkpoint 为内存态（与 v2 一致）
+- **cron 本地调度器**（`src/cron/scheduler.rs`，275 行，8 单测）：CronScheduler（next_fire_at/tick/start），追赶语义（迟到唤醒不丢触发）、one-shot 触发后移除；REPL 启动时加载 cron.json 调度，触发 prompt 入 pending 队列（空行回车执行）
+- **task 后台运行器**（`src/storage/task_runner.rs`，594 行，10 单测）：TaskRunner（spawn/stop/wait/输出快照/state_store 联动）；REPL 的 state_write task 域 stop/wait 委托真实运行器（不再立即超时）
+- REPL 接线：/undo 命令、每轮 checkpoint、cron 调度启动、task_runner 装配
+- 修复：git checkout 误撤销 checkpoint 后重新实现；let-chain 括号
+- 遗留：cron 时区固定 UTC（std 无时区数据）；task 输出快照仅内存（不落盘）
+
 ### 替换 v2 第 1 轮：状态存储 + 注入层 — ✅ 完成（2026-09-01）
 
 > 目标：纯 Rust CLI（REPL）成为 v2 的完整替代（无 TS 中转）。本轮补两个硬缺口。

@@ -15,6 +15,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
@@ -35,8 +36,17 @@ pub struct StateWriteOutcome {
 }
 
 /// Local per-domain JSON state store.
+/// A full snapshot of every state domain, taken at a turn checkpoint.
+/// `None` means the domain had no stored value at snapshot time (rollback
+/// clears it back to absent).
+type StateSnapshot = Vec<(&'static str, Option<Value>)>;
+
 pub struct StateStore {
     state_dir: PathBuf,
+    /// Undo checkpoint stack (v2 undo-anchor semantics): one full snapshot
+    /// per turn, popped by `rollback()`. In-memory only — checkpoints do
+    /// not survive a restart.
+    checkpoints: Mutex<Vec<StateSnapshot>>,
 }
 
 impl StateStore {
@@ -45,7 +55,68 @@ impl StateStore {
     pub fn for_workspace(workspace_root: &Path) -> std::io::Result<Self> {
         let state_dir = workspace_root.join(".kimi").join("state");
         fs::create_dir_all(&state_dir)?;
-        Ok(Self { state_dir })
+        Ok(Self {
+            state_dir,
+            checkpoints: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Snapshot every domain (v2 undo-anchor checkpoint). A file that
+    /// exists but fails to read/parse is an error, not an absent domain —
+    /// rolling back must never silently wipe data.
+    pub fn checkpoint(&self) -> Result<(), String> {
+        let mut snapshot = Vec::with_capacity(STATE_DOMAINS.len());
+        for domain in STATE_DOMAINS {
+            let path = self.domain_file(domain);
+            let value = if path.as_deref().is_some_and(|p| p.is_file()) {
+                let content = fs::read_to_string(path.as_deref().unwrap())
+                    .map_err(|e| format!("checkpoint read {domain}: {e}"))?;
+                Some(
+                    serde_json::from_str(&content)
+                        .map_err(|e| format!("checkpoint parse {domain}: {e}"))?,
+                )
+            } else {
+                None
+            };
+            snapshot.push((domain, value));
+        }
+        self.checkpoints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(snapshot);
+        Ok(())
+    }
+
+    /// Restore the most recent checkpoint. Returns `Ok(false)` when there
+    /// is nothing to undo.
+    pub fn rollback(&self) -> Result<bool, String> {
+        let snapshot = self
+            .checkpoints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pop();
+        let Some(snapshot) = snapshot else {
+            return Ok(false);
+        };
+        for (domain, value) in snapshot {
+            match value {
+                Some(v) => {
+                    self.write_domain(domain, &v)?;
+                }
+                None => {
+                    self.clear_domain(domain)?;
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// How many checkpoints are pending (v2 `checkpointDepth`).
+    pub fn checkpoint_depth(&self) -> usize {
+        self.checkpoints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 
     /// The state directory (`<workspace>/.kimi/state`).

@@ -40,11 +40,20 @@ use crate::turn_loop::types::{LLMMessage, RunTurnInput};
 /// the todo/plan/goal/cron/task tools work without a JS host.
 struct ReplDummyHostCallbacks {
     state_store: Arc<StateStore>,
+    task_runner: Option<Arc<crate::storage::task_runner::TaskRunner>>,
 }
 
 impl ReplDummyHostCallbacks {
     fn new(state_store: Arc<StateStore>) -> Self {
-        Self { state_store }
+        Self {
+            state_store,
+            task_runner: None,
+        }
+    }
+
+    fn with_task_runner(mut self, runner: Arc<crate::storage::task_runner::TaskRunner>) -> Self {
+        self.task_runner = Some(runner);
+        self
     }
 }
 
@@ -98,7 +107,58 @@ impl HostCallbacks for ReplDummyHostCallbacks {
         request: StateWriteRequest,
     ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
         let store = self.state_store.clone();
+        let runner = self.task_runner.clone();
         Box::pin(async move {
+            // Task stop/wait delegate to the real background runner when one
+            // is attached; everything else goes through the pure state
+            // bridge.
+            if request.domain == "task"
+                && let Some(runner) = runner
+            {
+                let action = request
+                    .value
+                    .get("action")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or_default();
+                let id = request
+                    .value
+                    .get("id")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or_default();
+                match action {
+                    "stop" => {
+                        let entry = runner
+                            .stop(id)
+                            .await
+                            .map_err(|e| format!("State write error: [-32002] {e}"))?;
+                        return Ok(StateWriteResponse {
+                            ok: true,
+                            value: serde_json::json!({ "ok": true, "value": entry }),
+                        });
+                    }
+                    "wait" => {
+                        let timeout_ms = request
+                            .value
+                            .get("timeout_ms")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(30_000);
+                        let entry = match runner.wait(id, timeout_ms).await {
+                            crate::storage::task_runner::TaskWaitResult::Completed(entry)
+                            | crate::storage::task_runner::TaskWaitResult::TimedOut(entry) => entry,
+                            crate::storage::task_runner::TaskWaitResult::NotFound => {
+                                return Err(format!(
+                                    "State write error: [-32002] Task not found: {id}"
+                                ));
+                            }
+                        };
+                        return Ok(StateWriteResponse {
+                            ok: true,
+                            value: serde_json::json!({ "ok": true, "value": entry }),
+                        });
+                    }
+                    _ => {}
+                }
+            }
             let outcome = store.apply_write(&request.domain, &request.value)?;
             store.write_domain(&request.domain, &outcome.stored)?;
             Ok(StateWriteResponse {
@@ -224,6 +284,31 @@ pub async fn start_repl(
     // tools are discovered and exposed to the model this session.
     mcp_manager.spawn_from_config(&config.mcp_servers).await;
 
+    // Background task runner: task stop/wait delegate to real execution.
+    let task_runner = Arc::new(crate::storage::task_runner::TaskRunner::for_workspace(
+        &workspace,
+    )?);
+
+    // Cron scheduler: fire entries from the local cron state. Fired prompts
+    // land in a pending queue consumed at the next prompt (press Enter on an
+    // empty line to run them). UTC offset 0 — std has no timezone data.
+    let cron_pending: Arc<std::sync::Mutex<Vec<String>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    if let Some(entries_value) = state_store.read_domain("cron")
+        && let Ok(entries) =
+            serde_json::from_value::<Vec<crate::cron::scheduler::CronEntry>>(entries_value)
+        && !entries.is_empty()
+    {
+        let pending = cron_pending.clone();
+        let _cron_handle = crate::cron::scheduler::CronScheduler::start(entries, 0, move |entry| {
+            println!("\n⏰ [cron] {} — press Enter to run it.", entry.prompt);
+            pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(entry.prompt.clone());
+        });
+    }
+
     loop {
         ui::render_prompt();
 
@@ -244,6 +329,19 @@ pub async fn start_repl(
         };
 
         if line.is_empty() {
+            // An empty line consumes a pending cron prompt, if any: the
+            // prompt joins the message history and the next non-empty input
+            // runs the normal turn pipeline with it.
+            if let Some(prompt) = cron_pending.lock().unwrap_or_else(|e| e.into_inner()).pop() {
+                println!("[cron] Queued: {prompt}");
+                messages.push(LLMMessage {
+                    role: "user".into(),
+                    content: prompt,
+                    blocks: Vec::new(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                });
+            }
             continue;
         }
 
@@ -272,6 +370,7 @@ pub async fn start_repl(
                         "  /yolo              - Toggle YOLO permission mode (auto-approve writes)"
                     );
                     println!("  /clear             - Clear in-memory conversation history");
+                    println!("  /undo              - Undo the last turn's state changes");
                     println!("  /exit, /quit       - Exit the CLI\n");
                     continue;
                 }
@@ -319,6 +418,14 @@ pub async fn start_repl(
                     messages.clear();
                     total_usage = TokenUsage::default();
                     println!("Started new session: {current_session_id}");
+                    continue;
+                }
+                "/undo" => {
+                    match state_store.rollback() {
+                        Ok(true) => println!("Undid the last turn's state changes."),
+                        Ok(false) => println!("Nothing to undo."),
+                        Err(e) => eprintln!("[Undo error]: {e}"),
+                    }
                     continue;
                 }
                 "/status" => {
@@ -426,8 +533,9 @@ pub async fn start_repl(
         let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
 
         // Build callback pipeline
-        let base_callbacks: Arc<dyn HostCallbacks> =
-            Arc::new(ReplDummyHostCallbacks::new(state_store.clone()));
+        let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
+            ReplDummyHostCallbacks::new(state_store.clone()).with_task_runner(task_runner.clone()),
+        );
         let event_counter = Arc::new(AtomicU32::new(0));
         let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
             CountingCallbacks::new(base_callbacks, event_counter).with_bus(event_bus.clone()),
@@ -457,6 +565,12 @@ pub async fn start_repl(
 
         let cancellation = Arc::new(AtomicBool::new(false));
         let turn_id = format!("turn-{}", fastrand::u64(..));
+
+        // Undo checkpoint: snapshot all state domains before the turn so
+        // /undo can roll back this turn's state changes.
+        if let Err(e) = state_store.checkpoint() {
+            eprintln!("[Checkpoint error]: {e}");
+        }
 
         println!(); // Linebreak before streaming
         let result = run_turn(

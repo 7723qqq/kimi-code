@@ -5,6 +5,8 @@
 //! take an explicit local-timezone offset (minutes east of UTC) because std
 //! has no local-time API; the caller supplies the host's offset.
 
+pub mod scheduler;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
