@@ -1345,15 +1345,24 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | **externalHooks** | `agentExternalHooksService.ts:237` | ❌ **零对应**。用户可在配置里写 `hooks[]`（`schema.ts:433`、`:486`），**配了也不触发** |
 | **toolDedupe** | `toolDedupeService.ts:186` | ❌ **零对应** |
 
-前两项是真实的用户可见功能丢失。**已修（2026-08-31，`00d7b8f4a8`）**：`executeTurnViaEngine`
-在 `engine(input)` 返回后调用 `runAfterStep`，与 `onWillBeginStep`（`:1000`）形成对称。
-取「跑钩子但丢弃 `stopTurn`」的方案而非「Rust 侧重实现」——因为 `completeLoopStep` 对
-engine 路径的两个分支返回逐字段相同的结果（`:821-822` vs 调用处 `:727-731`），丢 `stopTurn`
-零控制流影响；而那 4 项 Rust 已补偿的能力只是缺 v2 侧记账（step-retry 重置计数、
-micro-compaction 记时间戳都是无害状态维护），full-compaction 的 `afterStep` 是阈值门控且
-不抛异常的会话级检查，正补上「rust 模式下会话上下文跨 turn 无界增长」这个最重的洞。
-验证：engineOverride 套件 54/54（新增钩子执行断言），全套 vitest 失败集合与改动前逐条
-diff 一致（12 条，stash 基线确认为预先存在），tsc 0 错误，oxlint 0 错误。
+前两项（externalHooks / toolDedupe）是真实的用户可见功能丢失——它们**只有**这一个触发点。
+**已修（2026-08-31，`00d7b8f4a8`）**：`executeTurnViaEngine` 在 `engine(input)` 返回后调用
+`runAfterStep`，与 `onWillBeginStep`（`:1000`）形成对称。取「跑钩子但丢弃 `stopTurn`」的方案
+而非「Rust 侧重实现」——因为 `completeLoopStep` 对 engine 路径的两个分支返回逐字段相同的
+结果（`:821-822` vs 调用处 `:727-731`），丢 `stopTurn` 零控制流影响；其余 4 项 Rust 已有
+功能对应，缺的只是 v2 侧记账（step-retry 重置计数、micro-compaction 记时间戳，均为无害
+状态维护）。
+
+⚠️ **本节初版有一处论断错误，已更正**：初版称「会话级自动压缩从不触发、上下文跨 turn
+无界增长」——**错**。full-compaction 的 `beforeStep`（含 `checkAutoCompaction()`）挂在
+`onWillBeginStep`（`:183`）上，而该钩子在引擎路径自 P2 起就已执行（`:1000`），所以跨 turn
+压缩在修复前就已随每个 turn 开始触发。`afterStep` 对压缩只是把检查时序前移到 turn 结束，
+功能上是冗余兜底（`checkAfterStep = triggerRatio !== blockRatio`，`strategy.ts:90`）。
+
+对照实验（检出修复前 `loopService.ts` 实测）：钩子执行断言**修复前失败、修复后通过**——
+修复本身得到验证；跨轮压缩测试**两种代码都通过**，因此它只是引擎路径的回归保护，
+不是修复验证。全套 vitest 失败集合与改动前逐条 diff 一致（12 条，stash 基线确认为
+预先存在），tsc 0 错误，oxlint 0 错误。
 
 **遗留**：`host/drain_steers` 仍未接线——`rust-loop.ts:1511` 消费的 `input.drainSteers`
 现已声明在 `TurnEngineInput`（类型修复，同提交），但宿主 steer 队列（`promptService.ts:182`

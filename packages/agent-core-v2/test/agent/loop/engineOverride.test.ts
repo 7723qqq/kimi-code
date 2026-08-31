@@ -284,6 +284,58 @@ describe('external engine override', () => {
     expect(finished[0]!.finishReason).toBe('completed');
   });
 
+  it('runs session-level auto compaction across turns on the engine path', async () => {
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    ctx.configure({
+      modelCapabilities: {
+        image_in: true,
+        video_in: true,
+        audio_in: false,
+        thinking: true,
+        tool_use: true,
+        max_context_tokens: 2_000,
+      },
+    });
+
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 1_900);
+    const tokensBefore = ctx.contextData().tokenCount;
+    expect(tokensBefore).toBeGreaterThanOrEqual(1_700);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Cross-turn compaction summary.' });
+    const completed = ctx.once('compaction.completed');
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+    await completed;
+
+    expect(ctx.llmCalls).toHaveLength(1);
+    const compactionPrompt = (ctx.llmCalls[0]?.history ?? [])
+      .map((message) => message.content.map((p) => (p.type === 'text' ? p.text : '')).join('\n'))
+      .join('\n');
+    expect(compactionPrompt).toContain('first-person handoff note');
+    expect(
+      ctx
+        .contextData()
+        .history.some((m) =>
+          m.content.some((p) => p.type === 'text' && p.text.includes('Cross-turn compaction summary.')),
+        ),
+    ).toBe(true);
+  });
+
   it('drives a multi-step turn with tool round-trips then reports events', async () => {
     const tool = makeEchoTool();
     let stepCount = 0;
