@@ -287,6 +287,12 @@ export declare function sessionHistoryLen(sessionId: string): number
 export declare function sessionIsSettled(sessionId: string): boolean
 
 /**
+ * Release the quiescence window: held turns replay in FIFO order and the
+ * pump wakes. A no-op when no guard is held.
+ */
+export declare function sessionReleaseQuiescence(sessionId: string): void
+
+/**
  * Replace the session's cross-turn history (the next enqueued turn starts
  * from it, with the new prompt appended).
  */
@@ -300,6 +306,15 @@ export declare function sessionSettled(sessionId: string): object
 
 /** Live session shape: the active turn id and the queued turn ids. */
 export declare function sessionStatus(sessionId: string): JsSessionStatus
+
+/**
+ * Try to acquire quiescence (M1c): an exclusive window in which enqueued
+ * turns are parked instead of admitted. Fails when a guard is already held
+ * or any turn is active, pending, or held — the caller waits for
+ * `session_settled` and retries. The guard lives in the registry; release
+ * with `session_release_quiescence`.
+ */
+export declare function sessionTryAcquireQuiescence(sessionId: string): boolean
 
 /**
  * Resolve with the outcome of one enqueued turn. Takes the stored receiver —

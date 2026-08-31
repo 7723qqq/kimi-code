@@ -1506,6 +1506,9 @@ struct SessionEntry {
     turn_event_count: Arc<std::sync::atomic::AtomicU32>,
     native_tool_count: Arc<std::sync::atomic::AtomicU32>,
     llm_transport: String,
+    /// The live quiescence guard (M1c RAII). Acquire stores it; release drops
+    /// it — the drop replays held turns and wakes the pump.
+    quiescence_guard: Arc<Mutex<Option<crate::session::QuiescenceGuard>>>,
 }
 
 fn session_entry(session_id: &str) -> napi::Result<SessionEntry> {
@@ -1698,6 +1701,7 @@ pub fn create_engine_session(
                         turn_event_count: pipeline.turn_event_count,
                         native_tool_count: pipeline.native_tool_count,
                         llm_transport: pipeline.llm.transport().to_string(),
+                        quiescence_guard: Arc::new(Mutex::new(None)),
                     },
                 );
             Ok(session_id)
@@ -1903,6 +1907,42 @@ pub fn session_dispose(session_id: String) -> napi::Result<()> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&session_id);
+        Ok(())
+    })
+}
+
+/// Try to acquire quiescence (M1c): an exclusive window in which enqueued
+/// turns are parked instead of admitted. Fails when a guard is already held
+/// or any turn is active, pending, or held — the caller waits for
+/// `session_settled` and retries. The guard lives in the registry; release
+/// with `session_release_quiescence`.
+#[napi]
+pub fn session_try_acquire_quiescence(session_id: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        match entry.session.try_acquire_quiescence() {
+            Some(guard) => {
+                *entry
+                    .quiescence_guard
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(guard);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    })
+}
+
+/// Release the quiescence window: held turns replay in FIFO order and the
+/// pump wakes. A no-op when no guard is held.
+#[napi]
+pub fn session_release_quiescence(session_id: String) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        *entry
+            .quiescence_guard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     })
 }

@@ -1643,8 +1643,10 @@ gateway 2/2，tsc 0 错误。
      路径（保留 REPL）；G-5 覆盖率断言扩展到 turn 外壳（`check:engine-zero-js-loop`）。
 
   **已知开放点**：① steer 的 `drainSteers` 在会话模型下由引擎 pump 每步拉取（已接线），
-  v2 侧 step 队列的 steer 语义需在 3c 对齐；② quiescence 消费方（undo/compaction）在
-  v2 侧，3c 需经句柄暴露 `try_acquire_quiescence`（napi 表面尚未含）；③ 会话 pump 的
+  v2 侧 step 队列的 steer 语义需在 3c 对齐；② ~~quiescence 消费方（undo/compaction）在
+  v2 侧，3c 需经句柄暴露 `try_acquire_quiescence`~~（✅ 2026-09-01 已暴露：
+  `session_try_acquire_quiescence`/`session_release_quiescence`——RAII guard 存注册表，
+  release 即 drop 重放；句柄方法 + 集成测试已钉）；③ 会话 pump 的
   join 式回收（dispose 后 pump 停靠）在 3d 处理。
 
   **补充裁决（3a 动刀前）：会话固化 vs 每 turn 现读。** 会话把 LLM/权限引擎/GitHub 凭据

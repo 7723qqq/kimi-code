@@ -94,6 +94,8 @@ interface SessionNativeModule {
   sessionStatus(sessionId: string): SessionStatus;
   sessionIsSettled(sessionId: string): boolean;
   sessionSettled(sessionId: string): Promise<void>;
+  sessionTryAcquireQuiescence(sessionId: string): boolean;
+  sessionReleaseQuiescence(sessionId: string): void;
   sessionSetHistory(sessionId: string, historyJson: string): void;
   sessionClearHistory(sessionId: string): void;
   sessionExtendHistory(sessionId: string, historyJson: string): void;
@@ -228,6 +230,20 @@ export class EngineSessionHandle {
   /** Resolves once the session is fully idle. */
   settled(): Promise<void> {
     return this.mod.sessionSettled(this.id);
+  }
+
+  /**
+   * Try to acquire quiescence: an exclusive window in which enqueued turns
+   * are parked instead of admitted (undo checkpoints, compaction). Fails
+   * when a guard is already held or any turn is outstanding.
+   */
+  tryAcquireQuiescence(): boolean {
+    return this.mod.sessionTryAcquireQuiescence(this.id);
+  }
+
+  /** Release the quiescence window: held turns replay in FIFO order. */
+  releaseQuiescence(): void {
+    this.mod.sessionReleaseQuiescence(this.id);
   }
 
   setHistory(history: SessionPrompt[]): void {

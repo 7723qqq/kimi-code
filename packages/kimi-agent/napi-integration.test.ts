@@ -1833,3 +1833,59 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle (M1d wrapper)', () => {
     handle.dispose();
   });
 });
+
+describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)', () => {
+  it('parks turns during quiescence and replays them on release', async () => {
+    const { EngineSessionHandle } = await import('./session-handle');
+    let chatCalls = 0;
+    let release: (() => void) | undefined;
+    const immediateResponse = JSON.stringify({
+      content: 'done',
+      tool_calls: [],
+      finish_reason: 'stop',
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    });
+    const handle = await EngineSessionHandle.create(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'test',
+        modelName: 'm',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      {
+        // The first chat (the replayed held turn) answers immediately; the
+        // second (the active turn) parks on a gate the test controls.
+        llmChat: async () => {
+          chatCalls += 1;
+          if (chatCalls === 1) return immediateResponse;
+          return new Promise<string>((resolve) => {
+            release = () => resolve(immediateResponse);
+          });
+        },
+        executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+      },
+    );
+
+    expect(handle.tryAcquireQuiescence()).toBe(true);
+    const heldId = handle.enqueueTurn({ role: 'user', content: 'held' }, 'newTurn');
+    expect(handle.isSettled()).toBe(false);
+
+    handle.releaseQuiescence();
+    const outcome = await handle.turnOutcome(heldId);
+    expect(outcome.status).toBe('ran');
+    await handle.settled();
+
+    const activeId = handle.enqueueTurn({ role: 'user', content: 'active' }, 'newTurn');
+    for (let i = 0; i < 100 && handle.status().activeTurnId !== activeId; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    // The turn parks on the gate, so the window must stay denied until it ends.
+    expect(handle.tryAcquireQuiescence()).toBe(false);
+    release?.();
+    expect((await handle.turnOutcome(activeId)).status).toBe('ran');
+    await handle.settled();
+    handle.dispose();
+  });
+});
