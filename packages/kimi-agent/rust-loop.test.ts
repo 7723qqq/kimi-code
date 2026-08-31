@@ -14,6 +14,7 @@ import {
   type AskQuestionWire,
   type AskQuestionWireResult,
 } from './rust-loop';
+import { runTurnParamsSchema, runTurnResultSchema } from './wire-schema';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -1451,5 +1452,66 @@ describe('NapiEngine — state bridge callback passing', () => {
     expect(received).toHaveLength(1);
     expect(received[0]?.[8]).toBeUndefined();
     expect(received[0]?.[9]).toBeUndefined();
+  });
+});
+
+describe('wire-schema', () => {
+  it('accepts a canonical stdio run_turn request', () => {
+    const parsed = runTurnParamsSchema.safeParse({
+      turn_id: 'turn-1',
+      system_prompt: 'sp',
+      model_name: 'm',
+      messages: [
+        { role: 'user', content: 'hi' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'c1', name: 'Read', arguments: { path: 'a' } }],
+        },
+        { role: 'tool', content: 'out', tool_call_id: 'c1' },
+      ],
+      tools: [{ name: 'read', description: 'd', input_schema: { type: 'object' } }],
+      max_steps: 3,
+      providers: [],
+      goal: {
+        goal_id: 'g1',
+        objective: 'obj',
+        status: 'active',
+        wall_clock_ms: 0,
+        tokens_used: 0,
+        turns_used: 0,
+      },
+      native_tools: true,
+      rust_self_contained: false,
+      policy_snapshot: { mode: 'manual', deny_rules: ['Write(*)'] },
+      github_token: 'tok',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects a mistyped run_turn request field', () => {
+    const parsed = runTurnParamsSchema.safeParse({
+      turn_id: 'turn-1',
+      system_prompt: 'sp',
+      model_name: 'm',
+      messages: [],
+      tools: [],
+      max_steps: '3',
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('accepts a minimal run_turn result and rejects a missing stop_reason', () => {
+    expect(
+      runTurnResultSchema.safeParse({
+        stop_reason: 'EndTurn',
+        steps: 1,
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      }).success,
+    ).toBe(true);
+    expect(
+      runTurnResultSchema.safeParse({ steps: 1, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } })
+        .success,
+    ).toBe(false);
   });
 });

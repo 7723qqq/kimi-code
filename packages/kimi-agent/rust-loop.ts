@@ -31,6 +31,7 @@ import type { ZodType } from 'zod';
 import {
   llmChatRequestSchema,
   permissionCheckRequestSchema,
+  runTurnParamsSchema,
   runTurnResultSchema,
   toolExecuteRequestSchema,
   toolFinalizeRequestSchema,
@@ -1789,28 +1790,33 @@ export function createRunTurnOverride(
         });
         agent.setEventHandler(handleEngineEvent);
 
-        const result = await agent.request('agent/run_turn', {
-          turn_id: turnIdStr,
-          system_prompt: input.llm.systemPrompt,
-          model_name: input.llm.modelAlias,
-          messages: wireMessages,
-          tools: wireTools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            input_schema: t.parameters ?? {},
-          })),
-          max_steps: input.maxSteps,
-          providers: providers ?? [],
-          goal,
-          native_llm: nativeLlm,
-          workspace_root: workspaceRoot,
-          native_tools: nativeTools,
-          rust_self_contained: rustSelfContained,
-          shell_path: shellPathOpt,
-          policy_snapshot: policySnapshot,
-          github_token: githubCredentials?.token,
-          github_base_url: githubCredentials?.baseUrl,
-        });
+        const runTurnRequest = parseWireObject(
+          runTurnParamsSchema,
+          {
+            turn_id: turnIdStr,
+            system_prompt: input.llm.systemPrompt,
+            model_name: input.llm.modelAlias,
+            messages: wireMessages,
+            tools: wireTools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              input_schema: t.parameters ?? {},
+            })),
+            max_steps: input.maxSteps,
+            providers: providers ?? [],
+            goal,
+            native_llm: nativeLlm,
+            workspace_root: workspaceRoot,
+            native_tools: nativeTools,
+            rust_self_contained: rustSelfContained,
+            shell_path: shellPathOpt,
+            policy_snapshot: policySnapshot,
+            github_token: githubCredentials?.token,
+            github_base_url: githubCredentials?.baseUrl,
+          },
+          'agent/run_turn request',
+        );
+        const result = await agent.request('agent/run_turn', runTurnRequest);
         if (!result) {
           throw new Error('Rust engine returned null result');
         }

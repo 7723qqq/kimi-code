@@ -1444,7 +1444,7 @@ gateway 2/2，tsc 0 错误。
 
 每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。
 
-- **M0 — 契约归属决策（先决）** — 🔄 决策已落（2026-08-31，`reports/rust-engine-contract-ownership.md`）
+- **M0 — 契约归属决策（先决）** — ✅ 完成（2026-08-31，`reports/rust-engine-contract-ownership.md`）
   现状：同一契约存在 **4 份**且已漂移，**无编译期检查**——kosong TS（`usage.ts:7`、`message.ts:38`）、
   **v2 contract 物理拷贝**（`agent-core-v2/src/kosong/contract/`，message.ts 语义相同、tokens.ts 已分叉）、
   Rust（`rpc/types.rs:335/583`、`turn_loop/types.rs:92`）、napi 边界 `JsMessage:694`。
@@ -1457,8 +1457,13 @@ gateway 2/2，tsc 0 错误。
   （napi dts 生成修复：`napi-derive` 补 `type-def` feature + build.rs 桥接
   CLI 3.x `NAPI_TYPE_DEF_TMP_FOLDER` ↔ 宏 v2 `TYPE_DEF_TMP_PATH` 协议错配 +
   `scripts/fix-napi-dts.mjs` 折叠双重 `export declare`；提交 `napi-contract.d.ts`，
-  `rust-loop.ts` 参数/结果形状编译期校验——根因链见决策文档 §4）；切片 2/3 待做。
-  退出：决策落文档 ✅ + 一个方向落地（切片 1 ✅ / 1b ⚠️）+ 三处类型可编译期校验一致（待切片 3）。
+  `rust-loop.ts` 参数/结果形状编译期校验——根因链见决策文档 §4）；
+  切片 2 ✅（`wire-schema.ts` zod 镜像 + `parseWire` 接入五个解析点，畸形载荷带名拒绝）；
+  切片 3 ✅（修订形态：Rust 侧全类型 fixture round-trip + TS 侧出站 `runTurnParamsSchema`
+  校验；codegen（typeshare/ts-rs）推迟到 M1 事件类型落地时再评估——理由见决策文档 §4）。
+  退出：决策落文档 ✅ + 一个方向落地 ✅ + 三处类型校验一致 ✅
+  （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
+  口径修订记录在决策文档 §4）。
 
 - **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）**
   ⚠️ 措辞更正：不是「翻转主循环」——Rust 早已拥有 step 循环（`loopService.ts:718-723`）。

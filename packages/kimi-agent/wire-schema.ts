@@ -63,3 +63,69 @@ export const runTurnResultSchema = z.object({
   llm_transport: z.string().optional(),
   native_tool_calls: z.number().optional(),
 });
+
+// ── JS→Rust direction (stdio `agent/run_turn` request) ─────────────────────
+// The Rust side deserializes with `serde(default)` on most fields, so a
+// mistyped field name would silently fall back to the default instead of
+// failing — validating the outgoing payload is the only drift catcher for
+// this direction.
+
+const goalContext = z.object({
+  goal_id: z.string(),
+  objective: z.string(),
+  status: z.string(),
+  token_budget: z.number().nullable().optional(),
+  turn_budget: z.number().nullable().optional(),
+  wall_clock_budget_ms: z.number().nullable().optional(),
+  wall_clock_ms: z.number(),
+  tokens_used: z.number(),
+  turns_used: z.number(),
+});
+
+const nativeLlmConfig = z.object({
+  protocol: z.string(),
+  base_url: z.string(),
+  api_key: z.string(),
+  model: z.string(),
+  max_tokens: z.number().optional(),
+});
+
+const policySnapshot = z.object({
+  mode: z.enum(['manual', 'auto', 'yolo']).optional(),
+  deny_rules: z.array(z.string()).optional(),
+  ask_rules: z.array(z.string()).optional(),
+  allow_rules: z.array(z.string()).optional(),
+  session_approvals: z.array(z.string()).optional(),
+  git_cwd: z.string().optional(),
+});
+
+export const runTurnParamsSchema = z.object({
+  turn_id: z.string(),
+  system_prompt: z.string(),
+  model_name: z.string(),
+  messages: z.array(
+    z.object({
+      role: z.string(),
+      content: z.string(),
+      blocks: z.array(z.unknown()).optional(),
+      tool_calls: z
+        .array(z.object({ id: z.string(), name: z.string(), arguments: z.unknown() }))
+        .optional(),
+      tool_call_id: z.string().optional(),
+    }),
+  ),
+  tools: z.array(toolDef),
+  max_steps: z.number().optional(),
+  providers: z
+    .array(z.object({ name: z.string(), model: z.string(), system_prompt: z.string() }))
+    .optional(),
+  goal: goalContext.optional(),
+  native_llm: nativeLlmConfig.optional(),
+  workspace_root: z.string().optional(),
+  native_tools: z.boolean().optional(),
+  rust_self_contained: z.boolean().optional(),
+  shell_path: z.string().optional(),
+  policy_snapshot: policySnapshot.optional(),
+  github_token: z.string().optional(),
+  github_base_url: z.string().optional(),
+});

@@ -769,6 +769,157 @@ mod tests {
         );
     }
 
+    /// Stdio wire contract for the request/response types crossing the
+    /// JSON-RPC boundary (M0 slice 3): snake_case field names, serde
+    /// `default` / `skip_serializing_if` behavior pinned. The TS side
+    /// (`rust-loop.ts` + `wire-schema.ts`) mirrors these; a round-trip
+    /// mismatch here is a wire break, not a refactor.
+    #[test]
+    fn test_stdio_wire_contract_roundtrip() {
+        // LlmChatRequest: request_id serializes only when present.
+        let request = LlmChatRequest {
+            system_prompt: "sp".into(),
+            model_name: "m".into(),
+            messages: vec![
+                LlmChatMessage {
+                    role: "user".into(),
+                    content: "hi".into(),
+                    blocks: Vec::new(),
+                },
+                LlmChatMessage {
+                    role: "user".into(),
+                    content: "see".into(),
+                    blocks: vec![ContentBlock::ImageUrl {
+                        url: "https://example.com/a.png".into(),
+                    }],
+                },
+            ],
+            tools: vec![ToolDef {
+                name: "read".into(),
+                description: "d".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            request_id: Some("req-1".into()),
+        };
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!(wire["request_id"], "req-1");
+        assert_eq!(wire["messages"][1]["blocks"][0]["type"], "image_url");
+        let round: LlmChatRequest = serde_json::from_value(wire).unwrap();
+        assert_eq!(round.request_id.as_deref(), Some("req-1"));
+        let mut no_id = request.clone();
+        no_id.request_id = None;
+        let wire = serde_json::to_value(&no_id).unwrap();
+        assert!(
+            wire.get("request_id").is_none(),
+            "absent request_id must be omitted"
+        );
+
+        // LlmChatResponse: `content` defaults on deserialize; finish_reason
+        // is null when absent.
+        let response: LlmChatResponse = serde_json::from_value(serde_json::json!({
+            "tool_calls": [{"id": "c1", "name": "Read", "arguments": {"path": "a"}}],
+            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
+        }))
+        .unwrap();
+        assert_eq!(response.content, "");
+        assert_eq!(response.finish_reason, None);
+        assert_eq!(response.tool_calls.len(), 1);
+
+        // ToolExecuteRequest / Response.
+        let exec = ToolExecuteRequest {
+            turn_id: "t".into(),
+            tool_call_id: "c1".into(),
+            tool_name: "Read".into(),
+            arguments: serde_json::json!({"path": "a"}),
+        };
+        assert_eq!(
+            serde_json::to_value(&exec).unwrap(),
+            serde_json::json!({
+                "turn_id": "t", "tool_call_id": "c1",
+                "tool_name": "Read", "arguments": {"path": "a"}
+            })
+        );
+        let exec_resp = ToolExecuteResponse {
+            content: "out".into(),
+            is_error: false,
+            note: None,
+        };
+        let wire = serde_json::to_value(&exec_resp).unwrap();
+        assert_eq!(
+            wire["note"],
+            serde_json::Value::Null,
+            "absent note serializes as null"
+        );
+        let round: ToolExecuteResponse = serde_json::from_value(
+            serde_json::json!({"content": "out", "is_error": true, "note": "n"}),
+        )
+        .unwrap();
+        assert!(round.is_error);
+        assert_eq!(round.note.as_deref(), Some("n"));
+
+        // PermissionCheckRequest / Decision.
+        let perm = PermissionCheckRequest {
+            tool_name: "Write".into(),
+            tool_call_id: "c2".into(),
+            arguments: serde_json::json!({"path": "a"}),
+        };
+        assert_eq!(serde_json::to_value(&perm).unwrap()["tool_name"], "Write");
+        let decision = PermissionDecision::deny("no");
+        assert_eq!(
+            serde_json::to_value(&decision).unwrap(),
+            serde_json::json!({"decision": "deny", "reason": "no"})
+        );
+
+        // ToolFinalizeRequest: note defaults to null on deserialize.
+        let finalize: ToolFinalizeRequest = serde_json::from_value(serde_json::json!({
+            "tool_name": "Bash", "tool_call_id": "c3",
+            "content": "out", "is_error": false
+        }))
+        .unwrap();
+        assert_eq!(finalize.note, None);
+
+        // RunTurnParams: every field round-trips; serde defaults fill the
+        // optional ones the TS side may omit.
+        let params: RunTurnParams = serde_json::from_value(serde_json::json!({
+            "turn_id": "t1",
+            "system_prompt": "sp",
+            "model_name": "m",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [],
+            "max_steps": 3,
+            "github_token": "tok",
+            "github_base_url": "https://github.example.com"
+        }))
+        .unwrap();
+        assert_eq!(params.max_steps, Some(3));
+        assert!(params.providers.is_empty());
+        assert!(!params.native_tools);
+        assert!(!params.rust_self_contained);
+        assert_eq!(params.github_token.as_deref(), Some("tok"));
+        assert!(params.goal.is_none());
+
+        // RunTurnResult: serde-default fields serialize (never omitted).
+        let result = RunTurnResult {
+            stop_reason: "EndTurn".into(),
+            steps: 2,
+            usage: TokenUsage::default(),
+            events_emitted: 0,
+            llm_retries: 0,
+            llm_transport: "host-proxy".into(),
+            native_tool_calls: 0,
+        };
+        let wire = serde_json::to_value(&result).unwrap();
+        assert_eq!(wire["events_emitted"], 0);
+        assert_eq!(wire["llm_transport"], "host-proxy");
+        let round: RunTurnResult = serde_json::from_value(serde_json::json!({
+            "stop_reason": "Aborted", "steps": 1,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        }))
+        .unwrap();
+        assert_eq!(round.events_emitted, 0);
+        assert_eq!(round.llm_transport, "");
+    }
+
     #[test]
     fn test_run_turn_result_roundtrip() {
         let result = RunTurnResult {
