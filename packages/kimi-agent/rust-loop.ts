@@ -167,6 +167,13 @@ export interface RustEngineOptions {
    */
   getPolicySnapshot?: () => PolicySnapshot | undefined;
   /**
+   * Called once per completed turn with the result handed back to v2. The host
+   * surfaces which transport actually ran the turn (`/status`); the adapter
+   * stays the sole owner of the engine call, so the host does not have to wrap
+   * it.
+   */
+  onTurnResult?: (result: Awaited<ReturnType<TurnEngineAdapter>>) => void;
+  /**
    * Ask the host an interactive question and wait for a human answer
    * (`host/ask_question`). The per-turn engine input's `askUserQuestion`
    * takes precedence when both are wired; when neither is, the engine
@@ -1219,11 +1226,21 @@ export class AgentProcess {
 // ── Engine selection ──────────────────────────────────────────────────────
 
 /// Which transport is active for the current session.
-type EngineMode = 'napi' | 'stdio' | 'js';
+export type EngineMode = 'napi' | 'stdio' | 'js';
 
 let engineMode: EngineMode = 'js';
 let agentProcess: AgentProcess | null = null;
 let napiEngine: NapiEngine | null = null;
+
+/**
+ * The transport currently driving turns, without resolving it. `initEngine()`
+ * would spawn the stdio child process, so a status read must not trigger it:
+ * `'js'` here means no native transport has run a turn yet, or the stdio
+ * engine hit its restart cap and fell back.
+ */
+export function activeEngineMode(): EngineMode {
+  return engineMode;
+}
 
 /**
  * Crash accounting for the stdio engine.
@@ -1867,7 +1884,7 @@ export function createRunTurnOverride(
 
     const stopReason = mapStopReason(rustResult.stop_reason);
 
-    return {
+    const turnResult = {
       stopReason,
       steps: rustResult.steps,
       usage: {
@@ -1883,6 +1900,8 @@ export function createRunTurnOverride(
         nativeToolCallCount: rustResult.native_tool_calls,
       },
     };
+    options?.onTurnResult?.(turnResult);
+    return turnResult;
   };
 }
 

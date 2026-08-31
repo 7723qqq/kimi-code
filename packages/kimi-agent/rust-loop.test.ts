@@ -200,6 +200,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     fileExisted: boolean;
     fileContent: string | null;
     result: unknown;
+    observed: unknown;
   }> {
     const mod = await import('./rust-loop');
     // The engine's mode is sticky, so tests reset it to re-select a transport.
@@ -209,9 +210,13 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       mod.shutdownRustEngine();
       mod.forceEngineTransport('stdio');
     }
+    let observed: unknown;
     const engine = mod.createRunTurnOverride(undefined, workspace, {
       nativeTools: true,
       shellPath: undefined,
+      onTurnResult: (result) => {
+        observed = result;
+      },
     });
     expect(engine).toBeDefined();
 
@@ -280,6 +285,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       fileExisted: existsSync(filePath),
       fileContent: existsSync(filePath) ? readFileSync(filePath, 'utf8') : null,
       result,
+      observed,
     };
   }
 
@@ -310,6 +316,14 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     const telemetry = (out.result as { telemetry?: { eventsEmitted: number } }).telemetry;
     expect(typeof telemetry?.eventsEmitted).toBe('number');
     expect(telemetry.eventsEmitted).toBeGreaterThanOrEqual(1);
+    // The host observer sees the turn the engine actually completed, which is
+    // what the /status Engine row reports - same object, not a re-derivation.
+    const observed = out.observed as {
+      telemetry?: { nativeToolCallCount?: number; llmTransport?: string };
+    };
+    expect(out.observed).toBe(out.result);
+    expect(observed.telemetry?.nativeToolCallCount).toBeGreaterThanOrEqual(1);
+    expect(observed.telemetry?.llmTransport).toBe('host-proxy');
   });
 
   it('routes native Write through host permission checker (deny → no file, refusal is the result)', async () => {

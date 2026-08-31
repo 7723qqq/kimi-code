@@ -15,6 +15,7 @@ import {
 
 import { PRODUCT_NAME } from '#/constant/app';
 import { t } from '#/i18n';
+import type { EngineExecution } from '#/utils/engine-execution';
 import { currentTheme } from '#/tui/theme';
 import {
   formatTokenCount,
@@ -54,6 +55,8 @@ export interface StatusReportOptions {
   readonly availableModels: Record<string, ModelAlias>;
   readonly status?: SessionStatus;
   readonly statusError?: string;
+  /** Which executor ran the last turn; `undefined` when that is unknown. */
+  readonly engine?: EngineExecution;
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
 }
@@ -72,6 +75,23 @@ function formatModelStatus(options: StatusReportOptions): string {
 
   const effort = options.status?.thinkingEffort ?? options.thinkingEffort;
   return `${displayModelName(model, options.availableModels)} (thinking ${effort})`;
+}
+
+function formatEngineStatus(engine: EngineExecution | undefined): string | undefined {
+  if (engine === undefined) return undefined;
+  if (!engine.rust) return t('tui.messages.statusPanel.engineJsLoop');
+  if (engine.transport === undefined) return t('tui.messages.statusPanel.enginePending');
+
+  const parts = ['rust', engine.transport];
+  if (engine.llmTransport !== undefined) {
+    parts.push(t('tui.messages.statusPanel.engineLlm', { transport: engine.llmTransport }));
+  }
+  if (engine.nativeToolCalls !== undefined) {
+    parts.push(
+      t('tui.messages.statusPanel.engineNativeTools', { count: engine.nativeToolCalls }),
+    );
+  }
+  return parts.join(' | ');
 }
 
 function addFieldRows(
@@ -120,6 +140,10 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   ];
   if (options.towerAvailable) {
     rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
+  }
+  const engine = formatEngineStatus(options.engine);
+  if (engine !== undefined) {
+    rows.push({ label: t('tui.messages.statusPanel.engineLabel'), value: engine });
   }
   rows.push({ label: 'Session', value: sessionId });
   const title = options.sessionTitle?.trim();

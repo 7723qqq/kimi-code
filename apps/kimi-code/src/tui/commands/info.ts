@@ -2,6 +2,7 @@ import { release as osRelease, type as osType } from 'node:os';
 
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
+import { engineExecution } from '#/utils/engine-execution';
 import { openUrl } from '#/utils/open-url';
 
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
@@ -190,6 +191,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     availableModels: appState.availableModels,
     status: runtimeStatus.status,
     statusError: runtimeStatus.error,
+    engine: engineExecution(),
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
   };

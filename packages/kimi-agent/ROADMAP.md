@@ -1688,7 +1688,63 @@ Rust 侧主要是**接线**——`EngineSession`（M1a 骨架 + M1b 事件，cli
 
 口径 A 是**做完就有真价值**的一段：引擎拥有 turn、v2 loop 退成门面，且功能等价可测。
 建议顺序：**G-5 → G-8 → G-6 逐项判定 → M1c → M1d → M2**。
-G-5 排最前的理由：它是 M1 与 M5 退出标准的载体，而现在**仍然是空的**——`/status` 面板无 engine 行
-（`status-panel.ts:115-128`）、`nativeToolsStatus()` 零代码调用点且探的是 `kimi-native-tools`
-而非 `kimi-agent`（`native-require.ts:45-57`）、`vitest.config.ts` 无覆盖率阈值。
-P33 的验收口径明确写着「不靠人工判断」，但没有观测出口时无从判断。
+G-5 排最前的理由：它是 M1 与 M5 退出标准的载体，而当时**完全是空的**——`/status` 面板没有 engine 行、
+`nativeToolsStatus()` 零代码调用点且探的是 `kimi-native-tools` 而非 `kimi-agent`、
+`vitest.config.ts` 也没有覆盖率阈值。P33 的验收口径明确写着「不靠人工判断」，没有观测出口就无从判断。
+
+> ✅ 本节写完后同日的 P35 已落地观测出口：`/status` 的 Engine 行取代了那个失效探针。
+> 剩余的是覆盖率断言那一半，见 P35「G-5 仍未完成的部分」。
+
+## P35 — G-5 用户可见的一半：`/status` 报出这一轮到底是谁在执行（2026-09-01）
+
+P24 把执行路径做成了「程序可读」，`/status` 那一半留给本轮。同时 P34 确认 G-5 的门禁仍是空的，
+所以这轮先补观测出口，覆盖率断言留后。
+
+### 落点选择：宿主回调，不劫持引擎函数
+
+最初实现是**在 app 侧包装 `TurnEngine`**（拿到 result 后记账）。实测放弃：`createRunTurnOverride`
+返回的函数对象在 `rust-engine.ts` 与 `rust-loop.test.ts` 里被 **9 处**断言「宿主拿到的就是适配器返回的那个」
+（`resolves.toBe(engine)`），包装会打断全部 9 条，而那些身份断言本身是有意义的——它保证 app 不偷偷改引擎。
+改为给 `RustEngineOptions` 加一条 `onTurnResult?`（与既有 `getPolicySnapshot` / `nativeLlm` 同类的
+「宿主注入回调」），适配器在唯一出口处调用一次。**适配器仍是引擎调用的唯一所有者。**
+
+### 三处判定的理由
+
+- **`activeEngineMode()` 只读不解析**：`initEngine()` 会按 napi→stdio 顺序真去装载/起子进程，
+  一次状态读取绝不能触发它。所以访问器直接返回 `engineMode`，`'js'` 的含义是「还没有任何传输跑过这轮」
+  或「stdio 崩到重启上限回落」，二者都不伪造传输。
+- **行文案分三态**，宁可少说不猜：未记录过决策 → **整行省略**（`engineExecution()` 返回 `undefined`，
+  比如不经过 app 装载路径的宿主）；已接线未跑 → `rust (wired, no turn yet)`；跑过 →
+  `rust | napi | llm native-http | native tools: 3`。`nativeToolCallCount` 用 `!== undefined` 判定，
+  **0 是事实不是缺值**（全宿主执行的回合就该显示 0）。
+- **删掉 `nativeToolsStatus()`**（`native-require.ts`）：零调用点，且它探的是
+  `@moonshot-ai/kimi-native-tools`（addon 能否加载）而非 `@moonshot-ai/kimi-agent`，注释还写着
+  「shown in the `/status` report」——那行从来不存在。连带删掉三个从未被渲染的 i18n 键
+  （`nativeToolsLabel/Rust/Js`），换成真正用上的 `engineLabel/engineJsLoop/enginePending/engineLlm/engineNativeTools`。
+
+### 快照放在哪一层
+
+`apps/kimi-code/src/utils/engine-execution.ts`：纯数据快照，不含引擎类型、不 import 引擎图
+（`rust-engine.ts:215` 的既有约束：静态引入 `rust-loop` 会把整张 v2 依赖图拽进来）。
+CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命令侧同步读」同一模式；
+组件仍只从 options 拿值，不碰 SDK。
+
+### 验证
+
+- `rust-loop.test.ts` **54/54**，其中真 stdio 端到端那条新增 `observed === result` 与
+  `nativeToolCallCount >= 1` / `llmTransport === 'host-proxy'`——**跑的是真二进制**（日志有
+  `kimi-agent ready`），证明回调在真实 turn 上真的触发，不只是 mock 里被调用。
+- `apps/kimi-code`：`status-panel.test.ts` 10/10（新增 5 条覆盖三态 + 0 值），
+  `rust-engine.test.ts` 23/23（新增「declined 记 js」「observer 记 napi/native-http/2」两条，
+  原 9 条 `toBe(engine)` 身份断言全部保持通过）。
+- `bun run typecheck` 全包 0 错误；oxlint 变更文件 0 error；locale 键与占位符检查全绿。
+- 已知噪声：`bun --bun run test` 全量并行下 `apps/kimi-code` 有负载相关失败（一次 6 条、一次 1 条，
+  且 `main.test.ts` 的失败点是 `globalThis.Bun` **还原时**赋只读属性），单跑这批文件时失败集合就变了——
+  与本批无关，未顺手修。
+
+### G-5 仍未完成的部分
+
+- **覆盖率断言**：「`engine: 'rust'` 下零 v2 loop 代码执行」还没有机器证明（`vitest.config.ts` 无阈值）。
+- 快照只存**最近一轮**：多 agent / 子会话不分行显示，遥测仍是 `engine_turn` 一条不落盘事件。
+- `/status` 的 Engine 行只在同进程内有值；`kap-server` / web 侧读的是 `SessionStatus`，
+  那里没有 engine 字段（本轮刻意不动协议）。要跨进程可见就得走 `SessionStatusResponse` + wire，属 M2/M3。

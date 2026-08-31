@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resolveConfigPath: vi.fn(),
   resolveKimiHome: vi.fn(),
   createRunTurnOverride: vi.fn(),
+  activeEngineMode: vi.fn(),
   probeHostEnvironment: vi.fn(),
   isRustEngineAvailable: vi.fn(),
   existsSync: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('@moonshot-ai/agent-core-v2', () => ({
 vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
   createRunTurnOverride: mocks.createRunTurnOverride,
   isRustEngineAvailable: mocks.isRustEngineAvailable,
+  activeEngineMode: mocks.activeEngineMode,
 }));
 
 import { normalizeBaseUrl } from '../../src/cli/rust-engine';
@@ -42,6 +44,26 @@ async function loadMaybeRustEngine() {
   vi.resetModules();
   const mod = await import('../../src/cli/rust-engine');
   return mod.maybeLoadRustEngine;
+}
+
+/**
+ * Same, plus the `/status` snapshot module the loader writes into and the
+ * options object handed to the adapter, so the observer can be driven directly.
+ */
+async function loadEngineAndSnapshot() {
+  vi.resetModules();
+  let captured: Record<string, unknown> = {};
+  mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+    captured = options ?? {};
+    return vi.fn();
+  });
+  const mod = await import('../../src/cli/rust-engine');
+  const snapshot = await import('../../src/utils/engine-execution');
+  return {
+    maybeLoadRustEngine: mod.maybeLoadRustEngine,
+    snapshot,
+    capturedOptions: () => captured,
+  };
 }
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
@@ -68,6 +90,7 @@ beforeEach(() => {
   mocks.resolveConfigPath.mockReset().mockReturnValue('/home/u/config.toml');
   mocks.resolveKimiHome.mockReset().mockReturnValue('/home/u');
   mocks.createRunTurnOverride.mockReset();
+  mocks.activeEngineMode.mockReset().mockReturnValue('napi');
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
   // Bundle-absent default keeps the rust-first fallback path hermetic.
@@ -129,6 +152,47 @@ describe('maybeLoadRustEngine', () => {
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
     expect(mocks.createRunTurnOverride).not.toHaveBeenCalled();
     expect(mocks.existsSync).not.toHaveBeenCalled();
+  });
+
+  it('records the JS loop when the engine is declined', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({ agent: { engine: 'js' } }),
+    });
+    const { maybeLoadRustEngine, snapshot } = await loadEngineAndSnapshot();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBeUndefined();
+    expect(snapshot.engineExecution()).toEqual({ rust: false });
+  });
+
+  it('hands the adapter an observer that records the last turn for /status', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig() });
+    const { maybeLoadRustEngine, snapshot, capturedOptions } = await loadEngineAndSnapshot();
+
+    await maybeLoadRustEngine('/home/u');
+    // Wired but not yet run: the report must not invent a transport.
+    expect(snapshot.engineExecution()).toEqual({ rust: true });
+
+    const onTurnResult = capturedOptions()['onTurnResult'] as
+      | ((result: unknown) => void)
+      | undefined;
+    expect(typeof onTurnResult).toBe('function');
+    onTurnResult?.({
+      stopReason: 'completed',
+      steps: 1,
+      usage: {},
+      telemetry: {
+        eventsEmitted: 4,
+        llmRetries: 0,
+        llmTransport: 'native-http',
+        nativeToolCallCount: 2,
+      },
+    });
+    expect(snapshot.engineExecution()).toEqual({
+      rust: true,
+      transport: 'napi',
+      llmTransport: 'native-http',
+      nativeToolCalls: 2,
+    });
   });
 
   it('returns undefined when the rust adapter module has no createRunTurnOverride', async () => {

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { buildStatusReportLines } from '#/tui/components/messages/status-panel';
 
+const newline = String.fromCharCode(10);
+
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
@@ -69,6 +71,55 @@ describe('status panel report lines', () => {
     expect(output).not.toContain('Account');
     expect(output).not.toContain('AGENTS.md');
     expect(output).not.toContain('Runtime');
+  });
+
+  const engineBase = {
+    version: '1.2.3',
+    model: 'k2',
+    workDir: '/tmp/project',
+    sessionId: 'ses-1',
+    sessionTitle: null,
+    thinkingEffort: 'on' as const,
+    permissionMode: 'manual' as const,
+    planMode: false,
+    towerMode: false,
+    contextUsage: 0,
+    contextTokens: 0,
+    maxContextTokens: 0,
+    availableModels: {},
+    towerAvailable: false,
+  };
+
+  it('omits the Engine row when no executor decision has been recorded', () => {
+    const output = buildStatusReportLines({ ...engineBase }).join(newline);
+    expect(output).not.toContain('Engine');
+  });
+
+  it('names the JS loop when the engine was declined', () => {
+    const output = buildStatusReportLines({ ...engineBase, engine: { rust: false } }).join(newline);
+    expect(output).toContain('Engine');
+    expect(output).toContain('js (v2 loop)');
+  });
+
+  it('says a wired engine has not run a turn yet, rather than guessing a transport', () => {
+    const output = buildStatusReportLines({ ...engineBase, engine: { rust: true } }).join(newline);
+    expect(output).toContain('rust (wired, no turn yet)');
+  });
+
+  it('shows the resolved transport plus the engine-reported llm path and native tool count', () => {
+    const output = buildStatusReportLines({
+      ...engineBase,
+      engine: { rust: true, transport: 'napi', llmTransport: 'native-http', nativeToolCalls: 3 },
+    }).join(newline);
+    expect(output).toContain('rust | napi | llm native-http | native tools: 3');
+  });
+
+  it('keeps a zero native-tool count visible as a fact, not a missing value', () => {
+    const output = buildStatusReportLines({
+      ...engineBase,
+      engine: { rust: true, transport: 'stdio', llmTransport: 'host-proxy', nativeToolCalls: 0 },
+    }).join(newline);
+    expect(output).toContain('rust | stdio | llm host-proxy | native tools: 0');
   });
 
   it('prefers the fetched status tower mode over the cached value', () => {

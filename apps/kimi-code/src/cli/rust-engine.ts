@@ -16,6 +16,8 @@ import { join, resolve } from 'node:path';
 import { loadRuntimeConfigSafe, resolveConfigPath, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 import type { TurnEngine } from '@moonshot-ai/agent-core-v2';
 
+import { setEngineExecution } from '#/utils/engine-execution';
+
 interface LlmProviderDef {
   name: string;
   model: string;
@@ -256,6 +258,15 @@ export async function maybeLoadRustEngine(
   homeDir?: string,
   configPath?: string,
 ): Promise<TurnEngine | undefined> {
+  const engine = await resolveRustEngine(homeDir, configPath);
+  if (engine === undefined) setEngineExecution({ rust: false });
+  return engine;
+}
+
+async function resolveRustEngine(
+  homeDir?: string,
+  configPath?: string,
+): Promise<TurnEngine | undefined> {
   // Lazy-init: once loaded, cache the result
   if (rustTurnEngine !== undefined) return rustTurnEngine;
 
@@ -334,7 +345,7 @@ export async function maybeLoadRustEngine(
 
   // Dynamic import of the Rust adapter via the workspace package.
   try {
-    const { createRunTurnOverride } = await import('@moonshot-ai/kimi-agent/rust-loop');
+    const { createRunTurnOverride, activeEngineMode } = await import('@moonshot-ai/kimi-agent/rust-loop');
     if (typeof createRunTurnOverride !== 'function') {
       return undefined;
     }
@@ -364,6 +375,16 @@ export async function maybeLoadRustEngine(
         if (token === undefined && baseUrl === undefined) return undefined;
         return { token, baseUrl };
       },
+      onTurnResult: (result) => {
+        // The transport is read, never resolved: a status-backed observation
+        // must not spawn the stdio child process.
+        setEngineExecution({
+          rust: true,
+          transport: activeEngineMode(),
+          llmTransport: result.telemetry?.llmTransport,
+          nativeToolCalls: result.telemetry?.nativeToolCallCount,
+        });
+      },
       getPolicySnapshot: () => {
         const reloaded = loadRuntimeConfigSafe(resolvedConfig);
         if (reloaded.fileError !== undefined) return;
@@ -389,6 +410,8 @@ export async function maybeLoadRustEngine(
       },
     });
     if (engine !== undefined) {
+      // Wired but unrun: the report says so rather than guessing a transport.
+      setEngineExecution({ rust: true });
       rustTurnEngine = engine;
     }
     return rustTurnEngine;
