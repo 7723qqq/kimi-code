@@ -659,6 +659,11 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
                 continue;
             }
         };
+        // The turn is handed `history + prompt`; its result echoes all of it
+        // back. The fold below must skip the system message AND the handed
+        // history — re-folding the history would duplicate it from the third
+        // turn on.
+        let history_len = history.len();
         let entry_outcome = entry.outcome.take();
         let PendingTurn {
             turn_id,
@@ -686,7 +691,8 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             core.active_turn_id = None;
             core.active_cancel = None;
             if let Ok(TurnOutcome::Ran(result)) = &outcome {
-                core.history.extend(result.messages.iter().skip(1).cloned());
+                core.history
+                    .extend(result.messages.iter().skip(1 + history_len).cloned());
             }
             // Wake `settled()` waiters when nothing else is queued (M1c).
             maybe_settle_locked(&mut core);
@@ -1039,6 +1045,54 @@ mod tests {
             turn2
                 .iter()
                 .any(|m| m.role == "user" && m.content == "world")
+        );
+    }
+
+    /// The fold must not re-include the history a turn was handed: from the
+    /// third turn on, a re-folding fold would duplicate every earlier message
+    /// in the model's context.
+    #[tokio::test]
+    async fn test_history_does_not_duplicate_across_three_turns() {
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("first-response"),
+            text_response("second-response"),
+            text_response("third-response"),
+        ]));
+        let requests = llm.requests.clone();
+        let session = make_session(llm, rpc_callbacks(server)).await;
+
+        for prompt in ["hello", "world", "again"] {
+            let mut receipt = session
+                .enqueue_turn(TurnRequest::user(msg("user", prompt), Admission::NewTurn))
+                .unwrap();
+            assert!(matches!(
+                receipt.outcome().await.unwrap(),
+                TurnOutcome::Ran(_)
+            ));
+        }
+
+        let calls = requests.lock().unwrap();
+        assert_eq!(calls.len(), 3);
+        let turn3 = &calls[2];
+        let hello_count = turn3
+            .iter()
+            .filter(|m| m.role == "user" && m.content == "hello")
+            .count();
+        assert_eq!(
+            hello_count, 1,
+            "turn 3 context must carry each earlier message exactly once: {turn3:?}"
+        );
+        assert!(
+            turn3
+                .iter()
+                .any(|m| m.role == "assistant" && m.content == "second-response"),
+            "turn 3 history missing turn 2 assistant: {turn3:?}"
+        );
+        assert!(
+            turn3
+                .iter()
+                .any(|m| m.role == "user" && m.content == "again")
         );
     }
 

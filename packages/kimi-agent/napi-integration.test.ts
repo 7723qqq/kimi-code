@@ -1741,3 +1741,95 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     mod.sessionDispose(sessionId);
   });
 });
+
+// ── EngineSessionHandle (typed wrapper over the session surface) ──────────
+
+describe.skipIf(!nativeEntry)('EngineSessionHandle (M1d wrapper)', () => {
+  it('drives a turn through the typed handle and folds history', async () => {
+    const { EngineSessionHandle } = await import('./session-handle');
+    const handle = await EngineSessionHandle.create(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'You are a test assistant.',
+        modelName: 'test-model',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      {
+        llmChat: async () =>
+          JSON.stringify({
+            content: 'hello!',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+          }),
+        executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+      },
+    );
+    expect(handle.id).toMatch(/^session-/);
+
+    const turnId = handle.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
+    const outcome = await handle.turnOutcome(turnId);
+    expect(outcome.status).toBe('ran');
+    expect(outcome.result?.stopReason).toBe('EndTurn');
+    expect(outcome.result?.steps).toBe(1);
+    expect(handle.historyLen()).toBe(2);
+    expect(handle.isSettled()).toBe(true);
+    await handle.settled();
+
+    // A second turn continues the cross-turn history.
+    const second = handle.enqueueTurn({ role: 'user', content: 'again' }, 'newTurn');
+    const secondOutcome = await handle.turnOutcome(second);
+    expect(secondOutcome.status).toBe('ran');
+    expect(handle.historyLen()).toBe(4);
+
+    handle.dispose();
+  });
+
+  it('cancels a queued turn through the handle', async () => {
+    const { EngineSessionHandle } = await import('./session-handle');
+    let release: (() => void) | undefined;
+    const handle = await EngineSessionHandle.create(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'test',
+        modelName: 'm',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      {
+        llmChat: async () =>
+          new Promise<string>((resolve) => {
+            release = () =>
+              resolve(
+                JSON.stringify({
+                  content: 'done',
+                  tool_calls: [],
+                  finish_reason: 'stop',
+                  usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+                }),
+              );
+          }),
+        executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+      },
+    );
+
+    const activeId = handle.enqueueTurn({ role: 'user', content: 'gated' }, 'newTurn');
+    for (let i = 0; i < 100 && handle.status().activeTurnId !== activeId; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(handle.status().activeTurnId).toBe(activeId);
+
+    const queuedId = handle.enqueueTurn({ role: 'user', content: 'queued' }, 'newTurn');
+    expect(handle.cancelTurn(queuedId)).toBe(true);
+    const queuedOutcome = await handle.turnOutcome(queuedId);
+    expect(queuedOutcome.status).toBe('cancelledBeforeStart');
+
+    release?.();
+    expect((await handle.turnOutcome(activeId)).status).toBe('ran');
+    await handle.settled();
+    handle.dispose();
+  });
+});

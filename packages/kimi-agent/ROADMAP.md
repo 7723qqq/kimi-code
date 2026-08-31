@@ -1576,6 +1576,15 @@ gateway 2/2，tsc 0 错误。
       （每进程一会话，有界）；join 式回收属翻转切片。集成测试 2 条：create→enqueue→outcome
       →history 折叠→settled→dispose 全链；gated 活跃 turn + 排队取消→`cancelledBeforeStart`
       →活跃 turn 释放后照常完成。
+    - **TS 会话句柄**（`session-handle.ts`）：`EngineSessionHandle` 类型化包装——create（14 路
+      回调接线：request/response 走 payload fetch + resolve，事件通道 fire-and-forget）+
+      enqueue/turnOutcome/cancel/status/settled/history/dispose。集成测试再 2 条（含跨 turn
+      历史延续）。
+    - **顺带修复既有缺陷：pump 折叠重复历史**。`run_session_turn` 把 `history + prompt` 喂给
+      run_turn，结果整表返回；pump 折叠 `skip(1)` 会把喂入的旧 history 再折回——turn 3 起
+      模型上下文出现重复消息（既有测试只断言 turn 2 请求所以未抓到）。修复：折叠跳过
+      `1 + history_len`；新增三 turn 去重测试。产品路径（per-turn run_turn）不受影响，
+      REPL 与即将到来的会话翻转受益。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；
