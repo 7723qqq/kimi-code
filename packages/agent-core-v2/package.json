@@ -52,6 +52,7 @@
     "gen:wire-manifest": "bun scripts/gen-wire-manifest.mts",
     "gen:state-manifest": "bun scripts/gen-state-manifest.mts",
     "lint:imports": "bun scripts/check-import-boundaries.mjs",
+    "check:engine-zero-js-loop": "bun scripts/check-engine-zero-js-loop.mjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {

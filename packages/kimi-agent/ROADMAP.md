@@ -1659,6 +1659,10 @@ Rust 侧主要是**接线**——`EngineSession`（M1a 骨架 + M1b 事件，cli
 只在 REPL 自建工具表（`build_repl_tool_defs`）里可达——即 `subagent/manager.rs`(1,119) +
 `tools/subagent_tools.rs`(478) = **1.6k 行不在产品路径上**。两侧命名至今没有一份对照表，
 这条匹配全靠大小写折叠巧合成立，属应显式化的契约。
+⚠️ **本段多处论断已被 P37 的契约实测修正**：`WaitFor` 从未命中（`waitfor` 不在 `handles()` 里）、
+`list_directory` 连 REPL 都没有 def、`ReadMediaFile` 已并入 Read 不再是注册工具、
+Knowledge/Team/run_code/lsp/session_query 在 v2 侧不可达（模块无人导入）。见 P37 与
+`tool-name-contract.json` 的 notes。
 
 **G-6 的量化补充：否决链的完整清单。** G-6 原文只说原生路径「绕过宿主工具生命周期」；本轮把范围量清了——
 `onBeforeExecuteTool` 的注册方共 **9 个文件 / 13 处**：`permissionGateService.ts:30`、
@@ -1744,7 +1748,151 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 
 ### G-5 仍未完成的部分
 
-- **覆盖率断言**：「`engine: 'rust'` 下零 v2 loop 代码执行」还没有机器证明（`vitest.config.ts` 无阈值）。
+- ~~覆盖率断言~~ → ✅ 已由 P36 落地（`check-engine-zero-js-loop.mjs`，CI lint job 门禁）。
 - 快照只存**最近一轮**：多 agent / 子会话不分行显示，遥测仍是 `engine_turn` 一条不落盘事件。
 - `/status` 的 Engine 行只在同进程内有值；`kap-server` / web 侧读的是 `SessionStatus`，
   那里没有 engine 字段（本轮刻意不动协议）。要跨进程可见就得走 `SessionStatusResponse` + wire，属 M2/M3。
+
+## P36 — G-5 收尾：覆盖率断言（2026-09-01）
+
+「`engine: 'rust'` 下零 v2 loop 代码执行」从人工判断变为机器证明。P35 落了观测出口，本轮落门禁。
+
+### 机制
+
+- **载体**：`packages/agent-core-v2/test/agent/loop/rustEngineZeroJsLoop.test.ts` —— 两条纯 stub
+  引擎路径测试（单步 turn + 多步工具往返），文件内**禁止**出现 JS 路径测试（会污染断言所依赖的覆盖率，
+  文件头有说明）。不用 `rustEngineE2E.test.ts` 当载体：它依赖真 napi addon，CI 未构建时整文件 skip，
+  断言会空转。
+- **断言**：`packages/agent-core-v2/scripts/check-engine-zero-js-loop.mjs` —— 从仓库根以
+  `bun x --bun vitest run <载体> --coverage --coverage.include=loopService.ts --coverage.reporter=json`
+  跑载体，解析 Istanbul 报告的 fnMap，按「源码声明行 → fnMap decl 行匹配 → `f[id]` 调用命中数」断言：
+  - `JS_ONLY_FUNCTIONS`（8 个，P34 口径的 JS 独占函数：`executeLoopStep` / `beginStep` /
+    `appendResponseContent` / `appendInterruptedStreamContent` / `executeStepTools` / `finishStep` /
+    `emitStepCompleted` / `createStreamPartHandler`）命中数必须为 **0**；
+  - `ENGINE_PATH_FUNCTIONS`（`executeTurnViaEngine` / `buildEngineInput` / `runAfterStep`）命中数必须
+    **> 0** ——防空转假通过（本轮它真的拦下过一次脚本自身的解析 bug）。
+  - 函数名从源码正则定位声明行，改名/移动而不同步清单会**显式失败**（contract drift），不会静默放过。
+- **接线**：`packages/agent-core-v2` 的 `check:engine-zero-js-loop` script；CI 落在 `lint` job
+  （单次运行，不随 5 分片重复；lint job 已有 bun install，增量约 20s）。
+
+### 实现中修正的两个认知
+
+- **v8 coverage 在 Bun 运行时下可用，但必须从仓库根跑**：从包目录 `bunx --bun vitest` 时 worker fork
+  直接崩（`suppress-warnings.cjs` 被 Bun 解析器误当依赖名 `@G:/...`），从根目录跑则正常——CI 的
+  `bun --bun run test` 从根跑，不受影响。
+- **Istanbul fnMap 的类方法全是 `(anonymous_N)`**，按函数名匹配不可行；改按「源码声明行 = fnMap decl 行」
+  定位。另有一条 `139:7 → 1954` 的类声明级巨型语句（hits=3），任何「语句相交」式行映射都会把整个类体
+  判成已覆盖——这就是放弃行级断言、改用函数级命中数的原因。
+
+### 验证
+
+- 正向：`bun run check:engine-zero-js-loop` → OK（8 个 JS 独占函数 0 命中，3 个引擎路径函数有命中）。
+- 反向：往载体临时注入一条 JS 路径测试（`createTestAgent()` 无引擎 + `mockNextResponse`）→ FAIL，
+  精确点名 `executeLoopStep` / `beginStep` / `appendResponseContent` / `executeStepTools` / `finishStep` /
+  `emitStepCompleted` / `createStreamPartHandler` 各 ran 1 time(s)；撤销后恢复 OK。
+  `appendInterruptedStreamContent` 未被点名是正确行为——成功 JS turn 不经过流中断分支，断言按函数逐个判定。
+
+## P37 — G-8：工具命名契约显式化（2026-09-01）
+
+`NativeToolset::handles` 与 v2 工具注册名之间的匹配此前全靠大小写折叠巧合，两侧没有一份对照表。
+本轮把契约落成单一事实源 `packages/kimi-agent/tool-name-contract.json`，双侧测试钉死，并借此
+修正了 P34/batch4 报告里的四处失真。
+
+### 契约结构（单一 JSON，双侧校验）
+
+| 段 | 数量 | 语义 |
+|---|---|---|
+| `v2Native` | 23 | v2 注册名 → 引擎原生执行（`handles()` 接受） |
+| `v2Host` | 15 | v2 注册名 → 回传宿主（`WaitFor` / `Agent` / `AgentSwarm` / `select_tools` / Tower 11 件） |
+| `replOnlyNative` | 7 | 仅 REPL 工具表可达的原生工具（`invoke_subagent` 三件 / `TaskWait` / `list_directory` / `Knowledge` / `Team`） |
+| `unloadedInV2` | 3 | 代码里存在但**任何 import 路径都加载不到**的工具（`run_code` / `lsp` / `session_query`） |
+| `v2Github` | 34 | GitHub 家族，钉住 v2 注册集 ↔ 引擎 `github::is_github_tool` SPECS 表 |
+| `aliases` | 21 | `handles()` 接受但无定义方使用的 snake 拼写（`subagent/manager.rs` allowlist、`permission/mod.rs`、`repl/mod.rs` 在用，**不可剪枝**） |
+
+### 双侧钉死
+
+- **Rust**（`tools::tests::native_tool_names_match_the_contract_file`）：`handles()` 重构为遍历
+  `NATIVE_TOOL_NAMES` 常量（51 个拼写，行为不变）；测试断言契约各段与 `handles()` /
+  `is_github_tool` 逐名一致，且 `NATIVE_TOOL_NAMES` 集合 == `lowercase(v2Native) ∪ replOnlyNative ∪ aliases`
+  ——引擎侧多接受或少接受任何名字都会失败。
+- **TS**（`agent-core-v2/test/agent/toolRegistry/toolNameContract.test.ts`）：v2 侧从**真实注册面**枚举
+  ——App scope 装配（全 flag 开）后经 `AgentToolContribution` collection 探针读全量贡献，非手抄清单。
+  三条断言：未分类的新工具必须失败（unclassified）、契约里的退役工具必须失败（phantom）、
+  `unloadedInV2` 里的工具重新出现必须失败（resurrection）。
+
+### 借契约修正的四处失真（P34 G-8 与 batch4 报告）
+
+1. **`WaitFor` 从未命中原生**：v2 注册名是 `WaitFor`（`taskWaitTool.ts:326`）→ `waitfor`，
+   `handles()` 只有 `taskwait`/`task_wait`。P34 的「`WaitFor`→`taskwait` 能命中」是错的——
+   WaitFor 一直走宿主。原生孪生是 REPL 的 `TaskWait`（`task_tools.rs:611`）。
+2. **`list_directory` 连 REPL 都不可达**：`build_repl_tool_defs` 没有它的 def，任何地方都没有——
+   纯「可原生执行但无广告」的死能力。P34 的「REPL 可达」是错的。
+3. **`ReadMediaFile` 不是注册工具**：Read 内部处理媒体（`readTool.ts:308`），名字只残留在
+   权限表（`matchesRule.ts:82`、`default-tool-approve.ts:9`）和 TUI 渲染器。P34 把它列为 v2 注册名是错的。
+4. **Knowledge / Team / run_code / lsp / session_query 在 v2 侧不可达**：knowledge-tool.ts 与
+   teamTool.ts 自注册但**没有任何模块导入它们**；codeRuntimeFeature / lspFeature / sessionQueryFeature
+   同样无人导入（只有 errors 模块进 errors.ts）。batch4 评估把它们当活体 v2 工具评估直移——
+   前提不成立。REPL 侧 Knowledge/Team 有原生孪生（`repl/mod.rs:319-320`），故归 `replOnlyNative`；
+   另三个连原生臂都没有，归 `unloadedInV2`。
+
+### 实现中确立的两个口径
+
+- **注册面 ≠ 激活面**：`IAgentToolRegistryService.list()` 是「默认 profile + `when` + policy 过滤后」
+  的激活面（GitHub 工具 `when: hasGitHubToken`，测试环境无 token 就不激活）。契约枚举的是**注册面**——
+  经 `AgentToolContribution` collection 探针读取（静态 `registerAgentToolService` 通道与 feature
+  `contributeTool` 通道的统一视图，`towerFeature.test.ts:49` 的 `collectionViewOf` 同款机制）。
+- **两条注册通道**：静态通道进模块表（`getAgentToolContributions`），feature 通道只进 DI collection——
+  只读静态表会漏掉全部 24 个 feature 工具（cron 3 / skill / todo / goal 4 / plan 2 / swarm / tower 11 /
+  codeRuntime / lsp / sessionQuery）。探针服务注入 collection 是既有测试模式（`debug.test.ts:63`）。
+
+### 验证
+
+- `cargo test --lib` 815 全绿（含新契约测试；`test_github_token_env` 有一次并行 env 相关 flaky，
+  单跑即过，与本批无关）；`cargo clippy --lib` 0 警告；`cargo fmt --check` 干净。
+- TS 契约测试绿；`tsc` 0 错误；oxlint 0 error。
+- 反向：契约加幽灵名 → TS phantom 与 Rust `handles()` 断言双双失败并点名；撤销后恢复绿。
+  引擎侧多接受名字（改 `NATIVE_TOOL_NAMES` 不同步 JSON）→ 集合相等断言失败。
+
+## P38 — G-6：否决链 13 处注册方逐项判定（2026-09-01，本轮只判定，未改码）
+
+先立一个 P34 没有的关键事实：**引擎路径下，宿主执行的工具仍过完整否决链**。
+`buildEngineInput.executeTool`（`loopService.ts:1102`）走 `this.toolExecutor.execute(...)`——
+`onBeforeExecuteTool` 全链照常触发。真正绕过否决链的只有 `handles()` 命中、引擎进程内原生执行的
+工具名（`tool-name-contract.json` 的 `v2Native` 23 个 + GitHub 34 件）。G-6 的缺口面因此从
+「13 处全部失效」收窄为「守护对象含原生工具名的注册方」。
+
+### 逐项判定表
+
+| # | 注册方 | 守护语义 | 引擎路径现状 | 判定 |
+|---|---|---|---|---|
+| 1 | `permissionGateService.ts:30` | 全工具权限裁决（mode/rules/policies/交互审批） | 宿主执行工具：钩子触发 ✓。原生工具：本地 `PermissionEngine`（PolicySnapshot 镜像）+ 变更类 Ask 上抛 `host/check_permission` → `gate.authorize` 全机制 | **等价**——权限权威仍在宿主（P33 契约），本地链保真度是 P26 批 3 自身的测试面 |
+| 2 | `toolDedupeService.ts:190` | 相邻重复调用去重（veto 合成结果） | 宿主执行工具：触发 ✓。原生工具（恰是最常重复的 Read/Grep）：不触发；且步界粒度已粗化（P33：per-turn） | **缺口 → M2 迁移**：引擎 `run_turn` 内做 per-step 去重（状态在引擎侧，天然归属） |
+| 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **缺口（高价值）→ M2 迁移**：数据保护；Rust Edit 的 old_string 匹配天然防盲改，Write(overwrite) 是裸奔面 |
+| 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 原生执行 → 审批 ask 也不触发 | **缺口（产品默认路径缺陷）→ 下一批迁移**：宿主每 turn 传 plan 状态（同 `getGoal` 模式）+ Rust guard + ExitPlanMode 审批通道。P34「已落进 Rust」只对 REPL 成立 |
+| 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
+| 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **缺口（用户可见）→ M2 迁移**：Rust 侧执行 PreToolUse 命令；迁移前在文档标注「原生路径不触发用户钩子」 |
+| 7 | `goalAgentRuntime.ts:1295` | CreateGoal 启动审批（非 auto 模式） | CreateGoal 原生（走 state 桥）→ 审批 ask 不触发，goal 静默启动 | **缺口 → M2 迁移**：审批需宿主 ask 通道（`host/ask_question` 已存在，可承载） |
+| 8 | `goalAgentRuntime.ts:1296` | 陈旧 goal 工具调用合成结果 + 预算宽限轮拒绝 | 原生 goal 工具（4 个全在 `handles()`）绕过 → 保护失效 | **缺口 → M2 迁移**：引擎自带 goal driver，stale/budget 状态在引擎侧，天然归属 |
+| 9 | `swarmService.ts:45` | swarm 模式禁 `Agent` | Agent 是宿主工具 → 钩子照常触发 | **等价**——无需动作 |
+| 10 | `swarmService.ts:63` | AgentSwarm 批次约束（单步至多一个） | AgentSwarm 是宿主工具 → 触发 | **等价**——无需动作 |
+| 11 | `towerService.ts:105` | flag 关时 Tower 工具惰性 | Tower 工具是宿主工具 → 触发 | **等价**——无需动作 |
+| 12 | `towerService.ts:118` | tower 模式禁 TodoList | TodoList 原生 → 绕过 | **缺口（实验特性，低危）→ 接受并记录**，随 tower 的宿主分层决策（M3）一并处理 |
+| 13 | `towerService.ts:132` | tower worker profile 的 Write/Edit 限制 | Write/Edit 原生 → 绕过 | **缺口（实验特性）→ 随 M3 tower 决策处理** |
+
+### 结论
+
+- **4 处等价**（#1、#9、#10、#11）：守护对象是宿主工具（钩子照常触发）或权限（`check_permission`
+  全机制承载）。无需动作。
+- **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
+  不算静默丢失。
+- **7 处真缺口 → 迁移队列**：#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）、#3（staleGuard）、
+  #7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
+  #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
+
+### 验证说明
+
+本任务为只读判定，未改任何 src/ 文件。全部结论基于代码阅读：`toolHooks.ts`（veto/allow/pass/waitUntil
+语义）、13 处注册点、`loopService.ts:1102-1163`（engine input 的 executeTool/checkToolPermission 接线）、
+`callbacks.rs:402-443`（原生执行门：plan_guard → permission_engine → check_permission）、
+`napi_bindings.rs:1073-1099`（产品路径装配，`plan_guard: None`）、`permissionPolicy/policies/*`
+（无 plan 策略）、`repl/mod.rs:448-458`（REPL plan_guard 接线）。

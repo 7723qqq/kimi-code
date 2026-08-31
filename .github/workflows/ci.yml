@@ -176,6 +176,11 @@ jobs:
       - run: bun scripts/check-locale-keys.mjs
       - run: bun scripts/check-locale-placeholders.cjs
       - run: bun scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
+      # G-5 machine proof (kimi-agent ROADMAP P36): with a TurnEngine override
+      # driving the turn, none of the v2 JS-loop functions in loopService.ts may
+      # execute. Runs here (once) rather than in the 5-shard test job; the
+      # vehicle test and the assertion live in packages/agent-core-v2.
+      - run: cd packages/agent-core-v2 && bun run check:engine-zero-js-loop
 
   typecheck:
     runs-on: ubuntu-latest

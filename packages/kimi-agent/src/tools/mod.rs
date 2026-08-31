@@ -82,6 +82,67 @@ pub fn is_mutating_tool(tool_name: &str) -> bool {
     )
 }
 
+/// Every lowercase tool name [`NativeToolset::handles`] accepts, in one
+/// place. The set is pinned by `tool-name-contract.json` (see the
+/// `native_tool_names_match_the_contract_file` test): adding or removing a
+/// spelling must update that file in the same change, and the v2-side test
+/// (`agent-core-v2/test/agent/toolRegistry/toolNameContract.test.ts`) fails
+/// when a v2 tool name loses its classification. GitHub tool names are a
+/// dynamic family (`github::is_github_tool`), not part of this list.
+pub const NATIVE_TOOL_NAMES: &[&str] = &[
+    "read",
+    "grep",
+    "glob",
+    "write",
+    "edit",
+    "bash",
+    "fetchurl",
+    "fetch_url",
+    "websearch",
+    "web_search",
+    "listdirectory",
+    "list_directory",
+    "invokesubagent",
+    "invoke_subagent",
+    "managesubagents",
+    "manage_subagents",
+    "definesubagent",
+    "define_subagent",
+    "askuserquestion",
+    "ask_user_question",
+    "getgoal",
+    "get_goal",
+    "todolist",
+    "todo_list",
+    "enterplanmode",
+    "enter_plan_mode",
+    "cronlist",
+    "cron_list",
+    "croncreate",
+    "cron_create",
+    "crondelete",
+    "cron_delete",
+    "updategoal",
+    "update_goal",
+    "setgoalbudget",
+    "set_goal_budget",
+    "tasklist",
+    "task_list",
+    "taskoutput",
+    "task_output",
+    "taskstop",
+    "task_stop",
+    "taskwait",
+    "task_wait",
+    "exitplanmode",
+    "exit_plan_mode",
+    "creategoal",
+    "create_goal",
+    "skill",
+    "knowledge",
+    "team",
+];
+
 /// Sandboxed native executor, rooted at the workspace.
 pub struct NativeToolset {
     root: PathBuf,
@@ -185,60 +246,8 @@ impl NativeToolset {
     /// Whether the sandbox knows how to execute this tool natively (subject
     /// to a host permission grant and sandbox confinement).
     pub fn handles(&self, tool_name: &str) -> bool {
-        matches!(
-            tool_name.to_ascii_lowercase().as_str(),
-            "read"
-                | "grep"
-                | "glob"
-                | "write"
-                | "edit"
-                | "bash"
-                | "fetchurl"
-                | "fetch_url"
-                | "websearch"
-                | "web_search"
-                | "listdirectory"
-                | "list_directory"
-                | "invokesubagent"
-                | "invoke_subagent"
-                | "managesubagents"
-                | "manage_subagents"
-                | "definesubagent"
-                | "define_subagent"
-                | "askuserquestion"
-                | "ask_user_question"
-                | "getgoal"
-                | "get_goal"
-                | "todolist"
-                | "todo_list"
-                | "enterplanmode"
-                | "enter_plan_mode"
-                | "cronlist"
-                | "cron_list"
-                | "croncreate"
-                | "cron_create"
-                | "crondelete"
-                | "cron_delete"
-                | "updategoal"
-                | "update_goal"
-                | "setgoalbudget"
-                | "set_goal_budget"
-                | "tasklist"
-                | "task_list"
-                | "taskoutput"
-                | "task_output"
-                | "taskstop"
-                | "task_stop"
-                | "taskwait"
-                | "task_wait"
-                | "exitplanmode"
-                | "exit_plan_mode"
-                | "creategoal"
-                | "create_goal"
-                | "skill"
-                | "knowledge"
-                | "team"
-        ) || github::is_github_tool(tool_name)
+        let lowered = tool_name.to_ascii_lowercase();
+        NATIVE_TOOL_NAMES.contains(&lowered.as_str()) || github::is_github_tool(tool_name)
     }
 
     /// Execute a tool natively (async).
@@ -2121,6 +2130,73 @@ m2
             .await
             .is_none(),
             "cwd outside the sandbox must fall back to the host"
+        );
+    }
+
+    /// The name contract between the v2 host and this engine, pinned on both
+    /// sides: this test fails when `NATIVE_TOOL_NAMES` and
+    /// `tool-name-contract.json` drift apart, and the v2-side test
+    /// (`toolNameContract.test.ts`) fails when a v2 tool name loses its
+    /// classification. See the contract file's `notes` for the P34
+    /// corrections this pinning surfaced (WaitFor, list_directory,
+    /// ReadMediaFile).
+    #[test]
+    fn native_tool_names_match_the_contract_file() {
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../tool-name-contract.json"))
+                .expect("tool-name-contract.json must parse");
+        let v2_native: Vec<String> = serde_json::from_value(contract["v2Native"].clone()).unwrap();
+        let v2_host: Vec<String> = serde_json::from_value(contract["v2Host"].clone()).unwrap();
+        let repl_only: Vec<String> =
+            serde_json::from_value(contract["replOnlyNative"].clone()).unwrap();
+        let v2_github: Vec<String> = serde_json::from_value(contract["v2Github"].clone()).unwrap();
+        let unloaded: Vec<String> =
+            serde_json::from_value(contract["unloadedInV2"].clone()).unwrap();
+        let aliases: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(contract["aliases"].clone()).unwrap();
+
+        let (_dir, toolset) = setup();
+        for name in &v2_native {
+            assert!(
+                toolset.handles(name),
+                "contract says {name} executes natively but handles() rejects it"
+            );
+        }
+        for name in &v2_host {
+            assert!(
+                !toolset.handles(name),
+                "contract says {name} is host-owned but handles() accepts it"
+            );
+        }
+        for name in &repl_only {
+            assert!(
+                toolset.handles(name),
+                "contract says {name} is a REPL-only native tool but handles() rejects it"
+            );
+        }
+        for name in &v2_github {
+            assert!(
+                github::is_github_tool(name),
+                "contract says {name} is a native GitHub tool but is_github_tool rejects it — add it to github.rs SPECS or fix the contract"
+            );
+        }
+        for name in &unloaded {
+            assert!(
+                !toolset.handles(name),
+                "contract says {name} is unloaded from v2 but handles() accepts it — promote it to v2Native or drop the native arm"
+            );
+        }
+
+        let mut contracted = std::collections::BTreeSet::new();
+        for name in v2_native.iter().chain(repl_only.iter()) {
+            contracted.insert(name.to_ascii_lowercase());
+        }
+        contracted.extend(aliases.into_keys());
+        let accepted: std::collections::BTreeSet<String> =
+            NATIVE_TOOL_NAMES.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(
+            accepted, contracted,
+            "NATIVE_TOOL_NAMES and tool-name-contract.json disagree — update both together"
         );
     }
 }
