@@ -625,7 +625,7 @@ todo/skill 的提醒变体未单独写引擎契约——注入全走同一条 Ag
 
 ## P21 — 缺口地图：让 Rust 引擎替代 TS（2026-08-30，本轮只审计，未改码）
 
-目标由四个决策定死：**终态 = 工具也由 Rust 执行、最小化回调**；**路线 = 在 kimi-agent 内自扩实现，不引入 kimi-native-tools 作为 crate 依赖**；**addon 里重复的工具实现由引擎吸收后删除**；**验收 = cargo test/clippy/fmt 全绿 + 重建 addon 后再看 TS 套件**。以下全部是实测结论，未验证项单列。
+目标由四个决策定死：**终态 = 工具也由 Rust 执行、回调归零、v2 删除（删除路线见 P33）**；**路线 = 在 kimi-agent 内自扩实现，不引入 kimi-native-tools 作为 crate 依赖**；**addon 里重复的工具实现由引擎吸收后删除**；**验收 = cargo test/clippy/fmt 全绿 + 重建 addon 后再看 TS 套件**。以下全部是实测结论，未验证项单列。
 
 ### 基线（实测）
 
@@ -842,7 +842,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 
 > 现状：Rust 引擎通过 5 条 `host/*` RPC 回调依赖 TS——`host/llm_chat`、`host/execute_tool`、`host/check_permission`、`host/finalize_tool_result`、`host/event`。其中两条必传（`llm_chat_fn`、`execute_tool_fn`），三条可选（`emit_event_fn`、`check_permission_fn`、`finalize_tool_fn`，缺失时降级为原样返回或 fail-closed）。
 >
-> 终态：5 条全部成为 opt-in——配置 `agent.rustSelfContained = true` 时，引擎在没有 native 替代品的情况下 fail-fast，不再静默回退到 TS。
+> 终态：**5 条全部删除，不留 opt-in 开关**。配置 `agent.rustSelfContained = true` 只是中途的 fail-fast 验证手段，不是终态；终态是 v2 侧对应实现被删除（见 P33），届时 `rustSelfContained` 开关本身也应随之移除。
 >
 > 验收口径：每批 = 1 个新 flag + 1 个 fail-fast 路径 + 1 个回归测试（覆盖"开了 flag 但 fallback 被叫"时的报错信息）+ 真机 E2E。
 
@@ -959,7 +959,7 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 - `kimi-native-tools/index.d.ts`：删除 3 组声明。
 - 全仓 grep 确认零残留引用（dist/target 除外）。
 
-**后续动作**：保持渐进式收敛，待未来纯 Rust CLI 独立运行时（P27）就绪后，可进一步统一归并为单一 Rust 引擎 crate。
+**后续动作**：⚠️ **该前置条件已满足**——P27 纯 Rust 独立 CLI 已标记 ✅ 全量完成（见下文 P27），但「统一归并为单一 Rust 引擎 crate」从未被执行。**此项已转入 P33**，作为 v2 删除路线的起点。
 
 ### 排序与依赖与当前执行进度
 
