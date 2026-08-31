@@ -1268,12 +1268,26 @@ P23 等效清单里最要紧的一项：**结果截断与 spill**。
 
 ### 为什么 P0–P32 不等于替代
 
-架构是**倒置**的：v2 的 loop 拥有主循环，Rust 是它每轮调用的插件。
+架构是**倒置**的：v2 拥有 turn 生命周期，Rust 引擎只是它调用的被调方。
 
 ```
 apps/kimi-code/src/cli/rust-engine.ts:337        await import('@moonshot-ai/kimi-agent/rust-loop')
 agent-core-v2/.../loop/loopService.ts:722        engineOverride.getEngine()   // v2 决定这一轮给不给 Rust
 ```
+
+**更正（2026-08-31 核实，此前的描述不准确）**：Rust **已经拥有 step 循环**，不是「每轮被调用一次的插件」。
+`loopService.ts:718-723` 的注释写得很清楚——override 在 turn 的第一个 step 跑一次，
+Rust 的 `run_turn` 自己把整个 turn 跑到完：
+
+```
+// An external engine (e.g. the Rust kimi-agent engine) drives the
+// whole turn in place of the JS loop. The override runs once per
+// turn on the first step; ...
+```
+
+所以 v2 剩下的不是「主循环」，而是 **turn 生命周期外壳**：turn 准入与排队、turn id 与时钟、
+持久化的 turn 事件（会话/transcript 落盘 + undo 锚点）、turn 遥测、取消语义、静止期背压。
+**M1 的真实工作量是把这层外壳移出去，而不是「让 Rust 驱动 step」。**
 
 配置 `engine: 'js' | 'rust'`（`node-sdk/src/config-local/schema.ts:225`）里，`'js'` 的含义是
 「退回 v2 循环」——**没有任何取值代表「v2 不在」**。
@@ -1313,6 +1327,28 @@ agent-core-v2/.../loop/loopService.ts:722        engineOverride.getEngine()   //
 | `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ❌ 缺失 |
 | `host/event` | transcript / 遥测落点 | Rust 侧 sink | ❌ 缺失 |
 
+### ⚠️ 一个今天就存在的缺陷：引擎路径下 `onDidFinishStep` 从不执行
+
+`executeTurnViaEngine` 在 `loopService.ts:1040` **硬返回 `hookStopTurn: false`**，
+而 `onDidFinishStep` 只在 JS 路径的 `runAfterStep`（`:959` → `:1804`）里跑。
+**因此凡挂在 `onDidFinishStep` 上的 v2 能力，在 rust 引擎模式下全部静默失效。**
+而 rust-first 是默认配置（`rust-engine.ts:276`），所以这是默认路径上的现状缺陷，不是迁移期问题。
+
+已核实的 7 个注册方与其在 Rust 侧的补偿情况（**必须逐项区分，不能囫囵下结论**）：
+
+| 能力 | 注册位置 | Rust 侧是否补偿 |
+|---|---|---|
+| step-retry | `stepRetryService.ts:81` | ✅ `turn_loop/retry.rs` |
+| compaction | `fullCompactionService.ts:189` / `microCompactionService.ts:67` | ✅ `compaction/mod.rs:7` 明写镜像 v2 的 `fullCompaction/strategy.ts` |
+| goal-outcome-continuation | `goalAgentRuntime.ts:1290` | ✅ Rust `run_turn` 自带 goal driver |
+| loop-continuation | `loopContinuationService.ts:18` | ✅ Rust `run_turn` 本身就是 step 循环 |
+| **externalHooks** | `agentExternalHooksService.ts:237` | ❌ **零对应**。用户可在配置里写 `hooks[]`（`schema.ts:433`、`:486`），**配了也不触发** |
+| **toolDedupe** | `toolDedupeService.ts:186` | ❌ **零对应** |
+
+前两项是真实的用户可见功能丢失，应作为独立缺陷修（不依赖 M1）。
+修复方向二选一：让 `executeTurnViaEngine` 也跑 `onDidFinishStep`（回到 v2 语义，但引擎已跑完整个 turn，
+「step 结束」的时点需要重新定义），或在 Rust 侧实现对应能力并删除 v2 侧注册。
+
 ### 里程碑
 
 每个里程碑必须**可验证退出**，且「退出」的定义是 v2 侧代码被删除，不是「Rust 也能做」。
@@ -1325,12 +1361,23 @@ agent-core-v2/.../loop/loopService.ts:722        engineOverride.getEngine()   //
   决策：Rust 的 `rpc/types.rs` 升为契约源单向生成 TS，**或**抽共享 schema 双向生成。
   退出：决策落文档 + 一个方向落地 + 三处类型可编译期校验一致。
 
-- **M1 — 翻转产品路径主循环（枢轴）**
-  让 Rust 的 `run_turn` 成为入口，v2 循环退为 flag 后的 fallback。
-  改动面：`apps/kimi-code/src/cli/rust-engine.ts:337`、
-  `agent-core-v2/src/agent/loop/loopService.ts:722`。
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）**
+  ⚠️ 措辞更正：不是「翻转主循环」——Rust 早已拥有 step 循环（`loopService.ts:718-723`）。
+  M1 要做的是把 v2 仍握着的 **turn 生命周期**移出去，让 `run_turn` 成为 turn 的入口：
+  - turn 准入与排队（`loopService.ts:224-260`、`437-501`）
+  - turn id 与时钟（`:430-435`、`turnOps.ts:120-181`）
+  - 持久化 turn 事件 `TurnPrompt`/`TurnStarted`/`TurnEnded`（`:526`、`:530-538`、`:584-593`）——
+    **会话/transcript 落盘与 undo 锚点（turnOps.ts:136-140）全部依赖它，且 `host/event` 只传
+    非持久化内容，无对应回调**；这是 M1 里最难的一项
+  - turn 遥测（`:547-562`、`:575-623`）
+  - 取消语义（`:288-294`、`:337-372`、`:636-647`）
+  - 静止期背压 `settled()`（`:307-333`、`:375-406`）
+  另有一项跨切面：工具注册表在 `buildTools`（`:1080`）被**一次性快照**进引擎输入，
+  没有 `host/list_tools` 回调，因此 turn 中途的工具集变化（MCP 重连、skills 增删）传不到 Rust。
+
   退出：`engine: 'rust'` 下**没有任何 v2 loop 代码执行**——用 P24 已建的 G-5 观测出口
-  （`/status`）加覆盖率断言证明，不靠人工判断。
+  （`/status`）加覆盖率断言证明，不靠人工判断；
+  且上述每一项都要有 Rust 侧落点或明确的宿主分层，否则就是功能丢失而非迁移。
 
 - **M2 — 9 条回调逐条到期**
   按上表逐条补齐 Rust 侧前置，每补齐一条即删除 v2 侧对应实现。
