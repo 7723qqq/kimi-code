@@ -168,6 +168,13 @@ export interface TurnEngineInput {
   askUserQuestion?(request: AskQuestionWire): Promise<AskQuestionWireResult>;
   stateRead?(request: StateReadWire): Promise<StateReadWireResult>;
   stateWrite?(request: StateWriteWire): Promise<StateWriteWireResult>;
+  /**
+   * Drain the host's mid-turn steer queue. The JS loop drains steered prompts
+   * at the next step head; an engine driving the whole turn has to ask, or a
+   * steered prompt waits for the turn to end. Returns the drained messages in
+   * arrival order.
+   */
+  drainSteers?(): Promise<readonly Message[]>;
 }
 
 export interface TurnEngineResult {

@@ -589,7 +589,7 @@ export class NapiEngine {
 
   initTracing(): boolean {
     if (!this.load()) return false;
-    return this.nativeModule.initTracingFromEnv?.() ?? false;
+    return this.nativeModule?.initTracingFromEnv?.() ?? false;
   }
 
   /**

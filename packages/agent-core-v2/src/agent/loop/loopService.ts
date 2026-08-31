@@ -1037,6 +1037,17 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         providerFinishReason: result.stopReason,
       }),
     );
+    await this.runAfterStep(
+      turnId,
+      signal,
+      step.number,
+      step.number === 1,
+      result.usage,
+      result.stopReason,
+    );
+    // The engine has already driven the turn to completion, so a hook asking
+    // to stop the turn is a no-op here: both branches of completeLoopStep
+    // return the same result for this path.
     return { stopReason: result.stopReason, hookStopTurn: false };
   }
 

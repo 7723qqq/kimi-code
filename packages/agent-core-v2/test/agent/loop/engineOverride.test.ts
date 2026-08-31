@@ -245,6 +245,45 @@ describe('external engine override', () => {
     ).toBe(true);
   });
 
+  it('runs the onDidFinishStep gate after the engine drives the turn', async () => {
+    const finished: Array<{ step: number; firstStepOfTurn: boolean; finishReason: string }> = [];
+
+    const engine: TurnEngine = async (input) => {
+      await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
+      await input.dispatchEvent({
+        type: 'step.end',
+        uuid: 'step-1',
+        turnId: String(input.turnId),
+        step: 1,
+        usage: emptyUsage(),
+      });
+      return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+
+    const loop = ctx.get(IAgentLoopService);
+    const hook = loop.hooks.onDidFinishStep.register('test-finish-probe', async (hookCtx, next) => {
+      finished.push({
+        step: hookCtx.step,
+        firstStepOfTurn: hookCtx.firstStepOfTurn,
+        finishReason: hookCtx.finishReason,
+      });
+      await next();
+    });
+
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+    hook.dispose();
+
+    expect(finished).toHaveLength(1);
+    expect(finished[0]!.step).toBe(1);
+    expect(finished[0]!.firstStepOfTurn).toBe(true);
+    expect(finished[0]!.finishReason).toBe('completed');
+  });
+
   it('drives a multi-step turn with tool round-trips then reports events', async () => {
     const tool = makeEchoTool();
     let stepCount = 0;
