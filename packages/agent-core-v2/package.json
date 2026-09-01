@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/agent-core-v2",
   "version": "0.4.2",
   "private": true,
-  "description": "The unified agent engine for Kimi (v2 — DI Scope architecture)",
+  "description": "The unified agent engine for Kimi (v2 — DI Scope architecture). M3-marked library — see AGENTS.md §Library surface and ROADMAP.md §M3; consumed by kap-server/klient/acp-server until M5 deletion.",
   "keywords": [
     "agent",
     "ai",
@@ -11,6 +11,10 @@
     "session",
     "tools"
   ],
+  "metadata": {
+    "lifetime": "library",
+    "lifetimeNote": "M3-marked library — the Rust engine in packages/kimi-agent is the default for new embedders; this package stays on v2 until M5. Consumers are whitelisted: kap-server, klient, acp-server."
+  },
   "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/agent-core-v2#readme",
   "bugs": {
     "url": "https://github.com/MoonshotAI/kimi-code/issues"

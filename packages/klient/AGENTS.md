@@ -2,6 +2,10 @@
 
 Package-local rules for `packages/klient`.
 
+## M3 marker
+
+This package is an **M3-marked v2 library consumer** (see root `ROADMAP.md` §M3, 2026-09-01, and `packages/agent-core-v2/AGENTS.md` §Library surface). The `agent-core-v2` dependency is intentional: klient mirrors the engine's service surface (39 `I*Service` decorator tokens resolved in `serviceRegistry.ts`, `createMemoryDispatcher` over the in-process scope, the hand-mirrored zod contracts in `test/contract-parity.ts`). Roughly 1/3 of the agent facade's turn-driven methods have a Rust equivalent (slice candidate) — the rest stay v2-only until M5.
+
 ## Architecture
 
 The package is layered; keep the layers strict when changing code:

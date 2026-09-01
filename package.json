@@ -50,6 +50,7 @@
     "generate:locale-json": "bun scripts/generate-locale-json.cjs",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
+    "check:v2-library-surface": "bun scripts/check-v2-library-surface.mjs",
     "changeset": "changeset",
     "version": "changeset version",
     "version:release": "changeset version",

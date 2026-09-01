@@ -81,6 +81,65 @@ Name-collision precedence is a deliberate, documented divergence from v1: v1 ran
 
 Two delivery paths only — never introduce a third (no deferred-delivery queues, no mid-step splice channels), both owned by the `AgentReminder` Agent Runtime and obtained only through `IAgentLifecycleService.resolve(agentContext, AgentReminder)`: reminders that restate current state (goal state, plan mode, date change, …) call `register(variant, provider)` and reconcile at every step head before the request is built, re-emitting after compaction or undo; reminders that report a one-off event (goal cancelled, AGENTS.md discovered, `/init` finished, …) call `notify(content, { variant, ownerPromptId? })` at a safe event point (a step/restore hook, an idle moment, or the loop-event fold's deferred append). The runtime owns `<system-reminder>` wrapping and stamps `{ kind: 'injection', variant }`; `kind: 'injection'` is a lifecycle classification (hidden from the UI, not an undo anchor, dropped by compaction), not a provenance claim, and prompt-owned attachments carry `ownerPromptId` so undo treats them as part of their host prompt.
 
+## Library surface (M3)
+
+> This package is **consumed as a library** by `kap-server`, `klient`, and
+> `acp-server` (M3 consumer disposition — see root `ROADMAP.md` §M3, 2026-09-01)
+> until the M5 deletion. New embedders **default to the Rust engine**
+> (`packages/kimi-agent`). The three marked consumers are pinned to v2 by
+> the markers below; a fourth v2 consumer requires an explicit M3 revisit.
+
+### Library (public, stable until M5)
+
+- **Bootstrap / lifecycle**: `bootstrap`, `drainLogCloses`,
+  `drainQueryStoreDisposals`, `drainSessionIndexMirror`,
+  `drainSessionMetadataWrites`, `ensureMainAgent`, `getLiveSessionById`,
+  `followSessionLifecycles`, `setSessionArchived`, `setSessionArchivedBatch`,
+  `programForSession`, `agentContextOf`, `MAIN_AGENT_ID`, `logSeed`,
+  `resolveConfigPath`, `resolveKimiHome`, `resolveLoggingConfig`
+- **DI surface (re-exported from `_base/di/...`)**: `Scope`, `IScopeHandle`,
+  `ServiceIdentifier`, `createDecorator`, `ScopedEntry`,
+  `getScopedServiceDescriptors`, `LifecycleScope`, `Disposable`, `FiberState`
+- **Scope activation seam**: `registerScopedService`, `ScopeActivation`
+- **Run-time contracts (acp-server implements these)**: `Runtime`,
+  `RuntimePath`, `RuntimeProviderAttachment`, `RuntimeProviderContext`,
+  `RuntimeProviderFactory`, `RuntimeProviderHost`, `HostEnvironmentInfo`,
+  `HostProcessOptions`, `HostDirEntry`, `HostFileStat`, `HostFileSystem`
+- **Host environment tokens**: `IHostEnvironment`, `IHostFileSystem`,
+  `IHostProcessService`, `IHostProcess`, `IAppendLogStore`,
+  `ISessionContext`, `ISessionIndexMirror`, `IWorkspaceInstanceManager`
+- **Interaction runtime helpers**: `listSessionPendingInteractions`,
+  `isSessionInteractionRecentlyResolved`,
+  `onSessionInteractionDidChangePending`, `onSessionInteractionDidResolve`,
+  `setSessionInteraction`
+- **Coded errors**: `ErrorCodes`, `Error2`, `isError2`, `FileErrors`,
+  `PROTOCOL_ERROR_CODES` (klient parity); raised from
+  `docs/errors.md` per domain
+- **Public type re-exports** (full list in the public entry of each
+  consumer — `packages/klient/src/index.ts`,
+  `packages/kap-server/src/protocol/events-zod.ts`, etc.)
+
+### Internal (subject to change; not in the library contract)
+
+- The DI kernel internals: `cascadeEngine`, `Fiber` runtime, scope
+  topology mutation, `ScopeActivation` opcode semantics beyond the
+  `registerScopedService` entry point
+- Feature assembly: `IFeatureManager.provideUnit` / `unprovideUnit` beyond
+  the public `registerFeature` import
+- Event2 internal vocabulary beyond the wire-mirrored subset (see
+  `docs/wire-manifest.d.ts` for the durable subset)
+- Agent runtime domain modules (`agent/loop/turnOps`,
+  `agent/prompt/promptOps`, `agent/runtimeBinding/...` etc.) — consumers
+  project these into their own wire shape, they must not be used
+  directly as runtime types
+
+### Markers
+
+- `package.json` — `metadata.lifetime = "library"` (M3 marker)
+- `kap-server/src/start.ts` / `acp-server/src/start.ts` /
+  `klient/src/transports/memory/index.ts` — top-of-file comment
+  pointing here
+
 ## Docs
 
 Per-domain references live in `docs/`.

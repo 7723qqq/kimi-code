@@ -1849,12 +1849,34 @@ context、不达模型）。修复见 M2 切片 3。
     验证标准：conformance 与 invalid-input 套件继续跑 v2，新增 turn-loop 套件跑 Rust；
     `test/contract-parity.ts` 增加 Rust 路径断言。
   - **`acp-server`（推荐 (b)）**：13 导入行约 50 符号；~12 行是 wire-only（`ContentPart`、
-    `ContextMessage`、permission/question wire 类型、`SkillSummary`）可迁共享 schema
+    `ContextMessage` / `SkillSummary` / permission + question wire 类型）可迁共享 schema
     子包；**~4 行是 DI 机械**（`bootstrap` / `Scope` / `registerScopedService` / `createDecorator`
     + 三个 `I*Service`）+ **v2 `Runtime` / `RuntimeProviderAttachment` / `IHostProcessService`
     接口实现**——ACP 层不是 wire-only 消费者，它参与 v2 的运行时契约（`acp-terminal` 实现
     v2 `Runtime`，`acp-fs` 注册 Session-scope `IHostFileSystem`）。没有 Rust DI / Runtime
     等价，移植到 Rust = 重写 ACP 层。维持 v2。
+
+  **M3 标记落码（2026-09-01）**：`scripts/check-v2-library-surface.mjs`（挂在 `bun run
+  check:v2-library-surface`，**未接入 `bun run lint`**）实现两件守门：
+  1. 三个标记消费者 `package.json#description` 必须含 `M3-marked v2 library consumer` 文案
+  （描述已加）— 加载 `agent-core-v2/AGENTS.md` §Library surface 白名单。
+  2. 扫描 `packages/*/src|test|scripts/**` 的 v2 导入：非白名单消费者**报错**——`agent-core-v2`
+     `AGENTS.md` 描述 + 三个 consumer 入口一致时此检查**通过**。
+
+  **M3 后续：第 4 个 v2 消费者**（lint 标记发现，**不在原 M3 范围**）：
+  `packages/node-sdk`（公共 TypeScript SDK，`@moonshot-ai/kimi-code-sdk`）也依赖 v2——39 个
+  唯一导入点，混合类型再导出（`Event2` / `ContextMessage` / `AgentReplayRecord` 等被 SDK
+  公共 API 直接 `export type`）+ 运行时辅助（`installGlobalProxyDispatcher` /
+  `estimateTokensForMessages` / `resolveGlobalLogPath` 等），与 klient 形态相似但作为
+  **发布**的 SDK 暴露 v2 词汇给下游消费者。`scripts/check-v2-library-surface.mjs` 当前
+  **因 node-sdk 失败 480 项**——这是 M3 纪律的正确触发（"第四个 v2 消费者需要显式 M3
+  复议"）。两个走法二选一，等用户决定：
+  - **(a) M3 复议 node-sdk**：做一次小规模调查（39 导入点多在 `src/types.ts` / `src/v2/`
+    / `src/events.ts`），按与 klient 同样的库依赖定调，把 node-sdk 加入白名单（连同
+    `package.json#description` 标记 + AGENTS.md 一节）——lint 通过。
+  - **(b) 推迟 M3 复议**：把 lint 脚本仅作 survey 工具（在 `package.json` scripts 里挂
+    `check:v2-library-surface`，不接 `bun run lint`），当前构建绿色（不依赖 lint），node-sdk
+    按既有 v2 依赖继续走直到 M5 整体删除时统一处理。
 
   **显式标记方案**（让 "v2 是库" 不退化为 "v2 是默认运行时"）：
 

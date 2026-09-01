@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/acp-server",
   "version": "0.0.1",
   "private": true,
-  "description": "Agent Client Protocol (ACP) host backed directly by the DI × Scope agent engine (agent-core-v2)",
+  "description": "Agent Client Protocol (ACP) host backed directly by the DI × Scope agent engine (agent-core-v2). M3-marked v2 library consumer — see packages/agent-core-v2/AGENTS.md §Library surface. New embedders default to the Rust engine in packages/kimi-agent; this package stays on v2 until M5.",
   "license": "MIT",
   "author": "Moonshot AI",
   "type": "module",

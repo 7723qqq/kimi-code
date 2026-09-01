@@ -2,6 +2,10 @@
 
 The Kimi Code server, backed by the DI × Scope agent engine (`@moonshot-ai/agent-core-v2` — four scopes, App/Workspace/Session/Agent). Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`); bootstrapped from `src/start.ts` and consumed by `apps/kimi-code`.
 
+## M3 marker
+
+This package is an **M3-marked v2 library consumer** (see root `ROADMAP.md` §M3, 2026-09-01, and `packages/agent-core-v2/AGENTS.md` §Library surface). The `agent-core-v2` dependency is intentional and load-bearing: kap-server hosts the App/Workspace/Session/Agent DI tiers, exposes the `/api/v1/debug/*` reflection dispatcher over every scoped service, and implements the full session/workspace/MCP/OAuth/feature-flag/app-config surface that has no Rust equivalent today. New code that needs a v2-only service should keep using `agent-core-v2`; the M5 deletion of `agent-core-v2` is the path off this dependency.
+
 ## Comment conventions
 
 No comments — no file headers, no section banners, no statement-level narration, no JSDoc (not even on exported symbols); the code is the source of truth. Lint-suppression directives (`oxlint-disable` / `eslint-disable`) are the only exception, allowed where they suppress an active rule for a deliberate pattern; other tooling directives (`@ts-expect-error`, `@ts-ignore`, …) stay banned — fix the underlying type problem instead. Enforced by `scripts/check-no-comments.mjs` (part of `bun run lint`).
