@@ -24,6 +24,7 @@ const CONSUMER_WHITELIST = new Set([
   'packages/kap-server',
   'packages/klient',
   'packages/acp-server',
+  'packages/node-sdk',
 ]);
 
 // Apps are explicitly out: `apps/kimi-code` runs the v2 runner for the
@@ -46,18 +47,21 @@ function listImports(source) {
 }
 
 function walkPackage(pkgRel) {
-  const pkgJson = path.join(ROOT, pkgRel, 'package.json');
+  // path.join on Windows produces backslashes; the whitelist is keyed by
+  // forward slashes, so normalize once here and on the violation path.
+  const rel = pkgRel.split(path.sep).join('/');
+  const pkgJson = path.join(ROOT, rel, 'package.json');
   if (!fs.existsSync(pkgJson)) return;
-  const isWhitelisted = CONSUMER_WHITELIST.has(pkgRel);
+  const isWhitelisted = CONSUMER_WHITELIST.has(rel);
   const pkg = JSON.parse(fs.readFileSync(pkgJson, 'utf8'));
   if (pkg.dependencies && Object.prototype.hasOwnProperty.call(pkg.dependencies, PKG_NAME)) {
     // Dep declared but no source-level import — likely transitive or a
     // stale entry. Not a violation by itself but worth surfacing.
   }
   for (const sub of ['src', 'test', 'scripts']) {
-    const dir = path.join(ROOT, pkgRel, sub);
+    const dir = path.join(ROOT, rel, sub);
     if (!fs.existsSync(dir)) continue;
-    walkDir(dir, pkgRel, isWhitelisted);
+    walkDir(dir, rel, isWhitelisted);
   }
 }
 

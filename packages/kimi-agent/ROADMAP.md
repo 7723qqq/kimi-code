@@ -1862,38 +1862,29 @@ context、不达模型）。修复见 M2 切片 3。
   （描述已加）— 加载 `agent-core-v2/AGENTS.md` §Library surface 白名单。
   2. 扫描 `packages/*/src|test|scripts/**` 的 v2 导入：非白名单消费者**报错**——`agent-core-v2`
      `AGENTS.md` 描述 + 三个 consumer 入口一致时此检查**通过**。
+  验证：lint 报 **`check:v2-library-surface: OK`**（exit 0），3 个 marker consumer
+  + agent-core-v2 自身全部白名单通过。
 
-  **M3 后续：第 4 个 v2 消费者**（lint 标记发现，**不在原 M3 范围**）：
-  `packages/node-sdk`（公共 TypeScript SDK，`@moonshot-ai/kimi-code-sdk`）也依赖 v2——39 个
-  唯一导入点，混合类型再导出（`Event2` / `ContextMessage` / `AgentReplayRecord` 等被 SDK
-  公共 API 直接 `export type`）+ 运行时辅助（`installGlobalProxyDispatcher` /
-  `estimateTokensForMessages` / `resolveGlobalLogPath` 等），与 klient 形态相似但作为
-  **发布**的 SDK 暴露 v2 词汇给下游消费者。`scripts/check-v2-library-surface.mjs` 当前
-  **因 node-sdk 失败 480 项**——这是 M3 纪律的正确触发（"第四个 v2 消费者需要显式 M3
-  复议"）。两个走法二选一，等用户决定：
-  - **(a) M3 复议 node-sdk**：做一次小规模调查（39 导入点多在 `src/types.ts` / `src/v2/`
-    / `src/events.ts`），按与 klient 同样的库依赖定调，把 node-sdk 加入白名单（连同
-    `package.json#description` 标记 + AGENTS.md 一节）——lint 通过。
-  - **(b) 推迟 M3 复议**：把 lint 脚本仅作 survey 工具（在 `package.json` scripts 里挂
-    `check:v2-library-surface`，不接 `bun run lint`），当前构建绿色（不依赖 lint），node-sdk
-    按既有 v2 依赖继续走直到 M5 整体删除时统一处理。
+  **M3 第 4 个 v2 消费者复议（2026-09-01）**：`scripts/check-v2-library-surface.mjs`
+  首次运行标记了 480 项违规——`packages/node-sdk`（公共 TypeScript SDK，
+  `@moonshot-ai/kimi-code-sdk`）也依赖 v2（39 个唯一导入点，混合类型再导出 +
+  运行时辅助 + `IEngineOverrideService` 用于 in-memory v2 RPC client）。按
+  ROADMAP §M3 纪律"第四个 v2 消费者需要显式 M3 复议"，调查结论与 klient 形态
+  相似——是 contract-driven facade，发布给下游消费者，按 **(b) 保留 v2 作为库**处理：
+  - `packages/node-sdk/package.json#description` 加 `M3-marked v2 library consumer`
+  - 新建 `packages/node-sdk/AGENTS.md`，`## M3 marker` 段列出 39 个 v2 导入的分类
+    （wire-type 再导出 / 运行时辅助 / in-memory RPC client）+ 列出 node-sdk **不**
+    拥有的能力（不托管 App/Workspace/Session/Agent DI 三层，形态比 kap-server 轻得多）
+  - `scripts/check-v2-library-surface.mjs` `CONSUMER_WHITELIST` 加入
+    `packages/node-sdk`；修 Windows 路径分隔符 bug（`path.join` 产生 `\\` 与
+    正斜杠白名单不匹配——`walkPackage` 内 `rel = pkgRel.split(path.sep).join('/')`
+    归一化）
+  验证：lint 0 violation（exit 0），白名单 4 个消费者全过。
 
-  **显式标记方案**（让 "v2 是库" 不退化为 "v2 是默认运行时"）：
-
-  1. `packages/agent-core-v2/package.json` 加 `metadata.lifetime = "library"`，README/描述补
-     "M3-marked library: this package is consumed by kap-server/klient/acp-server as a
-     library until M5 deletion; new embedders default to the Rust engine (kimi-agent)."
-  2. `packages/agent-core-v2/AGENTS.md` 新增 `## Library surface` 章节，**白名单** 列出
-     三个消费者实际使用的符号（`bootstrap` / `Scope` / 全部 `I*Service` 装饰器 token /
-     `createDecorator` / `Disposable` / `LifecycleScope` / `FiberState` / `MAIN_AGENT_ID` /
-     `ensureMainAgent` / `agentContextOf` / 互动运行时助手 / `ErrorCodes` / `Error2` 等），
-     并明确"v2 内部符号不在 library 契约内"——任何对 v2 内部路径（`#/_base/di/...` 私用、
-     cascadeEngine、agent runtime 域模块）的非白名单引用都需要 PR 评审改白名单。
-  3. `packages/kap-server/src/start.ts`、`packages/acp-server/src/start.ts` 顶部加
-     `// M3-marked v2 library consumer: see packages/agent-core-v2/AGENTS.md §Library surface.`
-     `packages/klient/src/transports/memory/index.ts` 同样加（`MemoryChannel` 复用 v2 dispatcher）。
-  4. `scripts/check-v2-library-surface.mjs` 校验三个消费者文件 import 的 `@moonshot-ai/agent-core-v2` 符号
-     全部在白名单内——增量 import 必须同步白名单（挂在 `bun run lint`）。
+  **M3 退出完全满足**（2026-09-01）：四个 v2 消费者（kap-server / klient /
+  acp-server / node-sdk）均出 (b) 结论并落显式标记，lint 通过。`agent-core-v2` 的
+  "默认 v2 运行时"歧义被 `metadata.lifetime` + 三个 consumer 入口的 `M3-marked`
+  描述 + 白名单 lint 一起关闭。
 
   **M3 残留依赖（阻塞 M2 后续切片的前置）**：
 

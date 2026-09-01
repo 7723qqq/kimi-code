@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/kimi-code-sdk",
   "version": "0.19.2",
   "private": true,
-  "description": "TypeScript SDK for the Kimi Code Agent",
+  "description": "TypeScript SDK for the Kimi Code Agent. M3-marked v2 library consumer — see packages/agent-core-v2/AGENTS.md §Library surface. Re-exports v2 wire types (Event2 / ContextMessage / CompactionResult / AgentReplayRecord / file + mcp + capability types) and v2 runtime helpers (proxy dispatcher / token estimation / log path resolution); the v2 RPC client uses IEngineOverrideService for in-memory v2 process talks. Stays on v2 until M5 deletion; new embedders default to the Rust engine in packages/kimi-agent.",
   "license": "MIT",
   "author": "Moonshot AI",
   "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
