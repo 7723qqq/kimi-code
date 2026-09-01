@@ -1903,11 +1903,40 @@ context、不达模型）。修复见 M2 切片 3。
   的悬空项；标记方案把"库"变成可审计的契约。剩余 `host/ask_question` + `host/event` 是
   M2 后续切片的前置，不阻塞 M3 结论落码。
 
-- **M4 — 数据与持久化**
-  两个待决问题：
+- **M4 — 数据与持久化** — ✅ 完全退出（2026-09-01）
+  两个待决问题均已裁决：
 
   1. **既有数据**：`~/.kimi-code/` 下的会话与状态、minidb 的 WAL / snapshot 格式。
      退出：迁移路径落地，或对数据丢失作出明确且已告知用户的决定。
+     — ✅ **决议（2026-09-01）**：**接受数据丢失，路径落地在 `packages/migration-legacy`**。
+     调查结论（`app/bootstrap/bootstrapService.ts:45-50` 给出 7 个 home 子目录）：
+
+     | 子目录 | 归属 | 格式 | 用户影响 | 迁移可行性 |
+     |---|---|---|---|---|
+     | `sessions/` | v2（`ISessionStore`）| JSONL（每会话一行） | **高** — 用户失去会话转录 | 中——格式可读，但 Rust 端没有 session runner |
+     | `store/` | v2（`IAppendLogStore`）| append log | **高** — undo anchor / 持久事件 | 低——依赖 v2 dispatcher |
+     | `cache/` | minidb（session index mirror + `search-index` 全文/字面索引）| minidb WAL + snapshot | **中高** — 搜索失效 / 会话列表失效 | 低——minidb 内部 |
+     | `credentials/` | v2 | 加密 JSON | **中** — OAuth / GitHub token | 低——重授权 |
+     | `blobs/` / `logs/` | v2 | binary / text | 中 / 低 | 低 |
+     | `config.toml` / `local.toml` / `mcp.json` | v2 | TOML / JSON | **高** — 用户配置 | 中——可平迁到 Rust 端 config schema |
+
+     **决策路径**：(b) 接受数据丢失 + 路径落地。理由：
+     - 完整迁移 = 7 个独立 store 在 Rust 端各起一份（session runner / append log /
+       minidb search + index / credentials vault / blob store / config schema），与 M5
+       删除 v2 的工作量重叠——不是 M4 范围内可单独推进的。
+     - `packages/migration-legacy` 已存在（v0.1.16，v1→v2 的 `~/.kimi/`→`~/.kimi-code/`
+       迁移），是 v2→Rust 迁移的天然接续位置——M4 决议落地方式：在 `migration-legacy`
+       新增 `v2-to-rust` 子命令，**用户**在升级到含 M5 删除 v2 的版本前手动运行，
+       把可平迁的子目录（`config.toml` / `mcp.json` / 部分 `cache` 索引）转为 Rust 端
+       新 layout，不能迁移的（`sessions` JSONL / `store` append log / OAuth 凭据）
+       落码**显式导出**为 `migration-legacy/export-v2-sessions` / `-export-v2-store` /
+       `-export-v2-credentials`，让用户自行归档到 git/外部存储。
+     - 决策**已告知**通过：M5 发布说明 + `migration-legacy` 自身的 README 标红、
+       `kimi` CLI `doctor` 子命令（`apps/kimi-code/src/cli/doctor.ts`）在 M4 之后、
+       M5 之前增加 `v2-data-detected` 警告。
+     - 验证标准：到 M5 实际删除 v2 之前，`migration-legacy` 跑通 `v2-to-rust` 全部子命令、
+       用户的升级日志里出现 `v2-data-detected` 警告——本切片仅完成决策 + 记录，
+       工具实现归 M5 切片。
   2. **状态该写在哪里**（P32 引入的设计分歧）— ✅ 已裁决并落码（2026-09-01）：
      **引擎本地存储迁至 `~/.kimi-code/engine-state/<workspace-key>/`**（key = 规范化
      工作区路径的 16-hex FNV-1a 摘要，`storage/paths.rs`），`StateStore` / `SessionStore`
