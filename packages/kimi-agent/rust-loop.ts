@@ -343,6 +343,28 @@ export function projectHostMessageToWire(m: HostMessage): WireMessage {
 }
 
 /**
+ * Project the v2 engine goal context (camelCase) onto the snake_case wire
+ * goal the Rust engine consumes. The engine reads it fresh every turn for
+ * its per-step budget checks; `undefined` runs the turn without budgeting.
+ */
+function projectEngineGoal(
+  goal: import('@moonshot-ai/agent-core-v2').TurnEngineGoalContext | undefined,
+): GoalContext | undefined {
+  if (goal === undefined) return undefined;
+  return {
+    goal_id: goal.goalId,
+    objective: goal.objective,
+    status: goal.status,
+    token_budget: goal.tokenBudget,
+    turn_budget: goal.turnBudget,
+    wall_clock_budget_ms: goal.wallClockBudgetMs,
+    wall_clock_ms: goal.wallClockMs,
+    tokens_used: goal.tokensUsed,
+    turns_used: goal.turnsUsed,
+  };
+}
+
+/**
  * Tracks the `AbortController` of every in-flight LLM request that the Rust
  * side can name, so a provider that loses a MultiLLM race can actually be
  * stopped instead of running to completion and billing for a response nobody
@@ -552,7 +574,6 @@ interface KimiAgentNativeModule {
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
     finalizeToolCb?: (callbackId: number) => void,
-    drainSteersCb?: (callbackId: number) => void,
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
@@ -626,7 +647,6 @@ export class NapiEngine {
     emitEventCb?: (event: EngineEvent) => void,
     checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
     finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
-    drainSteersCb?: () => Promise<WireMessage[]>,
     askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
     stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
@@ -701,11 +721,6 @@ export class NapiEngine {
             );
             return JSON.stringify(finalized);
           });
-
-    const drainHandler =
-      drainSteersCb === undefined
-        ? undefined
-        : makeCallbackHandler(async () => JSON.stringify(await drainSteersCb()));
 
     // Question channel: resolve like the request/response callbacks. The
     // host owns the interaction runtime and answers with the v2
@@ -786,7 +801,6 @@ export class NapiEngine {
       eventHandler,
       permissionHandler,
       finalizeHandler,
-      drainHandler,
       askQuestionHandler,
       stateReadHandler,
       stateWriteHandler,
@@ -849,9 +863,6 @@ export class AgentProcess {
     | ((req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>)
     | null = null;
 
-  /** Callback for handling host/drain_steers requests from Rust. */
-  private drainSteersHandler: (() => Promise<WireMessage[]>) | null = null;
-
   /** Callback for handling host/ask_question requests from Rust. */
   private askQuestionHandler:
     | ((req: AskQuestionWire) => Promise<AskQuestionWireResult>)
@@ -902,10 +913,6 @@ export class AgentProcess {
 
   setFinalizeHandler(handler: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>) {
     this.finalizeHandler = handler;
-  }
-
-  setDrainSteersHandler(handler: () => Promise<WireMessage[]>) {
-    this.drainSteersHandler = handler;
   }
 
   setAskQuestionHandler(handler: (req: AskQuestionWire) => Promise<AskQuestionWireResult>) {
@@ -1074,8 +1081,6 @@ export class AgentProcess {
       await this.handleHostCheckPermission(msg);
     } else if (msg.method === 'host/finalize_tool_result') {
       await this.handleHostFinalizeToolResult(msg);
-    } else if (msg.method === 'host/drain_steers') {
-      await this.handleHostDrainSteers(msg);
     } else if (msg.method === 'host/ask_question') {
       await this.handleHostAskQuestion(msg);
     } else if (msg.method === 'host/state_read') {
@@ -1093,20 +1098,6 @@ export class AgentProcess {
         error: { code: -32601, message: `Unknown method: ${msg.method}` },
       });
       this.process!.stdin!.write(response + '\n');
-    }
-  }
-
-  private async handleHostDrainSteers(msg: RpcMessage) {
-    if (!this.drainSteersHandler) {
-      this.writeHostResult(msg.id, [] satisfies WireMessage[]);
-      return;
-    }
-    try {
-      this.writeHostResult(msg.id, await this.drainSteersHandler());
-    } catch {
-      // An undrained steer stays in the host queue and reaches the model once
-      // the turn ends, so a failed drain must not abort the running turn.
-      this.writeHostResult(msg.id, [] satisfies WireMessage[]);
     }
   }
 
@@ -1414,7 +1405,6 @@ type ActiveCallbacks = {
   emitEvent: (event: EngineEvent) => void;
   checkPermission: (req: PermissionCheckRequest) => Promise<PermissionDecision>;
   finalize: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>;
-  drainSteers: () => Promise<WireMessage[]>;
   askQuestion?: (req: AskQuestionWire) => Promise<AskQuestionWireResult>;
   stateRead?: (req: StateReadWire) => Promise<StateReadWireResult>;
   stateWrite?: (req: StateWriteWire) => Promise<StateWriteWireResult>;
@@ -1527,7 +1517,6 @@ export class StdioSessionTransport implements SessionTransport {
     this.agent.setEventHandler((event) => c.emitEvent(event));
     this.agent.setPermissionHandler((req) => c.checkPermission(req));
     this.agent.setFinalizeHandler((req) => c.finalize(req));
-    this.agent.setDrainSteersHandler(() => c.drainSteers());
     if (c.askQuestion !== undefined) {
       this.agent.setAskQuestionHandler((req) => c.askQuestion!(req));
     }
@@ -1806,7 +1795,6 @@ export function createRunTurnOverride(
       const response = await active!.finalize(req);
       return JSON.stringify(response);
     },
-    drainSteers: async (): Promise<string> => JSON.stringify(await active!.drainSteers()),
     askQuestion:
       active!.askQuestion === undefined
         ? undefined
@@ -2021,17 +2009,6 @@ export function createRunTurnOverride(
       })),
     });
 
-    // Mid-turn steering lands in the host's step queue, which the JS loop would
-    // normally drain at the next step head. An engine driving the whole turn
-    // has to ask, or a steered prompt waits for the turn to end. Awaiting the
-    // event chain first keeps the record ordered after the tool results that
-    // are still being appended for the step that just ran.
-    const drainSteers = async (): Promise<WireMessage[]> => {
-      await eventChain;
-      const steered = await input.drainSteers?.();
-      return (steered ?? []).filter(isHostMessage).map(projectHostMessageToWire);
-    };
-
     // ── LLM chat handler ──────────────────────────────────────────────
     /**
      * `signal` is set when this request is one of several racing providers;
@@ -2042,7 +2019,14 @@ export function createRunTurnOverride(
       modelName?: string,
     ): Promise<LlmChatResponse> => {
       await closeOpenStep();
-      await drainSteers();
+      // Mid-turn steering lands in the host's step queue, which the JS loop
+      // would normally drain at the next step head. In host-proxy mode this
+      // handler is the step head, so it drains here — `input.drainSteers`
+      // appends each steer into the context. Awaiting the event chain first
+      // keeps the record ordered after the tool results that are still being
+      // appended for the step that just ran.
+      await eventChain;
+      await input.drainSteers?.();
       currentStep += 1;
       const stepUuid = randomUUID();
       const stepNum = currentStep;
@@ -2217,12 +2201,11 @@ export function createRunTurnOverride(
         });
       },
       finalize: finalizeNativeResult,
-      drainSteers,
       askQuestion: askUserQuestion,
       stateRead,
       stateWrite,
       listTools: listToolsHandler,
-      goal: () => options?.getGoal?.(),
+      goal: () => options?.getGoal?.() ?? projectEngineGoal(input.getGoal?.()),
       turnEvent: (event) => input.onTurnEvent?.(event),
       telemetry: (event) => input.onTurnTelemetry?.(event),
     };
@@ -2303,7 +2286,6 @@ export function createRunTurnOverride(
           },
           checkPermission: (req) => active!.checkPermission(req),
           finalize: (req) => active!.finalize(req),
-          drainSteers: () => active!.drainSteers(),
           askQuestion:
             active!.askQuestion === undefined
               ? undefined

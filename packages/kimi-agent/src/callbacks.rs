@@ -121,11 +121,9 @@ pub trait HostCallbacks: Send + Sync {
         })
     }
 
-    /// Ask the host to release steering the user injected during this turn.
-    /// The host owns the turn's step-request queue and records each steer into
-    /// the transcript as it releases it, so an engine driving the whole turn
-    /// has to ask at every step head — otherwise the prompt waits for the turn
-    /// to end. The default answers with nothing, for hosts without the seam.
+    /// Release the steering prompts injected during the active turn. The
+    /// engine-local steer queue (see `SteerQueueCallbacks`) serves this at
+    /// every step head; the default answers with nothing.
     fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -184,11 +182,6 @@ pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// optionally spills a string — no human in the loop — so a stalled call must
 /// not hold the turn open for as long as a real tool execution may.
 pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Outer bound on releasing queued mid-turn steering. Like finalization this is
-/// host bookkeeping with no human in the loop, so a stalled answer must not
-/// hold the step open.
-pub const HOST_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Outer bound on a host state bridge call (state_read / state_write). The
 /// host applies domain semantics to durable state — bookkeeping with no
@@ -354,22 +347,6 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Tool finalize error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Tool finalize parse error: {e}"))
-        })
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        let server = self.server.clone();
-        Box::pin(async move {
-            let response_value = server
-                .invoke(
-                    crate::rpc::types::methods::HOST_DRAIN_STEERS,
-                    serde_json::json!({}),
-                    Some(HOST_DRAIN_TIMEOUT),
-                )
-                .await
-                .map_err(|e| format!("Drain steers error: {e}"))?;
-            serde_json::from_value(response_value)
-                .map_err(|e| format!("Drain steers parse error: {e}"))
         })
     }
 
@@ -678,10 +655,6 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.finalize_tool_result(request)
     }
 
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        self.inner.drain_steers()
-    }
-
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
     }
@@ -781,10 +754,6 @@ impl HostCallbacks for CountingCallbacks {
         request: ToolFinalizeRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
         self.inner.finalize_tool_result(request)
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        self.inner.drain_steers()
     }
 
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {

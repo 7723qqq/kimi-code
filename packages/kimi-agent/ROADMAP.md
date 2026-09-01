@@ -1387,7 +1387,7 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 原生工具集持续扩充（第 8 轮并入 GitHub 34 件）/ 16 个状态桥接 / 其余委托 |
 | `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ⚠️ |
 | `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
-| `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ❌ 缺失 |
+| `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ✅ 已删除（2026-09-01，M2-1：`SteerQueueCallbacks` 本地队列自 M1a 起接管，宿主腿为死代码） |
 | `host/event` | transcript / 遥测落点 | Rust 侧 sink | ❌ 缺失 |
 
 ### ⚠️ 一个今天就存在的缺陷：引擎路径下 `onDidFinishStep` 从不执行
@@ -1439,6 +1439,15 @@ context（对齐 JS 路径 `SteerStepRequest` materialize 的语义，`buildMess
 `drainSteers` 回调。验证：engineOverride 套件 57/57（新增 2 个测试：drain 返回 + context
 包含 + 重复 drain 空、turn 结束后 steered completion 正常 settle），promptService 23/23，
 gateway 2/2，tsc 0 错误。
+
+**后续（M2-1，2026-09-01）**：会话翻转（M1d 3a/3b）后引擎侧 `SteerQueueCallbacks` 本地
+队列接管了 `drain_steers`（装饰器拦截，`inner.drain_steers()` 不再被调用），上述宿主腿
+成为死代码并已删除（见 M2 切片记录）；`input.drainSteers` / `drainSteered()` 保留——
+host-proxy 模式下宿主自己的 step 头（`llmChatHandler`）仍经它拉取 v2 steer。
+**已知残留缺口**：产品路径门面只以 `'newTurn'` 准入 enqueue（`rust-loop.ts`），v2 侧
+turn 中途到达的 steer 不会进入引擎本地 steer 队列，只能等下一 turn 开始时经
+`driveEngineTurn` 的队列 materialize 到达模型（非 turn 中途）。是否把 steer 路由进
+引擎会话（`session/enqueue_turn` 的 steer 准入）属 M2 后续裁决。
 
 ### 里程碑
 
@@ -1719,9 +1728,48 @@ gateway 2/2，tsc 0 错误。
   （`/status`）加覆盖率断言证明，不靠人工判断；
   且上述每一项都要有 Rust 侧落点或明确的宿主分层，否则就是功能丢失而非迁移。
 
-- **M2 — 9 条回调逐条到期**
+- **M2 — 9 条回调逐条到期** — 🔄 1/9 已删除
   按上表逐条补齐 Rust 侧前置，每补齐一条即删除 v2 侧对应实现。
   退出：9 条全部删除；`rustSelfContained` 开关自身一并移除（它只是验证手段，见 P26）。
+  - **切片 1 — `host/drain_steers` 宿主腿删除（✅ 2026-09-01）**：M1a 的 `SteerQueueCallbacks`
+    （`session/mod.rs`）已让引擎本地 steer 队列接管 `drain_steers`（装饰器拦截，
+    `inner.drain_steers()` 在会话路径上不可达），宿主腿在产品路径上是死代码。删除面：
+    Rust `RpcHostCallbacks::drain_steers`（stdio 往返）+ `NapiHostCallbacks::drain_steers`
+    （TSFN）+ `HOST_DRAIN_STEERS` / `HOST_DRAIN_TIMEOUT` 常量 + `NativeToolCallbacks` /
+    `CountingCallbacks` 两层转发 + napi 第 6 TSFN（`run_turn_rust` 12→11、
+    `create_engine_session` 13→12，`napi-contract.d.ts` 同批重生成）；TS 门面
+    `AgentProcess` handler + stdio 分发 + `ActiveCallbacks.drainSteers` +
+    `StdioSessionTransport` / `wrapActiveForNapi` / `sessionCallbacks` 三处接线 +
+    per-turn `drainSteersCb` 参数 + `session-handle.ts` 传输位。保留：trait 默认（空）、
+    `SteerQueueCallbacks` 本地队列实现、`run_turn.rs` 每步消费点、
+    `input.drainSteers` / `drainSteered()`（host-proxy 模式宿主 step 头仍经它拉取 v2
+    steer——`llmChatHandler` 内联化）。测试：删除 per-turn drain 通道专属 describe
+    （napi-integration 2 条），state-bridge 参数位置测试 9th/10th → 8th/9th，
+    ask_question 测试位置参数同步移位。
+    验证：cargo test 845 全绿（835 lib + 10 stdio）+ clippy 0 + fmt 干净；
+    kimi-agent vitest 109 passed / 6 skipped；agent-core-v2 engineOverride +
+    rustEngineE2E + rustEngineZeroJsLoop 66/66；addon release 重建 + d.ts 重生成。
+  - **切片 1b — 会话 goal/list_tools 双重编码修复（✅ 2026-09-01）**：盘点发现的
+    「`host/goal` 产品接线惰性」根因不在 `rust-engine.ts` 缺 `getGoal`（那只是表象之一），
+    而是 **napi 会话路径的请求/响应适配层双重 JSON 编码**：`SessionCallbacks.goal` /
+    `listTools` 契约是「返回 wire JSON 字符串」，`wrapActiveForNapi` 已按契约返回字符串，
+    但 `session-handle.ts` 的适配器又 `JSON.stringify` 了一次——Rust 侧
+    `serde_json::from_str::<GoalContext>` 收到的是「字符串化的字符串」，解析必然失败。
+    后果链：goal 解析失败 → `None` → 引擎每步 goal 预算检查（`BudgetLimited`/`Paused`
+    停止）在 napi 产品路径从不触发；list_tools 解析失败 → 被 M1d 的「失败回退 turn-start
+    快照」机制静默吸收（native-http 模式下工具表刷新同样失效）。stdio 路径无此问题
+    （`ActiveCallbacks` 直接传对象，信封序列化一次）。修复：适配器去掉多余 stringify
+    （`goal` 空值归 `'null'`）。同时把 v2 goal provider 接进会话 goal 闭包：
+    `goal: () => options?.getGoal?.() ?? projectEngineGoal(input.getGoal?.())`——
+    `rust-engine.ts` 无需改动，任何注册了 `registerEngineGoalProvider` 的宿主自动获得
+    引擎侧预算执行。新增 e2e：`rustEngineE2E` 第 4 条——v2 goal provider 报耗尽预算 →
+    真实引擎在首个 LLM 调用前 `BudgetLimited` 停止（`ctx.llmCalls.length === 0`）。
+    验证：cargo test 845 全绿 + clippy 0 + fmt 干净；kimi-agent vitest 109/109；
+    agent-core-v2 loop 套件 166/167（唯一失败为既有工具表快照 hash 环境漂移）；
+    根 typecheck 全绿；addon release 重建。
+  - **盘点勘误（2026-09-01 代码级复核）**：9 条回调表中 `host/drain_steers` 的
+    「Rust 侧前置 ❌ 缺失」自 M1a 起已过时（本地队列当时已建成）；`host/event` 的
+    「Rust 侧 sink ❌」仍准确（transcript/UI 消费方在宿主侧，无 Rust 替代）。
 
 - **M3 — 消费方处置**
   对 `kap-server`（175）、`klient`（122）、`acp-server`（14）逐个给出结论：

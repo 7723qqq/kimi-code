@@ -829,7 +829,6 @@ describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () =>
           emitEvent: () => {},
           checkPermission: async () => ({ decision: 'allow' }),
           finalize: async (req) => ({ content: req.content, is_error: req.is_error }),
-          drainSteers: async () => [],
           listTools: async () => ({ tools: [] }),
           goal: () => undefined,
         },
@@ -1499,7 +1498,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     tools: [],
   };
 
-  it('passes stateReadCb and stateWriteCb as the 9th and 10th runTurnRust arguments and round-trips through the registry', async () => {
+  it('passes stateReadCb and stateWriteCb as the 8th and 9th runTurnRust arguments and round-trips through the registry', async () => {
     const engine = new NapiEngine();
     const received: unknown[][] = [];
     const payloads = new Map<number, string>();
@@ -1540,14 +1539,13 @@ describe('NapiEngine — state bridge callback passing', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       stateReadCb,
       stateWriteCb,
     );
 
     expect(received).toHaveLength(1);
-    const stateReadHandler = received[0]?.[8];
-    const stateWriteHandler = received[0]?.[9];
+    const stateReadHandler = received[0]?.[7];
+    const stateWriteHandler = received[0]?.[8];
     expect(typeof stateReadHandler).toBe('function');
     expect(typeof stateWriteHandler).toBe('function');
     payloads.set(42, JSON.stringify({ domain: 'todo', key: 'todo' }));
@@ -1568,7 +1566,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     });
   });
 
-  it('leaves the 9th and 10th runTurnRust arguments undefined without the callbacks', async () => {
+  it('leaves the 8th and 9th runTurnRust arguments undefined without the callbacks', async () => {
     const { engine, received } = fakeEngine();
     await engine.runTurn(
       emptyTurnParams,
@@ -1577,8 +1575,8 @@ describe('NapiEngine — state bridge callback passing', () => {
     );
 
     expect(received).toHaveLength(1);
+    expect(received[0]?.[7]).toBeUndefined();
     expect(received[0]?.[8]).toBeUndefined();
-    expect(received[0]?.[9]).toBeUndefined();
   });
 });
 

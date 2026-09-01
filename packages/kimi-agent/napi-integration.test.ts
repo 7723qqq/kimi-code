@@ -982,77 +982,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — rustSelfContained (P26 批 1
   });
 });
 
-describe.skipIf(!nativeEntry)('napi runTurnRust — mid-turn steering drain channel', () => {
-  // Port 9 (discard) refuses connections immediately, so a turn that really
-  // picks the native transport fails locally instead of reaching a provider.
-  // The drain happens at the step head — before the request is sent — so the
-  // dead endpoint does not hide whether the channel was consulted.
-  const deadNativeLlm = {
-    protocol: 'openai',
-    baseUrl: 'http://127.0.0.1:9/v1',
-    apiKey: 'sk-test',
-    model: 'test-model',
-  };
-
-  it('consults the host for steering when the engine owns the history', { timeout: 40_000 }, async () => {
-    const mod = loadNativeModule();
-    let drains = 0;
-    let hostChatCalls = 0;
-
-    await mod
-      .runTurnRust(
-        {
-          ...validParams,
-          maxSteps: 1,
-          nativeLlm: deadNativeLlm,
-        },
-        makeCallback(mod, () => {
-          hostChatCalls += 1;
-          return JSON.stringify({ content: '', tool_calls: [], finish_reason: 'stop' });
-        }),
-        makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
-        makeCallback(mod, () => ''),
-        makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-        makeCallback(mod, (req: string) => req),
-        makeCallback(mod, () => {
-          drains += 1;
-          return JSON.stringify([{ role: 'user', content: 'steered mid-turn' }]);
-        }),
-      )
-      .catch(() => undefined);
-
-    expect(drains).toBe(1);
-    expect(hostChatCalls).toBe(0);
-  });
-
-  it('never consults the drain channel for a host-proxied provider', async () => {
-    const mod = loadNativeModule();
-    let drains = 0;
-
-    await mod.runTurnRust(
-      { ...validParams, maxSteps: 1 },
-      makeCallback(mod, () =>
-        JSON.stringify({
-          content: 'proxied',
-          tool_calls: [],
-          finish_reason: 'stop',
-          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
-        }),
-      ),
-      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
-      makeCallback(mod, () => ''),
-      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-      makeCallback(mod, (req: string) => req),
-      makeCallback(mod, () => {
-        drains += 1;
-        return JSON.stringify([]);
-      }),
-    );
-
-    expect(drains).toBe(0);
-  });
-});
-
 describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation (P26 批 4)', () => {
   it('truncates a large native result in-process and skips the host finalize seam', async () => {
     const fs = await import('node:fs');
@@ -1521,7 +1450,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
         ),
         undefined,
         makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-        undefined,
         undefined,
         askQuestionCb
           ? makeCallback(mod, (req) => {

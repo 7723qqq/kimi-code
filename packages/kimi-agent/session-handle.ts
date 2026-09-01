@@ -58,7 +58,6 @@ export interface SessionCallbacks {
   emitEvent?: (eventJson: string) => void;
   checkPermission?: (request: string) => Promise<string>;
   finalizeTool?: (request: string) => Promise<string>;
-  drainSteers?: () => Promise<string>;
   askQuestion?: (request: string) => Promise<string>;
   stateRead?: (request: string) => Promise<string>;
   stateWrite?: (request: string) => Promise<string>;
@@ -78,7 +77,6 @@ interface SessionNativeModule {
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
     finalizeToolCb?: (callbackId: number) => void,
-    drainSteersCb?: (callbackId: number) => void,
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
@@ -333,7 +331,6 @@ class NapiSessionTransport implements SessionTransport {
     const emitEvent = callbacks.emitEvent;
     const checkPermission = callbacks.checkPermission;
     const finalizeTool = callbacks.finalizeTool;
-    const drainSteers = callbacks.drainSteers;
     const askQuestion = callbacks.askQuestion;
     const stateRead = callbacks.stateRead;
     const stateWrite = callbacks.stateWrite;
@@ -352,9 +349,6 @@ class NapiSessionTransport implements SessionTransport {
       finalizeTool === undefined
         ? undefined
         : makeRequestCallback(this.mod, (p) => finalizeTool(p)),
-      drainSteers === undefined
-        ? undefined
-        : makeRequestCallback(this.mod, async () => JSON.stringify(await drainSteers())),
       askQuestion === undefined
         ? undefined
         : makeRequestCallback(this.mod, (p) => askQuestion(p)),
@@ -368,10 +362,10 @@ class NapiSessionTransport implements SessionTransport {
       telemetry === undefined ? undefined : makeEventCallback(this.mod, telemetry),
       listTools === undefined
         ? undefined
-        : makeRequestCallback(this.mod, async () => JSON.stringify(await listTools())),
+        : makeRequestCallback(this.mod, async () => listTools()),
       goal === undefined
         ? undefined
-        : makeRequestCallback(this.mod, async () => JSON.stringify((await goal()) ?? null)),
+        : makeRequestCallback(this.mod, async () => (await goal()) ?? 'null'),
     );
   }
 

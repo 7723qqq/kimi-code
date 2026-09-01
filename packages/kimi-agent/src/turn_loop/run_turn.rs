@@ -654,14 +654,11 @@ mod tests {
 
     /// Helper: create an RpcHostCallbacks from an RpcServer.
     ///
-    /// Registers the per-step host seams (`drain_steers`, `list_tools`) with
-    /// no-op answers: with no local handler the server falls back to a stdio
-    /// round-trip that stalls for the full timeout, which used to cost every
-    /// native-transport test 30s per step.
+    /// Registers the per-step host seam (`list_tools`) with a no-op answer:
+    /// with no local handler the server falls back to a stdio round-trip that
+    /// stalls for the full timeout, which used to cost every native-transport
+    /// test 30s per step.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
-        RpcServer::register_arc(&server, types::methods::HOST_DRAIN_STEERS, |_params| {
-            Box::pin(async move { Ok(serde_json::json!([])) })
-        });
         RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, |_params| {
             Box::pin(async move {
                 let resp = types::ListToolsResponse { tools: vec![] };

@@ -238,4 +238,49 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
     expect(text).toContain('first reply');
     expect(text).toContain('second prompt');
   });
+
+  it('enforces the v2 engine goal budget through the session goal provider', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-goal-'));
+    tempDirs.push(workspace);
+
+    const adapterModule = (await import(
+      '../../../../kimi-agent/rust-loop.ts'
+    )) as typeof import('../../../../kimi-agent/rust-loop');
+    const { shutdownRustEngine } = adapterModule;
+    const engine = adapterModule.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+    shutdownRustEngine();
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine as unknown as TurnEngine,
+        ownsTurnLifecycle: true,
+      }),
+      permissionModeServices('yolo'),
+    );
+    // The goal domain registers its provider through the loop service; the
+    // adapter must forward it to the engine's session goal provider so the
+    // per-step budget check sees the v2 goal state.
+    ctx.get(IAgentLoopService).registerEngineGoalProvider(() => ({
+      goalId: 'goal-e2e',
+      objective: 'Budgeted objective',
+      status: 'active',
+      tokenBudget: 10,
+      tokensUsed: 10,
+      turnsUsed: 0,
+      wallClockMs: 0,
+    }));
+    void ctx.restoreRuntimes();
+
+    ctx.mockNextResponse({ type: 'text', text: 'UNREACHABLE budgeted reply' });
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Do the budgeted work' }] });
+    await end;
+
+    // The engine stopped with BudgetLimited before running any step: the
+    // scripted LLM response was never consumed.
+    expect(ctx.llmCalls.length).toBe(0);
+  });
 });

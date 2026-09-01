@@ -280,11 +280,6 @@ struct NapiHostCallbacks {
     /// executed result before it re-enters the model context. Absent means the
     /// result passes through unchanged, which is the pre-existing behaviour.
     finalize_tool_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
-    /// Optional steering drainer: the host releases the prompts the user
-    /// injected during this turn and returns them for the engine's history.
-    /// Absent means nothing is delivered until the turn ends, which is the
-    /// pre-existing behaviour for hosts that do not wire it.
-    drain_steers_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// Optional interactive question channel: the host owns the interaction
     /// runtime and answers with the v2 `QuestionResult` three states.
     /// Absent means the engine reports "host does not support interactive
@@ -470,25 +465,6 @@ impl HostCallbacks for NapiHostCallbacks {
             )
             .await?;
             serde_json::from_str(&output).map_err(|e| format!("finalize_tool_result parse: {e}"))
-        })
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        let Some(ref tsfn) = self.drain_steers_fn else {
-            return Box::pin(async { Ok(Vec::new()) });
-        };
-        let tsfn = tsfn.clone();
-        let cancel = self.cancellation.clone();
-        Box::pin(async move {
-            let output = invoke_via_registry(
-                &tsfn,
-                "{}".to_string(),
-                "drain_steers",
-                Some(crate::callbacks::HOST_DRAIN_TIMEOUT),
-                cancel,
-            )
-            .await?;
-            serde_json::from_str(&output).map_err(|e| format!("drain_steers parse: {e}"))
         })
     }
 
@@ -877,7 +853,6 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
-    #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
@@ -934,20 +909,6 @@ pub fn run_turn_rust(
 
     let finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
         match finalize_tool_cb {
-            Some(cb) => Some(cb.create_threadsafe_function(
-                0,
-                |ctx: ThreadSafeCallContext<u32>| {
-                    let id = ctx.value;
-                    let js_num = ctx.env.create_uint32(id)?;
-                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
-                    Ok(args)
-                },
-            )?),
-            None => None,
-        };
-
-    let drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
-        match drain_steers_cb {
             Some(cb) => Some(cb.create_threadsafe_function(
                 0,
                 |ctx: ThreadSafeCallContext<u32>| {
@@ -1051,7 +1012,6 @@ pub fn run_turn_rust(
                 emit_event_tsfn,
                 check_permission_tsfn,
                 finalize_tool_tsfn,
-                drain_steers_tsfn,
                 ask_question_tsfn,
                 state_read_tsfn,
                 state_write_tsfn,
@@ -1073,7 +1033,6 @@ struct EngineCallbackTsfns {
     emit_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     finalize_tool: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    drain_steers: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     ask_question: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
@@ -1114,7 +1073,6 @@ async fn build_engine_pipeline(
         emit_event_fn: tsfns.emit_event.map(Arc::new),
         check_permission_fn: tsfns.check_permission.map(Arc::new),
         finalize_tool_fn: tsfns.finalize_tool.map(Arc::new),
-        drain_steers_fn: tsfns.drain_steers.map(Arc::new),
         ask_question_fn: tsfns.ask_question.map(Arc::new),
         state_read_fn: tsfns.state_read.map(Arc::new),
         state_write_fn: tsfns.state_write.map(Arc::new),
@@ -1298,7 +1256,6 @@ async fn run_turn_rust_impl(
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    drain_steers_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
@@ -1324,7 +1281,6 @@ async fn run_turn_rust_impl(
             emit_event: emit_event_tsfn,
             check_permission: check_permission_tsfn,
             finalize_tool: finalize_tool_tsfn,
-            drain_steers: drain_steers_tsfn,
             ask_question: ask_question_tsfn,
             state_read: state_read_tsfn,
             state_write: state_write_tsfn,
@@ -1580,7 +1536,6 @@ pub fn create_engine_session(
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
-    #[napi(ts_arg_type = "(callbackId: number) => void")] drain_steers_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
@@ -1594,7 +1549,6 @@ pub fn create_engine_session(
     let emit_event_tsfn = make_tsfn(emit_event_cb)?;
     let check_permission_tsfn = make_tsfn(check_permission_cb)?;
     let finalize_tool_tsfn = make_tsfn(finalize_tool_cb)?;
-    let drain_steers_tsfn = make_tsfn(drain_steers_cb)?;
     let ask_question_tsfn = make_tsfn(ask_question_cb)?;
     let state_read_tsfn = make_tsfn(state_read_cb)?;
     let state_write_tsfn = make_tsfn(state_write_cb)?;
@@ -1614,7 +1568,6 @@ pub fn create_engine_session(
                     emit_event: emit_event_tsfn,
                     check_permission: check_permission_tsfn,
                     finalize_tool: finalize_tool_tsfn,
-                    drain_steers: drain_steers_tsfn,
                     ask_question: ask_question_tsfn,
                     state_read: state_read_tsfn,
                     state_write: state_write_tsfn,
