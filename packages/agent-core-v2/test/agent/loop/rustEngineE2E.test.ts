@@ -1,7 +1,7 @@
 import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -74,6 +74,7 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
     ctx = createTestAgent(
       appService(IEngineOverrideService, {
         getEngine: () => engine as unknown as TurnEngine,
+        ownsTurnLifecycle: true,
       }),
       permissionModeServices('yolo'),
     );
@@ -124,7 +125,9 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
 
     // The loop saw exactly the engine-driven turn lifecycle.
     const loop = ctx.get(IAgentLoopService);
-    expect(loop.status().state).toBe('idle');
+    // The engine's turn.ended arrives while the engine call is still
+    // unwinding, so wait for the loop's own bookkeeping to finish.
+    await vi.waitFor(() => expect(loop.status().state).toBe('idle'));
   });
 
   it('carries the plan-mode reminder into the real engine request messages', async () => {
@@ -162,6 +165,7 @@ describe.skipIf(!hasNativeAddon())('rust engine — real adapter + addon + permi
     ctx = createTestAgent(
       appService(IEngineOverrideService, {
         getEngine: () => engine as unknown as TurnEngine,
+        ownsTurnLifecycle: true,
       }),
       execEnvServices({ hostFs: delegatingFs(), processRunner: delegatingRunner() }),
     );

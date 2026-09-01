@@ -1420,6 +1420,8 @@ type ActiveCallbacks = {
   stateWrite?: (req: StateWriteWire) => Promise<StateWriteWireResult>;
   listTools: () => Promise<ListToolsResult>;
   goal: () => GoalContext | undefined;
+  turnEvent?: (event: TurnEventWire) => void;
+  telemetry?: (event: TelemetryEventWire) => void;
 };
 
 /** Convert the napi-shaped session params to the snake_case stdio wire. */
@@ -1537,6 +1539,8 @@ export class StdioSessionTransport implements SessionTransport {
     }
     this.agent.setListToolsHandler(() => c.listTools());
     this.agent.setGoalHandler(() => Promise.resolve(c.goal() ?? null));
+    this.agent.setTurnEventHandler((event) => c.turnEvent?.(event));
+    this.agent.setTelemetryHandler((event) => c.telemetry?.(event));
     const stdioParams = toStdioSessionParams(params);
     parseWireObject(runTurnParamsSchema, stdioParams, 'session/create request');
     return this.agent.sessionCreate(stdioParams);
@@ -1828,6 +1832,24 @@ export function createRunTurnOverride(
     goal: () => {
       const g = active!.goal();
       return Promise.resolve(g === undefined ? null : JSON.stringify(g));
+    },
+    turnEvent: (eventJson: string): void => {
+      try {
+        active!.turnEvent?.(parseWireObject(turnEventSchema, JSON.parse(eventJson), 'host/turn_event'));
+      } catch (error) {
+        // A malformed durable record must not be dropped silently — the
+        // transcript would fold a corrupt lifecycle.
+        console.error('[kimi-agent] rejected host/turn_event:', error);
+      }
+    },
+    telemetry: (eventJson: string): void => {
+      try {
+        active!.telemetry?.(
+          parseWireObject(telemetryEventSchema, JSON.parse(eventJson), 'host/telemetry'),
+        );
+      } catch (error) {
+        console.error('[kimi-agent] rejected host/telemetry:', error);
+      }
     },
   });
 
@@ -2201,6 +2223,8 @@ export function createRunTurnOverride(
       stateWrite,
       listTools: listToolsHandler,
       goal: () => options?.getGoal?.(),
+      turnEvent: (event) => input.onTurnEvent?.(event),
+      telemetry: (event) => input.onTurnTelemetry?.(event),
     };
 
     let rustResult: RunTurnResult;
@@ -2290,6 +2314,8 @@ export function createRunTurnOverride(
             active!.stateWrite === undefined ? undefined : (req) => active!.stateWrite!(req),
           listTools: () => active!.listTools(),
           goal: () => active!.goal(),
+          turnEvent: (event) => active!.turnEvent?.(event),
+          telemetry: (event) => active!.telemetry?.(event),
         };
         sessionHandle =
           mode === 'napi'

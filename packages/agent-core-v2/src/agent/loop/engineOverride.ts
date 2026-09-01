@@ -129,6 +129,77 @@ export interface TurnEngineGoalContext {
   readonly turnsUsed: number;
 }
 
+/**
+ * Engine-owned turn lifecycle record (M1d 3c). Mirrors the Rust
+ * `TurnEvent` wire shape (host/turn_event): the durable `turn.prompt` /
+ * `turn.cancel` / `turn.ended` records plus the observable `turn.started`.
+ * When the engine owns the lifecycle the loop folds these instead of
+ * emitting its own; `input` / `origin` are echoed back verbatim from the
+ * prompt the host sent (the host maps them to its own types).
+ */
+export type TurnLifecycleEvent =
+  | {
+      type: 'turn.prompt';
+      turnId: number;
+      input: unknown;
+      origin: unknown;
+    }
+  | {
+      type: 'turn.started';
+      turnId: number;
+      origin: unknown;
+    }
+  | {
+      type: 'turn.cancel';
+      turnId?: number;
+      target?: 'active' | 'queued';
+      reason?: 'user_cancelled' | 'aborted';
+    }
+  | {
+      type: 'turn.ended';
+      turnId: number;
+      reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
+      error?: unknown;
+      durationMs?: number;
+    };
+
+/**
+ * Engine-owned turn telemetry (M1d 3c). Mirrors the Rust `TelemetryEvent`
+ * wire shape (host/telemetry): the v2 track2 vocabulary plus the merged
+ * host context fields. `trace_id` stays a known gap — the engine cannot
+ * capture the provider request id yet.
+ */
+export type TurnTelemetryEvent =
+  | {
+      event: 'turn_started';
+      turn_id: string;
+      mode: string;
+      provider_type: string;
+      protocol: string;
+      thinking_effort?: string;
+    }
+  | {
+      event: 'turn_ended';
+      turn_id: string;
+      mode: string;
+      provider_type: string;
+      protocol: string;
+      thinking_effort?: string;
+      reason: 'completed' | 'cancelled' | 'failed';
+      duration_ms: number;
+      steps?: number;
+    }
+  | {
+      event: 'turn_interrupted';
+      turn_id: string;
+      mode: string;
+      provider_type: string;
+      protocol: string;
+      thinking_effort?: string;
+      at_step?: number;
+      interrupt_reason: 'aborted' | 'error';
+    };
+
 export interface TurnEngineInput {
   readonly turnId: number;
   readonly signal: AbortSignal;
@@ -175,6 +246,20 @@ export interface TurnEngineInput {
    * arrival order.
    */
   drainSteers?(): Promise<readonly Message[]>;
+  /**
+   * Engine-owned turn lifecycle records (M1d 3c, `host/turn_event`). The
+   * engine emits `turn.prompt` / `turn.started` / `turn.cancel` /
+   * `turn.ended` as the single writer; the host folds them into the durable
+   * log instead of emitting its own. Unwired for engines that do not own the
+   * lifecycle.
+   */
+  onTurnEvent?(event: TurnLifecycleEvent): void;
+  /**
+   * Engine-owned turn telemetry (M1d 3c, `host/telemetry`). One track2 per
+   * event; the host forwards them instead of emitting its own turn
+   * telemetry. Unwired for engines that do not own the lifecycle.
+   */
+  onTurnTelemetry?(event: TurnTelemetryEvent): void;
 }
 
 export interface TurnEngineResult {
@@ -204,6 +289,14 @@ export type TurnEngine = (input: TurnEngineInput) => Promise<TurnEngineResult>;
 
 export interface EngineOverrideProvider {
   getEngine(): TurnEngine | undefined;
+  /**
+   * The engine owns the durable turn lifecycle: it emits `turn.prompt` /
+   * `turn.started` / `turn.cancel` / `turn.ended` over `onTurnEvent` and
+   * its own turn telemetry over `onTurnTelemetry`. When true (and an engine
+   * is present), the loop suppresses its own durable turn events and turn
+   * telemetry so records are not folded twice.
+   */
+  ownsTurnLifecycle?: boolean;
 }
 
 export const IEngineOverrideService = createDecorator<EngineOverrideProvider>(

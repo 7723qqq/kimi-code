@@ -88,7 +88,9 @@ import { t } from '#/i18n';
 /** Bootstrap extra seed wiring the external turn engine, or nothing. */
 function engineOverrideSeed(engine: TurnEngine | undefined): ScopeSeed {
   if (engine === undefined) return [];
-  return [[IEngineOverrideService, { getEngine: () => engine }]];
+  // The session-backed engine owns the durable turn lifecycle (M1d 3c):
+  // the loop folds engine-emitted turn events instead of emitting its own.
+  return [[IEngineOverrideService, { getEngine: () => engine, ownsTurnLifecycle: true }]];
 }
 
 import {

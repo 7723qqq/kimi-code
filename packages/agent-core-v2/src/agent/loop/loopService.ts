@@ -120,6 +120,8 @@ import {
   type TurnEngine,
   type TurnEngineGoalContext,
   type TurnEngineInput,
+  type TurnLifecycleEvent,
+  type TurnTelemetryEvent,
 } from './engineOverride';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
@@ -339,14 +341,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.activeTurnJob;
     if (job === undefined || (turnId !== undefined && job.turn.id !== turnId)) return false;
     if (job.controller.signal.aborted) return true;
-    void this.dispatcher.dispatch(
-      new TurnCancel({
-        agentId: this.scopeContext.agentId,
-        turnId: job.turn.id,
-        target: 'active',
-        reason: cancelReasonFor(cancellation),
-      }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnCancel({
+          agentId: this.scopeContext.agentId,
+          turnId: job.turn.id,
+          target: 'active',
+          reason: cancelReasonFor(cancellation),
+        }),
+      );
+    }
     job.controller.abort(cancellation);
     return true;
   }
@@ -523,20 +527,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private startTurn(job: TurnJob): void {
     const origin = job.seed.origin;
-    void this.dispatcher.dispatch(
-      new TurnPrompt({ agentId: this.scopeContext.agentId, input: job.seed.input, origin }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnPrompt({ agentId: this.scopeContext.agentId, input: job.seed.input, origin }),
+      );
+    }
     job.turn.state = 'running';
     this.activeTurnJob = job;
-    void this.dispatcher.dispatch(
-      new TurnStarted({
-        agentId: this.scopeContext.agentId,
-        turnId: job.turn.id,
-        origin,
-        prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
-        promptAttachments: turnPromptAttachments(job.seed.input, origin),
-      }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnStarted({
+          agentId: this.scopeContext.agentId,
+          turnId: job.turn.id,
+          origin,
+          prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
+          promptAttachments: turnPromptAttachments(job.seed.input, origin),
+        }),
+      );
+    }
     void this.runTurn(job.turn, job.ready).then(job.result.resolve, job.result.reject);
   }
 
@@ -549,18 +557,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const telemetryContext = this.telemetryContext.get();
     const turnTelemetry = this.telemetry.withContext(telemetryContext);
     const { mode, provider_type, protocol } = telemetryContext;
+    const engineOwnsLifecycle = this.engineOwnsTurnLifecycle();
     let thinkingEffort: string | undefined;
     let result: TurnResult | undefined;
     try {
       thinkingEffort = this.llmRequester.prepareTurnConfig(turn.id)?.thinkingEffort;
-      const started: TurnStartedTelemetryEvent = {
-        turn_id: turn.id,
-        mode,
-        provider_type,
-        protocol,
-        thinking_effort: thinkingEffort,
-      };
-      turnTelemetry.track2('turn_started', started);
+      if (!engineOwnsLifecycle) {
+        const started: TurnStartedTelemetryEvent = {
+          turn_id: turn.id,
+          mode,
+          provider_type,
+          protocol,
+          thinking_effort: thinkingEffort,
+        };
+        turnTelemetry.track2('turn_started', started);
+      }
       result = await this.run({
         turnId: turn.id,
         signal: turn.signal,
@@ -577,7 +588,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         result?.type === 'completed'
           ? this.lastRequestTraceId
           : this.activeRequestTrace?.traceId;
-      if (result !== undefined) {
+      if (result !== undefined && !engineOwnsLifecycle) {
         const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
         const interruptReason =
           result.type === 'completed' ? undefined : interruptReasonFor(result);
@@ -611,17 +622,19 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           turnTelemetry.track2('turn_interrupted', interrupted);
         }
       }
-      const ended: TurnEndedTelemetryEvent = {
-        turn_id: turn.id,
-        reason: result?.type ?? 'failed',
-        duration_ms: Date.now() - startedAt,
-        mode,
-        provider_type,
-        protocol,
-        thinking_effort: thinkingEffort,
-        trace_id: traceId,
-      };
-      turnTelemetry.track2('turn_ended', ended);
+      if (!engineOwnsLifecycle) {
+        const ended: TurnEndedTelemetryEvent = {
+          turn_id: turn.id,
+          reason: result?.type ?? 'failed',
+          duration_ms: Date.now() - startedAt,
+          mode,
+          provider_type,
+          protocol,
+          thinking_effort: thinkingEffort,
+          trace_id: traceId,
+        };
+        turnTelemetry.track2('turn_ended', ended);
+      }
       this.activeRequestTrace = undefined;
       this.lastRequestTraceId = undefined;
       this.pumpTurns();
@@ -1583,7 +1596,79 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         );
         return prompt.drainSteered();
       },
+      onTurnEvent: this.engineOwnsTurnLifecycle()
+        ? (event) => this.dispatchEngineTurnEvent(event)
+        : undefined,
+      onTurnTelemetry: this.engineOwnsTurnLifecycle()
+        ? (event) => this.forwardEngineTurnTelemetry(event)
+        : undefined,
     };
+  }
+
+  private engineOwnsTurnLifecycle(): boolean {
+    return (
+      this.engineOverride.ownsTurnLifecycle === true &&
+      this.engineOverride.getEngine() !== undefined
+    );
+  }
+
+  private dispatchEngineTurnEvent(event: TurnLifecycleEvent): void {
+    const agentId = this.scopeContext.agentId;
+    switch (event.type) {
+      case 'turn.prompt': {
+        const job = this.activeTurnJob;
+        if (job === undefined) break;
+        void this.dispatcher.dispatch(
+          new TurnPrompt({ agentId, input: job.seed.input, origin: job.seed.origin }),
+        );
+        break;
+      }
+      case 'turn.started': {
+        const job = this.activeTurnJob;
+        if (job === undefined) break;
+        const origin = job.seed.origin;
+        void this.dispatcher.dispatch(
+          new TurnStarted({
+            agentId,
+            turnId: event.turnId,
+            origin,
+            prompt: isDisplayablePromptOrigin(origin)
+              ? turnPromptText(job.seed.input, origin)
+              : undefined,
+            promptAttachments: turnPromptAttachments(job.seed.input, origin),
+          }),
+        );
+        break;
+      }
+      case 'turn.cancel': {
+        void this.dispatcher.dispatch(
+          new TurnCancel({
+            agentId,
+            turnId: event.turnId,
+            target: event.target,
+            reason: event.reason,
+          }),
+        );
+        break;
+      }
+      case 'turn.ended': {
+        void this.dispatcher.dispatch(
+          new TurnEnded({
+            agentId,
+            turnId: event.turnId,
+            reason: event.reason,
+            error: event.error as never,
+            durationMs: event.durationMs,
+          }),
+        );
+        break;
+      }
+    }
+  }
+
+  private forwardEngineTurnTelemetry(event: TurnTelemetryEvent): void {
+    const { event: name, ...payload } = event;
+    this.telemetry.track2(name, payload as never);
   }
 
   private askUserQuestionInBackground(

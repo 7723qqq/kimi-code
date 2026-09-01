@@ -1600,6 +1600,29 @@ gateway 2/2，tsc 0 错误。
         --features cli` 才暴露）。
       - 验证：cargo test 845 全绿 + clippy 0 warnings + fmt 干净；oxlint 0 errors；tsc 包内
         零新增；vitest 111 passed / 6 skipped；rustEngineE2E 3/3。
+    - **3c — 事件单写者移交（✅ 2026-09-01）**：durable turn 事件与 turn 遥测的写者从 v2 loop
+      换到引擎，v2 侧退成折叠方：
+      - `EngineOverrideProvider.ownsTurnLifecycle` 能力位（apps/kimi-code run-v2-print 装配
+        `true`）；`TurnEngineInput` 新增 `onTurnEvent` / `onTurnTelemetry`（agent-core-v2
+        镜像 `TurnEventWire` / `TelemetryEventWire` 的契约类型），loop 在 buildEngineInput
+        里按能力位接线。
+      - v2 抑制：startTurn 停发 `TurnPrompt`/`TurnStarted`；runTurn finally 停发
+        `TurnEnded`/`AgentErrorEvent`/三段 turn 遥测；cancelActiveTurn 停发 `TurnCancel`
+        （排队取消保留——引擎从未见到排队的 turn）。
+      - 派发桥：引擎 `turn.prompt/started/cancel/ended` → dispatcher（`TurnPrompt` 的
+        input/origin 与 `TurnStarted` 的 prompt 派生自宿主 turn seed —— 引擎回显的
+        LLMMessage 形状不是 v2 ContentPart[]，不反向转换）；`host/telemetry` → track2
+        （payload 含宿主注入的 mode/provider_type/protocol/thinking_effort；`trace_id`
+        仍是已知缺口）。
+      - kimi-agent：会话两传输接通 turnEvent/telemetry（napi 侧 JSON 包装 + wire schema
+        校验、stdio 侧 AgentProcess 既有 handler），经共享 `active` 槽路由到
+        `input.onTurnEvent/onTurnTelemetry`。
+      - 语义注意：引擎的 `turn.ended` 在引擎调用期间就发出（桥），`untilTurnEnd` 类等待
+        会提前解析——loop 自身的收尾（releaseActiveTurn）在其后，属可接受的事件序。
+      - 验证：engineOverride 61/61（含 3 条新：桥折叠、遥测转发无重复、无能力位时保持）；
+        rustEngineE2E 3/3 带 `ownsTurnLifecycle` 走真实引擎全链；rustEngineZeroJsLoop 2/2；
+        loop 套件 166/167（1 个快照失败为既有：工具表 hash `92e71e84` 早于 GitHub 工具族
+        落库，与本轮无关）；kimi-agent 111 passed / 6 skipped。
     - **顺带修复既有缺陷：pump 折叠重复历史**。`run_session_turn` 把 `history + prompt` 喂给
       run_turn，结果整表返回；pump 折叠 `skip(1)` 会把喂入的旧 history 再折回——turn 3 起
       模型上下文出现重复消息（既有测试只断言 turn 2 请求所以未抓到）。修复：折叠跳过
