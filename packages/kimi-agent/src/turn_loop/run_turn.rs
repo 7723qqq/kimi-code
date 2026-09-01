@@ -22,6 +22,46 @@ use super::types::*;
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
 
+/// Goal/plan state snapshot backed by the host callbacks.
+///
+/// The injection providers render synchronously, while the state authority is
+/// behind the async `host/state_read` channel — so the turn loop refreshes
+/// this snapshot at each step head (see the injection pass) and the providers
+/// read the cached values. A failed read keeps the previous value, so a host
+/// without the state bridge degrades to "no goal/plan reminder" instead of
+/// erroring the turn.
+#[derive(Default)]
+struct CallbackStateSnapshot {
+    goal: std::sync::Mutex<Option<serde_json::Value>>,
+    plan: std::sync::Mutex<Option<serde_json::Value>>,
+}
+
+impl CallbackStateSnapshot {
+    async fn refresh(&self, callbacks: &dyn HostCallbacks) {
+        for (domain, slot) in [("goal", &self.goal), ("plan", &self.plan)] {
+            let request = crate::rpc::types::StateReadRequest {
+                domain: domain.to_string(),
+                key: domain.to_string(),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            };
+            let value = callbacks.state_read(request).await.ok().map(|r| r.value);
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = value;
+        }
+    }
+}
+
+impl crate::injection::goal_plan::StateStore for CallbackStateSnapshot {
+    fn read_domain(&self, domain: &str) -> Option<serde_json::Value> {
+        let slot = match domain {
+            "goal" => &self.goal,
+            "plan" => &self.plan,
+            _ => return None,
+        };
+        slot.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 /// Build a [`TurnResult`] with the turn's telemetry counters.
 ///
 /// `events_emitted`, `llm_transport` and `native_tool_calls` are left empty
@@ -247,22 +287,18 @@ pub fn run_turn<'a>(
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
-        // goal/plan-mode providers register from the local state store.
-        //
-        // The state store is created only on the paths that actually build
-        // injections: `StateStore::for_workspace` creates `<cwd>/.kimi/state/`,
-        // and in host-proxy mode the host owns both the transcript and the
-        // state, so creating that directory here would be a side effect with
-        // no consumer — it would leave an untracked directory behind in
-        // whatever workspace the user happened to run in.
+        // goal/plan-mode providers read the state through the host callbacks
+        // (the same channel the state-bridge tools write through), so the
+        // reminders track the state authority wherever it lives — the host in
+        // the product, the local store in the REPL. No local store is built
+        // here: in the product the state lives host-side and a workspace- or
+        // home-local directory would be a side effect with no consumer.
         let mut injection_registry = crate::injection::InjectionRegistry::with_defaults();
-        if input.llm.transport() != "host-proxy"
-            && let Ok(cwd) = std::env::current_dir()
-            && let Ok(store) = crate::storage::state_store::StateStore::for_workspace(&cwd)
-        {
+        let goal_plan_state = Arc::new(CallbackStateSnapshot::default());
+        if input.llm.transport() != "host-proxy" {
             crate::injection::goal_plan::register_goal_plan_injections(
                 &mut injection_registry,
-                std::sync::Arc::new(store),
+                goal_plan_state.clone(),
             );
         }
 
@@ -370,6 +406,11 @@ pub fn run_turn<'a>(
             // the host owns the transcript and injects itself, so the
             // pass is skipped there to avoid duplicate reminders.
             if input.llm.transport() != "host-proxy" {
+                // Refresh the goal/plan snapshot through the host callbacks so
+                // the injections render the state the tools just wrote — the
+                // same channel, so a mid-turn plan exit or goal pause shows up
+                // at this step head. A failed read keeps the previous value.
+                goal_plan_state.refresh(callbacks.as_ref()).await;
                 for text in injection_registry.build_injections() {
                     messages.push(crate::injection::injection_message(text));
                 }
@@ -654,14 +695,22 @@ mod tests {
 
     /// Helper: create an RpcHostCallbacks from an RpcServer.
     ///
-    /// Registers the per-step host seam (`list_tools`) with a no-op answer:
-    /// with no local handler the server falls back to a stdio round-trip that
-    /// stalls for the full timeout, which used to cost every native-transport
-    /// test 30s per step.
+    /// Registers the per-step host seams (`list_tools`, `state_read`) with
+    /// no-op answers: with no local handler the server falls back to a stdio
+    /// round-trip that stalls for the full timeout, which used to cost every
+    /// native-transport test 30s per step.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
         RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, |_params| {
             Box::pin(async move {
                 let resp = types::ListToolsResponse { tools: vec![] };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        RpcServer::register_arc(&server, types::methods::HOST_STATE_READ, |_params| {
+            Box::pin(async move {
+                let resp = types::StateReadResponse {
+                    value: serde_json::Value::Null,
+                };
                 serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
             })
         });

@@ -852,8 +852,9 @@ mod tests {
     #[tokio::test]
     async fn test_repl_state_bridge_reads_defaults_and_round_trips() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let callbacks =
-            ReplDummyHostCallbacks::new(Arc::new(StateStore::for_workspace(tmp.path()).unwrap()));
+        let callbacks = ReplDummyHostCallbacks::new(Arc::new(
+            StateStore::for_dir(tmp.path().join("state")).unwrap(),
+        ));
         let read = |domain: &str| {
             callbacks.state_read(StateReadRequest {
                 domain: domain.into(),
@@ -917,7 +918,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_passes_when_inactive() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         assert!(
             plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none()
         );
@@ -927,7 +929,8 @@ mod tests {
     #[test]
     fn test_plan_enter_creates_empty_plan_file() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -939,7 +942,8 @@ mod tests {
     #[tokio::test]
     async fn test_repl_execute_tool_fallback_names_the_tool() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let callbacks = ReplDummyHostCallbacks::new(std::sync::Arc::new(store));
         let request = crate::rpc::types::ToolExecuteRequest {
             tool_name: "GitHubGetRepo".into(),
@@ -956,7 +960,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_non_plan_writes() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -977,7 +982,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_allows_plan_file_write() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -1000,7 +1006,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_taskstop_and_cron_mutations() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -1024,7 +1031,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_task_stop() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();

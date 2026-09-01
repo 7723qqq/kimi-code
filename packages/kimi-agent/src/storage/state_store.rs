@@ -56,15 +56,21 @@ pub struct StateStore {
 }
 
 impl StateStore {
-    /// Create (or open) the state store for a workspace:
-    /// `<workspace>/.kimi/state/`.
-    pub fn for_workspace(workspace_root: &Path) -> std::io::Result<Self> {
-        let state_dir = workspace_root.join(".kimi").join("state");
+    /// Create (or open) the state store under an explicit directory.
+    /// Tests use this directly; production resolves the directory through
+    /// [`for_workspace`].
+    pub fn for_dir(state_dir: PathBuf) -> std::io::Result<Self> {
         fs::create_dir_all(&state_dir)?;
         Ok(Self {
             state_dir,
             checkpoints: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Create (or open) the state store for a workspace, under the
+    /// engine-local root: `~/.kimi-code/engine-state/<workspace-key>/state/`.
+    pub fn for_workspace(workspace_root: &Path) -> std::io::Result<Self> {
+        Self::for_dir(super::paths::engine_state_dir(workspace_root)?.join("state"))
     }
 
     /// Snapshot every domain (v2 undo-anchor checkpoint). A file that
@@ -855,7 +861,7 @@ mod tests {
 
     fn store() -> (TempDir, StateStore) {
         let tmp = TempDir::new().unwrap();
-        let store = StateStore::for_workspace(tmp.path()).unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
         (tmp, store)
     }
 

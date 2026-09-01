@@ -18,10 +18,6 @@ plugins/cdn/
 .worktrees/
 .kimi-code/local.toml
 .kimi-sandbox/
-# Rust engine local state (`<cwd>/.kimi/state/`). Scoped to `state/` on
-# purpose: `packages/migration-legacy/test/fixtures/**/.kimi/` holds tracked
-# fixtures for the v1 -> v2 migration and must stay visible.
-.kimi/state/
 .vscode/
 !apps/vscode/.vscode/
 !apps/vscode/.vscode/*.json

@@ -396,7 +396,7 @@ mod tests {
 
     fn runner() -> (TempDir, Arc<TaskRunner>) {
         let tmp = TempDir::new().unwrap();
-        let store = StateStore::for_workspace(tmp.path()).unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
         (tmp, Arc::new(TaskRunner::new(Some(store))))
     }
 

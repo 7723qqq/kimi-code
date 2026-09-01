@@ -30,10 +30,18 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn for_workspace(workspace_root: &Path) -> io::Result<Self> {
-        let sessions_dir = workspace_root.join(".kimi").join("sessions");
+    /// Create (or open) the session store under an explicit directory.
+    /// Tests use this directly; production resolves the directory through
+    /// [`for_workspace`].
+    pub fn for_dir(sessions_dir: PathBuf) -> io::Result<Self> {
         fs::create_dir_all(&sessions_dir)?;
         Ok(Self { sessions_dir })
+    }
+
+    /// Create (or open) the session store for a workspace, under the
+    /// engine-local root: `~/.kimi-code/engine-state/<workspace-key>/sessions/`.
+    pub fn for_workspace(workspace_root: &Path) -> io::Result<Self> {
+        Self::for_dir(super::paths::engine_state_dir(workspace_root)?.join("sessions"))
     }
 
     fn session_file(&self, session_id: &str) -> PathBuf {
@@ -166,7 +174,7 @@ mod tests {
     #[test]
     fn test_session_append_and_load() {
         let tmp = TempDir::new().unwrap();
-        let store = SessionStore::for_workspace(tmp.path()).unwrap();
+        let store = SessionStore::for_dir(tmp.path().join("sessions")).unwrap();
 
         let u1 = LLMMessage {
             role: "user".into(),

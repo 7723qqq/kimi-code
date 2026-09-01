@@ -1831,19 +1831,26 @@ context、不达模型）。修复见 M2 切片 3。
 
   1. **既有数据**：`~/.kimi-code/` 下的会话与状态、minidb 的 WAL / snapshot 格式。
      退出：迁移路径落地，或对数据丢失作出明确且已告知用户的决定。
-  2. **状态该写在哪里**（P32 引入的设计分歧）：`StateStore::for_workspace`（`storage/state_store.rs:59`）
-     把状态写到 **`<cwd>/.kimi/state/`**，与项目既有的 `~/.kimi-code/` 约定不一致，且会在任意
-     工作区留下目录。已做的缓解：
-     - `run_turn` 只在 `transport() != "host-proxy"` 时创建该目录（host-proxy 模式下宿主拥有状态，
-       此前是无消费者的副作用，实测 `cargo test` 就会在本仓库留下空的 `.kimi/state/`）；
-     - `.gitignore` 加 `.kimi/state/`。**必须精确到 `state/`**：`packages/migration-legacy`
-       有 8 个已跟踪的 `test/fixtures/**/.kimi/` 夹具，blanket `.kimi/` 会误伤。
-
-     ⚠️ **上述 gitignore 只对本仓库有效，对最终用户的工作区完全无效**——用户仓库用的是它自己的
-     `.gitignore`。所以这不是修复，只是防止本仓库开发者误提交。
-     **真正的选择**：把状态改到 `~/.kimi-code/`（对齐既有约定，不碰用户工作区），
-     或明确接受工作区局部存储（那么需要为用户提供忽略规则，或改用不被 git 关注的位置）。
-     退出：该选择作出并落码。
+  2. **状态该写在哪里**（P32 引入的设计分歧）— ✅ 已裁决并落码（2026-09-01）：
+     **引擎本地存储迁至 `~/.kimi-code/engine-state/<workspace-key>/`**（key = 规范化
+     工作区路径的 16-hex FNV-1a 摘要，`storage/paths.rs`），`StateStore` / `SessionStore`
+     分别落 `state/` 与 `sessions/` 子目录（`TaskRunner` 随 StateStore）。裁决理由：
+     对齐 `~/.kimi-code/` 既有约定、不碰用户工作区（原 `.gitignore` 缓解对用户仓库
+     无效）、且 M5 引擎成为产品引擎后状态必须 home 域——现在迁移避免二次搬迁。
+     既有 REPL 本地状态不迁移（开发工具，重建即可，见问题 1 的口径）。
+     落码：`for_dir` 显式目录构造器（测试用）+ `for_workspace` 走 home 解析；
+     `.gitignore` 的 `.kimi/state/` 条目删除（不再有写入方）。
+     **顺带修复盘点发现的注入分歧**：`run_turn` 的 goal/plan 注入此前读
+     `StateStore::for_workspace(cwd)` 本地 store，而 state-bridge 工具经
+     `host/state_write` 写宿主——**native 模式下注入读的是空 store，goal/plan
+     提醒静默失效**，且每次构造都在工作区留目录。修复：注入 provider 改读
+     `CallbackStateSnapshot`（每步头经 `host/state_read` 刷新 goal/plan 两域，
+     与工具同通道；读取失败保留旧值），`run_turn` 不再构造任何本地 store——
+     产品路径零本地状态写入。REPL 路径经 `ReplDummyHostCallbacks` 读同一本地
+     store，行为不变。测试助手的 `rpc_callbacks`（run_turn + session 两处）补
+     `HOST_STATE_READ` no-op（未接线时 stdio 回退等满 30s 超时，M1d 同款问题）。
+     验证：cargo test 846 全绿（836 lib + 10 stdio，净增 2 条 paths 测试）+
+     clippy 0 + fmt 干净；session 测试从 210s（超时拖累）回到 0.07s。
 
 - **M5 — 删除**
   删 `packages/agent-core-v2`；移除 `engineOverride` 接缝、`rustSelfContained` 开关、

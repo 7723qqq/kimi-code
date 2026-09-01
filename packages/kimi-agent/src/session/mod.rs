@@ -961,16 +961,30 @@ mod tests {
     }
 
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
-        // The engine pulls the tool table before every LLM call (M1d). With
-        // no local handler the server falls back to a stdio round-trip that
-        // stalls for the full timeout, so the session tests answer it here
-        // with an empty table.
+        // The engine pulls the tool table before every LLM call (M1d) and the
+        // goal/plan injection snapshot reads the state bridge at each step
+        // head (M4). With no local handler the server falls back to a stdio
+        // round-trip that stalls for the full timeout, so the session tests
+        // answer both here.
         RpcServer::register_arc(
             &server,
             crate::rpc::types::methods::HOST_LIST_TOOLS,
             |_params| {
                 Box::pin(async move {
                     let resp = crate::rpc::types::ListToolsResponse { tools: vec![] };
+                    serde_json::to_value(&resp)
+                        .map_err(|e| crate::rpc::types::JsonRpcError::internal_error(e.to_string()))
+                })
+            },
+        );
+        RpcServer::register_arc(
+            &server,
+            crate::rpc::types::methods::HOST_STATE_READ,
+            |_params| {
+                Box::pin(async move {
+                    let resp = crate::rpc::types::StateReadResponse {
+                        value: serde_json::Value::Null,
+                    };
                     serde_json::to_value(&resp)
                         .map_err(|e| crate::rpc::types::JsonRpcError::internal_error(e.to_string()))
                 })
