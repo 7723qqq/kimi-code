@@ -1073,6 +1073,13 @@ async fn build_engine_pipeline(
                     // them. Unguarded tools skip the round-trip entirely.
                     let plan_callbacks = base_callbacks.clone();
                     let plan_workspace = params.workspace_root.clone();
+                    // Stale-write gate (v2 `staleGuardService`, G-6 #3): the
+                    // table is created with the pipeline — once per session
+                    // (create_engine_session) — so read state survives across
+                    // turns like v2's per-agent-scope guard state.
+                    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(
+                        params.workspace_root.clone().map(std::path::PathBuf::from),
+                    ));
                     Arc::new(NativeToolCallbacks {
                         inner: base_callbacks.clone(),
                         toolset: Arc::new(
@@ -1113,6 +1120,7 @@ async fn build_engine_pipeline(
                                 }
                             })
                         })),
+                        stale_guard: Some(stale_gate),
                     })
                 }
                 None => base_callbacks.clone(),

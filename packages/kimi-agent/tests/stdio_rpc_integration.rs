@@ -838,3 +838,638 @@ fn run_turn_native_write_denied_in_plan_mode() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Stale-write guard (v2 `staleGuardService`, G-6 #3) ─────────────────────
+
+/// The tool calls scripted for one turn: entry *k* is the call list returned
+/// for the turn's *k*-th `host/llm_chat`; an empty list ends the turn.
+struct TurnScript(Vec<Vec<(String, serde_json::Value)>>);
+
+/// What the host observed across one or more turns on a single process.
+#[derive(Default, Debug)]
+struct MultiTurnObservation {
+    permission_requests: Vec<serde_json::Value>,
+    state_read_requests: Vec<serde_json::Value>,
+    execute_tool_requests: Vec<serde_json::Value>,
+    events: Vec<serde_json::Value>,
+    turn_responses: Vec<serde_json::Value>,
+}
+
+fn require_multi_turn(observation: &MultiTurnObservation) -> bool {
+    if observation.turn_responses.is_empty() {
+        eprintln!(
+            "Skipping test: kimi-agent binary not built. Run `cargo build --release --features cli`."
+        );
+        return false;
+    }
+    true
+}
+
+/// Read one JSON-RPC line from the engine, answering `host/*` requests as
+/// they arrive, until a response with one of `pending_ids` shows up. `script`
+/// scripts the next `host/llm_chat` (empty when the engine should stop);
+/// `llm_step` advances per chat and spans multiple serve calls within a
+/// turn. `before_tool_step(turn, step)` fires just before a chat response
+/// carrying tool calls is scripted — the seam where a host-side mtime bump
+/// lands between the previous step's executions and this step's.
+#[allow(clippy::too_many_arguments)]
+fn serve_until_response(
+    reader: &mut BufReader<std::process::ChildStdout>,
+    stdin: &mut std::process::ChildStdin,
+    deadline: &Instant,
+    pending_ids: &[u64],
+    script: Option<(&TurnScript, usize)>,
+    llm_step: &mut usize,
+    before_tool_step: Option<&dyn Fn(usize, usize)>,
+    permission_decision: &serde_json::Value,
+    plan_state: &serde_json::Value,
+    observation: &mut MultiTurnObservation,
+) -> serde_json::Value {
+    loop {
+        if Instant::now() > *deadline {
+            panic!("timed out serving RPC");
+        }
+        let mut buf = String::new();
+        let n = reader.read_line(&mut buf).expect("read stdout");
+        if n == 0 {
+            panic!("stdout closed before the expected response");
+        }
+        let trimmed = buf.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let msg: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        if method.is_empty() {
+            let id = msg.get("id").and_then(|v| v.as_u64());
+            if id.is_some_and(|id| pending_ids.contains(&id)) {
+                return msg;
+            }
+            continue;
+        }
+
+        let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+        let response = match method {
+            "host/llm_chat" => {
+                if let Some(hook) = before_tool_step {
+                    let turn_index = script.map(|(_, ti)| ti).unwrap_or(0);
+                    hook(turn_index, *llm_step);
+                }
+                let calls = script
+                    .map(|(s, _turn_index)| s.0.get(*llm_step).cloned().unwrap_or_default())
+                    .unwrap_or_default();
+                *llm_step += 1;
+                let tool_calls: Vec<serde_json::Value> = calls
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (name, args))| {
+                        let turn_index = script.map(|(_, ti)| ti).unwrap_or(0);
+                        serde_json::json!({
+                            "id": format!("call-{turn_index}-{i}"),
+                            "name": name,
+                            "arguments": args
+                        })
+                    })
+                    .collect();
+                let finish_reason = if tool_calls.is_empty() {
+                    "stop"
+                } else {
+                    "tool_calls"
+                };
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "tool_calls": tool_calls,
+                        "finish_reason": finish_reason,
+                        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+                    }
+                })
+            }
+            "host/check_permission" => {
+                observation.permission_requests.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": permission_decision
+                })
+            }
+            "host/state_read" => {
+                observation.state_read_requests.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"value": plan_state}
+                })
+            }
+            "host/execute_tool" => {
+                observation.execute_tool_requests.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"content": "HOST-PATH-EXECUTED", "is_error": false}
+                })
+            }
+            "host/event" => {
+                observation.events.push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                continue;
+            }
+            _ => serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": format!("unknown method: {method}")}
+            }),
+        };
+
+        writeln!(stdin, "{}", response).expect("write host response");
+        stdin.flush().unwrap();
+    }
+}
+
+/// Run several `agent/run_turn` requests over ONE process. Each turn's
+/// `host/llm_chat` is answered from its [`TurnScript`] (the `run_turn` seam
+/// builds a fresh pipeline per request, so per-turn state like the
+/// stale-guard table does NOT survive across these turns — cross-turn state
+/// lives on the session RPC, see `drive_session_turns`).
+fn drive_native_turns(
+    workspace_root: &std::path::Path,
+    scripts: &[TurnScript],
+    permission_decision: serde_json::Value,
+    plan_state: serde_json::Value,
+    before_tool_step: Option<&dyn Fn(usize, usize)>,
+) -> MultiTurnObservation {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => return MultiTurnObservation::default(),
+    };
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let stdout = child.stdout.take().expect("stdout");
+    let mut reader = BufReader::new(stdout);
+
+    let mut observation = MultiTurnObservation::default();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let tool_defs = serde_json::json!([
+        {"name": "read", "description": "t", "input_schema": {"type": "object"}},
+        {"name": "write", "description": "t", "input_schema": {"type": "object"}}
+    ]);
+
+    'turns: for (turn_index, script) in scripts.iter().enumerate() {
+        let run_turn_req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "agent/run_turn",
+            "params": {
+                "turn_id": format!("native-stale-turn-{turn_index}"),
+                "system_prompt": "You are a test assistant.",
+                "model_name": "test-model",
+                "messages": [{"role": "user", "content": "run the tool"}],
+                "tools": tool_defs,
+                "max_steps": 5,
+                "workspace_root": workspace_root.to_string_lossy(),
+                "native_tools": true
+            }
+        });
+        writeln!(stdin, "{}", run_turn_req).expect("write run_turn request");
+        stdin.flush().unwrap();
+
+        let mut llm_step = 0usize;
+        let response = serve_until_response(
+            &mut reader,
+            &mut stdin,
+            &deadline,
+            &[1],
+            Some((script, turn_index)),
+            &mut llm_step,
+            before_tool_step,
+            &permission_decision,
+            &plan_state,
+            &mut observation,
+        );
+        observation.turn_responses.push(response);
+        continue 'turns;
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    observation
+}
+
+fn multi_native_events_of(obs: &MultiTurnObservation) -> Vec<&serde_json::Value> {
+    obs.events
+        .iter()
+        .filter(|e| e["type"] == "tool.native")
+        .collect()
+}
+
+/// Drive the M1d 3b session RPC over ONE process: `session/create` once (the
+/// engine pipeline — and with it the stale-guard table — is built once),
+/// then per [`TurnScript`] `session/enqueue_turn` + `session/turn_outcome`,
+/// answering `host/*` requests in between. `turn_responses` holds the per-
+/// turn outcome results.
+fn drive_session_turns(
+    workspace_root: &std::path::Path,
+    scripts: &[TurnScript],
+    permission_decision: serde_json::Value,
+    plan_state: serde_json::Value,
+) -> MultiTurnObservation {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => return MultiTurnObservation::default(),
+    };
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let stdout = child.stdout.take().expect("stdout");
+    let mut reader = BufReader::new(stdout);
+
+    let mut observation = MultiTurnObservation::default();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let tool_defs = serde_json::json!([
+        {"name": "read", "description": "t", "input_schema": {"type": "object"}},
+        {"name": "write", "description": "t", "input_schema": {"type": "object"}}
+    ]);
+
+    // session/create → session_id (no turn runs yet, so no host requests).
+    let create_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/create",
+        "params": {
+            "turn_id": "session-create",
+            "system_prompt": "You are a test assistant.",
+            "model_name": "test-model",
+            "messages": [{"role": "user", "content": "seed"}],
+            "tools": tool_defs,
+            "max_steps": 5,
+            "workspace_root": workspace_root.to_string_lossy(),
+            "native_tools": true
+        }
+    });
+    writeln!(stdin, "{}", create_req).expect("write session/create");
+    stdin.flush().unwrap();
+    let create_response = serve_until_response(
+        &mut reader,
+        &mut stdin,
+        &deadline,
+        &[1],
+        None,
+        &mut 0usize,
+        None,
+        &permission_decision,
+        &plan_state,
+        &mut observation,
+    );
+    let session_id = create_response["result"]
+        .as_str()
+        .expect("session/create returns a session id")
+        .to_string();
+
+    for (turn_index, script) in scripts.iter().enumerate() {
+        let enqueue_id = 2 + 2 * turn_index as u64;
+        let outcome_id = enqueue_id + 1;
+
+        // The pump starts the turn as soon as enqueue is processed, so the
+        // enqueue-wait loop must already answer host/* requests.
+        let enqueue_req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": enqueue_id,
+            "method": "session/enqueue_turn",
+            "params": {
+                "session_id": session_id,
+                "prompt": {"role": "user", "content": "run the tool"},
+                "admission": "activeOrNewTurn"
+            }
+        });
+        writeln!(stdin, "{}", enqueue_req).expect("write session/enqueue_turn");
+        stdin.flush().unwrap();
+        let mut llm_step = 0usize;
+        let enqueue_response = serve_until_response(
+            &mut reader,
+            &mut stdin,
+            &deadline,
+            &[enqueue_id],
+            Some((script, turn_index)),
+            &mut llm_step,
+            None,
+            &permission_decision,
+            &plan_state,
+            &mut observation,
+        );
+        let turn_id = enqueue_response["result"]
+            .as_u64()
+            .expect("enqueue returns a turn id");
+
+        let outcome_req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": outcome_id,
+            "method": "session/turn_outcome",
+            "params": {"session_id": session_id, "turn_id": turn_id}
+        });
+        writeln!(stdin, "{}", outcome_req).expect("write session/turn_outcome");
+        stdin.flush().unwrap();
+        let outcome = serve_until_response(
+            &mut reader,
+            &mut stdin,
+            &deadline,
+            &[outcome_id],
+            Some((script, turn_index)),
+            &mut llm_step,
+            None,
+            &permission_decision,
+            &plan_state,
+            &mut observation,
+        );
+        observation.turn_responses.push(outcome);
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    observation
+}
+
+/// An unread existing file denies a native Write: the v2 message becomes the
+/// tool result, nothing executes natively or on the host, and the file is
+/// untouched.
+#[test]
+fn run_turn_native_write_denied_when_unread() {
+    let dir = std::env::temp_dir().join(format!("kimi-stale-unread-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
+
+    let observation = drive_native_turn(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "a.txt", "content": "should not land"}),
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+    );
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "hello",
+        "the stale denial must not touch the file"
+    );
+    assert_eq!(
+        observation.execute_tool_requests, 0,
+        "stale denial must not fall back to the host"
+    );
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "the refusal is the tool result");
+    assert_eq!(native_events[0]["is_error"], true);
+    let content = native_events[0]["content"].as_str().unwrap_or("");
+    assert!(
+        content.contains(
+            "\"a.txt\" has not been read by this agent yet. Read the file before writing to it."
+        ),
+        "byte-exact v2 message expected, got: {content}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Read-then-write in one turn passes: the native Read records the mtime and
+/// the subsequent native Write clears the guard.
+#[test]
+fn run_turn_native_read_then_write_passes() {
+    let dir = std::env::temp_dir().join(format!("kimi-stale-rw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
+
+    let observation = drive_native_turns(
+        &dir,
+        &[TurnScript(vec![
+            vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
+            vec![(
+                "write".into(),
+                serde_json::json!({"path": "a.txt", "content": "updated"}),
+            )],
+            vec![],
+        ])],
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+        None,
+    );
+    if !require_multi_turn(&observation) {
+        return;
+    }
+
+    assert!(
+        observation.turn_responses[0].get("error").is_none(),
+        "run_turn errored: {observation:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "updated",
+        "the write must land after the read"
+    );
+    assert_eq!(
+        observation.execute_tool_requests.len(),
+        0,
+        "both calls run natively"
+    );
+    let native_events = multi_native_events_of(&observation);
+    assert_eq!(native_events.len(), 2, "read + write both reported");
+    assert_eq!(native_events[1]["is_error"], false);
+    // One plan-guard state read for the Write; the Read is not plan-guarded
+    // and the stale gate never had to consult (no denial).
+    assert_eq!(observation.state_read_requests.len(), 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An external modification between the read and the write denies the write:
+/// the host bumps the file while scripting the second step (after the Read
+/// executed, before the Write does).
+#[test]
+fn run_turn_native_write_denied_after_external_modification() {
+    let dir = std::env::temp_dir().join(format!("kimi-stale-mod-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let target = dir.join("a.txt");
+    std::fs::write(&target, "hello").expect("seed file");
+
+    let bump_target = target.clone();
+    let observation = drive_native_turns(
+        &dir,
+        &[TurnScript(vec![
+            vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
+            vec![(
+                "write".into(),
+                serde_json::json!({"path": "a.txt", "content": "blind write"}),
+            )],
+            vec![],
+        ])],
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+        Some(&|turn, step| {
+            if turn == 0 && step == 1 {
+                std::fs::write(&bump_target, "externally changed").expect("bump mtime");
+            }
+        }),
+    );
+    if !require_multi_turn(&observation) {
+        return;
+    }
+
+    assert!(
+        observation.turn_responses[0].get("error").is_none(),
+        "run_turn errored: {observation:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "externally changed",
+        "the denied write must not clobber the external change"
+    );
+    assert_eq!(observation.execute_tool_requests.len(), 0);
+    let native_events = multi_native_events_of(&observation);
+    assert_eq!(native_events.len(), 2);
+    assert_eq!(native_events[1]["is_error"], true);
+    let content = native_events[1]["content"].as_str().unwrap_or("");
+    assert!(
+        content.contains(
+            "\"a.txt\" has been modified on disk since this agent last read it. Read the file again before writing to it."
+        ),
+        "byte-exact v2 modified-message expected, got: {content}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A read the HOST served (region Read falls back for the media pipeline)
+/// must also clear a later native Write — the gate observes host-forwarded
+/// executions.
+#[test]
+fn run_turn_native_host_read_clears_native_write() {
+    let dir = std::env::temp_dir().join(format!("kimi-stale-hostread-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    std::fs::write(dir.join("media.txt"), "hello").expect("seed file");
+
+    let observation = drive_native_turns(
+        &dir,
+        &[TurnScript(vec![
+            vec![(
+                "read".into(),
+                serde_json::json!({"path": "media.txt", "region": {"x": 0}}),
+            )],
+            vec![(
+                "write".into(),
+                serde_json::json!({"path": "media.txt", "content": "updated"}),
+            )],
+            vec![],
+        ])],
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+        None,
+    );
+    if !require_multi_turn(&observation) {
+        return;
+    }
+
+    assert!(
+        observation.turn_responses[0].get("error").is_none(),
+        "run_turn errored: {observation:?}"
+    );
+    assert_eq!(
+        observation.execute_tool_requests.len(),
+        1,
+        "the region read runs on the host"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("media.txt")).unwrap(),
+        "updated",
+        "the write must land after the host-served read"
+    );
+    let native_events = multi_native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "only the write is native");
+    assert_eq!(native_events[0]["is_error"], false);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The stale table lives on the session pipeline (M1d 3b session RPC): a
+/// read in turn 0 clears a write in turn 1 on the same session.
+#[test]
+fn run_turn_native_stale_state_survives_across_turns() {
+    let dir = std::env::temp_dir().join(format!("kimi-stale-cross-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+    std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
+
+    let observation = drive_session_turns(
+        &dir,
+        &[
+            TurnScript(vec![
+                vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
+                vec![],
+            ]),
+            TurnScript(vec![
+                vec![(
+                    "write".into(),
+                    serde_json::json!({"path": "a.txt", "content": "turn two"}),
+                )],
+                vec![],
+            ]),
+        ],
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+    );
+    if !require_multi_turn(&observation) {
+        return;
+    }
+
+    assert_eq!(observation.turn_responses.len(), 2, "both turns completed");
+    for resp in &observation.turn_responses {
+        assert!(resp.get("error").is_none(), "session RPC errored: {resp}");
+        assert_eq!(resp["result"]["status"], "ran");
+        assert!(resp["result"]["result"]["stop_reason"].as_str().is_some());
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "turn two",
+        "a turn-0 read must clear the turn-1 write"
+    );
+    let native_events = multi_native_events_of(&observation);
+    assert_eq!(native_events.len(), 2);
+    assert_eq!(native_events[1]["is_error"], false);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

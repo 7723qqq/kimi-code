@@ -397,6 +397,13 @@ pub struct NativeToolCallbacks {
     /// paths read the host's plan state through the state bridge per
     /// guarded call.
     pub plan_guard: Option<Arc<PlanGuard>>,
+    /// Optional stale-write gate (v2 `staleGuardService` mirror, G-6 #3).
+    /// Before a native Write/Edit executes, the gate vetoes targets that
+    /// were never read or changed on disk since; after every completed
+    /// read/write execution (native or host-forwarded) it records the
+    /// target's mtime, so a read the host served also clears a later native
+    /// write. State is per-session (mounted once by the pipeline builder).
+    pub stale_guard: Option<Arc<crate::tools::stale_guard::StaleGate>>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -418,9 +425,6 @@ impl HostCallbacks for NativeToolCallbacks {
         &self,
         request: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        if !self.toolset.handles(&request.tool_name) {
-            return self.inner.execute_tool(request);
-        }
         let this = NativeToolCallbacks {
             inner: self.inner.clone(),
             toolset: self.toolset.clone(),
@@ -428,8 +432,19 @@ impl HostCallbacks for NativeToolCallbacks {
             truncator: self.truncator.clone(),
             permission_engine: self.permission_engine.clone(),
             plan_guard: self.plan_guard.clone(),
+            stale_guard: self.stale_guard.clone(),
         };
         Box::pin(async move {
+            if !this.toolset.handles(&request.tool_name) {
+                let response = this.inner.execute_tool(request.clone()).await?;
+                // v2 `observeExecution` covers host-served read/writes too —
+                // recording here keeps a later native Write to this file
+                // from tripping on a read the host path served.
+                if let Some(gate) = &this.stale_guard {
+                    gate.observe(&request.tool_name, &request.arguments, response.is_error);
+                }
+                return Ok(response);
+            }
             if let Some(guard) = &this.plan_guard
                 && let Some(reason) = guard(&request.tool_name, &request.arguments).await
             {
@@ -502,6 +517,31 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
+            // Stale-write guard (v2 `staleGuardService`, G-6 #3), after the
+            // permission verdict and before execution — v2 chain order is
+            // permission → plan → staleGuard. A denial is the tool result
+            // the model sees; no execution, no host fallback.
+            if let Some(gate) = &this.stale_guard
+                && let Some(reason) = gate
+                    .denial(this.inner.as_ref(), &request.tool_name, &request.arguments)
+                    .await
+            {
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
             let result = this
                 .toolset
                 .execute_tool(&request.tool_name, &request.arguments)
@@ -509,6 +549,12 @@ impl HostCallbacks for NativeToolCallbacks {
             match result {
                 Some(result) => {
                     this.native_count.fetch_add(1, Ordering::Relaxed);
+                    // Self-write refresh + read recording: re-stat after the
+                    // completed execution (v2 `observeExecution`), so
+                    // consecutive writes never trip the guard.
+                    if let Some(gate) = &this.stale_guard {
+                        gate.observe(&request.tool_name, &request.arguments, result.is_error);
+                    }
                     let raw = ToolExecuteResponse {
                         content: result.content,
                         is_error: result.is_error,
@@ -550,8 +596,16 @@ impl HostCallbacks for NativeToolCallbacks {
                     Ok(finalized)
                 }
                 // Sandbox escape or unrecognized argument shape — the host
-                // already allowed the call, so run it there.
-                None => this.inner.execute_tool(request).await,
+                // already allowed the call, so run it there. The completed
+                // host execution is observed like any other, so a later
+                // native Write to this file doesn't trip on it.
+                None => {
+                    let response = this.inner.execute_tool(request.clone()).await?;
+                    if let Some(gate) = &this.stale_guard {
+                        gate.observe(&request.tool_name, &request.arguments, response.is_error);
+                    }
+                    Ok(response)
+                }
             }
         })
     }
@@ -844,6 +898,7 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
@@ -977,6 +1032,268 @@ mod tests {
         assert!(!response.is_error);
     }
 
+    /// Base callbacks for stale-gate tests: scripted permission verdict,
+    /// recorded events, counted host executions, and a scripted plan domain
+    /// for the state bridge.
+    struct StaleGateHostCallbacks {
+        decision: PermissionDecision,
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        plan: std::sync::Mutex<Option<serde_json::Value>>,
+        state_reads: Arc<AtomicU32>,
+    }
+
+    impl HostCallbacks for StaleGateHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            let decision = self.decision.clone();
+            Box::pin(async move { Ok(decision) })
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        fn state_read(
+            &self,
+            _: StateReadRequest,
+        ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+            self.state_reads.fetch_add(1, Ordering::Relaxed);
+            let value = self.plan.lock().unwrap().clone();
+            Box::pin(async move {
+                Ok(StateReadResponse {
+                    value: value.ok_or("no plan state")?,
+                })
+            })
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn stale_gate_setup(
+        decision: PermissionDecision,
+        plan: Option<serde_json::Value>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        Arc<AtomicU32>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let state_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(StaleGateHostCallbacks {
+                decision,
+                permission_calls: permission_calls.clone(),
+                executed: executed.clone(),
+                events: events.clone(),
+                plan: std::sync::Mutex::new(plan),
+                state_reads: state_reads.clone(),
+            }),
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
+                dir.path().to_path_buf(),
+            )))),
+        };
+        (dir, native, executed, native_count, events, state_reads)
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_denies_unread_native_write() {
+        let (dir, native, executed, native_count, events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert!(response.content.contains("has not been read by this agent"));
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "a stale denial must not fall back to the host"
+        );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            0,
+            "a stale denial executed nowhere"
+        );
+        let events = events.lock().unwrap();
+        let native_event = events
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal must be reported as tool.native");
+        assert_eq!(native_event["is_error"], true);
+        assert!(
+            native_event["content"]
+                .as_str()
+                .unwrap()
+                .contains("has not been read by this agent")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "hello",
+            "the denied write must not touch the file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_allows_read_then_native_write() {
+        let (dir, native, _executed, native_count, _events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let read = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "a.txt" }),
+            })
+            .await
+            .unwrap();
+        assert!(!read.is_error);
+        let write = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(!write.is_error, "read-then-write must pass: {write:?}");
+        assert_eq!(native_count.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "x"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_records_host_forwarded_reads() {
+        // A `region` Read falls back to the host (media pipeline); the gate
+        // must still record it so a later native Write to the same file
+        // passes.
+        let (dir, native, executed, _native_count, _events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("media.txt"), "hello").unwrap();
+        let read = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "media.txt", "region": {} }),
+            })
+            .await
+            .unwrap();
+        assert!(!read.is_error);
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            1,
+            "the region read runs on the host"
+        );
+        let write = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "media.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !write.is_error,
+            "a host-served read must clear the native write: {write:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_permission_deny_beats_stale_guard() {
+        // v2 chain order: permission → plan → staleGuard. A permission deny
+        // short-circuits before the stale gate is consulted at all.
+        let (dir, native, _executed, _native_count, _events, state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "deny".into(),
+                reason: Some("user declined".into()),
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert!(response.content.contains("user declined"));
+        assert!(!response.content.contains("has not been read"));
+        assert_eq!(
+            state_reads.load(Ordering::Relaxed),
+            0,
+            "the stale gate must not be consulted after a permission deny"
+        );
+    }
+
     /// A stub that answers questions, recording the request it received.
     struct AskQuestionCallbacks {
         received: Arc<std::sync::Mutex<Option<AskQuestionRequest>>>,
@@ -1088,6 +1405,7 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -1250,6 +1568,7 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();

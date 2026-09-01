@@ -10,8 +10,9 @@
  */
 
 import { readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { EngineSessionHandle } from './session-handle';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -767,6 +768,205 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () =
     const { existsSync, rmSync } = await import('node:fs');
     expect(existsSync(resolve(process.cwd(), 'napi-denied-test.txt'))).toBe(false);
     rmSync(resolve(process.cwd(), 'napi-denied-test.txt'), { force: true });
+  });
+});
+
+describe.skipIf(!nativeEntry)('napi runTurnRust — stale-write guard (G-6 #3)', () => {
+  const writeDef = {
+    name: 'Write',
+    description: 'Write a file',
+    inputSchema:
+      '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}',
+  };
+  const readDef = {
+    name: 'Read',
+    description: 'Read a file',
+    inputSchema:
+      '{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}',
+  };
+
+  it('denies an unread native Write with the v2 message', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-stale-napi-'));
+    writeFileSync(join(workspaceRoot, 'a.txt'), 'hello');
+    const mod = loadNativeModule();
+
+    const nativeEvents: Array<{ type?: string; is_error?: boolean; content?: string }> = [];
+    let llmCalls = 0;
+    let hostExecutions = 0;
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [writeDef],
+        messages: [{ role: 'user', content: 'write it' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-stale-1',
+                  name: 'Write',
+                  arguments: { path: 'a.txt', content: 'should not land' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecutions += 1;
+        return JSON.stringify({ content: '', is_error: false });
+      }),
+      makeCallback(mod, (eventJson) => {
+        nativeEvents.push(JSON.parse(eventJson) as { type?: string; is_error?: boolean; content?: string });
+        return '';
+      }),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      undefined,
+      makeCallback(mod, () => JSON.stringify({ value: null })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(readFileSync(join(workspaceRoot, 'a.txt'), 'utf8')).toBe('hello');
+    expect(hostExecutions).toBe(0);
+    const denial = nativeEvents.find((e) => e.type === 'tool.native' && e.is_error === true);
+    expect(denial?.content).toContain(
+      '"a.txt" has not been read by this agent yet. Read the file before writing to it.',
+    );
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('allows a native Write after a native Read of the same file', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-stale-rw-'));
+    writeFileSync(join(workspaceRoot, 'a.txt'), 'hello');
+    const mod = loadNativeModule();
+
+    const nativeEvents: Array<{ type?: string; is_error?: boolean }> = [];
+    let llmCalls = 0;
+    let hostExecutions = 0;
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 3,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [readDef, writeDef],
+        messages: [{ role: 'user', content: 'read then write' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const calls =
+          llmCalls === 1
+            ? [{ id: 'call-rw-1', name: 'Read', arguments: { path: 'a.txt' } }]
+            : llmCalls === 2
+              ? [{ id: 'call-rw-2', name: 'Write', arguments: { path: 'a.txt', content: 'updated' } }]
+              : [];
+        return JSON.stringify({
+          tool_calls: calls,
+          finish_reason: calls.length > 0 ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecutions += 1;
+        return JSON.stringify({ content: '', is_error: false });
+      }),
+      makeCallback(mod, (eventJson) => {
+        nativeEvents.push(JSON.parse(eventJson) as { type?: string; is_error?: boolean });
+        return '';
+      }),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+      undefined,
+      makeCallback(mod, () => JSON.stringify({ value: null })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(result.nativeToolCalls).toBe(2);
+    expect(hostExecutions).toBe(0);
+    expect(readFileSync(join(workspaceRoot, 'a.txt'), 'utf8')).toBe('updated');
+    const toolEvents = nativeEvents.filter((e) => e.type === 'tool.native');
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents.every((e) => e.is_error === false)).toBe(true);
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('keeps stale state across turns on one session handle', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-stale-sess-'));
+    writeFileSync(join(workspaceRoot, 'a.txt'), 'hello');
+
+    const nativeEvents: Array<{ type?: string; is_error?: boolean }> = [];
+    let llmCalls = 0;
+    let hostExecutions = 0;
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'stale-session',
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [readDef, writeDef],
+        messages: [{ role: 'user', content: 'seed' }],
+      },
+      {
+        llmChat: () => {
+          llmCalls += 1;
+          const calls =
+            llmCalls === 1
+              ? [{ id: 'call-s1', name: 'Read', arguments: { path: 'a.txt' } }]
+              : llmCalls === 3
+                ? [{ id: 'call-s2', name: 'Write', arguments: { path: 'a.txt', content: 'turn two' } }]
+                : [];
+          return JSON.stringify({
+            tool_calls: calls,
+            finish_reason: calls.length > 0 ? 'tool_calls' : 'stop',
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+          });
+        },
+        executeTool: () => {
+          hostExecutions += 1;
+          return JSON.stringify({ content: '', is_error: false });
+        },
+        emitEvent: (eventJson) => {
+          nativeEvents.push(JSON.parse(eventJson) as { type?: string; is_error?: boolean });
+        },
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+        stateRead: () => JSON.stringify({ value: null }),
+      },
+    );
+    try {
+      const turnOne = await session.enqueueTurn({ role: 'user', content: 'read' }, 'newTurn');
+      const outcomeOne = await session.turnOutcome(turnOne);
+      expect(outcomeOne.status).toBe('ran');
+      // The native-tool counter is session-cumulative (pipeline-scoped), so
+      // turn two reports the running total.
+      expect(outcomeOne.result?.nativeToolCalls).toBe(1);
+
+      const turnTwo = await session.enqueueTurn({ role: 'user', content: 'write' }, 'newTurn');
+      const outcomeTwo = await session.turnOutcome(turnTwo);
+      expect(outcomeTwo.status).toBe('ran');
+      expect(outcomeTwo.result?.nativeToolCalls).toBe(2);
+
+      expect(hostExecutions).toBe(0);
+      expect(readFileSync(join(workspaceRoot, 'a.txt'), 'utf8')).toBe('turn two');
+      const toolEvents = nativeEvents.filter((e) => e.type === 'tool.native');
+      expect(toolEvents).toHaveLength(2);
+      expect(toolEvents.every((e) => e.is_error === false)).toBe(true);
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 });
 

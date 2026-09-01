@@ -2242,7 +2242,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 |---|---|---|---|---|
 | 1 | `permissionGateService.ts:30` | 全工具权限裁决（mode/rules/policies/交互审批） | 宿主执行工具：钩子触发 ✓。原生工具：本地 `PermissionEngine`（PolicySnapshot 镜像）+ 变更类 Ask 上抛 `host/check_permission` → `gate.authorize` 全机制 | **等价**——权限权威仍在宿主（P33 契约），本地链保真度是 P26 批 3 自身的测试面 |
 | 2 | `toolDedupeService.ts:190` | 相邻重复调用去重（veto 合成结果） | 宿主执行工具：触发 ✓。原生工具（恰是最常重复的 Read/Grep）：不触发；且步界粒度已粗化（P33：per-turn） | **缺口 → M2 迁移**：引擎 `run_turn` 内做 per-step 去重（状态在引擎侧，天然归属） |
-| 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **缺口（高价值）→ M2 迁移**：数据保护；Rust Edit 的 old_string 匹配天然防盲改，Write(overwrite) 是裸奔面 |
+| 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **已迁移**（2026-09-01，见 P41）——引擎侧 `StaleGate` 全量镜像 v2 语义（mtime 记录/三分支判定/plan 文件豁免），原生与宿主回退路径全覆盖 |
 | 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | ~~REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 审批：原生 `exit_plan_mode.rs` 已实现完整审批流（经 `ask_question`，auto 直通）~~ **✅ 已落地（2026-09-01，见 P39）**：`PlanGuard` 异步化，napi/stdio 产品路径经 state 桥每次受护调用现读 plan 状态并按 v2 语义否决（Write/Edit 只许写 plan 文件 + TaskStop/CronCreate/CronDelete 拒绝，后两项同时补齐了 REPL 缺口）；ExitPlanMode 审批原本已由原生工具自带 | **已迁移** |
 | 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
 | 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **缺口（用户可见）→ M2 迁移**：Rust 侧执行 PreToolUse 命令；迁移前在文档标注「原生路径不触发用户钩子」 |
@@ -2261,7 +2261,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 - **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
   不算静默丢失。
 - **7 处真缺口 → 迁移队列**：~~#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）~~ ✅ 已落地（P39）、
-  #3（staleGuard）、#7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
+  ~~#3（staleGuard）~~ ✅ 已落地（P41）、#7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
   #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
 
 ### 验证说明
@@ -2338,3 +2338,51 @@ rust bundle 缺失或损坏是启动错误，不再静默跑 JS loop。
   mock 掉后真实门禁的抛错路径不会泄漏进启动测试）。
 - `run-v2-print.test.ts` 只测纯函数，不受影响；`rust-engine-cli-e2e.test.ts` 显式
   `engine = "rust"` + skipIf 守卫，不受影响。
+
+## P41 — G-6 #3：staleGuard 盲写防护迁入引擎（2026-09-01）
+
+P38 判定表 #3 落地：v2 `staleGuardService`（Edit/Write 写前读检查）从「原生路径完全失效」变为引擎内全量镜像。
+宿主侧 staleGuardService 保持不动——它继续守宿主执行的工具；本批补的是原生执行这条裸奔面。
+
+### 语义基准（v2 `staleGuardService.ts`，逐字节对齐）
+
+- **记录**：每次成功的 Read/Edit/Write 执行后重新 stat 文件，记 `Map<canonical 路径, mtime>`；自写成功也刷新（连续写不拦）。
+- **拦截**（仅 Write/Edit）：stat 不到 / 非常规文件 → 放行（新文件豁免）；无记录 →
+  `"<path>" has not been read by this agent yet. Read the file before writing to it.`；
+  `recorded != 当前 mtime` → `"<path>" has been modified on disk since this agent last read it. Read the file again before writing to it.`
+- **生命周期**：per agent-scope，跨 turn 存活。
+- **链序**：permission → plan → staleGuard；plan 模式写 plan 文件时 planService `allow()` 短路整条链 → stale 不拦（豁免必须镜像，否则 plan 模式首写即被误拦）。
+
+### 设计：引擎进程内自持状态（零 wire 改动、零 TS 改动）
+
+- `src/tools/stale_guard.rs`（新增）：`StaleGuardState`（`Mutex<HashMap<PathBuf, (i64 secs, u32 nanos)>>`，
+  精确 mtime 元组，无浮点误差；值不过 wire，无需对齐 v2 的 f64）+ 纯函数
+  `stale_guarded_tool` / `stale_denial`（三分支判定，文案逐字节对齐 v2）/
+  `observe_execution`（记录，宿主路径也记）/ `plan_file_write_exempt`（plan 激活且组件级路径匹配 → 豁免）。
+  门面 `StaleGate { state, workspace_root }`：`observe()`（同步记录）+ `denial()`（异步：要拦时才经
+  `inner.state_read("plan")` 查豁免；桥失败 fail-open，与 P39 `Err(_) => None` 一致；非拦路径零 state 读）。
+- **挂载**：`NativeToolCallbacks.stale_guard: Option<Arc<StaleGate>>`，由 pipeline 构建点一次创建——
+  napi `create_engine_session` / stdio `session/create` / REPL 每会话一次 = v2 per-agent-scope 生命周期。
+- **记录完整性**：`execute_tool` 门是**所有**工具执行的必经点——native 成功、非 native 转发宿主、沙箱回退宿主
+  三处都在完成后 `observe`，把「大文件/媒体/region read 走宿主路径」的记录洞闭上。
+- **拦截点**：permission allow 之后、toolset 执行之前（镜像 v2 链序）；denial 走与权限拒绝相同的
+  `tool.native` is_error 事件 + 合成错误结果，绝不回退宿主。
+
+### 验证
+
+- **cargo**：`--lib` 854 全绿（stale_guard 12 单测 + callbacks 门级 4 新测试：
+  顺序「permission deny 先于 stale」、denial 事件形状、三处观测点）；`stdio_rpc_integration` 15/15
+  （新增 5：未读直写拦（字节精确文案）/ read→write 过 / 外部改 mtime 拦（`session` 中缝钩子）/ 宿主路径 read→native write 过 /
+  跨 turn 状态存活（走 M1d 3b session RPC，`agent/run_turn` 是 per-request 遗留缝，与 legacy napi `run_turn_rust` 同款 per-turn 语义））；
+  clippy 0 warnings，fmt 干净。
+- **bun**：kimi-agent 111 通过（napi-integration 新增 3：未读直写拦 / read→write / session-handle 跨 turn；
+  均真实 .node）。TS 侧零改动。
+- **已知 flaky（与本批无关，pristine 树复现）**：P28 subagent `spawned` 断言与 M1c quiescence 5s 超时在
+  全量并行下偶发——已用 stash 全量还原 + 重建 .node 的 8 轮基线证实（pristine 1/8 同样失败）。
+
+### 诚实边界
+
+- 子代理与主代理共享同一 pipeline → 共享 stale 状态；v2 是 per-scope 隔离。方向是引擎更宽松，与 P38 #5「接受并记录」同款。
+- native read → 宿主回退 write 的宿主侧误拦类（v2 宿主 guard 看不见 native read）是迁移前已存在的行为，本批不恶化不修复。
+- mtime-only 保真度与 v2 相同（不做 content-hash 增强）。
+- legacy `agent/run_turn` / `run_turn_rust` 两处 per-turn 遗留缝不持跨 turn 状态（pipeline 每请求重建），测试/基准专用。

@@ -424,6 +424,12 @@ pub async fn start_repl(
             .with_github_credentials(github_credentials.clone()),
     );
     let plan_guard_store = state_store.clone();
+    // Stale-write gate (v2 `staleGuardService`, G-6 #3): one REPL process =
+    // one session; the gate's plan exemption reads through the local store
+    // via the dummy host's `state_read`, same seam as the product paths.
+    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
+        workspace.clone(),
+    )));
     let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: base_callbacks,
         toolset,
@@ -436,6 +442,7 @@ pub async fn start_repl(
             let args = args.clone();
             Box::pin(async move { plan_mode_guard(&store, &tool_name, &args) })
         })),
+        stale_guard: Some(stale_gate),
     });
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone())

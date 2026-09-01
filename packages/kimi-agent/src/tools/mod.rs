@@ -66,6 +66,7 @@ pub mod list_directory;
 pub mod memory_paths;
 pub mod plan_mode;
 pub mod skill;
+pub mod stale_guard;
 pub mod subagent_tools;
 pub mod task_format;
 pub mod task_tools;
