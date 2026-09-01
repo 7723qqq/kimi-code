@@ -202,80 +202,53 @@ function makeEventCallback(
 export class EngineSessionHandle {
   private constructor(
     readonly id: string,
-    private readonly mod: SessionNativeModule,
+    private readonly transport: SessionTransport,
   ) {}
 
-  /**
-   * Create the session. `params` carries the session-scoped engine
-   * configuration (the same shape as the per-turn `JsRunTurnParams`; the
-   * per-turn fields — messages/tools/goal — are ignored by the session).
-   */
+  /** Create a session over the napi addon transport (the M1d entry point). */
   static async create(
     params: Record<string, unknown>,
     callbacks: SessionCallbacks,
   ): Promise<EngineSessionHandle> {
-    const mod = loadSessionNativeModule();
-    const id = await mod.createEngineSession(
-      params,
-      makeRequestCallback(mod, (p) => callbacks.llmChat(p)),
-      makeRequestCallback(mod, (p) => callbacks.executeTool(p)),
-      callbacks.emitEvent === undefined ? undefined : makeEventCallback(mod, callbacks.emitEvent),
-      callbacks.checkPermission === undefined
-        ? undefined
-        : makeRequestCallback(mod, (p) => callbacks.checkPermission(p)),
-      callbacks.finalizeTool === undefined
-        ? undefined
-        : makeRequestCallback(mod, (p) => callbacks.finalizeTool(p)),
-      callbacks.drainSteers === undefined
-        ? undefined
-        : makeRequestCallback(mod, async () => JSON.stringify(await callbacks.drainSteers())),
-      callbacks.askQuestion === undefined
-        ? undefined
-        : makeRequestCallback(mod, (p) => callbacks.askQuestion(p)),
-      callbacks.stateRead === undefined
-        ? undefined
-        : makeRequestCallback(mod, (p) => callbacks.stateRead(p)),
-      callbacks.stateWrite === undefined
-        ? undefined
-        : makeRequestCallback(mod, (p) => callbacks.stateWrite(p)),
-      callbacks.turnEvent === undefined ? undefined : makeEventCallback(mod, callbacks.turnEvent),
-      callbacks.telemetry === undefined ? undefined : makeEventCallback(mod, callbacks.telemetry),
-      callbacks.listTools === undefined
-        ? undefined
-        : makeRequestCallback(mod, async () => JSON.stringify(await callbacks.listTools())),
-      callbacks.goal === undefined
-        ? undefined
-        : makeRequestCallback(mod, async () => JSON.stringify((await callbacks.goal()) ?? null)),
-    );
-    return new EngineSessionHandle(id, mod);
+    return EngineSessionHandle.createWith(new NapiSessionTransport(), params, callbacks);
   }
 
-  /** Enqueue a prompt; returns the engine-assigned turn id (monotonic). */
-  enqueueTurn(prompt: SessionPrompt, admission: SessionAdmission): number {
-    return this.mod.sessionEnqueueTurn(this.id, JSON.stringify(prompt), admission);
+  /** Create a session over an arbitrary transport (napi or stdio). */
+  static async createWith(
+    transport: SessionTransport,
+    params: Record<string, unknown>,
+    callbacks: unknown,
+  ): Promise<EngineSessionHandle> {
+    const id = await transport.createSession(params, callbacks);
+    return new EngineSessionHandle(id, transport);
+  }
+
+  /** Enqueue a prompt; resolves with the engine-assigned turn id (monotonic). */
+  enqueueTurn(prompt: SessionPrompt, admission: SessionAdmission): Promise<number> {
+    return this.transport.enqueueTurn(this.id, prompt, admission);
   }
 
   /** Resolve with the outcome of one enqueued turn (exactly once). */
   turnOutcome(turnId: number): Promise<SessionTurnOutcome> {
-    return this.mod.sessionTurnOutcome(this.id, turnId);
+    return this.transport.turnOutcome(this.id, turnId);
   }
 
   /** Cancel a turn by id; without an id the active turn (if any). */
-  cancelTurn(turnId?: number): boolean {
-    return this.mod.sessionCancelTurn(this.id, turnId);
+  cancelTurn(turnId?: number): Promise<boolean> {
+    return this.transport.cancelTurn(this.id, turnId);
   }
 
-  status(): SessionStatus {
-    return this.mod.sessionStatus(this.id);
+  status(): Promise<SessionStatus> {
+    return this.transport.status(this.id);
   }
 
-  isSettled(): boolean {
-    return this.mod.sessionIsSettled(this.id);
+  isSettled(): Promise<boolean> {
+    return this.transport.isSettled(this.id);
   }
 
   /** Resolves once the session is fully idle. */
   settled(): Promise<void> {
-    return this.mod.sessionSettled(this.id);
+    return this.transport.settled(this.id);
   }
 
   /**
@@ -283,32 +256,178 @@ export class EngineSessionHandle {
    * are parked instead of admitted (undo checkpoints, compaction). Fails
    * when a guard is already held or any turn is outstanding.
    */
-  tryAcquireQuiescence(): boolean {
-    return this.mod.sessionTryAcquireQuiescence(this.id);
+  tryAcquireQuiescence(): Promise<boolean> {
+    return this.transport.tryAcquireQuiescence(this.id);
   }
 
   /** Release the quiescence window: held turns replay in FIFO order. */
-  releaseQuiescence(): void {
-    this.mod.sessionReleaseQuiescence(this.id);
+  releaseQuiescence(): Promise<void> {
+    return this.transport.releaseQuiescence(this.id);
   }
 
-  setHistory(history: SessionPrompt[]): void {
-    this.mod.sessionSetHistory(this.id, JSON.stringify(history));
+  setHistory(history: SessionPrompt[]): Promise<void> {
+    return this.transport.setHistory(this.id, history);
   }
 
-  clearHistory(): void {
-    this.mod.sessionClearHistory(this.id);
+  clearHistory(): Promise<void> {
+    return this.transport.clearHistory(this.id);
   }
 
-  extendHistory(history: SessionPrompt[]): void {
-    this.mod.sessionExtendHistory(this.id, JSON.stringify(history));
+  extendHistory(history: SessionPrompt[]): Promise<void> {
+    return this.transport.extendHistory(this.id, history);
   }
 
-  historyLen(): number {
-    return this.mod.sessionHistoryLen(this.id);
+  historyLen(): Promise<number> {
+    return this.transport.historyLen(this.id);
   }
 
-  dispose(): void {
-    this.mod.sessionDispose(this.id);
+  dispose(): Promise<void> {
+    return this.transport.dispose(this.id);
+  }
+}
+
+/**
+ * The transport-agnostic session surface. `createSession` wires the
+ * session-scoped host callbacks on the transport (napi: TSFN registry;
+ * stdio: AgentProcess handlers) and returns the engine-assigned session id;
+ * every other method addresses a session by id. All methods are async: the
+ * stdio transport round-trips JSON-RPC, and the napi transport's sync calls
+ * are lifted into promises for a uniform handle API. The `callbacks`
+ * parameter is typed per transport — the concrete transports narrow it.
+ */
+export interface SessionTransport {
+  createSession(params: Record<string, unknown>, callbacks: unknown): Promise<string>;
+  enqueueTurn(
+    sessionId: string,
+    prompt: SessionPrompt,
+    admission: SessionAdmission,
+  ): Promise<number>;
+  turnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome>;
+  cancelTurn(sessionId: string, turnId?: number): Promise<boolean>;
+  status(sessionId: string): Promise<SessionStatus>;
+  isSettled(sessionId: string): Promise<boolean>;
+  settled(sessionId: string): Promise<void>;
+  tryAcquireQuiescence(sessionId: string): Promise<boolean>;
+  releaseQuiescence(sessionId: string): Promise<void>;
+  setHistory(sessionId: string, history: SessionPrompt[]): Promise<void>;
+  clearHistory(sessionId: string): Promise<void>;
+  extendHistory(sessionId: string, history: SessionPrompt[]): Promise<void>;
+  historyLen(sessionId: string): Promise<number>;
+  dispose(sessionId: string): Promise<void>;
+}
+
+/** The napi addon transport: the callback registry + session.* module calls. */
+class NapiSessionTransport implements SessionTransport {
+  private readonly mod: SessionNativeModule;
+
+  constructor() {
+    this.mod = loadSessionNativeModule();
+  }
+
+  async createSession(
+    params: Record<string, unknown>,
+    callbacks: SessionCallbacks,
+  ): Promise<string> {
+    // Capture the optional callbacks so the guards below narrow them (TS
+    // does not narrow property accesses on a parameter into closures).
+    const emitEvent = callbacks.emitEvent;
+    const checkPermission = callbacks.checkPermission;
+    const finalizeTool = callbacks.finalizeTool;
+    const drainSteers = callbacks.drainSteers;
+    const askQuestion = callbacks.askQuestion;
+    const stateRead = callbacks.stateRead;
+    const stateWrite = callbacks.stateWrite;
+    const turnEvent = callbacks.turnEvent;
+    const telemetry = callbacks.telemetry;
+    const listTools = callbacks.listTools;
+    const goal = callbacks.goal;
+    return this.mod.createEngineSession(
+      params,
+      makeRequestCallback(this.mod, (p) => callbacks.llmChat(p)),
+      makeRequestCallback(this.mod, (p) => callbacks.executeTool(p)),
+      emitEvent === undefined ? undefined : makeEventCallback(this.mod, emitEvent),
+      checkPermission === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, (p) => checkPermission(p)),
+      finalizeTool === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, (p) => finalizeTool(p)),
+      drainSteers === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, async () => JSON.stringify(await drainSteers())),
+      askQuestion === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, (p) => askQuestion(p)),
+      stateRead === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, (p) => stateRead(p)),
+      stateWrite === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, (p) => stateWrite(p)),
+      turnEvent === undefined ? undefined : makeEventCallback(this.mod, turnEvent),
+      telemetry === undefined ? undefined : makeEventCallback(this.mod, telemetry),
+      listTools === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, async () => JSON.stringify(await listTools())),
+      goal === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, async () => JSON.stringify((await goal()) ?? null)),
+    );
+  }
+
+  async enqueueTurn(
+    sessionId: string,
+    prompt: SessionPrompt,
+    admission: SessionAdmission,
+  ): Promise<number> {
+    return this.mod.sessionEnqueueTurn(sessionId, JSON.stringify(prompt), admission);
+  }
+
+  async turnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome> {
+    return this.mod.sessionTurnOutcome(sessionId, turnId);
+  }
+
+  async cancelTurn(sessionId: string, turnId?: number): Promise<boolean> {
+    return this.mod.sessionCancelTurn(sessionId, turnId);
+  }
+
+  async status(sessionId: string): Promise<SessionStatus> {
+    return this.mod.sessionStatus(sessionId);
+  }
+
+  async isSettled(sessionId: string): Promise<boolean> {
+    return this.mod.sessionIsSettled(sessionId);
+  }
+
+  async settled(sessionId: string): Promise<void> {
+    return this.mod.sessionSettled(sessionId);
+  }
+
+  async tryAcquireQuiescence(sessionId: string): Promise<boolean> {
+    return this.mod.sessionTryAcquireQuiescence(sessionId);
+  }
+
+  async releaseQuiescence(sessionId: string): Promise<void> {
+    this.mod.sessionReleaseQuiescence(sessionId);
+  }
+
+  async setHistory(sessionId: string, history: SessionPrompt[]): Promise<void> {
+    this.mod.sessionSetHistory(sessionId, JSON.stringify(history));
+  }
+
+  async clearHistory(sessionId: string): Promise<void> {
+    this.mod.sessionClearHistory(sessionId);
+  }
+
+  async extendHistory(sessionId: string, history: SessionPrompt[]): Promise<void> {
+    this.mod.sessionExtendHistory(sessionId, JSON.stringify(history));
+  }
+
+  async historyLen(sessionId: string): Promise<number> {
+    return this.mod.sessionHistoryLen(sessionId);
+  }
+
+  async dispose(sessionId: string): Promise<void> {
+    this.mod.sessionDispose(sessionId);
   }
 }

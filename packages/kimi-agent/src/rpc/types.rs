@@ -156,6 +156,51 @@ pub mod methods {
     /// hosts without this seam. Host-proxy mode rebuilds tools host-side
     /// per call and never consults this.
     pub const HOST_LIST_TOOLS: &str = "host/list_tools";
+
+    /// Fetch the host's current goal snapshot (Rust → JS host, M1d 3b).
+    ///
+    /// The session's goal provider reads it fresh per turn (budget checks
+    /// plus steering), mirroring the napi `goal_cb` seam. The result is the
+    /// snake_case wire goal object, or JSON null when no goal is active.
+    pub const HOST_GOAL: &str = "host/goal";
+
+    // ── EngineSession handle over stdio (M1d 3b) ─────────────────────────
+    // The stdio transport gets the same session surface as the napi addon:
+    // the pipeline is built once per session, and admission / the pending
+    // FIFO / the pump / turn ids / cancellation / quiescence live
+    // engine-side across turns.
+
+    /// Create a session handle. Params are the full `RunTurnParams` shape;
+    /// the per-turn fields (`messages` / `tools` / `goal`) are ignored.
+    pub const SESSION_CREATE: &str = "session/create";
+    /// Enqueue a prompt. Returns the engine-assigned turn id (monotonic).
+    pub const SESSION_ENQUEUE_TURN: &str = "session/enqueue_turn";
+    /// Resolve with the outcome of one enqueued turn (exactly once).
+    pub const SESSION_TURN_OUTCOME: &str = "session/turn_outcome";
+    /// Cancel a turn by id (active → step-boundary interrupt; queued or
+    /// quiescence-held → dropped). Without an id the active turn is cancelled.
+    pub const SESSION_CANCEL_TURN: &str = "session/cancel_turn";
+    /// Live session shape: active turn id + pending turn ids.
+    pub const SESSION_STATUS: &str = "session/status";
+    /// Whether the session is fully idle right now.
+    pub const SESSION_IS_SETTLED: &str = "session/is_settled";
+    /// Resolve once the session is fully idle.
+    pub const SESSION_SETTLED: &str = "session/settled";
+    /// Try to acquire the quiescence window (exclusive; parked turns replay
+    /// on release). Fails while a guard is held or a turn is outstanding.
+    pub const SESSION_TRY_ACQUIRE_QUIESCENCE: &str = "session/try_acquire_quiescence";
+    /// Release the quiescence window: held turns replay in FIFO order.
+    pub const SESSION_RELEASE_QUIESCENCE: &str = "session/release_quiescence";
+    /// Replace the session's cross-turn history.
+    pub const SESSION_SET_HISTORY: &str = "session/set_history";
+    /// Clear the session's cross-turn history.
+    pub const SESSION_CLEAR_HISTORY: &str = "session/clear_history";
+    /// Append messages to the cross-turn history.
+    pub const SESSION_EXTEND_HISTORY: &str = "session/extend_history";
+    /// Current cross-turn history length.
+    pub const SESSION_HISTORY_LEN: &str = "session/history_len";
+    /// Drop the session handle.
+    pub const SESSION_DISPOSE: &str = "session/dispose";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -525,6 +570,62 @@ pub struct ToolDef {
     pub description: String,
     #[serde(default)]
     pub input_schema: serde_json::Value,
+}
+
+// ── EngineSession wire types (M1d 3b) ─────────────────────────────────────
+
+/// Params for `session/enqueue_turn`: one prompt as a wire `Message`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionEnqueueParams {
+    pub session_id: String,
+    pub prompt: Message,
+    pub admission: String,
+}
+
+/// Params for the session RPCs that address a session only.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionIdParams {
+    pub session_id: String,
+}
+
+/// Params for `session/turn_outcome`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionTurnOutcomeParams {
+    pub session_id: String,
+    pub turn_id: u64,
+}
+
+/// Params for `session/cancel_turn`. Without `turn_id` the active turn (if
+/// any) is cancelled.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionCancelParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub turn_id: Option<u64>,
+}
+
+/// Params for the history RPCs (`session/set_history` / `extend_history`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionHistoryParams {
+    pub session_id: String,
+    pub history: Vec<Message>,
+}
+
+/// Result of `session/turn_outcome`. Mirrors the napi `JsTurnOutcome`:
+/// `status` is `ran` or `cancelledBeforeStart`; `result` is present only
+/// for `ran`.
+#[derive(Debug, Serialize)]
+pub struct SessionOutcomeResult {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<RunTurnResult>,
+}
+
+/// Result of `session/status`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionStatusResult {
+    pub active_turn_id: Option<u64>,
+    pub pending_turn_ids: Vec<u64>,
 }
 
 /// Result of a run_turn RPC call.

@@ -211,3 +211,61 @@ export const runTurnParamsSchema = z.object({
   github_base_url: z.string().optional(),
   telemetry: telemetryContext.optional(),
 });
+
+// ── EngineSession handle over stdio (M1d 3b) ──────────────────────────────
+// The stdio transport drives the same session surface as the napi addon.
+// These mirror `SessionEnqueueParams` / `SessionIdParams` /
+// `SessionTurnOutcomeParams` / `SessionCancelParams` / `SessionHistoryParams`
+// / `SessionOutcomeResult` / `SessionStatusResult` in rpc/types.rs.
+
+/** The wire `Message` shape (rpc/types.rs) — prompts and history entries. */
+export const sessionMessageSchema = z.object({
+  role: z.string(),
+  content: z.string(),
+  blocks: z.array(z.unknown()).optional(),
+  tool_calls: z
+    .array(z.object({ id: z.string(), name: z.string(), arguments: z.unknown() }))
+    .optional(),
+  tool_call_id: z.string().optional(),
+});
+
+export type SessionMessageWire = z.infer<typeof sessionMessageSchema>;
+
+export const sessionEnqueueTurnParamsSchema = z.object({
+  session_id: z.string(),
+  prompt: sessionMessageSchema,
+  admission: z.enum(['newTurn', 'activeOrNewTurn', 'activeOrNextTurn', 'activeTurnOnly']),
+});
+
+export const sessionIdParamsSchema = z.object({
+  session_id: z.string(),
+});
+
+export const sessionTurnOutcomeParamsSchema = z.object({
+  session_id: z.string(),
+  turn_id: z.number(),
+});
+
+export const sessionCancelParamsSchema = z.object({
+  session_id: z.string(),
+  turn_id: z.number().optional(),
+});
+
+export const sessionHistoryParamsSchema = z.object({
+  session_id: z.string(),
+  history: z.array(sessionMessageSchema),
+});
+
+export const sessionStatusResultSchema = z.object({
+  active_turn_id: z.number().nullable(),
+  pending_turn_ids: z.array(z.number()),
+});
+
+export type SessionStatusWire = z.infer<typeof sessionStatusResultSchema>;
+
+export const sessionTurnOutcomeResultSchema = z.object({
+  status: z.enum(['ran', 'cancelledBeforeStart']),
+  result: runTurnResultSchema.optional(),
+});
+
+export type SessionTurnOutcomeWire = z.infer<typeof sessionTurnOutcomeResultSchema>;

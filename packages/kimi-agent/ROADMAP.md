@@ -1580,6 +1580,26 @@ gateway 2/2，tsc 0 错误。
       回调接线：request/response 走 payload fetch + resolve，事件通道 fire-and-forget）+
       enqueue/turnOutcome/cancel/status/settled/history/dispose。集成测试再 2 条（含跨 turn
       历史延续）。
+    - **3b — stdio 会话 RPC（✅ 2026-09-01）**：stdio 传输拿到与 napi 相同的会话表面，
+      两传输都走会话契约（3c 翻转的前置）：
+      - Rust：`main.rs` 管线抽取 `build_engine_pipeline`（镜像 napi 版，RUN_TURN 与
+        session/create 共用）+ 会话注册表（`SESSION_REGISTRY`/`SESSION_OUTCOMES`/`SESSION_NEXT_ID`）
+        + 14 个 `session.*` RPC（create/enqueue/outcome/cancel/status/is_settled/settled/
+        try_acquire_quiescence/release_quiescence/set_history/clear_history/extend_history/
+        history_len/dispose）+ `host/goal` 往返（`HostCallbacks::goal` 默认 Err，三个包装
+        器转发）；goal provider 每 turn 现读，tool_defs provider 复用 `callbacks.list_tools()`。
+      - TS：`EngineSessionHandle` 抽 `SessionTransport` 接口（全异步——stdio 的 JSON-RPC
+        本质异步，napi 同步调用提升为 promise），`NapiSessionTransport` 留在 session-handle，
+        `StdioSessionTransport` 在 rust-loop（snake_case 投影 + `SessionPrompt`↔wire `Message`
+        转换）；`AgentProcess` 加 `session.*` 请求方法 + `host/goal` 分发；override 的 stdio
+        分支切到与 napi 相同的会话流（`ActiveTurn` 改原始 handler 形状，napi 侧在 create
+        处做 JSON 包装，stdio 侧直接接线 AgentProcess）。
+      - 行为保持验证：既有 stdio e2e（check_permission ×4 / provider routing / ask_question ×2
+        / staleness guard）全部改走会话路径后仍绿；崩溃恢复语义经「agent 实例变化 → 会话
+        重建」保住；`run_turn_with_telemetry` 导入修复（M1c 起 bin 构建坏掉，`cargo build
+        --features cli` 才暴露）。
+      - 验证：cargo test 845 全绿 + clippy 0 warnings + fmt 干净；oxlint 0 errors；tsc 包内
+        零新增；vitest 111 passed / 6 skipped；rustEngineE2E 3/3。
     - **顺带修复既有缺陷：pump 折叠重复历史**。`run_session_turn` 把 `history + prompt` 喂给
       run_turn，结果整表返回；pump 折叠 `skip(1)` 会把喂入的旧 history 再折回——turn 3 起
       模型上下文出现重复消息（既有测试只断言 turn 2 请求所以未抓到）。修复：折叠跳过

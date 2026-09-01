@@ -847,6 +847,12 @@ impl HostCallbacks for SteerQueueCallbacks {
         self.inner.list_tools()
     }
 
+    fn goal(
+        &self,
+    ) -> futures_util::future::BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }

@@ -1769,22 +1769,22 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle (M1d wrapper)', () => {
     );
     expect(handle.id).toMatch(/^session-/);
 
-    const turnId = handle.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
+    const turnId = await handle.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
     const outcome = await handle.turnOutcome(turnId);
     expect(outcome.status).toBe('ran');
     expect(outcome.result?.stopReason).toBe('EndTurn');
     expect(outcome.result?.steps).toBe(1);
-    expect(handle.historyLen()).toBe(2);
-    expect(handle.isSettled()).toBe(true);
+    expect(await handle.historyLen()).toBe(2);
+    expect(await handle.isSettled()).toBe(true);
     await handle.settled();
 
     // A second turn continues the cross-turn history.
-    const second = handle.enqueueTurn({ role: 'user', content: 'again' }, 'newTurn');
+    const second = await handle.enqueueTurn({ role: 'user', content: 'again' }, 'newTurn');
     const secondOutcome = await handle.turnOutcome(second);
     expect(secondOutcome.status).toBe('ran');
-    expect(handle.historyLen()).toBe(4);
+    expect(await handle.historyLen()).toBe(4);
 
-    handle.dispose();
+    await handle.dispose();
   });
 
   it('cancels a queued turn through the handle', async () => {
@@ -1816,21 +1816,21 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle (M1d wrapper)', () => {
       },
     );
 
-    const activeId = handle.enqueueTurn({ role: 'user', content: 'gated' }, 'newTurn');
-    for (let i = 0; i < 100 && handle.status().activeTurnId !== activeId; i += 1) {
+    const activeId = await handle.enqueueTurn({ role: 'user', content: 'gated' }, 'newTurn');
+    for (let i = 0; i < 100 && (await handle.status()).activeTurnId !== activeId; i += 1) {
       await new Promise((r) => setTimeout(r, 10));
     }
-    expect(handle.status().activeTurnId).toBe(activeId);
+    expect((await handle.status()).activeTurnId).toBe(activeId);
 
-    const queuedId = handle.enqueueTurn({ role: 'user', content: 'queued' }, 'newTurn');
-    expect(handle.cancelTurn(queuedId)).toBe(true);
+    const queuedId = await handle.enqueueTurn({ role: 'user', content: 'queued' }, 'newTurn');
+    expect(await handle.cancelTurn(queuedId)).toBe(true);
     const queuedOutcome = await handle.turnOutcome(queuedId);
     expect(queuedOutcome.status).toBe('cancelledBeforeStart');
 
     release?.();
     expect((await handle.turnOutcome(activeId)).status).toBe('ran');
     await handle.settled();
-    handle.dispose();
+    await handle.dispose();
   });
 });
 
@@ -1868,24 +1868,24 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
       },
     );
 
-    expect(handle.tryAcquireQuiescence()).toBe(true);
-    const heldId = handle.enqueueTurn({ role: 'user', content: 'held' }, 'newTurn');
-    expect(handle.isSettled()).toBe(false);
+    expect(await handle.tryAcquireQuiescence()).toBe(true);
+    const heldId = await handle.enqueueTurn({ role: 'user', content: 'held' }, 'newTurn');
+    expect(await handle.isSettled()).toBe(false);
 
-    handle.releaseQuiescence();
+    await handle.releaseQuiescence();
     const outcome = await handle.turnOutcome(heldId);
     expect(outcome.status).toBe('ran');
     await handle.settled();
 
-    const activeId = handle.enqueueTurn({ role: 'user', content: 'active' }, 'newTurn');
-    for (let i = 0; i < 100 && handle.status().activeTurnId !== activeId; i += 1) {
+    const activeId = await handle.enqueueTurn({ role: 'user', content: 'active' }, 'newTurn');
+    for (let i = 0; i < 100 && (await handle.status()).activeTurnId !== activeId; i += 1) {
       await new Promise((r) => setTimeout(r, 10));
     }
     // The turn parks on the gate, so the window must stay denied until it ends.
-    expect(handle.tryAcquireQuiescence()).toBe(false);
+    expect(await handle.tryAcquireQuiescence()).toBe(false);
     release?.();
     expect((await handle.turnOutcome(activeId)).status).toBe('ran');
     await handle.settled();
-    handle.dispose();
+    await handle.dispose();
   });
 });

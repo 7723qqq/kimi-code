@@ -746,6 +746,117 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — provider model routin
   });
 });
 
+// ── stdio session transport (M1d 3b) ──────────────────────────────────────
+
+describe('stdio transport — host/goal JS-side handler', () => {
+  type HostRequestHandler = {
+    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+  };
+
+  function fakeProcess(): { agent: AgentProcess; written: string[] } {
+    const agent = new AgentProcess();
+    const written: string[] = [];
+    (agent as unknown as { process: { stdin: { write(line: string): void } } }).process = {
+      stdin: { write: (line) => written.push(line) },
+    };
+    return { agent, written };
+  }
+
+  it('answers host/goal with the wired handler result', async () => {
+    const { agent, written } = fakeProcess();
+    const calls: string[] = [];
+    agent.setGoalHandler(async () => {
+      calls.push('goal');
+      return { goal_id: 'g1', objective: 'obj', status: 'active', wall_clock_ms: 1, tokens_used: 0, turns_used: 0 };
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'host/goal',
+      params: {},
+    });
+    expect(calls).toEqual(['goal']);
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      result: { goal_id: 'g1', objective: 'obj', status: 'active', wall_clock_ms: 1, tokens_used: 0, turns_used: 0 },
+    });
+  });
+
+  it('answers null when no goal handler is wired (no goal budgeting)', async () => {
+    const { agent, written } = fakeProcess();
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'host/goal',
+      params: {},
+    });
+    expect(JSON.parse(written[0] ?? '')).toEqual({ jsonrpc: '2.0', id: 8, result: null });
+  });
+});
+
+describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () => {
+  afterEach(async () => {
+    const { shutdownRustEngine } = await import('./rust-loop');
+    shutdownRustEngine();
+  });
+
+  it('drives turns through the stdio session and folds cross-turn history', async () => {
+    const { AgentProcess, StdioSessionTransport } = await import('./rust-loop');
+    const { EngineSessionHandle } = await import('./session-handle');
+
+    const agent = new AgentProcess();
+    expect(agent.start()).toBe(true);
+    try {
+      const handle = await EngineSessionHandle.createWith(
+        new StdioSessionTransport(agent),
+        {
+          turnId: 'ignored',
+          systemPrompt: 'You are a test assistant.',
+          modelName: 'test-model',
+          messages: [],
+          tools: [],
+          maxSteps: 5,
+        },
+        {
+          llmChat: async () => ({
+            content: 'hello!',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+          }),
+          executeTool: async () => ({ content: 'ok', is_error: false }),
+          emitEvent: () => {},
+          checkPermission: async () => ({ decision: 'allow' }),
+          finalize: async (req) => ({ content: req.content, is_error: req.is_error }),
+          drainSteers: async () => [],
+          listTools: async () => ({ tools: [] }),
+          goal: () => undefined,
+        },
+      );
+      expect(handle.id).toMatch(/^session-/);
+
+      await handle.setHistory([]);
+      const turnId = await handle.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
+      const outcome = await handle.turnOutcome(turnId);
+      expect(outcome.status).toBe('ran');
+      expect(outcome.result?.stopReason).toBe('EndTurn');
+      expect(outcome.result?.steps).toBe(1);
+      expect(await handle.isSettled()).toBe(true);
+
+      // A second turn continues the cross-turn history engine-side.
+      const second = await handle.enqueueTurn({ role: 'user', content: 'again' }, 'newTurn');
+      const secondOutcome = await handle.turnOutcome(second);
+      expect(secondOutcome.status).toBe('ran');
+      expect(await handle.historyLen()).toBeGreaterThan(0);
+
+      await handle.dispose();
+    } finally {
+      agent.stop();
+    }
+  });
+});
+
 // ── stdio transport: host/ask_question JS-side handler ────────────────────
 // The Rust engine sends host/ask_question only once its native
 // AskUserQuestion tool lands; these tests exercise the JS-side dispatch
@@ -1052,12 +1163,14 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/ask_question end
   it('reports an unwired host as an unsupported error the model must not retry', async () => {
     const out = await driveAskQuestionTurn({});
 
-    // The engine received a JSON-RPC error (-32603) on the wire.
+    // The engine received a JSON-RPC error (-32603) on the wire. The
+    // session create also reads the turn clock (host/state_read), which
+    // errors the same way on this unwired host — so the count is ≥ 1.
     const errorLines = out.writtenToEngine
       .map((line) => JSON.parse(line) as { error?: { code?: number } })
       .filter((m) => m.error !== undefined);
-    expect(errorLines).toHaveLength(1);
-    expect(errorLines[0]?.error?.code).toBe(-32603);
+    expect(errorLines.length).toBeGreaterThanOrEqual(1);
+    expect(errorLines.some((m) => m.error?.code === -32603)).toBe(true);
 
     // The tool result carries the v2 unsupported message; the model must
     // not retry the tool.

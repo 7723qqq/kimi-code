@@ -13,7 +13,7 @@ use crate::rpc::types::{
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse, ToolFinalizeRequest,
 };
-use crate::turn_loop::types::LLMMessage;
+use crate::turn_loop::types::{GoalContext, LLMMessage};
 
 /// Host-provided callbacks that the turn loop needs to call back to JS.
 pub trait HostCallbacks: Send + Sync {
@@ -90,6 +90,16 @@ pub trait HostCallbacks: Send + Sync {
     /// snapshot, matching the pre-seam behaviour.
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         Box::pin(async { Err("host does not support list_tools".into()) })
+    }
+
+    /// Fetch the host's current goal snapshot (M1d 3b: `host/goal`). The
+    /// session's goal provider reads it fresh per turn so host-side goal
+    /// changes (pause, budget edits, terminal states) are reflected. Bounded
+    /// by [`HOST_LIST_TOOLS_TIMEOUT`]-style host bookkeeping; the default
+    /// answers with an error so sessions without the seam run without goal
+    /// budgeting, matching the no-goal fallback.
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        Box::pin(async { Err("host does not support goal".into()) })
     }
 
     /// Hand a natively-executed result to the host for finalization before it
@@ -379,6 +389,22 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_GOAL,
+                    serde_json::json!({}),
+                    Some(HOST_LIST_TOOLS_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Goal error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("Goal response parse error: {e}"))
+        })
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         // JSON-RPC notification over stdout — fire-and-forget by design.
         crate::rpc::server::RpcServer::notify_now(crate::rpc::types::methods::HOST_EVENT, &event);
@@ -660,6 +686,10 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.list_tools()
     }
 
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }
@@ -759,6 +789,10 @@ impl HostCallbacks for CountingCallbacks {
 
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
     }
 
     fn emit_event(&self, event: serde_json::Value) {
