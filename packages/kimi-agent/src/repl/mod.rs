@@ -377,6 +377,12 @@ pub async fn start_repl(
     ));
 
     let policy_snapshot = config.build_policy_snapshot(Some(workspace.clone()));
+    // G-6 #6: PreToolUse hooks ride the same snapshot; the guard runs them
+    // before native tool calls (the dummy host's own tool execution never
+    // fires user hooks).
+    let hook_guard = Arc::new(crate::tools::external_hooks::HookGuard::new(
+        policy_snapshot.pre_tool_hooks.clone(),
+    ));
     let permission_engine = Arc::new(PermissionEngine::new(policy_snapshot));
     let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
 
@@ -451,6 +457,7 @@ pub async fn start_repl(
         })),
         stale_guard: Some(stale_gate),
         goal_guard: Some(goal_guard),
+        hook_guard: Some(hook_guard),
     });
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone())

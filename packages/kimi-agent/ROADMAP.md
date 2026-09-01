@@ -2245,7 +2245,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 | 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **已迁移**（2026-09-01，见 P41）——引擎侧 `StaleGate` 全量镜像 v2 语义（mtime 记录/三分支判定/plan 文件豁免），原生与宿主回退路径全覆盖 |
 | 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | ~~REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 审批：原生 `exit_plan_mode.rs` 已实现完整审批流（经 `ask_question`，auto 直通）~~ **✅ 已落地（2026-09-01，见 P39）**：`PlanGuard` 异步化，napi/stdio 产品路径经 state 桥每次受护调用现读 plan 状态并按 v2 语义否决（Write/Edit 只许写 plan 文件 + TaskStop/CronCreate/CronDelete 拒绝，后两项同时补齐了 REPL 缺口）；ExitPlanMode 审批原本已由原生工具自带 | **已迁移** |
 | 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
-| 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **缺口（用户可见）→ M2 迁移**：Rust 侧执行 PreToolUse 命令；迁移前在文档标注「原生路径不触发用户钩子」 |
+| 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **已迁移**（2026-09-01，见 P43）——引擎侧执行 PreToolUse 钩子（随 policy snapshot 推送配置，stdin JSON 契约/exit-2/JSON-deny 判定/fail-closed 语义逐字节对齐 v2） |
 | 7 | `goalAgentRuntime.ts:1295` | CreateGoal 启动审批（非 auto 模式） | CreateGoal 原生（走 state 桥）→ 审批 ask 不触发，goal 静默启动 | **已迁移**（2026-09-01，见 P42）——非 auto 模式下 CreateGoal 回退宿主执行，宿主 goal-start 审批链（含 mode 切换面板）原样生效 |
 | 8 | `goalAgentRuntime.ts:1296` | 陈旧 goal 工具调用合成结果 + 预算宽限轮拒绝 | 原生 goal 工具（4 个全在 `handles()`）绕过 → 保护失效 | **已迁移**（2026-09-01，见 P42）——引擎侧 `GoalGuard` 按 turn 绑定起始 goal，当前 goal 变更即拒绝突变工具（文案逐字节对齐 v2）；预算宽限轮由 run_turn 硬停结构性覆盖，无需复刻 |
 | 9 | `swarmService.ts:45` | swarm 模式禁 `Agent` | Agent 是宿主工具 → 钩子照常触发 | **等价**——无需动作 |
@@ -2261,7 +2261,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 - **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
   不算静默丢失。
 - **7 处真缺口 → 迁移队列**：~~#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）~~ ✅ 已落地（P39）、
-  ~~#3（staleGuard）~~ ✅ 已落地（P41）、~~#7+#8（goal 审批/stale，同域一并做）~~ ✅ 已落地（P42）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
+  ~~#3（staleGuard）~~ ✅ 已落地（P41）、~~#7+#8（goal 审批/stale，同域一并做）~~ ✅ 已落地（P42）、~~#6（externalHooks PreToolUse）~~ ✅ 已落地（P43）、#2（toolDedupe）、
   #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
 
 ### 验证说明
@@ -2418,3 +2418,40 @@ P38 判定表 #7/#8 落地（同域一并做）。宿主侧 goalAgentRuntime 保
 ### 迁移队列现状
 
 #4（P39）✅、#3（P41）✅、#7+#8（P42）✅ → 剩余：#6（externalHooks PreToolUse）、#2（toolDedupe）、#13（tower worker，随 M3）。
+
+## P43 — G-6 #6：PreToolUse 钩子迁入引擎（2026-09-01）
+
+P38 判定表 #6 落地：用户配置的 PreToolUse 钩子从「引擎原生路径零对应」变为引擎内全量执行。宿主侧 externalHooksService 保持不动（继续守宿主执行路径）；其他 19 种 hook 事件仍归宿主。
+
+### 语义基准（v2 `agentExternalHooksService.ts` / `runHook.ts` / `matchHooks.ts`）
+
+- 配置：`[hooks]` 段，`event / matcher(正则,空=全匹配) / command / timeout(1-600s,默认 30)`。
+- 触发：PreToolUse 事件，每次工具调用前全量重跑（无缓存）；非法正则静默跳过；同 event 多 hook 并行、command 去重（单次触发内）。
+- 执行：平台 shell（Windows 为 `cmd /C`，unix 为 `sh -c`），cwd=宿主进程 cwd，env 继承，stdin 写 snake_case JSON（hook_event_name/session_id/cwd/client_type/session_title/tool_name/tool_input/tool_call_id）。
+- veto：exit 2 → block（reason=stderr.trim()）；exit 0 且 stdout JSON `permissionDecision==='deny'` → block（reason=permissionDecisionReason）；其余 allow。reason 空 → `Blocked by PreToolUse hook`。
+- fail-closed：`Permission hook failed to spawn: <msg>` / `Permission hook timed out` / `Permission hook errored while running`。
+
+### 设计
+
+- **配置随 PolicySnapshot 推送**（零新 wire 字段）：`PolicySnapshot.pre_tool_hooks: Vec<HookDef>`（serde default），宿主 `rust-engine.ts` 的 `getPolicySnapshot` 从 `loadRuntimeConfigSafe` 读 `[hooks]` 一并推送（解析后配置最忠实）；REPL 经 `KimiConfig.hooks` 段解析 + `build_policy_snapshot` 带入。
+- **执行器**（`src/tools/external_hooks.rs`）：`HookGuard` — event 过滤（只 PreToolUse）/matcher 正则（非法跳过）/command 去重/并行（tokio join_all，按序取首个 block）；平台 shell spawn；stdin 载荷（`client_type` 用 node 平台串 win32/darwin/…，`session_title` 空，`session_id`=turn_id）；超时 `tokio::time::select` + kill（v2 的 SIGTERM→SIGKILL 链 Rust std 无 SIGTERM 暴露，直接 kill）；三分支判定逐字节对齐。
+- **gate 集成**：permission allow 后、goal_guard 前（镜像 v2 链序 permission → plan → externalHooks → goal）；denial 发 `tool.native` is_error + 合成结果，不回退宿主。
+
+### 验证
+
+- **cargo**：`--lib` 879 全绿（external_hooks 11 单测：matcher/非法正则跳过/exit2 含 stderr/exit2 空 stderr fallback/JSON deny/exit1 allow/超时 fail-closed/去重/载荷形状/非对象 tool_input + callbacks 门级 2：hook deny 拦截精确文案、hook allow 放行）；`stdio_rpc_integration` 18/18（新增 2：exit-2 钩子拦原生 Write——文案/tool.native/无落盘/不回退宿主；exit-0 放行落盘）；clippy 0、fmt 干净。
+- **bun**：kimi-agent 116 通过（napi-integration 新增 2，真实 .node：policySnapshotJson 带 hooks 的 deny/allow 两例）；rust-engine.test.ts 25/25（宿主推送零回归）。
+- **cmd 引号教训**：Windows 上平台 shell 对含引号参数的重解析会吞掉/保留引号（echo JSON 输出被剥离引号、带引号路径被当命令字面量）——JSON deny 用例改由 `type`/`cat` 读预写文件规避，测试路径含空格时跳过。
+
+### 诚实边界
+
+- stdin 载荷部分字段引擎不可得：`session_title` 恒空、`session_id`=turn_id（非宿主真实 session id）、`client_type` 用 node 平台串近似。
+- 超时 kill 链降级：v2 SIGTERM→100ms→SIGKILL，Rust 直接 kill（数据面等价）。
+- hooks 随快照会话级推送：会话中途改 `[hooks]` 不即时反映（与 P42 mode 同款生命周期）。
+- 其他 19 种 hook 事件（PostToolUse/Stop/Notification 等）仍归宿主执行路径。
+- hook.env/hook.cwd 仅 plugin 来源可用，引擎路径不涉及（配置 schema strict 拒绝）。
+- 命令缺失在 shell 内以非零退出呈现（cmd 报错 exit 1 / sh exit 127）→ 按 v2 语义 allow（非 exit 2）——只有 shell 自身 spawn 失败才 fail-closed。
+
+### 迁移队列现状
+
+#4（P39）✅、#3（P41）✅、#7+#8（P42）✅、#6（P43）✅ → 剩余：#2（toolDedupe）、#13（tower worker，随 M3）。

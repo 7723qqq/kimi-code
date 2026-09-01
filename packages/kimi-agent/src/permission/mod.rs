@@ -31,6 +31,20 @@ pub enum PermissionMode {
     Yolo,
 }
 
+/// A user-configured external hook (v2 `HookDefSchema`): an event name, an
+/// optional regex `matcher` (empty = match all), the command to run, and an
+/// optional timeout in seconds (1-600, default 30).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HookDef {
+    #[serde(default)]
+    pub event: String,
+    #[serde(default)]
+    pub matcher: String,
+    pub command: String,
+    #[serde(default)]
+    pub timeout: Option<u64>,
+}
+
 /// Snapshot of permission configuration passed from host at step boundary.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PolicySnapshot {
@@ -46,6 +60,11 @@ pub struct PolicySnapshot {
     pub session_approvals: Vec<String>,
     #[serde(default)]
     pub git_cwd: Option<String>,
+    /// User-configured external hooks (v2 `[hooks]`). The engine executes
+    /// the `PreToolUse` ones before native tool calls (G-6 #6); other
+    /// events stay host-owned.
+    #[serde(default)]
+    pub pre_tool_hooks: Vec<HookDef>,
 }
 
 /// Verdict returned by the local permission engine.

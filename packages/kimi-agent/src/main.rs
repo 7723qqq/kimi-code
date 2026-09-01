@@ -635,8 +635,8 @@ async fn build_engine_pipeline(
         .map(|root| {
             Arc::new(kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(root))
         });
-    let permission_engine = params
-        .policy_snapshot
+    let policy_snapshot = params.policy_snapshot.clone();
+    let permission_engine = policy_snapshot
         .clone()
         .map(|s| Arc::new(kimi_agent::permission::PermissionEngine::new(s)));
     let callbacks: Arc<dyn HostCallbacks> =
@@ -665,6 +665,13 @@ async fn build_engine_pipeline(
                             permission_engine.as_ref().map(|e| e.mode()),
                             true,
                         ));
+                        // PreToolUse hooks (v2 `agentExternalHooksService`,
+                        // G-6 #6): user-configured commands gate native calls.
+                        let hook_guard = policy_snapshot.clone().map(|s| {
+                            Arc::new(kimi_agent::tools::external_hooks::HookGuard::new(
+                                s.pre_tool_hooks,
+                            ))
+                        });
                         Arc::new(NativeToolCallbacks {
                             inner: base_callbacks.clone(),
                             toolset: Arc::new(
@@ -708,6 +715,7 @@ async fn build_engine_pipeline(
                             })),
                             stale_guard: Some(stale_gate),
                             goal_guard: Some(goal_guard),
+                            hook_guard,
                         })
                     }
                     None => base_callbacks.clone(),

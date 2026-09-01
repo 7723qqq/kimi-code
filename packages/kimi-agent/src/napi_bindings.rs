@@ -1083,10 +1083,12 @@ async fn build_engine_pipeline(
         .map(|root| {
             Arc::new(crate::tool_result_truncation::ToolResultTruncator::for_workspace(root))
         });
-    let permission_engine = params
+    let policy_snapshot = params
         .policy_snapshot_json
         .as_deref()
-        .and_then(|j| serde_json::from_str::<crate::permission::PolicySnapshot>(j).ok())
+        .and_then(|j| serde_json::from_str::<crate::permission::PolicySnapshot>(j).ok());
+    let permission_engine = policy_snapshot
+        .clone()
         .map(|s| Arc::new(crate::permission::PermissionEngine::new(s)));
     let callbacks: Arc<dyn HostCallbacks> = match (
         params.native_tools.unwrap_or(false),
@@ -1116,6 +1118,13 @@ async fn build_engine_pipeline(
                         permission_engine.as_ref().map(|e| e.mode()),
                         true,
                     ));
+                    // PreToolUse hooks (v2 `agentExternalHooksService`,
+                    // G-6 #6): user-configured commands gate native calls.
+                    let hook_guard = policy_snapshot.clone().map(|s| {
+                        Arc::new(crate::tools::external_hooks::HookGuard::new(
+                            s.pre_tool_hooks,
+                        ))
+                    });
                     Arc::new(NativeToolCallbacks {
                         inner: base_callbacks.clone(),
                         toolset: Arc::new(
@@ -1158,6 +1167,7 @@ async fn build_engine_pipeline(
                         })),
                         stale_guard: Some(stale_gate),
                         goal_guard: Some(goal_guard),
+                        hook_guard,
                     })
                 }
                 None => base_callbacks.clone(),

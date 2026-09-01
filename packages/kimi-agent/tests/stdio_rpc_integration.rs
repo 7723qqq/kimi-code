@@ -485,6 +485,28 @@ fn drive_native_turn(
     permission_decision: serde_json::Value,
     plan_state: serde_json::Value,
 ) -> NativeTurnObservation {
+    drive_native_turn_full(
+        workspace_root,
+        shell_path,
+        tool_name,
+        tool_arguments,
+        permission_decision,
+        plan_state,
+        serde_json::Value::Null,
+    )
+}
+
+/// `drive_native_turn` with an explicit `policy_snapshot` (carries the
+/// permission mode plus the G-6 #6 pre_tool_hooks wire).
+fn drive_native_turn_full(
+    workspace_root: &std::path::Path,
+    shell_path: Option<&str>,
+    tool_name: &str,
+    tool_arguments: serde_json::Value,
+    permission_decision: serde_json::Value,
+    plan_state: serde_json::Value,
+    policy_snapshot: serde_json::Value,
+) -> NativeTurnObservation {
     let binary = match find_binary() {
         Some(b) => b,
         None => return NativeTurnObservation::default(),
@@ -517,7 +539,8 @@ fn drive_native_turn(
             "max_steps": 5,
             "workspace_root": workspace_root.to_string_lossy(),
             "native_tools": true,
-            "shell_path": shell_path
+            "shell_path": shell_path,
+            "policy_snapshot": policy_snapshot
         }
     });
     writeln!(stdin, "{}", run_turn_req).unwrap();
@@ -1513,6 +1536,100 @@ fn run_turn_create_goal_routes_to_host_without_snapshot() {
         0,
         "a routed call is not a native execution"
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6) ──────────────
+
+fn hook_snapshot(command: &str) -> serde_json::Value {
+    serde_json::json!({
+        "mode": "auto",
+        "pre_tool_hooks": [{
+            "event": "PreToolUse",
+            "matcher": "",
+            "command": command,
+            "timeout": null
+        }]
+    })
+}
+
+fn exit_two_hook_command() -> &'static str {
+    if cfg!(windows) {
+        "echo blocked by e2e hook 1>&2 & exit /b 2"
+    } else {
+        "echo blocked by e2e hook >&2; exit 2"
+    }
+}
+
+/// A PreToolUse hook exiting 2 blocks the native Write: the stderr text is
+/// the tool result, nothing lands on disk, nothing runs on the host.
+#[test]
+fn run_turn_native_write_blocked_by_pretool_hook() {
+    let dir = std::env::temp_dir().join(format!("kimi-hook-deny-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn_full(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "hooked.txt", "content": "should not land"}),
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+        hook_snapshot(exit_two_hook_command()),
+    );
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert!(
+        !dir.join("hooked.txt").exists(),
+        "a blocked hook must not write"
+    );
+    assert_eq!(
+        observation.execute_tool_requests, 0,
+        "a hook block must not fall back to the host"
+    );
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1, "the refusal is the tool result");
+    assert_eq!(native_events[0]["is_error"], true);
+    assert_eq!(native_events[0]["content"], "blocked by e2e hook");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A hook exiting 0 lets the native Write through.
+#[test]
+fn run_turn_native_write_allowed_by_passing_hook() {
+    let dir = std::env::temp_dir().join(format!("kimi-hook-allow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn_full(
+        &dir,
+        None,
+        "write",
+        serde_json::json!({"path": "hooked.txt", "content": "lands"}),
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+        hook_snapshot(if cfg!(windows) { "exit /b 0" } else { "exit 0" }),
+    );
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("hooked.txt")).unwrap(),
+        "lands",
+        "an allowing hook must let the write through"
+    );
+    assert_eq!(observation.execute_tool_requests, 0);
+    let native_events = native_events_of(&observation);
+    assert_eq!(native_events.len(), 1);
+    assert_eq!(native_events[0]["is_error"], false);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

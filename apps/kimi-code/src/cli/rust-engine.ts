@@ -396,6 +396,9 @@ async function resolveRustEngine(
         ? 'yolo'
         : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
       const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
+      const hooks = (cfg['hooks'] as
+        | Array<{ event?: string; matcher?: string; command?: string; timeout?: number }>
+        | undefined) ?? [];
       return {
         mode,
         deny_rules: rules
@@ -407,6 +410,16 @@ async function resolveRustEngine(
         allow_rules: rules
           .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
           .map((r) => r.pattern!),
+        // G-6 #6: user-configured external hooks ride the snapshot so the
+        // engine can run PreToolUse hooks before native tool calls.
+        pre_tool_hooks: hooks
+          .filter((h) => typeof h.command === 'string')
+          .map((h) => ({
+            event: h.event ?? '',
+            matcher: h.matcher ?? '',
+            command: h.command ?? '',
+            timeout: h.timeout,
+          })),
       };
     },
   });

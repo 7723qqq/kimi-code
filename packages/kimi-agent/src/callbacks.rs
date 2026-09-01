@@ -416,6 +416,10 @@ pub struct NativeToolCallbacks {
     /// is not `auto` (so the host's goal-start review fires); goal mutation
     /// calls from a turn whose goal has changed since are vetoed.
     pub goal_guard: Option<Arc<crate::tools::goal_guard::GoalGuard>>,
+    /// Optional PreToolUse hook gate (v2 `agentExternalHooksService` mirror,
+    /// G-6 #6). User-configured hook commands run before native tool calls;
+    /// exit 2 or a JSON deny blocks the call (fail-closed).
+    pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -446,6 +450,7 @@ impl HostCallbacks for NativeToolCallbacks {
             plan_guard: self.plan_guard.clone(),
             stale_guard: self.stale_guard.clone(),
             goal_guard: self.goal_guard.clone(),
+            hook_guard: self.hook_guard.clone(),
         };
         Box::pin(async move {
             // G-6 #7: a CreateGoal that must be reviewed (permission mode is
@@ -523,6 +528,29 @@ impl HostCallbacks for NativeToolCallbacks {
                     .unwrap_or_else(|| "denied by host permission".into());
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too.
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6),
+            // after permission and plan — v2's chain order. A block is the
+            // tool result the model sees (fail-closed on hook errors); no
+            // execution, no host fallback.
+            if let Some(guard) = &this.hook_guard
+                && let Some(reason) = guard.denial(&request).await
+            {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
                     "turn_id": request.turn_id,
@@ -953,6 +981,7 @@ mod tests {
             plan_guard: None,
             stale_guard: None,
             goal_guard: None,
+            hook_guard: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
@@ -1184,6 +1213,7 @@ mod tests {
                 dir.path().to_path_buf(),
             )))),
             goal_guard: None,
+            hook_guard: None,
         };
         (dir, native, executed, native_count, events, state_reads)
     }
@@ -1452,6 +1482,7 @@ mod tests {
             plan_guard: None,
             stale_guard: None,
             goal_guard: Some(guard.clone()),
+            hook_guard: None,
         };
         (
             dir,
@@ -1605,6 +1636,140 @@ mod tests {
             "the stale check must not fire for GetGoal"
         );
     }
+
+    /// PreToolUse hook gate tests: a scripted hook list runs before native
+    /// execution through the same fake host as the goal-gate setup.
+    #[allow(clippy::type_complexity)]
+    fn hook_gate_setup(
+        hooks: Vec<crate::permission::HookDef>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let goal_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let fake: Arc<dyn HostCallbacks> = Arc::new(GoalGateHostCallbacks {
+            decision: PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            permission_calls: permission_calls.clone(),
+            executed: executed.clone(),
+            goal_reads: goal_reads.clone(),
+            events: events.clone(),
+            goal: std::sync::Mutex::new(None),
+        });
+        let toolset = Arc::new(
+            NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(fake.clone()),
+        );
+        let native = NativeToolCallbacks {
+            inner: fake,
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: Some(Arc::new(crate::tools::external_hooks::HookGuard::new(
+                hooks,
+            ))),
+        };
+        (
+            dir,
+            native,
+            executed,
+            native_count,
+            permission_calls,
+            goal_reads,
+            events,
+        )
+    }
+
+    fn hook_exit_two_with_stderr() -> crate::permission::HookDef {
+        crate::permission::HookDef {
+            event: "PreToolUse".into(),
+            matcher: String::new(),
+            command: if cfg!(windows) {
+                "echo denied by gate hook 1>&2 & exit /b 2".into()
+            } else {
+                "echo denied by gate hook >&2; exit 2".into()
+            },
+            timeout: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hook_guard_denies_native_call() {
+        let (_dir, native, executed, _native_count, _permission_calls, _goal_reads, events) =
+            hook_gate_setup(vec![hook_exit_two_with_stderr()]);
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(response.content, "denied by gate hook");
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "a hook block must not fall back to the host"
+        );
+        let native_event = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal is reported as tool.native")
+            .clone();
+        assert_eq!(native_event["is_error"], true);
+        assert_eq!(native_event["content"], "denied by gate hook");
+    }
+
+    #[tokio::test]
+    async fn test_hook_guard_allows_when_hook_passes() {
+        let (_dir, native, executed, native_count, _permission_calls, _goal_reads, _events) =
+            hook_gate_setup(vec![crate::permission::HookDef {
+                event: "PreToolUse".into(),
+                matcher: String::new(),
+                command: if cfg!(windows) {
+                    "exit /b 0".into()
+                } else {
+                    "exit 0".into()
+                },
+                timeout: None,
+            }]);
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "made.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !response.is_error,
+            "an allowing hook must not block: {response:?}"
+        );
+        assert_eq!(native_count.load(Ordering::Relaxed), 1);
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+    }
     /// A stub that answers questions, recording the request it received.
     struct AskQuestionCallbacks {
         received: Arc<std::sync::Mutex<Option<AskQuestionRequest>>>,
@@ -1718,6 +1883,7 @@ mod tests {
             plan_guard: None,
             stale_guard: None,
             goal_guard: None,
+            hook_guard: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -1882,6 +2048,7 @@ mod tests {
             plan_guard: None,
             stale_guard: None,
             goal_guard: None,
+            hook_guard: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();

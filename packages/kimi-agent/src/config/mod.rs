@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::permission::{PermissionMode, PolicySnapshot};
+use crate::permission::{HookDef, PermissionMode, PolicySnapshot};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
@@ -101,6 +101,10 @@ pub struct KimiConfig {
     pub mcp_servers: HashMap<String, McpServerConfig>,
     #[serde(default)]
     pub github: GitHubConfig,
+    /// User-configured external hooks (v2 `[hooks]` section). The engine
+    /// executes the `PreToolUse` ones before native tool calls (G-6 #6).
+    #[serde(default)]
+    pub hooks: Vec<HookDef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +246,7 @@ impl KimiConfig {
             allow_rules,
             session_approvals: Vec::new(),
             git_cwd: git_cwd.map(|p| p.to_string_lossy().to_string()),
+            pre_tool_hooks: self.hooks.clone(),
         }
     }
 }

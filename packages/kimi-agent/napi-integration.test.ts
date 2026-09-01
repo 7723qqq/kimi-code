@@ -1165,6 +1165,128 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal guard (G-6 #7/#8)', () 
   });
 });
 
+describe.skipIf(!nativeEntry)('napi runTurnRust — PreToolUse hooks (G-6 #6)', () => {
+  const writeDef = {
+    name: 'Write',
+    description: 'Write a file',
+    inputSchema:
+      '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}',
+  };
+
+  function hookSnapshot(command: string): string {
+    return JSON.stringify({
+      mode: 'auto',
+      pre_tool_hooks: [{ event: 'PreToolUse', matcher: '', command, timeout: null }],
+    });
+  }
+
+  it('blocks a native Write when a PreToolUse hook exits 2', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-hook-napi-'));
+    const mod = loadNativeModule();
+    const command = process.platform === 'win32'
+      ? 'echo blocked by napi hook 1>&2 & exit /b 2'
+      : 'echo blocked by napi hook >&2; exit 2';
+
+    const nativeEvents: Array<{ type?: string; is_error?: boolean; content?: string }> = [];
+    let llmCalls = 0;
+    let hostExecutions = 0;
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        policySnapshotJson: hookSnapshot(command),
+        tools: [writeDef],
+        messages: [{ role: 'user', content: 'write it' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-hook-1',
+                  name: 'Write',
+                  arguments: { path: 'hooked.txt', content: 'should not land' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecutions += 1;
+        return JSON.stringify({ content: '', is_error: false });
+      }),
+      makeCallback(mod, (eventJson) => {
+        nativeEvents.push(
+          JSON.parse(eventJson) as { type?: string; is_error?: boolean; content?: string },
+        );
+        return '';
+      }),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(existsSync(join(workspaceRoot, 'hooked.txt'))).toBe(false);
+    expect(hostExecutions).toBe(0);
+    const denial = nativeEvents.find((e) => e.type === 'tool.native' && e.is_error === true);
+    expect(denial?.content).toBe('blocked by napi hook');
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('lets a native Write through when the PreToolUse hook exits 0', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-hook-napi-ok-'));
+    const mod = loadNativeModule();
+    const command = process.platform === 'win32' ? 'exit /b 0' : 'exit 0';
+
+    let llmCalls = 0;
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        policySnapshotJson: hookSnapshot(command),
+        tools: [writeDef],
+        messages: [{ role: 'user', content: 'write it' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-hook-2',
+                  name: 'Write',
+                  arguments: { path: 'hooked.txt', content: 'lands' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(result.nativeToolCalls).toBe(1);
+    expect(readFileSync(join(workspaceRoot, 'hooked.txt'), 'utf8')).toBe('lands');
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+});
+
 describe.skipIf(!nativeEntry)('napi runTurnRust — concurrent MultiLLM providers', () => {
   it(
     'picks the first successful provider and ignores a failing peer',

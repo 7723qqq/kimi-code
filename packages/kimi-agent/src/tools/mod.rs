@@ -57,6 +57,7 @@ pub mod create_goal;
 pub mod cron_tools;
 pub mod encoding;
 pub mod exit_plan_mode;
+pub mod external_hooks;
 pub mod fetch_url;
 pub mod get_goal;
 pub mod github;

@@ -223,6 +223,7 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
         plan_guard: None,
         stale_guard: None,
         goal_guard: None,
+        hook_guard: None,
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;
     let started = Instant::now();
