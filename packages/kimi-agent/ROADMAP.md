@@ -1821,10 +1821,74 @@ context、不达模型）。修复见 M2 切片 3。
     「Rust 侧前置 ❌ 缺失」自 M1a 起已过时（本地队列当时已建成）；`host/event` 的
     「Rust 侧 sink ❌」仍准确（transcript/UI 消费方在宿主侧，无 Rust 替代）。
 
-- **M3 — 消费方处置**
-  对 `kap-server`（175）、`klient`（122）、`acp-server`（14）逐个给出结论：
-  改接 Rust 引擎的中立接口 / 保留 v2 作为库（**这等于 v2 未被删除，须明确标注而非默认**）/ 移植。
-  退出：三者均有书面结论，不存在「默认继续依赖 v2」的悬空项。
+- **M3 — 消费方处置** — 🔄 三者均出结论（2026-09-01）
+  三个消费者对 v2 的依赖面盘点（175/122/13 导入行 = 62/1/11 文件）后共同结论：Rust
+  引擎目前**只暴露 turn-loop 表面**（`session.{run_turn,enqueue_turn,history,status}`
+  + host 回调），app-scope 表面（`IConfigService` / `ISessionIndex` / `IWorkspaceService`
+  / `IMcpManagementService` / `IOAuthService` / `IPluginService` / `ICapabilityService` /
+  `IAgentLifecycleService` / `IAgentPromptService` / `IAgentToolRegistryService` 等约 30+
+  服务）**无 Rust 等价**——`packages/kimi-agent/napi-contract.d.ts` 也不含这些类型。
+  把任一消费者整体改接到 Rust 引擎需要先把整套 app-scope 移植到 Rust，量级与 M5 重复。
+  因此三者均选 **(b) 保留 v2 作为库（带显式标记）**，并用共享 schema 子包回收纯 wire/类型
+  导入（~40% 导入可剥离）。各消费者结论：
+
+  - **`kap-server`（推荐 (b)）**：62 文件、~30 个 `I*Service` 解析、`/api/v1/debug/*` 反射
+    调度器走 `core.accessor.get` 暴露全部 v2 服务；托管 App/Workspace/Session 三层 DI
+    整个 app-scope 都在 v2；纯 wire/类型导入（35 行 `coreEventMap.ts`、~50 个 `events-zod.ts`
+    事件 payload、12 个 `isoDateTimeSchema` 等）可迁出到 `packages/protocol` 或 `agent-core-v2/library-types`
+    子包，把 175 → 约 100 行（~40% 减少），不需任何运行时改动。剩余 ~100 行都是
+    `I*Service` 解析 + 事件投影 + 协议变换，没有 Rust 等价。**迁移路径**：M5 整体迁移到
+    Rust hosting 基板时再处理（届时 kap-server 变成一个 Rust 进程 + 薄 TS 路由层，
+    或者整个进程迁 Rust）。
+  - **`klient`（推荐 (b)，可追加 (c) 子目标）**：1 个公共文件 122 导入行，集中在 `serviceRegistry`
+    （39 条）+ `dispatcher.ts`（482 行）；余下是公共类型再导出。`AgentFacade` 的 turn 驱动
+    方法（`prompt` / `steer` / `cancel` / `activateSkill` / plan 域）有 Rust 等价（`session.run_turn` /
+    `enqueue_turn` / `host/state_{read,write}`），可做 **(c) 子目标**——把约 1/3 的
+    `serviceRegistry` + 对应 dispatcher 分支改走 Rust 引擎的 napi 表面；余下 ~25 个
+    v2 服务（`global.*` + `session.*` 大部分、`IAgentPromptService` 的非 turn 部分等）维持 v2。
+    验证标准：conformance 与 invalid-input 套件继续跑 v2，新增 turn-loop 套件跑 Rust；
+    `test/contract-parity.ts` 增加 Rust 路径断言。
+  - **`acp-server`（推荐 (b)）**：13 导入行约 50 符号；~12 行是 wire-only（`ContentPart`、
+    `ContextMessage`、permission/question wire 类型、`SkillSummary`）可迁共享 schema
+    子包；**~4 行是 DI 机械**（`bootstrap` / `Scope` / `registerScopedService` / `createDecorator`
+    + 三个 `I*Service`）+ **v2 `Runtime` / `RuntimeProviderAttachment` / `IHostProcessService`
+    接口实现**——ACP 层不是 wire-only 消费者，它参与 v2 的运行时契约（`acp-terminal` 实现
+    v2 `Runtime`，`acp-fs` 注册 Session-scope `IHostFileSystem`）。没有 Rust DI / Runtime
+    等价，移植到 Rust = 重写 ACP 层。维持 v2。
+
+  **显式标记方案**（让 "v2 是库" 不退化为 "v2 是默认运行时"）：
+
+  1. `packages/agent-core-v2/package.json` 加 `metadata.lifetime = "library"`，README/描述补
+     "M3-marked library: this package is consumed by kap-server/klient/acp-server as a
+     library until M5 deletion; new embedders default to the Rust engine (kimi-agent)."
+  2. `packages/agent-core-v2/AGENTS.md` 新增 `## Library surface` 章节，**白名单** 列出
+     三个消费者实际使用的符号（`bootstrap` / `Scope` / 全部 `I*Service` 装饰器 token /
+     `createDecorator` / `Disposable` / `LifecycleScope` / `FiberState` / `MAIN_AGENT_ID` /
+     `ensureMainAgent` / `agentContextOf` / 互动运行时助手 / `ErrorCodes` / `Error2` 等），
+     并明确"v2 内部符号不在 library 契约内"——任何对 v2 内部路径（`#/_base/di/...` 私用、
+     cascadeEngine、agent runtime 域模块）的非白名单引用都需要 PR 评审改白名单。
+  3. `packages/kap-server/src/start.ts`、`packages/acp-server/src/start.ts` 顶部加
+     `// M3-marked v2 library consumer: see packages/agent-core-v2/AGENTS.md §Library surface.`
+     `packages/klient/src/transports/memory/index.ts` 同样加（`MemoryChannel` 复用 v2 dispatcher）。
+  4. `scripts/check-v2-library-surface.mjs` 校验三个消费者文件 import 的 `@moonshot-ai/agent-core-v2` 符号
+     全部在白名单内——增量 import 必须同步白名单（挂在 `bun run lint`）。
+
+  **M3 残留依赖（阻塞 M2 后续切片的前置）**：
+
+  - `host/ask_question` 仍未落地（ROADMAP §9 ❌）——`klient.AgentFacade.interactions.*` /
+    `kap-server.IApprSessionApprovalService` / `acp-server.ISessionQuestionService` 全靠它，
+    是 (c) 把 klient turn 子集迁 Rust 的最大缺口。
+  - `host/event` 仍未落地（ROADMAP §9 ❌）——`coreEventMap.ts` 50+ 事件类型（`assistant.delta` /
+    `thinking.delta` / `tool.progress` / `compaction.*` / `plan.revision` / `context.*` /
+    `agent.activity.updated` / `subagent.*` / `goal.updated` / `cron.fired` / `skill.activated` 等）
+    全是 v2 `Event2` 词汇，Rust `EventEngine` 只覆盖 `host/turn_event` 的子集。
+  - `ISessionApprovalService` / `ISessionQuestionService` / `listSessionPendingInteractions` /
+    `onSessionInteractionDidChangePending` 三个互动运行时助手（同时是 (b) 维持面与
+    Rust 端缺失功能）——M2 标注为"应该是永久接缝或 Rust 交互运行时"，M3 接受这一定性。
+
+  **M3 退出已满足**：三者均有书面结论（均选 (b) 库 + 显式标记），不存在「默认继续依赖 v2」
+  的悬空项；标记方案把"库"变成可审计的契约。剩余 `host/ask_question` + `host/event` 是
+  M2 后续切片的前置，不阻塞 M3 结论落码。
 
 - **M4 — 数据与持久化**
   两个待决问题：
