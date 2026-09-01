@@ -49,7 +49,6 @@ import {
   sessionTurnOutcomeResultSchema,
   telemetryEventSchema,
   toolExecuteRequestSchema,
-  toolFinalizeRequestSchema,
   turnEventSchema,
 } from './wire-schema';
 import type { SessionMessageWire, SessionStatusWire, SessionTurnOutcomeWire } from './wire-schema';
@@ -511,19 +510,6 @@ interface PermissionCheckRequest {
   arguments: unknown;
 }
 
-/**
- * Result finalization request from the engine (host/finalize_tool_result): a
- * tool result the engine executed in its own process, handed to the host so its
- * truncation and spill-to-disk policy applies before the model sees it.
- */
-interface ToolFinalizeRequest {
-  tool_name: string;
-  tool_call_id: string;
-  content: string;
-  is_error: boolean;
-  note?: string;
-}
-
 interface PermissionDecision {
   decision: 'allow' | 'deny';
   reason?: string;
@@ -573,7 +559,6 @@ interface KimiAgentNativeModule {
     executeToolCb: (callbackId: number) => void,
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
-    finalizeToolCb?: (callbackId: number) => void,
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
@@ -646,7 +631,6 @@ export class NapiEngine {
     executeToolCb: (request: string) => Promise<string>,
     emitEventCb?: (event: EngineEvent) => void,
     checkPermissionCb?: (request: PermissionCheckRequest) => Promise<PermissionDecision>,
-    finalizeToolCb?: (request: ToolFinalizeRequest) => Promise<ToolExecuteResponse>,
     askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
     stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
@@ -710,16 +694,6 @@ export class NapiEngine {
               parseWire(permissionCheckRequestSchema, payload, 'host/check_permission request'),
             );
             return JSON.stringify(decision);
-          });
-
-    const finalizeHandler =
-      finalizeToolCb === undefined
-        ? undefined
-        : makeCallbackHandler(async (payload: string) => {
-            const finalized = await finalizeToolCb(
-              parseWire(toolFinalizeRequestSchema, payload, 'host/finalize_tool_result request'),
-            );
-            return JSON.stringify(finalized);
           });
 
     // Question channel: resolve like the request/response callbacks. The
@@ -800,7 +774,6 @@ export class NapiEngine {
       makeCallbackHandler(executeToolCb),
       eventHandler,
       permissionHandler,
-      finalizeHandler,
       askQuestionHandler,
       stateReadHandler,
       stateWriteHandler,
@@ -858,11 +831,6 @@ export class AgentProcess {
     | ((req: PermissionCheckRequest) => Promise<PermissionDecision>)
     | null = null;
 
-  /** Callback for handling host/finalize_tool_result requests from Rust. */
-  private finalizeHandler:
-    | ((req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>)
-    | null = null;
-
   /** Callback for handling host/ask_question requests from Rust. */
   private askQuestionHandler:
     | ((req: AskQuestionWire) => Promise<AskQuestionWireResult>)
@@ -909,10 +877,6 @@ export class AgentProcess {
 
   setPermissionHandler(handler: (req: PermissionCheckRequest) => Promise<PermissionDecision>) {
     this.permissionHandler = handler;
-  }
-
-  setFinalizeHandler(handler: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>) {
-    this.finalizeHandler = handler;
   }
 
   setAskQuestionHandler(handler: (req: AskQuestionWire) => Promise<AskQuestionWireResult>) {
@@ -1079,8 +1043,6 @@ export class AgentProcess {
       await this.handleHostExecuteTool(msg);
     } else if (msg.method === 'host/check_permission') {
       await this.handleHostCheckPermission(msg);
-    } else if (msg.method === 'host/finalize_tool_result') {
-      await this.handleHostFinalizeToolResult(msg);
     } else if (msg.method === 'host/ask_question') {
       await this.handleHostAskQuestion(msg);
     } else if (msg.method === 'host/state_read') {
@@ -1176,30 +1138,6 @@ export class AgentProcess {
       this.writeHostResult(msg.id, await this.goalHandler());
     } catch (error) {
       this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  private async handleHostFinalizeToolResult(msg: RpcMessage) {
-    const req = msg.params as ToolFinalizeRequest;
-    if (!this.finalizeHandler) {
-      // No policy registered: hand the result back unchanged rather than
-      // failing the call the engine already completed.
-      this.writeHostResult(msg.id, {
-        content: req.content,
-        is_error: req.is_error,
-        note: req.note,
-      } satisfies ToolExecuteResponse);
-      return;
-    }
-    try {
-      this.writeHostResult(msg.id, await this.finalizeHandler(req));
-    } catch (error) {
-      this.writeHostResult(msg.id, {
-        content: req.content,
-        is_error: req.is_error,
-        note: req.note,
-        _finalizeError: error instanceof Error ? error.message : String(error),
-      } satisfies ToolExecuteResponse & { _finalizeError?: string });
     }
   }
 
@@ -1404,7 +1342,6 @@ type ActiveCallbacks = {
   executeTool: (req: ToolExecuteRequest) => Promise<ToolExecuteResponse>;
   emitEvent: (event: EngineEvent) => void;
   checkPermission: (req: PermissionCheckRequest) => Promise<PermissionDecision>;
-  finalize: (req: ToolFinalizeRequest) => Promise<ToolExecuteResponse>;
   askQuestion?: (req: AskQuestionWire) => Promise<AskQuestionWireResult>;
   stateRead?: (req: StateReadWire) => Promise<StateReadWireResult>;
   stateWrite?: (req: StateWriteWire) => Promise<StateWriteWireResult>;
@@ -1516,7 +1453,6 @@ export class StdioSessionTransport implements SessionTransport {
     this.agent.setToolExecuteHandler((req) => c.executeTool(req));
     this.agent.setEventHandler((event) => c.emitEvent(event));
     this.agent.setPermissionHandler((req) => c.checkPermission(req));
-    this.agent.setFinalizeHandler((req) => c.finalize(req));
     if (c.askQuestion !== undefined) {
       this.agent.setAskQuestionHandler((req) => c.askQuestion!(req));
     }
@@ -1784,15 +1720,6 @@ export function createRunTurnOverride(
         'host/check_permission request',
       );
       const response = await active!.checkPermission(req);
-      return JSON.stringify(response);
-    },
-    finalizeTool: async (requestJson: string): Promise<string> => {
-      const req = parseWire(
-        toolFinalizeRequestSchema,
-        requestJson,
-        'host/finalize_tool_result request',
-      );
-      const response = await active!.finalize(req);
       return JSON.stringify(response);
     },
     askQuestion:
@@ -2153,27 +2080,6 @@ export function createRunTurnOverride(
     const stateWrite = input.stateWrite?.bind(input) ?? options?.stateWrite;
     const policySnapshotJson =
       policySnapshot === undefined ? undefined : JSON.stringify(policySnapshot);
-    // The host owns tool-result truncation and spill-to-disk, so a result the
-    // engine produced in its own process must pass through the same policy
-    // before the model sees it. Engines whose input lacks the capability get an
-    // unchanged result instead of a failed call.
-    const finalizeNativeResult = async (
-      req: ToolFinalizeRequest,
-    ): Promise<ToolExecuteResponse> => {
-      if (input.finalizeToolResult === undefined) {
-        return { content: req.content, is_error: req.is_error, note: req.note };
-      }
-      const finalized = await input.finalizeToolResult(req.tool_name, req.tool_call_id, {
-        output: req.content,
-        isError: req.is_error,
-        note: req.note,
-      });
-      return {
-        content: typeof finalized.output === 'string' ? finalized.output : JSON.stringify(finalized.output),
-        is_error: finalized.isError ?? false,
-        note: finalized.note,
-      };
-    };
 
     // Pack the per-turn handlers into the `active` slot the session-scoped
     // delegates read. Set before any session call so late events route here.
@@ -2200,7 +2106,6 @@ export function createRunTurnOverride(
           arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
         });
       },
-      finalize: finalizeNativeResult,
       askQuestion: askUserQuestion,
       stateRead,
       stateWrite,
@@ -2285,7 +2190,6 @@ export function createRunTurnOverride(
             active!.emitEvent(event);
           },
           checkPermission: (req) => active!.checkPermission(req),
-          finalize: (req) => active!.finalize(req),
           askQuestion:
             active!.askQuestion === undefined
               ? undefined

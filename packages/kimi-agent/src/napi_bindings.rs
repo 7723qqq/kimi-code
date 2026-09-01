@@ -48,7 +48,7 @@ use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
     LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision, StateReadRequest,
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
-    ToolExecuteResponse, ToolFinalizeRequest,
+    ToolExecuteResponse,
 };
 use crate::session::{
     Admission, EngineSession, GoalProvider, SessionConfig, ToolDefsProvider, TurnOutcome,
@@ -276,10 +276,6 @@ struct NapiHostCallbacks {
     /// Fail-closed when absent: without a checker the engine refuses native
     /// execution of Write/Edit/Bash and the call falls back to the host.
     check_permission_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
-    /// Optional result finalizer: the host truncates and spills a natively
-    /// executed result before it re-enters the model context. Absent means the
-    /// result passes through unchanged, which is the pre-existing behaviour.
-    finalize_tool_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// Optional interactive question channel: the host owns the interaction
     /// runtime and answers with the v2 `QuestionResult` three states.
     /// Absent means the engine reports "host does not support interactive
@@ -435,36 +431,6 @@ impl HostCallbacks for NapiHostCallbacks {
             )
             .await?;
             serde_json::from_str(&output).map_err(|e| format!("state_write parse: {e}"))
-        })
-    }
-
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        let Some(ref tsfn) = self.finalize_tool_fn else {
-            return Box::pin(async move {
-                Ok(ToolExecuteResponse {
-                    content: request.content,
-                    is_error: request.is_error,
-                    note: request.note,
-                })
-            });
-        };
-        let tsfn = tsfn.clone();
-        let input = serde_json::to_string(&request)
-            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
-        let cancel = self.cancellation.clone();
-        Box::pin(async move {
-            let output = invoke_via_registry(
-                &tsfn,
-                input,
-                "finalize_tool_result",
-                Some(crate::callbacks::HOST_FINALIZE_TIMEOUT),
-                cancel,
-            )
-            .await?;
-            serde_json::from_str(&output).map_err(|e| format!("finalize_tool_result parse: {e}"))
         })
     }
 
@@ -852,7 +818,6 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] execute_tool_cb: JsFunction,
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
-    #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
@@ -895,20 +860,6 @@ pub fn run_turn_rust(
 
     let check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
         match check_permission_cb {
-            Some(cb) => Some(cb.create_threadsafe_function(
-                0,
-                |ctx: ThreadSafeCallContext<u32>| {
-                    let id = ctx.value;
-                    let js_num = ctx.env.create_uint32(id)?;
-                    let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
-                    Ok(args)
-                },
-            )?),
-            None => None,
-        };
-
-    let finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> =
-        match finalize_tool_cb {
             Some(cb) => Some(cb.create_threadsafe_function(
                 0,
                 |ctx: ThreadSafeCallContext<u32>| {
@@ -1011,7 +962,6 @@ pub fn run_turn_rust(
                 execute_tool_tsfn,
                 emit_event_tsfn,
                 check_permission_tsfn,
-                finalize_tool_tsfn,
                 ask_question_tsfn,
                 state_read_tsfn,
                 state_write_tsfn,
@@ -1032,7 +982,6 @@ struct EngineCallbackTsfns {
     execute_tool: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
     emit_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    finalize_tool: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     ask_question: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
@@ -1072,7 +1021,6 @@ async fn build_engine_pipeline(
         execute_tool_fn: Arc::new(tsfns.execute_tool),
         emit_event_fn: tsfns.emit_event.map(Arc::new),
         check_permission_fn: tsfns.check_permission.map(Arc::new),
-        finalize_tool_fn: tsfns.finalize_tool.map(Arc::new),
         ask_question_fn: tsfns.ask_question.map(Arc::new),
         state_read_fn: tsfns.state_read.map(Arc::new),
         state_write_fn: tsfns.state_write.map(Arc::new),
@@ -1097,21 +1045,16 @@ async fn build_engine_pipeline(
     // workspace) and everything else — and anything that escapes the
     // sandbox — still round-trips to the host.
     //
-    // P26 批 4: when `rust_self_contained` is set, the wrapper also carries
-    // a local truncator that handles result truncation + spill without
-    // calling the host's `host/finalize_tool_result` seam.
+    // The wrapper always carries a local truncator (M2 切片 2): result
+    // truncation + spill run in-process, no host finalize seam.
     let native_tool_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let truncator = if params.rust_self_contained.unwrap_or(false) {
-        params
-            .workspace_root
-            .as_deref()
-            .map(std::path::Path::new)
-            .map(|root| {
-                Arc::new(crate::tool_result_truncation::ToolResultTruncator::for_workspace(root))
-            })
-    } else {
-        None
-    };
+    let truncator = params
+        .workspace_root
+        .as_deref()
+        .map(std::path::Path::new)
+        .map(|root| {
+            Arc::new(crate::tool_result_truncation::ToolResultTruncator::for_workspace(root))
+        });
     let permission_engine = params
         .policy_snapshot_json
         .as_deref()
@@ -1255,7 +1198,6 @@ async fn run_turn_rust_impl(
     execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal>,
     emit_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     check_permission_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
-    finalize_tool_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
@@ -1280,7 +1222,6 @@ async fn run_turn_rust_impl(
             execute_tool: execute_tool_tsfn,
             emit_event: emit_event_tsfn,
             check_permission: check_permission_tsfn,
-            finalize_tool: finalize_tool_tsfn,
             ask_question: ask_question_tsfn,
             state_read: state_read_tsfn,
             state_write: state_write_tsfn,
@@ -1535,7 +1476,6 @@ pub fn create_engine_session(
     #[napi(ts_arg_type = "(callbackId: number) => void")] execute_tool_cb: JsFunction,
     #[napi(ts_arg_type = "(callbackId: number) => void")] emit_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] check_permission_cb: Option<JsFunction>,
-    #[napi(ts_arg_type = "(callbackId: number) => void")] finalize_tool_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
@@ -1548,7 +1488,6 @@ pub fn create_engine_session(
     let execute_tool_tsfn = make_required_tsfn(execute_tool_cb)?;
     let emit_event_tsfn = make_tsfn(emit_event_cb)?;
     let check_permission_tsfn = make_tsfn(check_permission_cb)?;
-    let finalize_tool_tsfn = make_tsfn(finalize_tool_cb)?;
     let ask_question_tsfn = make_tsfn(ask_question_cb)?;
     let state_read_tsfn = make_tsfn(state_read_cb)?;
     let state_write_tsfn = make_tsfn(state_write_cb)?;
@@ -1567,7 +1506,6 @@ pub fn create_engine_session(
                     execute_tool: execute_tool_tsfn,
                     emit_event: emit_event_tsfn,
                     check_permission: check_permission_tsfn,
-                    finalize_tool: finalize_tool_tsfn,
                     ask_question: ask_question_tsfn,
                     state_read: state_read_tsfn,
                     state_write: state_write_tsfn,

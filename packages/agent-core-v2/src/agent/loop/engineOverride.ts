@@ -224,18 +224,6 @@ export interface TurnEngineInput {
   checkToolPermission?(
     call: ToolCall,
   ): Promise<{ decision: 'allow' | 'deny'; reason?: string }>;
-  /**
-   * Apply the host's result policy — truncation and spill-to-disk — to a tool
-   * result the engine produced inside its own process, before it re-enters the
-   * model context. Without it a large native result reaches the model raw while
-   * the same call executed on the host would be truncated and spilled. Optional
-   * so engines without native execution stay contract-compatible.
-   */
-  finalizeToolResult?(
-    toolName: string,
-    toolCallId: string,
-    result: TurnEngineToolResult,
-  ): Promise<TurnEngineToolResult>;
   askUserQuestion?(request: AskQuestionWire): Promise<AskQuestionWireResult>;
   stateRead?(request: StateReadWire): Promise<StateReadWireResult>;
   stateWrite?(request: StateWriteWire): Promise<StateWriteWireResult>;

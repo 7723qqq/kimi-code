@@ -15,7 +15,7 @@ export declare function cancelTurn(turnId: string): void
  * transports only — host-proxy rebuilds tools inside `llm_chat`), and the
  * goal snapshot through `goal_cb` per turn (snake_case wire goal, or null).
  */
-export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
+export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
 
 /**
  * Emit a one-shot `tracing::info!` event. Used by the test harness to
@@ -248,7 +248,7 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * async work is dispatched via `env.execute_tokio_future` so the JS event
  * loop stays alive to process TSFN callbacks.
  */
-export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
+export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
 
 /**
  * Cancel a turn by id (active → interrupted at the next step boundary;

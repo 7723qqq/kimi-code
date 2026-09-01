@@ -624,22 +624,17 @@ async fn build_engine_pipeline(
     // Native tool execution: wrap the callbacks so the in-process toolset
     // runs inside the Rust process (sandboxed to the workspace) and
     // everything else — and anything that escapes the sandbox — still
-    // round-trips to the host. P26 批 4: self-contained mode carries a local
-    // truncator that bypasses the host's `host/finalize_tool_result` seam.
+    // round-trips to the host. The wrapper always carries a local truncator
+    // (M2 切片 2): result truncation + spill run in-process, no host
+    // finalize seam.
     let native_tool_count = Arc::new(AtomicU32::new(0));
-    let truncator = if params.rust_self_contained {
-        params
-            .workspace_root
-            .as_deref()
-            .map(std::path::Path::new)
-            .map(|root| {
-                Arc::new(
-                    kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(root),
-                )
-            })
-    } else {
-        None
-    };
+    let truncator = params
+        .workspace_root
+        .as_deref()
+        .map(std::path::Path::new)
+        .map(|root| {
+            Arc::new(kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(root))
+        });
     let permission_engine = params
         .policy_snapshot
         .clone()

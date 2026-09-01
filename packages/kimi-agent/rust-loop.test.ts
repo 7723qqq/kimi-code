@@ -828,7 +828,6 @@ describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () =>
           executeTool: async () => ({ content: 'ok', is_error: false }),
           emitEvent: () => {},
           checkPermission: async () => ({ decision: 'allow' }),
-          finalize: async (req) => ({ content: req.content, is_error: req.is_error }),
           listTools: async () => ({ tools: [] }),
           goal: () => undefined,
         },
@@ -1226,7 +1225,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     tools: [],
   };
 
-  it('passes askQuestionCb as the 8th runTurnRust argument and round-trips through the registry', async () => {
+  it('passes askQuestionCb as the 6th runTurnRust argument and round-trips through the registry', async () => {
     const engine = new NapiEngine();
     const received: unknown[][] = [];
     const payloads = new Map<number, string>();
@@ -1261,13 +1260,11 @@ describe('NapiEngine — ask_question callback passing', () => {
       async () => JSON.stringify({ content: '', is_error: false }),
       undefined,
       undefined,
-      undefined,
-      undefined,
       askQuestionCb,
     );
 
     expect(received).toHaveLength(1);
-    const askQuestionHandler = received[0]?.[7];
+    const askQuestionHandler = received[0]?.[5];
     expect(typeof askQuestionHandler).toBe('function');
     payloads.set(42, JSON.stringify({ question_id: 'question_1' }));
     (askQuestionHandler as (callbackId: number) => void)(42);
@@ -1279,7 +1276,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     });
   });
 
-  it('leaves the 8th runTurnRust argument undefined without askQuestionCb', async () => {
+  it('leaves the 6th runTurnRust argument undefined without askQuestionCb', async () => {
     const { engine, received } = fakeEngine();
     await engine.runTurn(
       emptyTurnParams,
@@ -1288,7 +1285,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     );
 
     expect(received).toHaveLength(1);
-    expect(received[0]?.[7]).toBeUndefined();
+    expect(received[0]?.[5]).toBeUndefined();
   });
 });
 
@@ -1498,7 +1495,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     tools: [],
   };
 
-  it('passes stateReadCb and stateWriteCb as the 8th and 9th runTurnRust arguments and round-trips through the registry', async () => {
+  it('passes stateReadCb and stateWriteCb as the 7th and 8th runTurnRust arguments and round-trips through the registry', async () => {
     const engine = new NapiEngine();
     const received: unknown[][] = [];
     const payloads = new Map<number, string>();
@@ -1538,14 +1535,13 @@ describe('NapiEngine — state bridge callback passing', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       stateReadCb,
       stateWriteCb,
     );
 
     expect(received).toHaveLength(1);
-    const stateReadHandler = received[0]?.[7];
-    const stateWriteHandler = received[0]?.[8];
+    const stateReadHandler = received[0]?.[6];
+    const stateWriteHandler = received[0]?.[7];
     expect(typeof stateReadHandler).toBe('function');
     expect(typeof stateWriteHandler).toBe('function');
     payloads.set(42, JSON.stringify({ domain: 'todo', key: 'todo' }));
@@ -1566,7 +1562,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     });
   });
 
-  it('leaves the 8th and 9th runTurnRust arguments undefined without the callbacks', async () => {
+  it('leaves the 7th and 8th runTurnRust arguments undefined without the callbacks', async () => {
     const { engine, received } = fakeEngine();
     await engine.runTurn(
       emptyTurnParams,
@@ -1575,8 +1571,8 @@ describe('NapiEngine — state bridge callback passing', () => {
     );
 
     expect(received).toHaveLength(1);
+    expect(received[0]?.[6]).toBeUndefined();
     expect(received[0]?.[7]).toBeUndefined();
-    expect(received[0]?.[8]).toBeUndefined();
   });
 });
 

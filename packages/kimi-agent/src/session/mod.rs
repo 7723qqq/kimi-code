@@ -33,7 +33,6 @@ use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, ListToolsResponse, LlmChatRequest, LlmChatResponse,
     PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
     StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
-    ToolFinalizeRequest,
 };
 use crate::turn_events::{TurnCancelReason, TurnCancelTarget, TurnEndReason, TurnEvent};
 use crate::turn_loop::run_turn::run_turn;
@@ -822,13 +821,6 @@ impl HostCallbacks for SteerQueueCallbacks {
         request: StateWriteRequest,
     ) -> futures_util::future::BoxFuture<'static, Result<StateWriteResponse, String>> {
         self.inner.state_write(request)
-    }
-
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> futures_util::future::BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
     }
 
     fn drain_steers(

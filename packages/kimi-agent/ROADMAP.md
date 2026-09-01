@@ -1385,7 +1385,7 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 已具备 |
 | `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ⚠️ checkpoint 仅内存，重启即失 |
 | `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 原生工具集持续扩充（第 8 轮并入 GitHub 34 件）/ 16 个状态桥接 / 其余委托 |
-| `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ⚠️ |
+| `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ✅ 已删除（2026-09-01，M2-2：本地截断器翻无条件） |
 | `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
 | `host/drain_steers` | turn 内 steer 队列 | Rust 侧 steer 队列 | ✅ 已删除（2026-09-01，M2-1：`SteerQueueCallbacks` 本地队列自 M1a 起接管，宿主腿为死代码） |
 | `host/event` | transcript / 遥测落点 | Rust 侧 sink | ❌ 缺失 |
@@ -1728,7 +1728,7 @@ turn 中途到达的 steer 不会进入引擎本地 steer 队列，只能等下�
   （`/status`）加覆盖率断言证明，不靠人工判断；
   且上述每一项都要有 Rust 侧落点或明确的宿主分层，否则就是功能丢失而非迁移。
 
-- **M2 — 9 条回调逐条到期** — 🔄 1/9 已删除
+- **M2 — 9 条回调逐条到期** — 🔄 2/9 已删除
   按上表逐条补齐 Rust 侧前置，每补齐一条即删除 v2 侧对应实现。
   退出：9 条全部删除；`rustSelfContained` 开关自身一并移除（它只是验证手段，见 P26）。
   - **切片 1 — `host/drain_steers` 宿主腿删除（✅ 2026-09-01）**：M1a 的 `SteerQueueCallbacks`
@@ -1767,6 +1767,30 @@ turn 中途到达的 steer 不会进入引擎本地 steer 队列，只能等下�
     验证：cargo test 845 全绿 + clippy 0 + fmt 干净；kimi-agent vitest 109/109；
     agent-core-v2 loop 套件 166/167（唯一失败为既有工具表快照 hash 环境漂移）；
     根 typecheck 全绿；addon release 重建。
+  - **切片 2 — `host/finalize_tool_result` 删除（✅ 2026-09-01）**：P26 批 4 建成的
+    `ToolResultTruncator` 从 `rustSelfContained` 门控翻为**无条件**（有 `workspace_root`
+    即构建，napi/stdio/REPL 三路一致——REPL 本就无条件），删除整条宿主 finalize 接缝：
+    Rust `HostCallbacks::finalize_tool_result` trait 方法 + 全部实现（Rpc/Napi/
+    NativeTool/Counting/SteerQueue 五处）+ `ToolFinalizeRequest` 类型 +
+    `HOST_FINALIZE_TOOL_RESULT` / `HOST_FINALIZE_TIMEOUT` 常量 + napi 第 5 TSFN
+    （`run_turn_rust` 11→10、`create_engine_session` 12→11）；TS 门面
+    `finalizeNativeResult` + `ActiveCallbacks.finalize` + AgentProcess handler +
+    stdio 分发 + `wrapActiveForNapi` / `StdioSessionTransport` / `sessionCallbacks`
+    接线 + `toolFinalizeRequestSchema`；v2 `TurnEngineInput.finalizeToolResult` 契约
+    字段 + `buildEngineInput` 接线（`IAgentToolResultTruncationService` 本体保留——
+    宿主自有工具执行路径仍用，M5 随 v2 删除）。无 workspace 的退化路径：截断器
+    None → 结果原样透传（trait 默认已随接缝删除，native 分支直接 `None => raw`）。
+    **语义差异记录**：spill 落盘位置从宿主 `privateRoot()`（进程私有临时目录，
+    `[spill].root` 可配）变为 `<workspace>/.kimi/spill/`——工作区本地使 native Read
+    沙箱可直接读回 spill 文件（自洽）；工作区污染与 M4 的 `.kimi/state/` 同类，
+    归 M4 裁决；`[spill].root` 配置不作用于引擎侧 spill（已知分歧）。
+    测试：删除 host finalize 专属 describe（napi-integration 1 条），截断测试去
+    `rustSelfContained` 依赖与 finalize 桩，位置参数测试再移一位（askQuestion 6th、
+    state bridge 7th/8th），callbacks.rs 的 Counting 转发测试删除。
+    验证：cargo test 844 全绿（834 lib + 10 stdio，净减 1 条 finalize 转发测试）+
+    clippy 0 + fmt 干净；kimi-agent vitest 108/108；agent-core-v2 loop 套件
+    167/168（唯一失败为既有快照漂移）；oxlint 0 errors；addon release 重建 +
+    d.ts 重生成。
   - **盘点勘误（2026-09-01 代码级复核）**：9 条回调表中 `host/drain_steers` 的
     「Rust 侧前置 ❌ 缺失」自 M1a 起已过时（本地队列当时已建成）；`host/event` 的
     「Rust 侧 sink ❌」仍准确（transcript/UI 消费方在宿主侧，无 Rust 替代）。

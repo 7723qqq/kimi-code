@@ -57,7 +57,6 @@ export interface SessionCallbacks {
   executeTool: (request: string) => Promise<string>;
   emitEvent?: (eventJson: string) => void;
   checkPermission?: (request: string) => Promise<string>;
-  finalizeTool?: (request: string) => Promise<string>;
   askQuestion?: (request: string) => Promise<string>;
   stateRead?: (request: string) => Promise<string>;
   stateWrite?: (request: string) => Promise<string>;
@@ -76,7 +75,6 @@ interface SessionNativeModule {
     executeToolCb: (callbackId: number) => void,
     emitEventCb?: (callbackId: number) => void,
     checkPermissionCb?: (callbackId: number) => void,
-    finalizeToolCb?: (callbackId: number) => void,
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
@@ -330,7 +328,6 @@ class NapiSessionTransport implements SessionTransport {
     // does not narrow property accesses on a parameter into closures).
     const emitEvent = callbacks.emitEvent;
     const checkPermission = callbacks.checkPermission;
-    const finalizeTool = callbacks.finalizeTool;
     const askQuestion = callbacks.askQuestion;
     const stateRead = callbacks.stateRead;
     const stateWrite = callbacks.stateWrite;
@@ -346,9 +343,6 @@ class NapiSessionTransport implements SessionTransport {
       checkPermission === undefined
         ? undefined
         : makeRequestCallback(this.mod, (p) => checkPermission(p)),
-      finalizeTool === undefined
-        ? undefined
-        : makeRequestCallback(this.mod, (p) => finalizeTool(p)),
       askQuestion === undefined
         ? undefined
         : makeRequestCallback(this.mod, (p) => askQuestion(p)),

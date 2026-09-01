@@ -845,80 +845,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — concurrent MultiLLM provider
   );
 });
 
-describe.skipIf(!nativeEntry)('napi runTurnRust — native result finalization', () => {
-  it('sends a natively-executed result through the host policy before the model sees it', async () => {
-    const fs = await import('node:fs');
-    const os = await import('node:os');
-    const path = await import('node:path');
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-finalize-'));
-    fs.writeFileSync(path.join(workspaceRoot, 'large.txt'), 'a'.repeat(5000));
-    const mod = loadNativeModule();
-
-    const nativeEvents: Array<{ content?: string }> = [];
-    const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
-    let finalizeCalls = 0;
-
-    await mod.runTurnRust(
-      {
-        ...validParams,
-        maxSteps: 3,
-        workspaceRoot,
-        nativeTools: true,
-        tools: [
-          {
-            name: 'Read',
-            description: 'Read a file',
-            inputSchema: '{"type":"object","properties":{"path":{"type":"string"}}}',
-          },
-        ],
-        messages: [{ role: 'user', content: 'read it' }],
-      },
-      makeCallback(mod, (req) => {
-        llmRequests.push(JSON.parse(req));
-        const first = llmRequests.length === 1;
-        return JSON.stringify({
-          tool_calls: first
-            ? [{ id: 'call-read-1', name: 'Read', arguments: { path: 'large.txt' } }]
-            : [],
-          finish_reason: first ? 'tool_calls' : 'stop',
-          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
-        });
-      }),
-      makeCallback(mod, () => JSON.stringify({ content: 'HOST EXECUTED', is_error: false })),
-      makeCallback(mod, (req) => {
-        const event = JSON.parse(req) as { type?: string };
-        if (event.type === 'tool.native') nativeEvents.push(event as { content?: string });
-        return '';
-      }),
-      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-      makeCallback(mod, (req) => {
-        finalizeCalls += 1;
-        const request = JSON.parse(req) as {
-          tool_name: string;
-          tool_call_id: string;
-          content: string;
-        };
-        expect(request.tool_name).toBe('Read');
-        // Stand in for truncation: replace the body the way the host policy would.
-        return JSON.stringify({
-          content: `TRUNCATED(${request.content.length})`,
-          is_error: false,
-          note: undefined,
-        });
-      }),
-    );
-
-    expect(finalizeCalls).toBe(1);
-    // The transcript records what the model was shown, not the raw output.
-    expect(nativeEvents[0]?.content).toMatch(/^TRUNCATED\(\d+\)$/);
-    // And the finalized text is what re-enters the model context.
-    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
-    expect(followUp).toContain('TRUNCATED(');
-    expect(followUp).not.toContain('aaaaaaaaaa');
-    fs.rmSync(workspaceRoot, { recursive: true, force: true });
-  });
-});
-
 describe.skipIf(!nativeEntry)('napi runTurnRust — rustSelfContained (P26 批 1)', () => {
   it('rejects when rustSelfContained is true and no native LLM transport is configured', async () => {
     const mod = loadNativeModule();
@@ -983,7 +909,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — rustSelfContained (P26 批 1
 });
 
 describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation (P26 批 4)', () => {
-  it('truncates a large native result in-process and skips the host finalize seam', async () => {
+  it('truncates a large native result in-process', async () => {
     const fs = await import('node:fs');
     const os = await import('node:os');
     const path = await import('node:path');
@@ -998,7 +924,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation
     const mod = loadNativeModule();
 
     const llmRequests: Array<{ messages: Array<{ content?: string }> }> = [];
-    let finalizeCalls = 0;
 
     await mod.runTurnRust(
       {
@@ -1006,13 +931,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation
         maxSteps: 3,
         workspaceRoot,
         nativeTools: true,
-        // rustSelfContained wires up the local truncator (the seam under
-        // test). It also requires a non-empty `providers` or `native_llm`
-        // so the engine can serve an LLM call; we use a single mock
-        // provider that still routes through the host's llm_chat
-        // callback via MultiLLM, which is enough to drive the tool
-        // execution path under test.
-        rustSelfContained: true,
         providers: [{ name: 'mock', model: 'mock-model', systemPrompt: '' }],
         tools: [
           {
@@ -1037,17 +955,8 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — local tool result truncation
       makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
       makeCallback(mod, () => ''),
       makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-      makeCallback(mod, () => {
-        finalizeCalls += 1;
-        return JSON.stringify({ content: 'HOST FINALIZE WAS CALLED', is_error: false });
-      }),
     );
 
-    // The local truncator handled the result — the host's finalize seam
-    // must NOT be hit. If the Rust engine is doing its job, finalizeCalls
-    // stays at 0; if it accidentally fell back, the host would have run
-    // once and the assert would fail.
-    expect(finalizeCalls).toBe(0);
     // The follow-up LLM request carries the *truncated* model-facing
     // content, not the raw 60k-char file body. With 30 lines × 2_000
     // chars the shaped text is ~60_111 chars, well over the 50_000 cap,
@@ -1450,7 +1359,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
         ),
         undefined,
         makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
-        undefined,
         askQuestionCb
           ? makeCallback(mod, (req) => {
               askQuestionRequests.push(req);

@@ -55,7 +55,6 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -1171,36 +1170,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           return denied(
             `permission check failed: ${error instanceof Error ? error.message : String(error)}`,
           );
-        }
-      },
-      finalizeToolResult: async (toolName, toolCallId, result) => {
-        const truncation = this.instantiation.invokeFunction((accessor) =>
-          accessor.get(IAgentToolResultTruncationService),
-        );
-        // Native engines return plain strings; the policy's output type is the
-        // mutable form, so flatten anything else before applying it.
-        const output =
-          typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
-        const shared = { note: result.note, stopTurn: result.stopTurn };
-        const executable =
-          result.isError === true
-            ? { output, isError: true as const, ...shared }
-            : { output, ...shared };
-        try {
-          const finalized = await truncation.truncateForModel({
-            toolName,
-            toolCallId,
-            result: executable,
-          });
-          return {
-            output: finalized.output,
-            isError: 'isError' in finalized && finalized.isError === true,
-            note: finalized.note,
-            stopTurn: finalized.stopTurn,
-          };
-        } catch {
-          // A failed result policy must not cost the model its tool output.
-          return result;
         }
       },
       askUserQuestion: async (request) => {

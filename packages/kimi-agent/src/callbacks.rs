@@ -11,7 +11,7 @@ use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
     LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
-    ToolExecuteResponse, ToolFinalizeRequest,
+    ToolExecuteResponse,
 };
 use crate::turn_loop::types::{GoalContext, LLMMessage};
 
@@ -102,25 +102,6 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Err("host does not support goal".into()) })
     }
 
-    /// Hand a natively-executed result to the host for finalization before it
-    /// enters the model context. The host owns result truncation and
-    /// spill-to-disk, so without this seam a large native result reaches the
-    /// model unprocessed while the same call on the host path would be
-    /// truncated and spilled. The default returns the result unchanged, for
-    /// hosts that do not implement the seam.
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        Box::pin(async move {
-            Ok(ToolExecuteResponse {
-                content: request.content,
-                is_error: request.is_error,
-                note: request.note,
-            })
-        })
-    }
-
     /// Release the steering prompts injected during the active turn. The
     /// engine-local steer queue (see `SteerQueueCallbacks`) serves this at
     /// every step head; the default answers with nothing.
@@ -177,11 +158,6 @@ pub const HOST_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Outer bound on a host tool call. Tools carry their own timeouts (native
 /// Bash caps at 300s); this covers a stalled host.
 pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
-
-/// Outer bound on finalizing a natively-executed result. The host truncates and
-/// optionally spills a string — no human in the loop — so a stalled call must
-/// not hold the turn open for as long as a real tool execution may.
-pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Outer bound on a host state bridge call (state_read / state_write). The
 /// host applies domain semantics to durable state — bookkeeping with no
@@ -329,27 +305,6 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        let server = self.server.clone();
-        Box::pin(async move {
-            let params = serde_json::to_value(&request)
-                .map_err(|e| format!("Tool finalize serialize error: {e}"))?;
-            let response_value = server
-                .invoke(
-                    crate::rpc::types::methods::HOST_FINALIZE_TOOL_RESULT,
-                    params,
-                    Some(HOST_FINALIZE_TIMEOUT),
-                )
-                .await
-                .map_err(|e| format!("Tool finalize error: {e}"))?;
-            serde_json::from_value(response_value)
-                .map_err(|e| format!("Tool finalize parse error: {e}"))
-        })
-    }
-
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         let server = self.server.clone();
         Box::pin(async move {
@@ -427,10 +382,8 @@ pub struct NativeToolCallbacks {
     /// holds the same handle to fill in `TurnResult::native_tool_calls`.
     pub native_count: Arc<AtomicU32>,
     /// Optional in-process truncator (P26 批 4). When `Some`, large native
-    /// results are truncated and spilled locally; the host's
-    /// `finalize_tool_result` seam is bypassed. When `None`, the wrapper
-    /// falls back to `inner.finalize_tool_result(...)` for backwards
-    /// compatibility.
+    /// results are truncated and spilled locally. When `None` (no workspace
+    /// root), results pass through untruncated.
     pub truncator: Option<Arc<crate::tool_result_truncation::ToolResultTruncator>>,
     /// Optional in-process permission engine (P26 批 3). When `Some`, tool
     /// calls are evaluated against the per-turn `PolicySnapshot` locally in
@@ -561,10 +514,10 @@ impl HostCallbacks for NativeToolCallbacks {
                         is_error: result.is_error,
                         note: result.note,
                     };
-                    // P26 批 4: when a local truncator is configured, run the
-                    // policy in-process and bypass the host's finalize seam.
-                    // The TS host still receives the *truncated* text via
-                    // emit_event so its transcript shows what the model saw.
+                    // The local truncator runs the result policy in-process
+                    // (truncate + spill to `<workspace>/.kimi/spill`). The TS
+                    // host still receives the *truncated* text via emit_event
+                    // so its transcript shows what the model saw.
                     let finalized = match this.truncator.as_ref() {
                         Some(truncator) => {
                             let f = truncator.truncate(
@@ -582,24 +535,7 @@ impl HostCallbacks for NativeToolCallbacks {
                                 note: f.note,
                             }
                         }
-                        None => {
-                            // Legacy path: the host owns result truncation and
-                            // spill-to-disk; a large native result must not
-                            // reach the model raw the way an identical
-                            // host-executed call never could.
-                            this.inner
-                                .finalize_tool_result(ToolFinalizeRequest {
-                                    tool_name: request.tool_name.clone(),
-                                    tool_call_id: request.tool_call_id.clone(),
-                                    content: raw.content.clone(),
-                                    is_error: raw.is_error,
-                                    note: raw.note.clone(),
-                                })
-                                .await
-                                // A failed result policy must not cost the
-                                // model its tool output.
-                                .unwrap_or(raw)
-                        }
+                        None => raw,
                     };
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
@@ -646,13 +582,6 @@ impl HostCallbacks for NativeToolCallbacks {
         request: StateWriteRequest,
     ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
         self.inner.state_write(request)
-    }
-
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
     }
 
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
@@ -749,13 +678,6 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.state_write(request)
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
-    }
-
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
     }
@@ -833,44 +755,6 @@ mod tests {
         fn emit_event(&self, event: serde_json::Value) {
             self.events.lock().unwrap().push(event);
         }
-
-        fn finalize_tool_result(
-            &self,
-            request: ToolFinalizeRequest,
-        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-            Box::pin(async move {
-                Ok(ToolExecuteResponse {
-                    content: format!("finalized:{}", request.content),
-                    is_error: request.is_error,
-                    note: request.note,
-                })
-            })
-        }
-    }
-
-    /// A decorator that forgets to forward `finalize_tool_result` silently
-    /// answers with the trait default, so the host policy never runs and every
-    /// natively-executed result reaches the model raw.
-    #[tokio::test]
-    async fn test_counting_callbacks_forwards_result_finalization() {
-        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let counting = CountingCallbacks::new(
-            Arc::new(RecordingCallbacks {
-                events: events.clone(),
-            }),
-            Arc::new(AtomicU32::new(0)),
-        );
-        let resolved = counting
-            .finalize_tool_result(ToolFinalizeRequest {
-                tool_name: "Read".into(),
-                tool_call_id: "c".into(),
-                content: "body".into(),
-                is_error: false,
-                note: None,
-            })
-            .await
-            .unwrap();
-        assert_eq!(resolved.content, "finalized:body");
     }
 
     #[test]
