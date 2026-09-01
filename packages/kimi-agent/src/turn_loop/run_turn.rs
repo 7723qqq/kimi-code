@@ -243,6 +243,10 @@ pub fn run_turn<'a>(
     let user_messages = input.messages.clone();
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
+    // Bind this turn to the goal that was active when it started (G-6 #8):
+    // the native goal gate vetoes mutation calls once the current goal no
+    // longer matches. The default no-op leaves unguarded paths unbound.
+    callbacks.set_turn_goal(&turn_id, goal.as_ref().map(|g| g.goal_id.as_str()));
 
     Box::pin(async move {
         let mut total_usage = crate::rpc::types::TokenUsage::default();
@@ -863,6 +867,140 @@ mod tests {
         assert!(result.is_ok());
         let turn = result.unwrap();
         assert_eq!(turn.steps, 1);
+    }
+
+    /// Callbacks wrapper recording `set_turn_goal` bindings.
+    struct GoalBindingCallbacks {
+        inner: Arc<dyn HostCallbacks>,
+        #[allow(clippy::type_complexity)]
+        bound: Arc<Mutex<Vec<(String, Option<String>)>>>,
+    }
+
+    impl HostCallbacks for GoalBindingCallbacks {
+        fn llm_chat(
+            &self,
+            request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+        {
+            self.inner.llm_chat(request)
+        }
+
+        fn execute_tool(
+            &self,
+            request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ToolExecuteResponse, String>,
+        > {
+            self.inner.execute_tool(request)
+        }
+
+        fn check_permission(
+            &self,
+            request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::PermissionDecision, String>,
+        > {
+            self.inner.check_permission(request)
+        }
+
+        fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+            self.bound
+                .lock()
+                .unwrap()
+                .push((turn_id.to_string(), goal_id.map(str::to_string)));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_turn_binds_start_goal_for_stale_check() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let base = rpc_callbacks(server.clone());
+        let bound = Arc::new(Mutex::new(Vec::new()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(GoalBindingCallbacks {
+            inner: base.clone(),
+            bound: bound.clone(),
+        });
+
+        let goal = crate::turn_loop::types::GoalContext {
+            goal_id: "g-1".into(),
+            objective: "objective".into(),
+            status: crate::turn_loop::types::GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: None,
+            tokens_used: 0,
+            turns_used: 0,
+            wall_clock_ms: 0,
+        };
+        let input = RunTurnInput {
+            turn_id: "turn-goal".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: Some(goal),
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            bound.lock().unwrap().as_slice(),
+            &[("turn-goal".to_string(), Some("g-1".to_string()))],
+            "run_turn must bind the turn-start goal for the stale gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_turn_binds_no_goal_when_goalless() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let base = rpc_callbacks(server.clone());
+        let bound = Arc::new(Mutex::new(Vec::new()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(GoalBindingCallbacks {
+            inner: base.clone(),
+            bound: bound.clone(),
+        });
+        let input = RunTurnInput {
+            turn_id: "turn-goal-free".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            bound.lock().unwrap().as_slice(),
+            &[("turn-goal-free".to_string(), None)],
+            "a goal-less turn binds None so the stale gate skips it"
+        );
     }
 
     #[tokio::test]

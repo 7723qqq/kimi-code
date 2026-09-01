@@ -430,6 +430,13 @@ pub async fn start_repl(
     let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
         workspace.clone(),
     )));
+    // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8). The REPL's
+    // dummy host cannot execute CreateGoal, so non-auto routing stays off —
+    // goal creation remains native; the stale mutation veto still applies.
+    let goal_guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
+        Some(permission_engine.mode()),
+        false,
+    ));
     let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: base_callbacks,
         toolset,
@@ -443,6 +450,7 @@ pub async fn start_repl(
             Box::pin(async move { plan_mode_guard(&store, &tool_name, &args) })
         })),
         stale_guard: Some(stale_gate),
+        goal_guard: Some(goal_guard),
     });
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone())

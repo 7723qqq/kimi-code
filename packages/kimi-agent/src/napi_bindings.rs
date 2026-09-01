@@ -302,6 +302,10 @@ struct NapiHostCallbacks {
     /// pulls the host's current tool table before each LLM call on native
     /// transports; absent means the turn-start snapshot is the only table.
     list_tools_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional current-goal channel (`host/goal`). The stale goal gate
+    /// reads the host's live goal snapshot through it; absent means
+    /// `goal()` reports the seam as unsupported (fail-open for staleness).
+    goal_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -482,6 +486,26 @@ impl HostCallbacks for NapiHostCallbacks {
             )
             .await?;
             serde_json::from_str(&output).map_err(|e| format!("list_tools parse: {e}"))
+        })
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        let Some(ref tsfn) = self.goal_fn else {
+            return Box::pin(async { Err("host does not support goal".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Unbounded like the host-side goal read: host bookkeeping, no
+            // human in the loop; the stale gate treats a failure as
+            // fail-open, so no timeout contract is needed here.
+            let output = invoke_via_registry(&tsfn, "{}".to_string(), "goal", None, cancel).await?;
+            if output == "null" {
+                return Ok(None);
+            }
+            serde_json::from_str::<GoalContext>(&output)
+                .map(Some)
+                .map_err(|e| format!("goal parse: {e}"))
         })
     }
 }
@@ -988,6 +1012,9 @@ struct EngineCallbackTsfns {
     turn_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     telemetry: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     list_tools: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    /// Optional current-goal channel (wired by the session handle; the
+    /// per-turn legacy entry reads the goal from `JsRunTurnParams`).
+    goal: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     /// The cancellation flag the host callbacks observe (per turn today; the
     /// session handle passes its own per-turn flag through `cancel_turn`).
     cancellation: Option<Arc<AtomicBool>>,
@@ -1027,6 +1054,7 @@ async fn build_engine_pipeline(
         turn_event_fn: tsfns.turn_event.map(Arc::new),
         telemetry_fn: tsfns.telemetry.map(Arc::new),
         list_tools_fn: tsfns.list_tools.map(Arc::new),
+        goal_fn: tsfns.goal.map(Arc::new),
         cancellation: tsfns.cancellation,
     });
 
@@ -1080,6 +1108,14 @@ async fn build_engine_pipeline(
                     let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(
                         params.workspace_root.clone().map(std::path::PathBuf::from),
                     ));
+                    // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8):
+                    // non-auto CreateGoal routes to the host (goal-start
+                    // review fires there); stale goal mutations veto. The
+                    // mode comes from the pipeline's permission snapshot.
+                    let goal_guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
+                        permission_engine.as_ref().map(|e| e.mode()),
+                        true,
+                    ));
                     Arc::new(NativeToolCallbacks {
                         inner: base_callbacks.clone(),
                         toolset: Arc::new(
@@ -1121,6 +1157,7 @@ async fn build_engine_pipeline(
                             })
                         })),
                         stale_guard: Some(stale_gate),
+                        goal_guard: Some(goal_guard),
                     })
                 }
                 None => base_callbacks.clone(),
@@ -1236,6 +1273,9 @@ async fn run_turn_rust_impl(
             turn_event: turn_event_tsfn,
             telemetry: telemetry_tsfn,
             list_tools: list_tools_tsfn,
+            // The legacy per-turn entry reads the goal from params, so the
+            // callback channel stays unwired (goal() fails open).
+            goal: None,
             cancellation: Some(cancellation.clone()),
         },
     )
@@ -1520,6 +1560,7 @@ pub fn create_engine_session(
                     turn_event: turn_event_tsfn,
                     telemetry: telemetry_tsfn,
                     list_tools: list_tools_tsfn,
+                    goal: goal_tsfn.clone(),
                     cancellation: None,
                 },
             )

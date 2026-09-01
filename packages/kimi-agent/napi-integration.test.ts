@@ -970,6 +970,201 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — stale-write guard (G-6 #3)',
   });
 });
 
+describe.skipIf(!nativeEntry)('napi runTurnRust — goal guard (G-6 #7/#8)', () => {
+  const createGoalDef = {
+    name: 'CreateGoal',
+    description: 'Create a goal',
+    inputSchema:
+      '{"type":"object","properties":{"objective":{"type":"string"},"completionCriterion":{"type":"string"}},"required":["objective"]}',
+  };
+
+  it('routes CreateGoal to the host when the snapshot is not auto', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-goal-manual-'));
+    const mod = loadNativeModule();
+    let hostExecutions = 0;
+    let nativeEvents = 0;
+    let llmCalls = 0;
+
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        policySnapshotJson: JSON.stringify({ mode: 'manual' }),
+        tools: [createGoalDef],
+        messages: [{ role: 'user', content: 'create the goal' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-goal-1',
+                  name: 'CreateGoal',
+                  arguments: { objective: 'refactor the module' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecutions += 1;
+        return JSON.stringify({ content: 'HOST EXEC WAS CALLED', is_error: false });
+      }),
+      makeCallback(mod, () => {
+        nativeEvents += 1;
+        return '';
+      }),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    expect(result.nativeToolCalls).toBe(0);
+    expect(hostExecutions).toBe(1);
+    expect(nativeEvents).toBe(0);
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('keeps CreateGoal native when the snapshot is auto', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-goal-auto-'));
+    const mod = loadNativeModule();
+    let hostExecutions = 0;
+    let llmCalls = 0;
+
+    const result = await mod.runTurnRust(
+      {
+        ...validParams,
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        policySnapshotJson: JSON.stringify({ mode: 'auto' }),
+        tools: [createGoalDef],
+        messages: [{ role: 'user', content: 'create the goal' }],
+      },
+      makeCallback(mod, () => {
+        llmCalls += 1;
+        const first = llmCalls === 1;
+        return JSON.stringify({
+          tool_calls: first
+            ? [
+                {
+                  id: 'call-goal-2',
+                  name: 'CreateGoal',
+                  arguments: { objective: 'refactor the module' },
+                },
+              ]
+            : [],
+          finish_reason: first ? 'tool_calls' : 'stop',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+      }),
+      makeCallback(mod, () => {
+        hostExecutions += 1;
+        return JSON.stringify({ content: '', is_error: false });
+      }),
+      makeCallback(mod, () => ''),
+      makeCallback(mod, () => JSON.stringify({ decision: 'allow' })),
+    );
+
+    expect(result.stopReason).toBe('EndTurn');
+    // The native CreateGoal runs against this unwired host's state bridge and
+    // reports a bridge error, but it still executed natively, not on the host.
+    expect(result.nativeToolCalls).toBe(1);
+    expect(hostExecutions).toBe(0);
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it('vetoes a stale goal mutation from a changed-goal turn (session handle)', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-goal-stale-'));
+    const mod = loadNativeModule();
+
+    const updateGoalDef = {
+      name: 'UpdateGoal',
+      description: 'Update the goal',
+      inputSchema:
+        '{"type":"object","properties":{"status":{"type":"string"}},"required":["status"]}',
+    };
+    const goalJson = (id: string) =>
+      JSON.stringify({
+        goal_id: id,
+        objective: 'objective',
+        status: 'active',
+        token_budget: null,
+        turn_budget: null,
+        wall_clock_budget_ms: null,
+        tokens_used: 0,
+        turns_used: 0,
+        wall_clock_ms: 0,
+      });
+
+    const nativeEvents: Array<{ type?: string; is_error?: boolean; content?: string }> = [];
+    let llmCalls = 0;
+    let goalCalls = 0;
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'goal-stale-session',
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        policySnapshotJson: JSON.stringify({ mode: 'auto' }),
+        tools: [updateGoalDef],
+        messages: [{ role: 'user', content: 'seed' }],
+      },
+      {
+        llmChat: () => {
+          llmCalls += 1;
+          const first = llmCalls === 1;
+          return JSON.stringify({
+            tool_calls: first
+              ? [{ id: 'call-stale-goal', name: 'UpdateGoal', arguments: { status: 'complete' } }]
+              : [],
+            finish_reason: first ? 'tool_calls' : 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        },
+        executeTool: () => JSON.stringify({ content: '', is_error: false }),
+        emitEvent: (eventJson) => {
+          nativeEvents.push(
+            JSON.parse(eventJson) as { type?: string; is_error?: boolean; content?: string },
+          );
+        },
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+        goal: () => {
+          goalCalls += 1;
+          // Call 1 binds the turn to G1 (session turn-start); call 2 is the
+          // gate's current-goal read after the goal changed to G2.
+          return goalJson(goalCalls === 1 ? 'g1' : 'g2');
+        },
+      },
+    );
+    try {
+      const turn = await session.enqueueTurn({ role: 'user', content: 'update' }, 'newTurn');
+      const outcome = await session.turnOutcome(turn);
+      expect(outcome.status).toBe('ran');
+      const veto = nativeEvents.find((e) => e.type === 'tool.native' && e.is_error === true);
+      expect(veto?.content).toBe(
+        'Goal changed since this turn started; ignored stale goal tool call.',
+      );
+      expect(goalCalls).toBeGreaterThanOrEqual(2);
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe.skipIf(!nativeEntry)('napi runTurnRust — concurrent MultiLLM providers', () => {
   it(
     'picks the first successful provider and ignores a failing peer',

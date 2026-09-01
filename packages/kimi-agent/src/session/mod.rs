@@ -845,6 +845,10 @@ impl HostCallbacks for SteerQueueCallbacks {
         self.inner.goal()
     }
 
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        self.inner.set_turn_goal(turn_id, goal_id);
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.inner.emit_event(event);
     }

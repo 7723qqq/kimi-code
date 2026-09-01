@@ -109,6 +109,13 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    /// Record which goal was active when a turn started (G-6 #8). The turn
+    /// loop calls this with its turn-start goal snapshot; the native-tool
+    /// gate uses it to veto goal mutation calls from a turn whose goal has
+    /// since changed. The default ignores the binding — paths without the
+    /// gate never veto on staleness.
+    fn set_turn_goal(&self, _turn_id: &str, _goal_id: Option<&str>) {}
+
     /// Fire-and-forget event notification to the JS host. Used by the
     /// native LLM / native tool paths to report step boundaries, streaming
     /// deltas, and natively-executed tool results so the host can record
@@ -404,6 +411,11 @@ pub struct NativeToolCallbacks {
     /// target's mtime, so a read the host served also clears a later native
     /// write. State is per-session (mounted once by the pipeline builder).
     pub stale_guard: Option<Arc<crate::tools::stale_guard::StaleGate>>,
+    /// Optional goal-operation guard (v2 `goalAgentRuntime` mirror, G-6
+    /// #7/#8). CreateGoal calls route to the host when the permission mode
+    /// is not `auto` (so the host's goal-start review fires); goal mutation
+    /// calls from a turn whose goal has changed since are vetoed.
+    pub goal_guard: Option<Arc<crate::tools::goal_guard::GoalGuard>>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -433,9 +445,19 @@ impl HostCallbacks for NativeToolCallbacks {
             permission_engine: self.permission_engine.clone(),
             plan_guard: self.plan_guard.clone(),
             stale_guard: self.stale_guard.clone(),
+            goal_guard: self.goal_guard.clone(),
         };
         Box::pin(async move {
-            if !this.toolset.handles(&request.tool_name) {
+            // G-6 #7: a CreateGoal that must be reviewed (permission mode is
+            // not `auto`) runs on the host, whose full veto chain — goal-start
+            // review included — then applies. Treated exactly like a tool the
+            // sandbox cannot handle: host executes, observations still apply.
+            if !this.toolset.handles(&request.tool_name)
+                || this
+                    .goal_guard
+                    .as_ref()
+                    .is_some_and(|g| g.requires_host(&request.tool_name))
+            {
                 let response = this.inner.execute_tool(request.clone()).await?;
                 // v2 `observeExecution` covers host-served read/writes too —
                 // recording here keeps a later native Write to this file
@@ -501,6 +523,31 @@ impl HostCallbacks for NativeToolCallbacks {
                     .unwrap_or_else(|| "denied by host permission".into());
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too.
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // Goal-operation stale veto (v2 `goalAgentRuntime`, G-6 #8),
+            // after permission and before the stale-write guard: a goal
+            // mutation call from a turn whose goal changed is the tool
+            // result the model sees; no execution, no host fallback.
+            if let Some(guard) = &this.goal_guard
+                && let Some(reason) = guard
+                    .stale_denial(this.inner.as_ref(), &request.turn_id, &request.tool_name)
+                    .await
+            {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
                     "turn_id": request.turn_id,
@@ -644,6 +691,12 @@ impl HostCallbacks for NativeToolCallbacks {
 
     fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
         self.inner.goal()
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        if let Some(guard) = &self.goal_guard {
+            guard.bind_turn(turn_id, goal_id);
+        }
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -899,6 +952,7 @@ mod tests {
             permission_engine: None,
             plan_guard: None,
             stale_guard: None,
+            goal_guard: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
@@ -1129,6 +1183,7 @@ mod tests {
             stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
                 dir.path().to_path_buf(),
             )))),
+            goal_guard: None,
         };
         (dir, native, executed, native_count, events, state_reads)
     }
@@ -1294,6 +1349,262 @@ mod tests {
         );
     }
 
+    /// Base callbacks for goal-guard tests: scripted permission verdict, a
+    /// scripted current goal, counted host executions, recorded events.
+    struct GoalGateHostCallbacks {
+        decision: PermissionDecision,
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        goal_reads: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        goal: std::sync::Mutex<Option<crate::turn_loop::types::GoalContext>>,
+    }
+
+    impl HostCallbacks for GoalGateHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            let decision = self.decision.clone();
+            Box::pin(async move { Ok(decision) })
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+            self.goal_reads.fetch_add(1, Ordering::Relaxed);
+            let goal = self.goal.lock().unwrap().clone();
+            Box::pin(async move { Ok(goal) })
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn goal_gate_setup(
+        mode: crate::permission::PermissionMode,
+        route_to_host: bool,
+        current_goal: Option<crate::turn_loop::types::GoalContext>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        Arc<crate::tools::goal_guard::GoalGuard>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let goal_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
+            Some(mode),
+            route_to_host,
+        ));
+        let fake: Arc<dyn HostCallbacks> = Arc::new(GoalGateHostCallbacks {
+            decision: PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            permission_calls: permission_calls.clone(),
+            executed: executed.clone(),
+            goal_reads: goal_reads.clone(),
+            events: events.clone(),
+            goal: std::sync::Mutex::new(current_goal),
+        });
+        let toolset = Arc::new(
+            NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(fake.clone()),
+        );
+        let native = NativeToolCallbacks {
+            inner: fake,
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: Some(guard.clone()),
+        };
+        (
+            dir,
+            native,
+            executed,
+            native_count,
+            permission_calls,
+            goal_reads,
+            events,
+            guard,
+        )
+    }
+
+    fn gate_goal(id: &str) -> crate::turn_loop::types::GoalContext {
+        crate::turn_loop::types::GoalContext {
+            goal_id: id.into(),
+            objective: String::new(),
+            status: crate::turn_loop::types::GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: None,
+            tokens_used: 0,
+            turns_used: 0,
+            wall_clock_ms: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_routes_create_goal_to_host_outside_auto_mode() {
+        let (_dir, native, executed, native_count, permission_calls, _goal_reads, _events, _guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Manual,
+                true,
+                Some(gate_goal("g1")),
+            );
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "CreateGoal".into(),
+                arguments: serde_json::json!({ "objective": "do it" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !response.is_error,
+            "the host runs the reviewed call: {response:?}"
+        );
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            1,
+            "non-auto CreateGoal must run on the host"
+        );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            0,
+            "routed calls are not native executions"
+        );
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            0,
+            "routing happens before the engine's permission step"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_keeps_create_goal_native_in_auto_mode() {
+        let (_dir, native, executed, native_count, permission_calls, _goal_reads, _events, _guard) =
+            goal_gate_setup(crate::permission::PermissionMode::Auto, true, None);
+        let _response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "CreateGoal".into(),
+                arguments: serde_json::json!({ "objective": "do it" }),
+            })
+            .await
+            .unwrap();
+        // The native CreateGoal runs against the test fake whose state
+        // bridge is unwired — the result is a bridge error, but the point
+        // is that it executed natively, not on the host.
+        assert_eq!(native_count.load(Ordering::Relaxed), 1);
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            1,
+            "auto mode goes through the native permission gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_vetoes_stale_goal_mutation() {
+        let (_dir, native, executed, _native_count, _permission_calls, goal_reads, events, guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Auto,
+                true,
+                Some(gate_goal("g2")),
+            );
+        guard.bind_turn("t", Some("g1"));
+
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "UpdateGoal".into(),
+                arguments: serde_json::json!({ "status": "complete" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(
+            response.content,
+            "Goal changed since this turn started; ignored stale goal tool call."
+        );
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+        assert_eq!(goal_reads.load(Ordering::Relaxed), 1);
+        let native_event = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal is reported as tool.native")
+            .clone();
+        assert_eq!(native_event["is_error"], true);
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_exempts_read_only_goal_tools() {
+        let (_dir, native, _executed, _native_count, _permission_calls, goal_reads, _events, guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Auto,
+                true,
+                Some(gate_goal("g2")),
+            );
+        guard.bind_turn("t", Some("g1"));
+
+        // GetGoal is read-only and never stale-checked (v2 `isGoalMutationTool`
+        // excludes it): it runs (natively or via the fallback) without a veto.
+        let _response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "GetGoal".into(),
+                arguments: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            goal_reads.load(Ordering::Relaxed),
+            0,
+            "the stale check must not fire for GetGoal"
+        );
+    }
     /// A stub that answers questions, recording the request it received.
     struct AskQuestionCallbacks {
         received: Arc<std::sync::Mutex<Option<AskQuestionRequest>>>,
@@ -1406,6 +1717,7 @@ mod tests {
             permission_engine: None,
             plan_guard: None,
             stale_guard: None,
+            goal_guard: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -1569,6 +1881,7 @@ mod tests {
             permission_engine: None,
             plan_guard: None,
             stale_guard: None,
+            goal_guard: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();

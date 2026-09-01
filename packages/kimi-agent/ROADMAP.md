@@ -2246,8 +2246,8 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 | 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | ~~REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 审批：原生 `exit_plan_mode.rs` 已实现完整审批流（经 `ask_question`，auto 直通）~~ **✅ 已落地（2026-09-01，见 P39）**：`PlanGuard` 异步化，napi/stdio 产品路径经 state 桥每次受护调用现读 plan 状态并按 v2 语义否决（Write/Edit 只许写 plan 文件 + TaskStop/CronCreate/CronDelete 拒绝，后两项同时补齐了 REPL 缺口）；ExitPlanMode 审批原本已由原生工具自带 | **已迁移** |
 | 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
 | 6 | `agentExternalHooksService.ts:162` | 用户配置 PreToolUse 钩子（可 veto） | 原生工具不触发（P33 已记「零对应」） | **缺口（用户可见）→ M2 迁移**：Rust 侧执行 PreToolUse 命令；迁移前在文档标注「原生路径不触发用户钩子」 |
-| 7 | `goalAgentRuntime.ts:1295` | CreateGoal 启动审批（非 auto 模式） | CreateGoal 原生（走 state 桥）→ 审批 ask 不触发，goal 静默启动 | **缺口 → M2 迁移**：审批需宿主 ask 通道（`host/ask_question` 已存在，可承载） |
-| 8 | `goalAgentRuntime.ts:1296` | 陈旧 goal 工具调用合成结果 + 预算宽限轮拒绝 | 原生 goal 工具（4 个全在 `handles()`）绕过 → 保护失效 | **缺口 → M2 迁移**：引擎自带 goal driver，stale/budget 状态在引擎侧，天然归属 |
+| 7 | `goalAgentRuntime.ts:1295` | CreateGoal 启动审批（非 auto 模式） | CreateGoal 原生（走 state 桥）→ 审批 ask 不触发，goal 静默启动 | **已迁移**（2026-09-01，见 P42）——非 auto 模式下 CreateGoal 回退宿主执行，宿主 goal-start 审批链（含 mode 切换面板）原样生效 |
+| 8 | `goalAgentRuntime.ts:1296` | 陈旧 goal 工具调用合成结果 + 预算宽限轮拒绝 | 原生 goal 工具（4 个全在 `handles()`）绕过 → 保护失效 | **已迁移**（2026-09-01，见 P42）——引擎侧 `GoalGuard` 按 turn 绑定起始 goal，当前 goal 变更即拒绝突变工具（文案逐字节对齐 v2）；预算宽限轮由 run_turn 硬停结构性覆盖，无需复刻 |
 | 9 | `swarmService.ts:45` | swarm 模式禁 `Agent` | Agent 是宿主工具 → 钩子照常触发 | **等价**——无需动作 |
 | 10 | `swarmService.ts:63` | AgentSwarm 批次约束（单步至多一个） | AgentSwarm 是宿主工具 → 触发 | **等价**——无需动作 |
 | 11 | `towerService.ts:105` | flag 关时 Tower 工具惰性 | Tower 工具是宿主工具 → 触发 | **等价**——无需动作 |
@@ -2261,7 +2261,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 - **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
   不算静默丢失。
 - **7 处真缺口 → 迁移队列**：~~#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）~~ ✅ 已落地（P39）、
-  ~~#3（staleGuard）~~ ✅ 已落地（P41）、#7+#8（goal 审批/stale，同域一并做）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
+  ~~#3（staleGuard）~~ ✅ 已落地（P41）、~~#7+#8（goal 审批/stale，同域一并做）~~ ✅ 已落地（P42）、#6（externalHooks PreToolUse）、#2（toolDedupe）、
   #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
 
 ### 验证说明
@@ -2386,3 +2386,35 @@ P38 判定表 #3 落地：v2 `staleGuardService`（Edit/Write 写前读检查）
 - native read → 宿主回退 write 的宿主侧误拦类（v2 宿主 guard 看不见 native read）是迁移前已存在的行为，本批不恶化不修复。
 - mtime-only 保真度与 v2 相同（不做 content-hash 增强）。
 - legacy `agent/run_turn` / `run_turn_rust` 两处 per-turn 遗留缝不持跨 turn 状态（pipeline 每请求重建），测试/基准专用。
+
+## P42 — G-6 #7+#8：goal 启动审批 + 陈旧 goal 拒绝迁入引擎（2026-09-01）
+
+P38 判定表 #7/#8 落地（同域一并做）。宿主侧 goalAgentRuntime 保持不动——它继续守宿主执行的 goal 工具；本批补的是原生执行的裸奔面。
+
+### 语义基准（v2 `goalAgentRuntime.ts`）
+
+- **#7 审批**（L1219-1231）：CreateGoal 且 permission mode !== auto 时走 goal-start 审批面板；approved 时可按所选 label 切换 permission mode，rejected/cancelled → veto。
+- **#8 stale**（L811-817）：goal 突变工具（CreateGoal|UpdateGoal|SetGoalBudget，不含 GetGoal）在「turn 起始绑定的 goalId ≠ 当前 goalId」时拒绝，原文 `Goal changed since this turn started; ignored stale goal tool call.`；turn 无绑定则跳过。预算宽限轮（budgetGraceTurns）是另一半——**引擎侧已结构性覆盖**：run_turn 在 step 头预算超限即硬停（`BudgetLimited`），预算后不可能再有工具调用执行，无需复刻 veto（差异：v2 让当前轮继续写最终消息，引擎直接结束 turn，数据保护等价）。
+
+### 设计
+
+- **#7 = 路由回宿主**（而非引擎内 ask）：非 auto 模式（含 mode 未知 fail-closed）下 CreateGoal 不经原生执行，gate 直接走宿主 executeTool 路径——宿主完整否决链（permissionGate → goal-start 审批面板含 mode 切换 → 陈旧 veto → 工具本体）全部生效，零重实现。auto 模式保持原生。mode 取 pipeline 的 PolicySnapshot（`PermissionEngine::mode()`，P41 同款生命周期：会话初始快照）。
+- **#8 = 引擎侧 `GoalGuard`**（`src/tools/goal_guard.rs`）：`bindings: turn_id → turn-start goal_id`（`run_turn` 入口经新 `HostCallbacks::set_turn_goal` 绑定，默认 no-op，NativeToolCallbacks/SteerQueueCallbacks 转发——零 SessionConfig/装配点改动，legacy/REPL/session 全路径生效）+ `stale_denial`（突变工具双拼写判定 → 取绑定 → `inner.goal()` 读当前 goal，goalId 比较；goal 清空=stale；读失败 fail-open）。gate 在 permission allow 后、stale-write guard 前插入（镜像 v2 链序），denial 发 `tool.native` is_error + 合成错误结果，不回退宿主。
+- **顺带修复 napi `callbacks.goal()` 死缝**：napi 路径从未实现 `goal()`（trait 默认 Err，goal 一直走 per-turn provider/params）——`NapiHostCallbacks` 增 `goal_fn` 并实现（session handle 接线，legacy 留 None fail-open）。此前该缝无人消费故未暴露。
+
+### 验证
+
+- **cargo**：`--lib` 866 全绿（goal_guard 6 单测：stale 五分支/绑定/requires_host 三态 + callbacks 门级 4：非 auto 路由/auto 原生/stale veto 文案/GetGoal 豁免 + run_turn 绑定 2）；`stdio_rpc_integration` 16/16（新增 CreateGoal 无快照必回退宿主 E2E：execute_tool_requests=1、无权限往返、无 native 事件）；clippy 0、fmt 干净。
+- **bun**：kimi-agent 114 通过（napi-integration 新增 3，真实 .node：manual 快照回退宿主 / auto 快照原生 / session-handle + 有状态 goal_cb 的 stale E2E 精确文案）。
+
+### 诚实边界
+
+- mode 与会话级 permission engine 同生命周期（会话初始快照），会话中途宿主改 mode 不即时反映——与既有 permission engine 同款陈旧性。
+- REPL 关闭路由（ReplDummyHostCallbacks 不执行 CreateGoal，回退即报错）：goal 创建保持原生、无审批，按 REPL 现状记录；stale veto 照常生效。
+- 审批的 mode 切换副作用（面板选 yolo 等）在引擎路径由宿主审批面板承载（路由后天然具备）。
+- 非 main agent 的 veto 后缀（` Try a different approach...`）由宿主执行路径承载；引擎侧 stale veto 无 agent 身份概念，只发基础文案。
+- 预算硬停 vs v2 宽限轮差异（见上），数据保护等价。
+
+### 迁移队列现状
+
+#4（P39）✅、#3（P41）✅、#7+#8（P42）✅ → 剩余：#6（externalHooks PreToolUse）、#2（toolDedupe）、#13（tower worker，随 M3）。

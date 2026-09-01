@@ -658,6 +658,13 @@ async fn build_engine_pipeline(
                         let stale_gate = Arc::new(kimi_agent::tools::stale_guard::StaleGate::new(
                             params.workspace_root.clone().map(std::path::PathBuf::from),
                         ));
+                        // Goal-operation guard (v2 `goalAgentRuntime`,
+                        // G-6 #7/#8): non-auto CreateGoal routes to the host;
+                        // stale goal mutations veto.
+                        let goal_guard = Arc::new(kimi_agent::tools::goal_guard::GoalGuard::new(
+                            permission_engine.as_ref().map(|e| e.mode()),
+                            true,
+                        ));
                         Arc::new(NativeToolCallbacks {
                             inner: base_callbacks.clone(),
                             toolset: Arc::new(
@@ -700,6 +707,7 @@ async fn build_engine_pipeline(
                                 })
                             })),
                             stale_guard: Some(stale_gate),
+                            goal_guard: Some(goal_guard),
                         })
                     }
                     None => base_callbacks.clone(),

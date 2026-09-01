@@ -1473,3 +1473,46 @@ fn run_turn_native_stale_state_survives_across_turns() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Goal guard (v2 `goalAgentRuntime`, G-6 #7/#8) ─────────────────────────
+
+/// Without a policy snapshot the engine cannot prove `auto` mode, so
+/// CreateGoal fails closed to the host: the host's goal-start review chain
+/// runs there instead of a silent native start.
+#[test]
+fn run_turn_create_goal_routes_to_host_without_snapshot() {
+    let dir = std::env::temp_dir().join(format!("kimi-goal-route-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create workspace root");
+
+    let observation = drive_native_turn(
+        &dir,
+        None,
+        "CreateGoal",
+        serde_json::json!({"objective": "refactor the module"}),
+        serde_json::json!({"decision": "allow"}),
+        serde_json::Value::Null,
+    );
+    let Some(resp) = require_observation(&observation) else {
+        return;
+    };
+
+    assert!(resp.get("error").is_none(), "run_turn errored: {resp}");
+    assert_eq!(
+        observation.execute_tool_requests, 1,
+        "CreateGoal without a snapshot must run on the host"
+    );
+    assert_eq!(
+        observation.permission_requests.len(),
+        0,
+        "routing happens before the engine's permission round-trip"
+    );
+    let native_events = native_events_of(&observation);
+    assert_eq!(
+        native_events.len(),
+        0,
+        "a routed call is not a native execution"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

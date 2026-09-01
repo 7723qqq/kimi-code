@@ -60,6 +60,7 @@ pub mod exit_plan_mode;
 pub mod fetch_url;
 pub mod get_goal;
 pub mod github;
+pub mod goal_guard;
 pub mod goal_tools;
 pub mod knowledge_tool;
 pub mod list_directory;
