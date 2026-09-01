@@ -28,6 +28,7 @@ import { resolve } from 'node:path';
 
 import type { JsRunTurnParams, JsRunTurnResult } from './napi-contract';
 import type { ZodType } from 'zod';
+import { EngineSessionHandle, findKimiAgentAddon, type SessionPrompt } from './session-handle';
 import type { TelemetryEventWire, TurnEventWire } from './wire-schema';
 import {
   llmChatRequestSchema,
@@ -554,61 +555,10 @@ export class NapiEngine {
   private loaded = false;
 
   static findModule(): string | null {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('node:fs');
-    const candidates: string[] = [
-      // Development / production source tree: the napi build emits a
-      // platform-suffixed name (e.g. kimi_agent.win32-x64-msvc.node), so glob
-      // instead of requiring a fixed `kimi_agent.node` path.
-      resolve(import.meta.dirname, 'kimi_agent.node'),
-      resolve(projectRoot, 'packages/kimi-agent/kimi_agent.node'),
-    ];
-    for (const dir of [import.meta.dirname, resolve(projectRoot, 'packages/kimi-agent')]) {
-      try {
-        for (const entry of fs.readdirSync(dir)) {
-          if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
-            candidates.push(resolve(dir, entry));
-          }
-        }
-      } catch {
-        // ignore unreadable dirs
-      }
-    }
-
-    // Packaged single-file binary: the .node file is embedded as a native
-    // asset and extracted to a cache directory at runtime. The global
-    // helper `__kimi_getNativePackageRoot` (installed by native-assets.ts)
-    // returns the cached package root for a given package name.
-    const getNativePackageRoot = (globalThis as Record<string, unknown>)[
-      '__kimi_getNativePackageRoot'
-    ];
-    const seaPkgRoot =
-      typeof getNativePackageRoot === 'function'
-        ? (getNativePackageRoot as (pkg: string) => string | null)('@moonshot-ai/kimi-agent')
-        : undefined;
-    if (seaPkgRoot !== null && seaPkgRoot !== undefined) {
-      // The .node file may be named with a platform suffix (e.g.
-      // kimi_agent.win32-x64-msvc.node) or plain kimi_agent.node.
-      try {
-        const entries = fs.readdirSync(seaPkgRoot);
-        for (const entry of entries) {
-          if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
-            candidates.push(resolve(seaPkgRoot, entry));
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    for (const candidate of candidates) {
-      try {
-        if (fs.existsSync(candidate)) return candidate;
-      } catch {
-        // ignore
-      }
-    }
-    return null;
+    // Shared with the session handle (session-handle.ts): both the per-turn
+    // napi path and the session path locate the same addon. Kept as the
+    // canonical entry point; the lookup itself lives in findKimiAgentAddon.
+    return findKimiAgentAddon();
   }
 
   static isAvailable(): boolean {
@@ -1329,7 +1279,6 @@ export type EngineMode = 'napi' | 'stdio' | 'js';
 
 let engineMode: EngineMode = 'js';
 let agentProcess: AgentProcess | null = null;
-let napiEngine: NapiEngine | null = null;
 
 /**
  * The transport currently driving turns, without resolving it. `initEngine()`
@@ -1385,7 +1334,6 @@ function initEngine(): EngineMode {
   if (forcedTransport !== 'stdio' && NapiEngine.isAvailable()) {
     const engine = new NapiEngine();
     if (engine.load()) {
-      napiEngine = engine;
       engineMode = 'napi';
       return 'napi';
     }
@@ -1407,11 +1355,6 @@ function initEngine(): EngineMode {
 function getAgent(): AgentProcess | null {
   initEngine();
   return agentProcess;
-}
-
-function getNapiEngine(): NapiEngine | null {
-  initEngine();
-  return napiEngine;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -1449,6 +1392,37 @@ export function createRunTurnOverride(
   const rustSelfContained = options?.rustSelfContained === true;
   const shellPathOpt = options?.shellPath;
 
+  // ── M1d 3a: session-backed napi transport ────────────────────────────
+  // The napi path used to call `engine.runTurn(params, ...callbacks)` per turn
+  // — a stateless call. Under M1d the napi path creates one engine-owned
+  // session for the process lifetime: admission, the pending FIFO, the pump,
+  // turn ids, cancellation, and quiescence live engine-side across turns.
+  // The host routes per-turn capabilities through the `active` slot the
+  // session-scoped delegates read. turn_event/telemetry stay unwired in 3a
+  // (dropped) — v2 keeps durable-event + telemetry ownership until 3c.
+  //
+  // The slot variables live here (not per turn): the session is created
+  // once and reused until the per-turn config fingerprint (nativeLlm /
+  // policy / github) changes, and `active` is reassigned at the top of every
+  // turn so the session-scoped delegates always read the running turn.
+  type ActiveTurn = {
+    input: TurnEngineInputAdapter;
+    turnId: string;
+    llmChat: (request: string) => Promise<string>;
+    executeTool: (request: string) => Promise<string>;
+    emitEvent: (json: string) => void;
+    checkPermission: (request: string) => Promise<string>;
+    finalize: (request: string) => Promise<string>;
+    drainSteers: () => Promise<string>;
+    askQuestion: ((request: string) => Promise<string>) | undefined;
+    stateRead: ((request: string) => Promise<string>) | undefined;
+    stateWrite: ((request: string) => Promise<string>) | undefined;
+    listTools: () => Promise<string>;
+  };
+  let active: ActiveTurn | undefined;
+  let sessionHandle: EngineSessionHandle | undefined;
+  let sessionFingerprint: string | undefined;
+
   return async (input) => {
     // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
     // use a string, so normalize once per turn.
@@ -1456,11 +1430,12 @@ export function createRunTurnOverride(
 
     // Propagate host cancellation to the Rust engine: on abort, ask the
     // active transport to stop the turn at the next step boundary so a
-    // Ctrl+C / stop doesn't leave the engine burning LLM/tool work.
+    // Ctrl+C / stop doesn't leave the engine burning LLM/tool work. Under
+    // the M1d session-backed transport the napi session handle does the
+    // cancel after enqueue (using the engine-assigned turn id); the top-level
+    // handler here is stdio-only.
     const onAbort = (): void => {
-      if (mode === 'napi') {
-        getNapiEngine()?.cancel(turnIdStr);
-      } else if (mode === 'stdio') {
+      if (mode === 'stdio') {
         getAgent()?.cancel(turnIdStr);
       }
     };
@@ -1773,8 +1748,8 @@ export function createRunTurnOverride(
     // flow. In native LLM mode, Rust calls the provider itself, so the
     // initial history and tool schemas are serialized up front and progress
     // flows back over the event channel.
-    const wireMessages = nativeLlm === undefined ? [] : await buildWireMessages();
-    const wireTools = nativeLlm === undefined ? [] : buildWireTools();
+    const wireMessages = mode === 'stdio' && nativeLlm !== undefined ? await buildWireMessages() : [];
+    const wireTools = mode === 'stdio' && nativeLlm !== undefined ? buildWireTools() : [];
     const goal = options?.getGoal?.();
     const policySnapshot = options?.getPolicySnapshot?.();
     const githubCredentials = options?.getGithubCredentials?.();
@@ -1806,46 +1781,100 @@ export function createRunTurnOverride(
       };
     };
 
+    // Pack the per-turn handlers into the `active` slot the session-scoped
+    // delegates read. Set before any session call so late events route here.
+    active = {
+      input,
+      turnId: turnIdStr,
+      llmChat: async (requestJson: string): Promise<string> => {
+        const params = parseWire(llmChatRequestSchema, requestJson, 'host/llm_chat request');
+        const request = llmAbortRegistry.begin(params.request_id);
+        try {
+          const response = await llmChatHandler(request.signal, params.model_name);
+          return JSON.stringify(response);
+        } finally {
+          request.finish();
+        }
+      },
+      executeTool: async (requestJson: string): Promise<string> => {
+        const req = parseWire(toolExecuteRequestSchema, requestJson, 'host/execute_tool request');
+        const response = await toolExecuteHandler(req);
+        return JSON.stringify(response);
+      },
+      emitEvent: (json: string): void => {
+        try {
+          handleEngineEvent(JSON.parse(json) as EngineEvent);
+        } catch {
+          // Event handler failures must never break the RPC loop (the engine
+          // is fire-and-forget on this channel).
+        }
+      },
+      checkPermission: async (requestJson: string): Promise<string> => {
+        const req = parseWire(permissionCheckRequestSchema, requestJson, 'host/check_permission request');
+        if (input.checkToolPermission === undefined) {
+          return JSON.stringify({
+            decision: 'deny',
+            reason: 'engine input has no checkToolPermission capability',
+          } satisfies PermissionDecision);
+        }
+        const response = await input.checkToolPermission({
+          type: 'function',
+          id: req.tool_call_id,
+          name: req.tool_name,
+          arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
+        });
+        return JSON.stringify(response);
+      },
+      finalize: async (requestJson: string): Promise<string> => {
+        const req = parseWire(toolFinalizeRequestSchema, requestJson, 'host/finalize_tool_result request');
+        const response = await finalizeNativeResult(req);
+        return JSON.stringify(response);
+      },
+      drainSteers: async (): Promise<string> => JSON.stringify(await drainSteers()),
+      askQuestion: askUserQuestion
+        ? async (requestJson: string): Promise<string> => {
+            const response = await askUserQuestion(JSON.parse(requestJson) as AskQuestionWire);
+            return JSON.stringify(response);
+          }
+        : undefined,
+      stateRead: stateRead
+        ? async (requestJson: string): Promise<string> => {
+            const response = await stateRead(JSON.parse(requestJson) as StateReadWire);
+            return JSON.stringify(response);
+          }
+        : undefined,
+      stateWrite: stateWrite
+        ? async (requestJson: string): Promise<string> => {
+            const response = await stateWrite(JSON.parse(requestJson) as StateWriteWire);
+            return JSON.stringify(response);
+          }
+        : undefined,
+      listTools: async (): Promise<string> => JSON.stringify(await listToolsHandler()),
+    };
+
     let rustResult: RunTurnResult;
     try {
       if (mode === 'napi') {
-        const engine = getNapiEngine()!;
-        // Napi callbacks use JSON-serialized payloads (string → string)
-        const napiResult = await engine.runTurn(
-          {
+        // M1d 3a: session-backed napi transport. The per-turn `engine.runTurn`
+        // call is replaced by setHistory + enqueueTurn on a process-wide
+        // session handle. Re-create the handle when the per-turn config
+        // fingerprint (nativeLlm / policy / github) changes.
+        const policySnapshot = options?.getPolicySnapshot?.();
+        const githubCredentials = options?.getGithubCredentials?.();
+        const fingerprint = JSON.stringify({ nativeLlm, policy: policySnapshot, github: githubCredentials });
+        if (sessionHandle === undefined || fingerprint !== sessionFingerprint) {
+          if (sessionHandle !== undefined) {
+            sessionHandle.dispose();
+            sessionHandle = undefined;
+          }
+          sessionFingerprint = fingerprint;
+          const sessionParams: Record<string, unknown> = {
             turnId: turnIdStr,
             systemPrompt: input.llm.systemPrompt,
             modelName: input.llm.modelAlias,
-            messages: wireMessages.map((m) => ({
-              role: m.role,
-              content: m.content,
-              blocksJson: m.blocks === undefined ? undefined : JSON.stringify(m.blocks),
-              toolCallsJson: m.tool_calls === undefined ? undefined : JSON.stringify(m.tool_calls),
-              toolCallId: m.tool_call_id,
-            })),
-            tools: wireTools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              inputSchema: JSON.stringify(t.parameters ?? {}),
-            })),
+            messages: [],
+            tools: [],
             maxSteps: input.maxSteps,
-            // The stdio wire is snake_case; the napi object wire is
-            // camelCase (napi-rs converts Rust field names), so project
-            // the goal context explicitly instead of passing it through.
-            goal:
-              goal === undefined
-                ? undefined
-                : {
-                    goalId: goal.goal_id,
-                    objective: goal.objective,
-                    status: goal.status,
-                    tokenBudget: goal.token_budget,
-                    turnBudget: goal.turn_budget,
-                    wallClockBudgetMs: goal.wall_clock_budget_ms,
-                    wallClockMs: goal.wall_clock_ms,
-                    tokensUsed: goal.tokens_used,
-                    turnsUsed: goal.turns_used,
-                  },
             nativeLlm:
               nativeLlm === undefined
                 ? undefined
@@ -1868,8 +1897,6 @@ export function createRunTurnOverride(
               model: p.model,
               systemPrompt: p.system_prompt,
             })),
-            // The napi object wire is camelCase (napi-rs converts Rust field
-            // names), so project the telemetry context explicitly.
             telemetry:
               telemetryContext === undefined
                 ? undefined
@@ -1879,64 +1906,72 @@ export function createRunTurnOverride(
                     protocol: telemetryContext.protocol,
                     thinkingEffort: telemetryContext.thinking_effort,
                   },
-          },
-          // Wrap structured handler with JSON serialization for napi
-          async (requestJson: string) => {
-            const params = parseWire(llmChatRequestSchema, requestJson, 'host/llm_chat request');
-            const request = llmAbortRegistry.begin(params.request_id);
-            try {
-              const response = await llmChatHandler(request.signal, params.model_name);
-              return JSON.stringify(response);
-            } finally {
-              request.finish();
-            }
-          },
-          async (requestJson: string) => {
-            const req = parseWire(toolExecuteRequestSchema, requestJson, 'host/execute_tool request');
-            const response = await toolExecuteHandler(req);
-            return JSON.stringify(response);
-          },
-          handleEngineEvent,
-          async (req: PermissionCheckRequest) => {
-            if (input.checkToolPermission === undefined) {
-              // Fail closed when the host input does not expose a checker.
-              return {
-                decision: 'deny',
-                reason: 'engine input has no checkToolPermission capability',
-              } satisfies PermissionDecision;
-            }
-            return input.checkToolPermission({
-              type: 'function',
-              id: req.tool_call_id,
-              name: req.tool_name,
-              arguments: req.arguments === undefined ? null : JSON.stringify(req.arguments),
-            });
-          },
-          finalizeNativeResult,
-          drainSteers,
-          askUserQuestion,
-          stateRead,
-          stateWrite,
-          // The turn_event consumer is the M1d dispatch bridge — not wired
-          // yet, so the slot stays empty and telemetry takes the next one.
-          undefined,
-          options?.onTelemetry,
-          listToolsHandler,
-        );
+          };
+          sessionHandle = await EngineSessionHandle.create(sessionParams, {
+            llmChat: (req) => active!.llmChat(req),
+            executeTool: (req) => active!.executeTool(req),
+            emitEvent: (json) => {
+              active!.emitEvent(json);
+            },
+            checkPermission: (req) => active!.checkPermission(req),
+            finalizeTool: (req) => active!.finalize(req),
+            drainSteers: () => active!.drainSteers(),
+            askQuestion: active.askQuestion,
+            stateRead: active.stateRead,
+            stateWrite: active.stateWrite,
+            listTools: () => active!.listTools(),
+            goal: () => {
+              const g = options?.getGoal?.();
+              return Promise.resolve(g === undefined ? null : JSON.stringify(g));
+            },
+          });
+        }
+        const handle = sessionHandle;
+
+        // Per-turn context projection: the host's `buildWireMessages()` is the
+        // single source of truth (the engine's own history is control-flow
+        // plumbing in host-proxy mode; in native mode the wire projection keeps
+        // image/audio/video blocks lossless — raw v2 blocks would fail the Rust
+        // ContentBlock parse and be dropped silently).
+        const messages = await buildWireMessages();
+        const prompts: SessionPrompt[] = messages.map((m) => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : '',
+          blocksJson: m.blocks === undefined ? undefined : JSON.stringify(m.blocks),
+          toolCallsJson: m.tool_calls === undefined ? undefined : JSON.stringify(m.tool_calls),
+          toolCallId: m.tool_call_id ?? undefined,
+        }));
+        // The engine history is replaced every turn (host owns context), so
+        // set it even when the projected context holds only the prompt.
+        handle.setHistory(prompts.slice(0, -1));
+        const lastPrompt = prompts[prompts.length - 1] ?? { role: 'user', content: '' };
+        const engineTurnId = handle.enqueueTurn(lastPrompt, 'newTurn');
+
+        // Abort → cancel the engine-assigned turn id (top-level onAbort
+        // covers the stdio path). Guard the already-aborted race: the
+        // listener is registered after the async projection above.
+        input.signal.addEventListener('abort', () => handle.cancelTurn(engineTurnId), { once: true });
+        if (input.signal.aborted) handle.cancelTurn(engineTurnId);
+
+        const outcome = await handle.turnOutcome(engineTurnId);
+        if (outcome.status !== 'ran' || !outcome.result) {
+          throw new Error(`session turn ${engineTurnId} did not complete (${outcome.status})`);
+        }
+        const o = outcome.result;
         rustResult = {
-          stop_reason: napiResult.stopReason,
-          steps: napiResult.steps,
+          stop_reason: o.stopReason,
+          steps: o.steps,
           usage: {
-            input_tokens: napiResult.inputTokens,
-            output_tokens: napiResult.outputTokens,
-            total_tokens: napiResult.totalTokens,
-            input_cache_read: napiResult.inputCacheRead,
-            input_cache_creation: napiResult.inputCacheCreation,
+            input_tokens: o.inputTokens,
+            output_tokens: o.outputTokens,
+            total_tokens: o.totalTokens,
+            input_cache_read: o.inputCacheRead,
+            input_cache_creation: o.inputCacheCreation,
           },
-          events_emitted: napiResult.eventsEmitted,
-          llm_retries: napiResult.llmRetries,
-          llm_transport: napiResult.llmTransport,
-          native_tool_calls: napiResult.nativeToolCalls,
+          events_emitted: o.eventsEmitted,
+          llm_retries: o.llmRetries,
+          llm_transport: o.llmTransport,
+          native_tool_calls: o.nativeToolCalls,
         };
       } else {
         // stdio JSON-RPC path
@@ -2117,7 +2152,6 @@ export function shutdownRustEngine() {
     agentProcess.stop();
     agentProcess = null;
   }
-  napiEngine = null;
   engineMode = 'js';
   forcedTransport = undefined;
   stdioCrashes = 0;

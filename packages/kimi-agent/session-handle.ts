@@ -9,9 +9,8 @@
 /// The callbacks are session-scoped: they are wired once at creation and
 /// route to whatever per-turn capabilities the host has registered (the
 /// session runs turns serially, so one active registration suffices).
+import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-
-import { NapiEngine } from './rust-loop';
 
 /** A serialized LLMMessage crossing the session boundary. */
 export interface SessionPrompt {
@@ -105,8 +104,55 @@ interface SessionNativeModule {
   resolveCallback(id: number, error: string | null, result: string | null): void;
 }
 
+export function findKimiAgentAddon(): string | null {
+  const projectRoot = resolve(import.meta.dirname, '..', '..');
+  const candidates: string[] = [
+    resolve(import.meta.dirname, 'kimi_agent.node'),
+    resolve(projectRoot, 'packages/kimi-agent/kimi_agent.node'),
+  ];
+  for (const dir of [import.meta.dirname, resolve(projectRoot, 'packages/kimi-agent')]) {
+    try {
+      for (const entry of readdirSync(dir)) {
+        if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
+          candidates.push(resolve(dir, entry));
+        }
+      }
+    } catch {
+      // ignore unreadable dirs
+    }
+  }
+  // Packaged single-file binary: the .node file is embedded as a native
+  // asset and extracted to a cache directory at runtime.
+  const getNativePackageRoot = (globalThis as Record<string, unknown>)[
+    '__kimi_getNativePackageRoot'
+  ];
+  const seaPkgRoot =
+    typeof getNativePackageRoot === 'function'
+      ? (getNativePackageRoot as (pkg: string) => string | null)('@moonshot-ai/kimi-agent')
+      : undefined;
+  if (seaPkgRoot !== null && seaPkgRoot !== undefined) {
+    try {
+      for (const entry of readdirSync(seaPkgRoot)) {
+        if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
+          candidates.push(resolve(seaPkgRoot, entry));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
 function loadSessionNativeModule(): SessionNativeModule {
-  const modulePath = NapiEngine.findModule();
+  const modulePath = findKimiAgentAddon();
   if (!modulePath) {
     throw new Error('kimi_agent native addon not built; run `napi build` in packages/kimi-agent');
   }

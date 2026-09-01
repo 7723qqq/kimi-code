@@ -1815,7 +1815,12 @@ describe.skipIf(!napiEntry)('createRunTurnOverride — napi turn telemetry (M1c)
     mod.shutdownRustEngine();
   });
 
-  it(
+  // M1d 3a: the session runs turns through `run_turn` (not
+  // `run_turn_with_telemetry`), so the engine-side telemetry emission is
+  // dormant. The v2 loopService still emits its own turn telemetry; the
+  // bridge into the engine is M1d 3c. Re-enable with the engine-emitted
+  // assertion when 3c lands.
+  it.skip(
     'emits turn_started / turn_ended with the host context merged in',
     { timeout: 15_000 },
     async () => {
