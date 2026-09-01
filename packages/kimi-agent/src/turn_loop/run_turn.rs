@@ -306,6 +306,13 @@ pub fn run_turn<'a>(
             );
         }
 
+        // Tool-call dedup guard (v2 `toolDedupeService` mirror, G-6 #2):
+        // same-step repeats share the original's result instead of executing,
+        // cross-step streaks earn escalating reminders, and a 12-repeat
+        // streak stops the turn. State is per-turn (v2 resets the streak
+        // when the turn id changes), so the guard lives only in this call.
+        let mut tool_dedupe = crate::tools::tool_dedupe::DedupeGuard::new();
+
         for step_num in 0..max_steps {
             steps = step_num + 1;
             let turn_wall_clock_ms = elapsed_wall_clock_ms(turn_started);
@@ -495,6 +502,29 @@ pub fn run_turn<'a>(
                         tool_call_id: None,
                     });
 
+                    // Tool-call dedup plan (v2 `toolDedupeService`, G-6 #2):
+                    // identical calls inside this step never execute twice —
+                    // a repeat awaits the original's result instead. Scoped
+                    // to natively-executable names: calls forwarded to the
+                    // host stay under the host's own dedup service. Cells
+                    // carry each call's result by its position in
+                    // `tool_calls` (the scheduler preserves call order).
+                    let dedupe_plan = tool_dedupe.plan_step_by(&tool_calls, |tc| {
+                        crate::tools::is_native_tool_name(&tc.name)
+                            .then(|| crate::tools::tool_dedupe::make_key(&tc.name, &tc.arguments))
+                    });
+                    let call_index: std::collections::HashMap<String, usize> = tool_calls
+                        .iter()
+                        .enumerate()
+                        .map(|(i, tc)| (tc.id.clone(), i))
+                        .collect();
+                    let dedupe_cells: Vec<
+                        std::sync::Arc<tokio::sync::OnceCell<ExecutableToolResult>>,
+                    > = tool_calls
+                        .iter()
+                        .map(|_| std::sync::Arc::default())
+                        .collect();
+
                     // Execute tools with resource-conflict scheduling:
                     // non-conflicting calls run concurrently, conflicting
                     // calls (e.g. two writes to the same file) are
@@ -502,25 +532,74 @@ pub fn run_turn<'a>(
                     let exec_fn = {
                         let turn_id = turn_id.clone();
                         let callbacks = callbacks.clone();
+                        let dedupe_cells = dedupe_cells.clone();
+                        let original_of = dedupe_plan.original_of.clone();
                         move |tc: ToolCall| {
+                            let index = call_index.get(&tc.id).copied();
+                            // The step's first same-key occurrence this
+                            // repeat shares (`None` for originals).
+                            let dup_source = index
+                                .zip(index.map(|i| original_of[i]))
+                                .filter(|(i, o)| i != o)
+                                .map(|(_, o)| o);
                             let turn_id = turn_id.clone();
                             let callbacks = callbacks.clone();
+                            let dedupe_cells = dedupe_cells.clone();
                             async move {
+                                // A same-step repeat never executes: it
+                                // shares the original's result, which the
+                                // step's finalize pass rewrites with any
+                                // repeat reminder before the results reach
+                                // the history (v2 deferred resolution). The
+                                // fallback only runs if the original's task
+                                // vanished before publishing (a cancellation
+                                // abort) — never executes the tool, matching
+                                // v2's lost-deferred error result.
+                                if let Some(original) = dup_source {
+                                    let shared = dedupe_cells[original]
+                                        .get_or_init(|| async {
+                                            ExecutableToolResult {
+                                                content: "Tool call deduplicated but original result was lost".into(),
+                                                is_error: true,
+                                                note: None,
+                                            }
+                                        })
+                                        .await;
+                                    return Ok(shared.clone());
+                                }
                                 let req = ToolExecuteRequest {
                                     turn_id: turn_id.clone(),
                                     tool_call_id: tc.id.clone(),
                                     tool_name: tc.name.clone(),
                                     arguments: tc.arguments.clone(),
                                 };
-                                let response = callbacks
-                                    .execute_tool(req)
-                                    .await
-                                    .map_err(|e| format!("Tool execution error: {e}"))?;
-                                Ok(ExecutableToolResult {
-                                    content: response.content,
-                                    is_error: response.is_error,
-                                    note: response.note,
-                                })
+                                // Publish the outcome through the cell so a
+                                // repeat can share it; a transport error
+                                // becomes the same error result the
+                                // scheduler would synthesize for it.
+                                let execute = async {
+                                    match callbacks.execute_tool(req).await {
+                                        Ok(response) => ExecutableToolResult {
+                                            content: response.content,
+                                            is_error: response.is_error,
+                                            note: response.note,
+                                        },
+                                        Err(e) => ExecutableToolResult {
+                                            content: format!("Tool execution error: {e}"),
+                                            is_error: true,
+                                            note: None,
+                                        },
+                                    }
+                                };
+                                match index {
+                                    Some(i) => {
+                                        let result = dedupe_cells[i].get_or_init(|| execute).await;
+                                        Ok(result.clone())
+                                    }
+                                    // Unknown call id (defensive): no cell to
+                                    // share through, execute plainly.
+                                    None => Ok(execute.await),
+                                }
                             }
                         }
                     };
@@ -531,7 +610,7 @@ pub fn run_turn<'a>(
                             accesses: tool_scheduler::infer_tool_accesses(&tc.name, &tc.arguments),
                         })
                         .collect();
-                    let results = match tool_scheduler::execute_scheduled(
+                    let mut results = match tool_scheduler::execute_scheduled(
                         input.cancellation.as_ref(),
                         scheduled,
                         exec_fn,
@@ -560,9 +639,35 @@ pub fn run_turn<'a>(
                         }
                     };
 
+                    // Dedup finalize (v2 `finalizeResult` + `endStep`):
+                    // streak reminders are appended to the originals'
+                    // results, same-step repeats receive the original's
+                    // final result, and the cross-step streak advances.
+                    let dedupe_force_stop =
+                        tool_dedupe.finalize_step(&dedupe_plan, &mut results);
+
                     // Insert tool results, each linked back to its call
                     // via `tool_call_id` (same call order as `tool_calls`).
                     for (i, tr) in results.iter().enumerate() {
+                        // A same-step repeat shared the original's execution
+                        // and never reached the native gate, so no tool.native
+                        // event surfaced it — emit one here so the transcript
+                        // still shows the call with its shared result (v2
+                        // keeps the vetoed repeat visible).
+                        if dedupe_plan.original_of.get(i).is_some_and(|o| *o != i)
+                            && let Some(tc) = tool_calls.get(i)
+                        {
+                            callbacks.emit_event(serde_json::json!({
+                                "type": "tool.native",
+                                "turn_id": turn_id,
+                                "tool_call_id": tc.id,
+                                "tool_name": tc.name,
+                                "arguments": tc.arguments,
+                                "content": tr.content,
+                                "is_error": tr.is_error,
+                                "note": tr.note,
+                            }));
+                        }
                         messages.push(LLMMessage {
                             role: "tool".into(),
                             content: tr.content.clone(),
@@ -570,6 +675,19 @@ pub fn run_turn<'a>(
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
                         });
+                    }
+
+                    if dedupe_force_stop {
+                        // v2 `stopTurn`: the turn ends as `completed` once
+                        // the step's results are recorded.
+                        return Ok(turn_result(
+                            LoopTurnStopReason::EndTurn,
+                            steps,
+                            total_usage,
+                            0,
+                            llm_retries,
+                            messages.clone(),
+                        ));
                     }
                 }
                 LoopStepStopReason::Aborted => {
@@ -1420,6 +1538,296 @@ mod tests {
                 && m.content == "stub"),
             "step 2 history must contain the tool result: {second:?}"
         );
+    }
+
+    // ── Tool-call dedup (v2 `toolDedupeService` mirror, G-6 #2) ─────────
+
+    /// A same-step repeat of an identical call never executes: the host
+    /// runs the original once, and the repeat receives the same result.
+    #[tokio::test]
+    async fn test_same_step_duplicate_executes_once() {
+        struct DupLlm {
+            call: AtomicU32,
+        }
+        impl LLM for DupLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "dup-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![
+                                ToolCall {
+                                    id: "tc1".into(),
+                                    name: "read".into(),
+                                    arguments: serde_json::json!({"path": "/a.txt"}),
+                                },
+                                // Same key, different call id — the repeat.
+                                ToolCall {
+                                    id: "tc2".into(),
+                                    name: "read".into(),
+                                    arguments: serde_json::json!({"path": "/a.txt"}),
+                                },
+                            ],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = DupLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let executions = Arc::new(AtomicU32::new(0));
+        let counter = executions.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, move |_params| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-same-step-dedup".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        let result = run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            executions.load(Ordering::SeqCst),
+            1,
+            "the repeat must share the original's execution"
+        );
+        // Both calls keep their result messages, with identical content.
+        let tool_msgs: Vec<&LLMMessage> = result
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_msgs.len(), 2);
+        assert_eq!(tool_msgs[0].tool_call_id.as_deref(), Some("tc1"));
+        assert_eq!(tool_msgs[1].tool_call_id.as_deref(), Some("tc2"));
+        assert_eq!(tool_msgs[0].content, "stub");
+        assert_eq!(tool_msgs[1].content, "stub");
+    }
+
+    /// Calls with non-native names are exempt from engine-side dedup: they
+    /// run on the host, whose own dedup service stays authoritative.
+    #[tokio::test]
+    async fn test_same_step_duplicate_of_host_tool_still_executes_twice() {
+        struct HostDupLlm {
+            call: AtomicU32,
+        }
+        impl LLM for HostDupLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "host-dup-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![
+                                ToolCall {
+                                    id: "tc1".into(),
+                                    name: "echo".into(),
+                                    arguments: serde_json::json!({"text": "hello"}),
+                                },
+                                ToolCall {
+                                    id: "tc2".into(),
+                                    name: "echo".into(),
+                                    arguments: serde_json::json!({"text": "hello"}),
+                                },
+                            ],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = HostDupLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let executions = Arc::new(AtomicU32::new(0));
+        let counter = executions.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, move |_params| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-host-tool-no-dedup".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            executions.load(Ordering::SeqCst),
+            2,
+            "non-native names bypass engine dedup (the host dedups them)"
+        );
+    }
+
+    /// Cross-step repeats earn the escalating reminders, and the 12th
+    /// consecutive identical call force-stops the turn as `completed`.
+    #[tokio::test]
+    async fn test_repeat_streak_appends_reminders_and_force_stops() {
+        struct RepeatLlm {
+            call: AtomicU32,
+        }
+        impl LLM for RepeatLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "repeat-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![ToolCall {
+                            id: format!("tc{call}"),
+                            name: "read".into(),
+                            arguments: serde_json::json!({"path": "/a.txt"}),
+                        }],
+                        finish_reason: Some("tool_calls".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+        let llm = RepeatLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-repeat-streak".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            // Generous ceiling: the force stop, not max_steps, must end it.
+            max_steps: 20,
+            goal: None,
+            cancellation: None,
+        };
+        let result = run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(result.steps, 12, "force stop at the 12th repeat");
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+        let tool_msgs: Vec<&LLMMessage> = result
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_msgs.len(), 12);
+        // Streak 1 and 2 stay untouched; 3 earns reminder 1.
+        assert_eq!(tool_msgs[0].content, "stub");
+        assert_eq!(tool_msgs[1].content, "stub");
+        assert!(tool_msgs[2].content.contains("repeated several times in a row"));
+        // Streak 5 embeds the count (reminder 2).
+        assert!(tool_msgs[4].content.contains("issued 5 times in a row"));
+        // Streak 8 and 12 carry the final-response reminder; 12 stops the turn.
+        assert!(tool_msgs[7].content.contains("Write your final response now"));
+        assert!(tool_msgs[11].content.contains("Write your final response now"));
     }
 
     // ── Turn telemetry counters ─────────────────────────────────────────

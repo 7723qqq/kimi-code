@@ -75,6 +75,7 @@ pub mod task_tools;
 pub mod team_tool;
 pub mod todo_item;
 pub mod todo_list;
+pub mod tool_dedupe;
 pub mod web_search;
 
 /// Tools whose native execution requires a host permission grant first.
@@ -145,6 +146,16 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "knowledge",
     "team",
 ];
+
+/// The static half of [`NativeToolset::handles`] without an instance: the
+/// contracted native name list plus the dynamic GitHub family. The dedup
+/// guard in `run_turn` uses it to scope engine-side dedup to calls that can
+/// execute natively — host-forwarded calls stay under the host's own
+/// `toolDedupeService`, so a repeated call is never deduped twice.
+pub fn is_native_tool_name(tool_name: &str) -> bool {
+    let lowered = tool_name.to_ascii_lowercase();
+    NATIVE_TOOL_NAMES.contains(&lowered.as_str()) || github::is_github_tool(tool_name)
+}
 
 /// Sandboxed native executor, rooted at the workspace.
 pub struct NativeToolset {
@@ -249,8 +260,7 @@ impl NativeToolset {
     /// Whether the sandbox knows how to execute this tool natively (subject
     /// to a host permission grant and sandbox confinement).
     pub fn handles(&self, tool_name: &str) -> bool {
-        let lowered = tool_name.to_ascii_lowercase();
-        NATIVE_TOOL_NAMES.contains(&lowered.as_str()) || github::is_github_tool(tool_name)
+        is_native_tool_name(tool_name)
     }
 
     /// Execute a tool natively (async).

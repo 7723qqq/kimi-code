@@ -2243,7 +2243,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 | # | 注册方 | 守护语义 | 引擎路径现状 | 判定 |
 |---|---|---|---|---|
 | 1 | `permissionGateService.ts:30` | 全工具权限裁决（mode/rules/policies/交互审批） | 宿主执行工具：钩子触发 ✓。原生工具：本地 `PermissionEngine`（PolicySnapshot 镜像）+ 变更类 Ask 上抛 `host/check_permission` → `gate.authorize` 全机制 | **等价**——权限权威仍在宿主（P33 契约），本地链保真度是 P26 批 3 自身的测试面 |
-| 2 | `toolDedupeService.ts:190` | 相邻重复调用去重（veto 合成结果） | 宿主执行工具：触发 ✓。原生工具（恰是最常重复的 Read/Grep）：不触发；且步界粒度已粗化（P33：per-turn） | **缺口 → M2 迁移**：引擎 `run_turn` 内做 per-step 去重（状态在引擎侧，天然归属） |
+| 2 | `toolDedupeService.ts:190` | 相邻重复调用去重（veto 合成结果） | 宿主执行工具：触发 ✓。原生工具（恰是最常重复的 Read/Grep）：不触发；且步界粒度已粗化（P33：per-turn） | **已迁移**（2026-09-02，见 P45）——引擎 `run_turn` 内 per-step 去重 + 跨步 streak 提醒/强停，仅限原生可执行名（宿主回退调用仍归宿主 dedupe，避免双重覆盖） |
 | 3 | `staleGuardService.ts:57` | Edit/Write 写前读检查（盲写防护） | 原生 Write/Edit 绕过；Rust `write()` 无任何 stale 检查（`tools/mod.rs`） | **已迁移**（2026-09-01，见 P41）——引擎侧 `StaleGate` 全量镜像 v2 语义（mtime 记录/三分支判定/plan 文件豁免），原生与宿主回退路径全覆盖 |
 | 4 | `planService.ts:97` | plan 模式 Write/Edit 拦截 + ExitPlanMode 审批 | ~~REPL：`plan_guard` 等价 ✓（`repl/mod.rs:455`）。**napi 产品路径 `plan_guard: None`（`napi_bindings.rs:1093`）→ plan 模式下原生 Write/Edit 不被拦截**；权限策略链无 plan 概念（grep 证实），宿主 `check_permission` 兜不住。ExitPlanMode 审批：原生 `exit_plan_mode.rs` 已实现完整审批流（经 `ask_question`，auto 直通）~~ **✅ 已落地（2026-09-01，见 P39）**：`PlanGuard` 异步化，napi/stdio 产品路径经 state 桥每次受护调用现读 plan 状态并按 v2 语义否决（Write/Edit 只许写 plan 文件 + TaskStop/CronCreate/CronDelete 拒绝，后两项同时补齐了 REPL 缺口）；ExitPlanMode 审批原本已由原生工具自带 | **已迁移** |
 | 5 | `btwService.ts:34` | btw 子代理禁用全部工具 | 子代理 loop 同样拿到 engine override → 原生工具绕过 veto | **缺口（低危）→ 接受并记录**：reminder 已声明禁用，veto 是执行保障；引擎侧补「工具禁用」通道属 M2 可选项 |
@@ -2263,7 +2263,7 @@ CLI 写、TUI 读，与 `experimental-flags.ts` 的「app-local snapshot + 命�
 - **2 处接受并记录**（#5、#12）：低危（reminder/实验特性已兜住语义），M5 删 v2 时按本表显式接受，
   不算静默丢失。
 - **7 处真缺口 → 迁移队列**：~~#4（plan 拦截 napi 接线，**产品默认路径缺陷，排最前**）~~ ✅ 已落地（P39）、
-  ~~#3（staleGuard）~~ ✅ 已落地（P41）、~~#7+#8（goal 审批/stale，同域一并做）~~ ✅ 已落地（P42）、~~#6（externalHooks PreToolUse）~~ ✅ 已落地（P43）、#2（toolDedupe）、
+  ~~#3（staleGuard）~~ ✅ 已落地（P41）、~~#7+#8（goal 审批/stale，同域一并做）~~ ✅ 已落地（P42）、~~#6（externalHooks PreToolUse）~~ ✅ 已落地（P43）、~~#2（toolDedupe）~~ ✅ 已落地（P45）、
   #13（tower worker，随 M3）。每项独立成批，落地一项即在 Rust 侧补测试并在本表销账。
 
 ### 验证说明
@@ -2486,7 +2486,7 @@ P33 终态「agent-core-v2 从仓库消失」与 M3 消费方 (b)「保留 v2 �
 | profiles+subagent | 3933 | **Rust 吸收**(队列:subagent 产品路径接线) | Rust 1.6k 已存在,P28 引擎内 subagent |
 | task runner | 2331 | **Rust 吸收**(继续) | 原生 task 族已存在 |
 | external hooks / undo+checkpoint / goal / plan / todo / cron | — | **Rust 吸收 ✅** | P43/M4/P3/P39/原生工具已落地 |
-| tool dedupe(#2) | — | **Rust 吸收**(队列) | G-6 队列剩余 |
+| tool dedupe(#2) | — | **Rust 吸收 ✅**（P45，2026-09-02） | G-6 队列剩余 |
 
 ### 决策 3:宿主层库范围
 
@@ -2502,4 +2502,43 @@ P33 终态「agent-core-v2 从仓库消失」与 M3 消费方 (b)「保留 v2 �
 
 ### 队列(决策后实施顺序)
 
-#2 toolDedupe → subagent 产品路径接线 → M5 引擎面删除(loopService/llmRequester/contextProjector 等 ≈11.9k 行,依赖消费者完成 Rust session 迁移)。tower worker 限制(#13)随 tower 宿主层保留,不再作为独立迁移项。
+subagent 产品路径接线 → M5 引擎面删除（loopService/llmRequester/contextProjector 等 ≈11.9k 行，依赖消费者完成 Rust session 迁移）。tower worker 限制(#13)随 tower 宿主层保留，不再作为独立迁移项。#2 toolDedupe 已于 P45（2026-09-02）落地。
+
+## P45 — G-6 #2：toolDedupe 迁入引擎（2026-09-02）
+
+P38 判定表 #2 落地：引擎原生路径从「重复调用零防护」变为引擎内全量去重。宿主侧 `toolDedupeService` 保持不动（继续守宿主执行路径与非引擎会话）。
+
+### 语义基准（v2 `toolDedupeService.ts`）
+
+- **key**：`"<tool> <canonical args>"`，canonical = 递归排序键的紧凑 JSON（`canonicalTelemetryArgs`）。
+- **同步去重**：同一步内第二次出现的同 key 调用被 veto 为占位结果，等原始调用的**最终**结果（带提醒）；原始与重复看到相同结果。
+- **跨步 streak**：连续同 key 调用的计数随步推进（turn 变更时重置）；streak ≥ 3/5/8 分别追加递增提醒（`<system-reminder>` 包裹，文案逐字节移植），≥ 12 强停（`stopTurn` → turn 以 `completed` 结束，结果先落历史）。
+- **finalize 时点**：streak 用步头快照计算（`finalizeResult` 在 `endStep` 之前）；`endStep` 随后按步内全部 key 推进 streak（含重复）。
+- 重复调用在转录中仍可见（v2 veto 后仍出工具卡片）。
+
+### 实现
+
+- `src/tools/tool_dedupe.rs`：`DedupeGuard`（`plan_step` / `plan_step_by` / `finalize_step` + `streak_at`），提醒文案/阈值常量逐字节对齐 v2。状态 per-turn：v2 `beginStep` 在 turn id 变更时重置，引擎一次 `run_turn` 只跑一个 turn，因此守卫局部构造、不跨 turn 持久化。
+- `run_turn` ToolCalls 分支接线：计划（键化 + 同步重复标记）→ 每调用一个 `tokio::sync::OnceCell` 经 `get_or_init` 共享：原始发布执行结果，重复等待共享、绝不执行（重复端回退文案仅在原始的发布前消失时生效——取消中止——用 v2 lost-deferred 同款错误文案，不执行工具）→ `finalize_step`（提醒追加、重复复制原始最终结果、endStep 式推进）→ 强停时以 `EndTurn` 返回（v2 `stopTurn` → `completed`）。结果顺序由调度器保序（与 `tool_calls` 同序），执行错误被调度器转为错误结果而非中断批——cell 总有值，不会挂住等待者。
+- **去重范围限定原生可执行名**（`tools::is_native_tool_name`，`NATIVE_TOOL_NAMES` 契约表 + GitHub 动态族，`handles()` 的无实例静态半体）：宿主回退调用仍由宿主 `toolDedupeService` 守（引擎路径上它以 per-turn 粗粒度运行，P33 已记录），避免同一调用被两层双重重叠去重/提醒。
+- **转录保真**：重复调用未经原生门、无 `tool.native` 事件，`run_turn` 在推入结果时为其补发一条（携共享后的最终内容），宿主转录两张卡片齐备（v2 对齐）。
+- 引擎级测试 3 条（同步重复只执行一次、非原生名不去重、跨步 3/5/8/12 提醒与强停）+ 守卫单测 11 条；stdio 产品路径 E2E 1 条（真 CLI 二进制 + 真权限门：两次同参 Write → 权限一次/执行一次/转录两卡片）。
+- 随批落地：`migration-legacy` 的 v2 数据 detect/export 工具（M4 Q1 决议的落地件，`v2-home` / `v2-detect` / `v2-export` + 5 条测试）——升级跨过 M5 前用户可先 `v2-detect` 看孤儿子目录、`v2-export` 归档。
+
+### 诚实边界
+
+- **遥测未移植**：v2 的 `tool_call_repeat` / `tool_call_dedup_detected` / `tool_call_turn_repeat` 未发——`host/telemetry` seam 在产品中刻意未激活（M1c：接通即双份上报），且 `telemetryEventSchema` 仅承载三个 turn 生命周期事件。随遥测接管（M1d 所有权翻转）一并接线的接线项。
+- **dup_type 记录**（v2 `toolExecutor.recordDupType` same_step/cross_step）无引擎对应面（原生工具转录卡片由 rust-loop 合成），接受缺失。
+- **canonical 序列化差异**：引擎用 serde_json 紧凑序列化（BTreeMap 天然键序），标量格式（如浮点）可能与 `JSON.stringify` 不同——只影响同一性的宽严，不影响正确性，且引擎内自洽。
+- **沙箱逃逸回退的重复**：原生名但执行时回退宿主的调用（沙箱逃逸/歧义参数）仍受引擎去重，宿主侧也见原始调用——极端场景下两层各自计数，提醒可能叠加；重复的同步逃逸实际不可能（同参同结果），仅记录不处理。
+- 引擎路径上宿主 `toolDedupeService` 的步界粗化（per-turn）维持现状（P33 已记录），引擎层 per-step 去重恰好补上原生路径的丢失面。
+- 真实 LLM 会话下的端到端验证仍需真实 key（沿用）。
+
+### 验证
+
+- cargo：894 lib（+14：守卫单测 11 + run_turn 引擎级 3）+ 18 集成全绿；clippy 0 warnings。
+- bun vitest（kimi-agent）：117/117（+1 stdio dedupe E2E；napi addon 与 kimi-agent-cli 均重建于本批提交前）。
+- agent-core-v2 引擎面契约：engineOverride + rustEngineE2E + rustEngineZeroJsLoop 67/67 无回归。
+- oxlint（变更 TS 文件）：0 errors。
+- migration-legacy：203 中 199 过、 3 预存失败（`test/steps/user-history.test.ts` 的 chmod 000 用例在 Windows Administrator 下权限不生效，与本批零相关，未触碰该文件）、 1 skip；新增 v2 detect/export 5/5 绿。
+

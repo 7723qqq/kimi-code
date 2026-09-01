@@ -348,6 +348,94 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(toolResultEvents[0].result?.isError).toBe(true);
   });
 
+  // v2 `toolDedupeService` mirror (G-6 #2): identical native calls issued
+  // in the same step execute once — the repeat shares the original's
+  // result and stays visible in the transcript.
+  it('deduplicates same-step identical native calls', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-dedupe-'));
+    tempDirs.push(workspace);
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    const events: unknown[] = [];
+    const permissionCalls: Array<{ name: string; arguments: unknown }> = [];
+    let hostToolExecutions = 0;
+    let llmCallCount = 0;
+
+    const writeArgs = JSON.stringify({ path: 'dup.txt', content: 'once\n' });
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'test-model',
+        modelId: 'test-model',
+        systemPrompt: 'You are a test driver.',
+        async chat() {
+          const call = llmCallCount++;
+          if (call === 0) {
+            // Two identical calls (same name + args) in one step.
+            return {
+              toolCalls: [
+                { type: 'function', id: 'call-dup-a', name: 'Write', arguments: writeArgs },
+                { type: 'function', id: 'call-dup-b', name: 'Write', arguments: writeArgs },
+              ],
+              providerFinishReason: 'tool_calls',
+              usage: { inputOther: 10, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent(event: unknown) {
+        events.push(event);
+      },
+      async executeTool() {
+        hostToolExecutions += 1;
+        return { output: 'UNREACHABLE host fallback', isError: true };
+      },
+      async checkToolPermission(call: { name: string; arguments: unknown }) {
+        permissionCalls.push({ name: call.name, arguments: call.arguments });
+        return { decision: 'allow' as const };
+      },
+    } satisfies TurnEngineInputLike;
+
+    const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
+    expect((result as { stopReason: string }).stopReason).toBe('completed');
+
+    // The repeat shared the original: one permission check, one native
+    // execution, no host fallback.
+    expect(permissionCalls).toHaveLength(1);
+    expect(hostToolExecutions).toBe(0);
+    expect(readFileSync(join(workspace, 'dup.txt'), 'utf8')).toBe('once\n');
+
+    // Both calls stay visible in the transcript: the repeat surfaces via a
+    // synthesized tool.native event carrying the shared result.
+    const toolCallEvents = events.filter(
+      (e) => typeof e === 'object' && e !== null && (e as { type?: string }).type === 'tool.call',
+    );
+    const toolResultEvents = events.filter(
+      (e) => typeof e === 'object' && e !== null && (e as { type?: string }).type === 'tool.result',
+    );
+    expect(toolCallEvents).toHaveLength(2);
+    expect(toolResultEvents).toHaveLength(2);
+  });
+
   it('recovers after the stdio engine process crashes', async () => {
     // A crash used to be terminal: the mode stayed 'stdio' with a null
     // process handle, so every later turn failed with "Agent process is not
