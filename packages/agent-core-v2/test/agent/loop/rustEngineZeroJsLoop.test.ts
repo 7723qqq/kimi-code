@@ -34,6 +34,8 @@ describe('rust engine zero JS loop', () => {
     let engineCalls = 0;
     const engine: TurnEngine = async (input) => {
       engineCalls += 1;
+      input.onTurnEvent?.({ type: 'turn.prompt', turnId: input.turnId, input: [], origin: { kind: 'user' } });
+      input.onTurnEvent?.({ type: 'turn.started', turnId: input.turnId, origin: { kind: 'user' } });
       await input.dispatchEvent({
         type: 'step.begin',
         uuid: 'step-1',
@@ -55,6 +57,7 @@ describe('rust engine zero JS loop', () => {
         step: 1,
         usage: emptyUsage(),
       });
+      input.onTurnEvent?.({ type: 'turn.ended', turnId: input.turnId, reason: 'completed' });
       return {
         stopReason: 'completed',
         steps: 1,
@@ -62,7 +65,7 @@ describe('rust engine zero JS loop', () => {
       };
     };
 
-    ctx = createTestAgent(appService(IEngineOverrideService, { getEngine: () => engine }));
+    ctx = createTestAgent(appService(IEngineOverrideService, { getEngine: () => engine, ownsTurnLifecycle: true }));
     void ctx.restoreRuntimes();
     const end = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
@@ -80,6 +83,8 @@ describe('rust engine zero JS loop', () => {
   it('drives a multi-step turn with a tool round-trip through the engine', async () => {
     const tool = makeEchoTool();
     const engine: TurnEngine = async (input) => {
+      input.onTurnEvent?.({ type: 'turn.prompt', turnId: input.turnId, input: [], origin: { kind: 'user' } });
+      input.onTurnEvent?.({ type: 'turn.started', turnId: input.turnId, origin: { kind: 'user' } });
       for (let step = 1; step <= 2; step += 1) {
         await input.dispatchEvent({
           type: 'step.begin',
@@ -125,11 +130,12 @@ describe('rust engine zero JS loop', () => {
           usage: emptyUsage(),
         });
       }
+      input.onTurnEvent?.({ type: 'turn.ended', turnId: input.turnId, reason: 'completed' });
       return { stopReason: 'completed', steps: 2, usage: emptyUsage() };
     };
 
     ctx = createTestAgent(
-      appService(IEngineOverrideService, { getEngine: () => engine }),
+      appService(IEngineOverrideService, { getEngine: () => engine, ownsTurnLifecycle: true }),
       permissionModeServices('yolo'),
     );
     registerTool(ctx, tool);

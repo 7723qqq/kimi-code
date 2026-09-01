@@ -1466,7 +1466,7 @@ gateway 2/2，tsc 0 错误。
   （napi 边界编译期 / stdio 边界测试期 fixture+zod / kosong 手写权威+golden fixture——
   口径修订记录在决策文档 §4）。
 
-- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — 🔄 M1a + M1b + M1c 完成（2026-09-01）；M1d 待做
+- **M1 — 移出 v2 的 turn 生命周期外壳（枢轴）** — ✅ M1a + M1b + M1c + M1d 完成（2026-09-01）
   - **M1a — EngineSession 骨架 + REPL 消费**（✅）：`packages/kimi-agent/src/session/mod.rs`（~520 行）实现
     `EngineSession`——admission 四模式（`NewTurn` / `ActiveOrNewTurn` / `ActiveOrNextTurn` /
     `ActiveTurnOnly`）、pending FIFO + 串行 pump（`tokio::spawn` + `Notify` 唤醒 + 锁内
@@ -1546,8 +1546,8 @@ gateway 2/2，tsc 0 错误。
     - 测试：Rust 遥测契约 2 条（payload 合并 + 取消→interrupted 映射）；TS wire-schema 2 条 +
       stdio 传输 2 条 + napi 端到端 1 条（`createRunTurnOverride` 注入 context →
       started/ended 到达，字段逐项断言）。
-  - **M1d** — 工具快照收尾 — 🔄 `host/list_tools` 完成（2026-09-01）；`executeTurnViaEngine`
-    删除 + 零 v2 loop 代码待做：
+  - **M1d** — 工具快照收尾 — ✅ 2026-09-01（`host/list_tools` + `executeTurnViaEngine` 删除 +
+    零 v2 loop 代码，G-5 门禁断言）：
     - **`host/list_tools`（每 LLM 调用前拉取，替代 `buildTools` 一次性快照）**：native 传输
       （transport ≠ host-proxy）下 run_turn 每步先 `callbacks.list_tools()` 拉宿主当前工具表，
       失败/未接线回退 turn-start 快照（trait 默认 Err，REPL 的 `ReplDummyHostCallbacks` 走此路，
@@ -1628,6 +1628,21 @@ gateway 2/2，tsc 0 错误。
       模型上下文出现重复消息（既有测试只断言 turn 2 请求所以未抓到）。修复：折叠跳过
       `1 + history_len`；新增三 turn 去重测试。产品路径（per-turn run_turn）不受影响，
       REPL 与即将到来的会话翻转受益。
+    - **3d — 引擎路径完全移出 JS step 循环（✅ 2026-09-01）**：引擎分支从 while 循环内
+      （`runtime.steps === 1` 拦截）上移到 `run()` 入口——`executeTurnViaEngine` 改写为
+      `driveEngineTurn`，TurnEngine override 下 `beginLoopStep` / `completeLoopStep` /
+      `handleLoopStepError` 及整个 JS step 机制零执行，loopService 对引擎路径退化为
+      turn-start 门面：drain 排队请求并逐个 materialize（prompt 落 context transcript，
+      `buildMessages` 才能看到用户消息——首版漏掉此步，engineOverride / rustEngineE2E
+      各红一条后补上）、`onWillBeginStep` 注入门、`TurnStepStarted`/`TurnStepCompleted`
+      UI 事件、`engine_turn` 遥测、`runAfterStep`。G-5 门禁同步收紧：JS_ONLY_FUNCTIONS
+      增列三个 loop-shell 函数，ENGINE_PATH_FUNCTIONS 换为 `driveEngineTurn` /
+      `createLoopRuntime` / `buildEngineInput` / `runAfterStep`；rustEngineZeroJsLoop
+      车辆测试补 `ownsTurnLifecycle: true` + `turn.prompt/started/ended` 事件回放。
+      验证：engineOverride 61/61、rustEngineZeroJsLoop 2/2、rustEngineE2E 3/3、
+      loop 套件 166/167（唯一失败为既有工具表快照 hash 环境漂移）、G-5 OK（11 个
+      JS-loop 函数零调用 / 4 个引擎路径函数有调用）、tsc 干净。pump join 式回收
+      （开放点 ③）不在本切片，随 M2。
   设计要点：napi/stdio 边界从「每 turn 一次调用」升级为 **EngineSession 会话句柄**
   （准入四模式 + FIFO + pump + 取消 + 背压，从 REPL 循环泛化）；durable turn 事件
   经新 `host/turn_event` 回调交宿主（引擎决策、宿主持久化——对齐 state-bridge 先例）；
@@ -1690,7 +1705,7 @@ gateway 2/2，tsc 0 错误。
   v2 侧，3c 需经句柄暴露 `try_acquire_quiescence`~~（✅ 2026-09-01 已暴露：
   `session_try_acquire_quiescence`/`session_release_quiescence`——RAII guard 存注册表，
   release 即 drop 重放；句柄方法 + 集成测试已钉）；③ 会话 pump 的
-  join 式回收（dispose 后 pump 停靠）在 3d 处理。
+  join 式回收（dispose 后 pump 停靠）——3d 未含，随 M2 回调处置一并做。
 
   **补充裁决（3a 动刀前）：会话固化 vs 每 turn 现读。** 会话把 LLM/权限引擎/GitHub 凭据
   固化在创建时，而产品路径今天每 turn 现读（TUI 模型切换写 `default_model`、token 轮换、

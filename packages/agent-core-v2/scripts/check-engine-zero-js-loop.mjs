@@ -25,13 +25,18 @@ const JS_ONLY_FUNCTIONS = [
   'finishStep',
   'emitStepCompleted',
   'createStreamPartHandler',
+  // M1d 3d: the engine branch moved out of the step loop entirely, so the
+  // loop-shell step machinery never runs under a TurnEngine override.
+  'beginLoopStep',
+  'completeLoopStep',
+  'handleLoopStepError',
 ];
 
 /**
  * Shared-shell functions on the engine path. They must show call hits in
  * the vehicle run — otherwise the run proved nothing (vacuous pass).
  */
-const ENGINE_PATH_FUNCTIONS = ['executeTurnViaEngine', 'buildEngineInput', 'runAfterStep'];
+const ENGINE_PATH_FUNCTIONS = ['driveEngineTurn', 'createLoopRuntime', 'buildEngineInput', 'runAfterStep'];
 
 function declarationLine(source, name) {
   const pattern = new RegExp(`^  (?:private |public |override |static |async )*(?:async )?${name}\\(`);

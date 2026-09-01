@@ -722,6 +722,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
+    // An external engine (e.g. the Rust kimi-agent engine) drives the whole
+    // turn in place of the JS step loop. The engine consumes the turn to
+    // completion and reports events back through the engine input; the JS
+    // step loop is never entered.
+    const engine = this.engineOverride.getEngine();
+    if (engine !== undefined) {
+      return this.driveEngineTurn(options, engine);
+    }
     const runtime = this.createLoopRuntime(options);
     try {
       while (true) {
@@ -729,21 +737,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           const begun = this.beginLoopStep(runtime);
           if ('result' in begun) return begun.result;
           runtime.current = begun.step;
-          // An external engine (e.g. the Rust kimi-agent engine) drives the
-          // whole turn in place of the JS loop. The override runs once per
-          // turn on the first step; the engine consumes the turn to
-          // completion and reports events back through the engine input.
-          const engine = this.engineOverride.getEngine();
-          if (engine !== undefined && runtime.steps === 1) {
-            const stepResult = await this.executeTurnViaEngine(runtime, engine, begun.step, options.onStarted);
-            const completed = this.completeLoopStep(runtime, stepResult);
-            if (completed !== undefined) return completed;
-            return {
-              type: 'completed',
-              steps: runtime.steps,
-              truncated: stepResult.stopReason === 'truncated',
-            };
-          }
           const result = await this.executeLoopStep(
             runtime.turnId,
             begun.step.signal,
@@ -995,74 +988,80 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   /**
-   * External-engine turn drive. The engine runs the whole turn and reports
-   * transcript events back through `dispatchEvent`; this method only wraps
-   * the call with the step lifecycle UI events (started/completed) that the
-   * JS path would have produced in `beginStep`/`finishStep`. The engine is
-   * responsible for dispatching its own `step.begin`/`step.end` into the
-   * context, so `beginStep` is intentionally not called.
+   * External-engine turn drive (M1d 3d). The engine runs the whole turn and
+   * reports transcript events back through `dispatchEvent`; this method only
+   * wraps the call with the turn-start plumbing the JS path would have
+   * produced: the injection gate, the step lifecycle UI event, and the
+   * after-step hooks. The engine is responsible for dispatching its own
+   * `step.begin`/`step.end` into the context, so the JS step loop is never
+   * entered.
    */
-  private async executeTurnViaEngine(
-    runtime: LoopRuntime,
+  private async driveEngineTurn(
+    options: LoopRunOptions,
     engine: TurnEngine,
-    step: StepRuntime,
-    onStarted: ((step: number) => void) | undefined,
-  ): Promise<StepExecutionResult> {
+  ): Promise<LoopRunResult> {
+    const runtime = this.createLoopRuntime(options);
     const turnId = runtime.turnId;
-    const signal = step.signal;
-    signal.throwIfAborted();
-    await this.hooks.onWillBeginStep.run({
-      turnId,
-      step: step.number,
-      firstStepOfTurn: step.number === 1,
-      signal,
-    });
-    void this.dispatcher.dispatch(
-      new TurnStepStarted({
-        agentId: this.scopeContext.agentId,
+    const signal = runtime.turnSignal;
+    try {
+      signal.throwIfAborted();
+      // The engine drives steps itself, so the queued turn requests are
+      // consumed here instead of by `beginLoopStep`. Materialize them so
+      // the prompt lands in the context transcript before the engine
+      // projects messages from it.
+      for (const request of runtime.queue.drain()) {
+        this.materializeRequest(request);
+      }
+      await this.hooks.onWillBeginStep.run({
         turnId,
-        step: step.number,
-        stepId: step.uuid,
-      }),
-    );
-    onStarted?.(step.number);
-    const input = this.buildEngineInput(turnId, signal, step.number);
-    const result = await engine(input);
-    if (result.telemetry !== undefined) {
-      const engineTurn: EngineTurnEvent = {
-        turn_id: turnId,
-        stop_reason: result.stopReason,
+        step: 1,
+        firstStepOfTurn: true,
+        signal,
+      });
+      const stepId = randomUUID();
+      void this.dispatcher.dispatch(
+        new TurnStepStarted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          step: 1,
+          stepId,
+        }),
+      );
+      options.onStarted?.(1);
+      const input = this.buildEngineInput(turnId, signal, 1);
+      const result = await engine(input);
+      if (result.telemetry !== undefined) {
+        const engineTurn: EngineTurnEvent = {
+          turn_id: turnId,
+          stop_reason: result.stopReason,
+          steps: result.steps,
+          events_emitted: result.telemetry.eventsEmitted,
+          llm_retries: result.telemetry.llmRetries,
+          llm_transport: result.telemetry.llmTransport,
+          native_tool_call_count: result.telemetry.nativeToolCallCount,
+        };
+        this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
+      }
+      void this.dispatcher.dispatch(
+        new TurnStepCompleted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          step: 1,
+          stepId,
+          usage: result.usage,
+          finishReason: normalizeFinishReason(result.stopReason),
+          providerFinishReason: result.stopReason,
+        }),
+      );
+      await this.runAfterStep(turnId, signal, 1, true, result.usage, result.stopReason);
+      return {
+        type: 'completed',
         steps: result.steps,
-        events_emitted: result.telemetry.eventsEmitted,
-        llm_retries: result.telemetry.llmRetries,
-        llm_transport: result.telemetry.llmTransport,
-        native_tool_call_count: result.telemetry.nativeToolCallCount,
+        truncated: result.stopReason === 'truncated',
       };
-      this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
+    } finally {
+      runtime.queue.abortTurnScoped();
     }
-    void this.dispatcher.dispatch(
-      new TurnStepCompleted({
-        agentId: this.scopeContext.agentId,
-        turnId,
-        step: step.number,
-        stepId: step.uuid,
-        usage: result.usage,
-        finishReason: normalizeFinishReason(result.stopReason),
-        providerFinishReason: result.stopReason,
-      }),
-    );
-    await this.runAfterStep(
-      turnId,
-      signal,
-      step.number,
-      step.number === 1,
-      result.usage,
-      result.stopReason,
-    );
-    // The engine has already driven the turn to completion, so a hook asking
-    // to stop the turn is a no-op here: both branches of completeLoopStep
-    // return the same result for this path.
-    return { stopReason: result.stopReason, hookStopTurn: false };
   }
 
   private buildEngineInput(
