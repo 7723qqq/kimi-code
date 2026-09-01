@@ -45,14 +45,19 @@ pub struct StateWriteOutcome {
 /// A full snapshot of every state domain, taken at a turn checkpoint.
 /// `None` means the domain had no stored value at snapshot time (rollback
 /// clears it back to absent).
-type StateSnapshot = Vec<(&'static str, Option<Value>)>;
+type StateSnapshot = Vec<(String, Option<Value>)>;
 
 pub struct StateStore {
     state_dir: PathBuf,
-    /// Undo checkpoint stack (v2 undo-anchor semantics): one full snapshot
-    /// per turn, popped by `rollback()`. In-memory only — checkpoints do
-    /// not survive a restart.
-    checkpoints: Mutex<Vec<StateSnapshot>>,
+    /// Undo checkpoint stack directory (v2 undo-anchor semantics): one file
+    /// per snapshot under `state_dir/checkpoints/<seq>.json`. The stack
+    /// survives restart — `rollback` reads the highest-numbered file,
+    /// restores, and deletes it. Pushed by `checkpoint` at every turn head
+    /// and consumed by `rollback` on undo.
+    checkpoints_dir: PathBuf,
+    /// Serializes concurrent `checkpoint` / `rollback` calls so the stack
+    /// numbering and the per-file renames are race-free.
+    checkpoint_lock: Mutex<()>,
 }
 
 impl StateStore {
@@ -60,10 +65,12 @@ impl StateStore {
     /// Tests use this directly; production resolves the directory through
     /// [`for_workspace`].
     pub fn for_dir(state_dir: PathBuf) -> std::io::Result<Self> {
-        fs::create_dir_all(&state_dir)?;
+        let checkpoints_dir = state_dir.join("checkpoints");
+        fs::create_dir_all(&checkpoints_dir)?;
         Ok(Self {
             state_dir,
-            checkpoints: Mutex::new(Vec::new()),
+            checkpoints_dir,
+            checkpoint_lock: Mutex::new(()),
         })
     }
 
@@ -73,62 +80,53 @@ impl StateStore {
         Self::for_dir(super::paths::engine_state_dir(workspace_root)?.join("state"))
     }
 
-    /// Snapshot every domain (v2 undo-anchor checkpoint). A file that
-    /// exists but fails to read/parse is an error, not an absent domain —
-    /// rolling back must never silently wipe data.
+    /// Snapshot every domain (v2 undo-anchor checkpoint). The snapshot is
+    /// persisted to a numbered file under `checkpoints/`, so undo survives
+    /// a restart. A file that exists but fails to read/parse is an error,
+    /// not an absent domain — rolling back must never silently wipe data.
     pub fn checkpoint(&self) -> Result<(), String> {
+        let _guard = self
+            .checkpoint_lock
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut snapshot = Vec::with_capacity(STATE_DOMAINS.len());
         for domain in STATE_DOMAINS {
-            let path = self.domain_file(domain);
-            let value = if path.as_deref().is_some_and(|p| p.is_file()) {
-                let content = fs::read_to_string(path.as_deref().unwrap())
-                    .map_err(|e| format!("checkpoint read {domain}: {e}"))?;
-                Some(
-                    serde_json::from_str(&content)
-                        .map_err(|e| format!("checkpoint parse {domain}: {e}"))?,
-                )
-            } else {
-                None
-            };
-            snapshot.push((domain, value));
+            let value = self.read_domain(domain);
+            snapshot.push((domain.to_string(), value));
         }
-        self.checkpoints
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(snapshot);
+        let next = next_checkpoint_seq(&self.checkpoints_dir)?;
+        write_checkpoint_file(&self.checkpoints_dir, next, &snapshot)?;
         Ok(())
     }
 
-    /// Restore the most recent checkpoint. Returns `Ok(false)` when there
-    /// is nothing to undo.
+    /// Restore the most recent checkpoint (highest-numbered file under
+    /// `checkpoints/`). Returns `Ok(false)` when there is nothing to undo.
     pub fn rollback(&self) -> Result<bool, String> {
-        let snapshot = self
-            .checkpoints
+        let _guard = self
+            .checkpoint_lock
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pop();
-        let Some(snapshot) = snapshot else {
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(seq) = latest_checkpoint_seq(&self.checkpoints_dir)? else {
             return Ok(false);
         };
+        let path = checkpoint_path(&self.checkpoints_dir, seq);
+        let content =
+            fs::read_to_string(&path).map_err(|e| format!("checkpoint read seq {seq}: {e}"))?;
+        let snapshot: StateSnapshot = serde_json::from_str(&content)
+            .map_err(|e| format!("checkpoint parse seq {seq}: {e}"))?;
         for (domain, value) in snapshot {
             match value {
-                Some(v) => {
-                    self.write_domain(domain, &v)?;
-                }
-                None => {
-                    self.clear_domain(domain)?;
-                }
+                Some(v) => self.write_domain(&domain, &v)?,
+                None => self.clear_domain(&domain)?,
             }
         }
+        fs::remove_file(&path).map_err(|e| format!("checkpoint remove seq {seq}: {e}"))?;
         Ok(true)
     }
 
     /// How many checkpoints are pending (v2 `checkpointDepth`).
     pub fn checkpoint_depth(&self) -> usize {
-        self.checkpoints
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        count_checkpoint_files(&self.checkpoints_dir).unwrap_or(0)
     }
 
     /// The state directory (`<workspace>/.kimi/state`).
@@ -854,6 +852,62 @@ impl crate::injection::goal_plan::StateStore for StateStore {
     }
 }
 
+/// The checkpoint file name, zero-padded for lexicographic sort.
+fn checkpoint_path(dir: &Path, seq: u64) -> PathBuf {
+    dir.join(format!("{seq:08}.json"))
+}
+
+/// The next checkpoint sequence number: one past the highest existing
+/// file. Scans the directory; for the REPL's checkpoint cadence (one per
+/// turn) the directory stays small and the scan is negligible.
+fn next_checkpoint_seq(dir: &Path) -> Result<u64, String> {
+    let mut max: Option<u64> = None;
+    for entry in fs::read_dir(dir).map_err(|e| format!("read checkpoints dir: {e}"))? {
+        let entry = entry.map_err(|e| format!("checkpoint dir entry: {e}"))?;
+        if let Some(seq) = parse_seq(&entry.file_name().to_string_lossy()) {
+            max = Some(max.map_or(seq, |m| m.max(seq)));
+        }
+    }
+    Ok(max.map_or(1, |m| m + 1))
+}
+
+fn latest_checkpoint_seq(dir: &Path) -> Result<Option<u64>, String> {
+    let mut max: Option<u64> = None;
+    for entry in fs::read_dir(dir).map_err(|e| format!("read checkpoints dir: {e}"))? {
+        let entry = entry.map_err(|e| format!("checkpoint dir entry: {e}"))?;
+        if let Some(seq) = parse_seq(&entry.file_name().to_string_lossy()) {
+            max = Some(max.map_or(seq, |m| m.max(seq)));
+        }
+    }
+    Ok(max)
+}
+
+fn count_checkpoint_files(dir: &Path) -> Result<usize, String> {
+    let mut n = 0usize;
+    for entry in fs::read_dir(dir).map_err(|e| format!("read checkpoints dir: {e}"))? {
+        let entry = entry.map_err(|e| format!("checkpoint dir entry: {e}"))?;
+        if parse_seq(&entry.file_name().to_string_lossy()).is_some() {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+fn parse_seq(name: &str) -> Option<u64> {
+    name.strip_suffix(".json").and_then(|s| s.parse().ok())
+}
+
+fn write_checkpoint_file(dir: &Path, seq: u64, snapshot: &StateSnapshot) -> Result<(), String> {
+    let path = checkpoint_path(dir, seq);
+    let json = serde_json::to_string(snapshot).map_err(|e| format!("serialize checkpoint: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    let mut file = fs::File::create(&tmp).map_err(|e| format!("create tmp checkpoint: {e}"))?;
+    file.write_all(json.as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|e| format!("write tmp checkpoint: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("rename tmp checkpoint: {e}"))?;
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -939,6 +993,74 @@ mod tests {
                 expected,
                 "domain: {domain}"
             );
+        }
+    }
+
+    #[test]
+    fn test_undo_checkpoint_survives_restart() {
+        let tmp = TempDir::new().unwrap();
+        let state_dir = tmp.path().join("state");
+        let todo = json!([{ "id": "T1", "status": "in_progress" }]);
+        // Session 1: write a todo, then checkpoint.
+        {
+            let store = StateStore::for_dir(state_dir.clone()).unwrap();
+            store.write_domain("todo", &todo).unwrap();
+            store.checkpoint().unwrap();
+            assert_eq!(store.checkpoint_depth(), 1);
+        }
+        // Session 2 (restart): re-open the same dir. Checkpoint file
+        // survives, depth reflects it. Then write a different todo and
+        // roll back — the pre-checkpoint value must come back.
+        {
+            let store = StateStore::for_dir(state_dir.clone()).unwrap();
+            assert_eq!(
+                store.checkpoint_depth(),
+                1,
+                "checkpoint stack must persist across restart"
+            );
+            let new = json!([{ "id": "T2", "status": "completed" }]);
+            store.write_domain("todo", &new).unwrap();
+            assert_eq!(store.read_domain("todo"), Some(new.clone()));
+            assert!(store.rollback().unwrap());
+            assert_eq!(
+                store.read_domain("todo"),
+                Some(todo.clone()),
+                "rollback restores the pre-checkpoint value"
+            );
+            assert_eq!(store.checkpoint_depth(), 0);
+        }
+        // Session 3 (another restart): the rollback consumed the file,
+        // so a fresh open sees depth 0.
+        {
+            let store = StateStore::for_dir(state_dir).unwrap();
+            assert_eq!(store.checkpoint_depth(), 0);
+        }
+    }
+
+    #[test]
+    fn test_undo_checkpoint_stack_ordering_across_restart() {
+        let tmp = TempDir::new().unwrap();
+        let state_dir = tmp.path().join("state");
+        // Session 1: two checkpoints, no rollbacks.
+        {
+            let store = StateStore::for_dir(state_dir.clone()).unwrap();
+            store.checkpoint().unwrap();
+            store.checkpoint().unwrap();
+            assert_eq!(store.checkpoint_depth(), 2);
+        }
+        // Session 2: open, roll back once — depth 1.
+        {
+            let store = StateStore::for_dir(state_dir.clone()).unwrap();
+            assert_eq!(store.checkpoint_depth(), 2);
+            assert!(store.rollback().unwrap());
+            assert_eq!(store.checkpoint_depth(), 1);
+        }
+        // Session 3: open, roll back again — depth 0.
+        {
+            let store = StateStore::for_dir(state_dir).unwrap();
+            assert_eq!(store.checkpoint_depth(), 1);
+            assert!(store.rollback().unwrap());
+            assert_eq!(store.checkpoint_depth(), 0);
         }
     }
 

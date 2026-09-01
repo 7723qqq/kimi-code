@@ -1383,7 +1383,7 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 | `host/llm_chat` | LLM 请求代理到 JS | `NativeHttpLlm`（`llm/http.rs:33`） | ✅ 已具备 |
 | `host/check_permission` | 宿主为权限权威 | 进程内 `PermissionEngine`（`repl/mod.rs:425`） | ✅ 已具备 |
 | `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 已具备 |
-| `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ⚠️ checkpoint 仅内存，重启即失 |
+| `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ✅ checkpoint 持久化（2026-09-01，M4 切片 2：`checkpoints/<seq>.json` 文件栈，重启可恢复 + 栈序正确，2 新增测试） |
 | `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 原生工具集持续扩充（第 8 轮并入 GitHub 34 件）/ 16 个状态桥接 / 其余委托 |
 | `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ✅ 已删除（2026-09-01，M2-2：本地截断器翻无条件） |
 | `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
