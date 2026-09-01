@@ -1958,11 +1958,13 @@ context、不达模型）。修复见 M2 切片 3。
      验证：cargo test 846 全绿（836 lib + 10 stdio，净增 2 条 paths 测试）+
      clippy 0 + fmt 干净；session 测试从 210s（超时拖累）回到 0.07s。
 
-- **M5 — 删除**
-  删 `packages/agent-core-v2`；移除 `engineOverride` 接缝、`rustSelfContained` 开关、
+- **M5 — 删除** — ⚠️ **删除范围已由 P44 重定义（2026-09-01）**
+  删 `packages/agent-core-v2` 的**引擎面**（turn-loop/engineOverride/rustSelfContained/engine 配置）
+  与已判定死域（M3a 已删 8 域）；**宿主层库保留**（P44 决策 1/3：v2 不消失,4 个 M3 标记消费者
+  以库面持有）。移除 `engineOverride` 接缝、`rustSelfContained` 开关、
   `engine: 'js' | 'rust'` 配置（或重新定义其语义）。
   同时清理以 v2 为参照的 golden 断言——它们失去参照对象，应删除而非改写。
-  退出：仓库可构建，`cargo test` + `vitest` 全绿，除 git 历史外无 `agent-core-v2` 残留引用。
+  退出：仓库可构建，`cargo test` + `vitest` 全绿，`agent-core-v2` 无引擎面残留引用（消费者只 import 库面）。
 
 ### 风险
 
@@ -2455,3 +2457,49 @@ P38 判定表 #6 落地：用户配置的 PreToolUse 钩子从「引擎原生路
 ### 迁移队列现状
 
 #4（P39）✅、#3（P41）✅、#7+#8（P42）✅、#6（P43）✅ → 剩余：#2（toolDedupe）、#13（tower worker，随 M3）。
+
+## P44 — M3 宿主分层决策 + M3a 死域删除（2026-09-01）
+
+P33 风险条目「宿主独有能力无处安放:tower/swarm/lsp/run_code 必须在 Rust 侧落地,或重新定义宿主分层——归入 M3」落地。M3 里程碑正文此前只写了消费方处置(4 消费者选 (b) 保留 v2 为库),本决策补齐「重新定义宿主分层」那一半,并消解其与 M5「v2 从仓库消失」的矛盾。
+
+### 决策 1:终态修正——v2 不消失,重新定义为「宿主层库」
+
+P33 终态「agent-core-v2 从仓库消失」与 M3 消费方 (b)「保留 v2 作为库」直接矛盾。裁决:
+- **终态 = v2 删除「引擎面 + 死域」,保留「宿主层库」**。M5 的删除范围重定义:删引擎面(turn-loop/engineOverride/rustSelfContained/engine 配置,实测 ≈11.9k 行)+ 死域(M3a 已删 ≈7.7k 行)。
+- **M5 退出标准修订**:仓库可构建、cargo+vitest 全绿、`agent-core-v2` 无引擎面残留(消费者只 import 库面);「无 agent-core-v2 残留引用」改为「无引擎面残留引用」。v2 作为库面继续存在,由 4 个 M3 标记消费者持有。
+
+### 决策 2:逐域判定表(2026-09-01 活性盘点,证据链:index.ts 装配面 + 消费者 deep-path 零命中)
+
+| 域 | v2 行数 | 判定 | 理由 |
+|---|---|---|---|
+| lsp / sessionQuery / codeRuntime | 1162/1486/399 | **随 v2 删除** | unloadedInV2(G-8 契约已钉死),死代码 |
+| attachment / workflow / memory | 389/984/613 | **随 v2 删除** | index.ts 无引用,无人导入 |
+| knowledge / team | 617/1088 | **随 v2 删除**(Rust REPL 孪生保留) | 工具自注册但无人导入;REPL 原生孪生(memory_paths/team 模块)不受影响 |
+| tower | 3535 | **宿主层库保留**(flag 休眠,默认不装配) | UI 密集;消费者 kap-server 需要;#13 随本决策队列 |
+| swarm | — | **宿主层库保留** | AgentSwarm 是宿主工具(G-8 v2Host);注入机制已由引擎吸收(P18) |
+| transcript 投影 | 3363 | **宿主层库保留** | 消费者(kap-server web)渲染依赖 |
+| media/图片压缩 | 2461 | **宿主层库保留** | 明确宿主所有(P34) |
+| context memory+对话时钟 | 2054 | **宿主层库保留** | 宿主侧记账/UI;Rust compaction 已内化 |
+| session index/持久化 | 1327 | **宿主层库保留** | kap-server/klient 会话管理依赖 |
+| permission 策略链 | 1803 | **宿主层库保留**(权威)+ 引擎本地快照 | P26 批 3 已定 |
+| skill | 2882 | **宿主层库保留** | 发现/执行有宿主资源依赖;引擎只读调用 |
+| profiles+subagent | 3933 | **Rust 吸收**(队列:subagent 产品路径接线) | Rust 1.6k 已存在,P28 引擎内 subagent |
+| task runner | 2331 | **Rust 吸收**(继续) | 原生 task 族已存在 |
+| external hooks / undo+checkpoint / goal / plan / todo / cron | — | **Rust 吸收 ✅** | P43/M4/P3/P39/原生工具已落地 |
+| tool dedupe(#2) | — | **Rust 吸收**(队列) | G-6 队列剩余 |
+
+### 决策 3:宿主层库范围
+
+保留:宿主基础设施(config/workspace/oauth/plugin/mcp/capability/auth/session index/telemetry/wire/state/_base DI/os/mcpCore,实测 ≈28k 行)+ 人类交互(approval/question/permissionGate/toolApproval)+ 特征注入宿主记账(skill/plan/goal/todo/cron/task/reminder/btw/dateChange)。这些是 4 个 M3 标记消费者(kap-server/klient/acp-server/node-sdk)的宿主边界,不随 v2 删除。
+
+### M3a 实施(本批):删除 8 个死域
+
+- 删 8 个 src 域目录 + `agent/tools/team/`(teamTool 自注册无人导入)+ 15 个死测试文件(attachment/sessionQuery×3/codeRuntime/teamTool/team/workflow/lsp×5/memoryStore)。
+- `src/errors.ts` 剥离 LspErrors/SessionQueryErrors(import + re-export + ErrorCodes 聚合三处);全仓零残留引用(除 Rust 侧移植注释的历史引用)。
+- `tool-name-contract.json` `unloadedInV2` 清空 + note 更新(重接线的工具改由 TS unclassified 检查拦截);TS 契约测试与 Rust 契约测试均绿。
+- 验证:agent-core-v2 typecheck 0 errors + 全量 vitest;`check:v2-library-surface: OK`;kimi-agent cargo 879 + vitest 116 全绿。
+- **预存失败基线**:agent-core-v2 全量 13 个失败(loop/auth×6/dateChange/staleGuard/mcpCore×2/resume/binding/stateManifest)经 stash 全量还原验证为 pristine 树同款——Windows 时序/时钟类 + 已提交 manifest 漂移,与删除零相关(删域无 contributeState、index.ts 零引用)。
+
+### 队列(决策后实施顺序)
+
+#2 toolDedupe → subagent 产品路径接线 → M5 引擎面删除(loopService/llmRequester/contextProjector 等 ≈11.9k 行,依赖消费者完成 Rust session 迁移)。tower worker 限制(#13)随 tower 宿主层保留,不再作为独立迁移项。

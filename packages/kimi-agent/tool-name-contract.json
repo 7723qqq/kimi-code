@@ -50,7 +50,7 @@
     "Knowledge",
     "Team"
   ],
-  "unloadedInV2": ["run_code", "lsp", "session_query"],
+  "unloadedInV2": [],
   "v2Github": [
     "GitHubGetRepo",
     "GitHubListBranches",
@@ -121,7 +121,7 @@
     "run_code": "Fully unreachable: codeRuntimeFeature is imported by no module (not even index.ts), there is no native arm and no REPL def. batch4 assessment treated it as a live v2 tool to evaluate; corrected here.",
     "lsp": "Fully unreachable: lspFeature is imported by no feature assembly (only its errors module feeds errors.ts), no native arm, no REPL def.",
     "session_query": "Fully unreachable: sessionQueryFeature is imported by no feature assembly (only its errors module feeds errors.ts), no native arm, no REPL def.",
-    "unloadedInV2": "These tool modules/features exist in the tree but no import path loads them, so no v2 consumer can ever register them. If one gets wired back in, the TS test fails (resurrection check) and the name must be promoted to v2Native or v2Host.",
+    "unloadedInV2": "M3a (2026-09-01) deleted the unloaded tool features (lsp / sessionQuery / codeRuntime / knowledge / team / workflow / memory / attachment) from agent-core-v2 entirely — the section is kept empty so a re-wired tool fails the TS unclassified check instead of silently passing.",
     "mcp": "MCP runtime-discovered tools are host-owned by design: handles() never matches them, so they round-trip to the host's MCP runtime. The engine's own McpManager serves them only in REPL standalone mode (execute_tool's fallback arm).",
     "github": "GitHub tool names are a dynamic family matched by github::is_github_tool against its SPECS table, not part of NATIVE_TOOL_NAMES. v2Github pins the v2 registration set to the engine's SPECS — a tool added on one side fails the other side's test.",
     "aliases": "The snake spellings are load-bearing: subagent/manager.rs allowlists, permission/mod.rs and repl/mod.rs match them. Do not prune without sweeping those call sites.",
