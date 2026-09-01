@@ -1442,12 +1442,10 @@ gateway 2/2，tsc 0 错误。
 
 **后续（M2-1，2026-09-01）**：会话翻转（M1d 3a/3b）后引擎侧 `SteerQueueCallbacks` 本地
 队列接管了 `drain_steers`（装饰器拦截，`inner.drain_steers()` 不再被调用），上述宿主腿
-成为死代码并已删除（见 M2 切片记录）；`input.drainSteers` / `drainSteered()` 保留——
-host-proxy 模式下宿主自己的 step 头（`llmChatHandler`）仍经它拉取 v2 steer。
-**已知残留缺口**：产品路径门面只以 `'newTurn'` 准入 enqueue（`rust-loop.ts`），v2 侧
-turn 中途到达的 steer 不会进入引擎本地 steer 队列，只能等下一 turn 开始时经
-`driveEngineTurn` 的队列 materialize 到达模型（非 turn 中途）。是否把 steer 路由进
-引擎会话（`session/enqueue_turn` 的 steer 准入）属 M2 后续裁决。
+成为死代码并已删除（见 M2 切片记录）。**残留缺口已在 M2 切片 3 修复**：探针实测发现
+引擎路径下 turn 中途的 steer 比「延迟到达」更糟——`releaseActiveTurn` 在 turn 结束时
+取消所有排队 step（含 `turnScoped: false` 的 steer），steer 消息**静默丢失**（不进
+context、不达模型）。修复见 M2 切片 3。
 
 ### 里程碑
 
@@ -1791,6 +1789,34 @@ turn 中途到达的 steer 不会进入引擎本地 steer 队列，只能等下�
     clippy 0 + fmt 干净；kimi-agent vitest 108/108；agent-core-v2 loop 套件
     167/168（唯一失败为既有快照漂移）；oxlint 0 errors；addon release 重建 +
     d.ts 重生成。
+  - **切片 3 — steer 路由进引擎会话（✅ 2026-09-01，修复静默丢失）**：探针实测确认
+    引擎路径下 turn 中途的 steer 被**静默丢弃**——steer 以 `activeTurnOnly` 准入进
+    活跃 turn 的 job 队列，但引擎从不消费宿主 step 队列，`releaseActiveTurn` 在
+    turn 结束时取消所有排队 step（`turnScoped: false` 也逃不掉），消息不进 context、
+    不达模型、transcript 无记录。修复（对齐「宿主上下文唯一权威」裁决）：
+    - `EngineOverrideProvider` 新增 `deliverSteer?(message)` 能力位；`TurnEngineInput`
+      的 `drainSteers` 与 `IAgentPromptService.drainSteered()`（含 `drainedSteerIds`
+      去重）整体删除——materialize 时机从「drain 时」改为「steer 准入时」。
+    - `loopService.admit` 的 `activeTurnOnly` 分支：`kind === 'steer'` 且 sink 已注册
+      时走 `deliverEngineSteer`——assignment 立即以活跃 turn 解析（附一次性 completed
+      step，不入 job 队列故无重复 materialize/泄漏）、`materializeRequest` 即时落
+      context + `TurnSteer` 事件、投影后的 kosong Message 经 sink 推给引擎（fire-
+      and-forget，失败不回滚——context 已有记录，下一 turn 投影兜底）。
+    - 门面 `createRunTurnOverride` 返回值附带 `deliverSteer`（`TurnEngineAdapter`
+      交集类型）：`isHostMessage` 守卫 → `projectHostMessageToWire` → 新抽的
+      `wireToSessionPrompt`（与 per-turn 投影共用）→ `enqueueTurn(…, 'activeTurnOnly')`
+      进引擎本地 steer 队列，运行中 turn 的每步 drain 即时送达；turn 刚结束的窄竞窗
+      下残留 steer 留在会话队列、下一 turn 首步送达（EngineSession 不清 steer_queue）。
+      host-proxy 的 `llmChatHandler` 不再 drain（steer 已在 context，下次
+      buildMessages 自然包含）。装配：`run-v2-print.ts` 把适配器的 `deliverSteer`
+      接进 `IEngineOverrideService`。
+    - 语义注记：steer 的 context materialize 从「下一 step 头」（JS 路径）提前到
+      「steer 准入时」（引擎路径）——transcript 记录与模型可见性对齐，JS 路径不变。
+    - 测试：两条 drain 测试重写为 deliver 语义（sink 收到投影消息 + context 合并
+      `Hello\n\nSteered!`；steer completion 随 turn 结束 settle）；gateway 桩同步。
+    - 验证：agent-core-v2 engineOverride + prompt + gateway 96/96；loop 套件
+      167/168（唯一失败为既有快照漂移）；kimi-agent vitest 108/108（Rust 零改动，
+      走既有 `session/enqueue_turn` 准入）；oxlint 0 errors；包内 tsc 干净。
   - **盘点勘误（2026-09-01 代码级复核）**：9 条回调表中 `host/drain_steers` 的
     「Rust 侧前置 ❌ 缺失」自 M1a 起已过时（本地队列当时已建成）；`host/event` 的
     「Rust 侧 sink ❌」仍准确（transcript/UI 消费方在宿主侧，无 Rust 替代）。

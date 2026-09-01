@@ -49,7 +49,6 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -260,9 +259,39 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           this.rejectAssignment(request, error);
           throw error;
         }
+        if (request.kind === 'steer' && this.engineOverride.deliverSteer !== undefined) {
+          this.deliverEngineSteer(active, request);
+          break;
+        }
         this.assignStep(active, request, options);
         break;
     }
+  }
+
+  /**
+   * Engine-path steer delivery. The queue path cannot serve a mid-turn steer
+   * under an engine-driven turn — the engine never consumes the host step
+   * queue, and `releaseActiveTurn` cancels whatever is left — so the steer
+   * materializes into the context immediately and is pushed into the engine's
+   * own steer queue for delivery at the running turn's next step head.
+   */
+  private deliverEngineSteer(job: TurnJob, request: StepRequest): void {
+    const assignment = this.pendingAssignments.get(request);
+    this.pendingAssignments.delete(request);
+    const step: Step = {
+      id: request.id,
+      turnId: job.turn.id,
+      state: 'completed',
+      signal: job.turn.signal,
+      result: Promise.resolve({ type: 'completed' } as StepResult),
+      cancel: () => false,
+    };
+    assignment?.resolve({ turn: job.turn, step });
+    this.materializeRequest(request);
+    const projected = this.projector.project([request.resolveContextMessages()[0]!]);
+    const message = projected.at(-1);
+    if (message === undefined) return;
+    void this.engineOverride.deliverSteer?.(message).catch(() => undefined);
   }
 
   private createAndQueueTurn(request: StepRequest): void {
@@ -1557,12 +1586,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           throw stateBridgeError(-32003, `invalid goal action: ${String(action)}`);
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
-      },
-      drainSteers: async () => {
-        const prompt = this.instantiation.invokeFunction((accessor) =>
-          accessor.get(IAgentPromptService),
-        );
-        return prompt.drainSteered();
       },
       onTurnEvent: this.engineOwnsTurnLifecycle()
         ? (event) => this.dispatchEngineTurnEvent(event)

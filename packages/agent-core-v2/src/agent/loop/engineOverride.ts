@@ -228,13 +228,6 @@ export interface TurnEngineInput {
   stateRead?(request: StateReadWire): Promise<StateReadWireResult>;
   stateWrite?(request: StateWriteWire): Promise<StateWriteWireResult>;
   /**
-   * Drain the host's mid-turn steer queue. The JS loop drains steered prompts
-   * at the next step head; an engine driving the whole turn has to ask, or a
-   * steered prompt waits for the turn to end. Returns the drained messages in
-   * arrival order.
-   */
-  drainSteers?(): Promise<readonly Message[]>;
-  /**
    * Engine-owned turn lifecycle records (M1d 3c, `host/turn_event`). The
    * engine emits `turn.prompt` / `turn.started` / `turn.cancel` /
    * `turn.ended` as the single writer; the host folds them into the durable
@@ -285,6 +278,14 @@ export interface EngineOverrideProvider {
    * telemetry so records are not folded twice.
    */
   ownsTurnLifecycle?: boolean;
+  /**
+   * Push a mid-turn steer into the engine's own steer queue so the model sees
+   * it at the next step head of the running turn. The loop materializes the
+   * steer into the context before calling this; the engine-side delivery is
+   * best-effort — a failed push leaves the steer to reach the model through
+   * the next turn's context projection.
+   */
+  deliverSteer?(message: Message): Promise<void>;
 }
 
 export const IEngineOverrideService = createDecorator<EngineOverrideProvider>(

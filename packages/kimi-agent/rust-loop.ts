@@ -61,7 +61,10 @@ const projectRoot = resolve(import.meta.dirname, '..', '..');
  * type-only from agent-core-v2 so the shape stays in sync without a
  * runtime dependency. `createRunTurnOverride` returns this type.
  */
-export type TurnEngineAdapter = import('@moonshot-ai/agent-core-v2').TurnEngine;
+export type TurnEngineAdapter = import('@moonshot-ai/agent-core-v2').TurnEngine & {
+  /** Push a mid-turn steer into the engine session's steer queue. */
+  deliverSteer?(message: unknown): Promise<void>;
+};
 export type TurnEngineInputAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineInput;
 export type TurnEngineToolResultAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineToolResult;
 export type AskQuestionWire = import('@moonshot-ai/agent-core-v2').AskQuestionWire;
@@ -1420,6 +1423,17 @@ function sessionPromptToWire(prompt: SessionPrompt): SessionMessageWire {
   };
 }
 
+/** Convert a wire `Message` to the `SessionPrompt` (napi shape). */
+function wireToSessionPrompt(m: WireMessage): SessionPrompt {
+  return {
+    role: m.role,
+    content: typeof m.content === 'string' ? m.content : '',
+    blocksJson: m.blocks === undefined ? undefined : JSON.stringify(m.blocks),
+    toolCallsJson: m.tool_calls === undefined ? undefined : JSON.stringify(m.tool_calls),
+    toolCallId: m.tool_call_id ?? undefined,
+  };
+}
+
 /** Project a wire `SessionTurnOutcomeWire` (snake_case) onto the handle shape. */
 function wireOutcomeToSession(w: SessionTurnOutcomeWire): SessionTurnOutcome {
   if (w.status !== 'ran' || w.result === undefined) {
@@ -1768,7 +1782,19 @@ export function createRunTurnOverride(
     },
   });
 
-  return async (input) => {
+  // Mid-turn steer delivery: the loop materializes the steer into the host
+  // context and pushes the projected message into the engine session's steer
+  // queue, where the running turn's per-step drain picks it up. Best-effort —
+  // a failed push (e.g. the engine turn just ended) leaves the steer to reach
+  // the model through the next turn's context projection.
+  const deliverSteer = async (message: unknown): Promise<void> => {
+    const handle = sessionHandle;
+    if (handle === undefined) return;
+    if (!isHostMessage(message)) return;
+    await handle.enqueueTurn(wireToSessionPrompt(projectHostMessageToWire(message)), 'activeTurnOnly');
+  };
+
+  const engine = async (input: TurnEngineInputAdapter) => {
     // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
     // use a string, so normalize once per turn.
     const turnIdStr = String(input.turnId);
@@ -1946,14 +1972,12 @@ export function createRunTurnOverride(
       modelName?: string,
     ): Promise<LlmChatResponse> => {
       await closeOpenStep();
-      // Mid-turn steering lands in the host's step queue, which the JS loop
-      // would normally drain at the next step head. In host-proxy mode this
-      // handler is the step head, so it drains here — `input.drainSteers`
-      // appends each steer into the context. Awaiting the event chain first
-      // keeps the record ordered after the tool results that are still being
-      // appended for the step that just ran.
+      // Steers are materialized into the context at steer time (the loop's
+      // engine-path steer delivery), so the next buildMessages projection
+      // already carries them. Awaiting the event chain first keeps the step
+      // record ordered after the tool results that are still being appended
+      // for the step that just ran.
       await eventChain;
-      await input.drainSteers?.();
       currentStep += 1;
       const stepUuid = randomUUID();
       const stepNum = currentStep;
@@ -2226,13 +2250,7 @@ export function createRunTurnOverride(
       // image/audio/video blocks lossless — raw v2 blocks would fail the Rust
       // ContentBlock parse and be dropped silently).
       const messages = await buildWireMessages();
-      const prompts: SessionPrompt[] = messages.map((m) => ({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : '',
-        blocksJson: m.blocks === undefined ? undefined : JSON.stringify(m.blocks),
-        toolCallsJson: m.tool_calls === undefined ? undefined : JSON.stringify(m.tool_calls),
-        toolCallId: m.tool_call_id ?? undefined,
-      }));
+      const prompts: SessionPrompt[] = messages.map(wireToSessionPrompt);
       // The engine history is replaced every turn (host owns context), so
       // set it even when the projected context holds only the prompt.
       await handle.setHistory(prompts.slice(0, -1));
@@ -2295,6 +2313,8 @@ export function createRunTurnOverride(
     options?.onTurnResult?.(turnResult);
     return turnResult;
   };
+  engine.deliverSteer = deliverSteer;
+  return engine;
 }
 
 /**

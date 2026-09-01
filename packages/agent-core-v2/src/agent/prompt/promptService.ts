@@ -19,7 +19,7 @@ import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IFileService } from '#/app/file/fileService';
-import type { ContentPart, Message } from '#/kosong/contract/message';
+import type { ContentPart } from '#/kosong/contract/message';
 import { IEventService } from '#/app/event/event';
 import { AgentEvent2 } from '#/app/event/event2';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
@@ -180,7 +180,6 @@ export class AgentPromptService implements IAgentPromptService {
   private active: (Record & { turn: Turn }) | undefined;
   private readonly pending: Record[] = [];
   private readonly steered = new Map<string, Record[]>();
-  private readonly drainedSteerIds = new Set<string>();
   private readonly reservedPromptIds = new Set<string>();
   private steering = 0;
   private fullCompactionService: IAgentFullCompactionService | undefined;
@@ -402,17 +401,6 @@ export class AgentPromptService implements IAgentPromptService {
     return selected.map((item) => item.handle);
   }
 
-  drainSteered(): Promise<readonly Message[]> {
-    if (this.active === undefined) return Promise.resolve([]);
-    const records = this.steered.get(this.active.id) ?? [];
-    const fresh = records.filter((item) => !this.drainedSteerIds.has(item.id));
-    if (fresh.length === 0) return Promise.resolve([]);
-    for (const item of fresh) this.drainedSteerIds.add(item.id);
-    const messages = fresh.map((item) => item.message);
-    this.context.append(...messages);
-    return Promise.resolve(messages);
-  }
-
   abort(promptId: string, reason: Error = userCancellationReason()): boolean {
     if (this.active?.id === promptId) { this.loop.cancel(this.active.turn.id, reason); return true; }
     const index = this.pending.findIndex((item) => item.id === promptId);
@@ -488,7 +476,6 @@ export class AgentPromptService implements IAgentPromptService {
     item.state = state; item.completionDeferred.resolve({ promptId: item.id, result, state });
     for (const child of this.steered.get(item.id) ?? []) {
       child.state = state; child.completionDeferred.resolve({ promptId: child.id, result, state });
-      this.drainedSteerIds.delete(child.id);
     }
     this.steered.delete(item.id);
     if (state === 'cancelled') this.publishAborted(item.id); else this.publishCompleted(item.id, state);

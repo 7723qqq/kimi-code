@@ -285,17 +285,13 @@ describe('external engine override', () => {
     expect(finished[0]!.finishReason).toBe('completed');
   });
 
-  it('drains steered prompts into the engine mid-turn and appends them to context', async () => {
-    const drained: Message[][] = [];
+  it('delivers steered prompts to the engine mid-turn and appends them to context', async () => {
+    const delivered: unknown[] = [];
     const engine: TurnEngine = async (input) => {
       engineInput = input;
-      let steered: readonly Message[] = [];
-      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
-        steered = (await input.drainSteers?.()) ?? [];
-        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 50 && delivered.length === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      drained.push([...steered]);
-      drained.push([...(await input.drainSteers?.()) ?? []]);
       await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
       await input.dispatchEvent({
         type: 'step.end',
@@ -307,33 +303,38 @@ describe('external engine override', () => {
       return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
     };
 
-    ctx = createTestAgentWithEngine(engine);
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine,
+        deliverSteer: async (message) => {
+          delivered.push(message);
+        },
+      }),
+    );
     void ctx.restoreRuntimes();
     const end = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
     await ctx.rpc.steer({ input: [{ type: 'text', text: 'Steered!' }] });
     await end;
 
-    expect(drained[0]).toHaveLength(1);
-    expect(drained[0]?.[0]).toMatchObject({ role: 'user' });
-    expect(drained[0]?.[0]?.content).toEqual([{ type: 'text', text: 'Steered!' }]);
-    expect(drained[1]).toHaveLength(0);
+    expect(delivered).toHaveLength(1);
+    const message = delivered[0] as { role: string; content: Array<{ type: string; text?: string }> };
+    expect(message.role).toBe('user');
+    expect(message.content).toEqual([{ type: 'text', text: 'Steered!' }]);
 
     const messages = await engineInput!.buildMessages();
     expect(
       messages.some(
-        (m) => m.role === 'user' && m.content.some((p) => p.type === 'text' && p.text === 'Steered!'),
+        (m) =>
+          m.role === 'user' &&
+          m.content.some((p) => p.type === 'text' && (p.text ?? '').includes('Steered!')),
       ),
     ).toBe(true);
   });
 
   it('settles steered prompts when the engine turn ends', async () => {
     const engine: TurnEngine = async (input) => {
-      let steered: readonly Message[] = [];
-      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
-        steered = (await input.drainSteers?.()) ?? [];
-        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
       await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
       await input.dispatchEvent({
         type: 'step.end',
@@ -345,7 +346,12 @@ describe('external engine override', () => {
       return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
     };
 
-    ctx = createTestAgentWithEngine(engine);
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine,
+        deliverSteer: async () => undefined,
+      }),
+    );
     void ctx.restoreRuntimes();
     const end = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });

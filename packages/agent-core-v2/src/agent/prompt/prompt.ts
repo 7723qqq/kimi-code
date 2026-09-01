@@ -2,7 +2,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { Turn, TurnResult } from '#/agent/loop/loop';
-import type { ContentPart, Message } from '#/kosong/contract/message';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { Hooks } from '#/hooks';
 
 export interface PromptSubmitContext {
@@ -85,7 +85,6 @@ export interface IAgentPromptService {
   submitSteer(payload: SteerPayload): Promise<PromptLaunchResult | undefined>;
   list(): PromptQueueSnapshot;
   steer(promptIds: readonly string[]): Promise<readonly PromptHandle[]>;
-  drainSteered(): Promise<readonly Message[]>;
   abort(promptId: string, reason?: Error): boolean;
   drain(reason?: Error): Promise<void>;
   inject(message: ContextMessage): Promise<Turn | undefined>;
