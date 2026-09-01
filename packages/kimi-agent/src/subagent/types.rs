@@ -8,6 +8,10 @@ pub struct SubagentDefinition {
     pub description: String,
     pub system_prompt: String,
     pub tools: Vec<String>,
+    /// Tool names the profile forbids (v2 `disallowedTools`). Applied when
+    /// `tools` is empty (empty allowlist = all tools minus this list).
+    #[serde(default)]
+    pub disallowed_tools: Vec<String>,
     pub model: Option<String>,
 }
 

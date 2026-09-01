@@ -236,6 +236,7 @@ pub async fn execute_define_subagent(
             description,
             system_prompt,
             tools,
+            disallowed_tools: Vec::new(),
             model: None,
         })
         .await;

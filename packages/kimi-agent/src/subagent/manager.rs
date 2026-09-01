@@ -13,6 +13,161 @@ type InstanceMap = Arc<RwLock<HashMap<String, InstanceEntry>>>;
 type DefinitionMap = Arc<RwLock<HashMap<String, SubagentDefinition>>>;
 type PersistentMap = Arc<RwLock<HashMap<String, PersistentInstance>>>;
 
+/// The last non-empty assistant text of a turn — the subagent's summary
+/// the `Agent` tool reports to the caller (v2 `r.summary`).
+pub(crate) fn final_assistant_summary(messages: &[crate::turn_loop::types::LLMMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "assistant" && !message.content.is_empty())
+        .map(|message| message.content.clone())
+        .unwrap_or_default()
+}
+
+/// A profile's tool policy (v2 `resolveActiveToolNames` subset semantics):
+/// an explicit allowlist wins; an empty allowlist means every tool except
+/// the disallowed names.
+#[derive(Clone)]
+pub struct ToolPolicyFilter {
+    allowlist: Vec<String>,
+    disallowed: Vec<String>,
+}
+
+impl ToolPolicyFilter {
+    pub fn from_definition(def: &SubagentDefinition) -> Self {
+        Self {
+            allowlist: def.tools.clone(),
+            disallowed: def.disallowed_tools.clone(),
+        }
+    }
+
+    pub fn allows(&self, tool_name: &str) -> bool {
+        if !self.allowlist.is_empty() {
+            return self
+                .allowlist
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(tool_name));
+        }
+        !self
+            .disallowed
+            .iter()
+            .any(|denied| denied.eq_ignore_ascii_case(tool_name))
+    }
+}
+
+/// [`crate::callbacks::HostCallbacks`] decorator that narrows the tool
+/// table a subagent's turn sees to its profile policy (`list_tools`
+/// filter); every other seam passes through untouched.
+struct ToolFilterCallbacks {
+    inner: Arc<dyn crate::callbacks::HostCallbacks>,
+    filter: ToolPolicyFilter,
+}
+
+impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
+    fn llm_chat(
+        &self,
+        request: crate::rpc::types::LlmChatRequest,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+    {
+        self.inner.llm_chat(request)
+    }
+
+    fn execute_tool(
+        &self,
+        request: crate::rpc::types::ToolExecuteRequest,
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<crate::rpc::types::ToolExecuteResponse, String>,
+    > {
+        self.inner.execute_tool(request)
+    }
+
+    fn check_permission(
+        &self,
+        request: crate::rpc::types::PermissionCheckRequest,
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<crate::rpc::types::PermissionDecision, String>,
+    > {
+        self.inner.check_permission(request)
+    }
+
+    fn ask_question(
+        &self,
+        request: crate::rpc::types::AskQuestionRequest,
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<crate::rpc::types::AskQuestionResponse, String>,
+    > {
+        self.inner.ask_question(request)
+    }
+
+    fn state_read(
+        &self,
+        request: crate::rpc::types::StateReadRequest,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::StateReadResponse, String>>
+    {
+        self.inner.state_read(request)
+    }
+
+    fn state_write(
+        &self,
+        request: crate::rpc::types::StateWriteRequest,
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<crate::rpc::types::StateWriteResponse, String>,
+    > {
+        self.inner.state_write(request)
+    }
+
+    fn list_tools(
+        &self,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ListToolsResponse, String>>
+    {
+        let inner = self.inner.clone();
+        let filter = self.filter.clone();
+        Box::pin(async move {
+            let mut response = inner.list_tools().await?;
+            response.tools.retain(|tool| filter.allows(&tool.name));
+            Ok(response)
+        })
+    }
+
+    fn goal(
+        &self,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<Option<crate::turn_loop::types::GoalContext>, String>>
+    {
+        self.inner.goal()
+    }
+
+    fn drain_steers(
+        &self,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<Vec<crate::turn_loop::types::LLMMessage>, String>>
+    {
+        self.inner.drain_steers()
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        self.inner.set_turn_goal(turn_id, goal_id);
+    }
+
+    fn emit_event(&self, event: serde_json::Value) {
+        self.inner.emit_event(event);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        self.inner.turn_event(event);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        self.inner.telemetry(event);
+    }
+
+    fn cancel_llm_chat(&self, request_id: &str) {
+        self.inner.cancel_llm_chat(request_id);
+    }
+}
+
 /// State of a persistent subagent instance: message history, cumulative
 /// usage, and the running guard that rejects concurrent turns.
 pub struct PersistentInstance {
@@ -68,6 +223,7 @@ impl SubagentManager {
                     "web_search".into(),
                     "list_directory".into(),
                 ],
+                disallowed_tools: Vec::new(),
                 model: None,
             },
         );
@@ -99,6 +255,27 @@ impl SubagentManager {
     pub async fn register_definition(&self, def: SubagentDefinition) {
         let mut defs = self.definitions.write().await;
         defs.insert(def.name.clone(), def);
+    }
+
+    /// Register the host-pushed profile catalog snapshot (P46). Called per
+    /// turn with the session's profiles; same-name entries overwrite, so
+    /// the freshest snapshot wins (session-level snapshot semantics, same
+    /// as the policy snapshot).
+    pub async fn register_profile_snapshot(
+        &self,
+        profiles: &[crate::rpc::types::SubagentProfileWire],
+    ) {
+        for profile in profiles {
+            self.register_definition(SubagentDefinition {
+                name: profile.name.clone(),
+                description: profile.description.clone(),
+                system_prompt: profile.system_prompt.clone(),
+                tools: profile.tools.clone(),
+                disallowed_tools: profile.disallowed_tools.clone(),
+                model: None,
+            })
+            .await;
+        }
     }
 
     /// Get a registered definition by name.
@@ -162,6 +339,7 @@ impl SubagentManager {
                     "web_search".into(),
                     "list_directory".into(),
                 ],
+                disallowed_tools: Vec::new(),
                 model: None,
             });
 
@@ -221,6 +399,108 @@ impl SubagentManager {
         });
 
         Ok(id)
+    }
+
+    /// Run one foreground subagent turn inline (v2 `Agent` tool foreground
+    /// semantics): the caller awaits the full turn and formats the result.
+    /// The instance must already exist (see [`Self::spawn`]). The parent
+    /// turn's cancellation flag (when present) aborts the subagent at its
+    /// next step boundary; `kill` keeps working through the instance's own
+    /// flag.
+    pub async fn run_foreground_turn(
+        &self,
+        id: &str,
+        prompt: &str,
+        parent_cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<crate::turn_loop::types::TurnResult, String> {
+        let (cancel_flag, type_name, role) = {
+            let instances = self.instances.read().await;
+            let (instance, flag) = instances
+                .get(id)
+                .ok_or_else(|| format!("Unknown subagent instance: '{id}'"))?;
+            (flag.clone(), instance.type_name.clone(), instance.role.clone())
+        };
+        let runtime = self
+            .runtime()
+            .await
+            .ok_or_else(|| "no subagent runtime injected".to_string())?;
+        let def = self.definition_for(&type_name, &role).await;
+
+        // The subagent sees the host table narrowed by its profile policy
+        // (v2 `resolveActiveToolNames` subset): an explicit allowlist wins,
+        // otherwise every tool except the disallowed names. Effective on
+        // native transports; host-proxy rebuilds the table host-side.
+        let filter = ToolPolicyFilter::from_definition(&def);
+        let tool_defs = match runtime.callbacks.list_tools().await {
+            Ok(response) => response
+                .tools
+                .into_iter()
+                .filter(|tool| filter.allows(&tool.name))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        let callbacks: Arc<dyn crate::callbacks::HostCallbacks> =
+            Arc::new(ToolFilterCallbacks {
+                inner: runtime.callbacks.clone(),
+                filter,
+            });
+
+        let turn_id = format!("subturn-{}", fastrand::u64(..));
+        let messages = vec![crate::turn_loop::types::LLMMessage {
+            role: "user".into(),
+            content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
+            blocks: Vec::new(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }];
+        let run_input = crate::turn_loop::types::RunTurnInput {
+            turn_id,
+            llm: runtime.llm.as_ref(),
+            messages,
+            tools: &[],
+            tool_defs,
+            // Foreground subagents run until done — the caller owns the
+            // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
+            max_steps: u32::MAX,
+            goal: None,
+            cancellation: Some(cancel_flag.clone()),
+        };
+
+        // Run the turn while mirroring the parent's cancellation flag onto
+        // the instance flag (v2 aborts mid-flight through the AbortSignal;
+        // the engine observes flags at step tops, so the abort lands at the
+        // subagent's next step boundary). The error converts to `String`
+        // right at the break so no non-Send value lives across an await
+        // (native callback contract).
+        let run_future = crate::turn_loop::run_turn::run_turn(run_input, &callbacks);
+        tokio::pin!(run_future);
+        let outcome: Result<crate::turn_loop::types::TurnResult, String> = loop {
+            tokio::select! {
+                result = &mut run_future => break result.map_err(|err| err.to_string()),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                    if parent_cancel
+                        .as_ref()
+                        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+                    {
+                        cancel_flag.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+        };
+
+        match outcome {
+            Ok(turn_res) => {
+                let summary = final_assistant_summary(&turn_res.messages);
+                self.update_state(id, SubagentState::Completed, Some(summary))
+                    .await;
+                Ok(turn_res)
+            }
+            Err(message) => {
+                self.update_state(id, SubagentState::Failed, Some(format!("Error: {message}")))
+                    .await;
+                Err(message)
+            }
+        }
     }
 
     /// Spawn a persistent subagent instance that keeps its message history
@@ -445,6 +725,7 @@ impl SubagentManager {
                     "web_search".into(),
                     "list_directory".into(),
                 ],
+                disallowed_tools: Vec::new(),
                 model: None,
             })
     }

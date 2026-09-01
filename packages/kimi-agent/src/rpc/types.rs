@@ -501,6 +501,33 @@ pub struct RunTurnParams {
     /// merged into the engine-emitted `host/telemetry` events.
     #[serde(default)]
     pub telemetry: Option<crate::turn_loop::types::TelemetryContext>,
+    /// Session profile catalog snapshot (P46): the profiles the host lets
+    /// the native `Agent` tool spawn. Empty = every `Agent` call falls
+    /// back to the host tool.
+    #[serde(default)]
+    pub subagent_profiles: Vec<SubagentProfileWire>,
+    /// Host-resolved foreground subagent timeout in ms (v2
+    /// `resolveSubagentTimeoutMs`). `None` → engine default (2h).
+    #[serde(default)]
+    pub subagent_timeout_ms: Option<u64>,
+}
+
+/// A subagent profile from the host's session catalog snapshot (P46).
+/// Mirrors the v2 `AgentProfile` fields the engine needs to run a
+/// foreground subagent: prompt, tool policy, description.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentProfileWire {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub system_prompt: String,
+    /// Explicit tool allowlist; empty means every tool minus
+    /// `disallowed_tools` (v2 `resolveActiveToolNames` subset).
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub disallowed_tools: Vec<String>,
 }
 
 /// LLM provider definition for MultiLLM.

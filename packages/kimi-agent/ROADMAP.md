@@ -2483,7 +2483,7 @@ P33 终态「agent-core-v2 从仓库消失」与 M3 消费方 (b)「保留 v2 �
 | session index/持久化 | 1327 | **宿主层库保留** | kap-server/klient 会话管理依赖 |
 | permission 策略链 | 1803 | **宿主层库保留**(权威)+ 引擎本地快照 | P26 批 3 已定 |
 | skill | 2882 | **宿主层库保留** | 发现/执行有宿主资源依赖;引擎只读调用 |
-| profiles+subagent | 3933 | **Rust 吸收**(队列:subagent 产品路径接线) | Rust 1.6k 已存在,P28 引擎内 subagent |
+| profiles+subagent | 3933 | **Rust 吸收（前台核心 ✅，P46；背景/resume/fork/summaryPolicy 仍归宿主）** | 快照推送 + 原生前台执行；外部 backend 未接线本就休眠 |
 | task runner | 2331 | **Rust 吸收**(继续) | 原生 task 族已存在 |
 | external hooks / undo+checkpoint / goal / plan / todo / cron | — | **Rust 吸收 ✅** | P43/M4/P3/P39/原生工具已落地 |
 | tool dedupe(#2) | — | **Rust 吸收 ✅**（P45，2026-09-02） | G-6 队列剩余 |
@@ -2502,7 +2502,7 @@ P33 终态「agent-core-v2 从仓库消失」与 M3 消费方 (b)「保留 v2 �
 
 ### 队列(决策后实施顺序)
 
-subagent 产品路径接线 → M5 引擎面删除（loopService/llmRequester/contextProjector 等 ≈11.9k 行，依赖消费者完成 Rust session 迁移）。tower worker 限制(#13)随 tower 宿主层保留，不再作为独立迁移项。#2 toolDedupe 已于 P45（2026-09-02）落地。
+M5 引擎面删除（loopService/llmRequester/contextProjector 等 ≈11.9k 行，依赖消费者完成 Rust session 迁移）。tower worker 限制(#13)随 tower 宿主层保留，不再作为独立迁移项。#2 toolDedupe 已于 P45（2026-09-02）落地；subagent 产品路径接线（前台核心）已于 P46（2026-09-02）落地。
 
 ## P45 — G-6 #2：toolDedupe 迁入引擎（2026-09-02）
 
@@ -2541,4 +2541,42 @@ P38 判定表 #2 落地：引擎原生路径从「重复调用零防护」变为
 - agent-core-v2 引擎面契约：engineOverride + rustEngineE2E + rustEngineZeroJsLoop 67/67 无回归。
 - oxlint（变更 TS 文件）：0 errors。
 - migration-legacy：203 中 199 过、 3 预存失败（`test/steps/user-history.test.ts` 的 chmod 000 用例在 Windows Administrator 下权限不生效，与本批零相关，未触碰该文件）、 1 skip；新增 v2 detect/export 5/5 绿。
+
+## P46 — subagent 产品路径接线：前台核心 + profile 快照推送（2026-09-02）
+
+M3 决策表「profiles+subagent → Rust 吸收」的第一刀：v2 `Agent` 工具（`agentTool.ts`）的**前台核心**语义迁入引擎，产品路径（napi + stdio session）从「子代理仅 REPL 可达」变为「宿主推 profile 快照、引擎原生跑前台子代理」。范围经用户确认：仅前台核心；背景运行、resume、fork、model 选择、summaryPolicy 续写一律回退宿主（v2 工具保持注册，零能力丢失）。
+
+### 实现（Rust）
+
+- `src/tools/agent_tool.rs`：`execute_agent` —— 回退路由（`requires_host`：resume/fork/run_in_background/model 任一 → 宿主；未知 profile → 宿主；无 runtime → 宿主）→ `SubagentManager::run_foreground_turn`（新增：**同步 await** 跑 `run_turn`，区别于 `spawn_and_run` 的后台 spawn；父 turn 取消标志 100ms 镜像到子代理步界；错误在 break 处转 String 保 future Send）→ 结果格式逐字节镜像 v2 `formatForegroundAgentSuccess/Failure`（`agent_id` / `actual_subagent_type` / `status` / `[summary]`；超时附 resume_hint）；summary = 子代理最后一条非空 assistant 文本。`format_timeout_description` 镜像 v2 同名函数。
+- 超时：`tokio::time::timeout`，宿主经 wire 推 `subagent_timeout_ms`（v2 `resolveSubagentTimeoutMs`），缺省 2h（`DEFAULT_SUBAGENT_TIMEOUT_MS` 对齐）；超时置子代理 cancel 并 kill。
+- 工具限制：`SubagentDefinition` 扩 `disallowed_tools`；`ToolPolicyFilter`（allowlist 优先，空 allowlist = 全集减 disallowed，v2 `resolveActiveToolNames` 子集）经 `ToolFilterCallbacks` 装饰器过滤子代理的 `list_tools`（仅 native 传输生效；host-proxy 的表由宿主重建）。
+- `NATIVE_TOOL_NAMES` 加 `"agent"`；`NativeToolset` 扩 `with_agent_context(timeout, cancellation)`；`tool-name-contract.json` `Agent` 从 v2Host 移入 v2Native（note 改写，两侧契约测试同步绿）。
+- **随批修复 P45 真 bug**：豁免哨兵键原用步内索引（`\x00exempt-{i}`），同一非原生工具每步一次调用会跨步生成相同哨兵 → 误判连续重复、误发提醒直至误强停。改为守卫内单调序号（`exempt_seq`），`plan_step(_by)` 转 `&mut`；新增回归测试（豁免调用 15 步不触发任何动作）。
+
+### wire 与宿主（过渡接线，归 M5 删除范围）
+
+- wire：`RunTurnParams.subagent_profiles/subagent_timeout_ms`（stdio）+ `JsRunTurnParams.subagentProfiles/subagentTimeoutMs`（napi，timeout 用 i64——napi 无法读 u64）+ `wire-schema.ts` 出方向校验。
+- 装配：napi `build_engine_pipeline` 每 turn 刷新进程级 `SUBAGENT_MANAGER` 的快照并注入 runtime（llm + callbacks，与 P28 批 3 同款）；main.rs stdio 每 pipeline 新建 manager（legacy 入口每 turn 重建、session 入口建一次），取消标志仅 legacy 入口接（session 入口无步界取消，记录）。
+- 宿主：`engineOverride.ts` `TurnEngineInput` 增 `subagentProfiles/subagentTimeoutMs` + `TurnEngineSubagentProfile`；`loopService.buildEngineInput` 新增 `collectSubagentProfiles`（惰性解析 `ISessionAgentProfileCatalog`，**排除 plugin 来源**；systemPrompt 以最小上下文 `{}` 渲染，失败降级）+ `resolveSubagentTimeoutMs`。外部 backend（claude-code/codex/ACP）未向 catalog 贡献 profile（backend 服务已注册但全仓零消费，本就休眠），无需排除。
+- 适配器：rust-loop session 参数（含 fingerprint，profile 变化重建 session）+ `toStdioSessionParams` snake 映射；`llmChatHandler` 累积 `onTextPart` 文本并入 wire `content`（host-proxy 子代理的 summary 来源；主 turn 无影响——宿主仍拥有转录）。
+- 会话内守卫天然覆盖子代理：子代理经同一 `NativeToolCallbacks` 管线，permission/stale/plan/dedup（P45）全部生效。
+
+### 诚实边界
+
+- **背景 / resume / fork / model / summaryPolicy** 未吸收：带这些参数的调用整体回退宿主（含 profile 已知的情况——语义组合归 v2）。
+- **summary 蒸馏**：v2 `distillSummary` 的 minChars/continuationPrompt 重试未移植；引擎取最后一条 assistant 文本。
+- **promptPrefix 未应用**：v2 spawn 时给 prompt 加前缀（`applyPromptPrefix`）；引擎直用原 prompt。
+- **systemPrompt 渲染上下文**：以 `{}` 渲染（无 cwd/agentsMd/skills 等）；依赖上下文的 profile 文本会退化。plugin profile 整体不入快照。
+- **宿主侧双重性**：引擎路径上宿主的 `SubagentTool` 仍在（回退承接）；宿主侧子代理遥测/转录（mirrorAgentRun 卡片、SubagentStarted 事件）在原生路径不产生——子代理工具卡经 `tool.native` 事件到宿主转录（turn_id 为 subturn-*，归属标记不完整）。
+- **步界取消**：父取消经 100ms 轮询镜像到子代理标志，中断落在子代理下一步界（v2 是 AbortSignal 即时）。
+- stdio session 入口无取消接线（见上）；REPL 不受影响（自有 invoke_subagent 族）。
+- 真实 LLM 会话下的端到端验证仍需真实 key（沿用）。
+
+### 验证
+
+- cargo：904 lib（P45 基线 894 + agent_tool 单测 9 + 豁免回归 1）+ 18 集成全绿；clippy 0 warnings（顺带修 P45 遗留 4 条：无效 `drop` 与 `is_multiple_of`）。
+- bun vitest（kimi-agent）：119/119（+2 stdio E2E：快照内 profile 原生前台执行——权限 1 次/宿主执行 0 次/结果含 v2 形状与 summary；空快照回退宿主执行 1 次）。全量并行下 quiescence 5s 超时已知 flaky（pristine 树复现，沿用 P41 记录）。
+- agent-core-v2：engineOverride + rustEngineE2E + rustEngineZeroJsLoop + toolNameContract 68/68 无回归。
+- oxlint（变更 TS 文件）：0 errors；napi addon 与 kimi-agent-cli 均重建于本批提交前。
 

@@ -22,11 +22,11 @@
     "TaskList",
     "TaskOutput",
     "TaskStop",
-    "Skill"
+    "Skill",
+    "Agent"
   ],
   "v2Host": [
     "WaitFor",
-    "Agent",
     "AgentSwarm",
     "select_tools",
     "TowerInit",
@@ -114,7 +114,7 @@
     "WaitFor": "v2's task-wait tool registers as 'WaitFor' (taskWaitTool.ts:326); the engine's native twin is the REPL's 'TaskWait'. The v2 name lowercases to 'waitfor', which handles() has never accepted — WaitFor round-trips to the host. P34's claim 'WaitFor→taskwait 能命中' was wrong; corrected here.",
     "TaskWait": "REPL-only def (task_tools.rs:611). No v2 product tool is named TaskWait — v2's task-wait tool is WaitFor (host-owned).",
     "list_directory": "Executable natively (tools/mod.rs execute()) but advertised by NO tool def anywhere — not even build_repl_tool_defs. G-8's 'REPL 可达' was wrong; corrected here.",
-    "Agent": "v2's Agent tool (agentTool.ts:509) is host-owned. The Rust invoke_subagent family (subagent/manager.rs + subagent_tools.rs, ~1.6k lines) is reachable only through the REPL's own tool table — off the product path (G-8).",
+    "Agent": "P46 (2026-09-02): the foreground core of v2's Agent tool (agentTool.ts) executes natively — the host pushes the session's profile catalog per turn and the engine runs the subagent through the same native pipeline. Routing is conditional: resume / fork / background / model args, profiles missing from the snapshot (plugin sources, external backends) and runtime-less transports fall back to the host tool, which stays registered. Pre-P46 this entry read 'host-owned, invoke_subagent family REPL-only' (G-8).",
     "ReadMediaFile": "Not a registered tool anymore — Read handles media internally (readTool.ts:308 via execute-media-read). The name survives only in permission lists (matchesRule.ts:82, default-tool-approve.ts:9) and TUI renderers. G-8 listed it as a v2 registered name; corrected here.",
     "Knowledge": "The v2 tool module (agent/knowledge/tools/knowledge-tool.ts) self-registers but NOTHING imports it — dead v2-side registration. The REPL advertises its own native twin (repl/mod.rs knowledge_tool_def). G-8/batch4 treated Knowledge as a live v2 tool; corrected here.",
     "Team": "Same as Knowledge: teamTool.ts self-registers but is imported by nothing; the REPL has a native twin (repl/mod.rs team_tool_def). The fork advertises Team as a feature — the v2-side wiring is gone.",

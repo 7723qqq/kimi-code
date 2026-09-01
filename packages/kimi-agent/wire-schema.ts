@@ -202,6 +202,18 @@ export const runTurnParamsSchema = z.object({
   github_token: z.string().optional(),
   github_base_url: z.string().optional(),
   telemetry: telemetryContext.optional(),
+  subagent_profiles: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string().optional(),
+        system_prompt: z.string().optional(),
+        tools: z.array(z.string()).optional(),
+        disallowed_tools: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  subagent_timeout_ms: z.number().optional(),
 });
 
 // ── EngineSession handle over stdio (M1d 3b) ──────────────────────────────

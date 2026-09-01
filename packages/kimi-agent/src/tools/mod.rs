@@ -51,6 +51,7 @@ const BASH_MAX_SECONDS: u64 = 300;
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
+pub mod agent_tool;
 pub mod ask_user_question;
 pub mod core_tool_defs;
 pub mod create_goal;
@@ -145,6 +146,7 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "skill",
     "knowledge",
     "team",
+    "agent",
 ];
 
 /// The static half of [`NativeToolset::handles`] without an instance: the
@@ -167,6 +169,12 @@ pub struct NativeToolset {
     shell: Option<String>,
     subagent_manager: Option<std::sync::Arc<crate::subagent::SubagentManager>>,
     mcp_manager: Option<std::sync::Arc<crate::mcp::McpManager>>,
+    /// Foreground `Agent` tool turn context (P46): the timeout the host
+    /// resolved (`resolveSubagentTimeoutMs`) and the parent turn's
+    /// cancellation flag. Both `None` outside a wired turn (the tool then
+    /// runs with the 2h default and no parent abort).
+    subagent_timeout_ms: Option<u64>,
+    turn_cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Host callbacks for interactive tools (AskUserQuestion). `None` means
     /// the tool falls back to the host path, which owns the interaction
     /// runtime anyway.
@@ -207,6 +215,8 @@ impl NativeToolset {
             shell,
             subagent_manager: None,
             mcp_manager: None,
+            subagent_timeout_ms: None,
+            turn_cancellation: None,
             callbacks: None,
             github_credentials: None,
         })
@@ -224,6 +234,18 @@ impl NativeToolset {
     /// Attach an McpManager for external MCP server tools.
     pub fn with_mcp(mut self, manager: std::sync::Arc<crate::mcp::McpManager>) -> Self {
         self.mcp_manager = Some(manager);
+        self
+    }
+
+    /// Attach the foreground `Agent` tool's turn context (P46): the host's
+    /// resolved subagent timeout and the parent turn's cancellation flag.
+    pub fn with_agent_context(
+        mut self,
+        timeout_ms: Option<u64>,
+        cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Self {
+        self.subagent_timeout_ms = timeout_ms;
+        self.turn_cancellation = cancellation;
         self
     }
 
@@ -357,6 +379,16 @@ impl NativeToolset {
             "team" => {
                 let mgr = self.subagent_manager.as_ref()?;
                 Some(team_tool::execute_team(mgr, args).await)
+            }
+            "agent" => {
+                let mgr = self.subagent_manager.as_ref()?;
+                agent_tool::execute_agent(
+                    mgr,
+                    args,
+                    self.subagent_timeout_ms,
+                    self.turn_cancellation.clone(),
+                )
+                .await
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
             "write" => self.write(args),

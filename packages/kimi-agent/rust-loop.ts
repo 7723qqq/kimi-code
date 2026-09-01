@@ -482,6 +482,7 @@ interface LlmChatRequest {
 }
 
 interface LlmChatResponse {
+  content?: string;
   tool_calls: { id: string; name: string; arguments: unknown }[];
   finish_reason?: string;
   usage: {
@@ -1366,6 +1367,15 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
     | { name: string; model: string; systemPrompt: string }[]
     | undefined;
   const policySnapshotJson = params['policySnapshotJson'] as string | undefined;
+  const subagentProfiles = params['subagentProfiles'] as
+    | {
+        name: string;
+        description?: string;
+        systemPrompt?: string;
+        tools?: string[];
+        disallowedTools?: string[];
+      }[]
+    | undefined;
   return {
     turn_id: params['turnId'],
     system_prompt: params['systemPrompt'],
@@ -1405,6 +1415,14 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             protocol: telemetry.protocol,
             thinking_effort: telemetry.thinkingEffort,
           },
+    subagent_profiles: subagentProfiles?.map((p) => ({
+      name: p.name,
+      description: p.description,
+      system_prompt: p.systemPrompt,
+      tools: p.tools,
+      disallowed_tools: p.disallowedTools,
+    })),
+    subagent_timeout_ms: params['subagentTimeoutMs'],
   };
 }
 
@@ -1992,12 +2010,18 @@ export function createRunTurnOverride(
       const messages = await input.buildMessages();
       const stepTools = input.buildTools();
 
+      // Accumulate the streamed text so the wire response carries it: the
+      // main host-proxy turn does not need it (the host owns the
+      // transcript), but engine-spawned subagents read their summary from
+      // the assistant text the engine sees (P46).
+      let chatText = '';
       const response = await input.llm.chat({
         messages,
         tools: stepTools,
         signal: signal ?? input.signal,
         modelName,
         onTextPart: async (part) => {
+          chatText += part.text;
           await input.dispatchEvent({
             type: 'content.part',
             uuid: randomUUID(),
@@ -2021,6 +2045,7 @@ export function createRunTurnOverride(
       if (openStep !== undefined) openStep.usage = response.usage;
 
       return {
+        content: chatText,
         tool_calls:
           response.toolCalls?.map((tc) => ({
             id: tc.id,
@@ -2150,6 +2175,8 @@ export function createRunTurnOverride(
         nativeLlm,
         policy: policySnapshot,
         github: githubCredentials,
+        subagentProfiles: input.subagentProfiles,
+        subagentTimeoutMs: input.subagentTimeoutMs,
       });
       // A stdio crash re-spawns the agent process; a session on the old
       // process is dead and must be rebuilt (the crash-recovery contract).
@@ -2203,6 +2230,14 @@ export function createRunTurnOverride(
                   protocol: telemetryContext.protocol,
                   thinkingEffort: telemetryContext.thinking_effort,
                 },
+          subagentProfiles: input.subagentProfiles?.map((p) => ({
+            name: p.name,
+            description: p.description,
+            systemPrompt: p.systemPrompt,
+            tools: p.tools,
+            disallowedTools: p.disallowedTools,
+          })),
+          subagentTimeoutMs: input.subagentTimeoutMs,
         };
         // Stable delegates over the shared `active` slot: bound once at
         // session create, read the current turn's handlers at call time

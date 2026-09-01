@@ -46,6 +46,8 @@ import {
   type QuestionResult,
 } from '#/session/question/question';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { resolveSubagentTimeoutMs } from '#/session/subagent/configSection';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
@@ -118,6 +120,7 @@ import {
   type TurnEngine,
   type TurnEngineGoalContext,
   type TurnEngineInput,
+  type TurnEngineSubagentProfile,
   type TurnLifecycleEvent,
   type TurnTelemetryEvent,
 } from './engineOverride';
@@ -1593,7 +1596,47 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       onTurnTelemetry: this.engineOwnsTurnLifecycle()
         ? (event) => this.forwardEngineTurnTelemetry(event)
         : undefined,
+      subagentProfiles: this.collectSubagentProfiles(),
+      subagentTimeoutMs: resolveSubagentTimeoutMs(this.config),
     };
+  }
+
+  /**
+   * Snapshot of the session profile catalog for the engine's native
+   * `Agent` tool (P46). Plugin-sourced profiles stay host-only: their
+   * execution may depend on plugin resources the engine cannot see, and
+   * an absent profile routes the call back to the host tool.
+   */
+  private collectSubagentProfiles(): readonly TurnEngineSubagentProfile[] {
+    try {
+      const catalog = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(ISessionAgentProfileCatalog),
+      );
+      const snapshot: TurnEngineSubagentProfile[] = [];
+      for (const profile of catalog.list()) {
+        if (catalog.inspect(profile.name)?.sourceId === 'plugin') continue;
+        let systemPrompt: string | undefined;
+        try {
+          const rendered = profile.systemPrompt({});
+          systemPrompt = rendered.length > 0 ? rendered : undefined;
+        } catch {
+          systemPrompt = undefined;
+        }
+        const details = [profile.description, profile.whenToUse]
+          .filter((part): part is string => typeof part === 'string' && part.length > 0)
+          .join(' ');
+        snapshot.push({
+          name: profile.name,
+          description: details.length > 0 ? details : undefined,
+          systemPrompt,
+          tools: profile.tools,
+          disallowedTools: profile.disallowedTools,
+        });
+      }
+      return snapshot;
+    } catch {
+      return [];
+    }
   }
 
   private engineOwnsTurnLifecycle(): boolean {

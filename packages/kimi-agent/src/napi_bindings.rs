@@ -705,6 +705,27 @@ pub struct JsRunTurnParams {
     /// Host-injected telemetry context (M1c): the host's model configuration
     /// merged into the engine-emitted `host/telemetry` events.
     pub telemetry: Option<JsTelemetryContext>,
+    /// Session profile catalog snapshot (P46): profiles the native `Agent`
+    /// tool may spawn. Empty/absent = every `Agent` call falls back to
+    /// the host tool.
+    pub subagent_profiles: Option<Vec<JsSubagentProfile>>,
+    /// Host-resolved foreground subagent timeout in ms (v2
+    /// `resolveSubagentTimeoutMs`). Absent → engine default (2h). `i64`
+    /// because napi cannot read JS numbers as `u64`.
+    pub subagent_timeout_ms: Option<i64>,
+}
+
+/// A subagent profile from the host's session catalog snapshot (P46).
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsSubagentProfile {
+    pub name: String,
+    pub description: Option<String>,
+    pub system_prompt: Option<String>,
+    /// Explicit tool allowlist; empty means every tool minus
+    /// `disallowed_tools`.
+    pub tools: Option<Vec<String>>,
+    pub disallowed_tools: Option<Vec<String>>,
 }
 
 /// The host-side half of the turn telemetry payload (M1c): fields the host
@@ -1042,7 +1063,26 @@ struct EnginePipeline {
 async fn build_engine_pipeline(
     params: &JsRunTurnParams,
     tsfns: EngineCallbackTsfns,
+    cancellation: Option<Arc<AtomicBool>>,
 ) -> napi::Result<EnginePipeline> {
+    // Session profile catalog snapshot (P46): refresh the process-wide
+    // manager's definitions per turn so the native `Agent` tool sees the
+    // host's builtin/workspace/user profiles (plugin and external-backend
+    // profiles never arrive here — those calls fall back to the host).
+    if let Some(profiles) = &params.subagent_profiles {
+        let wires: Vec<crate::rpc::types::SubagentProfileWire> = profiles
+            .iter()
+            .map(|p| crate::rpc::types::SubagentProfileWire {
+                name: p.name.clone(),
+                description: p.description.clone().unwrap_or_default(),
+                system_prompt: p.system_prompt.clone().unwrap_or_default(),
+                tools: p.tools.clone().unwrap_or_default(),
+                disallowed_tools: p.disallowed_tools.clone().unwrap_or_default(),
+            })
+            .collect();
+        SUBAGENT_MANAGER.register_profile_snapshot(&wires).await;
+    }
+
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(NapiHostCallbacks {
         llm_chat_fn: Arc::new(tsfns.llm_chat),
         execute_tool_fn: Arc::new(tsfns.execute_tool),
@@ -1130,6 +1170,13 @@ async fn build_engine_pipeline(
                         toolset: Arc::new(
                             toolset
                                 .with_subagents(SUBAGENT_MANAGER.clone())
+                                .with_agent_context(
+                                    params
+                                        .subagent_timeout_ms
+                                        .filter(|t| *t > 0)
+                                        .map(|t| t as u64),
+                                    cancellation,
+                                )
                                 .with_callbacks(base_callbacks.clone())
                                 .with_github_credentials(crate::tools::github::GitHubCredentials {
                                     token: params.github_token.clone(),
@@ -1288,6 +1335,7 @@ async fn run_turn_rust_impl(
             goal: None,
             cancellation: Some(cancellation.clone()),
         },
+        Some(cancellation.clone()),
     )
     .await?;
     let llm = pipeline.llm;
@@ -1573,6 +1621,10 @@ pub fn create_engine_session(
                     goal: goal_tsfn.clone(),
                     cancellation: None,
                 },
+                // Session pipeline: no per-turn cancellation at build time
+                // (the session pump owns its own abort path); the native
+                // `Agent` tool runs with the timeout only.
+                None,
             )
             .await?;
 

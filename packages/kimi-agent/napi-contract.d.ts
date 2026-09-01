@@ -148,6 +148,18 @@ export interface JsRunTurnParams {
    * merged into the engine-emitted `host/telemetry` events.
    */
   telemetry?: JsTelemetryContext
+  /**
+   * Session profile catalog snapshot (P46): profiles the native `Agent`
+   * tool may spawn. Empty/absent = every `Agent` call falls back to
+   * the host tool.
+   */
+  subagentProfiles?: Array<JsSubagentProfile>
+  /**
+   * Host-resolved foreground subagent timeout in ms (v2
+   * `resolveSubagentTimeoutMs`). Absent → engine default (2h). `i64`
+   * because napi cannot read JS numbers as `u64`.
+   */
+  subagentTimeoutMs?: number
 }
 
 export interface JsRunTurnResult {
@@ -174,6 +186,19 @@ export interface JsRunTurnResult {
 export interface JsSessionStatus {
   activeTurnId?: number
   pendingTurnIds: Array<number>
+}
+
+/** A subagent profile from the host's session catalog snapshot (P46). */
+export interface JsSubagentProfile {
+  name: string
+  description?: string
+  systemPrompt?: string
+  /**
+   * Explicit tool allowlist; empty means every tool minus
+   * `disallowed_tools`.
+   */
+  tools?: Array<string>
+  disallowedTools?: Array<string>
 }
 
 /**

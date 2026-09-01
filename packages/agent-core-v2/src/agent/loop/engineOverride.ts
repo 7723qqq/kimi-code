@@ -241,6 +241,27 @@ export interface TurnEngineInput {
    * telemetry. Unwired for engines that do not own the lifecycle.
    */
   onTurnTelemetry?(event: TurnTelemetryEvent): void;
+  /**
+   * Session profile catalog snapshot (P46): the profiles the engine's
+   * native `Agent` tool may spawn in-process. Profiles absent from the
+   * snapshot (plugin sources, anything the host did not push) route back
+   * to the host's `Agent` tool. Absent or empty keeps every call
+   * host-side.
+   */
+  subagentProfiles?: readonly TurnEngineSubagentProfile[];
+  /** Foreground subagent timeout in ms, resolved host-side (v2
+   *  `resolveSubagentTimeoutMs`). Absent: the engine's 2h default. */
+  subagentTimeoutMs?: number;
+}
+
+/** A profile from the session catalog snapshot (P46). Mirrors the v2
+ *  `AgentProfile` fields an engine needs to run a foreground subagent. */
+export interface TurnEngineSubagentProfile {
+  readonly name: string;
+  readonly description?: string;
+  readonly systemPrompt?: string;
+  readonly tools?: readonly string[];
+  readonly disallowedTools?: readonly string[];
 }
 
 export interface TurnEngineResult {

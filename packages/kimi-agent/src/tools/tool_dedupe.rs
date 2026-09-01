@@ -83,6 +83,10 @@ pub struct StepPlan {
 pub struct DedupeGuard {
     consecutive_key: Option<String>,
     consecutive_count: u32,
+    /// Monotonic source of exempt sentinel ids: an exempt call must never
+    /// streak against another call (including an exempt call in a later
+    /// step at the same in-step position), so every one gets a fresh key.
+    exempt_seq: u64,
 }
 
 impl DedupeGuard {
@@ -91,26 +95,31 @@ impl DedupeGuard {
     }
 
     /// Plan a step: key every call and mark same-step duplicates (the
-    /// same-step half of v2 `checkToolCall`). Pure with respect to the
-    /// guard — the cross-step state only advances in `finalize_step`.
-    pub fn plan_step(&self, calls: &[ToolCall]) -> StepPlan {
+    /// same-step half of v2 `checkToolCall`). The guard's exempt-id source
+    /// advances, so planning is `&mut`.
+    pub fn plan_step(&mut self, calls: &[ToolCall]) -> StepPlan {
         self.plan_step_by(calls, |call| {
             Some(make_key(&call.name, &call.arguments))
         })
     }
 
     /// Like [`Self::plan_step`], with a per-call keying function. Calls
-    /// keyed `None` are exempt from dedup (each gets a unique sentinel
-    /// key): the engine uses this to keep host-forwarded calls under the
-    /// host's own dedup service, so no call is ever deduped twice.
-    pub fn plan_step_by<F>(&self, calls: &[ToolCall], mut key_of: F) -> StepPlan
+    /// keyed `None` are exempt from dedup (each gets a fresh unique
+    /// sentinel key — never matching anything, across steps included):
+    /// the engine uses this to keep host-forwarded calls under the host's
+    /// own dedup service, so no call is ever deduped twice.
+    pub fn plan_step_by<F>(&mut self, calls: &[ToolCall], mut key_of: F) -> StepPlan
     where
         F: FnMut(&ToolCall) -> Option<String>,
     {
         let mut keys = Vec::with_capacity(calls.len());
         let mut original_of = Vec::with_capacity(calls.len());
-        for (i, call) in calls.iter().enumerate() {
-            let key = key_of(call).unwrap_or_else(|| format!("\x00exempt-{i}"));
+        for call in calls.iter() {
+            let key = key_of(call).unwrap_or_else(|| {
+                let id = self.exempt_seq;
+                self.exempt_seq += 1;
+                format!("\x00exempt-{id}")
+            });
             let original = keys
                 .iter()
                 .position(|k| *k == key)
@@ -232,7 +241,7 @@ mod tests {
 
     #[test]
     fn plan_step_marks_same_step_duplicates() {
-        let guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::new();
         let plan = guard.plan_step(&[
             read_call("c1", "a.rs"),
             read_call("c2", "b.rs"),
@@ -244,7 +253,7 @@ mod tests {
 
     #[test]
     fn plan_step_by_exempts_none_keyed_calls() {
-        let guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::new();
         // Both calls share arguments, but the keyer exempts the second
         // family — no dedup between them.
         let plan = guard.plan_step_by(
@@ -252,6 +261,20 @@ mod tests {
             |call| (call.id == "c1").then(|| make_key(&call.name, &call.arguments)),
         );
         assert_eq!(plan.original_of, vec![0, 1]);
+    }
+
+    #[test]
+    fn exempt_calls_never_streak_across_steps() {
+        let mut guard = DedupeGuard::new();
+        // The same exempt call repeated once per step for well past the
+        // force-stop threshold must never earn a reminder or a stop:
+        // exempt sentinels are unique per call, not per in-step position.
+        for _ in 0..15 {
+            let plan = guard.plan_step_by(&[read_call("c1", "a.rs")], |_| None);
+            let mut results = vec![result("ok")];
+            assert!(!guard.finalize_step(&plan, &mut results));
+            assert_eq!(results[0].content, "ok");
+        }
     }
 
     #[test]

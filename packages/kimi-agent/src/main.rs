@@ -125,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
             // The engine pipeline is shared with the session handle: the
             // callback chain (counting + native tools over the RPC host
             // bridge) and the LLM selection are built once per context.
-            let pipeline = build_engine_pipeline(&input, server.clone()).await?;
+            let pipeline = build_engine_pipeline(&input, server.clone(), Some(cancel_flag.clone()))
+                .await?;
             let llm = pipeline.llm;
             let callbacks = pipeline.callbacks;
             let turn_event_count = pipeline.turn_event_count;
@@ -218,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
                 let input: RunTurnParams = serde_json::from_value(params).map_err(|e| {
                     types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
                 })?;
-                let pipeline = build_engine_pipeline(&input, server.clone()).await?;
+                let pipeline = build_engine_pipeline(&input, server.clone(), None).await?;
 
                 // Turn-start tool table: pulled fresh from the host per turn
                 // on native transports (host-proxy rebuilds tools inside
@@ -608,8 +609,19 @@ struct EnginePipeline {
 async fn build_engine_pipeline(
     params: &RunTurnParams,
     server: Arc<RpcServer>,
+    cancellation: Option<Arc<AtomicBool>>,
 ) -> Result<EnginePipeline, types::JsonRpcError> {
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks { server });
+
+    // Subagent manager for the native `Agent` tool (P46): one per pipeline
+    // (the legacy stdio entry rebuilds the pipeline per turn; the session
+    // entry builds once). The host's profile catalog snapshot registers
+    // here — empty snapshot means every `Agent` call falls back to the
+    // host tool.
+    let subagent_manager = Arc::new(kimi_agent::subagent::SubagentManager::new());
+    subagent_manager
+        .register_profile_snapshot(&params.subagent_profiles)
+        .await;
 
     // Count every event this turn emits (step lifecycle, deltas, native
     // tools, goal budget limits) for the turn telemetry. Wrapped before the
@@ -676,6 +688,11 @@ async fn build_engine_pipeline(
                             inner: base_callbacks.clone(),
                             toolset: Arc::new(
                                 toolset
+                                    .with_subagents(subagent_manager.clone())
+                                    .with_agent_context(
+                                        params.subagent_timeout_ms,
+                                        cancellation,
+                                    )
                                     .with_callbacks(base_callbacks.clone())
                                     .with_github_credentials(
                                         kimi_agent::tools::github::GitHubCredentials {
@@ -761,8 +778,15 @@ async fn build_engine_pipeline(
         )
     };
 
+    let llm: Arc<dyn LLM> = Arc::from(llm);
+    // Subagent execution runtime (P46): spawned subagent turns run with
+    // this pipeline's llm + callback chain, mirroring the napi seam.
+    subagent_manager
+        .set_runtime(llm.clone(), callbacks.clone())
+        .await;
+
     Ok(EnginePipeline {
-        llm: Arc::from(llm),
+        llm,
         callbacks,
         turn_event_count,
         native_tool_count,

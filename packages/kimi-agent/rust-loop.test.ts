@@ -348,6 +348,163 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(toolResultEvents[0].result?.isError).toBe(true);
   });
 
+  // P46: the native `Agent` tool runs a foreground subagent from the
+  // pushed profile snapshot; unknown profiles fall back to the host tool.
+  async function driveAgentTurn(
+    workspace: string,
+    profiles: Array<{
+      name: string;
+      description?: string;
+      systemPrompt?: string;
+      tools?: string[];
+      disallowedTools?: string[];
+    }>,
+  ): Promise<{
+    events: unknown[];
+    permissionCalls: Array<{ name: string; arguments: unknown }>;
+    hostToolExecutions: number;
+    chatCalls: number;
+    result: unknown;
+  }> {
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    const events: unknown[] = [];
+    const permissionCalls: Array<{ name: string; arguments: unknown }> = [];
+    let hostToolExecutions = 0;
+    let chatCalls = 0;
+
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'test-model',
+        modelId: 'test-model',
+        systemPrompt: 'You are a test driver.',
+        async chat(chatInput: {
+          onTextPart?: (part: { type: 'text'; text: string }) => void | Promise<void>;
+        }) {
+          const call = chatCalls++;
+          if (call === 0) {
+            // Parent: launch the subagent.
+            return {
+              toolCalls: [
+                {
+                  type: 'function',
+                  id: 'agent-call-1',
+                  name: 'Agent',
+                  arguments: JSON.stringify({
+                    subagent_type: 'researcher',
+                    prompt: 'find the loop',
+                    description: 'Loop probe',
+                  }),
+                },
+              ],
+              providerFinishReason: 'tool_calls',
+              usage: { inputOther: 10, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          if (call === 1) {
+            // The subagent's turn: answer directly; this text becomes its
+            // summary in the v2-shaped Agent result.
+            await chatInput.onTextPart?.({
+              type: 'text',
+              text: 'findings: the loop lives in run_turn.rs',
+            });
+            return {
+              toolCalls: [],
+              providerFinishReason: 'stop',
+              usage: { inputOther: 5, output: 4, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          // Parent after the Agent result: finish.
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent(event: unknown) {
+        events.push(event);
+      },
+      async executeTool() {
+        hostToolExecutions += 1;
+        return { output: 'host-ran-it', isError: false };
+      },
+      async checkToolPermission(call: { name: string; arguments: unknown }) {
+        permissionCalls.push({ name: call.name, arguments: call.arguments });
+        return { decision: 'allow' as const };
+      },
+      subagentProfiles: profiles,
+    } satisfies TurnEngineInputLike;
+
+    const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
+    return { events, permissionCalls, hostToolExecutions, chatCalls, result };
+  }
+
+  it('runs a native foreground Agent call from the pushed profile snapshot', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-native-'));
+    tempDirs.push(workspace);
+
+    const out = await driveAgentTurn(workspace, [
+      {
+        name: 'researcher',
+        description: 'Finds things.',
+        systemPrompt: 'You are a research subagent.',
+        tools: [],
+        disallowedTools: [],
+      },
+    ]);
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    // The gate asked the host permission once (for the Agent call itself);
+    // the subagent's chat never touched host executeTool.
+    expect(out.permissionCalls.map((c) => c.name)).toEqual(['Agent']);
+    expect(out.hostToolExecutions).toBe(0);
+    // Parent step, subagent step, parent finish.
+    expect(out.chatCalls).toBe(3);
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    const rawOutput = toolResultEvents[0].result?.output;
+    const output = typeof rawOutput === 'string' ? rawOutput : '';
+    expect(output).toContain('actual_subagent_type: researcher');
+    expect(output).toContain('status: completed');
+    expect(output).toContain('[summary]');
+    expect(output).toContain('findings: the loop lives in run_turn.rs');
+  });
+
+  it('falls back to the host Agent tool when the profile is not in the snapshot', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-fallback-'));
+    tempDirs.push(workspace);
+
+    // Empty snapshot: no profile is engine-known.
+    const out = await driveAgentTurn(workspace, []);
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.hostToolExecutions).toBe(1);
+    // The parent finish chat still happens after the host-ran result.
+    expect(out.chatCalls).toBe(2);
+  });
+
   // v2 `toolDedupeService` mirror (G-6 #2): identical native calls issued
   // in the same step execute once — the repeat shares the original's
   // result and stays visible in the transcript.
