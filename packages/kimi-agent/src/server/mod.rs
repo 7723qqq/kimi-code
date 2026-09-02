@@ -3,22 +3,21 @@
 //! `HttpServer::handle_request` maps a handful of paths (`/health`,
 //! `/api/v1/sessions`, `POST /api/v1/sessions/:id/prompt`) onto
 //! `SqliteSessionStore`, and [`http::serve`] binds them to a real TCP listener.
-//! What is still missing before this is a servable API:
+//! The one product entry is `kimi-agent --serve <ADDR>`, which builds the store,
+//! the engine and the [`ServerAuth`] credential and hands them to
+//! [`http::serve`].
 //!
-//! - nothing in the product calls [`http::serve`] — no CLI subcommand or host
-//!   entry constructs an `HttpServer` outside this module's tests;
-//! - `POST /api/v1/sessions/:id/prompt` runs a real turn, but only once a
-//!   [`ServerEngine`] is attached with [`HttpServer::with_engine`]; without one
-//!   it answers 503 rather than pretending. What is still missing to be a
-//!   servable API is a **composition root**: nothing reads a config and starts
-//!   [`http::serve`], so every part exists but no product process assembles them.
-//! - WebSocket framing exists ([`ws`]: RFC 6455 handshake, frame codec,
-//!   control frames, fragmentation) but is **not reachable in product** — the
-//!   HTTP listener does not route an upgrade to it, and it speaks no
-//!   kap-server `/api/v1/ws` message schema yet.
+//! What is still missing before this replaces `packages/kap-server`'s `/api/v1`:
+//!
+//! - the WebSocket connection fans out events but speaks no kap-server
+//!   `/api/v1/ws` message schema, so a client written against that schema cannot
+//!   drive it;
+//! - responses are bare objects, not kap-server's `{code, msg, data, request_id}`
+//!   envelope — the 401 is the only envelope-shaped route.
 //!
 //! The `/api/v1` surface the app actually serves is still `packages/kap-server`.
 
+pub mod auth;
 pub mod engine;
 pub mod http;
 pub mod hub;
@@ -29,6 +28,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::events::EventBus;
+use crate::server::auth::ServerAuth;
 use crate::server::engine::ServerEngine;
 use crate::server::hub::EventHub;
 use crate::server::router::{HttpRequest, HttpResponse};
@@ -38,6 +38,7 @@ pub struct HttpServer {
     store: Arc<SqliteSessionStore>,
     bus: Arc<EventBus>,
     engine: Option<Arc<ServerEngine>>,
+    auth: ServerAuth,
 }
 
 impl HttpServer {
@@ -48,12 +49,28 @@ impl HttpServer {
 
     /// A server that publishes onto an existing bus, so a pipeline built
     /// elsewhere and the WebSocket fan-out share one event source.
+    /// Unauthenticated. Fine for tests and for a loopback development run; the
+    /// only product entry (`--serve`) replaces this with a real token, and
+    /// [`http::serve`] refuses a non-loopback bind while it is in effect.
     pub fn with_bus(store: Arc<SqliteSessionStore>, bus: Arc<EventBus>) -> Self {
         Self {
             store,
             bus,
             engine: None,
+            auth: ServerAuth::disabled(),
         }
+    }
+
+    /// Require `Authorization: Bearer <token>` (and the WebSocket subprotocol
+    /// equivalent) on every non-bypassed route.
+    #[must_use]
+    pub fn with_auth(mut self, auth: ServerAuth) -> Self {
+        self.auth = auth;
+        self
+    }
+
+    pub fn auth(&self) -> &ServerAuth {
+        &self.auth
     }
 
     /// Attach the turn driver, without which `POST /sessions/:id/prompt` has
@@ -83,6 +100,16 @@ impl HttpServer {
     pub async fn handle_request(&self, req: &HttpRequest) -> HttpResponse {
         let path = req.path.trim_end_matches('/');
         let method = req.method.to_uppercase();
+
+        // The one REST authority: health and the schema documents answer
+        // unauthenticated, matching kap-server, and everything that can read or
+        // mutate state does not.
+        if !ServerAuth::is_bypassed(&method, path) {
+            let decision = self.auth.check_bearer(req.header("authorization"));
+            if !decision.is_allowed() {
+                return HttpResponse::unauthorized("Unauthorized");
+            }
+        }
 
         match (method.as_str(), path) {
             ("GET", "/api/v1/health") | ("GET", "/health") => HttpResponse::ok(&json!({

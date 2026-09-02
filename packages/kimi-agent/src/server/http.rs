@@ -91,6 +91,19 @@ impl ServerHandle {
 /// Binding to port `0` works: the OS-assigned port comes back in
 /// [`ServerHandle::local_addr`], which is how the tests drive a real socket.
 pub async fn serve(addr: &str, server: Arc<HttpServer>) -> io::Result<ServerHandle> {
+    // Fail closed. `HttpServer` defaults to no auth (tests, local development),
+    // so reaching a non-loopback interface requires a credential. The CLI-level
+    // check is convenience; this one is the gate.
+    let host = addr.rsplit_once(':').map_or(addr, |(host, _)| host);
+    let loopback =
+        matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]") || host.starts_with("127.");
+    if !loopback && server.auth().is_disabled() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("refusing to bind {addr} without authentication"),
+        ));
+    }
+
     let listener = TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
@@ -129,7 +142,16 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
 
     if ws::is_upgrade(&received.request) {
         let Received { request, leftover } = received;
-        return match ws::serve_ws(stream, &request, leftover, server.hub()).await {
+        let (decision, selected_protocol) = server.auth().check_upgrade(
+            request.header("authorization"),
+            request.header("sec-websocket-protocol"),
+        );
+        if !decision.is_allowed() {
+            let response = HttpResponse::unauthorized("Unauthorized");
+            return write_response(&mut stream, &response).await;
+        }
+        return match ws::serve_ws(stream, &request, leftover, server.hub(), selected_protocol).await
+        {
             Ok(()) => Ok(()),
             Err(ws::WsError::Io(error)) => Err(error),
             Err(error) => {
@@ -141,6 +163,9 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
         };
     }
 
+    // Auth for REST lives in `HttpServer::handle_request`, so every host that
+    // dispatches through it is gated; only the WebSocket handshake needs a
+    // credential checked here, because it never reaches that dispatcher.
     let response = server.handle_request(&received.request).await;
     write_response(&mut stream, &response).await
 }
@@ -319,6 +344,7 @@ fn reason_phrase(status: u16) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::auth::ServerAuth;
 
     fn parse(head: &[u8]) -> Result<HttpRequest, RejectReason> {
         parse_head(head)
@@ -478,6 +504,122 @@ mod tests {
 
         assert!(text.starts_with("HTTP/1.1 400 Bad Request\r\n"), "{text}");
         assert!(text.contains("Transfer-Encoding"), "{text}");
+
+        handle.shutdown();
+    }
+
+    /// A listener on an ephemeral loopback port where every state route needs
+    /// `Bearer tok3n`.
+    async fn serve_with_token() -> ServerHandle {
+        let server = Arc::new(
+            HttpServer::in_memory()
+                .unwrap()
+                .with_auth(ServerAuth::Token(Arc::from("tok3n"))),
+        );
+        serve("127.0.0.1:0", server).await.unwrap()
+    }
+
+    async fn exchange(addr: std::net::SocketAddr, request: &str) -> String {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        String::from_utf8_lossy(&response).into_owned()
+    }
+
+    fn upgrade_request(protocol: &str) -> String {
+        format!(
+            "GET /api/v1/ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: {protocol}\r\n\r\n"
+        )
+    }
+
+    #[tokio::test]
+    async fn a_state_route_refuses_a_missing_credential_in_the_kap_server_shape() {
+        let handle = serve_with_token().await;
+        let text = exchange(
+            handle.local_addr,
+            "GET /api/v1/sessions HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        )
+        .await;
+
+        assert!(text.starts_with("HTTP/1.1 401 Unauthorized\r\n"), "{text}");
+        assert!(
+            text.contains("WWW-Authenticate: Bearer realm=\"kimi-code\""),
+            "RFC 6750 says a 401 carries a challenge: {text}"
+        );
+        assert!(text.contains("\"code\":40101"), "{text}");
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn the_credential_unlocks_state_routes_while_health_stays_open() {
+        let handle = serve_with_token().await;
+
+        let listed = exchange(
+            handle.local_addr,
+            "GET /api/v1/sessions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer tok3n\r\n\r\n",
+        )
+        .await;
+        assert!(listed.starts_with("HTTP/1.1 200 OK\r\n"), "{listed}");
+
+        // A wrong token is refused the same way a missing one is, so the
+        // response cannot be probed for what the server expected.
+        let wrong = exchange(
+            handle.local_addr,
+            "GET /api/v1/sessions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer nope\r\n\r\n",
+        )
+        .await;
+        assert!(wrong.starts_with("HTTP/1.1 401 Unauthorized\r\n"), "{wrong}");
+
+        let health = exchange(
+            handle.local_addr,
+            "GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        )
+        .await;
+        assert!(health.starts_with("HTTP/1.1 200 OK\r\n"), "{health}");
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn a_websocket_upgrade_needs_the_token_and_echoes_the_protocol_it_accepted() {
+        let handle = serve_with_token().await;
+
+        let refused = exchange(handle.local_addr, &upgrade_request("kimi-code.bearer.wrong")).await;
+        assert!(
+            refused.starts_with("HTTP/1.1 401 Unauthorized\r\n"),
+            "{refused}"
+        );
+        assert!(
+            !refused.contains("Sec-WebSocket-Protocol"),
+            "a refusal must not negotiate a protocol: {refused}"
+        );
+
+        // A successful handshake leaves the stream open, so read the response
+        // head once rather than to the end.
+        let mut stream = TcpStream::connect(handle.local_addr).await.unwrap();
+        stream
+            .write_all(upgrade_request("chrome-v1, kimi-code.bearer.tok3n").as_bytes())
+            .await
+            .unwrap();
+        let mut head = [0_u8; 512];
+        let read = timeout(Duration::from_secs(5), stream.read(&mut head))
+            .await
+            .expect("the handshake should not hang")
+            .unwrap();
+        let accepted = String::from_utf8_lossy(&head[..read]).into_owned();
+
+        assert!(
+            accepted.starts_with("HTTP/1.1 101 Switching Protocols\r\n"),
+            "{accepted}"
+        );
+        assert!(
+            accepted.contains("Sec-WebSocket-Protocol: kimi-code.bearer.tok3n\r\n"),
+            "RFC 6455 requires the selected protocol back or the browser aborts: {accepted}"
+        );
 
         handle.shutdown();
     }

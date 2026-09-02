@@ -128,12 +128,19 @@ pub fn accept_value(client_key: &str) -> String {
 }
 
 /// The 101 response completing the handshake.
-pub fn handshake_response(client_key: &str) -> Vec<u8> {
+///
+/// `protocol` is the subprotocol the server selects. It must be echoed when the
+/// client offered one, or a browser client aborts the negotiation.
+pub fn handshake_response(client_key: &str, protocol: Option<&str>) -> Vec<u8> {
+    let selected = protocol
+        .map(|name| format!("Sec-WebSocket-Protocol: {name}\r\n"))
+        .unwrap_or_default();
     format!(
         "HTTP/1.1 101 Switching Protocols\r\n\
          Upgrade: websocket\r\n\
          Connection: Upgrade\r\n\
-         Sec-WebSocket-Accept: {}\r\n\r\n",
+         Sec-WebSocket-Accept: {}\r\n\
+         {selected}\r\n",
         accept_value(client_key)
     )
     .into_bytes()
@@ -155,6 +162,7 @@ pub async fn serve_ws(
     request: &HttpRequest,
     leftover: Vec<u8>,
     hub: EventHub,
+    selected_protocol: Option<String>,
 ) -> Result<(), WsError> {
     let key = request
         .headers
@@ -165,7 +173,7 @@ pub async fn serve_ws(
     // legitimately expect every event from that moment on, and attaching after
     // the write opens a window where a published event reaches nobody.
     let mut subscription = hub.attach();
-    writer.write_all(&handshake_response(key)).await?;
+    writer.write_all(&handshake_response(key, selected_protocol.as_deref())).await?;
 
     // Frame decoding lives in its own task so the main loop can await events and
     // inbound frames without cancelling a half-read frame — `read_frame` is not
@@ -529,7 +537,7 @@ mod tests {
 
     #[test]
     fn handshake_response_carries_the_negotiation_headers() {
-        let response = String::from_utf8(handshake_response("dGhlIHNhbXBsZSBub25jZQ==")).unwrap();
+        let response = String::from_utf8(handshake_response("dGhlIHNhbXBsZSBub25jZQ==", None)).unwrap();
         assert!(response.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
         assert!(response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"));
         assert!(response.ends_with("\r\n\r\n"));
@@ -570,10 +578,7 @@ mod tests {
         assert!(!is_upgrade(&upgrade_request(&[("content-length", "0")])));
     }
 
-    async fn connect_client(
-        addr: std::net::SocketAddr,
-        key: &str,
-    ) -> (TcpStream, Vec<u8>) {
+    async fn connect_client(addr: std::net::SocketAddr, key: &str) -> (TcpStream, Vec<u8>) {
         let mut client = TcpStream::connect(addr).await.unwrap();
         client
             .write_all(

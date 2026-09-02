@@ -68,6 +68,10 @@ struct Cli {
     /// Where `--serve` keeps its session database (default: ./.kimi-agent)
     #[arg(long, value_name = "PATH", default_value = ".kimi-agent")]
     data_dir: String,
+
+    /// Skip the bearer credential for `--serve` (loopback binds only)
+    #[arg(long)]
+    no_auth: bool,
 }
 
 #[tokio::main]
@@ -685,20 +689,31 @@ async fn build_engine_pipeline(
 async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     let address = cli.serve.clone().expect("checked by the caller");
 
-    // The native surface has no authentication yet (kap-server's /api/v1 carries
-    // a bearer token; this does not), so it must not be reachable from anywhere
-    // but the local machine. Refuse loudly instead of shipping a wide-open
-    // session API that reads as if it were ready to expose.
+    // The credential is kap-server's own: a bearer token in
+    // `<kimi home>/server.token`, generated on first run so one client
+    // credential works against either server. `--no-auth` opts out, and only on
+    // loopback — `http::serve` is what actually refuses a non-loopback bind
+    // with no credential, so this early check just fails with a usable message.
     let host = address
         .rsplit_once(':')
         .map_or(address.as_str(), |(host, _)| host);
     let loopback =
         matches!(host, "127.0.0.1" | "localhost" | "::1") || host.strip_prefix("127.").is_some();
-    if !loopback {
-        anyhow::bail!(
-            "refusing to bind {address}: the native API has no authentication yet, so only a loopback address is allowed"
-        );
-    }
+    let (auth, token_path) = if cli.no_auth {
+        if !loopback {
+            anyhow::bail!("--no-auth only allows a loopback address, refusing to serve {address}");
+        }
+        (kimi_agent::server::auth::ServerAuth::disabled(), None)
+    } else {
+        let path = kimi_agent::server::auth::ServerAuth::default_token_path().ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot resolve the kimi home for server.token: set KIMI_CODE_HOME, or pass --no-auth to serve loopback without a credential"
+            )
+        })?;
+        let auth = kimi_agent::server::auth::ServerAuth::load_or_create(&path)
+            .map_err(|error| anyhow::anyhow!("cannot read or create {path:?}: {error}"))?;
+        (auth, Some(path))
+    };
 
     let (config, source) = match cli.config.as_ref() {
         Some(path) => {
@@ -759,10 +774,16 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     let bus = Arc::new(kimi_agent::events::EventBus::new());
     let hub = kimi_agent::server::hub::EventHub::new(bus.clone());
     let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone());
-    let server = kimi_agent::server::HttpServer::with_bus(store, bus).with_engine(engine);
+    let server = kimi_agent::server::HttpServer::with_bus(store, bus)
+        .with_engine(engine)
+        .with_auth(auth);
     let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;
+    let credential = match &token_path {
+        Some(path) => format!("bearer token {path:?}"),
+        None => "no credential (--no-auth)".into(),
+    };
     println!(
-        "kimi-agent serving /api/v1 on http://{} (config {source:?}, db {db_path:?})",
+        "kimi-agent serving /api/v1 on http://{} (config {source:?}, db {db_path:?}, {credential})",
         handle.local_addr
     );
 
