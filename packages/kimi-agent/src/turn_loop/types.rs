@@ -114,6 +114,40 @@ pub struct LLMMessage {
     pub tool_call_id: Option<String>,
 }
 
+impl LLMMessage {
+    pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            content: content.into(),
+            blocks: Vec::new(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::new("user", content)
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::new("assistant", content)
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::new("system", content)
+    }
+
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: "tool".into(),
+            content: content.into(),
+            blocks: Vec::new(),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(tool_call_id.into()),
+        }
+    }
+}
+
 /// Information about an available tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolInfo {
@@ -129,6 +163,10 @@ pub struct LLMChatResponse {
     /// the transcript there); filled by the native HTTP transport so the
     /// loop can thread assistant text into the message history.
     pub content: String,
+    /// Provider reasoning, in the order it was produced. Holds `Think`
+    /// blocks only — `content` stays the visible answer, so reasoning never
+    /// reaches the transcript as text.
+    pub thinking: Vec<ContentBlock>,
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: Option<String>,
     pub usage: TokenUsage,

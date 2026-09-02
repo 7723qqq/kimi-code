@@ -3322,6 +3322,32 @@ napi 的 `JsNativeLlmConfig` 干脆没这个字段且转换处硬写 `Default::d
 - 真·stdio 端到端：重编译 `kimi-agent-cli --features cli`，stdin 发 `agent/run_turn`（snake_case）+ `rust_self_contained:true` → `-32603` 带 P26 原文，证明被替换的调用点在真实 transport 上生效且 `PipelineError → JsonRpcError` 映射正确。
 - 全树 `cargo fmt -- --check` 仍红 ~14 个文件（含已跟踪的 `llm/anthropic.rs`、`compaction/mod.rs`、`turn_loop/run_turn.rs`、`tools/skill.rs`），**先于本批次存在**；本批次只对自有文件跑 `rustfmt`，未触碰他人在飞文件。
 
+## P75 — 原生 HTTP/1.1 传输层：给 REST 面接上监听器（2026-09-02）
+
+P74 让引擎管线可被第三种宿主构造；本批次补上它缺的另一半 —— 真实传输。选型定为**不引入 HTTP 框架**：`httparse` 与 tokio 的 `net` 已在构建图里（经 reqwest 传递），所以零新 crate、`Cargo.lock` 只多一行依赖名、包集合增删为 0 → vendor 内容不变，预期不触发 Nix `bunDeps` 哈希重算。
+
+### 落地：`src/server/http.rs`
+
+- `serve(addr, Arc<HttpServer>)` 起 accept 循环，返回 `ServerHandle { local_addr, shutdown() }`；绑 `:0` 可取回 OS 分配端口，测试就是这么驱动真 socket 的。
+- **一连接一请求**：响应恒带 `Connection: close`，于是没有 keep-alive 状态机、没有流水线、没有两个请求共享一个 socket 的成帧歧义。
+- **只认 `Content-Length`**：任何 `Transfer-Encoding` 直接拒 —— 把 CL.TE / TE.CL 走私家族整体关掉，而不是把两种成帧都实现一遍再决定谁赢。
+- **必须 CRLF**：header 块里出现裸 LF 或孤立 CR 即拒（`httparse` 自己会接受部分裸 LF，所以显式加守卫）。
+- **只认 origin-form**：`GET http://host/a` 拒 —— 这是源站不是代理。
+- 有界读取：header 16 KiB、body 4 MiB、连接 30s 读超时。
+- query string 在派发前剥掉，路由不能靠 `?x=1` 被绕过；`HttpRequest` 尚无 query 字段，所以下游暂时看不到它。
+
+### 仍未做
+
+- 产品里**没有入口调用 `serve()`** —— 没有 CLI 子命令或宿主构造 `HttpServer`。
+- prompt 路由仍返回 `Processed: {prompt}` 假串，没跑 turn。现在两头都齐了：`crate::pipeline` 提供可构造的引擎上下文，`server::http` 提供传输，缺的是把配好的 provider 变成 `PipelineSpec`（自持模式下没有 `host/llm_chat` 可退）。
+- 无 WebSocket，流式事件没有传输；WS 握手要 SHA-1，而 `sha1` **不在** lock 里（只有 `sha2`），届时要单独定。
+
+### 验证
+
+- `cargo test --lib server::` 26 全绿，其中 11 个是本批次新增：8 个解析器拒绝用例 + 3 个真 TCP socket 用例（health 200、POST 建会话后**换一条连接**仍能列出即证明落库、chunked 请求在触到任何路由前就 400）。
+- `cargo test --features cli`：987 lib（基线 976 + 11）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告。
+- 自有文件单独 `rustfmt`；全树 `cargo fmt -- --check` 仍红（P74 已记录，先于本批次存在）。
+
 ## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
 
 本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。

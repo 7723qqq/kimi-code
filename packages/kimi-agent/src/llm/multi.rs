@@ -293,6 +293,7 @@ mod tests {
                 } else {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some(name),
                         usage: TokenUsage {
@@ -333,6 +334,7 @@ mod tests {
     fn mk_response(tag: &str) -> LLMChatResponse {
         LLMChatResponse {
             content: String::new(),
+            thinking: vec![],
             tool_calls: vec![],
             finish_reason: Some(tag.to_string()),
             usage: TokenUsage {

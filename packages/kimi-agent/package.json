@@ -10,6 +10,10 @@
       "types": "./rust-loop.ts",
       "default": "./rust-loop.ts"
     },
+    "./session-handle": {
+      "types": "./session-handle.ts",
+      "default": "./session-handle.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

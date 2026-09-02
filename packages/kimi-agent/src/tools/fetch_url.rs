@@ -16,6 +16,8 @@ const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
      (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
 const DEFAULT_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// Redirect hops followed before giving up — the cap `Policy::limited` used.
+const MAX_REDIRECT_HOPS: usize = 10;
 
 pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let url_str = args.get("url")?.as_str()?;
@@ -38,7 +40,20 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let client = match reqwest::Client::builder()
         .user_agent(DEFAULT_USER_AGENT)
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .redirect(reqwest::redirect::Policy::limited(10))
+        // SSRF: the model's URL is only the first hop. `Policy::limited`
+        // would let reqwest follow a public page's 302 straight to a loopback
+        // or link-local address unchecked, so every target is validated before
+        // it is followed — the same per-hop rule
+        // `kimi-native-tools/src/fetch_url.rs:76` implements.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= MAX_REDIRECT_HOPS {
+                return attempt.error("too many redirects");
+            }
+            match validate_url(attempt.url().as_str(), false) {
+                Ok(()) => attempt.follow(),
+                Err(reason) => attempt.error(reason),
+            }
+        }))
         .build()
     {
         Ok(c) => c,

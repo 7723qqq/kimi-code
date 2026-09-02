@@ -980,6 +980,7 @@ dependencies = [
  "fastrand",
  "futures-util",
  "globset",
+ "httparse",
  "ignore",
  "napi",
  "napi-build",

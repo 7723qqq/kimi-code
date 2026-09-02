@@ -90,6 +90,7 @@ pub mod get_goal;
 pub mod github;
 pub mod goal_guard;
 pub mod goal_tools;
+pub mod kaos;
 pub mod knowledge_tool;
 pub mod list_directory;
 pub mod memory_paths;
@@ -184,7 +185,9 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
 /// `toolDedupeService`, so a repeated call is never deduped twice.
 pub fn is_native_tool_name(tool_name: &str) -> bool {
     let lowered = tool_name.to_ascii_lowercase();
-    NATIVE_TOOL_NAMES.contains(&lowered.as_str()) || github::is_github_tool(tool_name)
+    NATIVE_TOOL_NAMES.contains(&lowered.as_str())
+        || github::is_github_tool(tool_name)
+        || tool_name.starts_with("mcp__")
 }
 
 /// Sandboxed native executor, rooted at the workspace.

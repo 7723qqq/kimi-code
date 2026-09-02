@@ -38,12 +38,17 @@ struct SkillWire {
 /// Execute the Skill tool natively: `state_read` the skill domain and render
 /// the v2-aligned skill content.
 pub async fn execute_skill(callbacks: &dyn HostCallbacks, args: &Value) -> ExecutableToolResult {
-    let Some(name) = args.get("skill").and_then(|s| s.as_str()) else {
+    let name = args
+        .get("skill")
+        .or_else(|| args.get("name"))
+        .and_then(|s| s.as_str());
+    let Some(name) = name else {
         return err_result("Invalid Skill arguments: `skill` must be a string.".into());
     };
     if name.is_empty() {
         return err_result("Invalid Skill arguments: `skill` must not be empty.".into());
     }
+    let skill_args = args.get("args").and_then(|a| a.as_str());
     let request = StateReadRequest {
         domain: "skill".into(),
         key: name.into(),
@@ -59,14 +64,14 @@ pub async fn execute_skill(callbacks: &dyn HostCallbacks, args: &Value) -> Execu
             .to_string(),
     };
     match callbacks.state_read(request).await {
-        Ok(response) => render_skill(&response.value),
+        Ok(response) => render_skill(&response.value, skill_args),
         Err(error) => map_state_error(name, error),
     }
 }
 
 /// Render the host's skill wire value as the v2 Skill tool output: the
 /// loaded-inline confirmation line followed by the skill content block.
-fn render_skill(value: &Value) -> ExecutableToolResult {
+fn render_skill(value: &Value, skill_args: Option<&str>) -> ExecutableToolResult {
     let wire: SkillWire = match serde_json::from_value(value.clone()) {
         Ok(wire) => wire,
         Err(_) => {
@@ -76,9 +81,19 @@ fn render_skill(value: &Value) -> ExecutableToolResult {
             );
         }
     };
+    let (args_attr, instructions) = match skill_args {
+        Some(a) if !a.trim().is_empty() => {
+            let escaped = a.replace('&', "&amp;").replace('"', "&quot;");
+            (
+                format!(" args=\"{}\"", escaped),
+                format!("{}\n\nARGUMENTS:\n{}", wire.instructions, a),
+            )
+        }
+        _ => (String::new(), wire.instructions),
+    };
     ok_result(format!(
-        "Skill \"{}\" loaded inline. Follow its instructions.\n\n<skill-loaded name=\"{}\" trigger=\"model-tool\">\n{}\n\n{}\n</skill-loaded>",
-        wire.name, wire.name, wire.description, wire.instructions
+        "Skill \"{}\" loaded inline. Follow its instructions.\n\n<skill-loaded name=\"{}\" trigger=\"model-tool\"{}>\n{}\n\n{}\n</skill-loaded>",
+        wire.name, wire.name, args_attr, wire.description, instructions
     ))
 }
 
@@ -100,6 +115,14 @@ fn map_state_error(name: &str, error: String) -> ExecutableToolResult {
 /// Engine tool definition for Skill, so the model can discover and call it
 /// (used by the standalone REPL and native tool listing). The description
 /// mirrors v2 `skill.md`; the schema mirrors `SkillToolInputSchema`.
+///
+/// Caveat on the `args` text: it promises whitespace tokenization and
+/// placeholder expansion (`$NAME`, `$1`, `$ARGUMENTS`). Expansion lives on
+/// the host (`features/skill/catalog/registry.ts` `expandSkillParameters`);
+/// this crate's [`render_skill`] only appends a trailing `ARGUMENTS:` line.
+/// On the napi path the host supplies the tool definition, so this text
+/// reaches the model — with the engine's weaker behavior behind it — only
+/// through the standalone REPL / native tool listing.
 pub fn skill_tool_def() -> crate::turn_loop::types::ToolInfo {
     crate::turn_loop::types::ToolInfo {
         name: "Skill".into(),
@@ -327,5 +350,29 @@ mod tests {
         assert!(def.input_schema["properties"]["args"].is_object());
         assert!(def.description.contains("BLOCKING REQUIREMENT"));
         assert!(def.description.contains("<skill-loaded>"));
+    }
+
+    #[tokio::test]
+    async fn test_renders_skill_with_args_expansion() {
+        let (callbacks, _) = scripted(read_ok(sample_skill()));
+        let result = execute_skill(
+            &callbacks,
+            &serde_json::json!({
+                "skill": "commit",
+                "args": "-m \"feat: new feature\""
+            }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert!(result.content.contains("args=\"-m &quot;feat: new feature&quot;\""));
+        assert!(result.content.contains("ARGUMENTS:\n-m \"feat: new feature\""));
+    }
+
+    #[tokio::test]
+    async fn test_name_field_fallback() {
+        let (callbacks, read_received) = scripted(read_ok(sample_skill()));
+        let result = execute_skill(&callbacks, &serde_json::json!({ "name": "commit" })).await;
+        assert!(!result.is_error);
+        assert_eq!(read_received.lock().unwrap().clone().unwrap().key, "commit");
     }
 }

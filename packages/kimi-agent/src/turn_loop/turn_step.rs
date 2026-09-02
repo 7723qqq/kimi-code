@@ -222,6 +222,7 @@ mod tests {
                 }
                 Ok(LLMChatResponse {
                     content: String::new(),
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage {
@@ -320,6 +321,7 @@ mod tests {
                 Box::pin(async {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![
                             ToolCall {
                                 id: String::new(),
@@ -384,6 +386,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: if call == 0 {
                             vec![ToolCall {
                                 id: "c1".into(),

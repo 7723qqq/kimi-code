@@ -431,6 +431,15 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Model reasoning content. `encrypted` carries the provider's attestation
+    /// signature (Anthropic `signature`), which must come back with the block.
+    /// The JSON shape is the host's `ThinkPart`, so a block crosses into the
+    /// transcript unchanged.
+    Think {
+        think: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encrypted: Option<String>,
+    },
 }
 
 // ── Native LLM configuration (Rust-side HTTP transport) ───────────────────
@@ -454,6 +463,12 @@ pub struct NativeLlmConfig {
     /// Extra headers sent with every request.
     #[serde(default)]
     pub custom_headers: std::collections::HashMap<String, String>,
+    /// Reasoning effort for OpenAI-compatible providers (e.g. `"low"`, `"medium"`, `"high"`, `"max"`).
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// Thinking budget in tokens for Anthropic Messages API.
+    #[serde(default)]
+    pub thinking_budget: Option<u32>,
 }
 
 /// Debug never renders the key: this struct is `{:?}`-formatted on paths that
@@ -468,6 +483,8 @@ impl std::fmt::Debug for NativeLlmConfig {
             .field("model", &self.model)
             .field("max_tokens", &self.max_tokens)
             .field("custom_headers", &self.custom_headers)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("thinking_budget", &self.thinking_budget)
             .finish()
     }
 }
@@ -784,10 +801,14 @@ pub struct ToolExecuteResponse {
 
 /// Token usage tracking.
 ///
-/// Mirrors the host's 4-field `TokenUsage` (inputOther / output /
-/// inputCacheRead / inputCacheCreation): `input_tokens` covers non-cached
-/// input, and cache hits are reported separately so host-side token
-/// accounting stays accurate.
+/// Same 4 fields the host uses (`inputOther` / `output` / `inputCacheRead` /
+/// `inputCacheCreation`), so `input_tokens` is the **uncached** input
+/// remainder: the providers subtract the cache fields from the provider's raw
+/// prompt total (`llm/openai.rs::parse_usage`, `llm/anthropic.rs`
+/// `parse_response` and its stream accumulator), which is also exactly what
+/// the host-proxy leg supplies (`rust-loop.ts:2262` maps kosong's `inputOther`
+/// in). `total_tokens` is `input_tokens + output_tokens` under the same
+/// convention — not the provider's raw total.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     #[serde(default)]

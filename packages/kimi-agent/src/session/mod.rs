@@ -23,6 +23,8 @@
 //! telemetry is served by the `host/telemetry` callback (M1c, emitted from
 //! `run_turn`), `host/list_tools` is M1d.
 
+pub mod sqlite_store;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -1020,6 +1022,7 @@ mod tests {
     fn text_response(text: &str) -> LLMChatResponse {
         LLMChatResponse {
             content: text.into(),
+            thinking: Vec::new(),
             tool_calls: Vec::new(),
             finish_reason: Some("stop".into()),
             usage: TokenUsage::default(),

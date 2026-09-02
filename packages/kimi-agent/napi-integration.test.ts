@@ -1803,7 +1803,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native subagents (P28 批 3 
 
     // The subagent tool ran natively in Rust, not through the host.
     expect(hostExecuteCalls).toBe(0);
-    const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
+    const followUp = JSON.stringify(llmRequests.slice(1).map((r) => r?.messages ?? []));
     expect(followUp).toContain('spawned');
     expect(followUp).toContain('Napi Searcher');
 
@@ -2236,9 +2236,47 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
     }
     // The turn parks on the gate, so the window must stay denied until it ends.
     expect(await handle.tryAcquireQuiescence()).toBe(false);
+    for (let i = 0; i < 100 && release === undefined; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     release?.();
     expect((await handle.turnOutcome(activeId)).status).toBe('ran');
     await handle.settled();
     await handle.dispose();
   });
+
+  it('initializes native MCP servers via mcpServers param', async () => {
+    const handle = await EngineSessionHandle.create(
+      {
+        turnId: 'mcp_test',
+        systemPrompt: 'test',
+        modelName: 'm',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+        mcpServers: [
+          {
+            name: 'test_mcp',
+            transport: 'mock',
+          },
+        ],
+      },
+      {
+        llmChat: async () =>
+          JSON.stringify({
+            content: 'done',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          }),
+        executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+      },
+    );
+
+    const turnId = await handle.enqueueTurn({ role: 'user', content: 'test mcp' }, 'newTurn');
+    const outcome = await handle.turnOutcome(turnId);
+    expect(outcome.status).toBe('ran');
+    await handle.dispose();
+  });
 });
+

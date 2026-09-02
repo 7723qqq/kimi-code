@@ -10,8 +10,8 @@ use std::sync::Arc;
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 
-use crate::llm::wire::to_wire;
-use crate::llm::{anthropic, openai};
+use crate::llm::wire::{StreamDelta, to_wire};
+use crate::llm::{anthropic, google_genai, openai, openai_responses};
 use crate::rpc::types::{BoxFuture, NativeLlmConfig};
 use crate::turn_loop::types::{LLM, LLMChatParams, LLMChatResponse};
 
@@ -24,9 +24,36 @@ const DEFAULT_ANTHROPIC_MAX_TOKENS: u32 = 8192;
 /// the connect/idle behavior of the pool.
 const REQUEST_TIMEOUT_SECS: u64 = 600;
 
-/// Fire-and-forget sink for streaming events (text deltas). The value is a
+/// Fire-and-forget sink for streaming events (text or thinking deltas). The value is a
 /// JSON event object; the receiver forwards it to the JS host transcript.
 pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+
+enum Accumulator {
+    OpenAI(openai::StreamAccumulator),
+    Responses(openai_responses::StreamAccumulator),
+    Anthropic(anthropic::StreamAccumulator),
+    Google(google_genai::StreamAccumulator),
+}
+
+impl Accumulator {
+    fn feed(&mut self, value: &serde_json::Value) -> Option<StreamDelta> {
+        match self {
+            Self::OpenAI(acc) => acc.feed(value),
+            Self::Responses(acc) => acc.feed(value),
+            Self::Anthropic(acc) => acc.feed(value),
+            Self::Google(acc) => acc.feed(value),
+        }
+    }
+
+    fn finish(self) -> LLMChatResponse {
+        match self {
+            Self::OpenAI(acc) => acc.finish(),
+            Self::Responses(acc) => acc.finish(),
+            Self::Anthropic(acc) => acc.finish(),
+            Self::Google(acc) => acc.finish(),
+        }
+    }
+}
 
 /// An [`LLM`] implementation that talks to an OpenAI-compatible or
 /// Anthropic endpoint over HTTPS with SSE streaming.
@@ -52,8 +79,8 @@ impl NativeHttpLlm {
         }
     }
 
-    /// Attach a streaming event sink. Text deltas are forwarded to it as
-    /// `{ "type": "llm.delta", "part": { "type": "text", "text": ... } }`.
+    /// Attach a streaming event sink. Deltas are forwarded to it as
+    /// `{ "type": "llm.delta", "part": { "type": "text" | "think", ... } }`.
     pub fn with_sink(mut self, sink: EventSink) -> Self {
         self.sink = Some(sink);
         self
@@ -63,15 +90,19 @@ impl NativeHttpLlm {
         let base = self.config.base_url.trim_end_matches('/');
         match self.config.protocol.as_str() {
             "anthropic" => format!("{base}/messages"),
+            "openai_responses" | "openai-responses" => format!("{base}/responses"),
+            "google" | "google-genai" | "gemini" => {
+                format!("{base}/models/{}:streamGenerateContent?alt=sse", self.config.model)
+            }
             _ => format!("{base}/chat/completions"),
         }
     }
 
-    fn emit_delta(&self, text: &str) {
+    fn emit_delta(&self, delta: &StreamDelta) {
         if let Some(ref sink) = self.sink {
             sink(serde_json::json!({
                 "type": "llm.delta",
-                "part": { "type": "text", "text": text },
+                "part": delta.to_part(),
             }));
         }
     }
@@ -85,13 +116,21 @@ impl NativeHttpLlm {
     async fn chat_impl(&self, params: LLMChatParams) -> Result<LLMChatResponse, String> {
         let wire = to_wire(&params.messages);
         let is_anthropic = self.config.protocol == "anthropic";
+        let is_responses = matches!(
+            self.config.protocol.as_str(),
+            "openai_responses" | "openai-responses"
+        );
+        let is_google = matches!(
+            self.config.protocol.as_str(),
+            "google" | "google-genai" | "gemini"
+        );
         let started_at = std::time::Instant::now();
 
         // Step boundary: the host mirrors these into transcript step events.
         self.emit(serde_json::json!({ "type": "llm.step.begin", "model": self.config.model }));
 
         let body = if is_anthropic {
-            anthropic::build_request_with_options(
+            anthropic::build_request_full(
                 &self.config.model,
                 self.config
                     .max_tokens
@@ -99,13 +138,36 @@ impl NativeHttpLlm {
                 &wire,
                 &params.tools,
                 true,
+                self.config.thinking_budget,
+            )
+        } else if is_responses {
+            openai_responses::build_request_full(
+                &self.config.model,
+                &wire,
+                &params.tools,
+                true,
+                self.config.reasoning_effort.as_deref(),
+            )
+        } else if is_google {
+            google_genai::build_request_full(
+                &wire,
+                &params.tools,
+                self.config.thinking_budget,
             )
         } else {
-            openai::build_request_with_options(&self.config.model, &wire, &params.tools, true)
+            openai::build_request_full(
+                &self.config.model,
+                &wire,
+                &params.tools,
+                true,
+                self.config.reasoning_effort.as_deref(),
+            )
         };
 
         let mut req = self.client.post(self.endpoint()).json(&body);
-        if is_anthropic {
+        if is_google {
+            req = req.header("x-goog-api-key", &self.config.api_key);
+        } else if is_anthropic {
             req = req
                 .header("x-api-key", &self.config.api_key)
                 .header("anthropic-version", "2023-06-01");
@@ -136,10 +198,15 @@ impl NativeHttpLlm {
             return Err(format!("llm http status {status}: {brief}{suffix}"));
         }
 
-        // Two accumulator shapes (different SSE grammars); drive whichever
-        // matches the protocol over the same event stream.
-        let mut openai_acc = (!is_anthropic).then(openai::StreamAccumulator::new);
-        let mut anthropic_acc = is_anthropic.then(anthropic::StreamAccumulator::new);
+        let mut acc = if is_anthropic {
+            Accumulator::Anthropic(anthropic::StreamAccumulator::new())
+        } else if is_responses {
+            Accumulator::Responses(openai_responses::StreamAccumulator::new())
+        } else if is_google {
+            Accumulator::Google(google_genai::StreamAccumulator::new())
+        } else {
+            Accumulator::OpenAI(openai::StreamAccumulator::new())
+        };
 
         let mut stream = response.bytes_stream().eventsource();
         while let Some(event) = stream.next().await {
@@ -152,23 +219,12 @@ impl NativeHttpLlm {
                 // Tolerate non-JSON keep-alive payloads.
                 Err(_) => continue,
             };
-            let delta = if let Some(acc) = openai_acc.as_mut() {
-                acc.feed(&value)
-            } else if let Some(acc) = anthropic_acc.as_mut() {
-                acc.feed(&value)
-            } else {
-                None
-            };
-            if let Some(text) = delta {
-                self.emit_delta(&text);
+            if let Some(delta) = acc.feed(&value) {
+                self.emit_delta(&delta);
             }
         }
 
-        let response = match (openai_acc, anthropic_acc) {
-            (Some(acc), _) => acc.finish(),
-            (_, Some(acc)) => acc.finish(),
-            _ => unreachable!("one accumulator is always constructed"),
-        };
+        let response = acc.finish();
 
         // Report the finished step (content + tool calls + usage) so the
         // host can record the assistant message without owning the call.
@@ -305,6 +361,8 @@ mod tests {
             model: "test-model".into(),
             max_tokens: None,
             custom_headers: HashMap::new(),
+            reasoning_effort: None,
+            thinking_budget: None,
         }
     }
 

@@ -124,8 +124,15 @@ interface LlmProviderDef {
 
 /** Native HTTP LLM transport config (snake_case matches the Rust wire). */
 export interface NativeLlmDef {
-  /** "openai" (Chat Completions) or "anthropic" (Messages). */
-  protocol: 'openai' | 'anthropic';
+  /** "openai" (Chat Completions), "openai_responses", "anthropic" (Messages), or "google" (Gemini). */
+  protocol:
+    | 'openai'
+    | 'openai_responses'
+    | 'openai-responses'
+    | 'anthropic'
+    | 'google'
+    | 'google-genai'
+    | 'gemini';
   /** API base URL including the version segment (e.g. `.../v1`). */
   base_url: string;
   api_key: string;
@@ -133,6 +140,10 @@ export interface NativeLlmDef {
   max_tokens?: number;
   /** Extra headers the provider config declares, sent with every request. */
   custom_headers?: Record<string, string>;
+  /** Reasoning effort for OpenAI-compatible providers (e.g. "low", "medium", "high", "max"). */
+  reasoning_effort?: string;
+  /** Thinking budget in tokens for Anthropic Messages API. */
+  thinking_budget?: number;
 }
 
 /** Options controlling the native (in-Rust) execution paths. */
@@ -424,7 +435,7 @@ export function createLlmAbortRegistry(): LlmAbortRegistry {
 /** Fire-and-forget engine event (Rust → host, `host/event`). */
 type EngineEvent =
   | { type: 'llm.step.begin'; model: string }
-  | { type: 'llm.delta'; part: { type: 'text'; text: string } }
+  | { type: 'llm.delta'; part: { type: 'text'; text: string } | { type: 'think'; think: string; encrypted?: string } }
   | {
       type: 'llm.step.end';
       content: string;
@@ -1499,6 +1510,8 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             model: nativeLlm.model,
             max_tokens: nativeLlm.maxTokens,
             custom_headers: nativeLlm.customHeaders,
+            reasoning_effort: (nativeLlm as Record<string, unknown>)['reasoningEffort'] as string | undefined,
+            thinking_budget: (nativeLlm as Record<string, unknown>)['thinkingBudget'] as number | undefined,
           },
     workspace_root: params['workspaceRoot'],
     native_tools: params['nativeTools'],
@@ -2411,6 +2424,8 @@ export function createRunTurnOverride(
                   model: nativeLlm.model,
                   maxTokens: nativeLlm.max_tokens,
                   customHeaders: nativeLlm.custom_headers,
+                  reasoningEffort: nativeLlm.reasoning_effort,
+                  thinkingBudget: nativeLlm.thinking_budget,
                 },
           workspaceRoot,
           nativeTools,

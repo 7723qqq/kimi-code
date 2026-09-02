@@ -65,6 +65,7 @@ impl LLM for BenchLlm {
         Box::pin(async move {
             Ok(LLMChatResponse {
                 content: String::new(),
+                thinking: vec![],
                 tool_calls: calls,
                 finish_reason: Some("tool_calls".into()),
                 usage: TokenUsage {

@@ -372,6 +372,8 @@ pub async fn start_repl(
             model: native_llm_def.model,
             max_tokens: native_llm_def.max_tokens,
             custom_headers: HashMap::new(),
+            reasoning_effort: None,
+            thinking_budget: None,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));

@@ -3,6 +3,28 @@
 
 use crate::turn_loop::types::{ContentBlock, LLMMessage, ToolCall};
 
+/// One piece of a streamed response, as the transport forwards it to the host.
+///
+/// The two accumulators (OpenAI Chat Completions, Anthropic Messages) report
+/// their deltas through one channel so the caller never has to know which
+/// grammar produced them — and so reasoning keeps its own identity instead of
+/// being appended to the answer text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamDelta {
+    Text(String),
+    Think(String),
+}
+
+impl StreamDelta {
+    /// The transcript part this delta becomes on the host boundary.
+    pub fn to_part(&self) -> serde_json::Value {
+        match self {
+            StreamDelta::Text(text) => serde_json::json!({ "type": "text", "text": text }),
+            StreamDelta::Think(think) => serde_json::json!({ "type": "think", "think": think }),
+        }
+    }
+}
+
 /// A single chat message to be projected into a provider wire format.
 ///
 /// Content is text-first, with optional multimodal `blocks` (text/image)

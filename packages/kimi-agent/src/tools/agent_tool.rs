@@ -510,6 +510,7 @@ mod tests {
             Box::pin(async {
                 Ok(TurnChatResponse {
                     content: "findings: the loop is in run_turn.rs".into(),
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
@@ -539,6 +540,7 @@ mod tests {
             Box::pin(async {
                 Ok(TurnChatResponse {
                     content: String::new(),
+                    thinking: vec![],
                     tool_calls: vec![ToolCall {
                         id: format!("tc-{}", fastrand::u64(..)),
                         name: "echo".into(),
@@ -727,6 +729,7 @@ mod tests {
             Box::pin(async {
                 Ok(TurnChatResponse {
                     content: "partial".into(),
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some("length".into()),
                     usage: TokenUsage::default(),
@@ -1060,6 +1063,7 @@ mod tests {
             Box::pin(async move {
                 Ok(TurnChatResponse {
                     content,
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),

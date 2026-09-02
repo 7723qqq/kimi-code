@@ -1193,6 +1193,7 @@ mod tests {
             Box::pin(async {
                 Ok(crate::turn_loop::types::LLMChatResponse {
                     content: "Autonomous research result complete.".into(),
+                    thinking: Vec::new(),
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage {
@@ -1327,6 +1328,7 @@ mod tests {
                 counts.lock().unwrap().push(params.messages.len());
                 Ok(crate::turn_loop::types::LLMChatResponse {
                     content: "Autonomous research result complete.".into(),
+                    thinking: Vec::new(),
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage {
@@ -1375,6 +1377,7 @@ mod tests {
                 release.notified().await;
                 Ok(crate::turn_loop::types::LLMChatResponse {
                     content: "done".into(),
+                    thinking: Vec::new(),
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage {
@@ -1425,6 +1428,7 @@ mod tests {
                 if call == 0 {
                     Ok(crate::turn_loop::types::LLMChatResponse {
                         content: String::new(),
+                        thinking: Vec::new(),
                         tool_calls: vec![crate::turn_loop::types::ToolCall {
                             id: "tc1".into(),
                             name: "read".into(),
@@ -1444,6 +1448,7 @@ mod tests {
                     release.notified().await;
                     Ok(crate::turn_loop::types::LLMChatResponse {
                         content: String::new(),
+                        thinking: Vec::new(),
                         tool_calls: vec![crate::turn_loop::types::ToolCall {
                             id: "tc2".into(),
                             name: "read".into(),

@@ -443,19 +443,61 @@ pub fn run_turn<'a>(
 
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
-            let step_result = execute_loop_step_with_retry(
+            let step_result = match execute_loop_step_with_retry(
                 &turn_id,
                 step_num,
                 input.llm,
                 messages.clone(),
                 input.tools,
-                step_tool_defs,
+                step_tool_defs.clone(),
                 &retry_config,
             )
             .await
-            .map_err(|e| -> Box<dyn std::error::Error + 'a> {
-                Box::new(std::io::Error::other(e.to_string()))
-            })?;
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if crate::compaction::is_context_overflow_error(&err_str) {
+                        let injections = crate::injection::split_injections(&mut messages);
+                        let force_compacted =
+                            crate::compaction::force_compact_messages(&messages, &compaction_config);
+                        if force_compacted.len() < messages.len() {
+                            tracing::warn!(
+                                turn_id = %turn_id,
+                                step = step_num,
+                                before = messages.len(),
+                                after = force_compacted.len(),
+                                "recovered from context overflow via emergency compaction"
+                            );
+                            messages = force_compacted;
+                            messages.extend(injections);
+                            match execute_loop_step_with_retry(
+                                &turn_id,
+                                step_num,
+                                input.llm,
+                                messages.clone(),
+                                input.tools,
+                                step_tool_defs,
+                                &retry_config,
+                            )
+                            .await
+                            {
+                                Ok(res) => res,
+                                Err(retry_err) => {
+                                    return Err(Box::new(std::io::Error::other(retry_err.to_string()))
+                                        as Box<dyn std::error::Error + 'a>);
+                                }
+                            }
+                        } else {
+                            return Err(Box::new(std::io::Error::other(err_str))
+                                as Box<dyn std::error::Error + 'a>);
+                        }
+                    } else {
+                        return Err(Box::new(std::io::Error::other(err_str))
+                            as Box<dyn std::error::Error + 'a>);
+                    }
+                }
+            };
 
             total_usage.input_tokens += step_result.usage.input_tokens;
             total_usage.output_tokens += step_result.usage.output_tokens;
@@ -729,7 +771,10 @@ fn render_goal_steering(
     turn_wall_clock_ms: i64,
 ) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("## Goal\n{}", goal.objective));
+    lines.push(format!(
+        "## Goal\n{}",
+        crate::goal::escape_untrusted_text(&goal.objective)
+    ));
 
     // Progress line
     let total_tokens = goal.tokens_used + turn_tokens;
@@ -927,6 +972,7 @@ mod tests {
                 if return_tc {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: tcs,
                         finish_reason: Some("tool_calls".into()),
                         usage: TokenUsage {
@@ -939,6 +985,7 @@ mod tests {
                 } else {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -1187,6 +1234,7 @@ mod tests {
             Box::pin(async move {
                 Ok(LLMChatResponse {
                     content: String::new(),
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some(fr.into()),
                     usage: TokenUsage {
@@ -1302,6 +1350,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![ToolCall {
                             id: "tc1".into(),
                             name: "read".into(),
@@ -1378,6 +1427,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -1395,6 +1445,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage {
@@ -1480,6 +1531,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -1491,6 +1543,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -1578,6 +1631,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![
                                 ToolCall {
                                     id: "tc1".into(),
@@ -1597,6 +1651,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -1685,6 +1740,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![
                                 ToolCall {
                                     id: "tc1".into(),
@@ -1703,6 +1759,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -1779,6 +1836,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![ToolCall {
                             id: format!("tc{call}"),
                             name: "read".into(),
@@ -1886,6 +1944,7 @@ mod tests {
                     }
                     Ok(LLMChatResponse {
                         content: "done".into(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2388,6 +2447,7 @@ mod tests {
                     }
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2646,6 +2706,7 @@ mod tests {
                     *captured.lock().unwrap() = params.messages.clone();
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2752,6 +2813,7 @@ mod tests {
                     *captured.lock().unwrap() = params.messages.clone();
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2964,6 +3026,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -2975,6 +3038,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -3083,6 +3147,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
@@ -3165,6 +3230,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
@@ -3211,5 +3277,105 @@ mod tests {
             0,
             "host-proxy mode must not pull the engine-side tool table"
         );
+    }
+
+    #[tokio::test]
+    async fn test_context_overflow_triggers_emergency_compaction_and_recovers() {
+        struct OverflowRecoverLlm {
+            call_count: AtomicU32,
+        }
+        impl LLM for OverflowRecoverLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "overflow-model"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let count = self.call_count.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if count == 0 {
+                        // First call fails with a context overflow error.
+                        Err(Box::new(std::io::Error::other(
+                            "llm http status 400 Bad Request: context_length_exceeded",
+                        )) as Box<dyn std::error::Error + Send + Sync>)
+                    } else {
+                        // Second call succeeds after compaction.
+                        assert!(
+                            params
+                                .messages
+                                .iter()
+                                .any(|m| m.content.contains("compacted")),
+                            "the compacted messages must be passed to the retry call"
+                        );
+                        Ok(LLMChatResponse {
+                            content: "Recovered successfully".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = OverflowRecoverLlm {
+            call_count: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            turn_id: "test-overflow-recovery".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u3".into(),
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: Some(100_000),
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert_eq!(llm.call_count.load(Ordering::SeqCst), 2);
+        assert_eq!(result.messages.last().unwrap().content, "Recovered successfully");
     }
 }

@@ -8,7 +8,7 @@
 
 use serde_json::{Value, json};
 
-use crate::llm::wire::WireMessage;
+use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
@@ -20,7 +20,7 @@ pub fn build_request(
     messages: &[WireMessage],
     tools: &[ToolInfo],
 ) -> Value {
-    build_request_with_options(model, max_tokens, messages, tools, false)
+    build_request_full(model, max_tokens, messages, tools, false, None)
 }
 
 /// Build an Anthropic Messages request body, optionally streaming.
@@ -30,6 +30,18 @@ pub fn build_request_with_options(
     messages: &[WireMessage],
     tools: &[ToolInfo],
     stream: bool,
+) -> Value {
+    build_request_full(model, max_tokens, messages, tools, stream, None)
+}
+
+/// Build an Anthropic Messages request body with optional thinking budget.
+pub fn build_request_full(
+    model: &str,
+    max_tokens: u32,
+    messages: &[WireMessage],
+    tools: &[ToolInfo],
+    stream: bool,
+    thinking_budget: Option<u32>,
 ) -> Value {
     let mut system = String::new();
     let mut msgs: Vec<Value> = Vec::new();
@@ -61,14 +73,19 @@ pub fn build_request_with_options(
             "tool" => {
                 // A tool result is a `tool_result` block on a user message.
                 let tool_use_id = m.tool_call_id.clone().unwrap_or_default();
-                msgs.push(json!({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": tool_use_id,
-                        "content": m.content,
-                    }]
-                }));
+                let block = json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": m.content,
+                });
+                if let Some(last_msg) = msgs.last_mut()
+                    && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
+                    && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
+                {
+                    content_arr.push(block);
+                } else {
+                    msgs.push(json!({ "role": "user", "content": [block] }));
+                }
             }
             _ => {
                 // user (and any unknown role) -> user content blocks.
@@ -78,25 +95,64 @@ pub fn build_request_with_options(
                 } else {
                     m.blocks.iter().map(project_block).collect()
                 };
-                msgs.push(json!({ "role": "user", "content": content }));
+                if let Some(last_msg) = msgs.last_mut()
+                    && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
+                    && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
+                {
+                    content_arr.extend(content);
+                } else {
+                    msgs.push(json!({ "role": "user", "content": content }));
+                }
             }
         }
     }
 
+    if let Some(last_user_msg) = msgs
+        .iter_mut()
+        .rev()
+        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        && let Some(content_arr) = last_user_msg.get_mut("content").and_then(|c| c.as_array_mut())
+        && let Some(last_block) = content_arr.last_mut()
+    {
+        last_block["cache_control"] = json!({ "type": "ephemeral" });
+    }
+
+    let effective_max_tokens = if let Some(budget) = thinking_budget {
+        if budget > 0 && max_tokens <= budget {
+            budget.saturating_add(4096)
+        } else {
+            max_tokens
+        }
+    } else {
+        max_tokens
+    };
+
     let mut req = json!({
         "model": model,
-        "max_tokens": max_tokens,
+        "max_tokens": effective_max_tokens,
         "messages": msgs,
     });
     if stream {
         req["stream"] = json!(true);
     }
+    if let Some(budget) = thinking_budget
+        && budget > 0
+    {
+        req["thinking"] = json!({
+            "type": "enabled",
+            "budget_tokens": budget,
+        });
+    }
 
     if !system.is_empty() {
-        req["system"] = json!(system);
+        req["system"] = json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": { "type": "ephemeral" },
+        }]);
     }
     if !tools.is_empty() {
-        let tool_defs: Vec<Value> = tools
+        let mut tool_defs: Vec<Value> = tools
             .iter()
             .map(|t| {
                 json!({
@@ -106,6 +162,9 @@ pub fn build_request_with_options(
                 })
             })
             .collect();
+        if let Some(last) = tool_defs.last_mut() {
+            last["cache_control"] = json!({ "type": "ephemeral" });
+        }
         req["tools"] = json!(tool_defs);
     }
 
@@ -136,6 +195,13 @@ fn project_block(b: &ContentBlock) -> Value {
             "type": "text",
             "text": "[video omitted: not supported by this provider; re-read the file to view it]",
         }),
+        ContentBlock::Think { think, encrypted } => {
+            let mut obj = json!({ "type": "thinking", "thinking": think });
+            if let Some(sig) = encrypted {
+                obj["signature"] = json!(sig);
+            }
+            obj
+        }
     }
 }
 
@@ -147,9 +213,21 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         .ok_or("anthropic response missing content array")?;
 
     let mut text = String::new();
+    let mut thinking = Vec::new();
     let mut tool_calls = Vec::new();
     for block in content {
         match block.get("type").and_then(|t| t.as_str()) {
+            Some("thinking") => {
+                let think = block.get("thinking").and_then(|x| x.as_str()).unwrap_or("");
+                let signature = block
+                    .get("signature")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string());
+                thinking.push(ContentBlock::Think {
+                    think: think.to_string(),
+                    encrypted: signature,
+                });
+            }
             Some("text") => {
                 if let Some(t) = block.get("text").and_then(|x| x.as_str()) {
                     text.push_str(t);
@@ -182,7 +260,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         .and_then(|s| s.as_str())
         .map(|s| s.to_string());
 
-    let input_tokens = v
+    let raw_input = v
         .get("usage")
         .and_then(|u| u.get("input_tokens"))
         .and_then(|x| x.as_u64())
@@ -202,9 +280,15 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         .and_then(|u| u.get("cache_creation_input_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
+    // Anthropic's `input_tokens` is the TOTAL input — the cache split fields
+    // are additive parts of it — so the wire's uncached `input_tokens` is the
+    // remainder. Same rule as `openai.rs::parse_usage`, and the same one the
+    // host-proxy leg applies through kosong (`anthropic.ts:718-728`).
+    let input_tokens = raw_input.saturating_sub(input_cache_read + input_cache_creation);
 
     Ok(LLMChatResponse {
         content: text,
+        thinking,
         tool_calls,
         finish_reason,
         usage: TokenUsage {
@@ -223,6 +307,10 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 #[derive(Debug, Clone)]
 enum PartialBlock {
     Text,
+    Thinking {
+        thinking: String,
+        signature: Option<String>,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -237,7 +325,7 @@ const MAX_STREAM_BLOCKS: usize = 256;
 
 /// Accumulates Anthropic Messages stream events into a final
 /// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload (each carries a
-/// `type` discriminator) to [`StreamAccumulator::feed`]; text deltas are
+/// `type` discriminator) to [`StreamAccumulator::feed`]; text or thinking deltas are
 /// returned so the caller can forward them to the host.
 #[derive(Debug, Default)]
 pub struct StreamAccumulator {
@@ -268,14 +356,14 @@ impl StreamAccumulator {
         self.blocks.get_mut(index)
     }
 
-    /// Feed one stream event. Returns the text delta contained in the
+    /// Feed one stream event. Returns the text or thinking delta contained in the
     /// event, if any.
-    pub fn feed(&mut self, v: &Value) -> Option<String> {
+    pub fn feed(&mut self, v: &Value) -> Option<StreamDelta> {
         let event_type = v.get("type").and_then(|t| t.as_str())?;
         match event_type {
             "message_start" => {
                 if let Some(usage) = v.get("message").and_then(|m| m.get("usage")) {
-                    self.usage.input_tokens = usage
+                    let raw_input = usage
                         .get("input_tokens")
                         .and_then(|x| x.as_u64())
                         .unwrap_or(0) as u32;
@@ -287,6 +375,8 @@ impl StreamAccumulator {
                         .get("cache_creation_input_tokens")
                         .and_then(|x| x.as_u64())
                         .unwrap_or(0) as u32;
+                    self.usage.input_tokens = raw_input
+                        .saturating_sub(self.usage.input_cache_read + self.usage.input_cache_creation);
                 }
                 None
             }
@@ -294,6 +384,17 @@ impl StreamAccumulator {
                 let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
                 let block = v.get("content_block")?;
                 let partial = match block.get("type").and_then(|t| t.as_str()) {
+                    Some("thinking") => {
+                        let think = block.get("thinking").and_then(|t| t.as_str()).unwrap_or("");
+                        let signature = block
+                            .get("signature")
+                            .and_then(|s| s.as_str())
+                            .map(|s| s.to_string());
+                        PartialBlock::Thinking {
+                            thinking: think.to_string(),
+                            signature,
+                        }
+                    }
                     Some("tool_use") => PartialBlock::ToolUse {
                         id: block
                             .get("id")
@@ -324,7 +425,32 @@ impl StreamAccumulator {
                             return None;
                         }
                         self.content.push_str(text);
-                        Some(text.to_string())
+                        Some(StreamDelta::Text(text.to_string()))
+                    }
+                    Some("thinking_delta") => {
+                        let think = delta.get("thinking").and_then(|x| x.as_str())?;
+                        if let Some(Some(PartialBlock::Thinking { thinking, .. })) =
+                            self.blocks.get_mut(index)
+                        {
+                            thinking.push_str(think);
+                        }
+                        if think.is_empty() {
+                            return None;
+                        }
+                        Some(StreamDelta::Think(think.to_string()))
+                    }
+                    Some("signature_delta") => {
+                        if let Some(Some(PartialBlock::Thinking { signature, .. })) =
+                            self.blocks.get_mut(index)
+                            && let Some(sig) = delta.get("signature").and_then(|x| x.as_str())
+                        {
+                            if let Some(s) = signature.as_mut() {
+                                s.push_str(sig);
+                            } else {
+                                *signature = Some(sig.to_string());
+                            }
+                        }
+                        None
                     }
                     Some("input_json_delta") => {
                         if let Some(Some(PartialBlock::ToolUse { input_json, .. })) =
@@ -364,11 +490,22 @@ impl StreamAccumulator {
     /// Finalize the accumulated stream into a response.
     pub fn finish(mut self) -> LLMChatResponse {
         self.usage.total_tokens = self.usage.input_tokens + self.usage.output_tokens;
-        let tool_calls = self
-            .blocks
-            .into_iter()
-            .flatten()
-            .filter_map(|b| match b {
+        let mut thinking = Vec::new();
+        let mut tool_calls = Vec::new();
+
+        for block in self.blocks.into_iter().flatten() {
+            match block {
+                PartialBlock::Thinking {
+                    thinking: think,
+                    signature,
+                } => {
+                    if !think.is_empty() || signature.is_some() {
+                        thinking.push(ContentBlock::Think {
+                            think,
+                            encrypted: signature,
+                        });
+                    }
+                }
                 PartialBlock::ToolUse {
                     id,
                     name,
@@ -377,19 +514,21 @@ impl StreamAccumulator {
                     // A truncated stream leaves input_json incomplete — never
                     // fabricate an empty-argument call (it would execute a
                     // tool with no real inputs); drop the call instead.
-                    serde_json::from_str(&input_json)
-                        .ok()
-                        .map(|arguments| ToolCall {
+                    if let Ok(arguments) = serde_json::from_str(&input_json) {
+                        tool_calls.push(ToolCall {
                             id,
                             name,
                             arguments,
-                        })
+                        });
+                    }
                 }
-                _ => None,
-            })
-            .collect();
+                _ => {}
+            }
+        }
+
         LLMChatResponse {
             content: self.content,
+            thinking,
             tool_calls,
             finish_reason: self.finish_reason,
             usage: self.usage,
@@ -427,8 +566,9 @@ mod tests {
 
         assert_eq!(req["model"], "claude-x");
         assert_eq!(req["max_tokens"], 4096);
-        // System messages are concatenated into the top-level `system` field.
-        assert_eq!(req["system"], "sys-a\n\nsys-b");
+        // System messages are concatenated into the top-level array with cache_control.
+        assert_eq!(req["system"][0]["text"], "sys-a\n\nsys-b");
+        assert_eq!(req["system"][0]["cache_control"]["type"], "ephemeral");
 
         let msgs = req["messages"].as_array().unwrap();
         // user, assistant, tool-result-as-user
@@ -445,16 +585,71 @@ mod tests {
         assert_eq!(tool_use["name"], "Read");
         assert_eq!(tool_use["input"], json!({ "path": "a.txt" }));
 
-        // Tool result becomes a user message with a tool_result block.
+        // Tool result becomes a user message with a tool_result block and cache_control.
         assert_eq!(msgs[2]["role"], "user");
         let tr = &msgs[2]["content"][0];
         assert_eq!(tr["type"], "tool_result");
         assert_eq!(tr["tool_use_id"], "tu_1");
         assert_eq!(tr["content"], "file body");
+        assert_eq!(tr["cache_control"]["type"], "ephemeral");
 
-        // Tools use Anthropic's `input_schema` key.
+        // Tools use Anthropic's `input_schema` key and last tool has cache_control.
         assert_eq!(req["tools"][0]["name"], "Read");
         assert_eq!(req["tools"][0]["input_schema"], json!({ "type": "object" }));
+        assert_eq!(req["tools"][0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn build_request_merges_consecutive_user_and_tool_messages() {
+        let messages = vec![
+            WireMessage::text("user", "part 1"),
+            WireMessage::text("user", "part 2"),
+            WireMessage::assistant_tool_calls(
+                "calling",
+                vec![
+                    ToolCall {
+                        id: "call_1".into(),
+                        name: "Read".into(),
+                        arguments: json!({ "path": "a.txt" }),
+                    },
+                    ToolCall {
+                        id: "call_2".into(),
+                        name: "Read".into(),
+                        arguments: json!({ "path": "b.txt" }),
+                    },
+                ],
+            ),
+            WireMessage::tool_result("call_1", "res 1"),
+            WireMessage::tool_result("call_2", "res 2"),
+            WireMessage::text("user", "continue please"),
+        ];
+
+        let req = build_request("claude-x", 4096, &messages, &[]);
+        let msgs = req["messages"].as_array().unwrap();
+        // 3 turns total: user (merged), assistant, user (merged 2 tool results + 1 text)
+        assert_eq!(msgs.len(), 3);
+
+        // Turn 0: user with 2 text blocks
+        assert_eq!(msgs[0]["role"], "user");
+        let u0 = msgs[0]["content"].as_array().unwrap();
+        assert_eq!(u0.len(), 2);
+        assert_eq!(u0[0]["text"], "part 1");
+        assert_eq!(u0[1]["text"], "part 2");
+
+        // Turn 1: assistant
+        assert_eq!(msgs[1]["role"], "assistant");
+
+        // Turn 2: user with 2 tool_results + 1 text, last block has cache_control
+        assert_eq!(msgs[2]["role"], "user");
+        let u2 = msgs[2]["content"].as_array().unwrap();
+        assert_eq!(u2.len(), 3);
+        assert_eq!(u2[0]["type"], "tool_result");
+        assert_eq!(u2[0]["tool_use_id"], "call_1");
+        assert_eq!(u2[1]["type"], "tool_result");
+        assert_eq!(u2[1]["tool_use_id"], "call_2");
+        assert_eq!(u2[2]["type"], "text");
+        assert_eq!(u2[2]["text"], "continue please");
+        assert_eq!(u2[2]["cache_control"]["type"], "ephemeral");
     }
 
     #[test]
@@ -496,13 +691,16 @@ mod tests {
                 "input_tokens": 50,
                 "output_tokens": 6,
                 "cache_read_input_tokens": 40,
-                "cache_creation_input_tokens": 10
+                "cache_creation_input_tokens": 5
             }
         });
         let parsed = parse_response(&v).unwrap();
         assert_eq!(parsed.usage.input_cache_read, 40);
-        assert_eq!(parsed.usage.input_cache_creation, 10);
-        assert_eq!(parsed.usage.total_tokens, 56);
+        assert_eq!(parsed.usage.input_cache_creation, 5);
+        // Provider `input_tokens` is the total; the wire carries the uncached
+        // remainder, and the total follows the host's `inputOther + output`.
+        assert_eq!(parsed.usage.input_tokens, 5);
+        assert_eq!(parsed.usage.total_tokens, 11);
     }
 
     #[test]
@@ -613,9 +811,9 @@ mod tests {
         );
         acc.feed(&json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text" } }));
         let d1 = acc.feed(&json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Hi " } }));
-        assert_eq!(d1.as_deref(), Some("Hi "));
+        assert_eq!(d1, Some(StreamDelta::Text("Hi ".into())));
         let d2 = acc.feed(&json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "there" } }));
-        assert_eq!(d2.as_deref(), Some("there"));
+        assert_eq!(d2, Some(StreamDelta::Text("there".into())));
         acc.feed(&json!({ "type": "content_block_stop", "index": 0 }));
 
         acc.feed(&json!({ "type": "content_block_start", "index": 1, "content_block": { "type": "tool_use", "id": "tu_1", "name": "Read" } }));
@@ -636,6 +834,104 @@ mod tests {
         assert_eq!(resp.usage.input_tokens, 25);
         assert_eq!(resp.usage.output_tokens, 9);
         assert_eq!(resp.usage.total_tokens, 34);
+    }
+
+    #[test]
+    fn stream_accumulator_reports_uncached_input() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "message_start",
+            "message": { "usage": {
+                "input_tokens": 50,
+                "cache_read_input_tokens": 40,
+                "cache_creation_input_tokens": 5
+            } }
+        }));
+        acc.feed(&json!({ "type": "message_delta", "usage": { "output_tokens": 9 } }));
+
+        let resp = acc.finish();
+        assert_eq!(resp.usage.input_cache_read, 40);
+        assert_eq!(resp.usage.input_cache_creation, 5);
+        assert_eq!(resp.usage.input_tokens, 5);
+        assert_eq!(resp.usage.total_tokens, 14);
+    }
+
+    #[test]
+    fn stream_accumulator_collects_thinking_blocks_and_deltas() {
+        let mut acc = StreamAccumulator::new();
+
+        acc.feed(&json!({ "type": "message_start", "message": { "usage": { "input_tokens": 10 } } }));
+        acc.feed(&json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking" } }));
+        let d1 = acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "thinking_delta", "thinking": "Let's calculate..." }
+        }));
+        assert_eq!(d1, Some(StreamDelta::Think("Let's calculate...".into())));
+
+        let d_sig = acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "signature_delta", "signature": "sig_abc123" }
+        }));
+        assert_eq!(d_sig, None);
+        acc.feed(&json!({ "type": "content_block_stop", "index": 0 }));
+
+        acc.feed(&json!({ "type": "content_block_start", "index": 1, "content_block": { "type": "text" } }));
+        let d2 = acc.feed(&json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": { "type": "text_delta", "text": "42" }
+        }));
+        assert_eq!(d2, Some(StreamDelta::Text("42".into())));
+        acc.feed(&json!({ "type": "content_block_stop", "index": 1 }));
+
+        acc.feed(&json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 15 } }));
+        acc.feed(&json!({ "type": "message_stop" }));
+
+        let resp = acc.finish();
+        assert_eq!(resp.content, "42");
+        assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
+        assert_eq!(resp.thinking.len(), 1);
+        assert_eq!(
+            resp.thinking[0],
+            ContentBlock::Think {
+                think: "Let's calculate...".into(),
+                encrypted: Some("sig_abc123".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_response_extracts_thinking_blocks() {
+        let v = json!({
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Step-by-step reasoning",
+                    "signature": "sig_xyz"
+                },
+                {
+                    "type": "text",
+                    "text": "The answer."
+                }
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20
+            }
+        });
+        let parsed = parse_response(&v).unwrap();
+        assert_eq!(parsed.content, "The answer.");
+        assert_eq!(parsed.thinking.len(), 1);
+        assert_eq!(
+            parsed.thinking[0],
+            ContentBlock::Think {
+                think: "Step-by-step reasoning".into(),
+                encrypted: Some("sig_xyz".into()),
+            }
+        );
     }
 
     #[test]
@@ -714,5 +1010,25 @@ mod tests {
         assert_eq!(resp.tool_calls.len(), 1);
         assert_eq!(resp.tool_calls[0].name, "Read");
         assert_eq!(resp.tool_calls[0].arguments["path"], "a.txt");
+    }
+
+    #[test]
+    fn test_build_request_thinking_budget() {
+        let msgs = vec![WireMessage {
+            role: "user".into(),
+            content: "hello".into(),
+            blocks: vec![],
+            tool_calls: vec![],
+            tool_call_id: None,
+        }];
+        let req_thinking = build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, Some(4096));
+        assert_eq!(req_thinking["thinking"]["type"], "enabled");
+        assert_eq!(req_thinking["thinking"]["budget_tokens"], 4096);
+        // max_tokens should be bumped if <= budget
+        assert!(req_thinking["max_tokens"].as_u64().unwrap() > 4096);
+
+        let req_no_thinking = build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, None);
+        assert!(req_no_thinking.get("thinking").is_none());
+        assert_eq!(req_no_thinking["max_tokens"], 4096);
     }
 }

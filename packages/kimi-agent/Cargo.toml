@@ -27,11 +27,12 @@ serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fastrand = "2"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "io-util", "io-std", "process", "time"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "sync", "io-util", "io-std", "process", "time"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 eventsource-stream = "0.2"
+httparse = "1.10"
 regex = "1"
 sha2 = "0.10"
 globset = "0.4"

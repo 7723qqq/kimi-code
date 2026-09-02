@@ -367,6 +367,7 @@ mod tests {
             Box::pin(async {
                 Ok(crate::turn_loop::types::LLMChatResponse {
                     content: "Autonomous research result complete.".into(),
+                    thinking: Vec::new(),
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage {

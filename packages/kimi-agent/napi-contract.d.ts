@@ -70,6 +70,17 @@ export interface JsLlmProviderDef {
   systemPrompt: string
 }
 
+/** MCP server configuration for pure-Rust MCP manager (P73). */
+export interface JsMcpServerConfig {
+  name: string
+  transport: string
+  command?: string
+  args?: Array<string>
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+}
+
 export interface JsMessage {
   role: string
   content: string
@@ -100,6 +111,10 @@ export interface JsNativeLlmConfig {
    * request. Absent means none.
    */
   customHeaders?: Record<string, string>
+  /** Reasoning effort for OpenAI-compatible models (e.g. "low", "medium", "high", "max"). */
+  reasoningEffort?: string
+  /** Thinking budget in tokens for Anthropic Messages API. */
+  thinkingBudget?: number
 }
 
 export interface JsRunTurnParams {
@@ -189,6 +204,8 @@ export interface JsRunTurnParams {
    */
   agentToolVeto?: string
   toolsVeto?: string
+  /** Native MCP servers configuration (P73). */
+  mcpServers?: Array<JsMcpServerConfig>
 }
 
 export interface JsRunTurnResult {
