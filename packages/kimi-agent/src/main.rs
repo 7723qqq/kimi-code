@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 use kimi_agent::{
     callbacks::{HostCallbacks, RpcHostCallbacks},
     pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec},
+    rpc::types::NativeLlmConfig,
     rpc::{
         server::RpcServer,
         types::{
@@ -58,6 +59,15 @@ struct Cli {
     /// Run a self-test and exit
     #[arg(long)]
     test: bool,
+
+    /// Serve the native REST + WebSocket API on ADDRESS (e.g.
+    /// 127.0.0.1:8080) instead of speaking stdio JSON-RPC
+    #[arg(long, value_name = "ADDRESS")]
+    serve: Option<String>,
+
+    /// Where `--serve` keeps its session database (default: ./.kimi-agent)
+    #[arg(long, value_name = "PATH", default_value = ".kimi-agent")]
+    data_dir: String,
 }
 
 #[tokio::main]
@@ -87,6 +97,10 @@ async fn main() -> anyhow::Result<()> {
         };
         let cwd = std::env::current_dir()?;
         return kimi_agent::repl::start_repl(config, cwd, cli.model).await;
+    }
+
+    if cli.serve.is_some() {
+        return run_serve(&cli).await;
     }
 
     // Build the RPC server and register handlers
@@ -661,6 +675,102 @@ async fn build_engine_pipeline(
     )
     .await
     .map_err(|error| types::JsonRpcError::internal_error(error.message))
+}
+
+/// The composition root for the standalone server: config -> `PipelineSpec` ->
+/// `ServerEngine` -> `HttpServer` -> TCP listener.
+///
+/// Until now every part of that chain existed but nothing assembled it, so the
+/// native REST surface was unreachable from a real process.
+async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
+    let address = cli.serve.clone().expect("checked by the caller");
+
+    // The native surface has no authentication yet (kap-server's /api/v1 carries
+    // a bearer token; this does not), so it must not be reachable from anywhere
+    // but the local machine. Refuse loudly instead of shipping a wide-open
+    // session API that reads as if it were ready to expose.
+    let host = address
+        .rsplit_once(':')
+        .map_or(address.as_str(), |(host, _)| host);
+    let loopback =
+        matches!(host, "127.0.0.1" | "localhost" | "::1") || host.strip_prefix("127.").is_some();
+    if !loopback {
+        anyhow::bail!(
+            "refusing to bind {address}: the native API has no authentication yet, so only a loopback address is allowed"
+        );
+    }
+
+    let (config, source) = match cli.config.as_ref() {
+        Some(path) => {
+            let cfg = kimi_agent::config::KimiConfig::from_file(path)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            (cfg, path.clone())
+        }
+        None => kimi_agent::config::KimiConfig::discover()
+            .map_err(|error| anyhow::anyhow!("{error}"))?,
+    };
+
+    let native = config.extract_native_llm(cli.model.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no native LLM resolved from {source:?}: give the model a provider with base_url + api_key, or point --model at one"
+        )
+    })?;
+
+    let workspace = std::env::current_dir()?;
+    let spec = PipelineSpec {
+        system_prompt: "You are kimi-agent, running as a standalone service.".into(),
+        model_name: native.model.clone(),
+        providers: Vec::new(),
+        native_llm: Some(NativeLlmConfig {
+            protocol: native.protocol,
+            base_url: native.base_url,
+            api_key: native.api_key,
+            model: native.model,
+            max_tokens: native.max_tokens,
+            custom_headers: Default::default(),
+            reasoning_effort: None,
+            thinking_budget: None,
+        }),
+        workspace_root: Some(workspace.display().to_string()),
+        native_tools: true,
+        // The standalone server has no JS host to fall back to; refusing the
+        // host-proxy leg here means a misconfiguration fails at startup rather
+        // than mid-turn.
+        rust_self_contained: true,
+        shell_path: None,
+        policy_snapshot: Some(config.build_policy_snapshot(Some(workspace.clone()))),
+        github_token: config.github.token.clone(),
+        github_base_url: config.github.base_url.clone(),
+        subagent_timeout_ms: None,
+        agent_tool_veto: None,
+        tools_veto: None,
+    };
+
+    std::fs::create_dir_all(&cli.data_dir)?;
+    let db_path = std::path::Path::new(&cli.data_dir).join("sessions.db");
+    let store = Arc::new(
+        kimi_agent::session::sqlite_store::SqliteSessionStore::open(&db_path)
+            .map_err(|error| anyhow::anyhow!("cannot open {db_path:?}: {error}"))?,
+    );
+
+    // One bus for both sides: the engine publishes onto it and connecting
+    // WebSocket clients attach through the hub taken from the same bus, so a
+    // turn's events genuinely reach them.
+    let bus = Arc::new(kimi_agent::events::EventBus::new());
+    let hub = kimi_agent::server::hub::EventHub::new(bus.clone());
+    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone());
+    let server = kimi_agent::server::HttpServer::with_bus(store, bus).with_engine(engine);
+    let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;
+    println!(
+        "kimi-agent serving /api/v1 on http://{} (config {source:?}, db {db_path:?})",
+        handle.local_addr
+    );
+
+    // Park forever. Ctrl-C terminates the process; there is no graceful drain
+    // of in-flight turns yet, and no signal handler is installed on purpose
+    // rather than pretending to have one.
+    std::future::pending::<()>().await;
+    Ok(())
 }
 
 /// Convert a wire `Message` into the engine's `LLMMessage` (the tool-call
