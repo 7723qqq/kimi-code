@@ -3424,6 +3424,18 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - `cargo test --lib server::` **44 全绿**（本批次新增 5：无宿主各腿不挂起、无模型 upfront 拒绝、脚本 turn 完成并落库、历史不被第二轮重写、历史携带进本轮）。真 provider 未被调用（脚本 LLM 在进程内）。
 - `cargo test --features cli`：1005 lib + 18 集成，真退出码 0；`cargo clippy --all-targets` 0 警告；自有文件 `rustfmt` 单独跑。
 
+## P79 — prompt 路由接上真 turn 驱动（2026-09-02）
+
+`POST /api/v1/sessions/:id/prompt` 不再返回 `Processed: {prompt}`。`HttpServer` 可选挂一个 `ServerEngine`（`with_engine`），路由顺序是：会话不存在 → 404；未挂引擎 → **503 `no engine configured`**；否则从 store 读 history、`next_turn_number` 推本轮序号、跑真 turn，把 `stopReason / content / steps / usage / 事件计数 / llmTransport` 投成 JSON；引擎失败回 500 带原因。
+
+选 503 而不是继续回 200 的理由：假回复与真 turn 在客户端**无法区分**，而一条诚实的 503 是可以被上层分支的。测试里额外断言响应体不含 `Processed:`，防它哪天被悄悄改回去。
+
+`turn_number` 从 `turns` 表 `MAX(turn_number)+1` 推得，而不是让调用方自带计数器 —— 后者重启即归零并在插入时撞号。`TurnReport` 加 `reply`（本轮最后一条 assistant 文本），因为路由要的是答案不是计数。
+
+### 验证（带一条归属说明）
+
+工作树里当时同时躺着旁路未提交的 `pipeline/mod.rs` + `callbacks.rs` 改动，`stdio_rpc_integration` 有 2 条红（plan-mode 写入、native write 落盘）。为不把别人的回归算进本批次，也为了不把红着的东西当绿提交：在**仅含本批次三个文件改动的 HEAD 隔离检出**里跑全套 —— 1008 lib + 18 集成全绿、真退出码 0、clippy 0 警告。旁路那 2 条红的归属见其自身会话。
+
 ## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
 
 本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。
