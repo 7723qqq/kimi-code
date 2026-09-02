@@ -201,6 +201,7 @@ export const runTurnParamsSchema = z.object({
   ),
   tools: z.array(toolDef),
   max_steps: z.number().optional(),
+  max_context_tokens: z.number().optional(),
   providers: z
     .array(z.object({ name: z.string(), model: z.string(), system_prompt: z.string() }))
     .optional(),

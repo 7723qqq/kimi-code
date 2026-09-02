@@ -116,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
             // None = unbounded, mirroring the JS loop (which only stops
             // on a configured `maxStepsPerTurn`).
             let max_steps = input.max_steps.unwrap_or(u32::MAX);
+            let max_context_tokens = input.max_context_tokens;
 
             // Create and register a cancellation signal for this turn.
             let cancel = ParentCancel::new();
@@ -159,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
                 tools: &tools,
                 tool_defs,
                 max_steps,
+                max_context_tokens,
                 goal: input.goal,
                 cancellation: Some(cancel.flag()),
             };
@@ -267,6 +269,7 @@ async fn main() -> anyhow::Result<()> {
                     llm: pipeline.llm.clone(),
                     callbacks: pipeline.callbacks.clone(),
                     max_steps: input.max_steps.unwrap_or(u32::MAX),
+                    max_context_tokens: input.max_context_tokens,
                     tool_defs: tool_defs_provider,
                     goal: goal_provider,
                     on_before_turn: None,
@@ -904,6 +907,7 @@ async fn run_self_test() -> anyhow::Result<()> {
         tools: &[],
         tool_defs: vec![],
         max_steps: 5,
+        max_context_tokens: None,
         goal: None,
         cancellation: None,
     };

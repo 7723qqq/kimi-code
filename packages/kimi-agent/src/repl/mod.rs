@@ -475,6 +475,7 @@ pub async fn start_repl(
         llm: llm.clone(),
         callbacks: tool_callbacks.clone(),
         max_steps: 25,
+        max_context_tokens: None,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
             let gh = gh_for_defs.clone();

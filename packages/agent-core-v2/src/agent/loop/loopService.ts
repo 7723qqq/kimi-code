@@ -1150,6 +1150,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         },
       },
       maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
+      maxContextTokens:
+        modelContext.modelCapabilities.max_input_tokens ??
+        modelContext.modelCapabilities.max_context_tokens,
       buildMessages: async () => [...this.projector.project(this.context.get())],
       getGoal: () => this.getEngineGoal(),
       buildTools: () =>

@@ -285,9 +285,9 @@ pub fn run_turn<'a>(
         // Default retry configuration for LLM calls within this turn.
         let retry_config = RetryConfig::default();
 
-        // Context compaction knobs. The engine has no model capability
-        // data, so the window defaults to a fixed 128k-token budget.
-        let compaction_config = crate::compaction::CompactionConfig::default();
+        // Context compaction knobs. The window comes from the host's model
+        // resolution; without it the budget falls back to the fixed default.
+        let compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
@@ -976,6 +976,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1068,6 +1069,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1107,6 +1109,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1150,6 +1153,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1214,6 +1218,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1239,6 +1244,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1264,6 +1270,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1337,6 +1344,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1427,6 +1435,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1517,6 +1526,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1624,6 +1634,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1729,6 +1740,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1805,6 +1817,7 @@ mod tests {
             tool_defs: vec![],
             // Generous ceiling: the force stop, not max_steps, must end it.
             max_steps: 20,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1903,6 +1916,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1954,6 +1968,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1999,6 +2014,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -2047,6 +2063,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -2104,6 +2121,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -2152,6 +2170,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -2189,6 +2208,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -2284,6 +2304,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancellation),
         };
@@ -2320,6 +2341,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -2410,6 +2432,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -2479,6 +2502,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2668,6 +2692,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2757,6 +2782,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2809,6 +2835,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2864,6 +2891,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -3006,6 +3034,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -3090,6 +3119,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -3170,6 +3200,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };

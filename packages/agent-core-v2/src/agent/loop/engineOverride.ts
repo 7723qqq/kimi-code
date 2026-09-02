@@ -218,6 +218,9 @@ export interface TurnEngineInput {
   readonly signal: AbortSignal;
   readonly llm: TurnEngineLLM;
   readonly maxSteps?: number;
+  /** Context window of the active model (`ModelCapability`); 0 or absent
+   *  means unknown, and the engine keeps its own default budget. */
+  readonly maxContextTokens?: number;
   buildMessages(): Promise<readonly Message[]>;
   buildTools(): readonly Tool[];
   describeMissingTool?(toolName: string): string | undefined;

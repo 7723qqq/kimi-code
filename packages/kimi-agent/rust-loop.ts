@@ -1474,6 +1474,7 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
     messages: [],
     tools: [],
     max_steps: params['maxSteps'],
+    max_context_tokens: params['maxContextTokens'],
     providers: providers?.map((p) => ({
       name: p.name,
       model: p.model,
@@ -2389,6 +2390,7 @@ export function createRunTurnOverride(
           messages: [],
           tools: [],
           maxSteps: input.maxSteps,
+          maxContextTokens: input.maxContextTokens,
           nativeLlm:
             nativeLlm === undefined
               ? undefined

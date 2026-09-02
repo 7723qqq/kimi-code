@@ -485,6 +485,9 @@ pub struct RunTurnParams {
     pub tools: Vec<ToolDef>,
     /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
+    /// Context window the host resolved for the active model. `None` keeps the
+    /// engine's default compaction budget.
+    pub max_context_tokens: Option<u32>,
     /// Multiple LLM providers for concurrent execution (MultiLLM).
     /// When present, overrides `system_prompt` + `model_name`.
     #[serde(default)]
@@ -1078,11 +1081,13 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [],
             "max_steps": 3,
+            "max_context_tokens": 262144,
             "github_token": "tok",
             "github_base_url": "https://github.example.com"
         }))
         .unwrap();
         assert_eq!(params.max_steps, Some(3));
+        assert_eq!(params.max_context_tokens, Some(262_144));
         assert!(params.providers.is_empty());
         assert!(!params.native_tools);
         assert!(!params.rust_self_contained);

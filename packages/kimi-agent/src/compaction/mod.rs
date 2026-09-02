@@ -52,6 +52,19 @@ impl Default for CompactionConfig {
     }
 }
 
+/// Config for the window the host resolved for the active model. Every other
+/// knob stays at its default; a missing or non-positive window falls back to
+/// [`DEFAULT_MAX_CONTEXT_TOKENS`].
+pub fn config_for_window(max_context_tokens: Option<u32>) -> CompactionConfig {
+    match max_context_tokens {
+        Some(tokens) if tokens > 0 => CompactionConfig {
+            max_context_tokens: tokens,
+            ..CompactionConfig::default()
+        },
+        _ => CompactionConfig::default(),
+    }
+}
+
 /// Rough token estimate for a text: one token per 4 characters (the usual
 /// heuristic for English text). CJK text is underestimated, but the
 /// estimate only drives the compaction trigger, not provider limits.
@@ -287,6 +300,26 @@ mod tests {
             content: content.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn config_for_window_uses_the_host_window_and_keeps_other_knobs() {
+        let config = config_for_window(Some(262_144));
+        assert_eq!(config.max_context_tokens, 262_144);
+        assert_eq!(config.trigger_ratio, 0.85);
+        assert_eq!(config.reserved_context_size, 50_000);
+    }
+
+    #[test]
+    fn config_for_window_falls_back_without_a_usable_window() {
+        assert_eq!(
+            config_for_window(None).max_context_tokens,
+            DEFAULT_MAX_CONTEXT_TOKENS
+        );
+        assert_eq!(
+            config_for_window(Some(0)).max_context_tokens,
+            DEFAULT_MAX_CONTEXT_TOKENS
+        );
     }
 
     fn tool_call(id: &str) -> ToolCall {

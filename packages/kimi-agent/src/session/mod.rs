@@ -170,6 +170,9 @@ pub struct SessionConfig {
     pub callbacks: Arc<dyn HostCallbacks>,
     /// Step cap for every turn (v2 `maxStepsPerTurn`).
     pub max_steps: u32,
+    /// Context window the host resolved for the session's model (v2
+    /// `ModelCapability.max_context_tokens`); `None` keeps the engine default.
+    pub max_context_tokens: Option<u32>,
     /// Fresh tool definitions per turn (MCP tools can change mid-session;
     /// M1d replaces this provider with `host/list_tools`).
     pub tool_defs: ToolDefsProvider,
@@ -248,6 +251,7 @@ struct SessionContext {
     goal: Option<GoalProvider>,
     on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
     max_steps: u32,
+    max_context_tokens: Option<u32>,
     /// P55: see [`SessionConfig::agent_cancel_slot`].
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
@@ -292,6 +296,7 @@ impl EngineSession {
             goal: config.goal,
             on_before_turn: config.on_before_turn,
             max_steps: config.max_steps,
+            max_context_tokens: config.max_context_tokens,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
         });
         let wakeup = Arc::new(Notify::new());
@@ -818,6 +823,7 @@ async fn run_session_turn(
         tools: &[],
         tool_defs,
         max_steps: ctx.max_steps,
+        max_context_tokens: ctx.max_context_tokens,
         goal,
         cancellation: Some(cancel),
     };
@@ -1066,6 +1072,7 @@ mod tests {
             llm,
             callbacks,
             max_steps: 5,
+            max_context_tokens: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
             on_before_turn: None,

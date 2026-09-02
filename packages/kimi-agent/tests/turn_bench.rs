@@ -149,6 +149,7 @@ async fn run_turn_sync(
         tools: &[],
         tool_defs: vec![],
         max_steps: steps,
+        max_context_tokens: None,
         goal: None,
         cancellation: None,
     };

@@ -697,6 +697,9 @@ pub struct JsRunTurnParams {
     pub tools: Vec<JsToolDef>,
     /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
+    /// Context window the host resolved for the active model. `None` keeps the
+    /// engine's default compaction budget.
+    pub max_context_tokens: Option<u32>,
     pub goal: Option<JsGoalContext>,
     /// Native HTTP LLM transport. When present, Rust calls the provider
     /// directly (SSE streaming) instead of proxying through the host.
@@ -1475,6 +1478,7 @@ async fn run_turn_rust_impl(
         // None = unbounded, mirroring the JS loop (which only stops on a
         // configured `maxStepsPerTurn`).
         max_steps: params.max_steps.unwrap_or(u32::MAX),
+        max_context_tokens: params.max_context_tokens,
         goal,
         cancellation: Some(cancellation),
     };
@@ -1774,6 +1778,7 @@ pub fn create_engine_session(
                 llm: pipeline.llm.clone(),
                 callbacks: pipeline.callbacks.clone(),
                 max_steps: params.max_steps.unwrap_or(u32::MAX),
+                max_context_tokens: params.max_context_tokens,
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
                 on_before_turn: None,

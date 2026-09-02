@@ -3037,3 +3037,30 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 - vitest：kimi-agent 123/9（重建 addon 后）；agent-core-v2 `permissionGate` 17/17、`btw` 2/2、`loop` 51/51、`stateManifest` 绿、`app/auth` 4 文件全绿（修桩后）；apps/kimi-code `rust-engine` + `status-panel` 37/37
 - typecheck：agent-core-v2 `tsc --noEmit` 通过；oxlint（含 `--type-aware`）0 error
 - 全量 agent-core-v2 在本机仍不绿的只剩两类：`profile/binding`、`staleGuard`、`mcpCore/oauth/callback-server` 是 Windows 路径/端口差异（CI 只跑 Ubuntu）；`tower`/`workspaceMcp`/`connection-manager`/`tool`/`wire/resume`/`dateChange` 单独跑全绿，全量并发时是 `Worker forks emitted error` 级联
+
+## P63 — 批 2 起步：2a 模型窗口下发（2026-09-02）
+
+`CompactionConfig` 不再靠引擎自己假设 128k：宿主解析出的窗口沿契约 → 线 → 两条传输一路到 `run_turn`。
+
+- **契约/宿主**：`TurnEngineInput.maxContextTokens`（`engineOverride.ts:220`），由 `loopService.buildEngineInput()` 从
+  `resolveModelContext().modelCapabilities` 取（`max_input_tokens ?? max_context_tokens`，与 v2 状态报告同一优先级；
+  目录里「未知能力」是 0，交给引擎侧守卫）。未新增模块级函数，`check:engine-zero-js-loop` 仍 OK（11 JS-only / 4 engine-path）。
+- **线**：`wire-schema.ts` 加 `max_context_tokens`，`rust-loop.ts` 两处（napi `sessionParams` 的 `maxContextTokens`、
+  stdio `toStdioSessionParams` 的映射），napi 参数结构是 camelCase，`napi-contract.d.ts` 随重建更新。
+- **引擎**：`RunTurnInput.max_context_tokens` 与 `SessionConfig.max_context_tokens`（会话每轮继承），两条传输各自
+  从 params 取；`compaction::config_for_window()` 只在窗口 >0 时覆盖，其余旋钮（`trigger_ratio` 0.85、
+  `reserved_context_size` 50k、recent 尾)保持默认 —— 随宿主 `compactionTriggerRatio`/`reservedContextSize` 下发留到 2e。
+  REPL 与子代理暂显式传 `None`（REPL 无模型目录，子代理定义不带窗口），都是明文写在构造点。
+- **代价记录**：新字段加在 `RunTurnInput` 上只要改 5 个生产构造点（napi×2、session、main×2）+ 约 30 个测试字面量，
+  远小于地图里估的「40 处穷尽字面量」——因为 `run_turn.rs` 的字面量虽然多，但缩进只有三种，可批量补。
+- **一次性踩坑（值得记住）**：`napi-integration.test.ts` 的「parks turns during…」在**用 `-t` 隔离跑或与其它包并发抢
+  CPU 时超时挂住**，stash 掉本批改动画像 + 用 HEAD 重建 addon 后同样挂 → 非本批引入；单文件全跑与整包全跑均绿。
+  判据：先跑整包，再决定要不要归因，别拿过滤跑的结果下结论。
+
+### 验证
+
+- cargo：949 lib + 18 集成全绿（+2 `config_for_window` 测试；线侧 fixture 断言 `max_context_tokens` 可解析）；
+  `cargo check --all-targets --features cli` 0 error、`clippy --all-targets --features cli` 0 警告、fmt 干净
+- addon 重建后：kimi-agent vitest 4 文件全绿（3 skipped）；agent-core-v2 `tsc --noEmit` 通过、
+  `test/agent/loop` + `test/agent/permissionGate` 12 文件全绿、`check:engine-zero-js-loop` OK
+- 未验证：真实长会话里压缩时点随窗口变化（需要一次长上下文实跑）

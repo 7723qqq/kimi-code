@@ -757,6 +757,9 @@ pub struct RunTurnInput<'a> {
     /// LLM proxy so the JS host can include them in the actual LLM call.
     pub tool_defs: Vec<ToolInfo>,
     pub max_steps: u32,
+    /// Context window the host resolved for the active model. `None` keeps the
+    /// engine's own default budget.
+    pub max_context_tokens: Option<u32>,
     /// Optional goal context for budget-aware execution and steering.
     /// When present, the loop checks budgets before each step and injects
     /// steering text into the system prompt.

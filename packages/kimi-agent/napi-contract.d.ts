@@ -105,6 +105,11 @@ export interface JsRunTurnParams {
   tools: Array<JsToolDef>
   /** Step cap for the turn loop. `None` = unbounded (JS-loop semantics). */
   maxSteps?: number
+  /**
+   * Context window the host resolved for the active model. `None` keeps the
+   * engine's default compaction budget.
+   */
+  maxContextTokens?: number
   goal?: JsGoalContext
   /**
    * Native HTTP LLM transport. When present, Rust calls the provider

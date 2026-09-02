@@ -304,6 +304,7 @@ async fn run_one(
         // Foreground subagents run until done — the caller owns the
         // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
         max_steps: u32::MAX,
+        max_context_tokens: None,
         goal: None,
         cancellation: Some(cancel_flag.clone()),
     };
@@ -496,6 +497,7 @@ impl SubagentManager {
                 tools: &[],
                 tool_defs: Vec::new(),
                 max_steps: 15,
+                max_context_tokens: None,
                 goal: None,
                 cancellation: cancel_flag,
             };
@@ -900,6 +902,7 @@ impl SubagentManager {
             tools: &[],
             tool_defs: Vec::new(),
             max_steps: 15,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag.clone()),
         };
