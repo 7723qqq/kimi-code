@@ -356,7 +356,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     expect(capturedNativeLlm).toBeUndefined();
   });
 
-  it('reports the native-transport decline on the status snapshot, not stdout', async () => {
+  it('P62: the native-transport decline is recorded on the status snapshot, not stdout', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
@@ -378,7 +378,10 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
       llmFallbackReason:
         'provider "kimi" has no static baseUrl + apiKey for the native transport',
     });
-    expect(warn).not.toHaveBeenCalled();
+    expect(
+      warn,
+      'P62: this resolver runs every turn, so warning here prints into the TUI once per turn',
+    ).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 

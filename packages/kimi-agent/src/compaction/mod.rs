@@ -304,21 +304,35 @@ mod tests {
 
     #[test]
     fn config_for_window_uses_the_host_window_and_keeps_other_knobs() {
-        let config = config_for_window(Some(262_144));
-        assert_eq!(config.max_context_tokens, 262_144);
-        assert_eq!(config.trigger_ratio, 0.85);
-        assert_eq!(config.reserved_context_size, 50_000);
+        let host_window = 262_144;
+        let config = config_for_window(Some(host_window));
+        let default = CompactionConfig::default();
+        assert_eq!(
+            config.max_context_tokens, host_window,
+            "P63: compaction must budget against the window the host resolved, not the engine default"
+        );
+        assert_eq!(
+            config.trigger_ratio, default.trigger_ratio,
+            "P63: only the window is host-owned; the ratio moves with the compaction batch (2e)"
+        );
+        assert_eq!(
+            config.reserved_context_size, default.reserved_context_size,
+            "P63: reserved headroom is host-owned from 2e, not before"
+        );
     }
 
     #[test]
     fn config_for_window_falls_back_without_a_usable_window() {
+        let default = CompactionConfig::default();
         assert_eq!(
             config_for_window(None).max_context_tokens,
-            DEFAULT_MAX_CONTEXT_TOKENS
+            default.max_context_tokens,
+            "P63: a host that resolves no window must keep the engine default budget"
         );
         assert_eq!(
             config_for_window(Some(0)).max_context_tokens,
-            DEFAULT_MAX_CONTEXT_TOKENS
+            default.max_context_tokens,
+            "P63: the model catalog spells unknown capability as 0; honouring it would leave no room at all"
         );
     }
 

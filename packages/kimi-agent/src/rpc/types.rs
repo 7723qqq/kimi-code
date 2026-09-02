@@ -1087,7 +1087,11 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(params.max_steps, Some(3));
-        assert_eq!(params.max_context_tokens, Some(262_144));
+        assert_eq!(
+            params.max_context_tokens,
+            Some(262_144),
+            "P63: the stdio wire must carry the host window, or that transport keeps the 128k default"
+        );
         assert!(params.providers.is_empty());
         assert!(!params.native_tools);
         assert!(!params.rust_self_contained);

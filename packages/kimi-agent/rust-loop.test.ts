@@ -807,9 +807,9 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(pidAfter).not.toBe(pidBefore, 'a replacement process must have been spawned');
   });
 
-  it('gives up restarting the stdio engine once the crash budget is spent', async () => {
-    // Past the cap the engine must say so: an engine closure the host already
-    // holds used to keep failing on a stale transport with no way out.
+  it('P62: past the restart budget every turn fails with the restart guidance', async () => {
+    // Before P62 the mode stayed 'stdio' with a null process, so later turns
+    // died on "Agent process is not running" with nothing to act on.
     const mod = await import('./rust-loop');
     mod.shutdownRustEngine();
     mod.forceEngineTransport('stdio');
@@ -827,17 +827,29 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(engine).toBeDefined();
 
     for (let crash = 0; crash < 3; crash += 1) mod.recordStdioCrashForTests();
-    expect(mod.engineUnavailableForTests()).toBeUndefined();
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: the budget is 3 restarts — giving up earlier strands a working engine',
+    ).toBeUndefined();
     expect(mod.activeEngineMode()).toBe('js');
 
     mod.recordStdioCrashForTests();
-    expect(mod.engineUnavailableForTests()).toContain('stopped restarting');
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: the 4th crash must stop respawning and record why',
+    ).toBeDefined();
 
-    await expect(engine?.({} as never)).rejects.toThrow(/restart the CLI/);
-    expect(reported).toContain('stopped restarting');
+    await expect(engine?.({} as never)).rejects.toThrow(
+      /restart the CLI/,
+      'P62: the thrown guidance is the only thing a user sees — it must name the remedy',
+    );
+    expect(reported, 'P62: the host must hear it too, or /status keeps reporting a live engine').toBeDefined();
 
     mod.shutdownRustEngine();
-    expect(mod.engineUnavailableForTests()).toBeUndefined();
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: teardown must clear the give-up so a re-initialized engine can select a transport',
+    ).toBeUndefined();
   });
 
   it('aborts a running turn at the next step boundary', { timeout: 15_000 }, async () => {

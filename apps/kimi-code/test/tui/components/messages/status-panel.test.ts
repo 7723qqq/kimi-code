@@ -122,7 +122,7 @@ describe('status panel report lines', () => {
     expect(output).toContain('rust | stdio | llm host-proxy | native tools: 0');
   });
 
-  it('explains why the LLM was served through the host proxy', () => {
+  it('P62: /status explains why the LLM was served through the host proxy', () => {
     const output = buildStatusReportLines({
       ...engineBase,
       engine: {
@@ -133,7 +133,10 @@ describe('status panel report lines', () => {
         nativeToolCalls: 0,
       },
     }).join(newline);
-    expect(output).toContain('llm host-proxy | llm proxy reason: provider "main" has no static');
+    expect(
+      output,
+      'P62: the decline reason must reach /status now that it is no longer printed to stdout',
+    ).toContain('llm host-proxy | llm proxy reason: provider "main" has no static');
     expect(output).toContain('native tools: 0');
   });
 
