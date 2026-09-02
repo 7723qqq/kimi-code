@@ -11,12 +11,8 @@ use clap::Parser;
 use tokio::sync::oneshot;
 
 use kimi_agent::{
-    callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks, RpcHostCallbacks},
-    llm::{
-        http::NativeHttpLlm,
-        multi::{LlmProvider, MultiLLM},
-        proxy::HostLlmProxy,
-    },
+    callbacks::{HostCallbacks, RpcHostCallbacks},
+    pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec},
     rpc::{
         server::RpcServer,
         types::{
@@ -29,7 +25,7 @@ use kimi_agent::{
         Admission, EngineSession, GoalProvider, QuiescenceGuard, SessionConfig, ToolDefsProvider,
         TurnOutcome, TurnRequest,
     },
-    subagent::ParentCancel,
+    subagent::{ParentCancel, SubagentManager},
     turn_loop::{
         run_turn::{run_turn, run_turn_with_telemetry},
         types::*,
@@ -605,211 +601,65 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Engine pipeline (shared by RUN_TURN and the session handle) ────────────
 
-/// The engine pipeline built once per context: the host callback chain
-/// (counting + native-tool execution over the RPC host bridge) plus the LLM
-/// selection (multi / native-http / host-proxy). Mirrors
-/// `build_engine_pipeline` in napi_bindings.rs — keep the two in lockstep.
-struct EnginePipeline {
-    llm: Arc<dyn LLM>,
-    callbacks: Arc<dyn HostCallbacks>,
-    /// Event counter from the counting wrapper (turn result telemetry).
-    turn_event_count: Arc<AtomicU32>,
-    /// Native tool call counter from the native-tool wrapper.
-    native_tool_count: Arc<AtomicU32>,
-}
-
-/// Build the callback chain and the LLM for one engine context. The chain is
-/// identical for every entry path: RpcHostCallbacks → counting wrapper →
-/// native-tool wrapper (in-process Read/Grep/Glob/Write/Edit/Bash,
-/// permission engine, truncation, plan-mode guard). The LLM picks multi >
-/// native-http > host-proxy, with self-contained mode refusing the
-/// host-proxy fallback.
+/// The stdio entry's view of the shared engine pipeline
+/// (`kimi_agent::pipeline`). Everything the chain itself does — counting
+/// wrapper, native-tool wrapper and its guards, LLM selection — lives there
+/// now; this only maps the typed wire params into a `PipelineSpec` and applies
+/// the stdio host policy: a per-pipeline subagent manager snapshotted from
+/// `params.subagent_profiles`, plus the cancel slot that lets a replacement
+/// turn be reached by `session/cancel`.
 async fn build_engine_pipeline(
     params: &RunTurnParams,
     server: Arc<RpcServer>,
     parent_cancel: Option<ParentCancel>,
     parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
 ) -> Result<EnginePipeline, types::JsonRpcError> {
-    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks { server });
+    let spec = PipelineSpec {
+        system_prompt: params.system_prompt.clone(),
+        model_name: params.model_name.clone(),
+        providers: params
+            .providers
+            .iter()
+            .map(|p| PipelineProvider {
+                name: p.name.clone(),
+                system_prompt: p.system_prompt.clone(),
+                model: p.model.clone(),
+            })
+            .collect(),
+        native_llm: params.native_llm.clone(),
+        workspace_root: params.workspace_root.clone(),
+        native_tools: params.native_tools,
+        rust_self_contained: params.rust_self_contained,
+        shell_path: params.shell_path.clone(),
+        policy_snapshot: params.policy_snapshot.clone(),
+        github_token: params.github_token.clone(),
+        github_base_url: params.github_base_url.clone(),
+        subagent_timeout_ms: params.subagent_timeout_ms,
+        agent_tool_veto: params.agent_tool_veto.clone(),
+        tools_veto: params.tools_veto.clone(),
+    };
 
-    // Subagent manager for the native `Agent` tool (P46): one per pipeline
-    // (the legacy stdio entry rebuilds the pipeline per turn; the session
-    // entry builds once). The host's profile catalog snapshot registers
-    // here — empty snapshot means every `Agent` call falls back to the
-    // host tool.
-    let subagent_manager = Arc::new(kimi_agent::subagent::SubagentManager::new());
+    // Subagent manager for the native `Agent` tool (P46): one per pipeline (the
+    // legacy stdio entry rebuilds the pipeline per turn; the session entry
+    // builds once). An empty snapshot means every `Agent` call falls back to
+    // the host tool.
+    let subagent_manager = Arc::new(SubagentManager::new());
     subagent_manager
         .register_profile_snapshot(&params.subagent_profiles)
         .await;
 
-    // Count every event this turn emits (step lifecycle, deltas, native
-    // tools, goal budget limits) for the turn telemetry. Wrapped before the
-    // tool wrapper and the native LLM event sink so all paths are counted.
-    let turn_event_count = Arc::new(AtomicU32::new(0));
-    let event_bus = Arc::new(kimi_agent::events::EventBus::new());
-    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-        CountingCallbacks::new(base_callbacks, turn_event_count.clone())
-            .with_bus(event_bus.clone()),
-    );
-
-    // Native tool execution: wrap the callbacks so the in-process toolset
-    // runs inside the Rust process (sandboxed to the workspace) and
-    // everything else — and anything that escapes the sandbox — still
-    // round-trips to the host. The wrapper always carries a local truncator
-    // (M2 切片 2): result truncation + spill run in-process, no host
-    // finalize seam.
-    let native_tool_count = Arc::new(AtomicU32::new(0));
-    let truncator = params
-        .workspace_root
-        .as_deref()
-        .map(std::path::Path::new)
-        .map(|root| {
-            Arc::new(kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(root))
-        });
-    let policy_snapshot = params.policy_snapshot.clone();
-    let permission_engine = policy_snapshot
-        .clone()
-        .map(|s| Arc::new(kimi_agent::permission::PermissionEngine::new(s)));
-    let callbacks: Arc<dyn HostCallbacks> =
-        match (params.native_tools, params.workspace_root.as_deref()) {
-            (true, Some(root)) => {
-                match kimi_agent::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
-                    Some(toolset) => {
-                        // Plan-mode guard (v2
-                        // `AgentPlanService.guardToolExecution`): guarded
-                        // native calls read the host's plan state through the
-                        // state bridge and are denied when plan mode forbids
-                        // them. Unguarded tools skip the round-trip.
-                        let plan_callbacks = base_callbacks.clone();
-                        let plan_workspace = params.workspace_root.clone();
-                        // Stale-write gate (v2 `staleGuardService`, G-6 #3):
-                        // one CLI process = one session, so the table created
-                        // here lives for the session like v2's per-agent-scope
-                        // guard state.
-                        let stale_gate = Arc::new(kimi_agent::tools::stale_guard::StaleGate::new(
-                            params.workspace_root.clone().map(std::path::PathBuf::from),
-                        ));
-                        // Goal-operation guard (v2 `goalAgentRuntime`,
-                        // G-6 #7/#8): non-auto CreateGoal routes to the host;
-                        // stale goal mutations veto.
-                        let goal_guard = Arc::new(kimi_agent::tools::goal_guard::GoalGuard::new(
-                            permission_engine.as_ref().map(|e| e.mode()),
-                            true,
-                        ));
-                        // PreToolUse hooks (v2 `agentExternalHooksService`,
-                        // G-6 #6): user-configured commands gate native calls.
-                        let hook_guard = policy_snapshot.clone().map(|s| {
-                            Arc::new(kimi_agent::tools::external_hooks::HookGuard::new(
-                                s.pre_tool_hooks,
-                            ))
-                        });
-                        Arc::new(NativeToolCallbacks {
-                            inner: base_callbacks.clone(),
-                            toolset: Arc::new(
-                                toolset
-                                    .with_subagents(subagent_manager.clone())
-                                    .with_agent_context(params.subagent_timeout_ms, parent_cancel)
-                                    .with_parent_cancel_slot_if(parent_cancel_slot)
-                                    .with_callbacks(base_callbacks.clone())
-                                    .with_github_credentials(
-                                        kimi_agent::tools::github::GitHubCredentials {
-                                            token: params.github_token.clone(),
-                                            base_url: params.github_base_url.clone(),
-                                        },
-                                    ),
-                            ),
-                            native_count: native_tool_count.clone(),
-                            truncator: truncator.clone(),
-                            permission_engine,
-                            plan_guard: Some(Arc::new(move |tool_name, args| {
-                                if !kimi_agent::tools::plan_mode::plan_guarded_tool(tool_name) {
-                                    return Box::pin(async { None });
-                                }
-                                let callbacks = plan_callbacks.clone();
-                                let tool_name = tool_name.to_string();
-                                let args = args.clone();
-                                let workspace = plan_workspace.clone();
-                                Box::pin(async move {
-                                    let request = kimi_agent::rpc::types::StateReadRequest {
-                                        domain: "plan".into(),
-                                        key: "plan".into(),
-                                        turn_id: String::new(),
-                                        tool_call_id: String::new(),
-                                    };
-                                    match callbacks.state_read(request).await {
-                                        Ok(response) => kimi_agent::tools::plan_mode::plan_denial(
-                                            &response.value,
-                                            &tool_name,
-                                            &args,
-                                            workspace.as_deref().map(std::path::Path::new),
-                                        ),
-                                        Err(_) => None,
-                                    }
-                                })
-                            })),
-                            stale_guard: Some(stale_gate),
-                            goal_guard: Some(goal_guard),
-                            hook_guard,
-                            agent_tool_veto: params.agent_tool_veto.clone(),
-                            tools_veto: params.tools_veto.clone(),
-                        })
-                    }
-                    None => base_callbacks.clone(),
-                }
-            }
-            _ => base_callbacks.clone(),
-        };
-
-    // LLM selection — priority order (must match napi_bindings.rs):
-    //   1. providers (concurrent MultiLLM race)
-    //   2. native_llm (Rust calls the provider directly via HTTP/SSE)
-    //   3. host proxy (skipped when `rust_self_contained` is set; the
-    //      engine errors out instead, see kimi-agent ROADMAP P26 批 1)
-    let llm: Box<dyn LLM> = if !params.providers.is_empty() {
-        let providers: Vec<LlmProvider> = params
-            .providers
-            .iter()
-            .map(|p| LlmProvider {
-                name: p.name.clone(),
-                system_prompt: p.system_prompt.clone(),
-                model: p.model.clone(),
-                callbacks: callbacks.clone(),
-            })
-            .collect();
-        Box::new(MultiLLM::new(providers))
-    } else if let Some(cfg) = params.native_llm.clone() {
-        let sink_callbacks = callbacks.clone();
-        Box::new(
-            NativeHttpLlm::new(cfg, params.system_prompt.clone())
-                .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
-        )
-    } else {
-        if params.rust_self_contained {
-            return Err(types::JsonRpcError::internal_error(
-                "rustSelfContained=true requires providers or native_llm to be \
-                 set; refusing to fall back to host/llm_chat (P26 批 1)"
-                    .to_string(),
-            ));
-        }
-        Box::new(
-            HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
-                .with_callbacks(callbacks.clone()),
-        )
-    };
-
-    let llm: Arc<dyn LLM> = Arc::from(llm);
-    // Subagent execution runtime (P46): spawned subagent turns run with
-    // this pipeline's llm + callback chain, mirroring the napi seam.
-    subagent_manager
-        .set_runtime(llm.clone(), callbacks.clone())
-        .await;
-
-    Ok(EnginePipeline {
-        llm,
-        callbacks,
-        turn_event_count,
-        native_tool_count,
-    })
+    pipeline::build_engine_pipeline(
+        &spec,
+        Arc::new(RpcHostCallbacks { server }),
+        PipelineHost {
+            subagent_manager,
+            parent_cancel,
+            parent_cancel_slot,
+            mcp_manager: None,
+        },
+    )
+    .await
+    .map_err(|error| types::JsonRpcError::internal_error(error.message))
 }
 
 /// Convert a wire `Message` into the engine's `LLMMessage` (the tool-call
@@ -966,6 +816,7 @@ impl LLM for MockLlm {
         Box::pin(async move {
             Ok(LLMChatResponse {
                 content: String::new(),
+                thinking: vec![],
                 tool_calls: vec![],
                 finish_reason: Some("stop".into()),
                 usage: TokenUsage {

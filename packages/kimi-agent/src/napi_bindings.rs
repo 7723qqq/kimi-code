@@ -28,27 +28,24 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use napi::{
-    JsObject,
     bindgen_prelude::{Env, JsFunction},
     threadsafe_function::{
         ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
     },
+    JsObject,
 };
 use napi_derive::napi;
 use tokio::sync::oneshot;
 
 use crate::callbacks::{
-    CountingCallbacks, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks,
-    NativeToolCallbacks,
+    HostCallbacks, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT,
 };
-use crate::llm::http::NativeHttpLlm;
-use crate::llm::multi::{LlmProvider, MultiLLM};
-use crate::llm::proxy::HostLlmProxy;
+use crate::pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec};
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, CheckpointRequest, ListToolsResponse,
     LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision,
-    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
-    ToolExecuteResponse,
+    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse,
+    SubagentProfileWire, ToolExecuteRequest, ToolExecuteResponse,
 };
 use crate::session::{
     Admission, EngineSession, GoalProvider, SessionConfig, ToolDefsProvider, TurnOutcome,
@@ -754,6 +751,21 @@ pub struct JsRunTurnParams {
     /// `RunTurnParams`).
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    /// Native MCP servers configuration (P73).
+    pub mcp_servers: Option<Vec<JsMcpServerConfig>>,
+}
+
+/// MCP server configuration for pure-Rust MCP manager (P73).
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct JsMcpServerConfig {
+    pub name: String,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub env: Option<HashMap<String, String>>,
+    pub url: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -813,6 +825,10 @@ pub struct JsNativeLlmConfig {
     /// Extra headers from `[providers.*].customHeaders`, sent with every
     /// request. Absent means none.
     pub custom_headers: Option<std::collections::HashMap<String, String>>,
+    /// Reasoning effort for OpenAI-compatible models (e.g. "low", "medium", "high", "max").
+    pub reasoning_effort: Option<String>,
+    /// Thinking budget in tokens for Anthropic Messages API.
+    pub thinking_budget: Option<u32>,
 }
 
 #[napi(object)]
@@ -1109,25 +1125,12 @@ struct EngineCallbackTsfns {
     cancellation: Option<Arc<AtomicBool>>,
 }
 
-/// The engine pipeline shared by the per-turn `run_turn_rust` entry and the
-/// M1d session handle: the host callback chain (counting + native-tool
-/// execution over the TSFN set) plus the LLM selection (multi / native-http /
-/// host-proxy).
-struct EnginePipeline {
-    llm: Arc<dyn LLM>,
-    callbacks: Arc<dyn HostCallbacks>,
-    /// Event counter from the counting wrapper (turn result telemetry).
-    turn_event_count: Arc<std::sync::atomic::AtomicU32>,
-    /// Native tool call counter from the native-tool wrapper.
-    native_tool_count: Arc<std::sync::atomic::AtomicU32>,
-}
-
-/// Build the callback chain and the LLM for one engine context. The chain is
-/// identical for every entry path: NapiHostCallbacks over the TSFN set →
-/// counting wrapper (all event paths counted) → native-tool wrapper
-/// (in-process Read/Grep/Glob/Write/Edit/Bash, permission engine, truncation,
-/// plan-mode guard). The LLM picks multi > native-http > host-proxy, with the
-/// self-contained mode refusing the host-proxy fallback.
+/// The addon entry's view of the shared engine pipeline
+/// (`kimi_agent::pipeline`). The chain itself — counting wrapper, native-tool
+/// wrapper and its guards, LLM selection — lives there once; this normalizes
+/// `JsRunTurnParams` into a `PipelineSpec` and applies the addon's host policy:
+/// the process-wide subagent manager refreshed per turn, no cancel slot, and an
+/// MCP manager connected from `params.mcp_servers`.
 async fn build_engine_pipeline(
     params: &JsRunTurnParams,
     tsfns: EngineCallbackTsfns,
@@ -1138,9 +1141,9 @@ async fn build_engine_pipeline(
     // host's builtin/workspace/user profiles (plugin and external-backend
     // profiles never arrive here — those calls fall back to the host).
     if let Some(profiles) = &params.subagent_profiles {
-        let wires: Vec<crate::rpc::types::SubagentProfileWire> = profiles
+        let wires: Vec<SubagentProfileWire> = profiles
             .iter()
-            .map(|p| crate::rpc::types::SubagentProfileWire {
+            .map(|p| SubagentProfileWire {
                 name: p.name.clone(),
                 description: p.description.clone().unwrap_or_default(),
                 system_prompt: p.system_prompt.clone().unwrap_or_default(),
@@ -1155,216 +1158,124 @@ async fn build_engine_pipeline(
         SUBAGENT_MANAGER.register_profile_snapshot(&wires).await;
     }
 
-    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(NapiHostCallbacks {
-        llm_chat_fn: Arc::new(tsfns.llm_chat),
-        execute_tool_fn: Arc::new(tsfns.execute_tool),
-        emit_event_fn: tsfns.emit_event.map(Arc::new),
-        check_permission_fn: tsfns.check_permission.map(Arc::new),
-        ask_question_fn: tsfns.ask_question.map(Arc::new),
-        state_read_fn: tsfns.state_read.map(Arc::new),
-        checkpoint_fn: tsfns.checkpoint.map(Arc::new),
-        state_write_fn: tsfns.state_write.map(Arc::new),
-        turn_event_fn: tsfns.turn_event.map(Arc::new),
-        telemetry_fn: tsfns.telemetry.map(Arc::new),
-        list_tools_fn: tsfns.list_tools.map(Arc::new),
-        goal_fn: tsfns.goal.map(Arc::new),
-        cancellation: tsfns.cancellation,
-    });
-
-    // Count every event this turn emits (step lifecycle, deltas, native
-    // tools, goal budget limits) for the turn telemetry. Wrapped before the
-    // tool wrapper and the native LLM event sink so all paths are counted.
-    let turn_event_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let event_bus = std::sync::Arc::new(crate::events::EventBus::new());
-    let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-        CountingCallbacks::new(base_callbacks, turn_event_count.clone())
-            .with_bus(event_bus.clone()),
-    );
-
-    // Native tool execution: wrap the callbacks so the in-process toolset
-    // (Read/Grep/Glob/Write/Edit/Bash) runs in-process (sandboxed to the
-    // workspace) and everything else — and anything that escapes the
-    // sandbox — still round-trips to the host.
-    //
-    // The wrapper always carries a local truncator (M2 切片 2): result
-    // truncation + spill run in-process, no host finalize seam.
-    let native_tool_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let truncator = params
-        .workspace_root
-        .as_deref()
-        .map(std::path::Path::new)
-        .map(|root| {
-            Arc::new(crate::tool_result_truncation::ToolResultTruncator::for_workspace(root))
-        });
-    let policy_snapshot = params
-        .policy_snapshot_json
-        .as_deref()
-        .and_then(|j| serde_json::from_str::<crate::permission::PolicySnapshot>(j).ok());
-    let permission_engine = policy_snapshot
-        .clone()
-        .map(|s| Arc::new(crate::permission::PermissionEngine::new(s)));
-    let callbacks: Arc<dyn HostCallbacks> = match (
-        params.native_tools.unwrap_or(false),
-        params.workspace_root.as_deref(),
-    ) {
-        (true, Some(root)) => {
-            match crate::tools::NativeToolset::new(root, params.shell_path.as_deref()) {
-                Some(toolset) => {
-                    // Plan-mode guard (v2 `AgentPlanService.guardToolExecution`):
-                    // guarded native calls read the host's plan state through
-                    // the state bridge and are denied when plan mode forbids
-                    // them. Unguarded tools skip the round-trip entirely.
-                    let plan_callbacks = base_callbacks.clone();
-                    let plan_workspace = params.workspace_root.clone();
-                    // Stale-write gate (v2 `staleGuardService`, G-6 #3): the
-                    // table is created with the pipeline — once per session
-                    // (create_engine_session) — so read state survives across
-                    // turns like v2's per-agent-scope guard state.
-                    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(
-                        params.workspace_root.clone().map(std::path::PathBuf::from),
-                    ));
-                    // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8):
-                    // non-auto CreateGoal routes to the host (goal-start
-                    // review fires there); stale goal mutations veto. The
-                    // mode comes from the pipeline's permission snapshot.
-                    let goal_guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
-                        permission_engine.as_ref().map(|e| e.mode()),
-                        true,
-                    ));
-                    // PreToolUse hooks (v2 `agentExternalHooksService`,
-                    // G-6 #6): user-configured commands gate native calls.
-                    let hook_guard = policy_snapshot.clone().map(|s| {
-                        Arc::new(crate::tools::external_hooks::HookGuard::new(
-                            s.pre_tool_hooks,
-                        ))
-                    });
-                    Arc::new(NativeToolCallbacks {
-                        inner: base_callbacks.clone(),
-                        toolset: Arc::new(
-                            toolset
-                                .with_subagents(SUBAGENT_MANAGER.clone())
-                                .with_agent_context(
-                                    params
-                                        .subagent_timeout_ms
-                                        .filter(|t| *t > 0)
-                                        .map(|t| t as u64),
-                                    parent_cancel,
-                                )
-                                .with_callbacks(base_callbacks.clone())
-                                .with_github_credentials(crate::tools::github::GitHubCredentials {
-                                    token: params.github_token.clone(),
-                                    base_url: params.github_base_url.clone(),
-                                }),
-                        ),
-                        native_count: native_tool_count.clone(),
-                        truncator: truncator.clone(),
-                        permission_engine,
-                        plan_guard: Some(Arc::new(move |tool_name, args| {
-                            if !crate::tools::plan_mode::plan_guarded_tool(tool_name) {
-                                return Box::pin(async { None });
-                            }
-                            let callbacks = plan_callbacks.clone();
-                            let tool_name = tool_name.to_string();
-                            let args = args.clone();
-                            let workspace = plan_workspace.clone();
-                            Box::pin(async move {
-                                let request = StateReadRequest {
-                                    domain: "plan".into(),
-                                    key: "plan".into(),
-                                    turn_id: String::new(),
-                                    tool_call_id: String::new(),
-                                };
-                                match callbacks.state_read(request).await {
-                                    Ok(response) => crate::tools::plan_mode::plan_denial(
-                                        &response.value,
-                                        &tool_name,
-                                        &args,
-                                        workspace.as_deref().map(std::path::Path::new),
-                                    ),
-                                    Err(_) => None,
-                                }
-                            })
-                        })),
-                        stale_guard: Some(stale_gate),
-                        goal_guard: Some(goal_guard),
-                        hook_guard,
-                        agent_tool_veto: params.agent_tool_veto.clone(),
-                        tools_veto: params.tools_veto.clone(),
-                    })
+    // Native MCP servers (P73): connect them before the toolset is built so
+    // external tools execute in-process. A server that fails to connect is
+    // skipped rather than failing the turn.
+    let mut mcp_manager = None;
+    if let Some(mcp_configs) = params.mcp_servers.as_ref().filter(|c| !c.is_empty()) {
+        let mgr = Arc::new(crate::mcp::McpManager::new());
+        for cfg in mcp_configs {
+            match cfg.transport.as_str() {
+                "stdio" => {
+                    if let Some(cmd) = &cfg.command {
+                        let args: Vec<&str> = cfg
+                            .args
+                            .as_ref()
+                            .map(|a| a.iter().map(String::as_str).collect())
+                            .unwrap_or_default();
+                        let env = cfg.env.clone().unwrap_or_default();
+                        if let Ok(client) =
+                            crate::mcp::McpClient::spawn_stdio(&cfg.name, cmd, &args, &env).await
+                        {
+                            mgr.add_client(client).await;
+                        }
+                    }
                 }
-                None => base_callbacks.clone(),
+                "sse" | "http" => {
+                    if let Some(url) = &cfg.url {
+                        let headers = cfg.headers.clone().unwrap_or_default();
+                        if let Ok(client) =
+                            crate::mcp::McpClient::connect_sse(&cfg.name, url, headers).await
+                        {
+                            mgr.add_client(client).await;
+                        }
+                    }
+                }
+                "mock" => {
+                    let client = crate::mcp::McpClient::mock(&cfg.name);
+                    mgr.add_client(client).await;
+                }
+                _ => {}
             }
         }
-        _ => base_callbacks.clone(),
+        mcp_manager = Some(mgr);
+    }
+
+    let spec = PipelineSpec {
+        system_prompt: params.system_prompt.clone(),
+        model_name: params.model_name.clone(),
+        providers: params
+            .providers
+            .as_ref()
+            .map(|providers| {
+                providers
+                    .iter()
+                    .map(|p| PipelineProvider {
+                        name: p.name.clone(),
+                        system_prompt: p.system_prompt.clone(),
+                        model: p.model.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        native_llm: params.native_llm.as_ref().map(|cfg| NativeLlmConfig {
+            protocol: cfg.protocol.clone(),
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+            model: cfg.model.clone(),
+            max_tokens: cfg.max_tokens,
+            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
+            reasoning_effort: cfg.reasoning_effort.clone(),
+            thinking_budget: cfg.thinking_budget,
+        }),
+        workspace_root: params.workspace_root.clone(),
+        native_tools: params.native_tools.unwrap_or(false),
+        rust_self_contained: params.rust_self_contained.unwrap_or(false),
+        shell_path: params.shell_path.clone(),
+        // The host hands the permission policy over as JSON (napi has no typed
+        // struct for it); an unparsable snapshot means host-side permission
+        // round-trips, not a local deny.
+        policy_snapshot: params
+            .policy_snapshot_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<crate::permission::PolicySnapshot>(json).ok()),
+        github_token: params.github_token.clone(),
+        github_base_url: params.github_base_url.clone(),
+        // `0` from the host means "unset" here, not a zero-length budget.
+        subagent_timeout_ms: params
+            .subagent_timeout_ms
+            .filter(|timeout| *timeout > 0)
+            .map(|timeout| timeout as u64),
+        agent_tool_veto: params.agent_tool_veto.clone(),
+        tools_veto: params.tools_veto.clone(),
     };
 
-    // LLM selection — priority order:
-    //   1. providers (concurrent MultiLLM race) — when set, all providers
-    //      run in parallel and the first success wins
-    //   2. native_llm — Rust calls a single provider directly via HTTP/SSE
-    //   3. host proxy — caller (napi host) handles the actual LLM call
-    //      (skipped when `rust_self_contained` is set; the engine errors
-    //      out instead, see kimi-agent ROADMAP P26 批 1)
-    let llm: Box<dyn LLM> =
-        if let Some(providers) = params.providers.as_ref().filter(|p| !p.is_empty()) {
-            let rust_providers: Vec<LlmProvider> = providers
-                .iter()
-                .map(|p| LlmProvider {
-                    name: p.name.clone(),
-                    system_prompt: p.system_prompt.clone(),
-                    model: p.model.clone(),
-                    callbacks: callbacks.clone(),
-                })
-                .collect();
-            Box::new(MultiLLM::new(rust_providers))
-        } else {
-            match &params.native_llm {
-                Some(cfg) => {
-                    let sink_callbacks = callbacks.clone();
-                    let native = NativeHttpLlm::new(
-                        NativeLlmConfig {
-                            protocol: cfg.protocol.clone(),
-                            base_url: cfg.base_url.clone(),
-                            api_key: cfg.api_key.clone(),
-                            model: cfg.model.clone(),
-                            max_tokens: cfg.max_tokens,
-                            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
-                        },
-                        params.system_prompt.clone(),
-                    )
-                    .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-                    Box::new(native)
-                }
-                None => {
-                    // Self-contained mode: refuse to fall back to host proxy.
-                    if params.rust_self_contained.unwrap_or(false) {
-                        return Err(napi::Error::from_reason(
-                            "rustSelfContained=true requires providers or native_llm to be \
-                             set; refusing to fall back to host/llm_chat (P26 批 1)"
-                                .to_string(),
-                        ));
-                    }
-                    Box::new(
-                        HostLlmProxy::new(params.system_prompt.clone(), params.model_name.clone())
-                            .with_callbacks(callbacks.clone()),
-                    )
-                }
-            }
-        };
-
-    // P28 批 3 接线: subagents run real turns with this turn's llm and the
-    // native callback pipeline (tools + permission + truncation).
-    let llm: Arc<dyn LLM> = Arc::from(llm);
-    SUBAGENT_MANAGER
-        .set_runtime(llm.clone(), callbacks.clone())
-        .await;
-
-    Ok(EnginePipeline {
-        llm,
-        callbacks,
-        turn_event_count,
-        native_tool_count,
-    })
+    pipeline::build_engine_pipeline(
+        &spec,
+        Arc::new(NapiHostCallbacks {
+            llm_chat_fn: Arc::new(tsfns.llm_chat),
+            execute_tool_fn: Arc::new(tsfns.execute_tool),
+            emit_event_fn: tsfns.emit_event.map(Arc::new),
+            check_permission_fn: tsfns.check_permission.map(Arc::new),
+            ask_question_fn: tsfns.ask_question.map(Arc::new),
+            state_read_fn: tsfns.state_read.map(Arc::new),
+            checkpoint_fn: tsfns.checkpoint.map(Arc::new),
+            state_write_fn: tsfns.state_write.map(Arc::new),
+            turn_event_fn: tsfns.turn_event.map(Arc::new),
+            telemetry_fn: tsfns.telemetry.map(Arc::new),
+            list_tools_fn: tsfns.list_tools.map(Arc::new),
+            goal_fn: tsfns.goal.map(Arc::new),
+            cancellation: tsfns.cancellation,
+        }),
+        PipelineHost {
+            subagent_manager: SUBAGENT_MANAGER.clone(),
+            parent_cancel,
+            parent_cancel_slot: None,
+            mcp_manager,
+        },
+    )
+    .await
+    .map_err(|error| napi::Error::from_reason(error.message))
 }
 
 /// Inner async implementation — all captured values are `Send`.
@@ -1716,9 +1627,14 @@ pub fn create_engine_session(
                     goal: goal_tsfn.clone(),
                     cancellation: None,
                 },
-                // Session pipeline: no per-turn cancellation at build time
-                // (the session pump owns its own abort path); the native
-                // `Agent` tool runs with the timeout only.
+                // Session pipeline: no per-turn cancellation at build time.
+                // Aborting the pump drops the turn but cannot reach the
+                // native `Agent` tool — `agent_cancel_slot` stays `None` on
+                // this path (see `create_engine_session`), so
+                // `agent_tool.rs:413` never observes a signal and a
+                // foreground subagent runs to its own timeout. The stdio
+                // transport wires the slot (`src/main.rs`); this one does
+                // not.
                 None,
             )
             .await?;

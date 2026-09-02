@@ -3108,3 +3108,308 @@ napi 的 `JsNativeLlmConfig` 干脆没这个字段且转换处硬写 `Default::d
 
 - cargo 949 lib + 18 集成全绿；addon 重建，`napi-contract.d.ts` 长出 `customHeaders`
 - apps/kimi-code `rust-engine` 单文件全绿（+2 条 P64：header 透传、credential 去重）；kimi-agent 整包全绿
+
+## P65 — 原生 LLM Thinking / Reasoning 流式与结构化对齐（2026-09-02）
+
+彻底打通原生 HTTP 传输下 DeepSeek / OpenAI 与 Anthropic 思考模型的端到端思考过程提取与流式下发：
+
+1. **`openai.rs` 思考隔离与结构化**：
+   - 非流式 `parse_response` 提取 `reasoning_content` / `reasoning`，装入 `LLMChatResponse.thinking`（`ContentBlock::Think`），不再丢失思考内容；
+   - 流式 `StreamAccumulator::feed` 区分 `reasoning_content`（转 `StreamDelta::Think`）与普通 `content`（转 `StreamDelta::Text`），彻底解决思考过程混入回答文本的问题。
+2. **`anthropic.rs` Claude 3.7 Thinking 支持**：
+   - 非流式 `parse_response` 解析 `thinking` 块与 `signature` 签名；
+   - 流式 `StreamAccumulator` 新增 `PartialBlock::Thinking` 状态，解析 `thinking_delta` / `signature_delta` 并下发 `StreamDelta::Think`。
+3. **`http.rs` & `rust-loop.ts` 增量事件贯通**：
+   - 原生 HTTP 流式循环中调用 `StreamDelta::to_part()`，向宿主发射 `{ type: "llm.delta", part: { type: "think", think: "..." } }`；
+   - `rust-loop.ts` 的 `EngineEvent` 类型化支持 `think` 增量，无缝进入前端 Transcript 与 UI 流式渲染。
+4. **类型定义修复**：
+   - 补齐 `apps/kimi-code/src/cli/rust-engine.ts` 中 `NativeLlmDef` 的 `reasoning_effort` 与 `thinking_budget` 字段。
+
+### 验证
+
+- cargo：954 lib（+5 思考相关流式/解析单测）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；apps/kimi-code `rust-engine` 测试全绿；全 monorepo `bun run typecheck` 0 错误；`bun run lint` 0 错误。
+
+## P66 — Anthropic Prompt Caching 断点注入与运行时 Context Overflow 恢复（2026-09-02）
+
+补齐批 2 规划中 Claude 提示词缓存与引擎端运行时上下文溢出弹性自愈：
+
+1. **Anthropic Prompt Caching 与消息合并 (`anthropic.rs`)**：
+   - **System 缓存断点**：`system` 统一输出为结构化 block 数组并挂载 `cache_control: { type: "ephemeral" }`；
+   - **Tool 缓存断点**：在工具列表末尾（`last_tool`）自动注入 `cache_control`；
+   - **User 消息交替与末尾断点**：合并连续的 `user` / `tool_result` 消息（满足 Anthropic API 严格交替规则），并在最后一个 user 轮次的最后一个 content block 注入 `cache_control`，使多轮对话大幅节省输入 Token 费用并降低 TTFT 首字延迟。
+2. **运行时 Context Overflow 弹性自愈 (`compaction/mod.rs` & `run_turn.rs`)**：
+   - **溢出分类器**：`is_context_overflow_error` 模式识别各类服务商（OpenAI / Anthropic / Qwen / Gemini）抛出的 `context_length_exceeded` / `maximum context length` 等运行时溢出报错；
+   - **应急压缩与重试**：在 `run_turn.rs` 捕获到上下文溢出时，触发 `force_compact_messages` 强制截断最旧轮次并保留注入提示，在当前步自动重新发起 LLM 调用，不再直接中断整个 Turn。
+
+### 验证
+
+- cargo：958 lib（+4 缓存与溢出恢复单测）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；`bun run lint` 0 错误。
+
+## P67 — 原生 Google GenAI / Gemini 协议深度支持（2026-09-02）
+
+补齐批 2 规划中对 Google GenAI (Gemini) 原生 HTTP 协议的完整支持，使原生引擎不再局限于 OpenAI/Anthropic：
+
+1. **`google_genai.rs` 原生适配器**：
+   - **请求投影**：将 WireMessage/ContentBlock 转换为 Gemini 的 `contents`（`user` / `model` 角色，`functionCall` / `functionResponse` / `inlineData` 多模态块）与 `systemInstruction`；
+   - **工具声明**：将 `ToolInfo` 转换为 Gemini 的 `functionDeclarations`；
+   - **思考预算**：映射 `thinkingBudget` 到 `generationConfig.thinkingConfig`；
+   - **流式累积**：`StreamAccumulator` 实时解析 Gemini SSE 流中的 `thought` 思考块（转 `StreamDelta::Think`）、普通文本块（转 `StreamDelta::Text`）、函数调用（`functionCall`）以及 `usageMetadata`。
+2. **`http.rs` 传输路由与鉴权打通**：
+   - 支持 `protocol: "google" | "google-genai" | "gemini"`；
+   - 自动路由至 `{base}/models/{model}:streamGenerateContent?alt=sse`；
+   - 鉴权头使用 `x-goog-api-key`。
+3. **TS 宿主适配与类型定义拓展**：
+   - 在 `rust-loop.ts` 与 `rust-engine.ts` 中将 `NativeLlmDef.protocol` 联合类型扩充为包含 `'google' | 'google-genai' | 'gemini'`，并将 `x-goog-api-key` 纳入受保护鉴权头。
+
+### 验证
+
+- cargo：960 lib（+2 Gemini 请求与流式解析单测）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；全 monorepo `bun run typecheck` 0 错误；`bun run lint` 0 错误。
+
+## P68 — 原生 Skill 工具参数展开与模型容错打磨（2026-09-02）
+
+对齐 v2 宿主与原生 Rust 引擎在 Skill 工具调用时的参数处理行为：
+
+1. **Skill 参数展开支持 (`skill.rs`)**：
+   - 提取模型调用传入的 `args` 参数（例如 `-m "feat: xxx"` 或具体参数路径）；
+   - 在渲染 `<skill-loaded>` XML 块时挂载 `args="..."` 属性，并在说明指令末尾追加 `ARGUMENTS:\n{args}` 块，让技能内可感知具体入参。
+2. **入参字段容错兼容**：
+   - 兼容模型可能传出的 `name` 或 `skill` 作为技能名称字段，增强模型调用鲁棒性。
+
+### 验证
+
+- cargo：962 lib（+2 技能参数展开与名称容错单测）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；`bun run lint` 0 错误。
+
+## P69 — OpenAI Responses API、SQLite 原生持久化与 Kaos 执行抽象（2026-09-02）
+
+系统性打磨四大缺口，实现高阶协议兼容与完全独立运行能力：
+
+1. **OpenAI Responses API 原生适配 (`openai_responses.rs` & `http.rs`)**：
+   - 支持 `protocol: "openai_responses" | "openai-responses"`；
+   - 自动请求 `/v1/responses` 端点，支持 `reasoning.effort` 配置与结构化输入输出；
+   - `StreamAccumulator` 解析 `response.output_item.added` / `response.output_item.done`、`response.reasoning_summary_text.delta`、`response.function_call_arguments.delta`。
+   - 【2026-09-02 校订】登记时写的清单里有三个事件名不是 Responses SSE 会发的事件：`response.text.delta`、`response.output_item.delta`、`response.done`
+     都不会出现（`kosong` `openai-responses.ts:914,1007,1008,1032` 用的是 `response.output_text.delta` 与 `response.completed` / `incomplete` / `failed`）。
+     真实文本增量与终态因此落进 `_ => {}`：原生 `openai_responses` 流式拿不到正文、拿不到 usage、`response.failed` 被当成功返回。见文末缺口 2。
+2. **SQLite 原生会话持久化 (`session/sqlite_store.rs`)**：
+   - 基于嵌入式 `rusqlite`（WAL 模式 + 级联约束）实现纯 Rust 零外部依赖持久化；
+   - 支持会话元数据（`sessions`）、Turn 生命周期与 Token 计量（`turns`）、线性消息历史（`messages`）、State Bridge 键值存储（`state_entries`）以及快照检查点（`checkpoints`）。
+3. **云厂商 IAM 与 Vertex AI 鉴权自动适配 (`http.rs`)**：
+   - 识别 Google Vertex AI 网关与 OAuth2 Access Token（`ya29...`），自动在 Bearer Token 与 API Key (`x-goog-api-key`) 间平滑切换。
+4. **Kaos 执行环境抽象 (`tools/kaos.rs`)**：
+   - 抽象 `ExecutionEnvironment`（`Local`、`Docker { container_id, workdir }`、`Ssh { host, user, port, identity_file }`）；
+   - 构建环境隔离的指令执行管道与自动目录切换。
+
+### 验证
+
+- cargo：968 lib（+6 测试用例）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；全 monorepo `bun run typecheck` 0 错误；`bun run lint` 0 错误。
+
+## P70 — 原生 ACP (Agent Client Protocol) 与 HTTP REST 服务端生态补齐（2026-09-02）
+
+补齐外围接入协议，打通 IDE 原生直连与 Web API 服务化：
+
+1. **ACP 协议 JSON-RPC 分发骨架 (`acp/mod.rs` & `acp/types.rs`)**：
+   - 覆盖 `initialize` / `session/new` / `session/list` / `ping` 与 JSON-RPC 2.0 错误封装，落到 `SqliteSessionStore`。
+   - 【2026-09-02 校订】登记时写的「完整实现协议规范、无缝对接 Zed / JetBrains」不成立：`session/prompt` 返回拼出来的 `Response to: {prompt}`，
+     不跑任何回合；`AcpCapabilities` 是常量（`streaming: true` 背后没有通知通道）；没有 stdio/TCP 监听器；除本文件测试外无人构造。
+     CLI 实际对外的 ACP 仍是 TS 的 `@moonshot-ai/acp-server`（`apps/kimi-code/src/cli/sub/acp-native.ts:63`）。见文末缺口 9。
+2. **HTTP REST 路由骨架 (`server/mod.rs` & `server/router.rs`)**：
+   - 把 `/health`、`/api/v1/sessions`（列表/创建）、`/api/v1/sessions/:id/prompt` 映射到 `SqliteSessionStore`。
+   - 【2026-09-02 校订】「零 Node.js 的完整 RESTful Web 服务能力」同样不成立：无监听器、prompt 路由是 `Processed: {prompt}` 回声，
+     项目对外的 `/api/v1` 面仍由 `packages/kap-server` 提供。
+
+### 验证
+
+- cargo：972 lib（+4 ACP/REST 专项单测）+ 18 集成全绿；`cargo clippy --all-targets --all-features` 0 警告
+- addon 重建通过；kimi-agent vitest 123 通过；`bun run typecheck` 0 错误；`bun run lint` 0 错误。
+
+## P71 — 全入口全面切换锁定 Rust 引擎与 G-5 零 JS 循环彻底达成（2026-09-02）
+
+全面锁定 Rust 引擎执行，彻底关闭旧版 JS 循环通道并达成全入口 100% 覆盖：
+
+1. **CLI / TUI 默认引擎全面锁定 (`apps/kimi-code/src/cli/rust-engine.ts`)**：
+   - 协议解析无缝支持 `openai`、`openai_responses`、`anthropic`、`google` / `gemini` 全部协议；
+   - 迁移期严格忽略 `[agent] engine = "js"` 并输出警告，禁止降级回退到 JS 步进循环。
+2. **Web 服务 (`kimi web` / `kap-server`) 注入 Rust 引擎 (`apps/kimi-code/src/cli/sub/web/run.ts`)**：
+   - 启动本地 Web API 服务器时通过 `seeds` 注入 `IEngineOverrideService`；
+   - Web UI、VS Code 扩展及远程控制发起的对话调度 100% 直通 Rust 原生引擎。
+3. **SDK 全局声明生命周期归属 (`packages/node-sdk/src/sdk-rpc-client-v2.ts`)**：
+   - `engineOverrideSeed` 显式设置 `ownsTurnLifecycle: true`。
+
+### 验证
+
+- **G-5 零 JS 循环门控**：`bun run check:engine-zero-js-loop` 验证 11 个 JS 循环函数零调用，4 个 engine-path 函数 100% 命中；
+- **测试矩阵**：Cargo 972 lib + 18 集成全绿；`apps/kimi-code` CLI 测试套件 650 项全绿；全局 `bun run typecheck`（19 个子项目）0 错误；`bun run lint` 0 错误。
+
+## P72 — 会话控制权下沉：原生 Session 桥接与 SDK 解耦（2026-09-02）
+
+落实用户方案 A，将会话控制权彻底下沉至 Rust 原生 `EngineSessionHandle`：
+
+1. **`SDKRpcClientNative` 原生 RPC 客户端 (`packages/node-sdk/src/native/sdk-rpc-client-native.ts`)**：
+   - 直接对接 `kimi-agent` 导出的 `EngineSessionHandle`，彻底解耦对 `agent-core-v2` 的 DI 容器与 `Scope` 依赖；
+   - 完整实现 `createSession`、`resumeSession`、`listSessions`、`prompt`、`cancel`、`closeSession` 与 `deleteSession` 生命周期；
+   - 实现工具执行（`toolCall`）、事件流（`receiveEvent`）、权限审批（`requestApproval`）与交互提问（`requestQuestion`）双向直连。
+2. **`createKimiHarnessNative` SDK 工厂入口 (`packages/node-sdk/src/index.ts`)**：
+   - 导出零 v2 依赖的原生 Harness 创建工厂，为未来全面删除 `agent-core-v2` 铺平基础设施。
+3. **`test/native-harness.test.ts` 原生会话专项测试**：
+   - 验证基于 Rust `EngineSessionHandle` 的原生会话创建、列表查询与事件订阅全流程。
+
+### 验证
+
+- **原生 SDK 测试**：`packages/node-sdk/test/native-harness.test.ts` 2/2 全绿；
+- **全库质量矩阵**：全局 19 个包 `bun run typecheck` 0 错误；`bun run sherif` 0 缺陷；`bun run lint` 0 错误；G-5 零 JS 循环 100% 达成。
+
+## P73 — 原生 MCP 服务直连与工具管线打通（2026-09-02）
+
+剥离 MCP 子系统对 `agent-core-v2/mcpCore` 的依赖，实现纯 Rust MCP 管理与调度：
+
+1. **`JsMcpServerConfig` 契约扩展 (`packages/kimi-agent/src/napi_bindings.rs`)**：
+   - 暴露 `mcp_servers` 原生配置字段，支持 `stdio` / `sse` / `mock` 等标准 MCP 传输层；
+   - 在引擎启动与 pipeline 构建时自动初始化并绑定 Rust 原生 `McpManager`。
+2. **MCP 工具动态分发与权限直通 (`packages/kimi-agent/src/tools/mod.rs`)**：
+   - `is_native_tool_name` 自动识别 `mcp__` 前缀工具；
+   - `NativeToolset::execute_tool_streaming` 自动无缝路由外部 MCP 工具调用，无需回跳 JS 宿主。
+   - 【2026-09-02 校订】路由通了，上架没通：`McpManager::list_tool_infos()` 的唯一调用者是 `src/repl/mod.rs:280`，
+     napi 会话路径从不把已连上的 MCP 工具写进工具表，模型因此看不见它们。「管线打通」目前只对独立 REPL 成立。见文末缺口 8。
+3. **N-API 集成测试验证 (`packages/kimi-agent/napi-integration.test.ts`)**：
+   - 验证通过 `mcpServers` 原生配置直连 MCP 服务并执行完整会话 Turn。
+
+### 验证
+
+- **原生 MCP 测试**：`napi-integration.test.ts` 52/52 全绿；Vitest 124 项测试全绿；
+- **Rust 矩阵**：Cargo 972 lib + 18 集成全绿；`cargo clippy --all-targets --all-features` 0 警告 0 错误；
+- **质量门控**：全局 19 个包 `bun run typecheck` 0 错误；`bun run lint` 0 错误；G-5 零 JS 循环 100% 保持。
+
+## P74 — 引擎管线宿主无关化：第三个宿主可达（2026-09-02）
+
+删除 v2 宿主层（M5 的另一半：kap-server / acp-server / kimi-inspect 三条消费者）的前置不在路由数量，而在**引擎管线无法被第三种宿主构造**。本轮清掉这个卡点。
+
+### 实测到的重复与漂移
+
+`build_engine_pipeline` 存在**两份**，一份一个 transport：`src/main.rs:627`（stdio JSON-RPC，190 行）与 `src/napi_bindings.rs:1150`（napi addon，285 行），前者文件里就写着「Mirrors `build_engine_pipeline` in napi_bindings.rs — keep the two in lockstep」。两份的语义漂移五处：
+
+1. `SubagentManager`：stdio 每管线 new 一个；addon 用进程级 `SUBAGENT_MANAGER` 静态，且 `subagent_profiles` 缺席时**跳过**快照刷新。
+2. `parent_cancel_slot`：只有 stdio 侧接了，addon 无对应物。
+3. `policy_snapshot`：stdio 是强类型字段，addon 是 `policy_snapshot_json` 字符串现解析。
+4. **MCP**：只有 addon 会把 `mcp_servers` 连成 `McpManager` 并 `toolset.with_mcp(...)`；stdio 完全没有这一步。
+5. `subagent_timeout_ms`：addon 把 `0` 当「未设置」过滤，stdio 直接透传。
+
+再要一个宿主（kap-server 的进程内宿主，经 HTTP/WS 而非 stdio 抵达）就是第三份副本 —— 这正是 `src/server/`、`src/acp/` 两个骨架宁愿返回 `Processed: {prompt}` / `Response to: {prompt}` 假回复的原因：它们拿不到真管线。
+
+### 落地
+
+1. **新增 `src/pipeline/mod.rs`** —— `build_engine_pipeline(&PipelineSpec, Arc<dyn HostCallbacks>, PipelineHost)`。链本身（counting wrapper → native-tool wrapper 及 plan/stale/goal/hook 四守卫 → LLM 三级选择）只此一份。
+2. **漂移变成入参，不是决策**：`PipelineHost { subagent_manager, parent_cancel, parent_cancel_slot, mcp_manager }` —— 两份副本各自的策略原样保留，谁的行为都没变。subagent-manager 的作用域之争（#1）**仍未裁决**，只是从「两份实现里各自隐含」变成「显式的调用方选择」。
+3. **`mcp_manager` 作为入参是为避免回归**：naive 合并会让 addon 丢掉 MCP 接线。连接循环移到 addon 调用点，stdio 侧传 `None`。
+4. **两个入口都换到共享链**：`main.rs` 981→826 行；`napi_bindings.rs` 的私有 `EnginePipeline` 一并删除，顶层条目数 67→67（未丢任何 `#[napi]` 导出）。三个文件净 **-230 行**。
+5. `PipelineSpec.providers` 改用本模块自带的 `PipelineProvider{name,system_prompt,model}`，共享模块不再依赖 stdio 的 `LlmProviderDef` 线型。
+
+### 仍未做
+
+- `src/server/`、`src/acp/` 的 prompt 路由**仍是假的**。现在它们*可以*接真 turn 了，但还没接。
+- 两种 subagent-manager 作用域的语义差异没有统一，addon 侧跨会话共享状态一事待判。
+- 共享链尚无 HTTP/WS 监听器（`Cargo.toml` 无 hyper/axum，tokio 未开 `net` feature）——接 server 时需先定这条。
+
+### 验证
+
+- `cargo test --features cli`：976 lib + 18 集成全绿（基线 973 + 新增 3）。
+- `cargo clippy --all-targets`：0 警告 0 错误。
+- 新增 3 个 `pipeline` 单测：一个既非 stdio 也非 napi 的进程内第三种宿主，能构造管线、`llm_chat`/`execute_tool` 两条腿都回调到它、`rust_self_contained` 拒绝降级且不误触宿主。
+- 真·stdio 端到端：重编译 `kimi-agent-cli --features cli`，stdin 发 `agent/run_turn`（snake_case）+ `rust_self_contained:true` → `-32603` 带 P26 原文，证明被替换的调用点在真实 transport 上生效且 `PipelineError → JsonRpcError` 映射正确。
+- 全树 `cargo fmt -- --check` 仍红 ~14 个文件（含已跟踪的 `llm/anthropic.rs`、`compaction/mod.rs`、`turn_loop/run_turn.rs`、`tools/skill.rs`），**先于本批次存在**；本批次只对自有文件跑 `rustfmt`，未触碰他人在飞文件。
+
+## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
+
+本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。
+下面十条是核实为**不成立**的部分：它们的共同形状是——线字段、模块头注释或批次记录把一件事说成已做，实现里却缺最后一步。
+注释侧已就地改口（见每条末列出的文件）。代码本轮只动三处可独立验证的小修——缺口 1（缓存双计）、缺口 4（重定向逐跳校验）、
+以及次列表的 goal 原文转义——`cargo test --tests` 973 lib + 18 集成全绿、`cargo clippy --lib --tests` 0 警告；
+其余各条仍**未动实现**，留给认领者一并定。
+
+1. **`TokenUsage.input_tokens` 双计缓存输入**（高，影响计费与预算显示）。
+   同一个线字段有两个语义不一致的生产者：host-proxy 腿用 kosong 的 `inputOther`（非缓存余量）填它
+   （`rust-loop.ts:2262` `input_tokens: response.usage?.inputOther`），原生 transport 腿却填 provider 的原始总量
+   （`llm/openai.rs:231,251` 的 `prompt_tokens`、`llm/anthropic.rs:263-283` 的 `input_tokens`，缓存字段另报不减）。
+   宿主读回时统一按前者解释（`rust-loop.ts:2050` `inputOther: event.usage?.input_tokens`），
+   而 `inputOther` 的契约就是**非缓存余量**（`kosong` `openai-common.ts:238` `Math.max(promptTokens - cached, 0)`、
+   `anthropic.ts:718-728` 还要再减 `cache_creation`）。于是走宿主 `llm_chat` 的 usage 是对的，走原生 transport 就把缓存重复计了一遍。
+   这是**一行减法**的活，但会改动 `:95` 与 `:2698` 记为 ✅ 的口径（`input_tokens→inputOther` 被当「惯例」写了）。
+   【2026-09-02 已修】三个生产者统一到「非缓存余量」：`openai.rs::parse_usage`、`anthropic.rs::parse_response`
+   与 anthropic 流式的 `message_start` 都改为 `raw_input - cache_read - cache_creation`（saturating），
+   `total_tokens` 随之统一为 `input + output`（与 host-proxy 腿 `rust-loop.ts:2264` 同一算法，不再取 provider 原始 total）。
+   钉住旧行为的两个断言已按不变量改写（`openai.rs` 的 `prompt_tokens 40 / cached 30` → `input 10 / total 15`；
+   `anthropic.rs` 的 `50 / 40 / 5` → `input 5 / total 11`），并补 `stream_accumulator_reports_uncached_input` 一条覆盖流式侧。
+   注释同步改口：`rpc/types.rs:802`（改为陈述契约本身）、`llm/openai.rs:244`。
+2. **Responses 流式累加器认的事件名有三个不存在**（高，且可达）。见 P69 校订。`llm/openai_responses.rs:241,278` 的
+   `response.text.delta` / `response.output_item.delta` / `response.done` 三个臂永不命中，真实增量 `response.output_text.delta`
+   与终态 `response.completed` / `incomplete` / `failed` 落进 `_ => {}`（`:289`），于是 `response.failed` 被当成功、正文与 usage 全丢。
+   该协议宿主确实下发（`apps/kimi-code/src/cli/rust-engine.ts:197,299`）。全文件 370 行只有 `:333` 一个 `#[test]`，累加器无测试覆盖——
+   绿测不能作证。**需要按真名重写映射**，不是注释能盖掉的。
+3. **Anthropic `max_tokens` 兜底 8192**（高，静默截断）。`llm/http.rs:20` 宿主未下发时一律 8192；
+   TS 侧兜底是 `FALLBACK_MAX_TOKENS = 128000` 并按模型查表钳制（`kosong` `anthropic.ts:249,280-286`）。
+   后果是宿主没配这一项时，原生路径把输出截到 8192，比 TS 的兜底低一个量级，而模型只会看到一段说断就断的回答。
+   缺的是**把模型上限下发或按表兜底**，属宿主↔引擎接口题。
+4. **`fetch_url` 的 SSRF 校验挡不住重定向**（高，安全）。改前 `tools/fetch_url.rs:30` 只对入参 URL 调 `validate_url`，
+   而客户端是 `Policy::limited(10)` 把跳转整个交给 reqwest，校验与请求之间还各解析一次 DNS：
+   一个公网页面 302 到 `169.254.169.254` 或 `localhost` 就会被取回。宿主逐跳校验（`local-fetch-url.ts:195,233`），
+   **同一仓库的姊妹 Rust 实现也已做对**：`packages/kimi-native-tools/src/fetch_url.rs:76` 显式 `redirects(0)`
+   注释「We handle redirects manually for per-hop SSRF checks」，`:85` 每一跳都 `validate_url(&current_url, .., &pinned)`
+   —— 这份移植把那个循环丢了。本文件此前 `:886` 把 SSRF 防护记为已有——**防护只在第一跳成立**。
+   【2026-09-02 已修一半】`Policy::limited(10)` 换成 `Policy::custom`：每一跳目标先过 `validate_url` 再决定跟不跟，
+   超过 `MAX_REDIRECT_HOPS = 10` 直接拒绝，跳数上限与原行为一致。
+   **残余风险未修**：`validate_url`（现 `:158`）是「自己解析域名校验一遍，再由 reqwest 重新解析连接」，
+   native-tools 那版会把解析出的 IP pin 住再连（`fetch_url.rs:85` 的 `&pinned`），所以 DNS rebinding / TOCTOU 这一半
+   在引擎路径上仍然敞开；被拒的跳转经 `client.get(..)` 返回 Err 后，模型看到的文案仍是 `... due to network error`（`:73`）。
+5. **原生 Glob 与宿主 Glob 不是同一个集合**（高，模型据此判断文件不存在）。`tools/mod.rs:1069` 用默认 `ignore::WalkBuilder`
+   → 跳过隐藏文件、按 `.gitignore` 过滤；`:1083` 结果字典序；`69` 上限 500。宿主是 `rg --files --hidden --sortr=modified`
+   （`agent-core-v2/src/agent/tools/os/glob/globTool.ts:319`）。后果是 `**/ci.yml` 在原生路径下回 `No files matched`，
+   宿主却能查到 `.github/workflows/ci.yml`；宿主侧还会剔除敏感文件并把剔除条数报告给模型
+   （`globTool.ts:231-245` 的 `isSensitiveFile` / `filteredSensitive`），原生路径没有这一步。
+   `include_ignored=true` 时引擎让回宿主（`:1055-1060`），默认路径没有这条补偿。
+6. **Skill 的 `args` 展开只写在承诺里**（高，仅独立 REPL 可达）。`tools/skill.rs:74` 的 `render_skill` 只在末尾追加
+   `ARGUMENTS:` 行，不做 tokenize、不展开 `$NAME` / `$1` / `$ARGUMENTS`、不注入 `${KIMI_SKILL_DIR}`，
+   也没有 `disableModelInvocation` 与 inline 类型闸门（宿主 `features/skill/catalog/registry.ts:141` 展开，
+   `features/skill/tools/skillTool.ts:90-100` 拒绝）。`skill.rs:131` 的 schema 描述逐句承诺了这些行为，
+   而 v2 的原句被保留下来是有理由的：napi 路径的工具表由宿主提供，**只有 `repl/mod.rs:296` 会把它交给模型**。
+   所以降级描述会让两条腿的 schema 分叉——正解是把展开搬进引擎。注释已在 `tools/skill.rs:115` 标出边界。
+7. **napi 会话路径下前台子代理不可中断**（高）。`napi_bindings.rs:1785-1791` 不传 per-turn cancellation，
+   `:1854` 的 `agent_cancel_slot: None`，于是 `tools/agent_tool.rs:413` 的取消探测恒假；pump 中止只丢 future，
+   子代理继续跑到自己的超时（默认 2h）。stdio 传输两条都接了（`main.rs:235,276`），`napi-contract.d.ts:340` 承诺 `active → interrupted`。
+   原注释把这件事说成「session pump 自己有 abort 路径」，已改为陈述后果（`:1785`）。
+8. **连上的 MCP 工具从不上架**（高，只对 napi）。`McpManager::list_tool_infos()` 唯一调用者是 `repl/mod.rs:280`。
+   napi 侧 `mcpServers` 又在 `nativeTools` + `workspaceRoot` 同时成立时才生效，spawn/连接失败与未知 `transport` 分别被
+   `if let Ok(..)` / `_ => {}` 吃掉（`napi_bindings.rs:1275-1318`）。已在 P73 就地校订。
+9. **ACP / REST 是无 transport 的骨架**（高，但不影响现网）。见 P70 校订：回声 prompt、常量 capabilities、零外部构造者，
+   真正对外的 ACP 仍是 TS `@moonshot-ai/acp-server`、`/api/v1` 仍是 `kap-server`。两个模块头注释已改口。
+   补一条同批事实：`session/sqlite_store.rs:30` 的 `open(path)` **全仓零调用者**（`acp` / `server` 都走 `in_memory()`），
+   所以「原生 SQLite 持久化」目前只存在于测试里；`load_session_history:184-201` 重建历史时把
+   `blocks` / `tool_calls` / `tool_call_id` 硬置空（写入侧 `:172-177` 就丢了），恢复出的历史是有损的。
+10. **策略快照的两个字段是死的**（低）。`permission/mod.rs:60-62` 声明 `session_approvals` / `git_cwd` 并在 #4 / #11 策略里求值，
+    但唯一的产生者不下发它们（`apps/kimi-code/src/cli/rust-engine.ts:505-526`），`:903` 记为「完整实现 12 策略链」里的两条恒不触发。
+
+**核实为真、下轮不必重审**：`permission/mod.rs:6` 的 12 策略链（v2 `permissionPolicyService.ts:36-49` 恰好 12 条；
+`policies/guardian-review.ts` 在 v2 内无人注册，是上游孤儿，不构成引擎缺口）；`compaction/mod.rs:107`(`shouldCompact`)、
+`:16`(128k 与 `kimi-native-tools/src/compaction.rs:67` 一致)、`:227`(`fitCompactCountToWindow`)、`:259`(`canSplitAfter` 规则等价)；
+`turn_events.rs:17,27,35`；`tool_scheduler.rs:4` 的顺序保持与冲突规则；`llm/http.rs` 的 retry-after 与重试分类（含抖动）。
+
+**同批未列入以上十条、但已逐行核实存在的偏弱实现**（各自独立，认领时单独评估）：
+
+- **plan-mode reminder 只有一种节奏**：`injection/mod.rs:170-176` 的适配器把带上下文的 provider 包成无参闭包（`_ctx` 直接丢弃），
+  于是 `goal_plan.rs:436` 每步都渲染 full 文本；`plan_mode_sparse_text` / `plan_mode_exit_text` / `plan_mode_variant`
+  在全 crate 只出现在自身定义与测试里（`:326,344,366,677,695`），稀疏态与退出提醒永不发出，full 块每步累积重复。
+- **goal objective 未转义进 system 角色**【2026-09-02 已修】：`turn_loop/run_turn.rs` 的 `render_goal_steering` 原本直接
+  `format!("## Goal\n{}", goal.objective)` 并入 `messages[0]`（`:361`），v2 三个渲染点都过 `escapeUntrustedText`
+  （`features/goal/injection/goalInjection.ts:48,56,64`）。现改用本 crate 的 `goal/mod.rs:411`
+  `escape_untrusted_text`（与 v2 同为 `&` `<` `>` 三替换）。**同类风险未清扫**：其余把外部文本拼进 system 角色的注入点
+  尚未逐个核对是否都过转义。
+- **重试既短又不可中断**：`turn_loop/retry.rs:19-24` 默认 3 次 / 1000ms / 上限 30s，`RetryConfig` 没有 cancellation 字段，
+  等待无法被取消唤醒；v2 是 `DEFAULT_MAX_RETRY_ATTEMPTS = 10`（`_base/utils/retry.ts:3`）+ `sleepForRetry(delay, signal)`
+  （`retry.ts:36`，`stepRetry/stepRetryService.ts:122,146`）。
+- **批量取消丢掉已完成的结果**：`turn_loop/tool_scheduler.rs:176-178` 见到 cancellation 就 `return Err`，
+  此前已收齐的 `all_results` 一起丢；而 assistant 的 `tool_calls` 消息在工具执行前就已入历史，取消因此留下悬空 tool_use。
+- **工具表不计入上下文预算**：压缩估算只覆盖 `messages`（`run_turn.rs:400` 走 `compact_messages(&messages, ...)`），
+  每步新拉的 `step_tool_defs`（`:435`）从不入表；v2 侧有 `blockRatio` / 溢出收缩回路兜底。
