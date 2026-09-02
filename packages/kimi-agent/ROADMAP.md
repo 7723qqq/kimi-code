@@ -3021,6 +3021,14 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 `CompactionConfig`——`max_context_tokens`/`trigger_ratio`/`reserved_context_size` 三个旋钮结构里都有，
 只缺宿主值，替换掉 `CompactionConfig::default()` 即完成 2a 的验收（引擎不再假设 128k）。
 
+**已核实的落地代价（2a 真正的工作量）**：窗口要进 `TurnRunInput`（`turn_loop/types.rs:759` 旁），而该结构在
+`run_turn.rs` 里被约 40 处**穷尽字段**的测试字面量构造（`max_steps: 5,` ×37、`max_steps: 3,` ×2、
+`max_steps: 20,` ×1）——所以字段必须是 `pub max_context_tokens: Option<u32>`，构造处
+`match input.max_context_tokens { Some(t) if t > 0 => CompactionConfig { max_context_tokens: t, ..Default::default() }, _ => Default::default() }`，
+测试侧按 `max_steps` 的三种缩进各做一次全局补行再 `cargo check` 收口。**2a 只传窗口**：
+`trigger_ratio`(0.85) 与 `reserved_context_size` 暂留默认，随宿主 `compactionTriggerRatio` /
+`reservedContextSize` 下发属 2e 压缩归属一起做。
+
 ### 验证
 
 - cargo：947 lib + 18 集成全绿；`cargo fmt --check` 干净、`clippy --all-targets` 0 警告
