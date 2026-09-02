@@ -28,17 +28,17 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use napi::{
+    JsObject,
     bindgen_prelude::{Env, JsFunction},
     threadsafe_function::{
         ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
     },
-    JsObject,
 };
 use napi_derive::napi;
 use tokio::sync::oneshot;
 
 use crate::callbacks::{
-    HostCallbacks, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT,
+    HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks,
 };
 use crate::pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec};
 use crate::rpc::types::{
@@ -1272,6 +1272,7 @@ async fn build_engine_pipeline(
             parent_cancel,
             parent_cancel_slot: None,
             mcp_manager,
+            event_bus: None,
         },
     )
     .await

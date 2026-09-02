@@ -18,6 +18,7 @@
 //!
 //! The `/api/v1` surface the app actually serves is still `packages/kap-server`.
 
+pub mod engine;
 pub mod http;
 pub mod hub;
 pub mod router;

@@ -33,8 +33,8 @@ use crate::rpc::types::NativeLlmConfig;
 use crate::subagent::{ParentCancel, SubagentManager};
 use crate::tool_result_truncation::ToolResultTruncator;
 use crate::tools::{
-    external_hooks::HookGuard, github::GitHubCredentials, goal_guard::GoalGuard, plan_mode,
-    stale_guard::StaleGate, NativeToolset,
+    NativeToolset, external_hooks::HookGuard, github::GitHubCredentials, goal_guard::GoalGuard,
+    plan_mode, stale_guard::StaleGate,
 };
 use crate::turn_loop::types::LLM;
 
@@ -110,6 +110,11 @@ pub struct PipelineHost {
     /// addon builds one from `params.mcp_servers` per pipeline, the stdio CLI
     /// has no native MCP path yet.
     pub mcp_manager: Option<Arc<McpManager>>,
+    /// Bus the counting wrapper publishes onto. `None` gives this pipeline a
+    /// private bus that nobody observes — right for the two product entries, wrong
+    /// for an embedder that must see engine events (the standalone server has to
+    /// fan them out to WebSocket clients, so it passes its hub's bus).
+    pub event_bus: Option<Arc<EventBus>>,
 }
 
 /// Why a pipeline could not be built. Carries the message each entry renders
@@ -138,10 +143,14 @@ pub async fn build_engine_pipeline(
         parent_cancel,
         parent_cancel_slot,
         mcp_manager,
+        event_bus,
     } = host;
 
     let turn_event_count = Arc::new(AtomicU32::new(0));
-    let event_bus = Arc::new(EventBus::new());
+    // An embedder that must observe engine events (the standalone server, which
+    // fans them out to WebSocket clients) passes its own bus; otherwise this
+    // pipeline gets a private one nobody listens on, as before.
+    let event_bus = event_bus.unwrap_or_else(|| Arc::new(EventBus::new()));
     // Count every event this turn emits (step lifecycle, deltas, native tools,
     // goal budget limits) for the turn telemetry. Wrapped before the tool
     // wrapper and the native LLM event sink so all paths are counted.
@@ -397,6 +406,7 @@ mod tests {
             parent_cancel: None,
             parent_cancel_slot: None,
             mcp_manager: None,
+            event_bus: None,
         }
     }
 

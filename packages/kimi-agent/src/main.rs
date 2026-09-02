@@ -656,6 +656,7 @@ async fn build_engine_pipeline(
             parent_cancel,
             parent_cancel_slot,
             mcp_manager: None,
+            event_bus: None,
         },
     )
     .await

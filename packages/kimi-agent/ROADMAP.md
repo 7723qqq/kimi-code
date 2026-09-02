@@ -3401,6 +3401,29 @@ P76 交的帧层只会 echo。本批次把它接到真实的事件源上：`src/
 - `cargo test --lib server::` **39 全绿**，本批次新增 9 项：hub 4 条（attach 后到达、两订阅者同序、溢出前缀不丢失、handler 不重入总线）+ ws socket 5 条（含两条连接各收一份、握手与 Ping 帧合并进同一包仍应答 Pong、关连接后订阅槽位归零）。
 - `cargo test --features cli`：1000 lib + 18 集成全绿，真退出码 0；`cargo clippy --all-targets` 0 警告；自有文件 `rustfmt --check` 干净。
 
+## P78 — 无宿主的宿主缝 + 独立 turn 驱动（2026-09-02）
+
+两个入口都靠一个活的 JS 侧实现 `HostCallbacks`；独立 server 后面没有人。缺的就是这一块：`src/server/engine.rs`。
+
+1. **`ServerHost`** —— 缝上每一腿的显式答案：`llm_chat` / 非沙箱 `execute_tool` 直接报错（带能力名，让模型看得见缺口而不是等一个不会来的回答），`check_permission` 一律 deny（没有交互批准者；原生工具的授权在此之前已由 `PermissionEngine` 判过），其余腿吃 trait 默认实现 —— 测试断言它们**回答**而非挂起。
+2. **`ServerEngine`** —— 每 turn 经 `kimi_agent::pipeline` 构造引擎上下文、跑一轮、把非 system 记录落进 `SqliteSessionStore`。构造时强制 `rust_self_contained`，所以没配 provider 是**建管线就失败**（`EngineError::NoModel`），不会到 mid-turn 才撞 `ServerHost::llm_chat`。另留 `run_turn_on(llm, …)`：注入 LLM、走同一条 loop+持久化+回报路径，产品侧不用它。
+3. **`PipelineHost.event_bus: Option<Arc<EventBus>>`** —— 之前 builder 自己 new 一条没人听的总线，嵌入方无从观察事件；现在 server 把 hub 的总线传进去，turn 事件才会扇出到 WebSocket。两个产品入口传 `None`，行为不变。
+
+### 一个被「先例」救回来的 bug
+
+我按 `TurnResult` 文档注释取 `messages[1..]` 当 transcript，测试实测出 `["user","user","assistant"]` —— 循环返回值是 **system + 交给它的全部输入 + 本轮追加**，所以那样会把带进来的历史每轮重写一遍。查 `EngineSession` 有现成解法（`session/mod.rs:742` 跳过 system **和**自己的输入），照它改成 `skip(1 + input_len)`，再补上本 store 独有的需求：保留 prompt 本身。加了 `a_second_turn_does_not_re_write_the_carried_history` 钉住这个性质。
+
+**仍未闭合**：追加段里含循环每轮注入的提醒（日期变更、workspace AGENTS.md），它们本不该持久化。要干净滤掉得让 injection registry 打标记；现在会进历史，代码注释里写明。
+
+### 仍未做
+
+prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（仍返回 `Processed: {prompt}`）。接线现在是机械活：路由持有 engine、history 从 store 读、把 `TurnReport` 投成 JSON。
+
+### 验证
+
+- `cargo test --lib server::` **44 全绿**（本批次新增 5：无宿主各腿不挂起、无模型 upfront 拒绝、脚本 turn 完成并落库、历史不被第二轮重写、历史携带进本轮）。真 provider 未被调用（脚本 LLM 在进程内）。
+- `cargo test --features cli`：1005 lib + 18 集成，真退出码 0；`cargo clippy --all-targets` 0 警告；自有文件 `rustfmt` 单独跑。
+
 ## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
 
 本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。
