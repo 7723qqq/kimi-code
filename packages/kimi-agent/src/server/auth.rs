@@ -113,17 +113,18 @@ impl ServerAuth {
 
     /// Check a REST request's `Authorization` header.
     pub fn check_bearer(&self, authorization: Option<&str>) -> Decision {
+        self.check_token(bearer_value(authorization))
+    }
+
+    /// Check a bare token value, as a WebSocket `client_hello` carries it in its
+    /// JSON payload where there is no `Bearer ` prefix to strip.
+    pub fn check_token(&self, presented: Option<&str>) -> Decision {
         match self {
             Self::Disabled => Decision::Allowed,
-            Self::Token(expected) => match bearer_value(authorization) {
+            Self::Token(expected) => match presented {
                 None => Decision::Missing,
-                Some(presented) => {
-                    if secret_matches(expected, presented) {
-                        Decision::Allowed
-                    } else {
-                        Decision::Invalid
-                    }
-                }
+                Some(value) if secret_matches(expected, value) => Decision::Allowed,
+                Some(_) => Decision::Invalid,
             },
         }
     }

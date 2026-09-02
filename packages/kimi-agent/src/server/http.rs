@@ -150,7 +150,18 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
             let response = HttpResponse::unauthorized("Unauthorized");
             return write_response(&mut stream, &response).await;
         }
-        return match ws::serve_ws(stream, &request, leftover, server.hub(), selected_protocol).await
+        return match ws::serve_ws(
+            stream,
+            &request,
+            leftover,
+            ws::WsOptions {
+                hub: server.hub(),
+                auth: server.auth(),
+                heartbeat: server.heartbeat(),
+                selected_protocol,
+            },
+        )
+        .await
         {
             Ok(()) => Ok(()),
             Err(ws::WsError::Io(error)) => Err(error),

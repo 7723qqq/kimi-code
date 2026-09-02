@@ -23,9 +23,11 @@ pub mod http;
 pub mod hub;
 pub mod router;
 pub mod ws;
+pub mod ws_protocol;
 
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::events::EventBus;
 use crate::server::auth::ServerAuth;
@@ -39,6 +41,7 @@ pub struct HttpServer {
     bus: Arc<EventBus>,
     engine: Option<Arc<ServerEngine>>,
     auth: ServerAuth,
+    heartbeat: Duration,
 }
 
 impl HttpServer {
@@ -58,6 +61,7 @@ impl HttpServer {
             bus,
             engine: None,
             auth: ServerAuth::disabled(),
+            heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
         }
     }
 
@@ -71,6 +75,18 @@ impl HttpServer {
 
     pub fn auth(&self) -> &ServerAuth {
         &self.auth
+    }
+
+    /// Set the period of the JSON `ping` heartbeat each WebSocket connection
+    /// sends. kap-server takes the same as `heartbeatIntervalMs`.
+    #[must_use]
+    pub fn with_heartbeat(mut self, heartbeat: Duration) -> Self {
+        self.heartbeat = heartbeat;
+        self
+    }
+
+    pub fn heartbeat(&self) -> Duration {
+        self.heartbeat
     }
 
     /// Attach the turn driver, without which `POST /sessions/:id/prompt` has
