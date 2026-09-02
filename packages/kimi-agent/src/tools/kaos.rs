@@ -5,8 +5,8 @@
 //! - Docker container execution (`docker exec`)
 //! - Remote SSH execution (`ssh`)
 
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -52,7 +52,10 @@ impl ExecutionEnvironment {
                     .env("SHELL", shell);
                 cmd
             }
-            Self::Docker { container_id, workdir } => {
+            Self::Docker {
+                container_id,
+                workdir,
+            } => {
                 let mut cmd = tokio::process::Command::new("docker");
                 cmd.arg("exec").arg("-i");
                 if let Some(wd) = workdir {
@@ -60,10 +63,7 @@ impl ExecutionEnvironment {
                 } else if let Some(wd_str) = working_dir.to_str() {
                     cmd.arg("-w").arg(wd_str);
                 }
-                cmd.arg(container_id)
-                    .arg(shell)
-                    .arg("-c")
-                    .arg(command);
+                cmd.arg(container_id).arg(shell).arg("-c").arg(command);
                 cmd
             }
             Self::Ssh {

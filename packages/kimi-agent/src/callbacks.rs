@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, CheckpointRequest, ListToolsResponse,
-    LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
-    StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
+    AskQuestionRequest, AskQuestionResponse, AuthTokenResponse, BoxFuture, CheckpointRequest,
+    ListToolsResponse, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
+    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse,
 };
 use crate::turn_loop::types::{GoalContext, LLMMessage};
@@ -113,6 +113,21 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Err("host does not support goal".into()) })
     }
 
+    /// Fetch a bearer token for an OAuth-managed provider (`host/auth_token`).
+    /// The host owns the OAuth store — single-flight refresh, expiry-aware
+    /// cache — so the transport asks instead of holding credentials; `force`
+    /// asks it to refresh past the cache after a 401/403 from the provider.
+    /// The default errors so an unwired host (REPL, tests) keeps static-key
+    /// transports working unchanged.
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let _ = (provider, force);
+        Box::pin(async { Err("host does not support oauth token fetch".into()) })
+    }
+
     /// Release the steering prompts injected during the active turn. The
     /// engine-local steer queue (see `SteerQueueCallbacks`) serves this at
     /// every step head; the default answers with nothing.
@@ -187,6 +202,11 @@ pub const HOST_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 /// so a stalled answer must not hold the step open; on timeout run_turn
 /// falls back to the turn-start snapshot.
 pub const HOST_LIST_TOOLS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Outer bound on a `host/auth_token` call. A cache hit answers immediately;
+/// a miss triggers an OAuth refresh round-trip (network, no human in the
+/// loop), so the bound covers one slow refresh rather than a stalled host.
+pub const HOST_AUTH_TOKEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -371,6 +391,27 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("Goal error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("Goal response parse error: {e}"))
+        })
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_AUTH_TOKEN,
+                    serde_json::json!({ "provider": provider, "force": force }),
+                    Some(HOST_AUTH_TOKEN_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Auth token error: {e}"))?;
+            let token = serde_json::from_value::<AuthTokenResponse>(response_value)
+                .map_err(|e| format!("Auth token response parse error: {e}"))?;
+            Ok(token.token)
         })
     }
 
@@ -881,11 +922,45 @@ impl HostCallbacks for NativeToolCallbacks {
     }
 
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
-        self.inner.list_tools()
+        let inner = self.inner.clone();
+        let mcp_mgr = self.toolset.mcp_manager().cloned();
+        Box::pin(async move {
+            let host_res = inner.list_tools().await;
+            if let Some(mcp) = mcp_mgr {
+                let mcp_tools = mcp.list_tool_infos().await;
+                match host_res {
+                    Ok(mut response) => {
+                        for tool in mcp_tools {
+                            if !response.tools.iter().any(|t| t.name == tool.name) {
+                                response.tools.push(tool);
+                            }
+                        }
+                        Ok(response)
+                    }
+                    Err(err) => {
+                        if !mcp_tools.is_empty() {
+                            Ok(ListToolsResponse { tools: mcp_tools })
+                        } else {
+                            Err(err)
+                        }
+                    }
+                }
+            } else {
+                host_res
+            }
+        })
     }
 
     fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
         self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
     }
 
     fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
@@ -992,6 +1067,14 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.goal()
     }
 
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
     fn emit_event(&self, event: serde_json::Value) {
         self.event_count.fetch_add(1, Ordering::Relaxed);
         if let Some(ref bus) = self.bus {
@@ -1017,6 +1100,143 @@ impl HostCallbacks for CountingCallbacks {
             bus.publish_json(event.clone());
         }
         self.inner.telemetry(event);
+    }
+}
+
+/// Host callbacks adapter that serves state bridge calls (`state_read`, `state_write`, `checkpoint`)
+/// using a local [`crate::storage::StateStore`].
+pub struct StateStoreCallbacks {
+    pub inner: Arc<dyn HostCallbacks>,
+    pub store: Arc<crate::storage::StateStore>,
+}
+
+impl HostCallbacks for StateStoreCallbacks {
+    fn llm_chat(
+        &self,
+        request: LlmChatRequest,
+    ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+        self.inner.llm_chat(request)
+    }
+
+    fn execute_tool(
+        &self,
+        request: ToolExecuteRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        self.inner.execute_tool(request)
+    }
+
+    fn check_permission(
+        &self,
+        request: PermissionCheckRequest,
+    ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+        self.inner.check_permission(request)
+    }
+
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        self.inner.ask_question(request)
+    }
+
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            if let Some(value) = (request.domain != "task" || request.key == "task")
+                .then(|| store.read_domain(&request.domain))
+                .flatten()
+            {
+                return Ok(StateReadResponse { value });
+            }
+            match inner.state_read(request.clone()).await {
+                Ok(resp) => Ok(resp),
+                Err(_) => store
+                    .read_state(&request.domain, &request.key)
+                    .map(|value| StateReadResponse { value }),
+            }
+        })
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            match store.apply_write(&request.domain, &request.value) {
+                Ok(outcome) => {
+                    let _ = store.write_domain(&request.domain, &outcome.stored);
+                    Ok(StateWriteResponse {
+                        ok: true,
+                        value: outcome.response,
+                    })
+                }
+                Err(store_err) => match inner.state_write(request).await {
+                    Ok(resp) => Ok(resp),
+                    Err(_) => Err(store_err),
+                },
+            }
+        })
+    }
+
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let store_res = store.checkpoint();
+            // The host checkpoint anchors `/undo` pre-images; if it fails the
+            // anchor is incomplete and a later undo would silently restore the
+            // wrong state, so surface it instead of swallowing it. The local
+            // checkpoint runs first either way so its result is not lost.
+            inner.checkpoint(request).await?;
+            store_res
+        })
+    }
+
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        self.inner.list_tools()
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        self.inner.drain_steers()
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        self.inner.set_turn_goal(turn_id, goal_id);
+    }
+
+    fn emit_event(&self, event: serde_json::Value) {
+        self.inner.emit_event(event);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        self.store.fold_turn_event(&event);
+        self.inner.turn_event(event);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        self.inner.telemetry(event);
+    }
+
+    fn cancel_llm_chat(&self, request_id: &str) {
+        self.inner.cancel_llm_chat(request_id);
     }
 }
 
@@ -2471,5 +2691,143 @@ mod tests {
         assert_eq!(read_req.as_ref().unwrap().turn_id, "turn-2");
         let write_req = write_received.lock().unwrap();
         assert!(!write_req.as_ref().unwrap().undoable);
+    }
+
+    #[tokio::test]
+    async fn test_state_store_callbacks_local_bridge() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        let dummy = Arc::new(RecordingCallbacks {
+            events: Arc::new(std::sync::Mutex::new(Vec::new())),
+        });
+        let adapter = StateStoreCallbacks {
+            inner: dummy.clone(),
+            store: store.clone(),
+        };
+
+        // 1. Initial read of todo domain returns default empty array
+        let read_req = StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: "turn-1".into(),
+            tool_call_id: "call-1".into(),
+        };
+        let read_res = adapter.state_read(read_req).await.unwrap();
+        assert_eq!(read_res.value, serde_json::json!([]));
+
+        // 2. Write todo item via StateStoreCallbacks
+        let write_req = StateWriteRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            value: serde_json::json!([
+                { "id": "1", "title": "Refactor host bridge", "status": "completed" }
+            ]),
+            undoable: true,
+            turn_id: "turn-1".into(),
+            tool_call_id: "call-1".into(),
+        };
+        let write_res = adapter.state_write(write_req).await.unwrap();
+        assert!(write_res.ok);
+        assert_eq!(write_res.value[0]["title"], "Refactor host bridge");
+
+        // 3. Read back verified from store
+        let read_req2 = StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: "turn-2".into(),
+            tool_call_id: "call-2".into(),
+        };
+        let read_res2 = adapter.state_read(read_req2).await.unwrap();
+        assert_eq!(read_res2.value[0]["title"], "Refactor host bridge");
+
+        // 4. Checkpoint works locally
+        adapter
+            .checkpoint(CheckpointRequest {
+                turn_id: "turn-2".into(),
+                tool_call_id: "call-2".into(),
+                phase: "prepare".into(),
+                paths: vec!["test.txt".into()],
+                executed: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(store.checkpoint_depth(), 1);
+    }
+
+    struct HostWithToolsCallbacks {
+        tools: Vec<crate::turn_loop::types::ToolInfo>,
+    }
+
+    impl HostCallbacks for HostWithToolsCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+
+        fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+            let tools = self.tools.clone();
+            Box::pin(async move { Ok(ListToolsResponse { tools }) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mcp_mgr = Arc::new(crate::mcp::McpManager::new());
+        let mock_client = crate::mcp::McpClient::mock("test_server");
+        mcp_mgr.add_client(mock_client).await;
+
+        let toolset = Arc::new(
+            NativeToolset::new(tmp.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_mcp(mcp_mgr),
+        );
+
+        let inner = Arc::new(HostWithToolsCallbacks {
+            tools: vec![crate::turn_loop::types::ToolInfo {
+                name: "host_custom_tool".into(),
+                description: "host tool description".into(),
+                input_schema: serde_json::json!({}),
+            }],
+        });
+
+        let callbacks = NativeToolCallbacks {
+            inner,
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+
+        let res = callbacks.list_tools().await.unwrap();
+        assert!(res.tools.iter().any(|t| t.name == "host_custom_tool"));
+        assert!(
+            res.tools
+                .iter()
+                .any(|t| t.name.starts_with("mcp__test_server__"))
+        );
     }
 }

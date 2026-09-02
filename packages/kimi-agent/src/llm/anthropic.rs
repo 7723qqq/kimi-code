@@ -301,6 +301,52 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
     })
 }
 
+/// Resolve the default `max_tokens` ceiling for Anthropic models.
+///
+/// Mirrors the ceiling table in `kosong`'s Anthropic provider
+/// (`CEILING_BY_FAMILY_VERSION` + `FALLBACK_MAX_TOKENS`) so the native
+/// transport does not silently truncate a newer Claude model down to the
+/// Claude-3 budget. Branches are ordered most-specific first: a `4-6` release
+/// must be caught before the bare `4` family check. An unrecognized model
+/// falls back to the same generous 128k ceiling the TS provider uses rather
+/// than a low guess that would cut a long response off mid-`tool_use`.
+pub fn default_max_tokens_for_model(model: &str) -> u32 {
+    let lower = model.to_ascii_lowercase();
+    // Claude 5 / 4.6+ generation documents a 128k output ceiling.
+    if lower.contains("sonnet-5")
+        || lower.contains("fable-5")
+        || lower.contains("mythos-5")
+        || lower.contains("opus-4-8")
+        || lower.contains("opus-4-7")
+        || lower.contains("opus-4-6")
+        || lower.contains("sonnet-4-6")
+    {
+        return 128_000;
+    }
+    // Claude 4.5 / 4.0 Sonnet and Haiku 4 ship at 64k.
+    if lower.contains("opus-4-5")
+        || lower.contains("sonnet-4-5")
+        || lower.contains("sonnet-4")
+        || lower.contains("haiku-4")
+    {
+        return 64_000;
+    }
+    // Claude Opus 4.0 / 4.1 stay at 32k.
+    if lower.contains("opus-4-1") || lower.contains("opus-4") {
+        return 32_000;
+    }
+    // Claude 3.5 / 3.7 documented at 8192 (standard endpoint).
+    if lower.contains("claude-3-7") || lower.contains("claude-3-5") {
+        return 8192;
+    }
+    // Original Claude 3 generation.
+    if lower.contains("claude-3") {
+        return 4096;
+    }
+    // Unknown model: match the TS provider's fallback instead of a low guess.
+    128_000
+}
+
 // ── Streaming (SSE) accumulation ───────────────────────────────────────
 
 /// A content block being accumulated across stream events, keyed by index.
@@ -1030,5 +1076,21 @@ mod tests {
         let req_no_thinking = build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, None);
         assert!(req_no_thinking.get("thinking").is_none());
         assert_eq!(req_no_thinking["max_tokens"], 4096);
+    }
+
+    #[test]
+    fn default_max_tokens_matches_the_kosong_ceiling_table() {
+        // Newer generations must not be truncated down to the Claude-3 budget.
+        assert_eq!(default_max_tokens_for_model("claude-sonnet-4-5"), 64_000);
+        assert_eq!(default_max_tokens_for_model("claude-opus-4-1"), 32_000);
+        assert_eq!(default_max_tokens_for_model("claude-sonnet-4-6"), 128_000);
+        assert_eq!(default_max_tokens_for_model("claude-opus-4-7"), 128_000);
+        assert_eq!(default_max_tokens_for_model("claude-haiku-4-5"), 64_000);
+        // Documented Claude 3.x ceilings.
+        assert_eq!(default_max_tokens_for_model("claude-3-7-sonnet-20250219"), 8192);
+        assert_eq!(default_max_tokens_for_model("claude-3-5-haiku"), 8192);
+        assert_eq!(default_max_tokens_for_model("claude-3-opus"), 4096);
+        // Unknown model falls back to the generous TS ceiling, not a low guess.
+        assert_eq!(default_max_tokens_for_model("some-unknown-model"), 128_000);
     }
 }

@@ -46,6 +46,18 @@ export const permissionCheckRequestSchema = z.object({
   arguments: z.unknown(),
 });
 
+// ── Rust→JS: OAuth token fetch (`host/auth_token`) ─────────────────────────
+// The host owns the OAuth store (single-flight refresh); `force` asks it to
+// refresh past the cache after a 401/403 from the provider.
+export const authTokenRequestSchema = z.object({
+  provider: z.string(),
+  force: z.boolean(),
+});
+
+export const authTokenResponseSchema = z.object({
+  token: z.string(),
+});
+
 // ── Rust→JS: turn lifecycle (`turn_events.rs`, `host/turn_event`) ──────────
 // The three durable records drive the host's append log and turn-state fold,
 // so a shape drift here corrupts the transcript rather than just a display.

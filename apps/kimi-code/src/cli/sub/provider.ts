@@ -23,7 +23,7 @@ import {
   applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
-  createKimiHarnessV2,
+  createKimiHarnessNative,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
   type Catalog,
@@ -583,9 +583,8 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        // Same engine as the TUI's `/provider` flow: the SDK's v2-backed
-        // harness — the agent-core-v2 engine is the only engine.
-        harness ??= createKimiHarnessV2({ identity });
+        // Native Rust harness for provider commands.
+        harness ??= createKimiHarnessNative({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

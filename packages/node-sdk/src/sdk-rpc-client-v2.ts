@@ -377,7 +377,7 @@ const MAX_TIMER_DELAY_MS = 0x7fffffff;
 /** Bootstrap extra seed wiring the external turn engine, or nothing. */
 function engineOverrideSeed(engine: TurnEngine | undefined): ScopeSeed {
   if (engine === undefined) return [];
-  return [[IEngineOverrideService, { getEngine: () => engine }]];
+  return [[IEngineOverrideService, { getEngine: () => engine, ownsTurnLifecycle: true }]];
 }
 
 export class SDKRpcClientV2 extends SDKRpcClientBase {

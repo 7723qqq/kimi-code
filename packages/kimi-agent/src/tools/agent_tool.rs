@@ -108,7 +108,7 @@ fn emit_subagent_event(callbacks: &dyn crate::callbacks::HostCallbacks, event: s
 
 /// The spawned + started event pair (P59 extraction: identical at all four
 /// launch sites — foreground, resume, background).
-fn emit_spawned_started(
+pub(crate) fn emit_spawned_started(
     callbacks: &dyn crate::callbacks::HostCallbacks,
     agent_id: &str,
     profile_name: &str,
@@ -161,7 +161,7 @@ fn emit_failed(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str, 
     );
 }
 
-fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::Value {
+pub(crate) fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::Value {
     serde_json::json!({
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,

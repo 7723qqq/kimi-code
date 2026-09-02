@@ -15,10 +15,6 @@ use crate::llm::{anthropic, google_genai, openai, openai_responses};
 use crate::rpc::types::{BoxFuture, NativeLlmConfig};
 use crate::turn_loop::types::{LLM, LLMChatParams, LLMChatResponse};
 
-/// Default `max_tokens` for the Anthropic Messages API when the host does
-/// not configure one (the field is mandatory there).
-const DEFAULT_ANTHROPIC_MAX_TOKENS: u32 = 8192;
-
 /// Per-request timeout. Generous because streaming responses for long
 /// completions can take minutes; the read is still bounded per-chunk by
 /// the connect/idle behavior of the pool.
@@ -27,6 +23,12 @@ const REQUEST_TIMEOUT_SECS: u64 = 600;
 /// Fire-and-forget sink for streaming events (text or thinking deltas). The value is a
 /// JSON event object; the receiver forwards it to the JS host transcript.
 pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+
+/// Fetches a bearer token for an OAuth-managed provider. `force` asks the
+/// host to refresh past its cache — the transport calls it after a 401/403,
+/// mirroring the host's own `getAuth({ force: true })` retry.
+pub type AuthTokenProvider =
+    Arc<dyn Fn(bool) -> BoxFuture<'static, Result<String, String>> + Send + Sync>;
 
 enum Accumulator {
     OpenAI(openai::StreamAccumulator),
@@ -62,6 +64,13 @@ pub struct NativeHttpLlm {
     system_prompt: String,
     client: reqwest::Client,
     sink: Option<EventSink>,
+    /// OAuth token channel for `auth_provider`-configured transports. Absent
+    /// means static-key auth (`config.api_key`).
+    auth: Option<AuthTokenProvider>,
+    /// Last token fetched through `auth`, reused across requests until a
+    /// 401/403 forces a refresh — the host's OAuth manager keeps it fresh,
+    /// so re-asking per request would only add round-trips.
+    cached_token: std::sync::Mutex<Option<String>>,
 }
 
 impl NativeHttpLlm {
@@ -76,6 +85,8 @@ impl NativeHttpLlm {
             system_prompt,
             client,
             sink: None,
+            auth: None,
+            cached_token: std::sync::Mutex::new(None),
         }
     }
 
@@ -86,13 +97,23 @@ impl NativeHttpLlm {
         self
     }
 
+    /// Attach the OAuth token channel. Required when the config names an
+    /// `auth_provider`; ignored otherwise.
+    pub fn with_auth_provider(mut self, auth: AuthTokenProvider) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
     fn endpoint(&self) -> String {
         let base = self.config.base_url.trim_end_matches('/');
         match self.config.protocol.as_str() {
             "anthropic" => format!("{base}/messages"),
             "openai_responses" | "openai-responses" => format!("{base}/responses"),
             "google" | "google-genai" | "gemini" => {
-                format!("{base}/models/{}:streamGenerateContent?alt=sse", self.config.model)
+                format!(
+                    "{base}/models/{}:streamGenerateContent?alt=sse",
+                    self.config.model
+                )
             }
             _ => format!("{base}/chat/completions"),
         }
@@ -134,7 +155,7 @@ impl NativeHttpLlm {
                 &self.config.model,
                 self.config
                     .max_tokens
-                    .unwrap_or(DEFAULT_ANTHROPIC_MAX_TOKENS),
+                    .unwrap_or_else(|| anthropic::default_max_tokens_for_model(&self.config.model)),
                 &wire,
                 &params.tools,
                 true,
@@ -149,11 +170,7 @@ impl NativeHttpLlm {
                 self.config.reasoning_effort.as_deref(),
             )
         } else if is_google {
-            google_genai::build_request_full(
-                &wire,
-                &params.tools,
-                self.config.thinking_budget,
-            )
+            google_genai::build_request_full(&wire, &params.tools, self.config.thinking_budget)
         } else {
             openai::build_request_full(
                 &self.config.model,
@@ -164,26 +181,18 @@ impl NativeHttpLlm {
             )
         };
 
-        let mut req = self.client.post(self.endpoint()).json(&body);
-        if is_google {
-            req = req.header("x-goog-api-key", &self.config.api_key);
-        } else if is_anthropic {
-            req = req
-                .header("x-api-key", &self.config.api_key)
-                .header("anthropic-version", "2023-06-01");
-        } else {
-            req = req.header("authorization", format!("Bearer {}", self.config.api_key));
+        let mut token = self.credential().await?;
+        let mut response = self.send_request(&body, token.as_str()).await?;
+        let mut status = response.status();
+        // A 401/403 on an OAuth-managed transport means the cached token went
+        // stale (expired early, revoked, rotated); force a host-side refresh
+        // and retry once before surfacing the failure. Static-key transports
+        // have nothing to refresh — a bad key never becomes good by retrying.
+        if !status.is_success() && matches!(status.as_u16(), 401 | 403) && self.auth.is_some() {
+            token = self.refresh_credential().await?;
+            response = self.send_request(&body, token.as_str()).await?;
+            status = response.status();
         }
-        for (k, v) in &self.config.custom_headers {
-            req = req.header(k.as_str(), v.as_str());
-        }
-
-        let response = req
-            .send()
-            .await
-            .map_err(|e| format!("{}: {e}", transport_error_message(&e)))?;
-
-        let status = response.status();
         if !status.is_success() {
             // The provider may ask for a specific wait; carry it out-of-band
             // so the retry layer can honour it instead of burning its
@@ -248,6 +257,71 @@ impl NativeHttpLlm {
         }));
 
         Ok(response)
+    }
+
+    /// Send one request with the protocol's auth headers carrying `token`.
+    async fn send_request(
+        &self,
+        body: &serde_json::Value,
+        token: &str,
+    ) -> Result<reqwest::Response, String> {
+        let is_google = matches!(
+            self.config.protocol.as_str(),
+            "google" | "google-genai" | "gemini"
+        );
+        let is_anthropic = self.config.protocol == "anthropic";
+        let mut req = self.client.post(self.endpoint()).json(body);
+        if is_google {
+            req = req.header("x-goog-api-key", token);
+        } else if is_anthropic {
+            req = req
+                .header("x-api-key", token)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("authorization", format!("Bearer {token}"));
+        }
+        for (k, v) in &self.config.custom_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        req.send()
+            .await
+            .map_err(|e| format!("{}: {e}", transport_error_message(&e)))
+    }
+
+    /// The credential for this request: the cached OAuth token (fetched once,
+    /// then reused until a 401/403 forces a refresh) or the static key.
+    async fn credential(&self) -> Result<String, String> {
+        if self.config.auth_provider.is_some() {
+            let fetch = self.auth.as_ref().ok_or_else(|| {
+                format!(
+                    "native transport names auth_provider {:?} but no token channel is wired",
+                    self.config.auth_provider
+                )
+            })?;
+            let cached = self
+                .cached_token
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(token) = cached {
+                return Ok(token);
+            }
+            return self.store_token(fetch(false).await?);
+        }
+        Ok(self.config.api_key.clone())
+    }
+
+    /// Force-refresh the OAuth token through the host after a 401/403.
+    async fn refresh_credential(&self) -> Result<String, String> {
+        match &self.auth {
+            Some(fetch) => self.store_token(fetch(true).await?),
+            None => Ok(self.config.api_key.clone()),
+        }
+    }
+
+    fn store_token(&self, token: String) -> Result<String, String> {
+        *self.cached_token.lock().unwrap_or_else(|e| e.into_inner()) = Some(token.clone());
+        Ok(token)
     }
 }
 
@@ -352,6 +426,7 @@ impl LLM for NativeHttpLlm {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     fn config(protocol: &str, base_url: &str) -> NativeLlmConfig {
         NativeLlmConfig {
@@ -363,6 +438,7 @@ mod tests {
             custom_headers: HashMap::new(),
             reasoning_effort: None,
             thinking_budget: None,
+            auth_provider: None,
         }
     }
 
@@ -466,6 +542,117 @@ mod tests {
         let msg = result.err().unwrap().to_string();
         assert!(
             msg.contains("llm transport error"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    /// One-shot local HTTP server: the first request draws a 401, every later
+    /// one a 200 with an empty SSE body (the accumulator finishes on EOF).
+    async fn spawn_401_then_ok_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut requests = 0;
+            while let Ok((mut sock, _)) = listener.accept().await {
+                requests += 1;
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                // `connection: close` is critical: without it HTTP/1.1
+                // defaults to keep-alive and the eventsource stream hangs
+                // forever waiting for the server to push more events or close
+                // the TCP connection.
+                let response = if requests == 1 {
+                    "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                } else {
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n"
+                };
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        (addr, handle)
+    }
+
+    #[tokio::test]
+    async fn oauth_token_refreshes_once_on_401() {
+        let (addr, server) = spawn_401_then_ok_server().await;
+
+        let mut cfg = config("openai", &format!("http://{addr}/v1"));
+        cfg.api_key = String::new();
+        cfg.auth_provider = Some("kimi".into());
+        let fetches = Arc::new(AtomicU32::new(0));
+        let fetch_count = fetches.clone();
+        let llm =
+            NativeHttpLlm::new(cfg, String::new()).with_auth_provider(Arc::new(move |force| {
+                let n = fetch_count.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move { Ok(format!("token-{n}-force-{force}")) })
+            }));
+
+        let result = llm
+            .chat(LLMChatParams {
+                messages: vec![],
+                tools: vec![],
+            })
+            .await;
+        assert!(
+            result.is_ok(),
+            "expected the 401 to be recovered: {result:?}"
+        );
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            2,
+            "initial fetch + exactly one forced refresh"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn oauth_cached_token_is_reused_across_requests() {
+        // Test the caching logic directly via `credential()` without going
+        // through the network at all — the network path is already covered by
+        // `oauth_token_refreshes_once_on_401`.
+        let mut cfg = config("openai", "http://127.0.0.1:1/v1");
+        cfg.api_key = String::new();
+        cfg.auth_provider = Some("kimi".into());
+        let fetches = Arc::new(AtomicU32::new(0));
+        let fetch_count = fetches.clone();
+        let llm =
+            NativeHttpLlm::new(cfg, String::new()).with_auth_provider(Arc::new(move |_force| {
+                let n = fetch_count.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move { Ok(format!("token-{n}")) })
+            }));
+
+        // First call: cache miss, fetches token-1.
+        let t1 = llm.credential().await.unwrap();
+        assert_eq!(t1, "token-1");
+        assert_eq!(fetches.load(Ordering::SeqCst), 1, "first call must fetch");
+
+        // Second call: cache hit, must not invoke the provider again.
+        let t2 = llm.credential().await.unwrap();
+        assert_eq!(t2, "token-1", "cached token must be returned unchanged");
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            1,
+            "the cached token must serve the second call without a host round-trip"
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_without_wired_channel_fails_cleanly() {
+        let mut cfg = config("openai", "http://127.0.0.1:1/v1");
+        cfg.api_key = String::new();
+        cfg.auth_provider = Some("kimi".into());
+        let llm = NativeHttpLlm::new(cfg, String::new());
+        let result = llm
+            .chat(LLMChatParams {
+                messages: vec![],
+                tools: vec![],
+            })
+            .await;
+        let msg = result.err().unwrap().to_string();
+        assert!(
+            msg.contains("no token channel is wired"),
             "unexpected error: {msg}"
         );
     }

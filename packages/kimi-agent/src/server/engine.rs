@@ -128,13 +128,17 @@ impl std::error::Error for EngineError {}
 /// Runs turns for the standalone server on a fixed configuration.
 pub struct ServerEngine {
     spec: PipelineSpec,
-    hub: EventHub,
+    hub: Arc<EventHub>,
     store: Arc<SqliteSessionStore>,
     max_steps: u32,
 }
 
 impl ServerEngine {
-    pub fn new(spec: PipelineSpec, hub: EventHub, store: Arc<SqliteSessionStore>) -> Self {
+    pub fn new(
+        spec: PipelineSpec,
+        hub: Arc<EventHub>,
+        store: Arc<SqliteSessionStore>,
+    ) -> Self {
         Self {
             spec,
             hub,
@@ -180,9 +184,9 @@ impl ServerEngine {
                 parent_cancel_slot: None,
                 // No external MCP servers: their configs come from the host.
                 mcp_manager: None,
-                // The hub's bus, so events from this turn fan out to connected
-                // WebSocket clients.
-                event_bus: Some(self.hub.bus().clone()),
+                // This session's lane, so the turn's events carry its session id
+                // and its seq. Every connection still sees every lane.
+                event_bus: Some(self.hub.bus_for(session_id)),
             },
         )
         .await
@@ -324,7 +328,6 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EventBus;
     use crate::rpc::types::StateReadRequest;
     use crate::turn_loop::types::{LLMChatParams, LLMChatResponse};
 
@@ -350,7 +353,7 @@ mod tests {
     fn engine() -> ServerEngine {
         ServerEngine::new(
             spec(),
-            EventHub::new(Arc::new(EventBus::new())),
+            Arc::new(EventHub::new()),
             Arc::new(SqliteSessionStore::in_memory().unwrap()),
         )
     }

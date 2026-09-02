@@ -232,18 +232,17 @@ describe.skipIf(!hasNativeAddon)('rust-first default (real bundle)', () => {
     },
   );
 
-  it('keeps the JS loop when agent.engine = "js" even with a loadable bundle', async () => {
+  it('ignores agent.engine = "js" and keeps the Rust engine during migration', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kimi-auto-disable-'));
     writeConfig(homeDir, 'engine = "js"');
     try {
-      // The previous test cached the wired engine at module level; reload the
-      // module so this config's explicit opt-out is evaluated fresh.
       vi.resetModules();
       const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
       const engine = await maybeLoadRustEngine(homeDir);
-      expect(engine).toBeUndefined();
+      expect(engine).toBeDefined();
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
+      shutdownRustEngine();
     }
   });
 });

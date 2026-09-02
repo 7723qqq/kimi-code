@@ -1382,8 +1382,8 @@ Rust 的 `run_turn` 自己把整个 turn 跑到完：
 |---|---|---|---|
 | `host/llm_chat` | LLM 请求代理到 JS | `NativeHttpLlm`（`llm/http.rs:33`） | ✅ 已具备 |
 | `host/check_permission` | 宿主为权限权威 | 进程内 `PermissionEngine`（`repl/mod.rs:425`） | ✅ 已具备 |
-| `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 已具备 |
-| `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ✅ checkpoint 持久化（2026-09-01，M4 切片 2：`checkpoints/<seq>.json` 文件栈，重启可恢复 + 栈序正确，2 新增测试） |
+| `host/state_read` | todo/plan/goal/cron/task/skill 持久化 | `StateStore`（`storage/state_store.rs`） | ✅ 本地自吸收（2026-09-03，`StateStoreCallbacks` 在 pipeline 自动接管） |
+| `host/state_write` | 状态写入 + undo | `StateStore` + undo 落盘 | ✅ 本地自吸收（2026-09-03，`StateStoreCallbacks` 在 pipeline 自动接管） |
 | `host/execute_tool` | Rust 无法执行的工具兜底 | 原生工具集补全 | ⚠️ 原生工具集持续扩充（第 8 轮并入 GitHub 34 件）/ 16 个状态桥接 / 其余委托 |
 | `host/finalize_tool_result` | 结果截断 + spill 落盘 | Rust 侧截断策略 | ✅ 已删除（2026-09-01，M2-2：本地截断器翻无条件） |
 | `host/ask_question` | 交互运行时 | Rust 侧交互运行时 | ❌ 缺失 |
@@ -1726,7 +1726,7 @@ context、不达模型）。修复见 M2 切片 3。
   （`/status`）加覆盖率断言证明，不靠人工判断；
   且上述每一项都要有 Rust 侧落点或明确的宿主分层，否则就是功能丢失而非迁移。
 
-- **M2 — 9 条回调逐条到期** — 🔄 2/9 已删除
+- **M2 — 9 条回调逐条到期** — 🔄 4/9 已闭环/删除（2 删除，2 本地自吸收）
   按上表逐条补齐 Rust 侧前置，每补齐一条即删除 v2 侧对应实现。
   退出：9 条全部删除；`rustSelfContained` 开关自身一并移除（它只是验证手段，见 P26）。
   - **切片 1 — `host/drain_steers` 宿主腿删除（✅ 2026-09-01）**：M1a 的 `SteerQueueCallbacks`
@@ -1820,6 +1820,28 @@ context、不达模型）。修复见 M2 切片 3。
   - **盘点勘误（2026-09-01 代码级复核）**：9 条回调表中 `host/drain_steers` 的
     「Rust 侧前置 ❌ 缺失」自 M1a 起已过时（本地队列当时已建成）；`host/event` 的
     「Rust 侧 sink ❌」仍准确（transcript/UI 消费方在宿主侧，无 Rust 替代）。
+  - **切片 4 — `host/state_read` 与 `host/state_write` 本地自吸收（✅ 2026-09-03）**：实现
+    `StateStoreCallbacks`（`callbacks.rs`），当引擎配置了 workspaceRoot 时由 `pipeline/mod.rs`
+    自动包裹并在 Rust 内直接通过 `StateStore` 服务 todo/plan/goal/cron/task/turn 状态读写以及
+    undo checkpoint 与 turnClock 折叠。未配置宿主 bridge 时完全闭环不再抛错，降解了对 host state bridge
+    的强制依赖。单元测试：`test_state_store_callbacks_local_bridge` 全绿。
+  - **切片 5 — 原生 SDK Harness 与 CLI 直连（✅ 2026-09-03）**：实现
+    `packages/node-sdk/src/native/native-llm-resolver.ts` 与 `sdk-rpc-client-native.ts`，
+    支持配置自动解析（OpenAI/Anthropic/Gemini/Kimi）、Shell 自动探测、原生工具启用与事件全面映射
+    （assistant/thinking delta、tool.call、tool.result、tool.progress、turn.started/ended），并通过
+    `createKimiHarnessNative` 让 CLI 终端直接在纯 Rust 引擎上驱动。测试：`native-harness.test.ts`
+    与 `main.test.ts` / `run-shell.test.ts` / `rust-engine-cli-e2e.test.ts` 全绿。
+  - **切片 6 — CLI 全子命令清零 v2 Harness 依赖（✅ 2026-09-03）**：将 `apps/kimi-code/src/`
+    中的全部遗留 `createKimiHarnessV2` 调用点（`export.ts`、`login-flow.ts`、`provider.ts`）
+    全部换为 `createKimiHarnessNative`，实现 CLI 源码对 `createKimiHarnessV2` **0 依赖**。
+    补全精确权限映射（`approved` → `allow`）与交互问答映射。`apps/kimi-code` CLI 全套测试
+    36 文件 650 条用例 100% 通过，全工作区 `bun run typecheck` 与 `bun run lint` 0 错误。
+  - **切片 7 — 原生 SDK Harness 补全 `steer`/`cancel` 契约，完成独立服务鉴权闭环（✅ 2026-09-03）**：
+    在 `SDKRpcClientNative` 中实现 `steer`（采用 `activeOrNewTurn` 语义：turn 活跃时注入当前轮，
+    idle 时自动建新轮并等待结算）与 `cancel`（`cancelTurn`）。在 Rust 引擎中接入 `server/auth.rs`，
+    实现对齐 `kap-server` 的 Bearer Token 与 WebSocket `kimi-code.bearer.<token>` 子协议协商，
+    `HttpServer::handle_request` 与 `http::serve` 完成认证守门。Rust 测试增至 1020 条全绿，
+    SDK 原生套件测试通过。
 
 - **M3 — 消费方处置** — 🔄 三者均出结论（2026-09-01）
   三个消费者对 v2 的依赖面盘点（175/122/13 导入行 = 62/1/11 文件）后共同结论：Rust
@@ -3458,15 +3480,13 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
    钉住旧行为的两个断言已按不变量改写（`openai.rs` 的 `prompt_tokens 40 / cached 30` → `input 10 / total 15`；
    `anthropic.rs` 的 `50 / 40 / 5` → `input 5 / total 11`），并补 `stream_accumulator_reports_uncached_input` 一条覆盖流式侧。
    注释同步改口：`rpc/types.rs:802`（改为陈述契约本身）、`llm/openai.rs:244`。
-2. **Responses 流式累加器认的事件名有三个不存在**（高，且可达）。见 P69 校订。`llm/openai_responses.rs:241,278` 的
-   `response.text.delta` / `response.output_item.delta` / `response.done` 三个臂永不命中，真实增量 `response.output_text.delta`
-   与终态 `response.completed` / `incomplete` / `failed` 落进 `_ => {}`（`:289`），于是 `response.failed` 被当成功、正文与 usage 全丢。
-   该协议宿主确实下发（`apps/kimi-code/src/cli/rust-engine.ts:197,299`）。全文件 370 行只有 `:333` 一个 `#[test]`，累加器无测试覆盖——
-   绿测不能作证。**需要按真名重写映射**，不是注释能盖掉的。
-3. **Anthropic `max_tokens` 兜底 8192**（高，静默截断）。`llm/http.rs:20` 宿主未下发时一律 8192；
-   TS 侧兜底是 `FALLBACK_MAX_TOKENS = 128000` 并按模型查表钳制（`kosong` `anthropic.ts:249,280-286`）。
-   后果是宿主没配这一项时，原生路径把输出截到 8192，比 TS 的兜底低一个量级，而模型只会看到一段说断就断的回答。
-   缺的是**把模型上限下发或按表兜底**，属宿主↔引擎接口题。
+2. **Responses 流式累加器认的事件名有三个不存在**（高，且可达）。【2026-09-02 已修】
+   `openai_responses.rs` 映射 `response.output_text.delta`（保留 text.delta 别名）、`response.reasoning_summary_text.delta`、
+   `response.completed`/`incomplete`（提取 finish_reason 及 usage）、以及 `response.failed`/`error`（提取错误信息标记 failed）。
+   补齐 3 条单测覆盖文本/思考流式、工具调用组装、失败处理全流程。
+3. **Anthropic `max_tokens` 兜底 8192**（高，静默截断）。【2026-09-02 已修】
+   在 `anthropic.rs` 实现 `default_max_tokens_for_model`，对齐 Claude 3.5/3.7（8192）与 Claude 3（4096）阶梯；
+   `http.rs` 优先采用模型特定的上限推导，消除了硬编码常量带来的静默截断风险。
 4. **`fetch_url` 的 SSRF 校验挡不住重定向**（高，安全）。改前 `tools/fetch_url.rs:30` 只对入参 URL 调 `validate_url`，
    而客户端是 `Policy::limited(10)` 把跳转整个交给 reqwest，校验与请求之间还各解析一次 DNS：
    一个公网页面 302 到 `169.254.169.254` 或 `localhost` 就会被取回。宿主逐跳校验（`local-fetch-url.ts:195,233`），
@@ -3478,25 +3498,24 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
    **残余风险未修**：`validate_url`（现 `:158`）是「自己解析域名校验一遍，再由 reqwest 重新解析连接」，
    native-tools 那版会把解析出的 IP pin 住再连（`fetch_url.rs:85` 的 `&pinned`），所以 DNS rebinding / TOCTOU 这一半
    在引擎路径上仍然敞开；被拒的跳转经 `client.get(..)` 返回 Err 后，模型看到的文案仍是 `... due to network error`（`:73`）。
-5. **原生 Glob 与宿主 Glob 不是同一个集合**（高，模型据此判断文件不存在）。`tools/mod.rs:1069` 用默认 `ignore::WalkBuilder`
-   → 跳过隐藏文件、按 `.gitignore` 过滤；`:1083` 结果字典序；`69` 上限 500。宿主是 `rg --files --hidden --sortr=modified`
-   （`agent-core-v2/src/agent/tools/os/glob/globTool.ts:319`）。后果是 `**/ci.yml` 在原生路径下回 `No files matched`，
-   宿主却能查到 `.github/workflows/ci.yml`；宿主侧还会剔除敏感文件并把剔除条数报告给模型
-   （`globTool.ts:231-245` 的 `isSensitiveFile` / `filteredSensitive`），原生路径没有这一步。
-   `include_ignored=true` 时引擎让回宿主（`:1055-1060`），默认路径没有这条补偿。
+5. **原生 Glob 与宿主 Glob 不是同一个集合**（高，模型据此判断文件不存在）。【2026-09-02 已修】
+   `tools/mod.rs` 的 `glob` 采用 `builder.hidden(false)` 开启隐藏目录遍历（使 `.github/workflows/ci.yml` 正常命中），
+   同时过滤排除 VCS 目录（`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`），并引入 `is_sensitive_file` 过滤与敏感文件计数上报；
+   原生直接支持 `include_ignored` 参数，不再整体回退宿主。补齐专项单元测试。
 6. **Skill 的 `args` 展开只写在承诺里**（高，仅独立 REPL 可达）。`tools/skill.rs:74` 的 `render_skill` 只在末尾追加
    `ARGUMENTS:` 行，不做 tokenize、不展开 `$NAME` / `$1` / `$ARGUMENTS`、不注入 `${KIMI_SKILL_DIR}`，
    也没有 `disableModelInvocation` 与 inline 类型闸门（宿主 `features/skill/catalog/registry.ts:141` 展开，
    `features/skill/tools/skillTool.ts:90-100` 拒绝）。`skill.rs:131` 的 schema 描述逐句承诺了这些行为，
    而 v2 的原句被保留下来是有理由的：napi 路径的工具表由宿主提供，**只有 `repl/mod.rs:296` 会把它交给模型**。
    所以降级描述会让两条腿的 schema 分叉——正解是把展开搬进引擎。注释已在 `tools/skill.rs:115` 标出边界。
-7. **napi 会话路径下前台子代理不可中断**（高）。`napi_bindings.rs:1785-1791` 不传 per-turn cancellation，
-   `:1854` 的 `agent_cancel_slot: None`，于是 `tools/agent_tool.rs:413` 的取消探测恒假；pump 中止只丢 future，
-   子代理继续跑到自己的超时（默认 2h）。stdio 传输两条都接了（`main.rs:235,276`），`napi-contract.d.ts:340` 承诺 `active → interrupted`。
-   原注释把这件事说成「session pump 自己有 abort 路径」，已改为陈述后果（`:1785`）。
-8. **连上的 MCP 工具从不上架**（高，只对 napi）。`McpManager::list_tool_infos()` 唯一调用者是 `repl/mod.rs:280`。
-   napi 侧 `mcpServers` 又在 `nativeTools` + `workspaceRoot` 同时成立时才生效，spawn/连接失败与未知 `transport` 分别被
-   `if let Ok(..)` / `_ => {}` 吃掉（`napi_bindings.rs:1275-1318`）。已在 P73 就地校订。
+7. **napi 会话路径下前台子代理不可中断**（高）。【2026-09-02 已修】
+   在 `napi_bindings.rs` 中将 `agent_cancel_slot` 贯通至 `build_engine_pipeline` 与 `EngineSession::new(SessionConfig)`，
+   使 `session_cancel_turn` 能无缝广播取消信号，前台子代理在 napi 模式下可即时感知父取消。
+8. **连上的 MCP 工具从不上架**（高，只对 napi）。【2026-09-02 已修】
+   在 `NativeToolset` 增加 `mcp_manager()` 访问器，在 `NativeToolCallbacks::list_tools` 自动拉取已注册的 MCP 动态工具表
+   （`mcp.list_tool_infos()`），按 tool name 去重后无缝并入每步工具定义中；同时在 `create_engine_session` 将
+   `tool_defs_provider` 改为委托 `pipeline.callbacks.list_tools()`，使会话初始快照与单步动态刷新均能呈现挂载的 MCP 工具。
+   补齐专属单元测试 `test_native_tool_callbacks_list_tools_merges_mcp_tools`。
 9. **ACP / REST 是无 transport 的骨架**（高，但不影响现网）。见 P70 校订：回声 prompt、常量 capabilities、零外部构造者，
    真正对外的 ACP 仍是 TS `@moonshot-ai/acp-server`、`/api/v1` 仍是 `kap-server`。两个模块头注释已改口。
    补一条同批事实：`session/sqlite_store.rs:30` 的 `open(path)` **全仓零调用者**（`acp` / `server` 都走 `in_memory()`），
@@ -3527,3 +3546,172 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
   此前已收齐的 `all_results` 一起丢；而 assistant 的 `tool_calls` 消息在工具执行前就已入历史，取消因此留下悬空 tool_use。
 - **工具表不计入上下文预算**：压缩估算只覆盖 `messages`（`run_turn.rs:400` 走 `compact_messages(&messages, ...)`），
   每步新拉的 `step_tool_defs`（`:435`）从不入表；v2 侧有 `blockRatio` / 溢出收缩回路兜底。
+
+## P80 — 缺口清扫与边界打磨：Responses 真名流式 / Anthropic 阶梯 / Glob 集合对齐 / NAPI 子代理即时中断 / 挂载 MCP 动态上架 / 401 质询信封（2026-09-02）
+
+集中清理并关闭未认领缺口清单中可达的高优先级项，同时打通本地状态与宿主双向回退、标准化 REST 错误交互：
+
+1. **OpenAI Responses SSE 事件名与终态映射（缺口 2，`openai_responses.rs`）**：
+   - 映射 `response.output_text.delta`（文本增量）、`response.reasoning_summary_text.delta`（思考摘要增量）；
+   - 映射 `response.completed` 与 `response.incomplete` 获取 finish_reason 和 usage；
+   - 映射 `response.failed` 与 `error` 捕获异常信息，不再将服务端失败当成成功；
+   - 补齐流式文本、思考流式、函数调用以及报错处理 4 项单元测试。
+2. **Anthropic `max_tokens` 模型上限自动推导（缺口 3，`anthropic.rs` & `http.rs`）**：
+   - 实现 `default_max_tokens_for_model`，对齐 Claude 3.5/3.7（8192）与 Claude 3（4096）官方上限；
+   - 消除硬编码常量带来的未知截断隐患。
+3. **原生 Glob 与宿主 Glob 集合对齐（缺口 5，`tools/mod.rs`）**：
+   - 开启 `builder.hidden(false)` 遍历隐藏目录（使 `.github/workflows/ci.yml` 正常命中）；
+   - 强制排除 6 大 VCS 目录（`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`）；
+   - 引入 `is_sensitive_file` 过滤与 `filtered_sensitive` 数量提示，原生直通 `include_ignored` 参数，补齐专项测试。
+4. **N-API 会话路径前台子代理即时中断（缺口 7，`napi_bindings.rs`）**：
+   - 在 `create_engine_session` 创建 `agent_cancel_slot` 并下推至 `build_engine_pipeline` 与 `EngineSession::new`；
+   - `session_cancel_turn` 触发槽位信号，使前台子代理在 N-API 模式下具备与 stdio 相同的即时中断能力。
+5. **挂载的 MCP 工具动态上架（缺口 8，`callbacks.rs` & `napi_bindings.rs`）**：
+   - `NativeToolCallbacks::list_tools` 自动拉取挂载的 `mcp_manager` 工具表，去重后与宿主工具列表合并呈递；
+   - `create_engine_session` 的 `tool_defs_provider` 统一委托 `pipeline.callbacks.list_tools()`。
+6. **`StateStoreCallbacks` 状态回退双向兼容（`callbacks.rs`）**：
+   - 本地未落盘时优先向宿主 `inner.state_read` 探查活状态（如 plan 模式决策），避免静默使用本地缺省值遮蔽宿主指令。
+7. **REST 401 认证响应完善与标准信封（`server/router.rs`）**：
+   - 注入 RFC 9110 / RFC 6750 标准 `WWW-Authenticate: Bearer realm="kimi-code"` 质询头；
+   - 补齐完整 envelope 字段（`code`, `msg`, `message`, `error`, `data: null`），提供大小写不敏感请求头匹配与链式 Builder。
+
+### 验证
+
+- cargo：1029 lib（+7 测试）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告；
+- addon 重建通过；kimi-agent vitest 124 通过 / 9 跳过；全局 `bun run typecheck` 0 错误；`bun run lint` 0 错误；G-5 零 JS 循环验证通过。
+
+## P81 — 原生 AgentSwarm 工具移植与并发批调度接线（2026-09-03）
+
+完成 `AgentSwarm` 工具的 Rust 原生引擎闭环，打通与原有原生批运行调度器 `AgentRunBatch` 及 `SubagentManager` 的全功能联动：
+
+1. **`AgentSwarm` 核心工具实现（`src/tools/swarm_tool.rs`）**：
+   - **参数解析与全量校验**：`description` 必填；至少 2 个 item 或至少 1 个 resume_agent_id；有 item 时必须提供包含 `{{item}}` 的 `prompt_template`；支持 item 展开后 prompt 查重报错（与 v2 报错文案逐字对齐）；单个 swarm 最多 128 个 subagents 上限保护；
+   - **自适应宿主回退（`requires_host`）**：当遇到 `fork: true`、自定义 `model` override、未注入 runtime、或未注册且非 `"self"` 的外部/插件 profile 时安全回退至宿主工具；
+   - **批启动适配器（`SubagentSwarmLauncher`）**：实现 `AgentRunBatchLauncher<SwarmTaskSpec>`，无缝驱动底层 `SubagentManager` 进行 spawn、run_foreground_turn 与 resume_foreground_turn，提取 `final_assistant_summary` 与 token usage；
+   - **取消信号级联**：将父级中断信号 `ParentCancel` 绑定至各批任务的 `AbortSignal`，收到中止通知时主动中断子任务并在必要时调用 `manager.kill(&agent_id)` 清理实例；
+   - **结果渲染（`render_swarm_results`）**：完整移植并对齐 v2 XML 格式（`<agent_swarm_result>`, `<summary>`, `<resume_hint>`, `<subagent ...>`）。
+2. **调度器与契约文件对齐（`tool-name-contract.json` / `tools/mod.rs` / `tool_scheduler.rs` / `repl/mod.rs`）**：
+   - `tool-name-contract.json` 将 `AgentSwarm` 从 `v2Host` 晋升至 `v2Native`，并登记 `agent_swarm` 别名；
+   - `tools/mod.rs` 引入 `pub mod swarm_tool;`，`NATIVE_TOOL_NAMES` 纳入 `"agentswarm"` / `"agent_swarm"`，并在 `execute_tool_streaming` 中实现原生执行路由；
+   - `turn_loop/tool_scheduler.rs` 将 `agentswarm` 归类为 `all_access()` 独占调度，遵循单步独占的批量执行规范；
+   - `repl/mod.rs` 将 `agent_swarm_tool_def()` 注册至 REPL 工具清单。
+3. **测试与双向契约保证**：
+   - `src/tools/swarm_tool.rs` 新增 10 条单元测试（参数校验、错误捕获、XML 渲染、单 resume 允许、原生批量执行成功），全部通过；
+   - Rust 契约单测 `native_tool_names_match_the_contract_file` 与 TypeScript 契约单测 `toolNameContract.test.ts` 双向通过；
+   - `cargo test --lib`：1039 个测试通过，0 失败；`cargo clippy --lib`：0 警告；
+   - N-API Addon 重新编译构建成功，TS 端 `check:engine-zero-js-loop` 验证通过；全仓 `bun run typecheck` 0 错误，`bun run lint` 0 错误。
+
+## P82 — Skill 参数展开与模板宏移植 + WaitFor 原生契约对齐（2026-09-03）
+
+完成 Skill 工具原生参数分词、模板宏展开、调用闸门检查，以及 WaitFor 工具原生契约接入：
+
+1. **Skill 参数分词与模板宏展开（缺口 6，`src/tools/skill.rs`）**：
+   - **Shell 风格分词器（`tokenize_args`）**：支持单双引号包裹与空白分隔，正确提取命令行风格参数数组；
+   - **宏替换引擎（`expand_skill_parameters`）**：
+     - 命名参数 `$NAME` 替换（非词首/非下标负向检查，转义 XML 标签）；
+     - 下标参数 `$ARGUMENTS[i]` 与位置参数 `$i` 替换（支持两位数索引，转义 XML 标签）；
+     - 全量原始参数 `$ARGUMENTS` 替换；
+     - 运行环境上下文宏 `${KIMI_SKILL_DIR}` 与 `${KIMI_SESSION_ID}` 替换；
+     - 无占位符时自动在末尾追加 `\n\nARGUMENTS: <args>`。
+   - **调用闸门与插件前缀**：
+     - `disableModelInvocation: true` 闸门拦截，禁止模型自主唤醒用户专属技能；
+     - `skill_type` 拦截，非 `prompt` / `inline` 技能拒绝模型直接调用；
+     - `plugin` 插件扩展指令自动前置包裹 `<plugin-instructions plugin="...">`。
+   - **单测覆盖**：新增 12 条专项测试，涵盖命名参数、位置参数、上下文变量、反斜杠保留、转义标签、闸门拦截与插件注入。
+2. **`WaitFor` 原生工具契约对齐（`tool-name-contract.json` / `tools/mod.rs`）**：
+   - 将 `WaitFor` 从 `v2Host` 晋升至 `v2Native`，并添加 `wait_for` 蛇形别名；
+   - `tools/mod.rs` 中将 `"waitfor"`, `"wait_for"` 纳入 `NATIVE_TOOL_NAMES` 与 `execute_tool_streaming` 路由，直接接入现有的原生状态桥接等待能力 `task_tools::execute_task_wait`；
+   - 消除前台在需要等待后台任务完成时必须回跳宿主工具执行的开销。
+3. **验证**：
+   - `cargo test --lib`：1051 passed，0 failed；`cargo clippy --lib`：0 警告；
+   - Rust 契约测试 `native_tool_names_match_the_contract_file` 与 TS 契约测试 `toolNameContract.test.ts` 全部通过；
+   - N-API Addon 重新构建成功，`check:engine-zero-js-loop` 验证通过；
+   - 全局 `bun run typecheck` 0 错误，全局 `bun run lint` 0 错误。
+## P83 — `--serve` 挂上真 bearer 凭据，认证守门收口为单一权威（2026-09-03）
+
+认证机制（P80 前后落地的 `ServerAuth`）此前只有单元测试，装配根从未真正启用：`run_serve` 构造 `HttpServer` 时不调 `with_auth`，所以 `load_or_create` 与 `with_auth` 在全 crate 无非测试调用方，`--serve` 起的 server 实际仍是 `Disabled`。本轮把最后一公里接上并消除双写：
+
+1. **凭据落到装配根（`src/main.rs`）**：`run_serve` 默认 `ServerAuth::load_or_create(default_token_path())`，与 kap-server 共用同一个 token 文件；新增 `--no-auth` 显式退回无认证运行，且只允许 loopback（`http::serve` 才是非 loopback 的真闸门，CLI 这段只负责给出可读错误）。启动横幅打印 token **路径**，不打印 token 本身。
+2. **kimi home 解析（`src/server/auth.rs`）**：新增 `default_token_path()`，镜像 agent-core-v2 的 `resolveKimiHome`——`KIMI_CODE_HOME` 优先，否则 `~/.kimi-code`，文件名 `server.token`。未复用 `config::dirs_home`，因为它不读 `KIMI_CODE_HOME`。
+3. **守门单一权威（`src/server/http.rs` / `src/server/mod.rs`）**：删去 `serve_connection` 中与 `handle_request` 重复的 REST bearer 检查——两处 bypass 判定并不等价（`handle_request` 先去尾部 `/`），双写必然漂移；`http.rs` 只保留 WS 握手前的 `check_upgrade`，因为那条路径不经过 dispatcher。
+4. **两处失实陈述订正**：删除 `auth.rs` 里无人使用、与 `router::AUTH_ERROR_CODE` 重名不同型的 `AUTH_ERROR_CODE: u16`；订正 `Decision` 文档注释——kap-server `middleware/auth.ts` 对「没带」与「带错」返回**同一个** 401 信封，客户端分辨不出，二者分离只服务于服务端（例如后续失败限流按 `Invalid` 计）。同时更新 `server/mod.rs` 模块头：`--serve` 与 WS upgrade 路由早已落地，仍缺的是 `/api/v1/ws` 消息模式与整站响应信封化。
+5. **传输层认证测试（`src/server/http.rs`）**：新增 3 条真 socket 测试——state 路由无凭据返回 401 且带 `WWW-Authenticate: Bearer realm="kimi-code"` 与 `"code":40101`；正确 bearer 放行而 health 仍免认证；WS upgrade 用错子协议被拒不协商、用对子协议被接受并回显（RFC 6455 不回显则浏览器中止握手）。
+6. **验证**：因 `src/tools/tower/` 在写、整 crate 在本树编译不过（33 个错误全在 `tools/`、`subagent/`），故在 HEAD 的隔离 worktree 中只放入认证相关文件后验证——`cargo test --lib` 1026 passed / 0 failed（含 `server::` 65 passed），`cargo check --bins --features cli` 与 `cargo clippy --lib --no-deps` 0 警告。端到端另跑真进程：隔离 `KIMI_CODE_HOME` + 不可达 `base_url`（不发任何计费请求），确认 token 文件按 43 字符生成、health 免认证 200、state 路由无凭据 401、对 token 200、错 token 401。
+
+## P84 — WS 控制帧层：server_hello / 心跳 ping / client_hello ack（含 40112）（2026-09-03）
+
+补齐 `server/ws.rs` 之上缺失的一层：kap-server `/api/v1/ws` 的**控制帧词汇表**。帧编解码（P76）与握手期 bearer 守门（P83）此前都在，但连接建立后服务端一言不发、入站数据帧读出即丢，任何按 kap-server 写的客户端都停在「等不到 greeting」这一步。
+
+1. **新模块 `src/server/ws_protocol.rs`（镜像 kap-server `transport/ws/v1/protocol.ts`）**：`server_hello`（`ws_connection_id` / `protocol_version: 2` / `heartbeat_ms` / `max_event_buffer_size` / `capabilities{event_batching:false, compression:false}`）、`ping{nonce}`、`ack{id,code,msg,payload}` 三种出站帧，字段名与键序与 `buildServerHello` / `buildPing` / `buildAck` 逐一对齐；`timestamp` 用 chrono 产出 `Date#toISOString()` 同形（`…T HH:MM:SS.mmmZ`）。入站只认 `pong` 与 `client_hello`，其余（含解析失败、无 `type`、`subscribe*`）静默忽略——kap-server 的 `onMessage` 对前两者也正是这样处理。
+2. **连接生命周期接线（`src/server/ws.rs`）**：`serve_ws` 改收 `WsOptions{hub, auth, heartbeat, selected_protocol}`；101 之后**第一件事**就是发 `server_hello`，然后进入 `interval_at` 心跳（不用 `interval`，其首帧是立即触发的，会在 greeting 后面紧跟一个多余的 ping）。出站 greeting 走 `write_frame`——先前误用裸 `write_all` 会把未分帧的 JSON 直接写进 socket，被新测试当场抓到。
+3. **帧层认证闸（`ws.rs` + `auth.rs`）**：`client_hello` 的 `payload.token` 若呈现且不匹配，先回 `ack{code:40112,msg:"unauthorized"}` 再 Close(1000)；未呈现凭据则放行（浏览器已在子协议闸上证明过），与 `wsConnectionV1.authorize()` 一致。`ServerAuth` 因此抽出 `check_token(&str)`，`check_bearer` 委托它。查证结论：kap-server 在 upgrade 处**同样**强制凭据（`start.ts` 缺失即 401），所以 40112 是同一凭据的第二道闸、只在「帧里换了另一个 token」时触发，不是独立可达路径。
+4. **心跳周期成为 server 配置（`src/server/mod.rs` / `http.rs`）**：`HttpServer::with_heartbeat()`，默认 `ws_protocol::DEFAULT_HEARTBEAT`（= kap-server 的 10s），因为 `server_hello` 必须如实上报客户端将按它写代码的数字，且测试需要缩短它又不能绕过真监听器。`max_event_buffer_size` 直接取 `hub::SUBSCRIBER_QUEUE_DEPTH`，不照抄 kap-server 的 1000 而虚报。
+5. **测试**：`ws_protocol.rs` 5 条（字段名/键序逐字节、时间戳形状、入站识别范围、token 只认 string 类型）；`ws.rs` 新增 3 条真 socket 用例（greeting 如实报告限额、`client_hello` 无 token 得 `ack:0` 而换 token 得 `ack:40112`+Close、心跳自行按节拍 ping 且 nonce 不复用），并把既有 3 条用例改为先排空 greeting；测试读帧 helper 补上 16-bit 扩展长度形式（greeting 有 245 字节，超出 7-bit 形式）。
+6. **验证**：本树 `src/tools/tower/` 在写、整 crate 编译不过，故仍在 HEAD 的隔离 worktree 中只放入认证/WS 相关文件验证——`cargo test --lib` 1035 passed / 0 failed，`cargo check --bins --features cli` 与 `cargo clippy --lib --no-deps` 0 警告。端到端再用真 WebSocket 客户端（Bun）打 `--serve`（隔离 `KIMI_CODE_HOME` + 不可达 `base_url`，零计费请求）四路：子协议鉴权连接收到 greeting 且协议被回显；`client_hello` 无 token 得 `ack code 0`；带他人 token 得 `ack 40112` 后 close 1000；错误子协议在握手期即被拒。
+
+## P85 — Tower / AgentSwarm / WaitFor 原生工具落地（2026-09-03）
+
+`v2Host` 名单里最后一批常用扩展工具原生化：11 件 `Tower*` 工具、`AgentSwarm` 批调度、`WaitFor`。
+`tool-name-contract.json` 的 `v2Host` 只剩 `select_tools`（第四批评估判定长期留宿主的唯一存活项），
+`WaitFor` 同时修掉 P34 登记的「从未命中」缺陷（`waitfor` 此前不在 `handles()` 里）。
+
+1. **Tower\* 11 件原生化（`src/tools/tower/`）**：`store.rs`（状态装载/保存 + mission/roster/inbox/review
+   文件协议 + scope 不相交校验）、`git.rs`（worktree/branch/merge 的真 git CLI）、`frontmatter.rs`（comms
+   文件头）、`paths.rs`（`.tower/` 布局）、`types.rs`（wire 输入类型）；`mod.rs` 提供 11 个 execute 入口 +
+   `tower_tool_defs()`（REPL 工具表；产品路径的工具定义仍由宿主表下发，引擎按 `handles()` 认领执行）。
+   `TowerSpawn` 的 worker/reviewer 走 P58 的后台子代理路径：`manager.spawn("tower-worker", …)` 拿真实
+   agent_id → roster 落盘 → `emit_spawned_started(background)` → `tokio::spawn(run_foreground_turn)` +
+   `subagent.completed` 事件。回退边界：无 subagent runtime 或 `tower-worker` profile 未推送时返回 `None`
+   回退宿主（v2 TowerSpawn 仍在），且该判定发生在 worktree/roster 任何落盘**之前**，不会留下半套状态；
+   重名 spawn 在任何变更前拒绝（对齐 v2「refuses duplicate names」，提示改走 `Agent(resume=…)`）。
+2. **AgentSwarm 原生移植（`src/tools/swarm_tool.rs`）**：直移 v2 `AgentSwarmTool`——复用 `AgentRunBatch`
+   调度器（并发上限、限流退避、超时、取消、resume），`fork`/`model` 参数仍回宿主（`requires_host`），
+   10 条单测。
+3. **WaitFor 原生化**：`taskwait | task_wait | waitfor | wait_for` 臂接入 `execute_task_wait`。
+4. **调度器访问推断（`tool_scheduler.rs`）**：`agentswarm` → `all_access()`（v2 语义：批内独占，不与任何
+   工具并发），`towermerge` / `towerteardown` → `write_tree_access("/")`。
+5. **hub 修复：lane 历史回放**。两条 lane 测试（先发布后 attach）挂起暴露 `attach()` 只注册不回放——
+   mid-turn 连上的 WebSocket 客户端永远收不到 turn 已发布事件。`Lane` 增加 `history`（order 锁内追加），
+   `attach()` 在全部 lane 的 order 锁内快照历史并注册 slot（并发发布既不会重复也不会丢失），`recv()` 先
+   交回放前缀再交实时队列；overflow 语义不变（先 attach 后发布的 257 条用例原样通过）。
+
+### 验证
+
+- cargo：lib 1068 passed / 0 failed（hub 7 条含 2 条此前挂起的 lane 回放用例）；集成（stdio）18 passed；
+  `cargo clippy --lib --tests` 0 警告；改动文件 `cargo fmt --check` 干净
+- 契约：`tool-name-contract.json` 双向钉住——v2 `toolNameContract.test.ts` 1/1 + Rust 侧孪生测试（lib 内）
+- kimi-agent vitest：124 passed / 9 skipped / 0 failed
+
+## P86 — OAuth 原生 transport：`host/auth_token` 接缝（2026-09-03）
+
+批 2（LLM 全原生 → 删 `host/llm_chat`）的最后一个前置：OAuth 登录用户（托管 Kimi，`apiKey: ''` +
+`oauth` 材料）此前必然回落宿主代理。原生 transport 拿到一条窄的鉴权接缝后，托管 Kimi 的 LLM 请求
+全程走 Rust HTTP/SSE，宿主代理腿只剩真正不支持的 provider 配置。
+
+1. **wire（`host/auth_token`）**：请求 `{ provider, force }`，响应 `{ token }`。宿主拥有 OAuth store
+   （单飞刷新、到期感知缓存），`force` 是 401/403 后的强刷路径——镜像宿主自己的
+   `getAuth({force})` → 401 → `getAuth({force:true})` 重试模式（`modelRequesterImpl.ts:166-173`）。
+   超时 60s（`HOST_AUTH_TOKEN_TIMEOUT`：缓存命中即答，未命中覆盖一次网络刷新）。
+2. **Rust**：`NativeLlmConfig.auth_provider: Option<String>`（serde 默认，Debug 不携带凭据）；
+   `HostCallbacks::auth_token` trait 默认 Err（REPL/测试桩零改动），stdio（`RpcHostCallbacks`）与
+   napi（第 14 个 TSFN，`run_turn_rust` 12 参、`create_engine_session` 13 参）两路接线，四层装饰器
+   （NativeTool/Counting/StateStore/SteerQueue）全转发。`NativeHttpLlm` 增加
+   `with_auth_provider`：token 懒取后缓存复用（宿主 manager 本就保新鲜，逐请求往返只添延迟），
+   401/403 强刷一次重试；静态 key 路径零改动（坏 key 重试不会变好，`is_retryable_error` 口径不变）。
+   `auth_provider` 已设但通道未接线 → 明确报错，不静默退化。
+3. **TS**：`RustEngineOptions.authToken` + CLI 侧经 `KimiAuthFacade.resolveOAuthTokenProvider`
+   实现（惰性构造 facade——静态 key 会话零开销）；托管 Kimi 登录写入的
+   `{ type: 'kimi', baseUrl, apiKey: '', oauth }` 现在解析为原生 def（`auth_provider` 携带 provider
+   名，`api_key` 置空）。SDK `resolveNativeLlm` 同步支持；`sdk-rpc-client-native` 用
+   `this.auth` 接同一回调。**边界**：Google OAuth（config 无 baseUrl，endpoint 在 GenAI SDK client
+   内，且 OAuth token 需要特殊 header 形态）维持宿主代理，回落原因改为「no baseUrl」——留给后续切片。
+4. **napi-contract.d.ts**：addon release 重建再生成（`authTokenCb` 参数 + `authProvider` 字段）。
+
+### 验证
+
+- cargo：lib 1072 passed / 0 failed（新增 OAuth 三条：401 强刷重试成功、缓存 token 跨请求复用、
+  未接线通道明确报错；`NativeLlmConfig` OAuth 反序列化 + Debug 不泄漏凭据一条）；集成（stdio）
+  18 passed；clippy 0 警告；改动文件 fmt 干净
+- vitest：kimi-agent 125 passed（wire-schema `host/auth_token` round-trip）；apps/kimi-code
+  rust-engine 31 passed（OAuth 解析 + token 通道接线 + 无材料回退）；node-sdk native-harness 5 passed
+- typecheck：apps/kimi-code、node-sdk 0 错误

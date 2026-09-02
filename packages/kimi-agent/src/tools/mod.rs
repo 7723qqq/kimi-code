@@ -98,12 +98,14 @@ pub mod plan_mode;
 pub mod skill;
 pub mod stale_guard;
 pub mod subagent_tools;
+pub mod swarm_tool;
 pub mod task_format;
 pub mod task_tools;
 pub mod team_tool;
 pub mod todo_item;
 pub mod todo_list;
 pub mod tool_dedupe;
+pub mod tower;
 pub mod web_search;
 
 mod grep_types;
@@ -176,6 +178,32 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "knowledge",
     "team",
     "agent",
+    "agentswarm",
+    "agent_swarm",
+    "waitfor",
+    "wait_for",
+    "towerinit",
+    "tower_init",
+    "towerplan",
+    "tower_plan",
+    "towerspawn",
+    "tower_spawn",
+    "towermerge",
+    "tower_merge",
+    "towerteardown",
+    "tower_teardown",
+    "towersend",
+    "tower_send",
+    "towerinbox",
+    "tower_inbox",
+    "towerfinding",
+    "tower_finding",
+    "towerreview",
+    "tower_review",
+    "towermission",
+    "tower_mission",
+    "towerstatus",
+    "tower_status",
 ];
 
 /// The static half of [`NativeToolset::handles`] without an instance: the
@@ -218,6 +246,8 @@ pub struct NativeToolset {
     /// tools (v2 `configSection.ts`). Env fallbacks live in the github
     /// module itself (v2 `envOverlay.ts` semantics).
     github_credentials: Option<github::GitHubCredentials>,
+    caller_agent_id: Option<String>,
+    session_id: Option<String>,
 }
 
 impl NativeToolset {
@@ -255,7 +285,19 @@ impl NativeToolset {
             parent_cancel_slot: None,
             callbacks: None,
             github_credentials: None,
+            caller_agent_id: None,
+            session_id: None,
         })
+    }
+
+    pub fn with_caller_agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.caller_agent_id = Some(agent_id.into());
+        self
+    }
+
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
     }
 
     /// Attach a SubagentManager for in-process multi-agent collaboration.
@@ -271,6 +313,11 @@ impl NativeToolset {
     pub fn with_mcp(mut self, manager: std::sync::Arc<crate::mcp::McpManager>) -> Self {
         self.mcp_manager = Some(manager);
         self
+    }
+
+    /// Get the attached McpManager if any.
+    pub fn mcp_manager(&self) -> Option<&std::sync::Arc<crate::mcp::McpManager>> {
+        self.mcp_manager.as_ref()
     }
 
     /// Attach the foreground `Agent` tool's turn context (P46): the host's
@@ -470,7 +517,7 @@ impl NativeToolset {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(task_tools::execute_task_stop(callbacks, args).await)
             }
-            "taskwait" | "task_wait" => {
+            "taskwait" | "task_wait" | "waitfor" | "wait_for" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(task_tools::execute_task_wait(callbacks, args).await)
             }
@@ -501,7 +548,78 @@ impl NativeToolset {
                 )
                 .await
             }
+            "agentswarm" | "agent_swarm" => {
+                let mgr = self.subagent_manager.as_ref()?;
+                swarm_tool::execute_agent_swarm(
+                    mgr,
+                    args,
+                    self.subagent_timeout_ms,
+                    self.effective_parent_cancel().as_ref(),
+                    tool_call_id,
+                )
+                .await
+            }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
+            "towerinit" | "tower_init" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let session = self.session_id.as_deref().unwrap_or("session-main");
+                Some(
+                    tower::execute_tower_init(&self.root, caller, session, &args.to_string()).await,
+                )
+            }
+            "towerplan" | "tower_plan" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_plan(&self.root, caller, &args.to_string()).await)
+            }
+            "towerspawn" | "tower_spawn" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let session = self.session_id.as_deref().unwrap_or("session-main");
+                tower::execute_tower_spawn(
+                    &self.root,
+                    caller,
+                    session,
+                    self.subagent_manager.as_ref(),
+                    tool_call_id,
+                    &args.to_string(),
+                )
+                .await
+            }
+            "towermerge" | "tower_merge" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_merge(&self.root, caller, &args.to_string()).await)
+            }
+            "towerteardown" | "tower_teardown" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let session = self.session_id.as_deref().unwrap_or("session-main");
+                Some(
+                    tower::execute_tower_teardown(&self.root, caller, session, &args.to_string())
+                        .await,
+                )
+            }
+            "towersend" | "tower_send" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_send(&self.root, caller, &args.to_string()).await)
+            }
+            "towerinbox" | "tower_inbox" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_inbox(&self.root, caller, &args.to_string()).await)
+            }
+            "towerfinding" | "tower_finding" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_finding(&self.root, caller, &args.to_string()).await)
+            }
+            "towerreview" | "tower_review" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_review(&self.root, caller, &args.to_string()).await)
+            }
+            "towermission" | "tower_mission" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_mission(&self.root, caller, &args.to_string()).await)
+            }
+            "towerstatus" | "tower_status" => {
+                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                Some(tower::execute_tower_status(&self.root, caller).await)
+            }
             "write" => {
                 self.run_mutating_file_tool_on_blocking_pool(args, Self::write)
                     .await
@@ -1051,13 +1169,9 @@ impl NativeToolset {
 
     fn glob(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let pattern = args.get("pattern")?.as_str()?;
-        // include_ignored changes walker semantics — let the host handle it.
-        if args
+        let include_ignored = args
             .get("include_ignored")
-            .is_some_and(|v| v.as_bool() == Some(true))
-        {
-            return None;
-        }
+            .is_some_and(|v| v.as_bool() == Some(true));
         let glob = build_glob(pattern)?;
         let search_root = match args.get("path").and_then(|p| p.as_str()) {
             Some(p) => Self::resolve(root, p)?,
@@ -1066,14 +1180,38 @@ impl NativeToolset {
 
         let mut results: Vec<String> = Vec::new();
         let mut truncated = false;
-        let walker = ignore::WalkBuilder::new(&search_root).build();
+        let mut filtered_sensitive: usize = 0;
+
+        let mut builder = ignore::WalkBuilder::new(&search_root);
+        builder.hidden(false);
+        if include_ignored {
+            builder
+                .ignore(false)
+                .git_ignore(false)
+                .git_global(false)
+                .git_exclude(false)
+                .parents(false);
+        }
+        let walker = builder.build();
         for entry in walker.flatten() {
+            let path = entry.path();
+            if path.components().any(|c| {
+                matches!(
+                    c.as_os_str().to_str(),
+                    Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
+                )
+            }) {
+                continue;
+            }
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            let path = entry.path();
             let relative = path.strip_prefix(&search_root).unwrap_or(path);
             if glob.is_match(relative) || glob.is_match(path) {
+                if is_sensitive_file(&path.to_string_lossy()) {
+                    filtered_sensitive += 1;
+                    continue;
+                }
                 let display = path.strip_prefix(root).unwrap_or(path);
                 results.push(display.display().to_string());
                 if results.len() >= GLOB_MAX_RESULTS {
@@ -1085,12 +1223,23 @@ impl NativeToolset {
         results.sort();
 
         let mut out = if results.is_empty() {
-            format!("No files matched pattern: {pattern}")
+            if filtered_sensitive > 0 {
+                format!(
+                    "No non-sensitive matches found ({filtered_sensitive} sensitive file(s) filtered)."
+                )
+            } else {
+                format!("No files matched pattern: {pattern}")
+            }
         } else {
             results.join("\n")
         };
         if truncated {
             out.push_str("\n\n[truncated — narrow the pattern to see more]");
+        }
+        if !results.is_empty() && filtered_sensitive > 0 {
+            out.push_str(&format!(
+                "\nFiltered {filtered_sensitive} sensitive file(s)."
+            ));
         }
         Some(ok_result(out))
     }
@@ -4040,5 +4189,47 @@ m2
             "^ over \"ab\\ncd\\n\"",
         );
         assert_eq!(scan.total_matches, 2, "rg --count-matches reports 2");
+    }
+
+    #[test]
+    fn test_glob_finds_hidden_and_filters_vcs_and_sensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Create files in hidden folder
+        let github_dir = root.join(".github").join("workflows");
+        std::fs::create_dir_all(&github_dir).unwrap();
+        std::fs::write(github_dir.join("ci.yml"), "name: CI").unwrap();
+
+        // Create file in VCS folder (.git)
+        let git_dir = root.join(".git").join("hooks");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::write(git_dir.join("ci.yml"), "hook").unwrap();
+
+        // Create sensitive file
+        std::fs::write(root.join(".env"), "SECRET=123").unwrap();
+
+        // Create normal file
+        std::fs::write(root.join("hello.txt"), "world").unwrap();
+
+        // 1. Glob for ci.yml: should find .github/workflows/ci.yml, NOT .git/hooks/ci.yml
+        let res = NativeToolset::glob(root, &json!({ "pattern": "**/ci.yml" })).unwrap();
+        assert!(res.content.contains("ci.yml"));
+        assert!(res.content.contains(".github"));
+        assert!(!res.content.contains("hooks"));
+        for line in res.content.lines() {
+            assert!(!line.contains(".git/") && !line.contains(".git\\"));
+        }
+
+        // 2. Glob for sensitive file: should filter it out and report filtered
+        let res = NativeToolset::glob(root, &json!({ "pattern": "**/.env" })).unwrap();
+        assert!(
+            res.content
+                .contains("No non-sensitive matches found (1 sensitive file(s) filtered)")
+        );
+
+        // 3. Glob matching both normal and sensitive file:
+        let res = NativeToolset::glob(root, &json!({ "pattern": "**/*" })).unwrap();
+        assert!(res.content.contains("hello.txt"));
+        assert!(res.content.contains("Filtered 1 sensitive file(s)."));
     }
 }

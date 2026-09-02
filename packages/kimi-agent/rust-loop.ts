@@ -40,6 +40,8 @@ import {
 } from './session-handle';
 import type { TelemetryEventWire, TurnEventWire } from './wire-schema';
 import {
+  authTokenRequestSchema,
+  authTokenResponseSchema,
   llmChatRequestSchema,
   permissionCheckRequestSchema,
   runTurnParamsSchema,
@@ -73,6 +75,12 @@ export type StateReadWire = import('@moonshot-ai/agent-core-v2').StateReadWire;
 export type StateReadWireResult = import('@moonshot-ai/agent-core-v2').StateReadWireResult;
 export type StateWriteWire = import('@moonshot-ai/agent-core-v2').StateWriteWire;
 export type StateWriteWireResult = import('@moonshot-ai/agent-core-v2').StateWriteWireResult;
+
+/** `host/auth_token` request: which provider's token, and whether to force a refresh. */
+export interface AuthTokenWire {
+  provider: string;
+  force: boolean;
+}
 
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
@@ -144,6 +152,12 @@ export interface NativeLlmDef {
   reasoning_effort?: string;
   /** Thinking budget in tokens for Anthropic Messages API. */
   thinking_budget?: number;
+  /**
+   * OAuth-managed auth: the host-side provider name the transport asks for a
+   * bearer token (`host/auth_token`) instead of using the static `api_key`.
+   * Requires the host to wire `RustEngineOptions.authToken`.
+   */
+  auth_provider?: string;
 }
 
 /** Options controlling the native (in-Rust) execution paths. */
@@ -191,6 +205,13 @@ export interface RustEngineOptions {
    * runs without goal budgeting.
    */
   getGoal?: () => GoalContext | undefined;
+  /**
+   * Fetch a bearer token for an OAuth-managed provider (`host/auth_token`).
+   * Required when the native LLM config names an `auth_provider`; the host
+   * owns the OAuth store (single-flight refresh) and `force` asks it to
+   * refresh past the cache after a 401/403.
+   */
+  authToken?: (request: AuthTokenWire) => Promise<string>;
   /**
    * Provide the current permission policy snapshot for local evaluation (P26 批 3).
    * Read fresh on each turn.
@@ -631,6 +652,7 @@ interface KimiAgentNativeModule {
     turnEventCb?: (callbackId: number) => void,
     telemetryCb?: (callbackId: number) => void,
     listToolsCb?: (callbackId: number) => void,
+    authTokenCb?: (callbackId: number) => void,
   ): Promise<NapiRunTurnResult>;
 }
 
@@ -704,6 +726,7 @@ export class NapiEngine {
     turnEventCb?: (event: TurnEventWire) => void,
     telemetryCb?: (event: TelemetryEventWire) => void,
     listToolsCb?: () => Promise<ListToolsResult>,
+    authTokenCb?: (request: AuthTokenWire) => Promise<string>,
   ): Promise<NapiRunTurnResult> {
     if (!this.nativeModule) {
       throw new Error('Napi module not loaded');
@@ -846,6 +869,18 @@ export class NapiEngine {
         ? undefined
         : makeCallbackHandler(async () => JSON.stringify(await listToolsCb()));
 
+    // OAuth token channel: resolve like the request/response callbacks. The
+    // host owns the OAuth store and answers with the bearer token; the engine
+    // wraps it as `{ token }` for the wire.
+    const authTokenHandler =
+      authTokenCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            const request = parseWire(authTokenRequestSchema, payload, 'host/auth_token request');
+            const token = await authTokenCb(request);
+            return JSON.stringify(authTokenResponseSchema.parse({ token }));
+          });
+
     return nativeModule.runTurnRust(
       params,
       makeCallbackHandler(llmChatCb),
@@ -859,6 +894,7 @@ export class NapiEngine {
       turnEventHandler,
       telemetryHandler,
       listToolsHandler,
+      authTokenHandler,
     );
   }
 
@@ -943,6 +979,9 @@ export class AgentProcess {
   /** Callback for answering `host/goal` with the current goal snapshot. */
   private goalHandler: (() => Promise<GoalContext | null>) | null = null;
 
+  /** Callback for answering `host/auth_token` with an OAuth bearer token. */
+  private authTokenHandler: ((req: AuthTokenWire) => Promise<string>) | null = null;
+
   setLlmChatHandler(
     handler: (signal: AbortSignal | undefined, modelName?: string) => Promise<LlmChatResponse>,
   ) {
@@ -995,6 +1034,10 @@ export class AgentProcess {
 
   setGoalHandler(handler: () => Promise<GoalContext | null>) {
     this.goalHandler = handler;
+  }
+
+  setAuthTokenHandler(handler: (req: AuthTokenWire) => Promise<string>) {
+    this.authTokenHandler = handler;
   }
 
   static findBinary(): string | null {
@@ -1141,6 +1184,8 @@ export class AgentProcess {
       await this.handleHostListTools(msg);
     } else if (msg.method === 'host/goal') {
       await this.handleHostGoal(msg);
+    } else if (msg.method === 'host/auth_token') {
+      await this.handleHostAuthToken(msg);
     } else {
       const response = JSON.stringify({
         jsonrpc: '2.0',
@@ -1239,6 +1284,22 @@ export class AgentProcess {
     }
     try {
       this.writeHostResult(msg.id, await this.goalHandler());
+    } catch (error) {
+      this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async handleHostAuthToken(msg: RpcMessage) {
+    if (!this.authTokenHandler) {
+      // Unwired host: the transport surfaces this as the LLM call failure —
+      // an OAuth-managed provider without a token channel cannot authenticate.
+      this.writeHostError(msg.id, 'host does not support oauth token fetch');
+      return;
+    }
+    try {
+      const request = parseWire(authTokenRequestSchema, JSON.stringify(msg.params), 'host/auth_token');
+      const token = await this.authTokenHandler(request);
+      this.writeHostResult(msg.id, authTokenResponseSchema.parse({ token }));
     } catch (error) {
       this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
     }
@@ -1451,6 +1512,7 @@ type ActiveCallbacks = {
   checkpoint?: (req: CheckpointWire) => Promise<void>;
   listTools: () => Promise<ListToolsResult>;
   goal: () => GoalContext | undefined;
+  authToken?: (req: AuthTokenWire) => Promise<string>;
   turnEvent?: (event: TurnEventWire) => void;
   telemetry?: (event: TelemetryEventWire) => void;
 };
@@ -1512,6 +1574,7 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             custom_headers: nativeLlm.customHeaders,
             reasoning_effort: (nativeLlm as Record<string, unknown>)['reasoningEffort'] as string | undefined,
             thinking_budget: (nativeLlm as Record<string, unknown>)['thinkingBudget'] as number | undefined,
+            auth_provider: (nativeLlm as Record<string, unknown>)['authProvider'] as string | undefined,
           },
     workspace_root: params['workspaceRoot'],
     native_tools: params['nativeTools'],
@@ -1621,6 +1684,9 @@ export class StdioSessionTransport implements SessionTransport {
     }
     this.agent.setListToolsHandler(() => c.listTools());
     this.agent.setGoalHandler(() => Promise.resolve(c.goal() ?? null));
+    if (c.authToken !== undefined) {
+      this.agent.setAuthTokenHandler((req) => c.authToken!(req));
+    }
     this.agent.setTurnEventHandler((event) => c.turnEvent?.(event));
     this.agent.setTelemetryHandler((event) => c.telemetry?.(event));
     const stdioParams = toStdioSessionParams(params);
@@ -1929,6 +1995,18 @@ export function createRunTurnOverride(
       const g = active!.goal();
       return Promise.resolve(g === undefined ? null : JSON.stringify(g));
     },
+    authToken:
+      active!.authToken === undefined
+        ? undefined
+        : async (requestJson: string): Promise<string> => {
+            const request = parseWire(
+              authTokenRequestSchema,
+              requestJson,
+              'host/auth_token request',
+            );
+            const token = await active!.authToken!(request);
+            return JSON.stringify(authTokenResponseSchema.parse({ token }));
+          },
     turnEvent: (eventJson: string): void => {
       try {
         active!.turnEvent?.(parseWireObject(turnEventSchema, JSON.parse(eventJson), 'host/turn_event'));
@@ -2372,6 +2450,7 @@ export function createRunTurnOverride(
       },
       listTools: listToolsHandler,
       goal: () => options?.getGoal?.() ?? projectEngineGoal(input.getGoal?.()),
+      authToken: options?.authToken,
       turnEvent: (event) => input.onTurnEvent?.(event),
       telemetry: (event) => input.onTurnTelemetry?.(event),
     };
@@ -2426,6 +2505,7 @@ export function createRunTurnOverride(
                   customHeaders: nativeLlm.custom_headers,
                   reasoningEffort: nativeLlm.reasoning_effort,
                   thinkingBudget: nativeLlm.thinking_budget,
+                  authProvider: nativeLlm.auth_provider,
                 },
           workspaceRoot,
           nativeTools,
@@ -2494,6 +2574,8 @@ export function createRunTurnOverride(
             active!.checkpoint === undefined ? undefined : (req) => active!.checkpoint!(req),
           listTools: () => active!.listTools(),
           goal: () => active!.goal(),
+          authToken:
+            active!.authToken === undefined ? undefined : (req) => active!.authToken!(req),
           turnEvent: (event) => active!.turnEvent?.(event),
           telemetry: (event) => active!.telemetry?.(event),
         };

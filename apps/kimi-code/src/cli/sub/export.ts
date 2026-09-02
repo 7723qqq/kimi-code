@@ -8,7 +8,7 @@
 import { createInterface } from 'node:readline/promises';
 
 import {
-  createKimiHarnessV2,
+  createKimiHarnessNative,
   type ExportSessionInput,
   type ExportSessionResult,
   type KimiHarness,
@@ -152,9 +152,8 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
   const getHarness = (): KimiHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    // Same engine as `kimi -p` / the TUI: the SDK's v2-backed harness — the
-    // agent-core-v2 engine is the only engine.
-    harness ??= createKimiHarnessV2({
+    // Native Rust harness for session export.
+    harness ??= createKimiHarnessNative({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,

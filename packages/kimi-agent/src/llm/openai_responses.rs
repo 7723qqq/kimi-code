@@ -238,7 +238,7 @@ impl StreamAccumulator {
         let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match event_type {
-            "response.text.delta" | "response.output_item.delta" => {
+            "response.output_text.delta" | "response.text.delta" | "response.output_item.delta" => {
                 if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
                     self.content.push_str(delta);
                     return Some(StreamDelta::Text(delta.to_string()));
@@ -275,16 +275,31 @@ impl StreamAccumulator {
             "response.output_item.done" => {
                 self.flush_current_tool_call();
             }
-            "response.done" => {
-                if let Some(resp) = v.get("response") {
-                    self.finish_reason = resp
-                        .get("status")
-                        .and_then(|s| s.as_str())
-                        .map(|s| s.to_string());
-                    if let Some(usage) = resp.get("usage") {
-                        self.usage = parse_usage(Some(usage));
-                    }
+            "response.completed" | "response.incomplete" | "response.done" => {
+                let resp = v.get("response").unwrap_or(v);
+                self.finish_reason = resp
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string());
+                if let Some(usage) = resp.get("usage") {
+                    self.usage = parse_usage(Some(usage));
                 }
+            }
+            "response.failed" => {
+                let resp = v.get("response").unwrap_or(v);
+                let err_msg = resp
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("response.failed");
+                self.finish_reason = Some(format!("failed: {err_msg}"));
+            }
+            "error" => {
+                let err_msg = v
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("stream error");
+                self.finish_reason = Some(format!("failed: {err_msg}"));
             }
             _ => {}
         }
@@ -366,5 +381,87 @@ mod tests {
         assert_eq!(parsed.content, "4");
         assert_eq!(parsed.finish_reason.as_deref(), Some("completed"));
         assert_eq!(parsed.usage.total_tokens, 12);
+    }
+
+    #[test]
+    fn test_stream_accumulator_output_text_and_reasoning() {
+        let mut acc = StreamAccumulator::new();
+        let delta1 = acc.feed(&json!({
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "Thinking about it..."
+        }));
+        assert_eq!(delta1, Some(StreamDelta::Think("Thinking about it...".into())));
+
+        let delta2 = acc.feed(&json!({
+            "type": "response.output_text.delta",
+            "delta": "Hello world!"
+        }));
+        assert_eq!(delta2, Some(StreamDelta::Text("Hello world!".into())));
+
+        acc.feed(&json!({
+            "type": "response.completed",
+            "response": {
+                "status": "stop",
+                "usage": {
+                    "input_tokens": 15,
+                    "output_tokens": 5,
+                    "total_tokens": 20
+                }
+            }
+        }));
+
+        let resp = acc.finish();
+        assert_eq!(resp.content, "Hello world!");
+        assert_eq!(resp.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(resp.usage.input_tokens, 15);
+        assert_eq!(resp.usage.output_tokens, 5);
+        assert_eq!(resp.usage.total_tokens, 20);
+        assert_eq!(resp.thinking.len(), 1);
+    }
+
+    #[test]
+    fn test_stream_accumulator_tool_calls() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "call_id": "call_123",
+                "name": "search"
+            }
+        }));
+        acc.feed(&json!({
+            "type": "response.function_call_arguments.delta",
+            "delta": "{\"query\":"
+        }));
+        acc.feed(&json!({
+            "type": "response.function_call_arguments.delta",
+            "delta": "\"rust\"}"
+        }));
+        acc.feed(&json!({
+            "type": "response.output_item.done"
+        }));
+
+        let resp = acc.finish();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "search");
+        assert_eq!(resp.tool_calls[0].id, "call_123");
+        assert_eq!(resp.tool_calls[0].arguments["query"], "rust");
+    }
+
+    #[test]
+    fn test_stream_accumulator_failure() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "response.failed",
+            "response": {
+                "error": {
+                    "message": "Rate limit exceeded"
+                }
+            }
+        }));
+
+        let resp = acc.finish();
+        assert_eq!(resp.finish_reason.as_deref(), Some("failed: Rate limit exceeded"));
     }
 }

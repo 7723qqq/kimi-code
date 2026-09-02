@@ -14,7 +14,14 @@ import {
   type AskQuestionWire,
   type AskQuestionWireResult,
 } from './rust-loop';
-import { runTurnParamsSchema, runTurnResultSchema, telemetryEventSchema, turnEventSchema } from './wire-schema';
+import {
+  authTokenRequestSchema,
+  authTokenResponseSchema,
+  runTurnParamsSchema,
+  runTurnResultSchema,
+  telemetryEventSchema,
+  turnEventSchema,
+} from './wire-schema';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -2091,6 +2098,16 @@ describe('wire-schema', () => {
       max_steps: '3',
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it('accepts a canonical host/auth_token request and rejects a mistyped force flag', () => {
+    expect(authTokenRequestSchema.safeParse({ provider: 'kimi', force: false }).success).toBe(
+      true,
+    );
+    expect(authTokenRequestSchema.safeParse({ provider: 'kimi', force: 'no' }).success).toBe(
+      false,
+    );
+    expect(authTokenResponseSchema.safeParse({ token: 'tok' }).success).toBe(true);
   });
 
   it('accepts a minimal run_turn result and rejects a missing stop_reason', () => {

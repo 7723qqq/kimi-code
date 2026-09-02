@@ -296,6 +296,8 @@ async fn build_repl_tool_defs(
     defs.push(crate::tools::skill::skill_tool_def());
     defs.push(crate::tools::knowledge_tool::knowledge_tool_def());
     defs.push(crate::tools::team_tool::team_tool_def());
+    defs.push(crate::tools::swarm_tool::agent_swarm_tool_def());
+    defs.extend(crate::tools::tower::tower_tool_defs());
     defs
 }
 
@@ -374,6 +376,7 @@ pub async fn start_repl(
             custom_headers: HashMap::new(),
             reasoning_effort: None,
             thinking_budget: None,
+            auth_provider: None,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));

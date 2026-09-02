@@ -178,6 +178,15 @@ pub async fn build_engine_pipeline(
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
                 Some(toolset) => {
+                    let base_callbacks: Arc<dyn HostCallbacks> =
+                        match crate::storage::StateStore::for_workspace(std::path::Path::new(root))
+                        {
+                            Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
+                                inner: base_callbacks.clone(),
+                                store: Arc::new(store),
+                            }),
+                            Err(_) => base_callbacks.clone(),
+                        };
                     // Plan-mode guard (v2 `AgentPlanService.guardToolExecution`):
                     // guarded native calls read the host's plan state through the
                     // state bridge and are denied when plan mode forbids them.
@@ -275,10 +284,18 @@ pub async fn build_engine_pipeline(
         Box::new(MultiLLM::new(providers))
     } else if let Some(cfg) = spec.native_llm.clone() {
         let sink_callbacks = callbacks.clone();
-        Box::new(
-            NativeHttpLlm::new(cfg, spec.system_prompt.clone())
-                .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
-        )
+        let mut llm = NativeHttpLlm::new(cfg.clone(), spec.system_prompt.clone())
+            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+        if cfg.auth_provider.is_some() {
+            let auth_callbacks = callbacks.clone();
+            let provider_name = cfg.auth_provider.clone().unwrap_or_default();
+            llm = llm.with_auth_provider(Arc::new(move |force| {
+                let cb = auth_callbacks.clone();
+                let provider = provider_name.clone();
+                Box::pin(async move { cb.auth_token(provider, force).await })
+            }));
+        }
+        Box::new(llm)
     } else {
         if spec.rust_self_contained {
             return Err(PipelineError {

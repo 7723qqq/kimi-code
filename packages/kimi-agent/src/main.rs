@@ -745,6 +745,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             custom_headers: Default::default(),
             reasoning_effort: None,
             thinking_budget: None,
+            auth_provider: None,
         }),
         workspace_root: Some(workspace.display().to_string()),
         native_tools: true,
@@ -768,13 +769,13 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             .map_err(|error| anyhow::anyhow!("cannot open {db_path:?}: {error}"))?,
     );
 
-    // One bus for both sides: the engine publishes onto it and connecting
-    // WebSocket clients attach through the hub taken from the same bus, so a
-    // turn's events genuinely reach them.
-    let bus = Arc::new(kimi_agent::events::EventBus::new());
-    let hub = kimi_agent::server::hub::EventHub::new(bus.clone());
-    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone());
-    let server = kimi_agent::server::HttpServer::with_bus(store, bus)
+    // One hub for both sides: a turn publishes onto its session's lane and
+    // connecting WebSocket clients attach through the same registry, so a turn's
+    // events genuinely reach them with the numbering that lane assigns.
+    let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
+    let engine =
+        kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone());
+    let server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
         .with_auth(auth);
     let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;

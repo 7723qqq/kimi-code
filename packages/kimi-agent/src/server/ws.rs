@@ -26,6 +26,7 @@
 //! - `Close` payloads are empty or ≥ 2 bytes with a code sendable by a peer.
 
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::server::auth::ServerAuth;
@@ -156,7 +157,7 @@ pub fn handshake_response(client_key: &str, protocol: Option<&str>) -> Vec<u8> {
 
 /// How an upgraded connection should treat its peer.
 pub struct WsOptions<'a> {
-    pub hub: EventHub,
+    pub hub: Arc<EventHub>,
     /// The credential a `client_hello` payload token is checked against. The
     /// HTTP layer already checked the bearer header or the subprotocol;
     /// kap-server checks again at the frame layer, and a non-browser client that
@@ -329,7 +330,7 @@ pub async fn serve_ws(
             event = subscription.recv() => {
                 match event {
                     Ok(event) => {
-                        let payload = serde_json::to_vec(&event)?;
+                        let payload = ws_protocol::event_envelope(&event)?;
                         write_frame(&mut writer, OP_TEXT, &payload).await?;
                     }
                     // The hub released us (server teardown): a plain close.
@@ -769,11 +770,18 @@ mod tests {
         }
         assert_eq!(hub.subscriber_count(), 1, "connection did not attach");
 
-        hub.bus().publish(&step_event(7));
-        let payload = read_text_frame(&mut client).await;
-        assert!(payload.contains("\"type\":\"llm.step.begin\""), "{payload}");
-        assert!(payload.contains("\"step\":7"), "{payload}");
-        assert!(payload.contains("\"turn_id\":\"turn-1\""), "{payload}");
+        hub.bus_for("sess-ws").publish(&step_event(7));
+        let frame: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(frame["type"], "llm.step.begin", "{frame}");
+        assert_eq!(frame["session_id"], "sess-ws", "{frame}");
+        assert_eq!(frame["seq"], 1, "the lane numbers from 1, {frame}");
+        assert_eq!(frame["payload"]["step"], 7, "{frame}");
+        assert_eq!(frame["payload"]["turn_id"], "turn-1", "{frame}");
+        assert!(
+            frame["payload"].get("type").is_none(),
+            "the name belongs to the envelope, not the body: {frame}"
+        );
 
         client
             .write_all(&masked_frame(OP_CLOSE, &1000_u16.to_be_bytes()))
@@ -808,12 +816,20 @@ mod tests {
         // Both were greeted; what must be identical is the event that follows.
         read_server_hello(&mut first).await;
         read_server_hello(&mut second).await;
-        hub.bus().publish(&step_event(1));
+        hub.bus_for("sess-ws").publish(&step_event(1));
 
-        let a = read_text_frame(&mut first).await;
-        let b = read_text_frame(&mut second).await;
-        assert_eq!(a, b, "subscribers saw different payloads");
-        assert!(a.contains("\"step\":1"), "{a}");
+        let mut a: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut first).await).unwrap();
+        let mut b: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut second).await).unwrap();
+        // Each frame is stamped as it is wrapped, so the arrival time is the only
+        // field two connections may legitimately disagree on.
+        let stamp_a = a.as_object_mut().unwrap().remove("timestamp");
+        let stamp_b = b.as_object_mut().unwrap().remove("timestamp");
+        assert!(stamp_a.is_some() && stamp_b.is_some(), "frame: {a}");
+        assert_eq!(a, b, "subscribers saw different frames");
+        assert_eq!(b["seq"], 1, "both carry the lane's number: {b}");
+        assert_eq!(b["session_id"], "sess-ws", "{b}");
 
         handle.shutdown();
     }

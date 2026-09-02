@@ -29,7 +29,6 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::events::EventBus;
 use crate::server::auth::ServerAuth;
 use crate::server::engine::ServerEngine;
 use crate::server::hub::EventHub;
@@ -38,27 +37,27 @@ use crate::session::sqlite_store::SqliteSessionStore;
 
 pub struct HttpServer {
     store: Arc<SqliteSessionStore>,
-    bus: Arc<EventBus>,
+    hub: Arc<EventHub>,
     engine: Option<Arc<ServerEngine>>,
     auth: ServerAuth,
     heartbeat: Duration,
 }
 
 impl HttpServer {
-    /// A server over its own event bus.
+    /// A server over its own event hub.
     pub fn new(store: Arc<SqliteSessionStore>) -> Self {
-        Self::with_bus(store, Arc::new(EventBus::new()))
+        Self::with_hub(store, Arc::new(EventHub::new()))
     }
 
-    /// A server that publishes onto an existing bus, so a pipeline built
-    /// elsewhere and the WebSocket fan-out share one event source.
+    /// A server that shares an existing [`EventHub`], so a turn driven from
+    /// elsewhere and the WebSocket fan-out see one numbering per session.
     /// Unauthenticated. Fine for tests and for a loopback development run; the
     /// only product entry (`--serve`) replaces this with a real token, and
     /// [`http::serve`] refuses a non-loopback bind while it is in effect.
-    pub fn with_bus(store: Arc<SqliteSessionStore>, bus: Arc<EventBus>) -> Self {
+    pub fn with_hub(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> Self {
         Self {
             store,
-            bus,
+            hub,
             engine: None,
             auth: ServerAuth::disabled(),
             heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
@@ -102,9 +101,9 @@ impl HttpServer {
         self.store.clone()
     }
 
-    /// The fan-out handle connections attach to.
-    pub fn hub(&self) -> EventHub {
-        EventHub::new(self.bus.clone())
+    /// The fan-out handle connections attach to and turns publish through.
+    pub fn hub(&self) -> Arc<EventHub> {
+        self.hub.clone()
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
@@ -296,7 +295,7 @@ mod tests {
         );
     }
 
-    fn engine_without_a_model(store: Arc<SqliteSessionStore>, hub: &EventHub) -> ServerEngine {
+    fn engine_without_a_model(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> ServerEngine {
         ServerEngine::new(
             crate::pipeline::PipelineSpec {
                 system_prompt: "sys".into(),
@@ -314,7 +313,7 @@ mod tests {
                 agent_tool_veto: None,
                 tools_veto: None,
             },
-            hub.clone(),
+            hub,
             store,
         )
     }
@@ -348,7 +347,7 @@ mod tests {
 
         let hub = server.hub();
         let store = server.store_arc();
-        let server = server.with_engine(engine_without_a_model(store, &hub));
+        let server = server.with_engine(engine_without_a_model(store, hub));
 
         // No providers and no native_llm: the pipeline refuses to build, which
         // must surface as a server error naming the cause — not a fake 200.
@@ -363,7 +362,7 @@ mod tests {
         let server = HttpServer::in_memory().unwrap();
         let hub = server.hub();
         let store = server.store_arc();
-        let server = server.with_engine(engine_without_a_model(store, &hub));
+        let server = server.with_engine(engine_without_a_model(store, hub));
 
         let response = prompt(&server, "sess-does-not-exist").await;
         assert_eq!(response.status, 404);

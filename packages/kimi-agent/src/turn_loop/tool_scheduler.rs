@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::turn_loop::types::{
     ExecutableToolResult, FileOperation, ToolAccesses, ToolCall, ToolFileAccess,
-    ToolResourceAccess, read_file_access, read_tree_access, tool_accesses_conflict,
+    ToolResourceAccess, all_access, read_file_access, read_tree_access, tool_accesses_conflict,
     write_file_access, write_tree_access,
 };
 
@@ -217,6 +217,12 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
         // whole workspace so it never runs concurrently with any other
         // tool that touches the sandbox.
         "bash" => vec![write_tree_access("/")],
+        // AgentSwarm runs batch subagents concurrently across the workspace,
+        // and per v2 spec must be the sole tool call in the response.
+        "agentswarm" | "agent_swarm" => vec![all_access()],
+        "towermerge" | "tower_merge" | "towerteardown" | "tower_teardown" => {
+            vec![write_tree_access("/")]
+        }
         _ => vec![],
     }
 }

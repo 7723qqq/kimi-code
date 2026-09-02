@@ -38,13 +38,14 @@ use napi_derive::napi;
 use tokio::sync::oneshot;
 
 use crate::callbacks::{
-    HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT, HostCallbacks,
+    HOST_AUTH_TOKEN_TIMEOUT, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT,
+    HostCallbacks,
 };
 use crate::pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec};
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, CheckpointRequest, ListToolsResponse,
-    LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision,
-    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse,
+    AskQuestionRequest, AskQuestionResponse, AuthTokenResponse, BoxFuture, CheckpointRequest,
+    ListToolsResponse, LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest,
+    PermissionDecision, StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse,
     SubagentProfileWire, ToolExecuteRequest, ToolExecuteResponse,
 };
 use crate::session::{
@@ -308,6 +309,11 @@ struct NapiHostCallbacks {
     /// reads the host's live goal snapshot through it; absent means
     /// `goal()` reports the seam as unsupported (fail-open for staleness).
     goal_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional OAuth token channel (`host/auth_token`). The transport asks
+    /// the host for a bearer token when the native LLM config names an
+    /// `auth_provider`; absent means OAuth-managed providers are unsupported
+    /// and static-key transports are unaffected.
+    auth_token_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// The current turn's cancellation flag. Awaiting a host callback then
     /// observes it, so `cancel_turn` also interrupts in-flight permission
     /// checks and host tool calls instead of stranding them until timeout.
@@ -532,6 +538,35 @@ impl HostCallbacks for NapiHostCallbacks {
             serde_json::from_str::<GoalContext>(&output)
                 .map(Some)
                 .map_err(|e| format!("goal parse: {e}"))
+        })
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> crate::rpc::types::BoxFuture<'static, std::result::Result<String, std::string::String>>
+    {
+        let Some(ref tsfn) = self.auth_token_fn else {
+            return Box::pin(async { Err("host does not support oauth token fetch".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Bounded like the stdio leg: a cache hit answers immediately, a
+            // miss covers one OAuth refresh round-trip (network, no human).
+            let payload = serde_json::json!({ "provider": provider, "force": force }).to_string();
+            let output = invoke_via_registry(
+                &tsfn,
+                payload,
+                "auth_token",
+                Some(HOST_AUTH_TOKEN_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            let response: AuthTokenResponse =
+                serde_json::from_str(&output).map_err(|e| format!("auth_token parse: {e}"))?;
+            Ok(response.token)
         })
     }
 }
@@ -829,6 +864,10 @@ pub struct JsNativeLlmConfig {
     pub reasoning_effort: Option<String>,
     /// Thinking budget in tokens for Anthropic Messages API.
     pub thinking_budget: Option<u32>,
+    /// OAuth-managed auth: the host-side provider name the transport asks for
+    /// a bearer token (`host/auth_token`) instead of using the static
+    /// `api_key`. Absent means static-key auth.
+    pub auth_provider: Option<String>,
 }
 
 #[napi(object)]
@@ -938,6 +977,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] auth_token_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     // ── Convert JsFunction → ThreadsafeFunction synchronously ──────────
     // The TSFN passes only the callback ID (u32). The JS side fetches
@@ -1078,6 +1118,19 @@ pub fn run_turn_rust(
         None => None,
     };
 
+    let auth_token_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match auth_token_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
     // ── Dispatch async work via execute_tokio_future ───────────────────
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
@@ -1096,6 +1149,7 @@ pub fn run_turn_rust(
                 turn_event_tsfn,
                 telemetry_tsfn,
                 list_tools_tsfn,
+                auth_token_tsfn,
             )
             .await
         },
@@ -1120,6 +1174,10 @@ struct EngineCallbackTsfns {
     /// Optional current-goal channel (wired by the session handle; the
     /// per-turn legacy entry reads the goal from `JsRunTurnParams`).
     goal: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    /// Optional OAuth token channel (`host/auth_token`): the native transport
+    /// asks the host for a bearer token when its config names an
+    /// `auth_provider`. Absent means OAuth-managed providers are unsupported.
+    auth_token: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     /// The cancellation flag the host callbacks observe (per turn today; the
     /// session handle passes its own per-turn flag through `cancel_turn`).
     cancellation: Option<Arc<AtomicBool>>,
@@ -1135,6 +1193,7 @@ async fn build_engine_pipeline(
     params: &JsRunTurnParams,
     tsfns: EngineCallbackTsfns,
     parent_cancel: Option<crate::subagent::types::ParentCancel>,
+    parent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 ) -> napi::Result<EnginePipeline> {
     // Session profile catalog snapshot (P46): refresh the process-wide
     // manager's definitions per turn so the native `Agent` tool sees the
@@ -1227,6 +1286,7 @@ async fn build_engine_pipeline(
             custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
             reasoning_effort: cfg.reasoning_effort.clone(),
             thinking_budget: cfg.thinking_budget,
+            auth_provider: cfg.auth_provider.clone(),
         }),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools.unwrap_or(false),
@@ -1265,12 +1325,13 @@ async fn build_engine_pipeline(
             telemetry_fn: tsfns.telemetry.map(Arc::new),
             list_tools_fn: tsfns.list_tools.map(Arc::new),
             goal_fn: tsfns.goal.map(Arc::new),
+            auth_token_fn: tsfns.auth_token.map(Arc::new),
             cancellation: tsfns.cancellation,
         }),
         PipelineHost {
             subagent_manager: SUBAGENT_MANAGER.clone(),
             parent_cancel,
-            parent_cancel_slot: None,
+            parent_cancel_slot,
             mcp_manager,
             event_bus: None,
         },
@@ -1294,6 +1355,7 @@ async fn run_turn_rust_impl(
     turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    auth_token_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
     // Register the turn's cancellation signal up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
@@ -1324,9 +1386,11 @@ async fn run_turn_rust_impl(
             // The legacy per-turn entry reads the goal from params, so the
             // callback channel stays unwired (goal() fails open).
             goal: None,
+            auth_token: auth_token_tsfn,
             cancellation: Some(cancellation.clone()),
         },
         Some(parent_cancel.clone()),
+        None,
     )
     .await?;
     let llm = pipeline.llm;
@@ -1594,6 +1658,7 @@ pub fn create_engine_session(
     #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] goal_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] auth_token_cb: Option<JsFunction>,
 ) -> napi::Result<JsObject> {
     let llm_chat_tsfn = make_required_tsfn(llm_chat_cb)?;
     let execute_tool_tsfn = make_required_tsfn(execute_tool_cb)?;
@@ -1607,10 +1672,13 @@ pub fn create_engine_session(
     let telemetry_tsfn = make_tsfn(telemetry_cb)?;
     let list_tools_tsfn = make_tsfn(list_tools_cb)?;
     let goal_tsfn = make_tsfn(goal_cb)?;
-    let list_tools_for_defs = list_tools_tsfn.clone();
+    let auth_token_tsfn = make_tsfn(auth_token_cb)?;
 
     env.execute_tokio_future(
         async move {
+            let agent_cancel_slot: Arc<
+                std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>,
+            > = Arc::new(std::sync::Mutex::new(None));
             let pipeline = build_engine_pipeline(
                 &params,
                 EngineCallbackTsfns {
@@ -1626,51 +1694,34 @@ pub fn create_engine_session(
                     telemetry: telemetry_tsfn,
                     list_tools: list_tools_tsfn,
                     goal: goal_tsfn.clone(),
+                    auth_token: auth_token_tsfn,
                     cancellation: None,
                 },
-                // Session pipeline: no per-turn cancellation at build time.
-                // Aborting the pump drops the turn but cannot reach the
-                // native `Agent` tool — `agent_cancel_slot` stays `None` on
-                // this path (see `create_engine_session`), so
-                // `agent_tool.rs:413` never observes a signal and a
-                // foreground subagent runs to its own timeout. The stdio
-                // transport wires the slot (`src/main.rs`); this one does
-                // not.
                 None,
+                Some(agent_cancel_slot.clone()),
             )
             .await?;
 
-            // Turn-start tool table: pulled fresh from the host per turn on
-            // native transports (host-proxy rebuilds tools inside llm_chat
+            // Turn-start tool table: pulled fresh through pipeline.callbacks per turn
+            // on native transports (host-proxy rebuilds tools inside llm_chat
             // and never consults the engine's table). run_turn's per-step
             // `host/list_tools` refresh stays the authoritative source; this
-            // provider only seeds the snapshot fallback.
+            // provider only seeds the snapshot fallback, merging MCP tools if attached.
             let is_host_proxy = pipeline.llm.transport() == "host-proxy";
+            let callbacks_for_defs = pipeline.callbacks.clone();
             let tool_defs_provider: ToolDefsProvider = if is_host_proxy {
                 Arc::new(|| Box::pin(async { Vec::new() }))
             } else {
-                match list_tools_for_defs {
-                    Some(tsfn) => Arc::new(move || {
-                        let tsfn = Arc::new(tsfn.clone());
-                        Box::pin(async move {
-                            match invoke_via_registry(
-                                &tsfn,
-                                "{}".to_string(),
-                                "list_tools",
-                                Some(HOST_LIST_TOOLS_TIMEOUT),
-                                None,
-                            )
+                Arc::new(move || {
+                    let callbacks = callbacks_for_defs.clone();
+                    Box::pin(async move {
+                        callbacks
+                            .list_tools()
                             .await
-                            {
-                                Ok(output) => serde_json::from_str::<ListToolsResponse>(&output)
-                                    .map(|r| r.tools)
-                                    .unwrap_or_default(),
-                                Err(_) => Vec::new(),
-                            }
-                        })
-                    }),
-                    None => Arc::new(|| Box::pin(async { Vec::new() })),
-                }
+                            .map(|r| r.tools)
+                            .unwrap_or_default()
+                    })
+                })
             };
 
             // Fresh goal snapshot per turn (budget checks + steering). The
@@ -1702,7 +1753,7 @@ pub fn create_engine_session(
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
                 on_before_turn: None,
-                agent_cancel_slot: None,
+                agent_cancel_slot: Some(agent_cancel_slot),
             })
             .await;
 

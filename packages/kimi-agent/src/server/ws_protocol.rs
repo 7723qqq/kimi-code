@@ -19,6 +19,7 @@
 
 use std::time::Duration;
 
+use crate::server::hub::SequencedEvent;
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::Value;
@@ -130,6 +131,40 @@ pub fn ack(id: &str, code: u32, msg: &str, payload: Value) -> Result<Vec<u8>, se
     })
 }
 
+#[derive(Serialize)]
+struct Envelope<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    seq: u64,
+    epoch: &'a str,
+    session_id: &'a str,
+    timestamp: String,
+    payload: Value,
+}
+
+/// One lane event, wrapped the way kap-server's `EventEnvelope` delivers it:
+/// the name at the top level and the body under `payload`.
+///
+/// `seq` is consecutive within `(session_id, epoch)`, so a client that reconnects
+/// can tell a continued stream from a restarted one. `volatile` and `offset` are
+/// kap-server's transcript-frame fields and are absent here because this server
+/// has no transcript stream to carry them.
+pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Error> {
+    let mut payload = serde_json::to_value(&event.event)?;
+    if let Value::Object(map) = &mut payload {
+        // `EngineEvent` carries its name as an internal tag; the envelope owns it.
+        map.remove("type");
+    }
+    serde_json::to_vec(&Envelope {
+        kind: event.event.event_type(),
+        seq: event.seq,
+        epoch: &event.epoch,
+        session_id: &event.session_id,
+        timestamp: timestamp(),
+        payload,
+    })
+}
+
 /// The `client_hello` ack body. kap-server lists what it attached and where each
 /// session's cursor stands; this server has no per-session subscription to
 /// attach, so it honestly reports having accepted nothing rather than pretending
@@ -230,6 +265,33 @@ mod tests {
         let frame: Value = serde_json::from_slice(&ping("n-1").unwrap()).unwrap();
         assert_eq!(frame["type"], "ping");
         assert_eq!(frame["payload"]["nonce"], "n-1");
+    }
+
+    #[test]
+    fn a_lane_event_becomes_kap_servers_envelope() {
+        use crate::events::EngineEvent;
+
+        let event = SequencedEvent {
+            session_id: std::sync::Arc::from("sess-1"),
+            epoch: std::sync::Arc::from("epoch-2"),
+            seq: 7,
+            event: EngineEvent::LlmStepBegin {
+                turn_id: "turn-9".into(),
+                step: 3,
+            },
+        };
+        let frame: Value = serde_json::from_slice(&event_envelope(&event).unwrap()).unwrap();
+
+        assert_eq!(frame["type"], "llm.step.begin");
+        assert_eq!(frame["seq"], 7);
+        assert_eq!(frame["epoch"], "epoch-2");
+        assert_eq!(frame["session_id"], "sess-1");
+        assert_eq!(frame["payload"]["turn_id"], "turn-9");
+        assert_eq!(frame["payload"]["step"], 3);
+        assert!(
+            frame["payload"].get("type").is_none(),
+            "the event name must not appear twice: {frame}"
+        );
     }
 
     #[test]

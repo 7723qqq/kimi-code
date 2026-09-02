@@ -160,6 +160,12 @@ pub mod methods {
     /// snake_case wire goal object, or JSON null when no goal is active.
     pub const HOST_GOAL: &str = "host/goal";
 
+    /// Fetch a bearer token for an OAuth-managed provider (Rust → JS host).
+    /// The host owns the OAuth store (single-flight refresh); `force` asks it
+    /// to refresh past the cache after a 401/403 from the provider. The
+    /// response is `{ "token": "..." }`.
+    pub const HOST_AUTH_TOKEN: &str = "host/auth_token";
+
     // ── EngineSession handle over stdio (M1d 3b) ─────────────────────────
     // The stdio transport gets the same session surface as the napi addon:
     // the pipeline is built once per session, and admission / the pending
@@ -405,6 +411,13 @@ pub struct ListToolsResponse {
     pub tools: Vec<crate::turn_loop::types::ToolInfo>,
 }
 
+/// Response body of `host/auth_token`: the bearer token the transport puts in
+/// the Authorization / x-api-key header.
+#[derive(Debug, Deserialize)]
+pub struct AuthTokenResponse {
+    pub token: String,
+}
+
 // ── Message content blocks (multimodal) ─────────────────────────────────
 
 /// A single content block within a message. Text-only messages keep using
@@ -469,6 +482,11 @@ pub struct NativeLlmConfig {
     /// Thinking budget in tokens for Anthropic Messages API.
     #[serde(default)]
     pub thinking_budget: Option<u32>,
+    /// OAuth-managed auth: the host-side provider name the transport asks for
+    /// a bearer token (`host/auth_token`) instead of using the static
+    /// `api_key`. `api_key` stays the fallback for providers that carry both.
+    #[serde(default)]
+    pub auth_provider: Option<String>,
 }
 
 /// Debug never renders the key: this struct is `{:?}`-formatted on paths that
@@ -485,6 +503,7 @@ impl std::fmt::Debug for NativeLlmConfig {
             .field("custom_headers", &self.custom_headers)
             .field("reasoning_effort", &self.reasoning_effort)
             .field("thinking_budget", &self.thinking_budget)
+            .field("auth_provider", &self.auth_provider)
             .finish()
     }
 }
@@ -1472,6 +1491,34 @@ mod tests {
         assert_eq!(methods::HOST_ASK_QUESTION, "host/ask_question");
         assert_eq!(methods::HOST_STATE_READ, "host/state_read");
         assert_eq!(methods::HOST_STATE_WRITE, "host/state_write");
+        assert_eq!(methods::HOST_AUTH_TOKEN, "host/auth_token");
+    }
+
+    #[test]
+    fn test_native_llm_config_oauth_mode() {
+        let json = serde_json::json!({
+            "protocol": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "",
+            "model": "kimi-latest",
+            "auth_provider": "kimi"
+        });
+        let cfg: NativeLlmConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.auth_provider.as_deref(), Some("kimi"));
+        assert!(cfg.api_key.is_empty());
+
+        // The Debug impl redacts the key even when auth_provider is set.
+        let mut with_key = cfg.clone();
+        with_key.api_key = "super-secret".into();
+        let debug = format!("{with_key:?}");
+        assert!(
+            !debug.contains("super-secret"),
+            "debug must not leak the key"
+        );
+        assert!(
+            debug.contains("auth_provider"),
+            "debug carries the auth mode"
+        );
     }
 
     #[test]

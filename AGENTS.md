@@ -189,6 +189,8 @@ packages/
 
 **`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
 
+**`kimi-agent`** — Next-generation Rust agent engine designed to progressively replace `agent-core-v2`. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). See `packages/kimi-agent/ROADMAP.md`.
+
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 

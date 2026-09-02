@@ -909,6 +909,14 @@ impl HostCallbacks for SteerQueueCallbacks {
         self.inner.goal()
     }
 
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> futures_util::future::BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
     fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
         self.inner.set_turn_goal(turn_id, goal_id);
     }

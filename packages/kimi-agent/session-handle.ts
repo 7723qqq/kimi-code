@@ -74,6 +74,8 @@ export interface SessionCallbacks {
   listTools?: () => Promise<string>;
   /** Fresh goal snapshot per turn, as the snake_case wire goal JSON or null. */
   goal?: () => Promise<string | null>;
+  /** OAuth bearer token for `auth_provider`-configured native transports. */
+  authToken?: (request: string) => Promise<string>;
 }
 
 /** The session-scoped slice of the native addon. */
@@ -92,6 +94,7 @@ interface SessionNativeModule {
     telemetryCb?: (callbackId: number) => void,
     listToolsCb?: (callbackId: number) => void,
     goalCb?: (callbackId: number) => void,
+    authTokenCb?: (callbackId: number) => void,
   ): Promise<string>;
   sessionEnqueueTurn(sessionId: string, prompt: string, admission: string): number;
   sessionTurnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome>;
@@ -346,6 +349,7 @@ class NapiSessionTransport implements SessionTransport {
     const telemetry = callbacks.telemetry;
     const listTools = callbacks.listTools;
     const goal = callbacks.goal;
+    const authToken = callbacks.authToken;
     return this.mod.createEngineSession(
       params,
       makeRequestCallback(this.mod, (p) => callbacks.llmChat(p)),
@@ -377,6 +381,12 @@ class NapiSessionTransport implements SessionTransport {
       goal === undefined
         ? undefined
         : makeRequestCallback(this.mod, async () => (await goal()) ?? 'null'),
+      authToken === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, async (p) => {
+            const token = await authToken(p);
+            return JSON.stringify({ token });
+          }),
     );
   }
 
