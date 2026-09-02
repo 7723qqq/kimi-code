@@ -19,23 +19,39 @@
 //! The `/api/v1` surface the app actually serves is still `packages/kap-server`.
 
 pub mod http;
+pub mod hub;
 pub mod router;
 pub mod ws;
 
-use std::sync::Arc;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
+use crate::events::EventBus;
+use crate::server::hub::EventHub;
 use crate::server::router::{HttpRequest, HttpResponse};
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::turn_loop::types::LLMMessage;
 
 pub struct HttpServer {
     store: Arc<SqliteSessionStore>,
+    bus: Arc<EventBus>,
 }
 
 impl HttpServer {
+    /// A server over its own event bus.
     pub fn new(store: Arc<SqliteSessionStore>) -> Self {
-        Self { store }
+        Self::with_bus(store, Arc::new(EventBus::new()))
+    }
+
+    /// A server that publishes onto an existing bus, so a pipeline built
+    /// elsewhere and the WebSocket fan-out share one event source.
+    pub fn with_bus(store: Arc<SqliteSessionStore>, bus: Arc<EventBus>) -> Self {
+        Self { store, bus }
+    }
+
+    /// The fan-out handle connections attach to.
+    pub fn hub(&self) -> EventHub {
+        EventHub::new(self.bus.clone())
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
@@ -67,10 +83,9 @@ impl HttpServer {
                 let title = body.get("title").and_then(|v| v.as_str());
 
                 match self.store.create_session(&session_id, title) {
-                    Ok(_) => HttpResponse::json(
-                        201,
-                        &json!({ "sessionId": session_id, "title": title }),
-                    ),
+                    Ok(_) => {
+                        HttpResponse::json(201, &json!({ "sessionId": session_id, "title": title }))
+                    }
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }

@@ -129,7 +129,7 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
 
     if ws::is_upgrade(&received.request) {
         let Received { request, leftover } = received;
-        return match ws::serve_echo(stream, &request, leftover).await {
+        return match ws::serve_ws(stream, &request, leftover, server.hub()).await {
             Ok(()) => Ok(()),
             Err(ws::WsError::Io(error)) => Err(error),
             Err(error) => {

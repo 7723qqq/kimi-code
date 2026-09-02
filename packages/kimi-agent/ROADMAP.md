@@ -3374,6 +3374,33 @@ P75 留下「无 WebSocket，流式事件没有传输」这条缺口，而它是
 - `cargo test --features cli`：995 lib（基线 987 + 8）+ 18 集成全绿，真退出码 0；`cargo clippy --all-targets` 0 警告 0 错误（SHA-1 主循环改为迭代取值以消 `needless_range_loop`，改后向量测试仍绿）。
 - 自有文件单独 `rustfmt`；全树 `cargo fmt -- --check` 仍红（P74 已记录，先于本批次）。
 
+## P77 — 事件枢纽：EventBus → WebSocket 扇出（2026-09-02）
+
+P76 交的帧层只会 echo。本批次把它接到真实的事件源上：`src/server/hub.rs`。
+
+### 落地
+
+`EventHub` 包一个 `Arc<EventBus>`，`attach()` 给每条连接开一个**有界** `mpsc`（256）并返回 `WsSubscription`，`Drop` 时才 `unsubscribe`。总线是同步派发（`publish` 持有订阅者读锁逐个调 handler），所以 handler 只做一次 `try_send` —— 在 handler 里 `unsubscribe` 会撞写锁死锁，这条约束本身有一个测试守着（`publishing_does_not_run_a_handler_that_can_reenter_the_bus`）。状态用 `watch` 而不是裸原子量，好让正阻塞等下一帧的 reader 在溢出时被唤醒。
+
+**背压策略是刻意与 TS 不一致的**，不是对齐：`kap-server` 的 `sessionEventBroadcaster` 靠 per-connection 的 await 链串行化，突发时靠链条变长吸收，即无界内存。这里改成**满则关连接（1013）**，不静默丢事件 —— 客户端重连后按 transcript 重放能看出缺口，而丢进 socket 黑洞的事件是不可见的。已写进 `hub.rs` 模块头并注明是 divergence。
+
+`HttpServer` 现在持一条 bus，`with_bus(store, bus)` 让 server 与外部构造的 pipeline 共用同一个事件源，`hub()` 发扇出入口。`EventBus` 加了 `subscriber_count()`。
+
+### 测试抓到两个真缺陷
+
+1. **`serve_ws` 原先在写完 101 之后才 attach** —— 客户端一旦看到握手就有权期待之后的每个事件，这个窗口里发布的事件谁都收不到。改成先 attach 再写。
+2. 我写的「两条连接都收到同一事件」测试红了，原因是测试助手**每次调用都新建一个 HttpServer**，两条连接挂在两条不同的 bus 上 —— 红的是测试，不是实现；改成共享 server 后该断言才真正在测扇出。
+
+### 仍未做
+
+- **枢纽还接不上真 turn**：`with_bus` 只是把线留好了，server 侧没有任何代码构造 pipeline，所以 `emit_event`/`turn_event` 目前只能由测试注入。把 prompt 路由从 `Processed: {prompt}` 换成真 turn，才是这条链闭合一环。
+- 入站帧仍不解释（kap-server `/api/v1/ws` 消息 schema 未接）：只做分片记账与上限，凑齐即丢弃并 debug 记一条。
+
+### 验证
+
+- `cargo test --lib server::` **39 全绿**，本批次新增 9 项：hub 4 条（attach 后到达、两订阅者同序、溢出前缀不丢失、handler 不重入总线）+ ws socket 5 条（含两条连接各收一份、握手与 Ping 帧合并进同一包仍应答 Pong、关连接后订阅槽位归零）。
+- `cargo test --features cli`：1000 lib + 18 集成全绿，真退出码 0；`cargo clippy --all-targets` 0 警告；自有文件 `rustfmt --check` 干净。
+
 ## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
 
 本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。

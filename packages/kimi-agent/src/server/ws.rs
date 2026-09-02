@@ -2,9 +2,9 @@
 //!
 //! Scope of this module is the **transport**: handshake, framing, control
 //! frames, and fragmentation. It does not yet speak kap-server's `/api/v1/ws`
-//! message schema — the echo loop in [`serve_echo`] exists to prove the framing
-//! round-trips against a real socket, and is the seam the protocol layer
-//! attaches to next.
+//! message schema — [`serve_ws`] streams engine events from [`super::hub::EventHub`],
+//! proving the framing round-trips against a real socket and outbound event fan-out works,
+//! and is the seam the inbound protocol layer attaches to next.
 //!
 //! Zero new crates. SHA-1 is implemented here rather than pulled in: the
 //! handshake digest is a non-secret anti-caching value fixed by RFC 6455 §1.3,
@@ -24,10 +24,12 @@
 
 use std::io;
 
+use crate::server::hub::{EventHub, HubClosed};
 use crate::server::router::HttpRequest;
 use base64::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 
 /// The magic value RFC 6455 §1.3 concatenates with the client key before SHA-1.
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -51,14 +53,21 @@ pub enum WsError {
     Unsupported(u8),
     /// Message over the cap: code 1009.
     TooLarge,
-    /// Invalid UTF-8 in a text message: code 1007.
-    InvalidUtf8,
+    /// The peer could not keep up with the event stream: code 1013.
+    SlowSubscriber,
     Io(io::Error),
+    Serde(serde_json::Error),
 }
 
 impl From<io::Error> for WsError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for WsError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Serde(error)
     }
 }
 
@@ -70,8 +79,9 @@ impl WsError {
             Self::Proto(_) => Some(1002),
             Self::Unsupported(_) => Some(1003),
             Self::TooLarge => Some(1009),
-            Self::InvalidUtf8 => Some(1007),
+            Self::SlowSubscriber => Some(1013),
             Self::Io(_) => None,
+            Self::Serde(_) => None,
         }
     }
 }
@@ -129,102 +139,156 @@ pub fn handshake_response(client_key: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// Serve the upgraded connection as an echo endpoint until the peer closes it.
+/// Serve the upgraded connection as an event stream until the peer closes it or
+/// the hub ends.
 ///
 /// `leftover` holds bytes the HTTP reader already pulled off the socket past the
 /// handshake — a client may coalesce the handshake and its first frame into one
 /// packet, and dropping them would desynchronize the framing parser.
-pub async fn serve_echo(
+///
+/// Inbound frames are not interpreted: the kap-server `/api/v1/ws` message
+/// schema is not implemented yet, so a client's data frames are accounted for and
+/// discarded. They are still *accounted* for because an endless run of
+/// continuation frames is otherwise a free way to grow server memory.
+pub async fn serve_ws(
     stream: TcpStream,
     request: &HttpRequest,
     leftover: Vec<u8>,
+    hub: EventHub,
 ) -> Result<(), WsError> {
     let key = request
         .headers
         .get("sec-websocket-key")
         .ok_or(WsError::Proto("missing Sec-WebSocket-Key"))?;
-    let (reader, mut writer) = tokio::io::split(stream);
-    let mut reader = FrameReader::new(reader, leftover);
+    let (read_half, mut writer) = tokio::io::split(stream);
+    // Attach before the 101 goes out: once the client sees the handshake it may
+    // legitimately expect every event from that moment on, and attaching after
+    // the write opens a window where a published event reaches nobody.
+    let mut subscription = hub.attach();
     writer.write_all(&handshake_response(key)).await?;
 
-    // A partially received message: (opcode, bytes so far). Only one may be
-    // open at a time, and no new data frame may start until it is finished.
+    // Frame decoding lives in its own task so the main loop can await events and
+    // inbound frames without cancelling a half-read frame — `read_frame` is not
+    // cancel-safe, and losing its partial state would desynchronize the socket.
+    let (inbound_tx, mut inbound_rx) = mpsc::channel::<Result<Frame, WsError>>(32);
+    let reader = tokio::spawn(async move {
+        let mut reader = FrameReader::new(read_half, leftover);
+        loop {
+            let frame = read_frame(&mut reader).await;
+            let terminal = frame.is_err();
+            if inbound_tx.send(frame).await.is_err() || terminal {
+                break;
+            }
+        }
+    });
+
+    // A partially received inbound message: (opcode, bytes so far).
     let mut fragment: Option<(u8, Vec<u8>)> = None;
 
     loop {
-        let frame = match read_frame(&mut reader).await {
-            Ok(frame) => frame,
-            Err(error) => {
-                if let Some(code) = error.close_code() {
-                    let _ = send_close(&mut writer, code).await;
-                }
-                return Err(error);
-            }
-        };
+        tokio::select! {
+            biased;
 
-        match frame.opcode {
-            OP_PING => write_frame(&mut writer, OP_PONG, &frame.payload).await?,
-            OP_PONG => {}
-            OP_CLOSE => {
-                if let Some(payload) = frame.payload.get(..2) {
-                    let code = u16::from_be_bytes([payload[0], payload[1]]);
-                    if !is_sendable_close(code) {
-                        let _ = send_close(&mut writer, 1002).await;
-                        return Err(WsError::Proto("invalid close code"));
+            inbound = inbound_rx.recv() => {
+                let Some(result) = inbound else { break };
+                let frame = match result {
+                    Ok(frame) => frame,
+                    Err(error) => {
+                        if let Some(code) = error.close_code() {
+                            let _ = send_close(&mut writer, code).await;
+                        }
+                        reader.abort();
+                        return Err(error);
                     }
-                } else if frame.payload.len() == 1 {
-                    let _ = send_close(&mut writer, 1002).await;
-                    return Err(WsError::Proto("close payload of one byte"));
-                }
-                let _ = send_close(&mut writer, 1000).await;
-                return Ok(());
-            }
-            OP_TEXT | OP_BINARY => {
-                if fragment.is_some() {
-                    let _ = send_close(&mut writer, 1002).await;
-                    return Err(WsError::Proto("data frame while fragmented"));
-                }
-                if frame.is_final {
-                    finish_message(&mut writer, frame.opcode, frame.payload).await?;
-                } else {
-                    fragment = Some((frame.opcode, frame.payload));
-                }
-            }
-            OP_CONTINUATION => {
-                let Some((opcode, mut buffered)) = fragment.take() else {
-                    let _ = send_close(&mut writer, 1002).await;
-                    return Err(WsError::Proto("continuation without a start"));
                 };
-                if buffered.len() + frame.payload.len() > MAX_MESSAGE_BYTES {
-                    let _ = send_close(&mut writer, 1009).await;
-                    return Err(WsError::TooLarge);
-                }
-                buffered.extend_from_slice(&frame.payload);
-                if frame.is_final {
-                    finish_message(&mut writer, opcode, buffered).await?;
-                } else {
-                    fragment = Some((opcode, buffered));
+
+                match frame.opcode {
+                    OP_PING => write_frame(&mut writer, OP_PONG, &frame.payload).await?,
+                    OP_PONG => {}
+                    OP_CLOSE => {
+                        if let Some(payload) = frame.payload.get(..2) {
+                            let code = u16::from_be_bytes([payload[0], payload[1]]);
+                            if !is_sendable_close(code) {
+                                let _ = send_close(&mut writer, 1002).await;
+                                reader.abort();
+                                return Err(WsError::Proto("invalid close code"));
+                            }
+                        } else if frame.payload.len() == 1 {
+                            let _ = send_close(&mut writer, 1002).await;
+                            reader.abort();
+                            return Err(WsError::Proto("close payload of one byte"));
+                        }
+                        let _ = send_close(&mut writer, 1000).await;
+                        break;
+                    }
+                    OP_TEXT | OP_BINARY => {
+                        if fragment.is_some() {
+                            let _ = send_close(&mut writer, 1002).await;
+                            reader.abort();
+                            return Err(WsError::Proto("data frame while fragmented"));
+                        }
+                        if frame.is_final {
+                            tracing::debug!(
+                                opcode = frame.opcode,
+                                bytes = frame.payload.len(),
+                                "inbound ws message ignored until the ws protocol layer lands"
+                            );
+                        } else {
+                            fragment = Some((frame.opcode, frame.payload));
+                        }
+                    }
+                    OP_CONTINUATION => {
+                        let Some((opcode, mut buffered)) = fragment.take() else {
+                            let _ = send_close(&mut writer, 1002).await;
+                            reader.abort();
+                            return Err(WsError::Proto("continuation without a start"));
+                        };
+                        if buffered.len() + frame.payload.len() > MAX_MESSAGE_BYTES {
+                            let _ = send_close(&mut writer, 1009).await;
+                            reader.abort();
+                            return Err(WsError::TooLarge);
+                        }
+                        buffered.extend_from_slice(&frame.payload);
+                        if frame.is_final {
+                            tracing::debug!(
+                                opcode,
+                                bytes = buffered.len(),
+                                "inbound ws message ignored until the ws protocol layer lands"
+                            );
+                        } else {
+                            fragment = Some((opcode, buffered));
+                        }
+                    }
+                    other => {
+                        let _ = send_close(&mut writer, 1003).await;
+                        reader.abort();
+                        return Err(WsError::Unsupported(other));
+                    }
                 }
             }
-            other => {
-                let _ = send_close(&mut writer, 1003).await;
-                return Err(WsError::Unsupported(other));
+
+            event = subscription.recv() => {
+                match event {
+                    Ok(event) => {
+                        let payload = serde_json::to_vec(&event)?;
+                        write_frame(&mut writer, OP_TEXT, &payload).await?;
+                    }
+                    // The hub released us (server teardown): a plain close.
+                    Err(HubClosed::Detached) => break,
+                    // A connection that cannot keep up is closed rather than
+                    // silently truncated; see the policy note in server::hub.
+                    Err(HubClosed::Overflow) => {
+                        let _ = send_close(&mut writer, 1013).await;
+                        reader.abort();
+                        return Err(WsError::SlowSubscriber);
+                    }
+                }
             }
         }
     }
-}
 
-/// Echo one complete message back, validating text payloads as we go.
-async fn finish_message(
-    writer: &mut WriteHalf<TcpStream>,
-    opcode: u8,
-    payload: Vec<u8>,
-) -> Result<(), WsError> {
-    if opcode == OP_TEXT && std::str::from_utf8(&payload).is_err() {
-        let _ = send_close(writer, 1007).await;
-        return Err(WsError::InvalidUtf8);
-    }
-    write_frame(writer, opcode, &payload).await
+    reader.abort();
+    Ok(())
 }
 
 async fn send_close(writer: &mut WriteHalf<TcpStream>, code: u16) -> Result<(), WsError> {
@@ -427,8 +491,9 @@ fn sha1(input: &[u8]) -> [u8; 20] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::EngineEvent;
     use std::sync::Arc;
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpStream;
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -505,19 +570,11 @@ mod tests {
         assert!(!is_upgrade(&upgrade_request(&[("content-length", "0")])));
     }
 
-    /// Upgrade through the real listener, so the handshake bytes are consumed
-    /// by the HTTP layer exactly as they would be in product. Returns the
-    /// client socket, the server handle, and the raw 101 response.
-    async fn connect_upgraded(
+    async fn connect_client(
+        addr: std::net::SocketAddr,
         key: &str,
-    ) -> (TcpStream, crate::server::http::ServerHandle, Vec<u8>) {
-        let handle = crate::server::http::serve(
-            "127.0.0.1:0",
-            Arc::new(crate::server::HttpServer::in_memory().unwrap()),
-        )
-        .await
-        .unwrap();
-        let mut client = TcpStream::connect(handle.local_addr).await.unwrap();
+    ) -> (TcpStream, Vec<u8>) {
+        let mut client = TcpStream::connect(addr).await.unwrap();
         client
             .write_all(
                 format!(
@@ -538,37 +595,112 @@ mod tests {
             }
             handshake.push(byte[0]);
         }
-        (client, handle, handshake)
+        (client, handshake)
+    }
+
+    /// Upgrade through the real listener, so the handshake bytes are consumed
+    /// by the HTTP layer exactly as they would be in product. Returns the client
+    /// socket, the raw 101 response, and the listener handle.
+    async fn connect_upgraded(
+        server: &Arc<crate::server::HttpServer>,
+        key: &str,
+    ) -> (TcpStream, Vec<u8>, crate::server::http::ServerHandle) {
+        let handle = crate::server::http::serve("127.0.0.1:0", server.clone())
+            .await
+            .unwrap();
+        let (client, handshake) = connect_client(handle.local_addr, key).await;
+        (client, handshake, handle)
+    }
+
+    fn step_event(step: u32) -> EngineEvent {
+        EngineEvent::LlmStepBegin {
+            turn_id: "turn-1".into(),
+            step,
+        }
+    }
+
+    /// Read one unmasked server text frame the way a client would, returning its
+    /// payload. Small payloads only: the tests never produce a long frame.
+    async fn read_text_frame(client: &mut TcpStream) -> String {
+        let mut head = [0_u8; 2];
+        client.read_exact(&mut head).await.unwrap();
+        assert_eq!(head[0], 0x81, "expected a final text frame");
+        assert_eq!(head[1] & 0x80, 0, "server frames must not be masked");
+        let len = (head[1] & 0x7f) as usize;
+        let mut payload = vec![0_u8; len];
+        client.read_exact(&mut payload).await.unwrap();
+        String::from_utf8(payload).unwrap()
     }
 
     #[tokio::test]
-    async fn handshakes_and_echoes_a_masked_text_frame_over_a_real_socket() {
-        let (mut client, handle, handshake) = connect_upgraded("dGhlIHNhbXBsZSBub25jZQ==").await;
+    async fn handshakes_then_streams_events_published_after_it_connects() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let hub = server.hub();
+        let (mut client, handshake, handle) =
+            connect_upgraded(&server, "dGhlIHNhbXBsZSBub25jZQ==").await;
         let text = String::from_utf8_lossy(&handshake).into_owned();
 
         // The 101 must carry the RFC's own accept value for this key.
         assert!(text.starts_with("HTTP/1.1 101"), "{text}");
         assert!(text.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), "{text}");
+        for _ in 0..50 {
+            if hub.subscriber_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(hub.subscriber_count(), 1, "connection did not attach");
 
-        client
-            .write_all(&masked_frame(OP_TEXT, b"hi"))
-            .await
-            .unwrap();
-        let mut echoed = [0_u8; 4];
-        client.read_exact(&mut echoed).await.unwrap();
-        // Server frames are unmasked: FIN|text, then a 7-bit length of 2.
-        assert_eq!(echoed, [0x81, 0x02, b'h', b'i']);
+        hub.bus().publish(&step_event(7));
+        let payload = read_text_frame(&mut client).await;
+        assert!(payload.contains("\"type\":\"llm.step.begin\""), "{payload}");
+        assert!(payload.contains("\"step\":7"), "{payload}");
+        assert!(payload.contains("\"turn_id\":\"turn-1\""), "{payload}");
 
         client
             .write_all(&masked_frame(OP_CLOSE, &1000_u16.to_be_bytes()))
             .await
             .unwrap();
+        // Give the server a turn to process the close and release the slot.
+        for _ in 0..50 {
+            if hub.subscriber_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(hub.subscriber_count(), 0, "closed connection leaked a slot");
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn two_connections_each_receive_the_same_event() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let hub = server.hub();
+        let (mut first, _, handle) = connect_upgraded(&server, "key-a").await;
+        let (mut second, _) = connect_client(handle.local_addr, "key-b").await;
+
+        for _ in 0..50 {
+            if hub.subscriber_count() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(hub.subscriber_count(), 2);
+
+        hub.bus().publish(&step_event(1));
+
+        let a = read_text_frame(&mut first).await;
+        let b = read_text_frame(&mut second).await;
+        assert_eq!(a, b, "subscribers saw different payloads");
+        assert!(a.contains("\"step\":1"), "{a}");
+
         handle.shutdown();
     }
 
     #[tokio::test]
     async fn an_unmasked_client_frame_is_refused_with_1002() {
-        let (mut client, handle, _) = connect_upgraded("abc").await;
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let (mut client, _, handle) = connect_upgraded(&server, "abc").await;
 
         // 0x81 with the mask bit clear — a conforming server must not read it.
         client.write_all(&[0x81, 0x00]).await.unwrap();
@@ -581,39 +713,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn leftover_bytes_before_the_first_frame_are_not_dropped() {
-        // A client that coalesces handshake + first frame into one packet must
-        // still be parsed: the HTTP reader buffers past the header block, and
-        // the surplus reaches us as `leftover`.
-        let coalesced_frame = masked_frame(OP_TEXT, b"early");
+    async fn a_control_frame_coalesced_with_the_handshake_is_not_lost() {
+        // A client may put its first frame in the same packet as the upgrade
+        // request. The HTTP reader buffers those surplus bytes; if they were
+        // dropped the server would never answer the Ping.
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let handle = crate::server::http::serve("127.0.0.1:0", server)
+            .await
+            .unwrap();
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let request = HttpRequest {
-                method: "GET".into(),
-                path: "/api/v1/ws".into(),
-                headers: std::collections::HashMap::from([(
-                    "sec-websocket-key".to_string(),
-                    "dGhlIHNhbXBsZSBub25jZQ==".to_string(),
-                )]),
-                body: Vec::new(),
-            };
-            let _ = serve_echo(stream, &request, coalesced_frame).await;
-        });
+        let mut packet = b"GET /api/v1/ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Key: key\r\n\
+             Sec-WebSocket-Version: 13\r\n\r\n"
+            .to_vec();
+        // A masked Ping with no payload, sent alongside the handshake.
+        packet.extend_from_slice(&masked_frame(OP_PING, b""));
 
-        let mut client = TcpStream::connect(addr).await.unwrap();
-        let mut reply = [0_u8; 256];
-        // The echo of the coalesced frame should arrive with the handshake.
-        let read = client.read(&mut reply).await.unwrap();
-        let text = String::from_utf8_lossy(&reply[..read]).into_owned();
+        let mut client = TcpStream::connect(handle.local_addr).await.unwrap();
+        client.write_all(&packet).await.unwrap();
+
+        // The 101 and the Pong may arrive together or apart; keep reading until
+        // a Pong frame (opcode 0xA) shows up.
+        let mut seen = Vec::new();
+        let mut got_pong = false;
+        for _ in 0..40 {
+            let mut chunk = [0_u8; 512];
+            let read = client.read(&mut chunk).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            seen.extend_from_slice(&chunk[..read]);
+            if seen.windows(2).any(|w| w[0] == 0x8A && w[1] == 0x00) {
+                got_pong = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let text = String::from_utf8_lossy(&seen).into_owned();
         assert!(text.contains("101 Switching Protocols"), "{text}");
-        assert!(
-            text.ends_with("early"),
-            "coalesced frame lost: {:?}",
-            &reply[..read]
-        );
+        assert!(got_pong, "no Pong for the coalesced Ping: {seen:?}");
+        handle.shutdown();
     }
 
     #[test]
