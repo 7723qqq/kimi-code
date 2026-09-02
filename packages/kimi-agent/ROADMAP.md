@@ -3038,6 +3038,34 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 - typecheck：agent-core-v2 `tsc --noEmit` 通过；oxlint（含 `--type-aware`）0 error
 - 全量 agent-core-v2 在本机仍不绿的只剩两类：`profile/binding`、`staleGuard`、`mcpCore/oauth/callback-server` 是 Windows 路径/端口差异（CI 只跑 Ubuntu）；`tower`/`workspaceMcp`/`connection-manager`/`tool`/`wire/resume`/`dateChange` 单独跑全绿，全量并发时是 `Worker forks emitted error` 级联
 
+## 未认领缺口 — 原生 Bash 超时把「转后台」执行成「杀掉」（2026-09-02 登记）
+
+模型看到的 Bash 说明只有一份，来自宿主：`bashTool.ts:78,93` 明写「前台命令命中超时会**移到后台而不是被杀**，
+完成时自动通知」，宿主自己确实这么做（`bashTool.ts:310` 的 `Command timed out and moved to background`）。
+引擎侧 `nativeTools` 执行同一工具时：`tools/mod.rs:1186` 明文放弃 `run_in_background`（测试
+`bash_run_in_background_falls_back_to_host` 钉住该回退），`tools/mod.rs:1284-1296` 前台超时后
+`child.kill()` + reap，返回 `Command killed by timeout (Ns)`。
+
+后果不是文案不美，是**模型据以决策的承诺在原生路径上是假的**：它以为一个长跑的 build/test/watch
+还活着并会收到通知，实际进程已被杀，用户当场丢掉进行中的工作。宿主路径无此问题。
+
+**为什么这不是工具层能顺手修掉的**：后台任务的权威在宿主——`TaskList` / `TaskOutput` / `TaskStop` /
+`TaskWait` 只是 `host/state_read {domain:"task"}` 与 `host/state_write` 的渲染器
+（`tools/task_tools.rs:5-12`），且 state_write 侧只有动作形的 stop/wait，**没有「登记一个进程已经在
+别处跑起来的新任务」这个动作**。要让引擎里活着的命令继续被宿主跟踪，必须先定 task 归属：引擎持有
+注册表（则面板/落盘/通知都要跟过来），或设计一条 adopt 协议并回答三件事——谁 kill、谁持久化输出、
+谁发完成通知。这与压缩归属（2e）、事件溯源历史归属（M1d 未定的另一半）是同一类裁决，
+不该在实现批次里顺手定掉。
+
+**顺带修正两处过期记录**（本文件自身的历史，别再照着排工作量）：
+- `:666` 「G-2 引擎工具面 6 个」已过期：`tools/mod.rs` 的 `NATIVE_TOOL_NAMES` 现在是 52 个拼写
+  （≈26 个工具 × camel/snake 双写）+ GitHub 动态族，
+  且由 `tool-name-contract.json` 与 v2 侧 `toolNameContract.test.ts` 双向钉住。
+- `:2032` 列的「命不中的 v2 注册名」按 `:2207` 的后续核对已收缩：`ReadMediaFile` 不是注册工具
+  （媒体已并入 Read，`readTool.ts:308`），`lsp` / `run_code` / `Tower*` / `Workflow` 按 `:1263`
+  的第四批评估长期留宿主。即「第二阶段：常用扩展工具原生化」剩下的候选**多是已判定该留宿主的**，
+  唯一还活着的实质项就是上面这条超时语义，而它的前置是 task 归属裁决。
+
 ## P63 — 批 2 起步：2a 模型窗口下发（2026-09-02）
 
 `CompactionConfig` 不再靠引擎自己假设 128k：宿主解析出的窗口沿契约 → 线 → 两条传输一路到 `run_turn`。
