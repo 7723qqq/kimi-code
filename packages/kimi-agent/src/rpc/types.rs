@@ -137,6 +137,14 @@ pub mod methods {
     /// the resulting state.
     pub const HOST_STATE_WRITE: &str = "host/state_write";
 
+    /// Host-side file checkpoint for native write executions (Rust → JS
+    /// host, P53). `phase: "prepare"` runs before the engine writes — the
+    /// host must capture the pre-image before the response arrives;
+    /// `phase: "record"` notes the post-image after execution. Fail-open:
+    /// an unwired or failing host skips the snapshot (the pre-P53 status
+    /// quo — native writes were never checkpointed).
+    pub const HOST_CHECKPOINT: &str = "host/checkpoint";
+
     /// Fetch the host's current tool table (Rust → JS host, M1d). Called
     /// before each LLM call on native transports so mid-turn registry
     /// changes (feature tools, MCP reconnects) reach the model — the
@@ -327,6 +335,28 @@ pub struct StateReadRequest {
     pub tool_call_id: String,
 }
 
+/// A host-side checkpoint request for a native write execution (Rust →
+/// JS host, P53). `phase: "prepare"` carries the pre-write paths — the
+/// host captures their pre-images before responding, and the engine does
+/// not write until the response lands. `phase: "record"` carries the same
+/// paths after execution so the host notes their post-images (used to
+/// detect manual edits at undo time). Fail-open on both sides: an
+/// unwired/failing host skips the snapshot (the pre-P53 status quo).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointRequest {
+    pub turn_id: String,
+    #[serde(default)]
+    pub tool_call_id: String,
+    /// `"prepare"` (pre-write snapshot) or `"record"` (post-write digest).
+    pub phase: String,
+    /// Absolute-or-workspace-relative write target paths.
+    pub paths: Vec<String>,
+    /// `record` only: whether the execution ran (failed prepares never
+    /// reach record).
+    #[serde(default)]
+    pub executed: bool,
+}
+
 /// The host's answer to a [`StateReadRequest`]: the domain wire value,
 /// opaque JSON serialized by the host (todo: `TodoItem[]`; plan:
 /// `{active, id?, path?}`).
@@ -510,6 +540,14 @@ pub struct RunTurnParams {
     /// `resolveSubagentTimeoutMs`). `None` → engine default (2h).
     #[serde(default)]
     pub subagent_timeout_ms: Option<u64>,
+    /// P52 native-path vetoes: non-empty reason = the engine rejects the
+    /// affected native executions with this text as the tool result.
+    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `tools_veto` denies every native tool (btw side-channel contexts).
+    #[serde(default)]
+    pub agent_tool_veto: Option<String>,
+    #[serde(default)]
+    pub tools_veto: Option<String>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -528,6 +566,13 @@ pub struct SubagentProfileWire {
     pub tools: Vec<String>,
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
+    /// Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+    /// prepended to the prompt as `{prefix}\n\n{prompt}`.
+    #[serde(default)]
+    pub prompt_prefix: Option<String>,
+    /// Summary distillation policy (v2 `AgentProfileSummaryPolicy`).
+    #[serde(default)]
+    pub summary_policy: Option<crate::subagent::types::SummaryPolicy>,
 }
 
 /// LLM provider definition for MultiLLM.
@@ -621,11 +666,28 @@ pub struct SessionOutcomeResult {
     pub result: Option<RunTurnResult>,
 }
 
+/// P56 (G-5): execution-path summary of a session's last completed turn —
+/// the cross-process half of `/status`'s engine line.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EngineExecSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_tool_calls: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+}
+
 /// Result of `session/status`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionStatusResult {
     pub active_turn_id: Option<u64>,
     pub pending_turn_ids: Vec<u64>,
+    /// P56 (G-5): absent until the session has run a turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<EngineExecSummary>,
 }
 
 /// Result of a run_turn RPC call.

@@ -45,9 +45,9 @@ use crate::llm::http::NativeHttpLlm;
 use crate::llm::multi::{LlmProvider, MultiLLM};
 use crate::llm::proxy::HostLlmProxy;
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
-    LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision, StateReadRequest,
-    StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, CheckpointRequest, ListToolsResponse,
+    LlmChatRequest, LlmChatResponse, NativeLlmConfig, PermissionCheckRequest, PermissionDecision,
+    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse,
 };
 use crate::session::{
@@ -117,11 +117,12 @@ fn store_payload(id: u32, payload: String) {
 /// space is large enough that collisions are impossible in practice.
 static NEXT_CALLBACK_ID: AtomicU32 = AtomicU32::new(1);
 
-/// Active-turn cancellation flags keyed by `turn_id`. `run_turn_rust`
-/// registers a flag before running and removes it afterwards; `cancel_turn`
-/// sets the flag of a running turn from the JS side so the loop can observe
-/// the cancellation at the next step boundary.
-static CANCEL_MAP: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+/// Active-turn cancellation signals keyed by `turn_id`. `run_turn_rust`
+/// registers a signal before running and removes it afterwards; `cancel_turn`
+/// triggers the signal of a running turn from the JS side so the loop can
+/// observe the cancellation at the next step boundary — and, since P51, the
+/// foreground subagent's event-driven wait aborts immediately.
+static CANCEL_MAP: LazyLock<Mutex<HashMap<String, crate::subagent::types::ParentCancel>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Process-wide subagent manager (P28). Instance state (running/completed
@@ -136,12 +137,12 @@ static SUBAGENT_MANAGER: LazyLock<Arc<crate::subagent::SubagentManager>> =
 #[napi]
 pub fn cancel_turn(turn_id: String) -> napi::Result<()> {
     guard_sync_panic(|| {
-        if let Some(flag) = CANCEL_MAP
+        if let Some(cancel) = CANCEL_MAP
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&turn_id)
         {
-            flag.store(true, Ordering::Relaxed);
+            cancel.trigger();
         }
         Ok(())
     })
@@ -287,6 +288,10 @@ struct NapiHostCallbacks {
     /// result.
     state_read_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     state_write_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
+    /// Optional host-side file checkpoint channel (P53): native write
+    /// executions snapshot their pre-images host-side. Absent means the
+    /// host skips checkpointing (fail-open).
+    checkpoint_fn: Option<Arc<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>>,
     /// Optional turn lifecycle channel: the engine reports the durable
     /// `turn.prompt` / `turn.cancel` / `turn.ended` records and the observable
     /// `turn.started` so the host can append and fold them. Absent means the
@@ -409,6 +414,30 @@ impl HostCallbacks for NapiHostCallbacks {
             )
             .await?;
             serde_json::from_str(&output).map_err(|e| format!("state_read parse: {e}"))
+        })
+    }
+
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let Some(ref tsfn) = self.checkpoint_fn else {
+            return Box::pin(async { Err("host does not support checkpoint".to_string()) });
+        };
+        let tsfn = tsfn.clone();
+        let input = serde_json::to_string(&request)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialize: {}"}}"#, e));
+        let cancel = self.cancellation.clone();
+        Box::pin(async move {
+            // Bounded: pre-image capture is host bookkeeping, but the engine
+            // waits for it before writing — the timeout bounds that wait. A
+            // turn cancellation still interrupts the wait.
+            invoke_via_registry(
+                &tsfn,
+                input,
+                "checkpoint",
+                Some(crate::callbacks::HOST_STATE_TIMEOUT),
+                cancel,
+            )
+            .await?;
+            Ok(())
         })
     }
 
@@ -713,6 +742,10 @@ pub struct JsRunTurnParams {
     /// `resolveSubagentTimeoutMs`). Absent → engine default (2h). `i64`
     /// because napi cannot read JS numbers as `u64`.
     pub subagent_timeout_ms: Option<i64>,
+    /// P52 native-path vetoes (host-formatted deny reasons; see
+    /// `RunTurnParams`).
+    pub agent_tool_veto: Option<String>,
+    pub tools_veto: Option<String>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -726,6 +759,14 @@ pub struct JsSubagentProfile {
     /// `disallowed_tools`.
     pub tools: Option<Vec<String>>,
     pub disallowed_tools: Option<Vec<String>>,
+    /// Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+    /// prepended to the prompt as `{prefix}\n\n{prompt}` (P51).
+    pub prompt_prefix: Option<String>,
+    /// Serialized summary distillation policy (v2
+    /// `AgentProfileSummaryPolicy`): `{ minChars, continuationPrompt,
+    /// retries }` (P51). Serialized JSON because napi cannot express
+    /// nested optionals in a flat object cleanly.
+    pub summary_policy_json: Option<String>,
 }
 
 /// The host-side half of the turn telemetry payload (M1c): fields the host
@@ -866,6 +907,7 @@ pub fn run_turn_rust(
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] checkpoint_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
@@ -958,6 +1000,19 @@ pub fn run_turn_rust(
             None => None,
         };
 
+    let checkpoint_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match checkpoint_cb
+    {
+        Some(cb) => Some(
+            cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
+                let id = ctx.value;
+                let js_num = ctx.env.create_uint32(id)?;
+                let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
+                Ok(args)
+            })?,
+        ),
+        None => None,
+    };
+
     let turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = match turn_event_cb
     {
         Some(cb) => Some(
@@ -1010,6 +1065,7 @@ pub fn run_turn_rust(
                 ask_question_tsfn,
                 state_read_tsfn,
                 state_write_tsfn,
+                checkpoint_tsfn,
                 turn_event_tsfn,
                 telemetry_tsfn,
                 list_tools_tsfn,
@@ -1030,6 +1086,7 @@ struct EngineCallbackTsfns {
     ask_question: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    checkpoint: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     turn_event: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     telemetry: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     list_tools: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
@@ -1063,7 +1120,7 @@ struct EnginePipeline {
 async fn build_engine_pipeline(
     params: &JsRunTurnParams,
     tsfns: EngineCallbackTsfns,
-    cancellation: Option<Arc<AtomicBool>>,
+    parent_cancel: Option<crate::subagent::types::ParentCancel>,
 ) -> napi::Result<EnginePipeline> {
     // Session profile catalog snapshot (P46): refresh the process-wide
     // manager's definitions per turn so the native `Agent` tool sees the
@@ -1078,6 +1135,10 @@ async fn build_engine_pipeline(
                 system_prompt: p.system_prompt.clone().unwrap_or_default(),
                 tools: p.tools.clone().unwrap_or_default(),
                 disallowed_tools: p.disallowed_tools.clone().unwrap_or_default(),
+                prompt_prefix: p.prompt_prefix.clone(),
+                summary_policy: p.summary_policy_json.as_deref().and_then(|j| {
+                    serde_json::from_str::<crate::subagent::types::SummaryPolicy>(j).ok()
+                }),
             })
             .collect();
         SUBAGENT_MANAGER.register_profile_snapshot(&wires).await;
@@ -1090,6 +1151,7 @@ async fn build_engine_pipeline(
         check_permission_fn: tsfns.check_permission.map(Arc::new),
         ask_question_fn: tsfns.ask_question.map(Arc::new),
         state_read_fn: tsfns.state_read.map(Arc::new),
+        checkpoint_fn: tsfns.checkpoint.map(Arc::new),
         state_write_fn: tsfns.state_write.map(Arc::new),
         turn_event_fn: tsfns.turn_event.map(Arc::new),
         telemetry_fn: tsfns.telemetry.map(Arc::new),
@@ -1175,7 +1237,7 @@ async fn build_engine_pipeline(
                                         .subagent_timeout_ms
                                         .filter(|t| *t > 0)
                                         .map(|t| t as u64),
-                                    cancellation,
+                                    parent_cancel,
                                 )
                                 .with_callbacks(base_callbacks.clone())
                                 .with_github_credentials(crate::tools::github::GitHubCredentials {
@@ -1215,6 +1277,8 @@ async fn build_engine_pipeline(
                         stale_guard: Some(stale_gate),
                         goal_guard: Some(goal_guard),
                         hook_guard,
+                        agent_tool_veto: params.agent_tool_veto.clone(),
+                        tools_veto: params.tools_veto.clone(),
                     })
                 }
                 None => base_callbacks.clone(),
@@ -1303,19 +1367,22 @@ async fn run_turn_rust_impl(
     ask_question_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_read_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     state_write_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
+    checkpoint_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     turn_event_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     telemetry_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
     list_tools_tsfn: Option<ThreadsafeFunction<u32, ErrorStrategy::Fatal>>,
 ) -> napi::Result<JsRunTurnResult> {
-    // Register the turn's cancellation flag up front so a JS-side
+    // Register the turn's cancellation signal up front so a JS-side
     // `cancel_turn` can interrupt host callbacks (permission waits
-    // included) while this turn is in flight.
+    // included) while this turn is in flight — and, since P51, abort a
+    // foreground subagent immediately.
     let turn_id = params.turn_id.clone();
     let cancellation = Arc::new(AtomicBool::new(false));
+    let parent_cancel = crate::subagent::types::ParentCancel::from_flag(cancellation.clone());
     CANCEL_MAP
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(turn_id.clone(), cancellation.clone());
+        .insert(turn_id.clone(), parent_cancel.clone());
 
     let pipeline = build_engine_pipeline(
         &params,
@@ -1327,6 +1394,7 @@ async fn run_turn_rust_impl(
             ask_question: ask_question_tsfn,
             state_read: state_read_tsfn,
             state_write: state_write_tsfn,
+            checkpoint: checkpoint_tsfn,
             turn_event: turn_event_tsfn,
             telemetry: telemetry_tsfn,
             list_tools: list_tools_tsfn,
@@ -1335,7 +1403,7 @@ async fn run_turn_rust_impl(
             goal: None,
             cancellation: Some(cancellation.clone()),
         },
-        Some(cancellation.clone()),
+        Some(parent_cancel.clone()),
     )
     .await?;
     let llm = pipeline.llm;
@@ -1556,6 +1624,18 @@ fn make_required_tsfn(
 pub struct JsSessionStatus {
     pub active_turn_id: Option<f64>,
     pub pending_turn_ids: Vec<f64>,
+    /// P56 (G-5): execution-path summary of the last completed turn.
+    pub engine: Option<JsEngineExecSummary>,
+}
+
+/// P56 (G-5): cross-process engine execution summary.
+#[napi(object)]
+#[derive(Clone, Default)]
+pub struct JsEngineExecSummary {
+    pub transport: Option<String>,
+    pub native_tool_calls: Option<f64>,
+    pub steps: Option<f64>,
+    pub stop_reason: Option<String>,
 }
 
 /// The outcome of one enqueued turn. Engine-side failures reject the outcome
@@ -1585,6 +1665,7 @@ pub fn create_engine_session(
     #[napi(ts_arg_type = "(callbackId: number) => void")] ask_question_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_read_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] state_write_cb: Option<JsFunction>,
+    #[napi(ts_arg_type = "(callbackId: number) => void")] checkpoint_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] turn_event_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] telemetry_cb: Option<JsFunction>,
     #[napi(ts_arg_type = "(callbackId: number) => void")] list_tools_cb: Option<JsFunction>,
@@ -1597,6 +1678,7 @@ pub fn create_engine_session(
     let ask_question_tsfn = make_tsfn(ask_question_cb)?;
     let state_read_tsfn = make_tsfn(state_read_cb)?;
     let state_write_tsfn = make_tsfn(state_write_cb)?;
+    let checkpoint_tsfn = make_tsfn(checkpoint_cb)?;
     let turn_event_tsfn = make_tsfn(turn_event_cb)?;
     let telemetry_tsfn = make_tsfn(telemetry_cb)?;
     let list_tools_tsfn = make_tsfn(list_tools_cb)?;
@@ -1615,6 +1697,7 @@ pub fn create_engine_session(
                     ask_question: ask_question_tsfn,
                     state_read: state_read_tsfn,
                     state_write: state_write_tsfn,
+                    checkpoint: checkpoint_tsfn,
                     turn_event: turn_event_tsfn,
                     telemetry: telemetry_tsfn,
                     list_tools: list_tools_tsfn,
@@ -1689,6 +1772,7 @@ pub fn create_engine_session(
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
                 on_before_turn: None,
+                agent_cancel_slot: None,
             })
             .await;
 
@@ -1828,6 +1912,12 @@ pub fn session_status(session_id: String) -> napi::Result<JsSessionStatus> {
                 .into_iter()
                 .map(|id| id as f64)
                 .collect(),
+            engine: status.engine.map(|e| JsEngineExecSummary {
+                transport: e.transport,
+                native_tool_calls: e.native_tool_calls.map(|n| n as f64),
+                steps: e.steps.map(|s| s as f64),
+                stop_reason: e.stop_reason,
+            }),
         })
     })
 }

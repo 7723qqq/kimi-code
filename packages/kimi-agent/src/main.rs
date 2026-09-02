@@ -4,7 +4,7 @@
 //!   kimi-agent [--health] [--test]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use clap::Parser;
@@ -29,6 +29,7 @@ use kimi_agent::{
         Admission, EngineSession, GoalProvider, QuiescenceGuard, SessionConfig, ToolDefsProvider,
         TurnOutcome, TurnRequest,
     },
+    subagent::ParentCancel,
     turn_loop::{
         run_turn::{run_turn, run_turn_with_telemetry},
         types::*,
@@ -95,9 +96,10 @@ async fn main() -> anyhow::Result<()> {
     // Build the RPC server and register handlers
     let server = Arc::new(RpcServer::new());
 
-    // Shared map of turn_id → cancellation flag, so CANCEL_TURN can
-    // signal a running turn to abort before its next step.
-    let cancel_map: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    // Shared map of turn_id → cancellation signal, so CANCEL_TURN can
+    // signal a running turn to abort before its next step — and, since
+    // P51, wake the foreground subagent's event-driven wait immediately.
+    let cancel_map: Arc<Mutex<HashMap<String, ParentCancel>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
     // Register run_turn handler
@@ -115,18 +117,18 @@ async fn main() -> anyhow::Result<()> {
             // on a configured `maxStepsPerTurn`).
             let max_steps = input.max_steps.unwrap_or(u32::MAX);
 
-            // Create and register a cancellation flag for this turn.
-            let cancel_flag = Arc::new(AtomicBool::new(false));
+            // Create and register a cancellation signal for this turn.
+            let cancel = ParentCancel::new();
             {
                 let mut map = cancel_map.lock().unwrap();
-                map.insert(turn_id.clone(), cancel_flag.clone());
+                map.insert(turn_id.clone(), cancel.clone());
             }
 
             // The engine pipeline is shared with the session handle: the
             // callback chain (counting + native tools over the RPC host
             // bridge) and the LLM selection are built once per context.
-            let pipeline = build_engine_pipeline(&input, server.clone(), Some(cancel_flag.clone()))
-                .await?;
+            let pipeline =
+                build_engine_pipeline(&input, server.clone(), Some(cancel.clone()), None).await?;
             let llm = pipeline.llm;
             let callbacks = pipeline.callbacks;
             let turn_event_count = pipeline.turn_event_count;
@@ -158,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_defs,
                 max_steps,
                 goal: input.goal,
-                cancellation: Some(cancel_flag.clone()),
+                cancellation: Some(cancel.flag()),
             };
 
             let result = match input.telemetry {
@@ -219,7 +221,18 @@ async fn main() -> anyhow::Result<()> {
                 let input: RunTurnParams = serde_json::from_value(params).map_err(|e| {
                     types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
                 })?;
-                let pipeline = build_engine_pipeline(&input, server.clone(), None).await?;
+                // P55: session-wide cancel slot — the pump refreshes it per
+                // turn, `cancel_turn` triggers it, and the native `Agent`
+                // tool reads the live signal from it.
+                let agent_cancel_slot: Arc<Mutex<Option<ParentCancel>>> =
+                    Arc::new(Mutex::new(None));
+                let pipeline = build_engine_pipeline(
+                    &input,
+                    server.clone(),
+                    None,
+                    Some(agent_cancel_slot.clone()),
+                )
+                .await?;
 
                 // Turn-start tool table: pulled fresh from the host per turn
                 // on native transports (host-proxy rebuilds tools inside
@@ -257,6 +270,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_defs: tool_defs_provider,
                     goal: goal_provider,
                     on_before_turn: None,
+                    agent_cancel_slot: Some(agent_cancel_slot),
                 })
                 .await;
 
@@ -374,6 +388,7 @@ async fn main() -> anyhow::Result<()> {
             let result = SessionStatusResult {
                 active_turn_id: status.active_turn_id,
                 pending_turn_ids: status.pending_turn_ids,
+                engine: status.engine,
             };
             serde_json::to_value(&result).map_err(|e| {
                 types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
@@ -522,8 +537,8 @@ async fn main() -> anyhow::Result<()> {
 
             let cancelled = {
                 let map = cancel_map.lock().unwrap();
-                if let Some(flag) = map.get(&input.turn_id) {
-                    flag.store(true, Ordering::Relaxed);
+                if let Some(cancel) = map.get(&input.turn_id) {
+                    cancel.trigger();
                     true
                 } else {
                     false
@@ -609,7 +624,8 @@ struct EnginePipeline {
 async fn build_engine_pipeline(
     params: &RunTurnParams,
     server: Arc<RpcServer>,
-    cancellation: Option<Arc<AtomicBool>>,
+    parent_cancel: Option<ParentCancel>,
+    parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
 ) -> Result<EnginePipeline, types::JsonRpcError> {
     let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks { server });
 
@@ -689,10 +705,8 @@ async fn build_engine_pipeline(
                             toolset: Arc::new(
                                 toolset
                                     .with_subagents(subagent_manager.clone())
-                                    .with_agent_context(
-                                        params.subagent_timeout_ms,
-                                        cancellation,
-                                    )
+                                    .with_agent_context(params.subagent_timeout_ms, parent_cancel)
+                                    .with_parent_cancel_slot_if(parent_cancel_slot)
                                     .with_callbacks(base_callbacks.clone())
                                     .with_github_credentials(
                                         kimi_agent::tools::github::GitHubCredentials {
@@ -733,6 +747,8 @@ async fn build_engine_pipeline(
                             stale_guard: Some(stale_gate),
                             goal_guard: Some(goal_guard),
                             hook_guard,
+                            agent_tool_veto: params.agent_tool_veto.clone(),
+                            tools_veto: params.tools_veto.clone(),
                         })
                     }
                     None => base_callbacks.clone(),

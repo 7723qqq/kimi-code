@@ -2580,3 +2580,344 @@ M3 决策表「profiles+subagent → Rust 吸收」的第一刀：v2 `Agent` 工
 - agent-core-v2：engineOverride + rustEngineE2E + rustEngineZeroJsLoop + toolNameContract 68/68 无回归。
 - oxlint（变更 TS 文件）：0 errors；napi addon 与 kimi-agent-cli 均重建于本批提交前。
 
+## P47 — 质量门禁与基建卫生：CI Rust 门禁 / Windows 启动器 / G-7 测试去噪定论 / 工具执行路径基准（2026-09-02）
+
+纯基建批次，不改任何产品语义：CI 补 Rust 质量门禁、Windows 启动器构建分支规范化、stdio 集成测试并发污染根因修复（G-7 定论）、第 1 批（D-1 的「量」）缺失的工具执行路径基线补齐。
+
+### 实现
+
+- **CI 质量门禁补齐**：`ci.yml` test-rust job 新增 kimi-native-tools `cargo test --lib`、两包（kimi-agent + kimi-native-tools）`cargo fmt --check` 与 `cargo clippy --all-targets -- -D warnings` 门禁（仅 ubuntu 矩阵）；cargo 缓存覆盖两包 `target/`、缓存 key hash 双 `Cargo.lock` 并补 `restore-keys` 回退（评审批次 B）。`Makefile` rust-test 补 kimi-native-tools 行；kimi-agent `package.json` 新增 `test` 脚本，kimi-native-tools `package.json` `test` 脚本统一为 `cargo test --lib`（评审批次 B）。摸底：两包 clippy 0 警告；发现并修复存量 fmt 漂移（纯格式，无语义改动）。
+- **Windows 启动器卫生**：`start-native.bat` 构建分支从「`cargo build` + 手工 copy DLL 改名」改为 `bun run build`（napi 规范产出 `.node`）；一次性清理 ~280MB napi 构建垃圾（26 个 retired/prepared tmp + rollback tmp + `.napi-rs-swp-bak-*`，均 gitignored）。
+- **测试去噪（G-7 定论）**：`stdio_rpc_integration` 12 个用例的固定临时目录改 `tempfile::tempdir()`——根因：workspace 路径 FNV digest 作 `engine_state_dir` key，固定目录名导致跨进程共享存储并发污染；单轮超时 30s→60s、多轮 60s→90s；env 用例加 `GITHUB_ENV_TEST_LOCK` 互斥（持锁临界区移入专用阻塞线程，避免 await-holding-lock）——评审批次 B 把覆盖从 `test_github_token_env` 等 3 个补全到 4 个（新增 `test_has_token_gating` 与 `test_unknown_tool_returns_none_and_case_insensitive_dispatch`，后者用专用线程持锁模式）。
+- **工具执行路径基准（bench-tool-path）**：新增 `KIMI_E2E=1` 门控的 3 个用例（2000 文件夹具）：grep 引擎 vs 宿主 ripgrep、批量 Read 200、16 并发批次。基线数字（P48 优化**前**测得）：引擎 grep 中位 2938ms vs 宿主 43.5ms；批量 Read 引擎 42.6ms vs 宿主 21.4ms；16 并发批次引擎 4.12ms vs 宿主 1.80ms。第 1 批（≈L689）的「工具执行路径基线缺失」就此补齐。
+
+### 诚实边界
+
+- kimi-native-tools 的 `index.d.ts` 是手工维护的被跟踪文件，napi build 不重写它（`--dts` 目标为 `target/napi-generated.d.ts`）——统一契约生成留待 M0 切片 1b（≈L1190）同款修复。
+- 基准数字为单轮中位取样；宿主 ripgrep 侧存在轮间波动（P48 复测 ~38ms vs 本批 43.5ms）。
+- fmt 漂移修复与启动器清理均纯卫生，无行为面；CI 门禁仅 ubuntu 矩阵，Windows/macOS 不进 fmt/clippy 门。
+
+### 验证
+
+- 两包 `cargo fmt --check` 干净、`cargo clippy --all-targets -- -D warnings` 0 警告；kimi-native-tools `cargo test --lib` 与 kimi-agent 全量 cargo test 绿。
+- G-7 验收：连续 3 轮全量 `cargo test --features cli` 全绿（904 lib + 18 集成）——P11/P12 悬置的 G-7 遗留项（≈L683）定论关闭。
+- bench-tool-path 3 用例在 `KIMI_E2E=1` 下产出上述基线数字。
+
+## P48 — 引擎与原生插件性能批：spawn_blocking / grep 并行化 / llm_stream 共享 runtime / token 估算批量接线（2026-09-02）
+
+四项性能改进横跨 kimi-agent、kimi-native-tools、agent-core-v2 三包，全部为调度/资源层变化，工具与估算语义不变、输出对齐有验证。P47 的 bench-tool-path 基线即本批的「量」前置。
+
+### 实现
+
+- **引擎阻塞 I/O 移出异步线程**（kimi-agent）：引擎原生工具阻塞 I/O 移出 tokio 异步线程：NativeToolset::execute_tool 的 read/grep/glob/write/edit 五个同步文件 I/O 工具改为经 tokio::task::spawn_blocking 在阻塞池执行（工具体重构为 root: &Path 关联函数，闭包仅携带 owned 的 root 与 args clone）。修复 MAX_PARALLEL_TOOLS=16 并发阻塞调用独占 tokio worker、饿死 bash 输出泵/LLM 流/steer 队列的问题。JoinError 按工具可变性分流（评审批次 A 修正）：read/grep/glob 回退宿主（幂等、可安全重跑），write/edit 返回错误结果（避免已授权变更型调用双重写入）。工具语义与输出除此之外不变；全部测试与 lint 门禁通过，基准无劣化（批量 Read 46.9→48.4ms、16 并发批次 3.74→4.21ms，噪声级）。
+- **引擎 grep 并行化与内存收敛**（kimi-agent）：以 ignore 原生 WalkParallel 替代串行遍历；BufReader 逐行流式扫描替代整文件载入（保留 4MiB 上限与 NUL 二进制跳过契约）；content 模式仅保留 -A/-B/-C 上下文窗口；单次 metadata() 复用；超时预算改为原子 deadline 标志。排序契约（评审批次 A 统一）：files_with_matches = 整秒 mtime 降序 + 路径升序 tiebreak，且排序先于截断；content/count = 路径升序；宿主 `grepTool.ts`（agent-core-v2）同步改为该确定性契约（tiebreak 从 rg 输出序改为路径码元序），两侧经 40 文件同秒夹具实测逐条相等。2000 文件基准中位 ~2820ms → ~26ms（约 109x），已快于宿主 ripgrep（~38ms）；峰值内存 ≈0。未加 rayon，Cargo.lock/flake.nix 零改动。补 4 个并行语义单测。全门禁绿（cargo test 908+18、clippy/fmt、vitest 119+9、契约 68、engine-zero-js-loop）。
+- **llm_stream 共享 runtime**（kimi-native-tools）：napi_bindings.rs 的 native_llm_stream_streaming 从「每流一线程 + 新建 current-thread runtime」改为进程级惰性共享 multi-thread runtime（OnceCell，worker_threads=2，线程名 kimi-llm-stream，初始化失败不缓存可重试）；tokio 启用 rt-multi-thread feature（无新依赖，Cargo.lock 仅 feature 启用）；取消/背压/错误传播三类语义逐行保留。
+- **token 估算批量接线**（agent-core-v2）：_base/native-tools.ts 新增 tryNativeEstimateTokensBatch；kosong/contract/tokens.ts 仅把它接入无状态的 estimateTokensForTools（批量优先、失败落回逐条 JS），estimateTokensForMessages 保持逐条 WeakMap 缓存路径不变（评审批次 C 修正，媒体部件仍走 JS 常数）；数值语义三种模式（native 批量 / native 逐条 / JS）一致（ASCII ceil(n/4)+非ASCII 码点数）；usage-tokens.test.ts 现 17 条（补缓存命中与路由断言、混合脚本语料 batch≡逐条、FORCE_JS 逃生门）。
+
+### 诚实边界
+
+- kimi-native-tools 已提交的 `index.d.ts` 仍为手工维护（P47 记录沿用），本批未触碰其契约生成。
+- 基准数字为中位取样，宿主 ripgrep 侧存在轮间波动（见 P47）。
+- 真实 LLM 会话下的端到端验证仍需真实 key（沿用）。
+
+### 验证
+
+- kimi-agent：cargo test 908 lib + 18 集成全绿，clippy/fmt 干净；vitest 119+9；agent-core-v2 契约 68 + engine-zero-js-loop 绿；bench-tool-path 复测批量 Read 46.9→48.4ms、16 并发批次 3.74→4.21ms（噪声级）、grep 中位 ~2820ms→~26ms。
+- kimi-native-tools：cargo test --lib 546、clippy/fmt、napi build、test:js 30 全绿。
+- agent-core-v2：引擎契约 67 + 相关套件 954 + mock 文件 85 全绿；typecheck 通过；oxlint 0 errors；无注释区零违规。
+
+## P49 — 引擎 grep 收敛宿主 ripgrep 回退面：type / include_ignored / multiline（2026-09-02）
+
+在 P48 并行化基础设施（WalkParallel + 流式扫描）之上，为引擎原生 grep 实现三个此前整体回退外部 rg 的常用参数，使 zero-JS-loop 路径不再因它们退回宿主进程。
+
+### 实现
+
+- **`type` → rg `--type`**：新增 `src/tools/grep_types.rs`，从 rg 15.0.0 `--type-list` 转录 217 条类型→basename glob 表（纯数据、零跨包依赖，守 P21 D-3）作快路径；未知 type 名回退宿主（评审批次 A 修正——静态表仅是 rg 15.0.0 快路径，宿主支持 `.ripgreprc` 自定义类型与任意 rg 版本）。
+- **`include_ignored` → rg `--no-ignore`**：WalkBuilder 翻转 gitignore/global/exclude/parents 开关；VCS 与敏感文件仍强制排除。
+- **`multiline` → rg `-U --multiline-dotall`**：`dot_matches_new_line` + 整文件缓冲扫描路径（仅 multiline=true 启用，保留 4MiB 上限与二进制跳过）；跨行命中逐物理行报行号、`--count-matches` 计匹配数、`-C`/`--` cluster 与单行路径一致。
+- `grep()` 回退面收敛至「pattern 参数形状 / 无效 output_mode / glob（含 type glob）构建失败 / path 不存在或越界 / 畸形参数类型（回退宿主 zod）/ 未知 type 名」（评审批次 A 修正枚举）。补引擎测试覆盖 type/include_ignored/multiline 对齐、确定性排序与回退路由，另加 rg `--type-list` 对账测试（217 类型全等，rg 不可用时跳过）；与真实 rg 15.0.0 做 8 场景逐字节对齐自查全通过。
+
+### 诚实边界
+
+- type 表转录自 rg 15.0.0，宿主 rg 版本升级时需同步该表。
+- multiline 的整文件缓冲仅该模式启用，单行路径仍为 P48 的流式扫描（峰值内存 ≈0 不受影响）。
+- 真实 LLM 会话下的端到端验证仍需真实 key（沿用）。
+
+### 验证
+
+- 门禁全绿：clippy/fmt exit 0、cargo test 914 lib + 18 集成、kimi-agent vitest 119+9、agent-core-v2 契约 68、zero-js-loop OK。
+- bench-tool-path：引擎 grep 中位 ~21–32ms 持续反超宿主 ripgrep ~32–38ms，无劣化。
+
+## P50 — 三路评审修复批次（2026-09-02）
+
+对已落地的「引擎 grep 并行化（P48）+ 宿主回退面收敛（P49）+ 阻塞工具移出异步线程（P48）」三项改动做了三路独立代码评审（完整性 / 正确性 / 影响面），发现 9 个问题（2 critical / 7 major-minor），本批次（A/B/C 三路）全部修复并补齐回归测试（lib 测试 914 → 934）。
+
+### 实现
+
+- **两处 critical（确定性缺陷）**：
+  - `GREP_MAX_FILES` 截断发生在排序之前——并行 walk 下保留集合不确定。
+  - `files_with_matches` 排序契约在引擎与宿主间分叉（引擎全精度 SystemTime + display tiebreak vs 宿主整秒截断 + rg 输出序 tiebreak；git checkout/clone 同秒海量文件场景下两侧顺序不同，且 head_limit 先排序后截断会改变返回集合）。
+  - 修复：统一为「整秒 mtime 降序 + 路径升序 tiebreak，排序先于截断」，宿主侧 tiebreak 由 index 改为路径码元序，两侧输出经 40 文件同秒夹具实测逐条相等。
+- **批次 A 其余修复（正确性 / 影响面）**：
+  - 并行遍历 walk 内软内存上限（`GREP_MAX_FILES`×2 计数 + `WalkState::Quit`）；WalkParallel 线程数显式限流为 4（16 核最坏额外线程 256→64）。
+  - JoinError 按可变性分流（read/grep/glob 回退宿主，write/edit 报错）；畸形参数不再静默忽略（类型不符回退宿主 zod，缺失/null 用 schema 默认值）。
+  - 未知 `--type` 由合成错误文本改为回退宿主（静态表只是 rg 15.0.0 快路径，宿主还可用 `.ripgreprc` 自定义类型），新增 rg `--type-list` 对账测试（217 类型全等）。
+  - scan I/O 错误恢复整文件跳过语义；multiline EOF 零宽匹配按 rg 15.0.0 实测钉死（落在 `\n` 上的零宽匹配额外标记下一行；唯一匹配+无尾换行时才保留 EOF 零宽匹配）。
+  - 复核确认宿主没有每文件行数上限，引擎不引入；修正 `GREP_MAX_OUTPUT_BYTES` 一处误导性注释（宿主 10MiB vs 引擎 512KiB 为有意的自有内存守卫）。
+- **批次 B（测试 / CI 卫生，归 P47 域）**：补全 `GITHUB_ENV_TEST_LOCK` 覆盖（4 用例）、统一 native-tools `test` 脚本、CI 缓存 `restore-keys`。
+- **批次 C（token 估算，归 P48 域）**：恢复 `estimateTokensForMessages` 逐条 WeakMap 缓存路径（批量仅保留在 `estimateTokensForTools`），补缓存命中与路由断言（usage-tokens 17 条）。
+
+### 诚实边界
+
+- 已知残留差异：UTF-16 码元序与 UTF-8 字节序对增补平面字符排序不同（路径场景极罕见）。
+- 引擎 `GREP_MAX_OUTPUT_BYTES` 512KiB vs 宿主 10MiB 为既有有意设计，收敛需另立项。
+
+### 验证
+
+- 全部门禁复验通过：fmt / clippy(-D warnings) / cargo test（934 lib + 18 集成）、addon 重建 + kimi-agent vitest（119+9）、agent-core-v2 契约 68、zero-js-loop OK、typecheck 0、grep.test.ts 87、bench-tool-path 4 passed（引擎 grep 中位 ~49ms，宿主 ~35ms，同量级）。
+
+
+
+## P51 — P46 子代理边界收敛：summary distill / promptPrefix / 事件驱动取消 / 生命周期事件镜像（2026-09-02）
+
+P46「诚实边界」里属于引擎前台核心的四项全部落地：summary 蒸馏、promptPrefix、父取消的即时中断、v2 子代理生命周期事件镜像。
+
+### 实现（Rust）
+
+- `src/subagent/types.rs`：新增 `SummaryPolicy { min_chars, continuation_prompt, retries }`（serde 对齐 v2 `AgentProfileSummaryPolicy`）与 `ParentCancel`（flag + `tokio::sync::Notify`：`trigger` 同时翻转 flag 与唤醒等待者，`notify_one` 的 permit 语义覆盖 trigger-before-wait 竞态）；`SubagentDefinition` 扩 `prompt_prefix` / `summary_policy`
+- `src/subagent/manager.rs`：`run_foreground_turn` 重构——返回 `ForegroundTurnOutcome::{Completed, ParentCancelled}`；`run_one` 在父取消时经 `select` 唤醒并 **drop run future**（在当前 await 点立即中断飞行中的 LLM 调用/工具等待——v2 AbortSignal 语义；步顶 flag 检查保留为 await 间隙的降级路径）；distill 循环镜像 v2 `distillSummary`：最终 assistant 文本不足 `min_chars` 时以 `continuation_prompt` 追加 turn 重跑，最多 `retries` 次，长度按 UTF-16 码元计数（对齐 `String.length`），usage 跨轮累加；`prompt_prefix` 以 `{prefix}\n\n{prompt}` 前置（v2 `applyProfilePromptPrefix` 形状）
+- `src/tools/agent_tool.rs`：`execute_agent` 新签名（`&ParentCancel` + `tool_call_id`）；四个生命周期事件经 `emit_event` 发射（`subagent.spawned/started/completed/failed`——v2 词汇表；spawned 带 parent_tool_call_id/description/run_in_background，completed 带 summary + usage）；ParentCancelled 映射 USER_INTERRUPTED 文案且不发 failed 事件（v2 对 abort 抑制失败事件）
+- `src/tools/mod.rs`：`with_agent_context` 收 `ParentCancel`；新增 `execute_tool_ext` 携带 tool_call_id（旧 `execute_tool` 签名不变，零涟漪）
+- 接线：main.rs legacy 入口 `cancel_map` 值升级为 `ParentCancel`（CANCEL_TURN → `trigger`）；napi 同（`cancel_turn` trigger、`run_turn_rust_impl` 以 `ParentCancel::from_flag` 包裹原 flag，host 回调的取消观察不受影响）；`JsSubagentProfile` 扩 `promptPrefix` / `summaryPolicyJson`
+
+### wire 与宿主
+
+- `wire-schema.ts`：subagent_profiles 校验扩 `prompt_prefix` / `summary_policy`
+- `engineOverride.ts`：`TurnEngineSubagentProfile` 扩 `promptPrefix` / `summaryPolicy`；`TurnEngineInput.onSubagentEvent` + `EngineSubagentEvent` 联合
+- `loopService.ts`：`collectSubagentProfiles` 变 async——promptPrefix 以 `ISessionContext.cwd` + `IHostProcessService` 现场解析（失败降级为无前缀，同 v2 `applyProfilePromptPrefix` 的 catch 语义），summaryPolicy 直推；新增 `dispatchEngineSubagentEvent` 把四个事件映射回 v2 Event2（`SubagentSpawned/Started/Completed/Failed`）+ `subagent_created` track2——native 子代理的卡片/遥测与宿主路径一致
+- `rust-loop.ts`：EngineEvent 联合 + 4 个 case（snake→camel）；session profiles 映射 `promptPrefix`/`summaryPolicyJson`（napi 以 JSON 字符串承载 policy，引擎侧 serde 解析 snake 字段）；completed usage 沿用 `input_tokens→inputOther` 惯例
+
+### 诚实边界
+
+- 立即中断的粒度：drop future 在 await 点生效；已 spawn 的阻塞工具任务（bash 等）由实例 flag 在其自身检查点收尾，非信号级 kill
+- stdio **session** 入口（SESSION_CREATE 一次建 pipeline）仍无取消接线——ParentCancel 需按 turn 动态注入 session pump，另批处理；legacy per-turn 与 napi per-turn 已接
+- promptPrefix 在 snapshot 期（每 turn 一次）解析，v2 在 spawn 期解析——同一 turn 内的 cwd/git 状态变化不反映
+- distill 的 continuation turn 失败即整体失败（镜像 v2 `classifyTurnResult` 的传播）；continuation 复用同一 tool 表与取消 flag
+- `mirrorAgentRun` 的 `onWillStartAgentTask` hook / `republishStatus` / `notifyAgentTaskStopped` 未镜像（需要 scope 句柄，宿主独有）
+
+### 验证
+
+- cargo：938 lib + 18 集成全绿（agent_tool 17 单测：+promptPrefix/distill/adequate/lifecycle-events 四项）；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m24s）、napi addon（56s，dts 走 napi-contract 管线）
+- vitest：kimi-agent 120 通过 / 9 跳过（+1 stdio E2E：prefix + distill + 事件三合一）；agent-core-v2 engineOverride 61/61、rustEngineE2E + ZeroJsLoop 6/6；typecheck 通过；oxlint 0 errors
+- loop.test.ts 的 tools_snapshot 快照红经 stash 对照确认为其他会话遗留（与本批无关，沿用 P48/P50 记录）
+
+## P52 — veto 链旁路修复：swarm / btw 的原生病灶关闭（2026-09-02）
+
+P23 记录的「veto 链旁路」（原生路径只走权限链，不进宿主 `onBeforeExecuteTool`）做了一次完整盘点并关闭最后两个真实病灶。盘点结论：旁路监听器共 9 个，其中 staleGuard（P41）、goal 审批+veto（G-6 #7/#8）、externalHooks（G-6 #6）、toolDedupe（P45）、plan 写拦截（plan_guard）已由引擎原生等效；swarm #2（AgentSwarm 批规则）与 tower #1（tower 工具 inert）无旁路（相应工具不在原生 handles 表）；tower #2/#3 依赖 TOWER 实验 flag（M3：休眠不装配），记录豁免。**真实旁路只剩两个：swarm 激活时的原生 `Agent`、btw 侧聊的全工具禁。**
+
+### 实现
+
+- 宿主（agent-core-v2）：
+  - `engineOverride.ts`：`TurnEngineInput` 加 `agentToolVeto?` / `toolsVeto?`（宿主格式化的 deny 文案，非空 = 引擎以逐字 reason 拒绝受影响的原生执行；不回落宿主——宿主 veto 链也会拒，本地拒绝省一次往返且卡片终态一致）
+  - `swarmService.ts`：`agentDeniedInSwarmModeMessage` 导出；`loopService.collectAgentToolVeto()`——swarm 激活时经 `IAgentToolApprovalService.formatDenyMessage` 组装文案（swarm 未装配 fail-open：无约束即无 veto）
+  - `btw.ts` 新增 `btwToolsVetoKey`（defineState）；`btwService.start()` 在 fork 出的 child context 上 `contributeState + set(reason)`；`loopService.collectToolsVeto()` 读取（has() 守卫，非 btw context 无此 key）
+  - 两字段进 session fingerprint：swarm enter/exit（turn 间隙发生）触发 session 重建，引擎拿到新鲜 veto
+- 引擎（kimi-agent）：
+  - `RunTurnParams` / `JsRunTurnParams` 加 `agent_tool_veto` / `tools_veto`（serde/napi 默认，wire-schema 同步校验）
+  - `NativeToolCallbacks` 加同名字段 + veto gate：位于 plan_guard 之前、goal 的 requires_host 回退之后——**veto 先于权限**（v2 `beforeToolExecuteEvent` 聚合语义：有 veto 即拒）；deny 以 `tool.native` 事件上送转录终态，与 plan/permission deny 同款
+  - 非原生工具不受此 gate 影响：仍回宿主执行，宿主 veto 链在那里拦截（双保险）
+  - 传递链：`rust-loop.ts`（input → napi sessionParams / stdio `toStdioSessionParams`）→ main.rs / napi_bindings 两处 pipeline 装配；REPL 显式 None
+
+### 诚实边界
+
+- veto 是 per-turn 快照而非实时事件：turn 内的 swarm enter（AgentSwarm 本身是宿主工具，经宿主 veto 链）要到下一 turn 经 fingerprint 重建才对原生路径生效——与 policy snapshot 的会话级语义一致
+- tower #2/#3 的旁路在 TOWER flag 开启时仍然存在（引擎未实现 TowerStore 校验），记录为 flag 休眠期的已知豁免
+- 宿主侧 `collectAgentToolVeto`/`collectToolsVeto` 无独立集成测试（依赖 feature 装配 harness），由 Rust veto gate 单测 + 2 条 stdio E2E（直接注 veto reason）锁住引擎行为面
+
+### 验证
+
+- cargo：940 lib + 18 集成全绿（+2：`test_tools_veto_denies_every_native_call`、`test_agent_tool_veto_denies_only_agent`——含 veto 先于权限、无宿主回退、tool.native 事件断言）；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m15s）、napi addon（56s）
+- vitest：kimi-agent 122 通过 / 9 跳过（+2 stdio E2E：btw 全工具禁 / swarm Agent 拒）；agent-core-v2 engineOverride + rustEngineE2E + ZeroJsLoop 67/67；typecheck 通过；oxlint 0 errors
+
+## P53 — checkpoint/undo 前置接缝：原生写入进 checkpoint（2026-09-02）
+
+P25 记录的最后一块宿主生命周期等效项：原生 write/edit 的写前快照。v2 的文件 checkpoint（`checkpointService.ts`）挂在宿主 `onWillExecuteTool`（执行前捕获 preimage → blob 落盘）+ `onDidExecuteTool`（记 afterSha，undo 时检测 manual edit）+ `restoreAfterUndo`（按 contextLen 恢复）上——原生路径三者全旁路。
+
+### 实现
+
+- **新接缝 `host/checkpoint`（Rust → JS host，请求-响应）**：`CheckpointRequest { turn_id, tool_call_id, phase: "prepare"|"record", paths, executed }`。`prepare` 必须在响应落地后才写文件（宿主捕获 preimage 的窗口）；`record` 在执行后记 post-image。两侧均 fail-open——未接线或失败的宿主跳过快照（即 P53 之前的状态，不是新的数据丢失面）。
+- 引擎（kimi-agent）：
+  - `callbacks.rs`：`HostCallbacks::checkpoint`（默认 Err = fail-open）；`RpcHostCallbacks`（stdio，`HOST_STATE_TIMEOUT` 界定等待）与 `NapiHostCallbacks`（registry 模式，`checkpoint_fn` tsfn）实现；`CountingCallbacks` 转发；`ToolFilterCallbacks` 不转发——子代理内的原生写不进宿主 checkpoint（turn_id 归属未定义，记录边界）
+  - `NativeToolCallbacks::execute_tool`：全部 deny gate（veto/plan/permission/hook/stale）通过后、`execute_tool_ext` 之前发 `prepare`；原生执行完成后发 `record`。write 路径提取复用 `infer_tool_accesses`（与调度器冲突检测同一推断，file write/readwrite 过滤）
+  - napi 接线：`EngineCallbackTsfns.checkpoint` + `run_turn_rust`/`create_engine_session` 新可选 `checkpoint_cb` 参数
+- 宿主（agent-core-v2）：
+  - `engineOverride.ts`：`TurnEngineInput.onCheckpoint?({ turnId, phase, paths })`
+  - `checkpointService.ts`：`IAgentCheckpointService` 暴露 `prepareNativeWrite` / `recordNativeAfterWrite`（复用既有 capturePaths/记录逻辑，per-turn+path 幂等）
+  - `loopService.ts`：`buildEngineInput.onCheckpoint` → checkpoint 服务（`Number(turn_id)` 还原 loop turnId）；`rust-loop.ts` stdio（AgentProcess handler + `StdioSessionTransport`）与 napi（SessionCallbacks + wrap）双通道接线
+
+### 诚实边界
+
+- 子代理内的原生写不进 checkpoint（ToolFilterCallbacks 未转发；归属需要引擎侧 turn 树语义，另批）
+- `record` 的 `executed` 恒为 true（只在原生执行成功路径发送）；deny/gate 拒绝的调用天然无快照无恢复——与 v2 语义一致（veto 的调用不产生 undo 差异）
+- undo 的触发与恢复仍在宿主（`restoreAfterUndo`），本批只闭合「原生写有快照可恢复」这一半
+
+### 验证
+
+- cargo：941 lib + 18 集成全绿（+1：`test_native_write_checkpoints_prepare_and_record`——prepare 先于写、record 后置、turn_id/paths/executed 逐字段断言）；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m20s）、napi addon（dts 14499 bytes）
+- vitest：kimi-agent 122 通过 / 9 跳过；agent-core-v2 engineOverride + rustEngineE2E + ZeroJsLoop 67/67；typecheck 通过；oxlint 0 errors
+
+## P54 — tool_call 遥测：原生执行进入仪表盘词汇（2026-09-02）
+
+P25 清单的观测项：原生路径不产生 `tool_call` track2 事件（outcome / duration_ms / error_type），原生工具执行在遥测仪表盘上不可见。P52 已闭合 veto 旁路、P53 已闭合 checkpoint 旁路，本批补上遥测旁路——复用现有 `host/telemetry` 通道，零新接缝。
+
+### 实现
+
+- 引擎（kimi-agent）：`NativeToolCallbacks::execute_tool` 以 `Instant` 环绕 `execute_tool_ext` 计时，原生执行完成后沿 `inner.telemetry`（stdio `host/telemetry` / napi tsfn，通道已存在）发 `{"event": "tool_call", turn_id, tool_call_id, tool_name, outcome, duration_ms, dup_type: "normal", error_type?}`。
+  - 字段集逐字对齐 v2 `ToolCallEvent`（`events.ts`）：`turn_id` 为数字（wire 的字符串 turn_id `parse::<u64>` 降级 0）；`error_type: "error"` 仅在 is_error 时携带；无 `trace_id`（引擎无法捕获 provider request id，沿 P35 记录的缺口）
+  - `dup_type` 恒为 `normal`：dedupe 供给的重复调用永远不会到达执行层（P45 的 veto 在执行前拦截）
+- 宿主（agent-core-v2）：`TurnTelemetryEvent` 联合加 `tool_call` 变体；`forwardEngineTurnTelemetry` 无需改动（通用 `{event, ...payload} → track2` 转发天然覆盖）
+
+### 诚实边界
+
+- 时长只覆盖原生执行段（`execute_tool_ext` 前后），不含同一调用的权限/钩子往返——v2 的计时同样只覆盖执行段，口径一致
+- `cancelled` outcome 不会出现：取消的 turn 走 `turn_interrupted`，单次工具调用级取消不区分（v2 语义，引擎无 AbortSignal 级取消）
+- `dup_type` 的 `same_step` / `cross_step` 归属需要 dedupe plan 跨层传递，暂以 `normal` 直发——dedupe 行为本身由 P45 的拦截逻辑保证，遥测偏差仅影响分类统计
+
+### 验证
+
+- cargo：941 lib + 18 集成全绿（checkpoint 单测扩展 telemetry 断言：事件数、outcome、dup_type、turn_id 数字降级、duration_ms 类型）；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m22s）、napi addon
+- vitest：kimi-agent 122/9、agent-core-v2 引擎套件 67/67；typecheck 通过
+
+## P55 — 大批次收尾：session 取消接线 + 子代理 resume 原生化（2026-09-02）
+
+两项剩余引擎模块一次落地；另核实 `nativeTools` 默认值**已是 true**（`rust-engine.ts`/`rust-loop.ts` 均 `!== false` 判定，P21 D-1 某轮已翻转）——早前「默认 false」的记录过时，以本轮核实为准。
+
+### 实现
+
+- **stdio session 入口取消接线（P51/P52 记录的最后一处取消缺口）**：
+  - `SessionConfig`/`SessionContext`/`EngineSession` 加 `agent_cancel_slot`（session 级共享槽）；pump 每 turn 开始写入该 turn 的 `ParentCancel::from_flag(cancel)`、结束清除；`cancel_turn` 的 CancelActive 分支触发槽内信号（notify 唤醒前台 `Agent` 的 select 等待）
+  - `NativeToolset` 加 `parent_cancel_slot`（`with_parent_cancel_slot_if`）；`effective_parent_cancel()` 读取顺序：槽 > 静态值；legacy per-turn 与 napi per-turn 的静态接线不变
+  - main.rs session create 创建槽 Arc，同传 build_engine_pipeline（新第 4 参）与 SessionConfig
+- **子代理 resume 原生化（P46/P51 的剩余边界）**：
+  - `SubagentManager` 加 `foreground_histories`（agent_id → 前台完成后的完整对话）；`run_foreground_turn` 完成时写入
+  - 新增 `resume_foreground_turn`：同 profile 策略（ToolPolicyFilter）续跑一轮，历史累积；`resume_profile` 供结果行
+  - `agent_tool.rs`：`requires_host` 移除 resume（运行时按 id 判定）——历史存在则原生子代理，含 P51 的全部事件与超时/取消语义；未知 id 回退宿主（v2 persistent scopes 语义）
+- **调用参数 `model` 与 background/fork 仍回退宿主**：v2 的模型绑定是 per-agent-scope `modelAlias`（IModelCatalog），非 profile catalog 字段——快照通道无法承载，需要 M2 级模型目录下推，另行设计
+
+### 诚实边界
+
+- resume 历史仅存进程内存（napi 进程级 / stdio session 级存活；stdio legacy 每 turn 重建 pipeline → resume 只在同 turn 内的后续调用可达）——跨会话持久化属 v2 persistent-scope 语义，保留宿主
+- `resume` 的 `parent_tool_call_id` 事件字段走 args 内部通道（`_tool_call_id` 未由调用方注入时为 null）——卡片归属略弱于前台首spawn
+
+### 验证
+
+- cargo：943 lib + 18 集成全绿（+2：`resume_continues_a_completed_foreground_conversation`、`unknown_resume_ids_stay_host_owned`）；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m19s）、napi addon
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过；oxlint 0 errors
+
+## P56 — G-5 跨进程收尾：SessionStatus 携带引擎执行摘要（2026-09-02）
+
+G-5「用户可见的 /status」的跨进程半边：`SessionStatus` 加 `engine` 摘要（最近一次完成 turn 的 transport / native_tool_calls / steps / stop_reason），kap-server / web 侧经 session/status 即可读引擎执行路径，不再只能同进程读快照。
+
+### 实现
+
+- 引擎（kimi-agent）：`session/mod.rs` 加 `EngineExecSummary`（rpc/types.rs wire 定义）与 `Core.last_engine`；pump 在 turn 收尾时写入（`Ran` → transport/native_tool_calls/steps/stop_reason；`Err` → stop_reason: "failed"）；`status()` 返回填充。stdio `SESSION_STATUS` handler 与 napi `session_status`（`JsEngineExecSummary`）同步。
+- wire：`sessionStatusResultSchema` 加 `engine` 可选对象（serde skip_serializing_if 序列化面保持向后兼容——旧宿主读新引擎无字段、新引擎读旧宿主 engine 缺省 None）。
+- TS：`session-handle.ts` `SessionStatus.engine?`；`rust-loop.ts` stdio status 映射。
+
+### 诚实边界
+
+- 摘要只含最近一次完成 turn；多 agent / 子会话分行显示仍需协议级 turn 树（保持 P35 记录的边界）
+- v2/protocol/kap-server 的展示层（`/status` Engine 行读跨进程字段）未接——协议面已可读，UI 接线属 kap-server 侧工作
+- compaction 事件词汇（`full_compaction.begin/complete`、`compaction.started/completed`）经盘点确认是 v2 宿主状态机事件（Event2 + durable fold），引擎镜像需要先定义 UI 消费契约——独立批次，未在本轮草率 emit
+
+### 验证
+
+- cargo：943 lib + 18 集成全绿；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m22s）、napi addon（dts 14788 bytes）
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过
+
+## P57 — tool.progress：native bash 输出流接入 UI（2026-09-02）
+
+P25 清单最后一个引擎侧行为项：原生执行的 `tool.progress`（UI 实时输出预览）。host 路径由工具的 `onUpdate` 回调驱动；native bash 此前等子进程结束后一次性返回，长命令期间 UI 无输出。
+
+### 实现
+
+- 引擎（kimi-agent）：`NativeToolset` 拆出 `execute_tool_streaming`（`on_update: Option<OutputUpdate>` 回调；`execute_tool_ext` 保持原签名委托 None）；`bash_with` 把 `read_to_end` 一次性收集改为 8KiB 分块循环读，stdout/stderr 每块回调（kind 区分）；`NativeToolCallbacks::execute_tool` 构造 progress 闭包——每块经既有 `emit_event` 通道发 `{"type":"tool.native.progress", turn_id, tool_call_id, kind, text}`（fire-and-forget，零新接缝）
+- 宿主（agent-core-v2）：`TurnEngineInput.onToolProgress?({turnId, toolCallId, update})`；`loopService` dispatch v2 既有 `ToolProgress` Event2（`toolExecutorEvents.ts`）——TUI/web 的 `tool.progress` 卡片对 native bash 自动生效
+- wire：`rust-loop.ts` EngineEvent 加 `tool.native.progress` 变体 + processEngineEvent case（kind 收敛为 stdout/stderr）
+- 顺带：`execute_mutating`（permission 后写路径）bash 分支显式 None（无 UI 通道场景）
+
+### 诚实边界
+
+- 块粒度 8KiB（非逐行）：高频输出命令的事件数由块数决定，不加节流——UI 端已有 replace/合并语义（ToolUpdate.replace 未用， native 全为追加 stdout/stderr）
+- `progress`/`status`/`custom` 三种 update kind native 不产生（无对应信号源）
+- stderr 与 stdout 的交错顺序在两条读取协程间不保证（v2 host bash 同样不保证）
+
+### 验证
+
+- cargo：943 lib + 18 集成全绿；clippy `-D warnings` 0（`OutputUpdate` alias 消除复杂类型）、fmt 干净
+- 重建：kimi-agent-cli release（2m24s）、napi addon
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过
+
+## P58 — 子代理 background 原生化 + task 系统桥接（2026-09-02）
+
+P46/P51/P55 后子代理语义的最后一块：`run_in_background`。v2 的 background 走宿主 task 系统（SubagentTask → settle → 通知 → 合成 turn）；native 镜像为「引擎 detached 跑 + 事件回传 + 宿主 task 桥接」。
+
+### 实现
+
+- 引擎（kimi-agent）：`requires_host` 移除 `run_in_background`；`execute_agent` 新增 background 分支——spawn → emit spawned（`run_in_background: true`）+ started → `tokio::spawn` detached 跑 `run_foreground_turn`（完整 profile 策略/守卫/进度管线）→ 完成后 emit `subagent.completed`（summary+usage）；立即返回 v2 `formatBackgroundAgentResult` 对齐文本（task_id=agent_id、automatic_notification、next_step/resume_hint 逐句镜像）
+- 宿主（agent-core-v2）：新文件 `nativeBackgroundAgentTask.ts` —— `NativeBackgroundAgentTask implements AgentTask`（kind: 'agent'，start 等 deferred → sink.appendOutput + settle completed/failed，toInfo 对齐 SubagentTaskInfo）；`loopService.dispatchEngineSubagentEvent`：spawned（runInBackground）→ `IAgentTaskService.registerTask(task, {detached:true})` + deferred 注册；completed/failed → resolve deferred → task settle → 通知 → 合成 turn——**通知路径与宿主派生的 background 完全同一条**
+- `EngineSubagentEvent.spawned` 加 `runInBackground`；`rust-loop.ts` 映射 wire 的 `run_in_background`
+
+### 诚实边界
+
+- resume 跨后台：后台完成的 agent 会话已进 `foreground_histories`（P55），`resume` 可续——但 stdio legacy 入口 pipeline 每 turn 重建，跨 turn resume 仍仅 napi/session 入口可用
+- 后台 turn 与父 turn 的后续步骤在引擎内并发共享守卫状态（stale/goal guard 内部有锁），未做 per-subagent 隔离——v2 的隔离靠独立 agent scope，引擎侧等 turn 树语义
+- TASK_LIMIT_EXCEEDED 数量限制 native 侧未设（宿主 task 系统注册失败时降级为仅事件通知）
+
+### 验证
+
+- cargo：943 lib + 18 集成全绿；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m22s）、napi addon
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过
+- `requires_host_routes_extended_features` 断言同步更新（background 不再回退）
+
+## P59 — 打磨批次：P51–P58 新路径的粗糙点收敛（2026-09-02）
+
+五连功能批（P51–P58）之后对新代码面的打磨，四个具体点：
+
+1. **resume 事件归属修复**：`execute_resume` 现在从调用链接收真实的 `tool_call_id`（此前 spawned 事件读 `args.get("_tool_call_id")`——一个从未被注入的内部约定，恒为 null），后台/前台/resume 三个启动点统一走 `emit_spawned_started`
+2. **progress 节流**：native bash 的输出流加 50ms 最小间隔（`PROGRESS_MIN_INTERVAL_MS`）——`yes` 类高频命令每秒可写数十 MiB，8KiB 块直发会 flood 宿主事件线拖慢正在装饰的 turn；被节流跳过的块只影响 UI 流，最终 result 仍携带全量输出
+3. **事件发射去重**：14 处 `emit_subagent_event(json!{...})` 收敛为 `emit_spawned_started` / `emit_completed` / `emit_failed` 三个 helper——P58 新增的 background 分支与前台/resume 共享同一组装
+4. **bash 流式测试**：`bash_streams_output_chunks_to_the_progress_callback`——progress 回调至少收到一个携带输出的 stdout 块，且最终 result 全量无损
+
+### 诚实边界
+
+- 节流窗口内被跳过的块在 UI 流中丢失（模型看到的最终结果无损）——换全量需宿主端合并，成本不值
+- `emit_spawned_started` 的 description 参数 resume 场景传 None（resume 无 description 输入）
+
+### 验证
+
+- cargo：944 lib（+1 streaming 测试）+ 18 集成全绿；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release（2m23s）、napi addon
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过；oxlint 0 errors
+
+## P60 — TS↔Rust 语义对齐审查：resume distill + max_tokens 失败语义（2026-09-02）
+
+对 P51–P59 新增路径做一次系统性的 v2 参考实现对比（`runAgentTurn.ts` / `subagentService.ts` / `agentTool.ts`），发现并修复两处真实语义差异：
+
+1. **resume 轮缺 distill**：v2 的 `subagentService.run()` 对所有运行（首跑/resume）都走 `runAgentTurn` → `distillSummary`；Rust 的 `resume_foreground_turn` 漏了。修复：提取 `distill_continuations` 共享函数（原 run_foreground_turn 内联循环重构），resume 轮按同一 policy 续跑蒸馏，usage 累加。v2 的 prefix 只在首跑应用（resume 分支跳过）——两侧一致，无需改。
+2. **max_tokens 截断当成功处理**：v2 `classifyTurnResult` 对 `completed && truncated` 抛 `Subagent turn failed before completing its final summary: reason=max_tokens`；Rust 把 `MaxTokens` stop reason 当正常完成。修复：`run_foreground_turn` 与 `resume_foreground_turn` 主 turn 及 distill continuation 均检查 MaxTokens → 失败（verbatim v2 文本，`finish_reason: length/max_tokens` 已由引擎映射）。
+
+其余对比项均确认一致：promptPrefix 只在首跑（resume 跳过，两侧同）、foreground/resume/background 全部走 distill、resume_hint/timeout 文案逐字（P46）、`formatBackgroundAgentResult` 形状（P58）、`ToolCallEvent` 字段集（P54）。记录的残余差异：`completed` 事件的 usage 是"本次运行累计"而非 v2 的 scope 生命周期累计（resume 多轮后有偏差）；`dup_type` 恒 normal（P54 已记录）。
+
+### 验证
+
+- cargo：946 lib（+2：`max_tokens_truncation_fails_the_subagent_run`、`resume_turns_distill_under_the_same_policy`）+ 18 集成全绿；clippy `-D warnings` 0、fmt 干净
+- 重建：kimi-agent-cli release、napi addon
+- vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过

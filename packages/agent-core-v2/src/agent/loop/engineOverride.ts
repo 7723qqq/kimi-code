@@ -198,6 +198,19 @@ export type TurnTelemetryEvent =
       thinking_effort?: string;
       at_step?: number;
       interrupt_reason: 'aborted' | 'error';
+    }
+  /** P54: per-native-execution tool telemetry (v2 `ToolCallEvent`).
+   *  `dup_type` is always `normal` — dedupe-supplied repeats never reach
+   *  the engine's execution layer. */
+  | {
+      event: 'tool_call';
+      turn_id: number;
+      tool_call_id: string;
+      tool_name: string;
+      outcome: 'success' | 'error' | 'cancelled';
+      duration_ms: number;
+      dup_type: 'normal' | 'same_step' | 'cross_step';
+      error_type?: 'cancelled' | 'error';
     };
 
 export interface TurnEngineInput {
@@ -252,7 +265,76 @@ export interface TurnEngineInput {
   /** Foreground subagent timeout in ms, resolved host-side (v2
    *  `resolveSubagentTimeoutMs`). Absent: the engine's 2h default. */
   subagentTimeoutMs?: number;
+  /**
+   * Host-side veto reasons (P52 — the native-path counterpart of the
+   * `onBeforeExecuteTool` veto chain, which engine-local execution does
+   * not traverse). Non-empty: the engine must reject the affected native
+   * execution with the verbatim reason as the tool result (no host
+   * round-trip — the host veto would deny it there too).
+   *
+   * `agentToolVeto` denies the native `Agent` tool only (swarm mode);
+   * `toolsVeto` denies every native tool (btw side-channel contexts).
+   * Both are per-turn snapshots; a change rebuilds the engine session
+   * via the config fingerprint.
+   */
+  agentToolVeto?: string;
+  toolsVeto?: string;
+  /**
+   * Host-side file checkpoint for native write executions (P53). Called
+   * twice per native write: `phase: 'prepare'` before the engine writes —
+   * the host must finish capturing the pre-images before the promise
+   * resolves — and `phase: 'record'` after (post-image digests, used to
+   * detect manual edits at undo). Unwired: the engine skips checkpointing
+   * (fail-open, the pre-P53 status quo).
+   */
+  onCheckpoint?(event: {
+    readonly turnId: number;
+    readonly phase: 'prepare' | 'record';
+    readonly paths: readonly string[];
+  }): void | Promise<void>;
+  /**
+   * Mid-execution output stream from native long-running tools (P57,
+   * `tool.progress` mirror): native bash chunks arrive here as they are
+   * written so the host can drive live progress cards.
+   */
+  onToolProgress?(event: {
+    readonly turnId: number;
+    readonly toolCallId: string;
+    readonly update: {
+      readonly kind: 'stdout' | 'stderr' | 'progress' | 'status' | 'custom';
+      readonly text?: string;
+      readonly percent?: number;
+    };
+  }): void;
+  /**
+   * Subagent lifecycle events from the engine's native `Agent` tool
+   * (P51): the mirror of v2's `SubagentSpawned` / `SubagentStarted` /
+   * `SubagentCompleted` / `SubagentFailed` surface, so the host
+   * dispatcher and UI see native subagents exactly like host-spawned
+   * ones. Unwired for engines that emit nothing.
+   */
+  onSubagentEvent?(event: EngineSubagentEvent): void;
 }
+
+/** Engine-native subagent lifecycle event (P51). The adapter maps the
+ *  engine's wire payload onto the host's event vocabulary. */
+export type EngineSubagentEvent =
+  | {
+      type: 'subagent.spawned';
+      subagentId: string;
+      subagentName: string;
+      parentToolCallId?: string;
+      description?: string;
+      runInBackground: boolean;
+    }
+  | { type: 'subagent.started'; subagentId: string }
+  | {
+      type: 'subagent.completed';
+      subagentId: string;
+      resultSummary: string;
+      usage?: TokenUsage;
+    }
+  | { type: 'subagent.failed'; subagentId: string; error: string };
 
 /** A profile from the session catalog snapshot (P46). Mirrors the v2
  *  `AgentProfile` fields an engine needs to run a foreground subagent. */
@@ -262,6 +344,17 @@ export interface TurnEngineSubagentProfile {
   readonly systemPrompt?: string;
   readonly tools?: readonly string[];
   readonly disallowedTools?: readonly string[];
+  /** Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+   *  prepended engine-side as `{prefix}\n\n{prompt}` (P51). */
+  readonly promptPrefix?: string;
+  /** Summary distillation policy (v2 `AgentProfileSummaryPolicy`, P51):
+   *  the engine re-prompts with the continuation prompt until the final
+   *  assistant text clears `minChars` or the retries run out. */
+  readonly summaryPolicy?: {
+    readonly minChars: number;
+    readonly continuationPrompt: string;
+    readonly retries: number;
+  };
 }
 
 export interface TurnEngineResult {

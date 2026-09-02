@@ -75,30 +75,24 @@ impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
     fn execute_tool(
         &self,
         request: crate::rpc::types::ToolExecuteRequest,
-    ) -> crate::rpc::types::BoxFuture<
-        'static,
-        Result<crate::rpc::types::ToolExecuteResponse, String>,
-    > {
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>>
+    {
         self.inner.execute_tool(request)
     }
 
     fn check_permission(
         &self,
         request: crate::rpc::types::PermissionCheckRequest,
-    ) -> crate::rpc::types::BoxFuture<
-        'static,
-        Result<crate::rpc::types::PermissionDecision, String>,
-    > {
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::PermissionDecision, String>>
+    {
         self.inner.check_permission(request)
     }
 
     fn ask_question(
         &self,
         request: crate::rpc::types::AskQuestionRequest,
-    ) -> crate::rpc::types::BoxFuture<
-        'static,
-        Result<crate::rpc::types::AskQuestionResponse, String>,
-    > {
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::AskQuestionResponse, String>>
+    {
         self.inner.ask_question(request)
     }
 
@@ -113,10 +107,8 @@ impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
     fn state_write(
         &self,
         request: crate::rpc::types::StateWriteRequest,
-    ) -> crate::rpc::types::BoxFuture<
-        'static,
-        Result<crate::rpc::types::StateWriteResponse, String>,
-    > {
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::StateWriteResponse, String>>
+    {
         self.inner.state_write(request)
     }
 
@@ -135,15 +127,19 @@ impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
 
     fn goal(
         &self,
-    ) -> crate::rpc::types::BoxFuture<'static, Result<Option<crate::turn_loop::types::GoalContext>, String>>
-    {
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<Option<crate::turn_loop::types::GoalContext>, String>,
+    > {
         self.inner.goal()
     }
 
     fn drain_steers(
         &self,
-    ) -> crate::rpc::types::BoxFuture<'static, Result<Vec<crate::turn_loop::types::LLMMessage>, String>>
-    {
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<Vec<crate::turn_loop::types::LLMMessage>, String>,
+    > {
         self.inner.drain_steers()
     }
 
@@ -197,11 +193,134 @@ pub struct SubagentManager {
     instances: InstanceMap,
     persistent: PersistentMap,
     runtime: RwLock<Option<Arc<SubagentRuntime>>>,
+    /// P55: accumulated conversation history per foreground agent id, so a
+    /// `resume` call continues the same subagent natively (v2 persistent
+    /// scopes). Written on foreground completion; read by `resume` calls.
+    foreground_histories: Arc<Mutex<HashMap<String, ForegroundResume>>>,
+}
+
+/// A foreground subagent's resume record (P55).
+#[derive(Clone)]
+struct ForegroundResume {
+    profile_name: String,
+    role: String,
+    messages: Vec<crate::turn_loop::types::LLMMessage>,
 }
 
 impl Default for SubagentManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Outcome of a foreground subagent run (v2 `Agent` tool).
+pub enum ForegroundTurnOutcome {
+    /// The turn — including any summary-distillation continuations — ran
+    /// to completion.
+    Completed(crate::turn_loop::types::TurnResult),
+    /// The parent turn was cancelled; the subagent run was aborted
+    /// immediately at its current await point.
+    ParentCancelled,
+}
+
+/// Why a foreground run ended without a [`ForegroundTurnOutcome::Completed`].
+enum RunExit {
+    ParentCancelled,
+    Failed(String),
+}
+
+/// UTF-16 code-unit length (v2 `String.length`): the summary adequacy
+/// floor counts characters the same way the JS policy does.
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// v2 `classifyTurnResult` mirror: a max-token-truncated subagent turn
+/// fails the run with the verbatim v2 error text.
+pub const SUBAGENT_MAX_TOKENS_ERROR: &str =
+    "Subagent turn failed before completing its final summary: reason=max_tokens";
+
+/// v2 `distillSummary` (P51): while the final assistant text is shorter
+/// than the policy floor, re-prompt with the continuation prompt and adopt
+/// the newer non-empty assistant text (`final_assistant_summary` keeps the
+/// previous one when the continuation answers empty, same as v2). Usage is
+/// accumulated across continuation turns.
+async fn distill_continuations(
+    runtime: &SubagentRuntime,
+    callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
+    tool_defs: Vec<crate::turn_loop::types::ToolInfo>,
+    cancel_flag: &Arc<AtomicBool>,
+    parent_cancel: Option<&crate::subagent::types::ParentCancel>,
+    mut turn: crate::turn_loop::types::TurnResult,
+    policy: &crate::subagent::types::SummaryPolicy,
+) -> Result<crate::turn_loop::types::TurnResult, RunExit> {
+    let mut usage_total = turn.usage.clone();
+    let mut attempts = 0u32;
+    while utf16_len(final_assistant_summary(&turn.messages).trim()) < policy.min_chars
+        && attempts < policy.retries
+    {
+        attempts += 1;
+        let mut history = turn.messages.clone();
+        history.push(crate::turn_loop::types::LLMMessage {
+            role: "user".into(),
+            content: policy.continuation_prompt.clone(),
+            ..Default::default()
+        });
+        turn = run_one(
+            runtime,
+            callbacks,
+            history,
+            tool_defs.clone(),
+            cancel_flag,
+            parent_cancel,
+        )
+        .await?;
+        usage_total = add_usage(&usage_total, &turn.usage);
+    }
+    turn.usage = usage_total;
+    Ok(turn)
+}
+
+/// Run one `run_turn` for the foreground subagent, aborting immediately
+/// when the parent cancels: dropping the run future interrupts the
+/// subagent at its current await point (in-flight LLM call / tool wait,
+/// the v2 AbortSignal semantics the step-top flag checks cannot reach);
+/// the instance flag also flips so the scheduler's own cancellation
+/// checks observe it.
+async fn run_one(
+    runtime: &SubagentRuntime,
+    callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
+    messages: Vec<crate::turn_loop::types::LLMMessage>,
+    tool_defs: Vec<crate::turn_loop::types::ToolInfo>,
+    cancel_flag: &Arc<AtomicBool>,
+    parent_cancel: Option<&crate::subagent::types::ParentCancel>,
+) -> Result<crate::turn_loop::types::TurnResult, RunExit> {
+    let run_input = crate::turn_loop::types::RunTurnInput {
+        turn_id: format!("subturn-{}", fastrand::u64(..)),
+        llm: runtime.llm.as_ref(),
+        messages,
+        tools: &[],
+        tool_defs,
+        // Foreground subagents run until done — the caller owns the
+        // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
+        max_steps: u32::MAX,
+        goal: None,
+        cancellation: Some(cancel_flag.clone()),
+    };
+    let run_future = crate::turn_loop::run_turn::run_turn(run_input, callbacks);
+    tokio::pin!(run_future);
+    match parent_cancel {
+        Some(signal) => {
+            tokio::select! {
+                result = &mut run_future => {
+                    result.map_err(|err| RunExit::Failed(err.to_string()))
+                }
+                () = signal.wait() => Err(RunExit::ParentCancelled),
+            }
+        }
+        None => run_future
+            .await
+            .map_err(|err| RunExit::Failed(err.to_string())),
     }
 }
 
@@ -224,6 +343,8 @@ impl SubagentManager {
                     "list_directory".into(),
                 ],
                 disallowed_tools: Vec::new(),
+                prompt_prefix: None,
+                summary_policy: None,
                 model: None,
             },
         );
@@ -233,6 +354,7 @@ impl SubagentManager {
             instances: Arc::new(RwLock::new(HashMap::new())),
             persistent: Arc::new(RwLock::new(HashMap::new())),
             runtime: RwLock::new(None),
+            foreground_histories: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -272,6 +394,8 @@ impl SubagentManager {
                 system_prompt: profile.system_prompt.clone(),
                 tools: profile.tools.clone(),
                 disallowed_tools: profile.disallowed_tools.clone(),
+                prompt_prefix: profile.prompt_prefix.clone(),
+                summary_policy: profile.summary_policy.clone(),
                 model: None,
             })
             .await;
@@ -340,6 +464,8 @@ impl SubagentManager {
                     "list_directory".into(),
                 ],
                 disallowed_tools: Vec::new(),
+                prompt_prefix: None,
+                summary_policy: None,
                 model: None,
             });
 
@@ -403,23 +529,30 @@ impl SubagentManager {
 
     /// Run one foreground subagent turn inline (v2 `Agent` tool foreground
     /// semantics): the caller awaits the full turn and formats the result.
-    /// The instance must already exist (see [`Self::spawn`]). The parent
-    /// turn's cancellation flag (when present) aborts the subagent at its
-    /// next step boundary; `kill` keeps working through the instance's own
-    /// flag.
+    /// The instance must already exist (see [`Self::spawn`]). Cancellation
+    /// is event-driven (P51) — see [`run_one`]; a parent cancel that lands
+    /// between awaits degrades to the engine's step-boundary abort.
     pub async fn run_foreground_turn(
         &self,
         id: &str,
         prompt: &str,
-        parent_cancel: Option<Arc<AtomicBool>>,
-    ) -> Result<crate::turn_loop::types::TurnResult, String> {
+        parent_cancel: Option<&crate::subagent::types::ParentCancel>,
+    ) -> Result<ForegroundTurnOutcome, String> {
         let (cancel_flag, type_name, role) = {
             let instances = self.instances.read().await;
             let (instance, flag) = instances
                 .get(id)
                 .ok_or_else(|| format!("Unknown subagent instance: '{id}'"))?;
-            (flag.clone(), instance.type_name.clone(), instance.role.clone())
+            (
+                flag.clone(),
+                instance.type_name.clone(),
+                instance.role.clone(),
+            )
         };
+        if parent_cancel.is_some_and(|signal| signal.triggered()) {
+            let _ = self.kill(id).await;
+            return Ok(ForegroundTurnOutcome::ParentCancelled);
+        }
         let runtime = self
             .runtime()
             .await
@@ -439,13 +572,18 @@ impl SubagentManager {
                 .collect(),
             Err(_) => Vec::new(),
         };
-        let callbacks: Arc<dyn crate::callbacks::HostCallbacks> =
-            Arc::new(ToolFilterCallbacks {
-                inner: runtime.callbacks.clone(),
-                filter,
-            });
+        let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
+            inner: runtime.callbacks.clone(),
+            filter,
+        });
 
-        let turn_id = format!("subturn-{}", fastrand::u64(..));
+        // v2 `applyProfilePromptPrefix`: the prefix rides ahead of the
+        // prompt as `{prefix}\n\n{prompt}`.
+        let prompt = match def.prompt_prefix.as_deref() {
+            Some(prefix) if !prefix.trim().is_empty() => format!("{prefix}\n\n{prompt}"),
+            _ => prompt.to_string(),
+        };
+
         let messages = vec![crate::turn_loop::types::LLMMessage {
             role: "user".into(),
             content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
@@ -453,54 +591,193 @@ impl SubagentManager {
             tool_calls: Vec::new(),
             tool_call_id: None,
         }];
-        let run_input = crate::turn_loop::types::RunTurnInput {
-            turn_id,
-            llm: runtime.llm.as_ref(),
-            messages,
-            tools: &[],
-            tool_defs,
-            // Foreground subagents run until done — the caller owns the
-            // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
-            max_steps: u32::MAX,
-            goal: None,
-            cancellation: Some(cancel_flag.clone()),
-        };
 
-        // Run the turn while mirroring the parent's cancellation flag onto
-        // the instance flag (v2 aborts mid-flight through the AbortSignal;
-        // the engine observes flags at step tops, so the abort lands at the
-        // subagent's next step boundary). The error converts to `String`
-        // right at the break so no non-Send value lives across an await
-        // (native callback contract).
-        let run_future = crate::turn_loop::run_turn::run_turn(run_input, &callbacks);
-        tokio::pin!(run_future);
-        let outcome: Result<crate::turn_loop::types::TurnResult, String> = loop {
-            tokio::select! {
-                result = &mut run_future => break result.map_err(|err| err.to_string()),
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                    if parent_cancel
-                        .as_ref()
-                        .is_some_and(|flag| flag.load(Ordering::Relaxed))
-                    {
-                        cancel_flag.store(true, Ordering::Relaxed);
-                    }
-                }
+        let outcome: Result<crate::turn_loop::types::TurnResult, RunExit> = async {
+            let turn_res = run_one(
+                &runtime,
+                &callbacks,
+                messages.clone(),
+                tool_defs.clone(),
+                &cancel_flag,
+                parent_cancel,
+            )
+            .await?;
+            // v2 `classifyTurnResult`: a max-token-truncated turn fails the
+            // run before any distillation attempt.
+            if matches!(
+                turn_res.stop_reason,
+                crate::turn_loop::types::LoopTurnStopReason::MaxTokens
+            ) {
+                return Err(RunExit::Failed(SUBAGENT_MAX_TOKENS_ERROR.into()));
             }
-        };
+            match &def.summary_policy {
+                Some(policy) => {
+                    distill_continuations(
+                        &runtime,
+                        &callbacks,
+                        tool_defs.clone(),
+                        &cancel_flag,
+                        parent_cancel,
+                        turn_res,
+                        policy,
+                    )
+                    .await
+                }
+                None => Ok(turn_res),
+            }
+        }
+        .await;
 
         match outcome {
             Ok(turn_res) => {
                 let summary = final_assistant_summary(&turn_res.messages);
                 self.update_state(id, SubagentState::Completed, Some(summary))
                     .await;
-                Ok(turn_res)
+                // P55: keep the conversation for native `resume` calls.
+                self.foreground_histories
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(
+                        id.to_string(),
+                        ForegroundResume {
+                            profile_name: type_name.clone(),
+                            role: role.clone(),
+                            messages: turn_res.messages.clone(),
+                        },
+                    );
+                Ok(ForegroundTurnOutcome::Completed(turn_res))
             }
-            Err(message) => {
+            Err(RunExit::ParentCancelled) => {
+                let _ = self.kill(id).await;
+                Ok(ForegroundTurnOutcome::ParentCancelled)
+            }
+            Err(RunExit::Failed(message)) => {
                 self.update_state(id, SubagentState::Failed, Some(format!("Error: {message}")))
                     .await;
                 Err(message)
             }
         }
+    }
+
+    /// Native `resume` (P55): continue a previously foreground-completed
+    /// subagent conversation. The resume appends the prompt to the stored
+    /// history and runs one more turn under the same profile policy. Unknown
+    /// ids answer `None` — the caller falls back to the host, which owns the
+    /// v2 persistent-scope resume semantics.
+    pub async fn resume_foreground_turn(
+        &self,
+        id: &str,
+        prompt: &str,
+        parent_cancel: Option<&crate::subagent::types::ParentCancel>,
+    ) -> Option<Result<ForegroundTurnOutcome, String>> {
+        let record = {
+            let histories = self
+                .foreground_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            histories.get(id).cloned()?
+        };
+        let runtime = self.runtime().await?;
+        let def = self
+            .definition_for(&record.profile_name, &record.role)
+            .await;
+        let filter = ToolPolicyFilter::from_definition(&def);
+        let tool_defs = match runtime.callbacks.list_tools().await {
+            Ok(response) => response
+                .tools
+                .into_iter()
+                .filter(|tool| filter.allows(&tool.name))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
+            inner: runtime.callbacks.clone(),
+            filter,
+        });
+
+        let messages = {
+            let mut history = record.messages.clone();
+            history.push(crate::turn_loop::types::LLMMessage {
+                role: "user".into(),
+                content: prompt.to_string(),
+                ..Default::default()
+            });
+            history
+        };
+        let turn_res = match run_one(
+            &runtime,
+            &callbacks,
+            messages.clone(),
+            tool_defs.clone(),
+            &Arc::new(AtomicBool::new(false)),
+            parent_cancel,
+        )
+        .await
+        {
+            Ok(turn) => turn,
+            // The parent-cancelled outcome flows through verbatim so the
+            // tool result carries the v2 user-interruption message.
+            Err(RunExit::ParentCancelled) => {
+                return Some(Ok(ForegroundTurnOutcome::ParentCancelled));
+            }
+            Err(RunExit::Failed(message)) => return Some(Err(message)),
+        };
+        if matches!(
+            turn_res.stop_reason,
+            crate::turn_loop::types::LoopTurnStopReason::MaxTokens
+        ) {
+            return Some(Err(SUBAGENT_MAX_TOKENS_ERROR.to_string()));
+        }
+        // P60: resume turns distill under the same policy as the initial
+        // run (v2 runs every subagent turn through `distillSummary`).
+        let turn_res = match &def.summary_policy {
+            Some(policy) => {
+                let distilled = distill_continuations(
+                    &runtime,
+                    &callbacks,
+                    tool_defs,
+                    &Arc::new(AtomicBool::new(false)),
+                    parent_cancel,
+                    turn_res,
+                    policy,
+                )
+                .await;
+                match distilled {
+                    Ok(turn) => turn,
+                    Err(RunExit::ParentCancelled) => {
+                        return Some(Ok(ForegroundTurnOutcome::ParentCancelled));
+                    }
+                    Err(RunExit::Failed(message)) => return Some(Err(message)),
+                }
+            }
+            None => turn_res,
+        };
+
+        let summary = final_assistant_summary(&turn_res.messages);
+        self.update_state(id, SubagentState::Completed, Some(summary.clone()))
+            .await;
+        self.foreground_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                id.to_string(),
+                ForegroundResume {
+                    profile_name: record.profile_name.clone(),
+                    role: record.role.clone(),
+                    messages: turn_res.messages.clone(),
+                },
+            );
+        Some(Ok(ForegroundTurnOutcome::Completed(turn_res)))
+    }
+
+    /// The profile a native resume record was spawned under (for the v2
+    /// `actual_subagent_type` line in the resume result).
+    pub async fn resume_profile(&self, id: &str) -> Option<String> {
+        self.foreground_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .map(|record| record.profile_name.clone())
     }
 
     /// Spawn a persistent subagent instance that keeps its message history
@@ -726,6 +1003,8 @@ impl SubagentManager {
                     "list_directory".into(),
                 ],
                 disallowed_tools: Vec::new(),
+                prompt_prefix: None,
+                summary_policy: None,
                 model: None,
             })
     }

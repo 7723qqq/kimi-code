@@ -15,7 +15,7 @@ export declare function cancelTurn(turnId: string): void
  * transports only — host-proxy rebuilds tools inside `llm_chat`), and the
  * goal snapshot through `goal_cb` per turn (snake_case wire goal, or null).
  */
-export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
+export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, checkpointCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
 
 /**
  * Emit a one-shot `tracing::info!` event. Used by the test harness to
@@ -40,6 +40,14 @@ export declare function getCallbackPayload(id: number): string | null
  * performance work's tracing spans on without restarting the process.
  */
 export declare function initTracingFromEnv(): boolean
+
+/** P56 (G-5): cross-process engine execution summary. */
+export interface JsEngineExecSummary {
+  transport?: string
+  nativeToolCalls?: number
+  steps?: number
+  stopReason?: string
+}
 
 export interface JsGoalContext {
   goalId: string
@@ -160,6 +168,12 @@ export interface JsRunTurnParams {
    * because napi cannot read JS numbers as `u64`.
    */
   subagentTimeoutMs?: number
+  /**
+   * P52 native-path vetoes (host-formatted deny reasons; see
+   * `RunTurnParams`).
+   */
+  agentToolVeto?: string
+  toolsVeto?: string
 }
 
 export interface JsRunTurnResult {
@@ -186,6 +200,8 @@ export interface JsRunTurnResult {
 export interface JsSessionStatus {
   activeTurnId?: number
   pendingTurnIds: Array<number>
+  /** P56 (G-5): execution-path summary of the last completed turn. */
+  engine?: JsEngineExecSummary
 }
 
 /** A subagent profile from the host's session catalog snapshot (P46). */
@@ -199,6 +215,20 @@ export interface JsSubagentProfile {
    */
   tools?: Array<string>
   disallowedTools?: Array<string>
+  /**
+   * Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+   * prepended to the prompt as `{prefix}
+
+  {prompt}` (P51).
+   */
+  promptPrefix?: string
+  /**
+   * Serialized summary distillation policy (v2
+   * `AgentProfileSummaryPolicy`): `{ minChars, continuationPrompt,
+   * retries }` (P51). Serialized JSON because napi cannot express
+   * nested optionals in a flat object cleanly.
+   */
+  summaryPolicyJson?: string
 }
 
 /**
@@ -273,7 +303,7 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * async work is dispatched via `env.execute_tokio_future` so the JS event
  * loop stays alive to process TSFN callbacks.
  */
-export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
+export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, checkpointCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
 
 /**
  * Cancel a turn by id (active → interrupted at the next step boundary;

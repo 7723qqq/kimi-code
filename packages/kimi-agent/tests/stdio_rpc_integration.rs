@@ -549,7 +549,10 @@ fn drive_native_turn_full(
     let mut reader = BufReader::new(stdout);
     let mut observation = NativeTurnObservation::default();
     let mut llm_step = 0u32;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    // Generous headroom: the full suite runs the 900+ lib tests alongside
+    // this binary, and under that load process spawn + RPC turns can be
+    // slow without anything being wrong (G-7 noise hunt).
+    let deadline = Instant::now() + Duration::from_secs(60);
 
     loop {
         if Instant::now() > deadline {
@@ -683,12 +686,14 @@ fn native_events_of(obs: &NativeTurnObservation) -> Vec<&serde_json::Value> {
 /// `tool.native` event, and the host execute path is never touched.
 #[test]
 fn run_turn_native_write_permission_round_trip() {
-    let dir = std::env::temp_dir().join(format!("kimi-native-write-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    // Unique per-run workspace: the engine keys its local store off the
+    // workspace path, so a deterministic dir name would share one store
+    // across concurrent/repeated runs (the G-7 full-run flake).
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "native.txt", "content": "written natively"}),
@@ -722,20 +727,17 @@ fn run_turn_native_write_permission_round_trip() {
     let native_events = native_events_of(&observation);
     assert_eq!(native_events.len(), 1, "one tool.native report expected");
     assert_eq!(native_events[0]["content"], "Wrote 16 bytes to native.txt");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A host deny verdict is final: the refusal text becomes the tool result,
 /// nothing executes natively or on the host, and no second prompt happens.
 #[test]
 fn run_turn_native_permission_deny_is_final() {
-    let dir = std::env::temp_dir().join(format!("kimi-native-deny-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "denied.txt", "content": "should not exist"}),
@@ -759,8 +761,6 @@ fn run_turn_native_permission_deny_is_final() {
     assert_eq!(native_events.len(), 1, "the refusal is the tool result");
     assert_eq!(native_events[0]["is_error"], true);
     assert_eq!(native_events[0]["content"], "denied by test policy");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Native Bash must honor the host's shell path: arithmetic evaluation is
@@ -774,12 +774,11 @@ fn native_bash_uses_host_shell() {
             return;
         }
     };
-    let dir = std::env::temp_dir().join(format!("kimi-native-bash-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         Some(&shell),
         "bash",
         serde_json::json!({"command": "echo $((20+3))"}),
@@ -803,8 +802,6 @@ fn native_bash_uses_host_shell() {
         content.contains("23"),
         "bash arithmetic must evaluate, got: {content}"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Plan-mode guard (v2 `AgentPlanService.guardToolExecution`): with plan mode
@@ -813,15 +810,14 @@ fn native_bash_uses_host_shell() {
 /// plan state was read through the state bridge.
 #[test]
 fn run_turn_native_write_denied_in_plan_mode() {
-    let dir = std::env::temp_dir().join(format!("kimi-native-plan-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     let plan_path = dir.join("plans").join("plan-1.md");
     std::fs::create_dir_all(plan_path.parent().unwrap()).expect("create plans dir");
     std::fs::write(&plan_path, "# plan").expect("seed plan file");
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "src/main.rs", "content": "should not exist"}),
@@ -858,8 +854,6 @@ fn run_turn_native_write_denied_in_plan_mode() {
         "denial must carry the plan-mode reason, got: {content}"
     );
     assert!(content.contains(plan_path.to_string_lossy().as_ref()));
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ── Stale-write guard (v2 `staleGuardService`, G-6 #3) ─────────────────────
@@ -1057,7 +1051,8 @@ fn drive_native_turns(
     let mut reader = BufReader::new(stdout);
 
     let mut observation = MultiTurnObservation::default();
-    let deadline = Instant::now() + Duration::from_secs(60);
+    // Headroom for the full-suite load (see drive_native_turn_full).
+    let deadline = Instant::now() + Duration::from_secs(90);
     let tool_defs = serde_json::json!([
         {"name": "read", "description": "t", "input_schema": {"type": "object"}},
         {"name": "write", "description": "t", "input_schema": {"type": "object"}}
@@ -1138,7 +1133,8 @@ fn drive_session_turns(
     let mut reader = BufReader::new(stdout);
 
     let mut observation = MultiTurnObservation::default();
-    let deadline = Instant::now() + Duration::from_secs(60);
+    // Headroom for the full-suite load (see drive_native_turn_full).
+    let deadline = Instant::now() + Duration::from_secs(90);
     let tool_defs = serde_json::json!([
         {"name": "read", "description": "t", "input_schema": {"type": "object"}},
         {"name": "write", "description": "t", "input_schema": {"type": "object"}}
@@ -1247,13 +1243,12 @@ fn drive_session_turns(
 /// untouched.
 #[test]
 fn run_turn_native_write_denied_when_unread() {
-    let dir = std::env::temp_dir().join(format!("kimi-stale-unread-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "a.txt", "content": "should not land"}),
@@ -1284,20 +1279,18 @@ fn run_turn_native_write_denied_when_unread() {
         ),
         "byte-exact v2 message expected, got: {content}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Read-then-write in one turn passes: the native Read records the mtime and
 /// the subsequent native Write clears the guard.
 #[test]
 fn run_turn_native_read_then_write_passes() {
-    let dir = std::env::temp_dir().join(format!("kimi-stale-rw-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
 
     let observation = drive_native_turns(
-        &dir,
+        dir,
         &[TurnScript(vec![
             vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
             vec![(
@@ -1334,8 +1327,6 @@ fn run_turn_native_read_then_write_passes() {
     // One plan-guard state read for the Write; the Read is not plan-guarded
     // and the stale gate never had to consult (no denial).
     assert_eq!(observation.state_read_requests.len(), 1);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// An external modification between the read and the write denies the write:
@@ -1343,15 +1334,14 @@ fn run_turn_native_read_then_write_passes() {
 /// executed, before the Write does).
 #[test]
 fn run_turn_native_write_denied_after_external_modification() {
-    let dir = std::env::temp_dir().join(format!("kimi-stale-mod-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     let target = dir.join("a.txt");
     std::fs::write(&target, "hello").expect("seed file");
 
     let bump_target = target.clone();
     let observation = drive_native_turns(
-        &dir,
+        dir,
         &[TurnScript(vec![
             vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
             vec![(
@@ -1392,8 +1382,6 @@ fn run_turn_native_write_denied_after_external_modification() {
         ),
         "byte-exact v2 modified-message expected, got: {content}"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A read the HOST served (region Read falls back for the media pipeline)
@@ -1401,13 +1389,12 @@ fn run_turn_native_write_denied_after_external_modification() {
 /// executions.
 #[test]
 fn run_turn_native_host_read_clears_native_write() {
-    let dir = std::env::temp_dir().join(format!("kimi-stale-hostread-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     std::fs::write(dir.join("media.txt"), "hello").expect("seed file");
 
     let observation = drive_native_turns(
-        &dir,
+        dir,
         &[TurnScript(vec![
             vec![(
                 "read".into(),
@@ -1444,21 +1431,18 @@ fn run_turn_native_host_read_clears_native_write() {
     let native_events = multi_native_events_of(&observation);
     assert_eq!(native_events.len(), 1, "only the write is native");
     assert_eq!(native_events[0]["is_error"], false);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The stale table lives on the session pipeline (M1d 3b session RPC): a
 /// read in turn 0 clears a write in turn 1 on the same session.
 #[test]
 fn run_turn_native_stale_state_survives_across_turns() {
-    let dir = std::env::temp_dir().join(format!("kimi-stale-cross-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
     std::fs::write(dir.join("a.txt"), "hello").expect("seed file");
 
     let observation = drive_session_turns(
-        &dir,
+        dir,
         &[
             TurnScript(vec![
                 vec![("read".into(), serde_json::json!({"path": "a.txt"}))],
@@ -1493,8 +1477,6 @@ fn run_turn_native_stale_state_survives_across_turns() {
     let native_events = multi_native_events_of(&observation);
     assert_eq!(native_events.len(), 2);
     assert_eq!(native_events[1]["is_error"], false);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ── Goal guard (v2 `goalAgentRuntime`, G-6 #7/#8) ─────────────────────────
@@ -1504,12 +1486,11 @@ fn run_turn_native_stale_state_survives_across_turns() {
 /// runs there instead of a silent native start.
 #[test]
 fn run_turn_create_goal_routes_to_host_without_snapshot() {
-    let dir = std::env::temp_dir().join(format!("kimi-goal-route-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn(
-        &dir,
+        dir,
         None,
         "CreateGoal",
         serde_json::json!({"objective": "refactor the module"}),
@@ -1536,8 +1517,6 @@ fn run_turn_create_goal_routes_to_host_without_snapshot() {
         0,
         "a routed call is not a native execution"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ── PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6) ──────────────
@@ -1566,12 +1545,11 @@ fn exit_two_hook_command() -> &'static str {
 /// the tool result, nothing lands on disk, nothing runs on the host.
 #[test]
 fn run_turn_native_write_blocked_by_pretool_hook() {
-    let dir = std::env::temp_dir().join(format!("kimi-hook-deny-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn_full(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "hooked.txt", "content": "should not land"}),
@@ -1596,19 +1574,16 @@ fn run_turn_native_write_blocked_by_pretool_hook() {
     assert_eq!(native_events.len(), 1, "the refusal is the tool result");
     assert_eq!(native_events[0]["is_error"], true);
     assert_eq!(native_events[0]["content"], "blocked by e2e hook");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A hook exiting 0 lets the native Write through.
 #[test]
 fn run_turn_native_write_allowed_by_passing_hook() {
-    let dir = std::env::temp_dir().join(format!("kimi-hook-allow-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create workspace root");
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let dir = workspace.path();
 
     let observation = drive_native_turn_full(
-        &dir,
+        dir,
         None,
         "write",
         serde_json::json!({"path": "hooked.txt", "content": "lands"}),
@@ -1630,6 +1605,4 @@ fn run_turn_native_write_allowed_by_passing_hook() {
     let native_events = native_events_of(&observation);
     assert_eq!(native_events.len(), 1);
     assert_eq!(native_events[0]["is_error"], false);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }

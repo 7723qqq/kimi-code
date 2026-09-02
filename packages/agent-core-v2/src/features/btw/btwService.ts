@@ -3,10 +3,16 @@ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 
-import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER, TOOL_CALL_DISABLED_MESSAGE } from './btw';
+import {
+  btwToolsVetoKey,
+  ISessionBtwService,
+  SIDE_QUESTION_SYSTEM_REMINDER,
+  TOOL_CALL_DISABLED_MESSAGE,
+} from './btw';
 
 export class SessionBtwService implements ISessionBtwService {
   declare readonly _serviceBrand: undefined;
@@ -34,6 +40,13 @@ export class SessionBtwService implements ISessionBtwService {
       ?.onBeforeExecuteTool((event) => {
         event.veto(denyToolExecution(reason));
       });
+    // P52: mark the child context so the loop service forwards the veto to
+    // the engine as `toolsVeto` — native tool execution bypasses the host
+    // veto chain above and must be rejected engine-side with the same
+    // reason.
+    const childState = child.accessor.get(IAgentStateService);
+    childState.contributeState(btwToolsVetoKey);
+    childState.set(btwToolsVetoKey, reason);
     return childContext.agentId;
   }
 }

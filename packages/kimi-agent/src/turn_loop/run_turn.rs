@@ -643,8 +643,7 @@ pub fn run_turn<'a>(
                     // streak reminders are appended to the originals'
                     // results, same-step repeats receive the original's
                     // final result, and the cross-step streak advances.
-                    let dedupe_force_stop =
-                        tool_dedupe.finalize_step(&dedupe_plan, &mut results);
+                    let dedupe_force_stop = tool_dedupe.finalize_step(&dedupe_plan, &mut results);
 
                     // Insert tool results, each linked back to its call
                     // via `tool_call_id` (same call order as `tool_calls`).
@@ -1822,12 +1821,24 @@ mod tests {
         // Streak 1 and 2 stay untouched; 3 earns reminder 1.
         assert_eq!(tool_msgs[0].content, "stub");
         assert_eq!(tool_msgs[1].content, "stub");
-        assert!(tool_msgs[2].content.contains("repeated several times in a row"));
+        assert!(
+            tool_msgs[2]
+                .content
+                .contains("repeated several times in a row")
+        );
         // Streak 5 embeds the count (reminder 2).
         assert!(tool_msgs[4].content.contains("issued 5 times in a row"));
         // Streak 8 and 12 carry the final-response reminder; 12 stops the turn.
-        assert!(tool_msgs[7].content.contains("Write your final response now"));
-        assert!(tool_msgs[11].content.contains("Write your final response now"));
+        assert!(
+            tool_msgs[7]
+                .content
+                .contains("Write your final response now")
+        );
+        assert!(
+            tool_msgs[11]
+                .content
+                .contains("Write your final response now")
+        );
     }
 
     // ── Turn telemetry counters ─────────────────────────────────────────

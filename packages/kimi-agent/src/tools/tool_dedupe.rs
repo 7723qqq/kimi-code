@@ -98,9 +98,7 @@ impl DedupeGuard {
     /// same-step half of v2 `checkToolCall`). The guard's exempt-id source
     /// advances, so planning is `&mut`.
     pub fn plan_step(&mut self, calls: &[ToolCall]) -> StepPlan {
-        self.plan_step_by(calls, |call| {
-            Some(make_key(&call.name, &call.arguments))
-        })
+        self.plan_step_by(calls, |call| Some(make_key(&call.name, &call.arguments)))
     }
 
     /// Like [`Self::plan_step`], with a per-call keying function. Calls
@@ -120,10 +118,7 @@ impl DedupeGuard {
                 self.exempt_seq += 1;
                 format!("\x00exempt-{id}")
             });
-            let original = keys
-                .iter()
-                .position(|k| *k == key)
-                .unwrap_or(keys.len());
+            let original = keys.iter().position(|k| *k == key).unwrap_or(keys.len());
             original_of.push(original);
             keys.push(key);
         }
@@ -138,11 +133,7 @@ impl DedupeGuard {
     /// final result verbatim, and the consecutive streak advances over the
     /// step's keys. Returns `true` when any streak reached the force-stop
     /// threshold — the caller must end the turn after appending results.
-    pub fn finalize_step(
-        &mut self,
-        plan: &StepPlan,
-        results: &mut [ExecutableToolResult],
-    ) -> bool {
+    pub fn finalize_step(&mut self, plan: &StepPlan, results: &mut [ExecutableToolResult]) -> bool {
         let pre_key = self.consecutive_key.clone();
         let pre_count = self.consecutive_count;
         let mut force_stop = false;
@@ -372,7 +363,11 @@ mod tests {
         let plan = guard.plan_step(&[read_call("c4", "a.rs")]);
         let mut results = vec![result("raw-3")];
         assert!(!guard.finalize_step(&plan, &mut results));
-        assert!(results[0].content.contains("repeated several times in a row"));
+        assert!(
+            results[0]
+                .content
+                .contains("repeated several times in a row")
+        );
     }
 
     #[test]

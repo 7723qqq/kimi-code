@@ -205,6 +205,10 @@ async function buildBunNative() {
     assets: native.assets,
   });
 
+  // Stage the engine's stdio CLI next to the executable (stdio JSON-RPC
+  // fallback transport for the Rust agent engine).
+  stageStdioCli(target);
+
   await runSignStep({
     identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',
     keychainPath: profile === 'release' ? (process.env.APPLE_KEYCHAIN_PATH ?? null) : null,

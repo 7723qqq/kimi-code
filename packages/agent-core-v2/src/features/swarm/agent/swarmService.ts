@@ -102,7 +102,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
   }
 }
 
-function agentDeniedInSwarmModeMessage(): string {
+export function agentDeniedInSwarmModeMessage(): string {
   return t('toolsV2.swarm.agentDeniedInSwarmMode');
 }
 

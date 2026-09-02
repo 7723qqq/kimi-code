@@ -1,3 +1,5 @@
+import { tryNativeEstimateTokensBatch } from '#/_base/native-tools';
+
 import type { ContentPart, Message } from './message';
 import type { Tool } from './tool';
 
@@ -25,11 +27,18 @@ export function estimateTokensForMessages(messages: readonly Message[]): number 
 }
 
 export function estimateTokensForTools(tools: readonly Tool[]): number {
-  let total = 0;
+  if (tools.length === 0) return 0;
+  const texts: string[] = [];
   for (const tool of tools) {
-    total += estimateTokens(tool.name);
-    total += estimateTokens(tool.description);
-    total += estimateTokens(JSON.stringify(tool.parameters));
+    texts.push(tool.name);
+    texts.push(tool.description);
+    texts.push(JSON.stringify(tool.parameters));
+  }
+  const native = tryNativeEstimateTokensBatch(texts);
+  if (native !== undefined) return native;
+  let total = 0;
+  for (const text of texts) {
+    total += estimateTokens(text);
   }
   return total;
 }

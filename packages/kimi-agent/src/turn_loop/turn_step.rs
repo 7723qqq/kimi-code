@@ -148,9 +148,20 @@ pub fn execute_loop_step_with_retry<'a>(
                 finish_reason,
             })
         } else {
+            let mut tool_calls = response.tool_calls;
+            // P61: some OpenAI-compatible gateways (MiniMax) return tool
+            // calls with an empty id; the follow-up tool result then
+            // references `""` and the provider rejects the request
+            // (2013: tool id not found). Synthesize unique ids before the
+            // calls enter the message history.
+            for tc in &mut tool_calls {
+                if tc.id.trim().is_empty() {
+                    tc.id = format!("toolu_{}", fastrand::u64(..));
+                }
+            }
             Ok(StepResult {
                 usage,
-                stop_reason: LoopStepStopReason::ToolCalls(response.tool_calls),
+                stop_reason: LoopStepStopReason::ToolCalls(tool_calls),
                 content: response.content,
                 attempts,
                 finish_reason,
@@ -282,6 +293,70 @@ mod tests {
             execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
         assert!(result.is_ok());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_empty_tool_call_id_gets_synthesized() {
+        // P61: MiniMax-style gateways return tool calls with an empty id;
+        // the engine must synthesize one before the calls enter history,
+        // otherwise the follow-up tool result references "" and the
+        // provider rejects the request (2013).
+        struct EmptyIdLlm;
+        impl LLM for EmptyIdLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "empty-id-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                Box::pin(async {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![
+                            ToolCall {
+                                id: String::new(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({}),
+                            },
+                            ToolCall {
+                                id: "  ".into(),
+                                name: "glob".into(),
+                                arguments: serde_json::json!({}),
+                            },
+                        ],
+                        finish_reason: Some("tool_calls".into()),
+                        usage: crate::rpc::types::TokenUsage::default(),
+                    })
+                })
+            }
+        }
+        let result = execute_loop_step_with_retry(
+            "t1",
+            1,
+            &EmptyIdLlm,
+            vec![],
+            &[],
+            vec![],
+            &RetryConfig::default(),
+        )
+        .await
+        .unwrap();
+        let LoopStepStopReason::ToolCalls(tool_calls) = result.stop_reason else {
+            panic!("expected tool calls");
+        };
+        assert_eq!(tool_calls.len(), 2);
+        for tc in &tool_calls {
+            assert!(!tc.id.trim().is_empty(), "id must be synthesized");
+        }
+        assert_ne!(tool_calls[0].id, tool_calls[1].id, "ids must be unique");
     }
 
     #[tokio::test]

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
-    LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, CheckpointRequest, ListToolsResponse,
+    LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
     StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
     ToolExecuteResponse,
 };
@@ -79,6 +79,17 @@ pub trait HostCallbacks: Send + Sync {
     ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
         let _ = request;
         Box::pin(async { Err("host does not support state bridge".into()) })
+    }
+
+    /// Host-side file checkpoint for native write executions (P53:
+    /// `host/checkpoint`). `phase: "prepare"` must complete — pre-image
+    /// captured — before the engine writes; `phase: "record"` notes the
+    /// post-image after execution. Fail-open: the default errors and the
+    /// caller skips checkpointing (the pre-P53 status quo, native writes
+    /// never checkpointed).
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let _ = request;
+        Box::pin(async { Err("host does not support checkpoint".into()) })
     }
 
     /// Fetch the host's current tool table (M1d: `host/list_tools`). Called
@@ -290,6 +301,25 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("Checkpoint serialize error: {e}"))?;
+            // Bounded: pre-image capture is host bookkeeping, but the engine
+            // waits for it before writing — the timeout bounds that wait.
+            server
+                .invoke(
+                    crate::rpc::types::methods::HOST_CHECKPOINT,
+                    params,
+                    Some(HOST_STATE_TIMEOUT),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("Checkpoint error: {e}"))
+        })
+    }
+
     fn state_write(
         &self,
         request: StateWriteRequest,
@@ -371,6 +401,27 @@ impl HostCallbacks for RpcHostCallbacks {
     }
 }
 
+/// File write paths a native call targets (P53 checkpoint seam): the same
+/// inference the tool scheduler uses for conflict detection, filtered to
+/// file accesses that write.
+fn checkpoint_write_paths(tool_name: &str, args: &serde_json::Value) -> Vec<String> {
+    use crate::turn_loop::types::{FileOperation, ToolResourceAccess};
+    crate::turn_loop::tool_scheduler::infer_tool_accesses(tool_name, args)
+        .into_iter()
+        .filter_map(|access| match access {
+            ToolResourceAccess::File(file)
+                if matches!(
+                    file.operation,
+                    FileOperation::Write | FileOperation::ReadWrite
+                ) =>
+            {
+                Some(file.path)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// A [`HostCallbacks`] decorator that executes tools natively (inside the
 /// Rust process, sandboxed to the workspace) and forwards everything the
 /// sandbox cannot handle to the wrapped callbacks.
@@ -420,6 +471,17 @@ pub struct NativeToolCallbacks {
     /// G-6 #6). User-configured hook commands run before native tool calls;
     /// exit 2 or a JSON deny blocks the call (fail-closed).
     pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
+    /// P52 native-path vetoes (the host `onBeforeExecuteTool` veto-chain
+    /// listeners that have no engine-native counterpart). Non-empty reason:
+    /// the affected native calls are rejected with the verbatim reason as
+    /// the (error) tool result — no execution, no host fallback. This gate
+    /// runs before permission, matching the veto chain's precedence.
+    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `tools_veto` denies every native tool (btw side-channel contexts).
+    /// Non-native calls still fall back to the host, whose own veto chain
+    /// denies them there.
+    pub agent_tool_veto: Option<String>,
+    pub tools_veto: Option<String>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -451,6 +513,8 @@ impl HostCallbacks for NativeToolCallbacks {
             stale_guard: self.stale_guard.clone(),
             goal_guard: self.goal_guard.clone(),
             hook_guard: self.hook_guard.clone(),
+            agent_tool_veto: self.agent_tool_veto.clone(),
+            tools_veto: self.tools_veto.clone(),
         };
         Box::pin(async move {
             // G-6 #7: a CreateGoal that must be reviewed (permission mode is
@@ -478,6 +542,35 @@ impl HostCallbacks for NativeToolCallbacks {
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too
                 // (same contract as the permission denial below).
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // P52 veto gate, before permission — the host veto chain outranks
+            // everything (v2 `beforeToolExecuteEvent` aggregation). A denial
+            // is the tool result the model sees; no execution, no fallback.
+            let veto_reason = if let Some(reason) = &this.tools_veto {
+                Some(reason.clone())
+            } else if let Some(reason) = &this.agent_tool_veto
+                && request.tool_name.eq_ignore_ascii_case("agent")
+            {
+                Some(reason.clone())
+            } else {
+                None
+            };
+            if let Some(reason) = veto_reason {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
                     "turn_id": request.turn_id,
@@ -617,9 +710,47 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
+            // P53 checkpoint prepare (v2 `onWillExecuteTool` counterpart):
+            // the engine is about to write these files — the host captures
+            // their pre-images before the write lands. Fail-open: a failure
+            // or unwired host skips the snapshot. At this point every deny
+            // gate (veto / plan / permission / hook / stale) has passed.
+            let checkpoint_paths = checkpoint_write_paths(&request.tool_name, &request.arguments);
+            if !checkpoint_paths.is_empty() {
+                let _ = this
+                    .inner
+                    .checkpoint(CheckpointRequest {
+                        turn_id: request.turn_id.clone(),
+                        tool_call_id: request.tool_call_id.clone(),
+                        phase: "prepare".into(),
+                        paths: checkpoint_paths.clone(),
+                        executed: false,
+                    })
+                    .await;
+            }
+            let started = std::time::Instant::now();
+            // P57 tool.progress stream: bash output chunks flow to the host
+            // as `tool.native.progress` events (fire-and-forget UI updates).
+            let progress_inner = this.inner.clone();
+            let progress_turn_id = request.turn_id.clone();
+            let progress_call_id = request.tool_call_id.clone();
+            let on_update = |kind: &str, text: &str| {
+                progress_inner.emit_event(serde_json::json!({
+                    "type": "tool.native.progress",
+                    "turn_id": progress_turn_id,
+                    "tool_call_id": progress_call_id,
+                    "kind": kind,
+                    "text": text,
+                }));
+            };
             let result = this
                 .toolset
-                .execute_tool(&request.tool_name, &request.arguments)
+                .execute_tool_streaming(
+                    Some(&request.tool_call_id),
+                    &request.tool_name,
+                    &request.arguments,
+                    Some(&on_update),
+                )
                 .await;
             match result {
                 Some(result) => {
@@ -630,6 +761,42 @@ impl HostCallbacks for NativeToolCallbacks {
                     if let Some(gate) = &this.stale_guard {
                         gate.observe(&request.tool_name, &request.arguments, result.is_error);
                     }
+                    // P53 checkpoint record (v2 `onDidExecuteTool` counter-
+                    // part): the write landed — note the post-image so undo
+                    // can detect manual edits. Fire-and-forget: a failure
+                    // leaves the group with an unresolvable after-state,
+                    // which restore treats as a conflict, not data loss.
+                    if !checkpoint_paths.is_empty() {
+                        let _ = this
+                            .inner
+                            .checkpoint(CheckpointRequest {
+                                turn_id: request.turn_id.clone(),
+                                tool_call_id: request.tool_call_id.clone(),
+                                phase: "record".into(),
+                                paths: checkpoint_paths,
+                                executed: true,
+                            })
+                            .await;
+                    }
+                    // P54 tool_call telemetry (v2 `trackToolCall` counter-
+                    // part): outcome + duration for every native execution.
+                    // `dup_type` is always `normal` — dedupe-supplied repeats
+                    // never reach the execution layer. Field set must stay
+                    // exactly the v2 `ToolCallEvent` shape (strict telemetry
+                    // property check host-side).
+                    let mut telemetry_event = serde_json::json!({
+                        "event": "tool_call",
+                        "turn_id": request.turn_id.parse::<u64>().unwrap_or(0),
+                        "tool_call_id": request.tool_call_id,
+                        "tool_name": request.tool_name,
+                        "outcome": if result.is_error { "error" } else { "success" },
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                        "dup_type": "normal",
+                    });
+                    if result.is_error {
+                        telemetry_event["error_type"] = serde_json::Value::String("error".into());
+                    }
+                    this.inner.telemetry(telemetry_event);
                     let raw = ToolExecuteResponse {
                         content: result.content,
                         is_error: result.is_error,
@@ -813,6 +980,10 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.state_write(request)
     }
 
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        self.inner.checkpoint(request)
+    }
+
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
     }
@@ -982,11 +1153,239 @@ mod tests {
             stale_guard: None,
             goal_guard: None,
             hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
 
     use crate::tools::NativeToolset;
+
+    /// Inner callbacks for the P52 veto tests: counts host executions and
+    /// permission consults, and records every `emit_event` payload.
+    struct VetoProbeCallbacks {
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        checkpoints: Arc<std::sync::Mutex<Vec<CheckpointRequest>>>,
+        telemetry_events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl HostCallbacks for VetoProbeCallbacks {
+        fn telemetry(&self, event: serde_json::Value) {
+            self.telemetry_events.lock().unwrap().push(event);
+        }
+        fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+            self.checkpoints.lock().unwrap().push(request);
+            Box::pin(async { Ok(()) })
+        }
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    type VetoProbe = (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    );
+
+    fn veto_setup(agent_tool_veto: Option<String>, tools_veto: Option<String>) -> VetoProbe {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(VetoProbeCallbacks {
+                permission_calls: permission_calls.clone(),
+                executed: executed.clone(),
+                events: events.clone(),
+                checkpoints: Arc::new(std::sync::Mutex::new(Vec::new())),
+                telemetry_events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto,
+            tools_veto,
+        };
+        (dir, native, permission_calls, executed, events)
+    }
+
+    fn veto_events(events: &std::sync::Mutex<Vec<serde_json::Value>>) -> Vec<(String, String)> {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| {
+                let kind = event.get("type")?.as_str()?.to_string();
+                let content = event.get("content")?.as_str()?.to_string();
+                Some((kind, content))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_tools_veto_denies_every_native_call() {
+        let (_dir, native, permission_calls, executed, events) =
+            veto_setup(None, Some("side chat: tools are off".into()));
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "a.txt" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(response.content, "side chat: tools are off");
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            0,
+            "veto outranks permission"
+        );
+        assert_eq!(executed.load(Ordering::Relaxed), 0, "no host fallback");
+        assert_eq!(
+            veto_events(&events),
+            vec![(
+                "tool.native".to_string(),
+                "side chat: tools are off".to_string()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_veto_denies_only_agent() {
+        let (_dir, native, permission_calls, executed, events) =
+            veto_setup(Some("swarm mode denies Agent".into()), None);
+        let denied = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Agent".into(),
+                arguments: serde_json::json!({ "prompt": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(denied.is_error);
+        assert_eq!(denied.content, "swarm mode denies Agent");
+        // Any other tool passes the veto gate and reaches permission.
+        let allowed = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Glob".into(),
+                arguments: serde_json::json!({ "pattern": "*.rs" }),
+            })
+            .await
+            .unwrap();
+        assert!(!allowed.is_error, "non-Agent tools are not vetoed");
+        assert_eq!(permission_calls.load(Ordering::Relaxed), 1);
+        let events = veto_events(&events);
+        assert_eq!(
+            events[0],
+            (
+                "tool.native".to_string(),
+                "swarm mode denies Agent".to_string()
+            )
+        );
+        let _ = executed;
+    }
+
+    #[tokio::test]
+    async fn test_native_write_checkpoints_prepare_and_record() {
+        let (_dir, _native, _permission_calls, _executed, _events) = veto_setup(None, None);
+        // Drill into the inner probe: the setup closure hides it, so drive
+        // the public seam twice and assert on the checkpoint calls via a
+        // fresh probe we control directly.
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let checkpoints = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let telemetry_events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(VetoProbeCallbacks {
+                permission_calls: Arc::new(AtomicU32::new(0)),
+                executed: Arc::new(AtomicU32::new(0)),
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+                checkpoints: checkpoints.clone(),
+                telemetry_events: telemetry_events.clone(),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "turn-7".into(),
+                tool_call_id: "c9".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "cp.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(!response.is_error);
+        let recorded = checkpoints.lock().unwrap().clone();
+        let phases: Vec<&str> = recorded.iter().map(|r| r.phase.as_str()).collect();
+        assert_eq!(phases, vec!["prepare", "record"]);
+        assert_eq!(recorded[0].turn_id, "turn-7");
+        assert_eq!(recorded[0].paths, vec!["cp.txt".to_string()]);
+        assert!(!recorded[0].executed);
+        assert!(recorded[1].executed);
+        // P54: one tool_call telemetry event, success outcome, numeric turn
+        // id (the wire turn id is not numeric here, so it degrades to 0).
+        let telemetry = telemetry_events.lock().unwrap();
+        assert_eq!(telemetry.len(), 1);
+        let event = &telemetry[0];
+        assert_eq!(event["event"], "tool_call");
+        assert_eq!(event["tool_call_id"], "c9");
+        assert_eq!(event["tool_name"], "Write");
+        assert_eq!(event["outcome"], "success");
+        assert_eq!(event["dup_type"], "normal");
+        assert_eq!(event["turn_id"], 0);
+        assert!(event["duration_ms"].is_u64());
+    }
 
     #[tokio::test]
     async fn test_native_write_requires_permission_and_runs_on_allow() {
@@ -1214,6 +1613,8 @@ mod tests {
             )))),
             goal_guard: None,
             hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         (dir, native, executed, native_count, events, state_reads)
     }
@@ -1483,6 +1884,8 @@ mod tests {
             stale_guard: None,
             goal_guard: Some(guard.clone()),
             hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         (
             dir,
@@ -1685,6 +2088,8 @@ mod tests {
             hook_guard: Some(Arc::new(crate::tools::external_hooks::HookGuard::new(
                 hooks,
             ))),
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         (
             dir,
@@ -1884,6 +2289,8 @@ mod tests {
             stale_guard: None,
             goal_guard: None,
             hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -2049,6 +2456,8 @@ mod tests {
             stale_guard: None,
             goal_guard: None,
             hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();

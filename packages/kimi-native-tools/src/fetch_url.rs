@@ -547,7 +547,10 @@ mod tests {
         assert!(resolver("127.0.0.1:80").is_err());
 
         pinned.pin("pinned.example", 443, vec!["1.2.3.4:443".parse().unwrap()]);
-        assert_eq!(resolver("pinned.example:443").unwrap()[0], "1.2.3.4:443".parse().unwrap());
+        assert_eq!(
+            resolver("pinned.example:443").unwrap()[0],
+            "1.2.3.4:443".parse().unwrap()
+        );
         // A different port on the same host is still refused.
         assert!(resolver("pinned.example:80").is_err());
     }

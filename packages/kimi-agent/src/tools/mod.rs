@@ -11,9 +11,13 @@
 //! permission system.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+
+/// P57: mid-execution output stream callback (bash stdout/stderr chunks).
+pub type OutputUpdate<'a> = &'a (dyn Fn(&str, &str) + Send + Sync);
 
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -29,14 +33,32 @@ const READ_MAX_BYTES: u64 = 10 * 1024 * 1024;
 /// Grep caps: scanned files, and wall-clock budget (host/addon
 /// DEFAULT_TIMEOUT_MS = 20s).
 const GREP_MAX_FILES: usize = 5000;
+/// Soft memory guard for the parallel walk. Aggregated `content`-mode windows
+/// are held in memory until the caller sorts and truncates them, and one
+/// matching file can contribute nearly [`GREP_MAX_FILE_BYTES`] of rendered
+/// lines, so workers stop scanning (best-effort, like the deadline) once twice
+/// the hard cap has been visited. The hard cap is still applied exactly — but
+/// only after sorting, so what survives it is deterministic.
+const GREP_WALK_SCAN_CAP: usize = GREP_MAX_FILES * 2;
+/// Worker threads for one parallel grep walk. `ignore`'s `WalkParallel`
+/// defaults to one worker per CPU, which multiplies with tokio's blocking pool
+/// (`spawn_blocking` × `MAX_PARALLEL_TOOLS` concurrent native calls): a 16-core
+/// box would peak at ~272 threads for grep alone. The walk is syscall-bound
+/// rather than CPU-bound, so four workers keep the fan-out benefit while
+/// bounding the worst case to 64 extra threads.
+const GREP_WALK_THREADS: usize = 4;
 const GREP_TIME_BUDGET: Duration = Duration::from_secs(20);
 /// Largest file native Grep will pull into memory (matches the Read cap).
 /// Bigger ones are skipped and reported as truncation rather than risking a
 /// multi-gigabyte allocation per matching file.
 const GREP_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
-/// Cap on rendered Grep output bytes (host/addon MAX_OUTPUT_BYTES). The whole
-/// result is built before paging, so context lines across thousands of files
-/// would otherwise be materialised in full.
+/// Cap on rendered Grep output bytes. This is the engine's own memory guard,
+/// deliberately tighter than the host's rg stdout buffer
+/// (`runRg.ts` `MAX_OUTPUT_BYTES` = 10 MiB): the host streams rg's output and
+/// pages it, whereas the engine builds the whole rendered result in process
+/// before paging, so context lines across thousands of files would otherwise be
+/// materialised in full. Paging itself matches the host
+/// ([`GREP_HEAD_LIMIT`] = `DEFAULT_HEAD_LIMIT`).
 const GREP_MAX_OUTPUT_BYTES: usize = 512 * 1024;
 /// Default result cap for native Grep (host DEFAULT_HEAD_LIMIT).
 const GREP_HEAD_LIMIT: usize = 250;
@@ -48,6 +70,10 @@ const GLOB_MAX_RESULTS: usize = 500;
 
 /// Hard wall-clock cap for native Bash (host may configure less).
 const BASH_MAX_SECONDS: u64 = 300;
+/// P57: minimum spacing between `tool.native.progress` events (one event
+/// per interval; intervening chunks are dropped from the UI stream only —
+/// the final result always carries the full output).
+const PROGRESS_MIN_INTERVAL_MS: u64 = 50;
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
@@ -78,6 +104,8 @@ pub mod todo_item;
 pub mod todo_list;
 pub mod tool_dedupe;
 pub mod web_search;
+
+mod grep_types;
 
 /// Tools whose native execution requires a host permission grant first.
 pub fn is_mutating_tool(tool_name: &str) -> bool {
@@ -171,10 +199,14 @@ pub struct NativeToolset {
     mcp_manager: Option<std::sync::Arc<crate::mcp::McpManager>>,
     /// Foreground `Agent` tool turn context (P46): the timeout the host
     /// resolved (`resolveSubagentTimeoutMs`) and the parent turn's
-    /// cancellation flag. Both `None` outside a wired turn (the tool then
+    /// cancellation signal. Both `None` outside a wired turn (the tool then
     /// runs with the 2h default and no parent abort).
     subagent_timeout_ms: Option<u64>,
-    turn_cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    parent_cancel: Option<crate::subagent::types::ParentCancel>,
+    /// P55: session-wide slot (shared with the session pump) holding the
+    /// current turn's [`ParentCancel`]. Takes precedence over the static
+    /// `parent_cancel`; lets a session-built toolset see per-turn signals.
+    parent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Host callbacks for interactive tools (AskUserQuestion). `None` means
     /// the tool falls back to the host path, which owns the interaction
     /// runtime anyway.
@@ -216,7 +248,8 @@ impl NativeToolset {
             subagent_manager: None,
             mcp_manager: None,
             subagent_timeout_ms: None,
-            turn_cancellation: None,
+            parent_cancel: None,
+            parent_cancel_slot: None,
             callbacks: None,
             github_credentials: None,
         })
@@ -238,15 +271,46 @@ impl NativeToolset {
     }
 
     /// Attach the foreground `Agent` tool's turn context (P46): the host's
-    /// resolved subagent timeout and the parent turn's cancellation flag.
+    /// resolved subagent timeout and the parent turn's cancellation signal
+    /// (P51: flag + notify, so the subagent abort is event-driven).
     pub fn with_agent_context(
         mut self,
         timeout_ms: Option<u64>,
-        cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        parent_cancel: Option<crate::subagent::types::ParentCancel>,
     ) -> Self {
         self.subagent_timeout_ms = timeout_ms;
-        self.turn_cancellation = cancellation;
+        self.parent_cancel = parent_cancel;
         self
+    }
+
+    /// Attach the P55 session-wide cancel slot (session-built toolsets).
+    pub fn with_parent_cancel_slot(
+        mut self,
+        slot: Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>,
+    ) -> Self {
+        self.parent_cancel_slot = Some(slot);
+        self
+    }
+
+    /// [`Self::with_parent_cancel_slot`] for optional slots.
+    pub fn with_parent_cancel_slot_if(
+        mut self,
+        slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    ) -> Self {
+        self.parent_cancel_slot = slot;
+        self
+    }
+
+    /// The live parent cancel signal: the session slot wins (per-turn
+    /// refresh), the static value is the per-turn-wired fallback.
+    fn effective_parent_cancel(&self) -> Option<crate::subagent::types::ParentCancel> {
+        if let Some(slot) = &self.parent_cancel_slot {
+            let guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(signal) = guard.as_ref() {
+                return Some(signal.clone());
+            }
+        }
+        self.parent_cancel.clone()
     }
 
     /// Attach the host callbacks for interactive tools (AskUserQuestion).
@@ -269,9 +333,9 @@ impl NativeToolset {
     /// sandbox. `None` means "not handled here — send it to the host".
     pub fn execute(&self, tool_name: &str, args: &Value) -> Option<ExecutableToolResult> {
         match tool_name.to_ascii_lowercase().as_str() {
-            "read" => self.read(args),
-            "grep" => self.grep(args),
-            "glob" => self.glob(args),
+            "read" => Self::read(&self.root, args),
+            "grep" => Self::grep(&self.root, args),
+            "glob" => Self::glob(&self.root, args),
             "listdirectory" | "list_directory" => {
                 list_directory::execute_list_directory(&self.root, args)
             }
@@ -286,15 +350,58 @@ impl NativeToolset {
     }
 
     /// Execute a tool natively (async).
+    ///
+    /// The file-I/O tools (`read` / `grep` / `glob` / `write` / `edit`)
+    /// delegate to [`Self::run_readonly_file_tool_on_blocking_pool`] /
+    /// [`Self::run_mutating_file_tool_on_blocking_pool`]: their bodies
+    /// are synchronous syscalls, and with up to `MAX_PARALLEL_TOOLS` calls
+    /// in flight per step they would otherwise pin tokio worker threads,
+    /// starving the Bash output pumps, LLM streams, and steer queue on the
+    /// same runtime.
     pub async fn execute_tool(
         &self,
         tool_name: &str,
         args: &Value,
     ) -> Option<ExecutableToolResult> {
+        self.execute_tool_ext(None, tool_name, args).await
+    }
+
+    /// [`Self::execute_tool`] with the caller's tool-call id, so the
+    /// foreground `Agent` tool can key its lifecycle events onto the right
+    /// transcript card (v2 `parentToolCallId`).
+    pub async fn execute_tool_ext(
+        &self,
+        tool_call_id: Option<&str>,
+        tool_name: &str,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        self.execute_tool_streaming(tool_call_id, tool_name, args, None)
+            .await
+    }
+
+    /// [`Self::execute_tool_ext`] with a mid-execution output stream
+    /// (P57): bash's stdout/stderr chunks are handed to `on_update` so the
+    /// host can drive live `tool.progress` cards.
+    pub async fn execute_tool_streaming(
+        &self,
+        tool_call_id: Option<&str>,
+        tool_name: &str,
+        args: &Value,
+        on_update: Option<OutputUpdate<'_>>,
+    ) -> Option<ExecutableToolResult> {
         match tool_name.to_ascii_lowercase().as_str() {
-            "read" => self.read(args),
-            "grep" => self.grep(args),
-            "glob" => self.glob(args),
+            "read" => {
+                self.run_readonly_file_tool_on_blocking_pool(args, Self::read)
+                    .await
+            }
+            "grep" => {
+                self.run_readonly_file_tool_on_blocking_pool(args, Self::grep)
+                    .await
+            }
+            "glob" => {
+                self.run_readonly_file_tool_on_blocking_pool(args, Self::glob)
+                    .await
+            }
             "listdirectory" | "list_directory" => {
                 list_directory::execute_list_directory(&self.root, args)
             }
@@ -386,14 +493,21 @@ impl NativeToolset {
                     mgr,
                     args,
                     self.subagent_timeout_ms,
-                    self.turn_cancellation.clone(),
+                    self.effective_parent_cancel().as_ref(),
+                    tool_call_id,
                 )
                 .await
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
-            "write" => self.write(args),
-            "edit" => self.edit(args),
-            "bash" => self.bash(args).await,
+            "write" => {
+                self.run_mutating_file_tool_on_blocking_pool(args, Self::write)
+                    .await
+            }
+            "edit" => {
+                self.run_mutating_file_tool_on_blocking_pool(args, Self::edit)
+                    .await
+            }
+            "bash" => self.bash_with(args, on_update).await,
             _ if github::is_github_tool(tool_name) => {
                 github::execute_github_tool(tool_name, args, self.github_credentials.as_ref()).await
             }
@@ -416,43 +530,95 @@ impl NativeToolset {
         args: &Value,
     ) -> Option<ExecutableToolResult> {
         match tool_name.to_ascii_lowercase().as_str() {
-            "write" => self.write(args),
-            "edit" => self.edit(args),
-            "bash" => self.bash(args).await,
+            "write" => {
+                self.run_mutating_file_tool_on_blocking_pool(args, Self::write)
+                    .await
+            }
+            "edit" => {
+                self.run_mutating_file_tool_on_blocking_pool(args, Self::edit)
+                    .await
+            }
+            "bash" => self.bash_with(args, None).await,
             _ => None,
         }
     }
 
+    /// Run a synchronous read-only file-I/O tool (`read` / `grep` / `glob`) on
+    /// tokio's blocking pool instead of the async worker thread. The closure
+    /// must be `Send + 'static`, so only owned state crosses over: a clone of
+    /// the sandbox root and of the JSON arguments (both cheap relative to the
+    /// I/O the tool does). No other `NativeToolset` field is needed — these
+    /// tools depend solely on the root.
+    ///
+    /// A `JoinError` (panic / runtime shutdown) returns `None`, which hands the
+    /// call to the host: read-only tools are idempotent, so re-running one
+    /// there is always safe, and a task lost to the runtime must not reach the
+    /// model as a tool failure.
+    async fn run_readonly_file_tool_on_blocking_pool(
+        &self,
+        args: &Value,
+        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+    ) -> Option<ExecutableToolResult> {
+        match Self::spawn_file_tool(self.root.clone(), args.clone(), tool).await {
+            Ok(result) => result,
+            Err(e) => blocking_pool_failure(false, e.to_string()),
+        }
+    }
+
+    /// Run a synchronous mutating file-I/O tool (`write` / `edit`) on tokio's
+    /// blocking pool. Same ownership rules as the read-only variant, but a
+    /// `JoinError` becomes an error result rather than a `None` host fallback:
+    /// the call was already permission-granted and may have partially applied,
+    /// so letting the host re-run it could double-apply the change.
+    async fn run_mutating_file_tool_on_blocking_pool(
+        &self,
+        args: &Value,
+        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+    ) -> Option<ExecutableToolResult> {
+        match Self::spawn_file_tool(self.root.clone(), args.clone(), tool).await {
+            Ok(result) => result,
+            Err(e) => blocking_pool_failure(true, e.to_string()),
+        }
+    }
+
+    async fn spawn_file_tool(
+        root: PathBuf,
+        args: Value,
+        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+    ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
+        tokio::task::spawn_blocking(move || tool(&root, &args)).await
+    }
+
     /// Resolve a path argument inside the workspace. `None` when the path
     /// escapes the sandbox or does not exist.
-    fn resolve(&self, path: &str) -> Option<PathBuf> {
-        let candidate = self.candidate_path(path);
+    fn resolve(root: &Path, path: &str) -> Option<PathBuf> {
+        let candidate = Self::candidate_path(root, path);
         let resolved = std::fs::canonicalize(&candidate).ok()?;
-        resolved.starts_with(&self.root).then_some(resolved)
+        resolved.starts_with(root).then_some(resolved)
     }
 
     /// Like [`resolve`] but tolerates a not-yet-existing target: walks up to
     /// the nearest existing ancestor, canonicalizes it (resolving any
     /// symlink escapes), then rejoins the missing tail. `None` when the
     /// existing ancestor lies outside the sandbox.
-    fn resolve_for_write(&self, path: &str) -> Option<PathBuf> {
-        let candidate = self.candidate_path(path);
+    fn resolve_for_write(root: &Path, path: &str) -> Option<PathBuf> {
+        let candidate = Self::candidate_path(root, path);
         if let Ok(resolved) = std::fs::canonicalize(&candidate) {
-            return resolved.starts_with(&self.root).then_some(resolved);
+            return resolved.starts_with(root).then_some(resolved);
         }
         let mut missing: Vec<std::ffi::OsString> = Vec::new();
         let mut cursor = candidate.as_path();
         loop {
             match std::fs::canonicalize(cursor) {
                 Ok(existing) => {
-                    if !existing.starts_with(&self.root) {
+                    if !existing.starts_with(root) {
                         return None;
                     }
                     let mut resolved = existing;
                     for segment in missing.iter().rev() {
                         resolved = resolved.join(segment);
                     }
-                    return resolved.starts_with(&self.root).then_some(resolved);
+                    return resolved.starts_with(root).then_some(resolved);
                 }
                 Err(_) => {
                     missing.push(cursor.file_name()?.to_os_string());
@@ -462,17 +628,17 @@ impl NativeToolset {
         }
     }
 
-    fn candidate_path(&self, path: &str) -> PathBuf {
+    fn candidate_path(root: &Path, path: &str) -> PathBuf {
         if Path::new(path).is_absolute() {
             PathBuf::from(path)
         } else {
-            self.root.join(path)
+            root.join(path)
         }
     }
 
     // ── Read ───────────────────────────────────────────────────────────
 
-    fn read(&self, args: &Value) -> Option<ExecutableToolResult> {
+    fn read(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         // Image crop / full-resolution rendering lives on the host (media
         // pipeline) — never half-handle it here.
@@ -499,7 +665,7 @@ impl NativeToolset {
             Some(v) => (v.as_u64()? as usize).min(READ_MAX_LINES),
         };
 
-        let resolved = self.resolve(path)?;
+        let resolved = Self::resolve(root, path)?;
         let meta = std::fs::metadata(&resolved).ok()?;
         if !meta.is_file() || meta.len() > READ_MAX_BYTES {
             return None;
@@ -643,214 +809,136 @@ impl NativeToolset {
     /// Native Grep mirroring the host tool's public contract: default mode
     /// `files_with_matches` (most-recently-modified first), `content` with
     /// `-n`/`-A`/`-B`/`-C` context, `count_matches` with an aggregate
-    /// summary, case-insensitive matching, and offset/head_limit paging.
-    /// Unsupported args (`type`, `multiline`, `include_ignored`) fall back
-    /// to the host, whose ripgrep pipeline owns those features.
-    fn grep(&self, args: &Value) -> Option<ExecutableToolResult> {
+    /// summary, case-insensitive matching, offset/head_limit paging, plus the
+    /// `type` / `include_ignored` / `multiline` ripgrep features the host
+    /// otherwise owns. Each maps to the exact host rg flag: `type` -> `--type`,
+    /// `include_ignored` -> `--no-ignore`, `multiline` -> `-U
+    /// --multiline-dotall`.
+    fn grep(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+        // Argument typing is strict on purpose: the engine short-circuits ahead
+        // of the host's zod validation, so a present-but-mistyped argument has
+        // to return `None` (host fallback, which reports the schema error)
+        // instead of being silently dropped and reported as a successful
+        // search. Absent and explicit `null` both mean "the schema default".
         let pattern = args.get("pattern")?.as_str()?;
-        if args.get("type").is_some_and(|t| !t.is_null()) {
-            return None;
-        }
-        if args
-            .get("multiline")
-            .is_some_and(|v| v.as_bool() == Some(true))
-        {
-            return None;
-        }
-        if args
-            .get("include_ignored")
-            .is_some_and(|v| v.as_bool() == Some(true))
-        {
-            return None;
-        }
-        let case_insensitive = args.get("-i").and_then(|v| v.as_bool()).unwrap_or(false);
-        let line_numbers = args.get("-n").and_then(|v| v.as_bool()).unwrap_or(true);
-        let output_mode = args
-            .get("output_mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("files_with_matches");
-        if !matches!(
-            output_mode,
-            "files_with_matches" | "content" | "count_matches"
-        ) {
-            return None;
-        }
-        let context_after = args.get("-A").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let context_before = args.get("-B").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let context_both = args.get("-C").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let context_after = context_after.max(context_both);
-        let context_before = context_before.max(context_both);
-        let head_limit = args
-            .get("head_limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(GREP_HEAD_LIMIT as u64) as usize;
-        let page_offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        // `type` -> rg `--type NAME`: restrict the walk to files whose basename
+        // matches the type's globs. [`grep_types::RG_FILE_TYPES`] is only a
+        // fast path transcribed from one rg release — the host runs whatever rg
+        // is on PATH and honours user `--type-add` definitions (`.ripgreprc`),
+        // so an unknown name falls back rather than synthesising rg's error.
+        let type_filter = match args.get("type") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(build_type_glob(grep_types::rg_type_globs(
+                value.as_str()?,
+            )?)?),
+        };
+        // `multiline` -> rg `-U --multiline-dotall`: the pattern may span
+        // newlines and `.` also matches `\n`. Matching crosses line boundaries,
+        // so the scan buffers the whole file (a separate path, still bounded by
+        // GREP_MAX_FILE_BYTES and the binary-skip contract).
+        let multiline = bool_arg(args, "multiline", false)?;
+        // `include_ignored` -> rg `--no-ignore`: don't respect ignore files
+        // (.gitignore/.ignore/.rgignore and friends). VCS metadata dirs and
+        // sensitive files stay filtered regardless.
+        let include_ignored = bool_arg(args, "include_ignored", false)?;
+        let case_insensitive = bool_arg(args, "-i", false)?;
+        let line_numbers = bool_arg(args, "-n", true)?;
+        let output_mode = match args.get("output_mode") {
+            None | Some(Value::Null) => "files_with_matches",
+            Some(value) => match value.as_str()? {
+                mode @ ("files_with_matches" | "content" | "count_matches") => mode,
+                _ => return None,
+            },
+        };
+        let context_both = u64_arg(args, "-C", 0)? as usize;
+        let context_after = (u64_arg(args, "-A", 0)? as usize).max(context_both);
+        let context_before = (u64_arg(args, "-B", 0)? as usize).max(context_both);
+        let head_limit = u64_arg(args, "head_limit", GREP_HEAD_LIMIT as u64)? as usize;
+        let page_offset = u64_arg(args, "offset", 0)? as usize;
 
         let mut builder = regex::RegexBuilder::new(pattern);
         builder.case_insensitive(case_insensitive);
+        // rg `--multiline-dotall` makes `.` match `\n` (only meaningful with
+        // `-U`, which the multiline scan path provides).
+        builder.dot_matches_new_line(multiline);
+        // rg also keeps `^`/`$` anchored per line in `-U` mode (ripgrep 15.0.0:
+        // `rg -U --count-matches '^'` on "a\nb\n" reports 2), while the
+        // streaming path anchors per line by construction.
+        builder.multi_line(multiline);
         let regex = match builder.build() {
             Ok(r) => r,
             Err(e) => return Some(err_result(format!("invalid regex: {e}"))),
         };
-        let glob_filter = match args.get("glob").and_then(|g| g.as_str()) {
-            Some(g) => Some(build_glob(g)?),
-            None => None,
+        let glob_filter = match args.get("glob") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(build_glob(value.as_str()?)?),
         };
 
-        let search_root = match args.get("path").and_then(|p| p.as_str()) {
-            Some(p) => self.resolve(p)?,
-            None => self.root.clone(),
+        let search_root = match args.get("path") {
+            None | Some(Value::Null) => root.to_path_buf(),
+            Some(value) => Self::resolve(root, value.as_str()?)?,
         };
 
-        struct FileMatches {
-            display: String,
-            mtime: std::time::SystemTime,
-            /// `(is_match, lineno, line)` per line of the file, in order.
-            lines: Vec<(bool, usize, String)>,
-            total_matches: usize,
-        }
-
-        let started = Instant::now();
-        let mut per_file: Vec<FileMatches> = Vec::new();
-        let mut filtered_sensitive: Vec<String> = Vec::new();
-        let mut timed_out = false;
-        let mut file_cap_truncated = false;
-
-        // The host Grep searches hidden files (--hidden) and then filters
-        // sensitive ones — mirror both, or .env-style content leaks. VCS
-        // metadata directories are excluded like the host's `--glob !.git`
-        // family.
-        let walker = ignore::WalkBuilder::new(&search_root).hidden(false).build();
-        for entry in walker.flatten() {
-            if started.elapsed() > GREP_TIME_BUDGET {
-                timed_out = true;
-                break;
-            }
-            if per_file.len() >= GREP_MAX_FILES {
-                file_cap_truncated = true;
-                break;
-            }
-            let path = entry.path();
-            if path.components().any(|c| {
-                matches!(
-                    c.as_os_str().to_str(),
-                    Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
-                )
-            }) {
-                continue;
-            }
-            if !entry.file_type().is_some_and(|t| t.is_file()) {
-                continue;
-            }
-            if let Some(ref gs) = glob_filter
-                && !gs.is_match(path)
-            {
-                continue;
-            }
-            // Mirror the host Grep tool: matches inside sensitive files
-            // (.env, keys, credentials, ...) are never reported.
-            if is_sensitive_file(&path.to_string_lossy()) {
-                let display = path.strip_prefix(&self.root).unwrap_or(path);
-                filtered_sensitive.push(display.display().to_string());
-                continue;
-            }
-            // Check the size before reading: every matching file's content
-            // is held in memory until the result is rendered.
-            let Ok(metadata) = std::fs::metadata(path) else {
-                continue;
-            };
-            if metadata.len() > GREP_MAX_FILE_BYTES {
-                file_cap_truncated = true;
-                continue;
-            }
-            let Ok(bytes) = std::fs::read(path) else {
-                continue;
-            };
-            if bytes.contains(&0) {
-                continue;
-            }
-            let text = String::from_utf8_lossy(&bytes);
-            let mut lines: Vec<(bool, usize, String)> = Vec::new();
-            let mut total_matches = 0usize;
-            for (lineno, line) in text.lines().enumerate() {
-                let trimmed = line.strip_suffix('\r').unwrap_or(line);
-                // Occurrences per line, like rg --count-matches (the host
-                // summary sums these, not matching lines).
-                let matches_in_line = regex.find_iter(trimmed).count();
-                if matches_in_line > 0 {
-                    total_matches += matches_in_line;
-                }
-                lines.push((matches_in_line > 0, lineno + 1, trimmed.to_string()));
-            }
-            if total_matches == 0 {
-                continue;
-            }
-            let display = path.strip_prefix(&self.root).unwrap_or(path);
-            per_file.push(FileMatches {
-                display: display.display().to_string(),
-                mtime: std::fs::metadata(path)
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
-                lines,
-                total_matches,
-            });
-        }
-
-        // files_with_matches: most-recently-modified first (host ordering).
-        if output_mode == "files_with_matches" {
-            per_file.sort_by_key(|f| std::cmp::Reverse(f.mtime));
-        }
+        let mode = match output_mode {
+            "files_with_matches" => GrepMode::FilesWithMatches,
+            "count_matches" => GrepMode::CountMatches,
+            _ => GrepMode::Content,
+        };
+        let scan_cfg = GrepScanConfig {
+            regex: &regex,
+            mode,
+            context_before,
+            context_after,
+            line_numbers,
+            multiline,
+        };
+        // The wall-clock budget becomes a deadline instant the parallel
+        // workers compare against (replacing the old serial `elapsed()` check).
+        let deadline = Instant::now() + GREP_TIME_BUDGET;
+        let GrepCollected {
+            mut per_file,
+            mut filtered_sensitive,
+            timed_out,
+            mut file_cap_truncated,
+        } = grep_collect(
+            &search_root,
+            root,
+            &scan_cfg,
+            glob_filter.as_ref(),
+            type_filter.as_ref(),
+            include_ignored,
+            GrepWalkLimits {
+                deadline,
+                scan_cap: GREP_WALK_SCAN_CAP,
+            },
+        );
+        // The walk is unordered; make the sensitive-file notice deterministic.
+        filtered_sensitive.sort();
+        // Ordering first, hard file cap second: the parallel walk cannot stop
+        // at an exact global count, so truncating the unordered aggregate would
+        // keep a scheduling-dependent subset — and `head_limit` then pages over
+        // whatever that subset happened to be.
+        file_cap_truncated |= grep_sort_and_cap(&mut per_file, mode, GREP_MAX_FILES);
 
         // Rendered output lines, then offset/head_limit paging (host order).
         let mut rendered: Vec<String> = Vec::new();
-        match output_mode {
-            "files_with_matches" => {
+        match mode {
+            GrepMode::FilesWithMatches => {
                 for file in &per_file {
                     rendered.push(file.display.clone());
                 }
             }
-            "count_matches" => {
+            GrepMode::CountMatches => {
                 for file in &per_file {
                     rendered.push(format!("{}:{}", file.display, file.total_matches));
                 }
             }
-            _ => {
+            GrepMode::Content => {
+                // Each file's merged `-A`/`-B`/`-C` windows and `--` cluster
+                // separators were rendered during the parallel scan; splice
+                // them together in the deterministic file order.
                 for file in &per_file {
-                    // Merged context windows: matching lines with `-A`/`-B`
-                    // context, clusters separated by `--` like rg.
-                    let mut last_rendered: Option<usize> = None;
-                    for (idx, (is_match, _, _)) in file.lines.iter().enumerate() {
-                        if !*is_match {
-                            continue;
-                        }
-                        let lo = idx.saturating_sub(context_before);
-                        let hi = (idx + context_after).min(file.lines.len() - 1);
-                        if let Some(lr) = last_rendered
-                            && lo > lr + 1
-                        {
-                            rendered.push("--".into());
-                            last_rendered = None;
-                        }
-                        let start = last_rendered.map_or(lo, |lr| (lr + 1).max(lo));
-                        for (offset_in_window, (is_match, lineno, line)) in
-                            file.lines[start..=hi].iter().enumerate()
-                        {
-                            let absolute = start + offset_in_window;
-                            if last_rendered.is_some() && absolute <= last_rendered.unwrap() {
-                                continue;
-                            }
-                            let sep = if *is_match { ':' } else { '-' };
-                            if line_numbers {
-                                rendered.push(format!(
-                                    "{}{}{}{}{}",
-                                    file.display, sep, lineno, sep, line
-                                ));
-                            } else {
-                                rendered.push(format!("{}{}{}", file.display, sep, line));
-                            }
-                            last_rendered = Some(absolute);
-                        }
-                    }
+                    rendered.extend(file.rendered.iter().cloned());
                 }
             }
         }
@@ -958,7 +1046,7 @@ impl NativeToolset {
 
     // ── Glob ───────────────────────────────────────────────────────────
 
-    fn glob(&self, args: &Value) -> Option<ExecutableToolResult> {
+    fn glob(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let pattern = args.get("pattern")?.as_str()?;
         // include_ignored changes walker semantics — let the host handle it.
         if args
@@ -969,8 +1057,8 @@ impl NativeToolset {
         }
         let glob = build_glob(pattern)?;
         let search_root = match args.get("path").and_then(|p| p.as_str()) {
-            Some(p) => self.resolve(p)?,
-            None => self.root.clone(),
+            Some(p) => Self::resolve(root, p)?,
+            None => root.to_path_buf(),
         };
 
         let mut results: Vec<String> = Vec::new();
@@ -983,7 +1071,7 @@ impl NativeToolset {
             let path = entry.path();
             let relative = path.strip_prefix(&search_root).unwrap_or(path);
             if glob.is_match(relative) || glob.is_match(path) {
-                let display = path.strip_prefix(&self.root).unwrap_or(path);
+                let display = path.strip_prefix(root).unwrap_or(path);
                 results.push(display.display().to_string());
                 if results.len() >= GLOB_MAX_RESULTS {
                     truncated = true;
@@ -1006,14 +1094,14 @@ impl NativeToolset {
 
     // ── Write ──────────────────────────────────────────────────────────
 
-    fn write(&self, args: &Value) -> Option<ExecutableToolResult> {
+    fn write(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         let content = args.get("content")?.as_str()?;
         let mode = match args.get("mode") {
             None | Some(Value::Null) => "overwrite",
             Some(v) => v.as_str()?,
         };
-        let resolved = self.resolve_for_write(path)?;
+        let resolved = Self::resolve_for_write(root, path)?;
         if let Some(parent) = resolved.parent() {
             std::fs::create_dir_all(parent).ok()?;
         }
@@ -1046,7 +1134,7 @@ impl NativeToolset {
 
     // ── Edit ───────────────────────────────────────────────────────────
 
-    fn edit(&self, args: &Value) -> Option<ExecutableToolResult> {
+    fn edit(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         let old = args.get("old_string")?.as_str()?;
         let new = args.get("new_string")?.as_str()?;
@@ -1054,7 +1142,7 @@ impl NativeToolset {
             .get("replace_all")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let resolved = self.resolve_for_write(path)?;
+        let resolved = Self::resolve_for_write(root, path)?;
 
         let bytes = std::fs::read(&resolved).ok()?;
         if bytes.contains(&0) {
@@ -1076,16 +1164,24 @@ impl NativeToolset {
             text.replacen(old, new, 1)
         };
         std::fs::write(&resolved, updated).ok()?;
-        let display = resolved
-            .strip_prefix(&self.root)
-            .unwrap_or(&resolved)
-            .display();
+        let display = resolved.strip_prefix(root).unwrap_or(&resolved).display();
         Some(ok_result(format!("Edited {display}")))
     }
 
     // ── Bash ───────────────────────────────────────────────────────────
 
-    async fn bash(&self, args: &Value) -> Option<ExecutableToolResult> {
+    /// [`Self::bash`] with a mid-execution output stream (P57): every chunk
+    /// the child writes is handed to `on_update(kind, text)` so the host can
+    /// drive live `tool.progress` cards. Chunks are throttled to one event
+    /// per [`PROGRESS_MIN_INTERVAL_MS`] — a chatty command can write tens of
+    /// MiBs per second, and flooding the host event line would slow the very
+    /// turn the progress card is decorating. The model still receives the
+    /// full output through the final result.
+    async fn bash_with(
+        &self,
+        args: &Value,
+        on_update: Option<OutputUpdate<'_>>,
+    ) -> Option<ExecutableToolResult> {
         let command = args.get("command")?.as_str()?;
         // Background tasks (output persistence, task panel, notifications)
         // are host-owned — hand the call back untouched.
@@ -1096,7 +1192,7 @@ impl NativeToolset {
         // stay inside it. Returns `None` (host fallback) on escape — the
         // host applies its own cwd policy there.
         let working_dir = match args.get("cwd").and_then(|c| c.as_str()) {
-            Some(cwd) => self.resolve(cwd)?,
+            Some(cwd) => Self::resolve(&self.root, cwd)?,
             None => self.root.clone(),
         };
         // Timeout semantics mirror the host Bash tool: seconds, default 60,
@@ -1138,19 +1234,51 @@ impl NativeToolset {
         // as a killed command — never fall back to the host, which would
         // re-execute it.
         use tokio::io::AsyncReadExt;
+        let last_emit = std::sync::Mutex::new(
+            std::time::Instant::now() - Duration::from_millis(PROGRESS_MIN_INTERVAL_MS),
+        );
+        let emit = |kind: &str, text: &str| {
+            let Ok(mut last) = last_emit.lock() else {
+                return;
+            };
+            if last.elapsed().as_millis() >= PROGRESS_MIN_INTERVAL_MS as u128 {
+                *last = std::time::Instant::now();
+                if let Some(cb) = on_update {
+                    cb(kind, text);
+                }
+            }
+        };
         let waited = tokio::time::timeout(timeout, async {
             let (out, err, status) = tokio::join!(
                 async {
                     let mut buf = Vec::new();
                     if let Some(pipe) = stdout_pipe.as_mut() {
-                        let _ = pipe.read_to_end(&mut buf).await;
+                        let mut chunk = [0u8; 8192];
+                        loop {
+                            match pipe.read(&mut chunk).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => {
+                                    emit("stdout", &String::from_utf8_lossy(&chunk[..n]));
+                                    buf.extend_from_slice(&chunk[..n]);
+                                }
+                            }
+                        }
                     }
                     buf
                 },
                 async {
                     let mut buf = Vec::new();
                     if let Some(pipe) = stderr_pipe.as_mut() {
-                        let _ = pipe.read_to_end(&mut buf).await;
+                        let mut chunk = [0u8; 8192];
+                        loop {
+                            match pipe.read(&mut chunk).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => {
+                                    emit("stderr", &String::from_utf8_lossy(&chunk[..n]));
+                                    buf.extend_from_slice(&chunk[..n]);
+                                }
+                            }
+                        }
                     }
                     buf
                 },
@@ -1206,6 +1334,659 @@ impl NativeToolset {
     }
 }
 
+// ── Grep parallel-scan helpers ───────────────────────────────────────────
+
+/// Boolean tool argument: absent or explicit `null` yields `default`; a value
+/// that is present but not a boolean yields `None`, which the caller turns into
+/// a host fallback so the host's zod schema reports the malformed input instead
+/// of the engine silently ignoring it.
+fn bool_arg(args: &Value, key: &str, default: bool) -> Option<bool> {
+    match args.get(key) {
+        None | Some(Value::Null) => Some(default),
+        Some(value) => value.as_bool(),
+    }
+}
+
+/// Non-negative integer tool argument, with the same absent/null versus
+/// mistyped distinction as [`bool_arg`] (the host schema is
+/// `z.number().int().nonnegative()`).
+fn u64_arg(args: &Value, key: &str, default: u64) -> Option<u64> {
+    match args.get(key) {
+        None | Some(Value::Null) => Some(default),
+        Some(value) => value.as_u64(),
+    }
+}
+
+/// Which native Grep output shape a scan produces; drives how much per-file
+/// state the streaming scan retains.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GrepMode {
+    FilesWithMatches,
+    CountMatches,
+    Content,
+}
+
+/// Everything a streaming Grep scan needs, shared by reference across the
+/// parallel walker's worker threads.
+#[derive(Clone, Copy)]
+struct GrepScanConfig<'a> {
+    regex: &'a regex::Regex,
+    mode: GrepMode,
+    context_before: usize,
+    context_after: usize,
+    line_numbers: bool,
+    /// rg `-U`: matches may span newlines, so the scan buffers the whole file
+    /// and reports every physical line a match covers.
+    multiline: bool,
+}
+
+/// A matching file's aggregated scan result. `rendered` is populated only in
+/// `content` mode (the file's already-formatted context windows); the other
+/// modes keep just the display path, mtime, and occurrence count, so a match
+/// never drags whole-file line storage behind it.
+struct FileScan {
+    display: String,
+    /// Modification time in whole seconds since the UNIX epoch, `0` when the
+    /// platform cannot report one. Whole seconds are the host's granularity
+    /// (`Math.trunc(mtimeMs / 1000)`); matching it exactly is what keeps the
+    /// engine and the host in the same order for the same-second files a `git
+    /// checkout` or `clone` leaves behind.
+    mtime: u64,
+    total_matches: usize,
+    rendered: Vec<String>,
+}
+
+/// [`FileScan::mtime`] source: whole seconds since the UNIX epoch, `0` on any
+/// failure (the host's stat-failure fallback).
+fn mtime_secs(meta: &std::fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+/// Impose the mode's deterministic ordering on the aggregated walk results,
+/// then apply the hard scanned-file cap. Sorting runs BEFORE truncation so the
+/// survivors are the top-N of the contract order instead of a
+/// scheduling-dependent slice of the unordered parallel walk. Returns `true`
+/// when entries were dropped.
+///
+/// Ordering contract — identical on both sides (the host applies it in
+/// `GrepTool.sortFilesWithMatchesByMtime`):
+/// * `files_with_matches`: whole-second mtime DESC, ties broken by display path
+///   ASC;
+/// * `content` / `count_matches`: display path ASC (rg's own output order is
+///   walk order, which the parallel walk deliberately does not reproduce).
+fn grep_sort_and_cap(per_file: &mut Vec<FileScan>, mode: GrepMode, max_files: usize) -> bool {
+    match mode {
+        GrepMode::FilesWithMatches => per_file.sort_by(|a, b| {
+            b.mtime
+                .cmp(&a.mtime)
+                .then_with(|| a.display.cmp(&b.display))
+        }),
+        GrepMode::CountMatches | GrepMode::Content => {
+            per_file.sort_by(|a, b| a.display.cmp(&b.display));
+        }
+    }
+    if per_file.len() > max_files {
+        per_file.truncate(max_files);
+        return true;
+    }
+    false
+}
+
+/// Worker threads for one parallel grep walk: [`GREP_WALK_THREADS`] capped by
+/// the machine's own parallelism (never 0 — `ignore` treats that as "serial").
+fn grep_walk_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|cpus| cpus.get())
+        .unwrap_or(1)
+        .clamp(1, GREP_WALK_THREADS)
+}
+
+/// Outcome of scanning one candidate file.
+enum ScanOutcome {
+    /// Not a match, binary, unreadable, or otherwise skipped silently.
+    Skip,
+    /// Larger than [`GREP_MAX_FILE_BYTES`]: skipped, but flips the caller's
+    /// truncation notice.
+    Oversized,
+    /// A match, with the per-file aggregate.
+    Match(FileScan),
+}
+
+/// Aggregated result of the parallel walk, before mode-specific rendering.
+struct GrepCollected {
+    per_file: Vec<FileScan>,
+    filtered_sensitive: Vec<String>,
+    timed_out: bool,
+    file_cap_truncated: bool,
+}
+
+/// Walk-level bounds every worker shares. Kept in one `Copy` struct so the
+/// walker's signature stays within the argument budget and so both guards are
+/// documented together: they are the two best-effort stop conditions (a worker
+/// that trips either one quits, and the aggregate is flagged as partial).
+#[derive(Clone, Copy)]
+struct GrepWalkLimits {
+    /// Wall-clock cutoff ([`GREP_TIME_BUDGET`] from the call's start).
+    deadline: Instant,
+    /// Soft memory guard ([`GREP_WALK_SCAN_CAP`]): how many files the walk may
+    /// visit before workers stop scanning.
+    scan_cap: usize,
+}
+
+/// Fan the walk out across a bounded worker pool using `ignore`'s own
+/// work-stealing `WalkParallel` (no extra runtime dependency — `ignore` already
+/// pulls in `crossbeam-deque` for this). Each worker streams its files
+/// line-by-line and pushes only the output window it needs, and stops scanning
+/// once `limits.scan_cap` files have been visited, so peak memory stays bounded
+/// regardless of repo size. The walk is intentionally unordered; the caller
+/// imposes the mode's deterministic ordering afterwards.
+fn grep_collect(
+    search_root: &Path,
+    root: &Path,
+    cfg: &GrepScanConfig,
+    glob_filter: Option<&globset::GlobSet>,
+    type_filter: Option<&globset::GlobSet>,
+    include_ignored: bool,
+    limits: GrepWalkLimits,
+) -> GrepCollected {
+    use ignore::WalkState;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let collected: Arc<Mutex<Vec<FileScan>>> = Arc::new(Mutex::new(Vec::new()));
+    let sensitive: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let oversized = Arc::new(AtomicBool::new(false));
+    let scanned = Arc::new(AtomicUsize::new(0));
+
+    let collected_walk = Arc::clone(&collected);
+    let sensitive_walk = Arc::clone(&sensitive);
+    let timed_walk = Arc::clone(&timed_out);
+    let oversized_walk = Arc::clone(&oversized);
+    let scanned_walk = Arc::clone(&scanned);
+    let cfg_copy = *cfg;
+
+    // rg `--no-ignore` (include_ignored) turns off every ignore source: repo
+    // .gitignore, .git/info/exclude, the global gitignore, .ignore/.rgignore,
+    // and parent-directory ignore files. Hidden files stay searched either way
+    // (rg `--hidden`), and the walk closure still drops VCS dirs + sensitive
+    // files below.
+    let mut builder = ignore::WalkBuilder::new(search_root);
+    builder.hidden(false);
+    builder.threads(grep_walk_threads());
+    if include_ignored {
+        builder
+            .ignore(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .parents(false);
+    }
+    builder.build_parallel().run(move || {
+        let collected = Arc::clone(&collected_walk);
+        let sensitive = Arc::clone(&sensitive_walk);
+        let timed_out = Arc::clone(&timed_walk);
+        let oversized = Arc::clone(&oversized_walk);
+        let scanned = Arc::clone(&scanned_walk);
+        Box::new(move |entry: Result<ignore::DirEntry, ignore::Error>| {
+            // The wall-clock budget is an atomic flag every worker can
+            // check; hitting it flips `timed_out` and asks the walk to
+            // stop (Quit is best-effort, so a few stragglers may land).
+            if Instant::now() >= limits.deadline {
+                timed_out.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+            let Ok(entry) = entry else {
+                return WalkState::Continue;
+            };
+            let path = entry.path();
+            if path.components().any(|c| {
+                matches!(
+                    c.as_os_str().to_str(),
+                    Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
+                )
+            }) {
+                return WalkState::Continue;
+            }
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                return WalkState::Continue;
+            }
+            if let Some(gs) = glob_filter
+                && !gs.is_match(path)
+            {
+                return WalkState::Continue;
+            }
+            // rg `--type` matches the type globs against the file NAME, so
+            // an exact glob like `BUILD` still matches `nested/BUILD`.
+            if let Some(ts) = type_filter
+                && !path.file_name().is_some_and(|name| ts.is_match(name))
+            {
+                return WalkState::Continue;
+            }
+            // Mirror the host Grep tool: matches inside sensitive files
+            // (.env, keys, credentials, ...) are never reported.
+            if is_sensitive_file(&path.to_string_lossy()) {
+                let display = path.strip_prefix(root).unwrap_or(path);
+                sensitive
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(display.display().to_string());
+                return WalkState::Continue;
+            }
+            // Soft memory guard: every scanned file may contribute nearly
+            // GREP_MAX_FILE_BYTES of rendered windows that stay live until the
+            // caller sorts and truncates them. A parallel walk cannot stop at
+            // an exact global count, so workers quit past the soft cap
+            // (best-effort, exactly like the deadline above) and flag the
+            // result as truncated.
+            if scanned.fetch_add(1, Ordering::Relaxed) >= limits.scan_cap {
+                oversized.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
+            let outcome = if cfg_copy.multiline {
+                scan_grep_file_multiline(path, root, &cfg_copy)
+            } else {
+                scan_grep_file(path, root, &cfg_copy)
+            };
+            match outcome {
+                ScanOutcome::Oversized => oversized.store(true, Ordering::Relaxed),
+                ScanOutcome::Match(file) => collected
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(file),
+                ScanOutcome::Skip => {}
+            }
+            WalkState::Continue
+        })
+    });
+
+    GrepCollected {
+        per_file: collected
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect(),
+        filtered_sensitive: sensitive
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect(),
+        timed_out: timed_out.load(Ordering::Relaxed),
+        file_cap_truncated: oversized.load(Ordering::Relaxed),
+    }
+}
+
+/// Stream one file line-by-line (never buffering the whole file), applying
+/// the host Grep contract: skip binary files (any NUL byte), skip files with
+/// no match, count occurrences per line like `rg --count-matches`, and — in
+/// `content` mode — retain only the merged `-A`/`-B`/`-C` context windows
+/// (clusters separated by `--`), not every line of the file.
+fn scan_grep_file(path: &Path, root: &Path, cfg: &GrepScanConfig) -> ScanOutcome {
+    let Ok(file) = std::fs::File::open(path) else {
+        return ScanOutcome::Skip;
+    };
+    // One metadata call serves both the size cap and the mtime (the previous
+    // implementation stat'd the file twice).
+    let Ok(meta) = file.metadata() else {
+        return ScanOutcome::Skip;
+    };
+    if meta.len() > GREP_MAX_FILE_BYTES {
+        return ScanOutcome::Oversized;
+    }
+    let mtime = mtime_secs(&meta);
+    let display = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    scan_grep_lines(std::io::BufReader::new(file), cfg, display, mtime)
+}
+
+/// Streaming body of [`scan_grep_file`], split out over a generic line source
+/// so the read-error contract is testable without a failing filesystem: an I/O
+/// error part-way through drops the WHOLE file (`ScanOutcome::Skip`) instead of
+/// reporting the already-read prefix as a complete result.
+fn scan_grep_lines<R: std::io::BufRead>(
+    mut reader: R,
+    cfg: &GrepScanConfig,
+    display: String,
+    mtime: u64,
+) -> ScanOutcome {
+    let content = cfg.mode == GrepMode::Content;
+    // `files_with_matches` only needs "has at least one match"; once found, the
+    // regex is skipped for the rest of the file (still scanned for NUL so the
+    // binary-skip contract holds).
+    let only_need_presence = cfg.mode == GrepMode::FilesWithMatches;
+
+    let mut buf: Vec<u8> = Vec::new();
+    let mut total_matches = 0usize;
+    let mut has_match = false;
+    let mut idx = 0usize;
+
+    // content-mode cluster state, bounded by one active cluster plus a
+    // `context_before` lookback rather than the whole file.
+    let mut lookback: std::collections::VecDeque<(usize, usize, String, bool)> =
+        std::collections::VecDeque::new();
+    let mut cluster: Vec<(usize, usize, String, bool)> = Vec::new();
+    let mut cluster_hi = 0usize;
+    let mut active = false;
+    let mut rendered: Vec<String> = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            // `read_until` already retries interrupted reads, so any error here
+            // is a real I/O failure: the rest of the file is unknown, and a
+            // partial result would be indistinguishable from a complete one.
+            Err(_) => return ScanOutcome::Skip,
+        }
+        let terminated = buf.last() == Some(&b'\n');
+        if terminated {
+            buf.pop();
+        }
+        // Mirror the host: any NUL byte marks the file binary and skips it
+        // entirely. Breaking early is safe — the whole file would have been
+        // discarded anyway.
+        if buf.contains(&0) {
+            return ScanOutcome::Skip;
+        }
+        // Emulate `str::lines()`: a terminated segment loses one trailing
+        // `\r` (the `\r\n` case), then the explicit `strip_suffix('\r')` the
+        // previous implementation applied.
+        if terminated && buf.last() == Some(&b'\r') {
+            buf.pop();
+        }
+        let seg = String::from_utf8_lossy(&buf);
+        let trimmed: &str = seg.strip_suffix('\r').unwrap_or(&seg);
+        let lineno = idx + 1;
+        let matches_in_line = if only_need_presence && has_match {
+            0
+        } else {
+            cfg.regex.find_iter(trimmed).count()
+        };
+        if matches_in_line > 0 {
+            total_matches += matches_in_line;
+            has_match = true;
+        }
+        let is_match = matches_in_line > 0;
+
+        if content {
+            if is_match {
+                let lo = idx.saturating_sub(cfg.context_before);
+                let hi = idx + cfg.context_after;
+                if active && lo <= cluster_hi + 1 {
+                    // Merge into the current cluster, filling the context gap
+                    // between the last buffered line and this match from the
+                    // lookback.
+                    let cluster_end = cluster.last().map_or(lo, |c| c.0);
+                    for lb in &lookback {
+                        if lb.0 > cluster_end && lb.0 < idx {
+                            cluster.push(lb.clone());
+                        }
+                    }
+                    cluster.push((idx, lineno, trimmed.to_string(), true));
+                    if hi > cluster_hi {
+                        cluster_hi = hi;
+                    }
+                } else {
+                    if active {
+                        flush_grep_cluster(&mut rendered, &cluster, &display, cfg.line_numbers);
+                        rendered.push("--".into());
+                        cluster.clear();
+                    }
+                    active = true;
+                    for lb in &lookback {
+                        if lb.0 >= lo {
+                            cluster.push(lb.clone());
+                        }
+                    }
+                    cluster.push((idx, lineno, trimmed.to_string(), true));
+                    cluster_hi = hi;
+                }
+            } else if active && idx <= cluster_hi {
+                cluster.push((idx, lineno, trimmed.to_string(), false));
+            }
+            // Maintain the before-context lookback (only when it can pull
+            // prior lines in).
+            if cfg.context_before > 0 {
+                lookback.push_back((idx, lineno, trimmed.to_string(), is_match));
+                while lookback.len() > cfg.context_before {
+                    lookback.pop_front();
+                }
+            }
+        }
+        idx += 1;
+    }
+
+    if !has_match {
+        return ScanOutcome::Skip;
+    }
+    if content && active {
+        flush_grep_cluster(&mut rendered, &cluster, &display, cfg.line_numbers);
+    }
+    ScanOutcome::Match(FileScan {
+        display,
+        mtime,
+        total_matches,
+        rendered,
+    })
+}
+
+/// Multiline scan (rg `-U --multiline-dotall`). Cross-line matching cannot
+/// stream, so the whole file is buffered — still bounded by
+/// [`GREP_MAX_FILE_BYTES`] and the binary (NUL) skip contract. The regex runs
+/// once over the full text; each match marks every physical line it spans as a
+/// match line, then the same cluster/context renderer as the single-line path
+/// produces byte-identical `-A`/`-B`/`-C` output. `count_matches` counts rg
+/// matches (not spanned lines), matching `rg --count-matches -U`.
+fn scan_grep_file_multiline(path: &Path, root: &Path, cfg: &GrepScanConfig) -> ScanOutcome {
+    use std::io::Read;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return ScanOutcome::Skip;
+    };
+    let Ok(meta) = file.metadata() else {
+        return ScanOutcome::Skip;
+    };
+    if meta.len() > GREP_MAX_FILE_BYTES {
+        return ScanOutcome::Oversized;
+    }
+    let mtime = mtime_secs(&meta);
+    let display = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+
+    let mut raw: Vec<u8> = Vec::with_capacity(meta.len() as usize);
+    if file.read_to_end(&mut raw).is_err() {
+        return ScanOutcome::Skip;
+    }
+    // Mirror the host: any NUL byte marks the file binary and skips it whole.
+    if raw.contains(&0) {
+        return ScanOutcome::Skip;
+    }
+    let content = String::from_utf8_lossy(&raw);
+
+    // Split into display lines (each loses one trailing `\r`, mirroring the
+    // host's per-line `stripTrailingCarriageReturn`). A trailing newline does
+    // not create a final empty line — same count as the streaming path.
+    let mut lines: Vec<&str> = Vec::new();
+    let mut seg_start = 0usize;
+    for (i, &b) in content.as_bytes().iter().enumerate() {
+        if b == b'\n' {
+            let seg = &content[seg_start..i];
+            lines.push(seg.strip_suffix('\r').unwrap_or(seg));
+            seg_start = i + 1;
+        }
+    }
+    if seg_start < content.len() {
+        let seg = &content[seg_start..];
+        lines.push(seg.strip_suffix('\r').unwrap_or(seg));
+    }
+
+    let only_need_presence = cfg.mode == GrepMode::FilesWithMatches;
+    let mark_lines = cfg.mode == GrepMode::Content;
+    let mut is_match_line = vec![false; lines.len()];
+    let last_idx = lines.len().saturating_sub(1);
+
+    // find_iter yields non-overlapping matches in increasing order, so both
+    // `start` and `end-1` advance monotonically; a single newline cursor maps
+    // byte offsets to line indices in O(file) total rather than O(file*matches).
+    let bytes = content.as_bytes();
+    let mut cursor = 0usize;
+    let mut nl = 0usize;
+    let mut line_at = |off: usize| -> usize {
+        let target = off.min(bytes.len());
+        while cursor < target {
+            if bytes[cursor] == b'\n' {
+                nl += 1;
+            }
+            cursor += 1;
+        }
+        nl
+    };
+
+    // Which lines a match covers, and the `--count-matches` number, are
+    // pinned against ripgrep 15.0.0 (`rg -U --multiline-dotall`):
+    //
+    // * A zero-width match sitting on a `\n` byte also marks the line *after*
+    //   that terminator (`$` on "a\nb" prints both lines but counts 1).
+    // * A zero-width match at the very end of the buffer is normally dropped:
+    //   `x*` counts `len` matches, not `len + 1`, and `\z` finds nothing in a
+    //   file that ends with `\n`. The one exception rg keeps is a pattern whose
+    //   *only* match is that EOF position in a file with no trailing newline
+    //   (`\z` on "ab" counts 1 and prints the last line) — dropping it there
+    //   would lose the file from `files_with_matches` entirely.
+    //
+    // The regex crate's own `find_iter` already applies rg's empty-match
+    // dedup (an empty match at the previous match's end is skipped), so only
+    // the EOF cases need handling here.
+    let line_count = lines.len();
+    let mut total_matches = 0usize;
+    for m in cfg.regex.find_iter(&content) {
+        if m.start() == m.end() && m.start() >= content.len() {
+            let sole_match = total_matches == 0;
+            let dangling_last_line = !content.is_empty() && !content.ends_with('\n');
+            if !sole_match || !dangling_last_line {
+                continue;
+            }
+            total_matches += 1;
+            if mark_lines && line_count > 0 {
+                is_match_line[last_idx] = true;
+            }
+            continue;
+        }
+        total_matches += 1;
+        if only_need_presence {
+            break;
+        }
+        if mark_lines && line_count > 0 {
+            let start_line = line_at(m.start()).min(last_idx);
+            let end_line = if m.end() > m.start() {
+                line_at(m.end() - 1)
+            } else if bytes.get(m.start()) == Some(&b'\n') {
+                start_line + 1
+            } else {
+                start_line
+            }
+            .min(last_idx);
+            for slot in is_match_line.iter_mut().take(end_line + 1).skip(start_line) {
+                *slot = true;
+            }
+        }
+    }
+    if total_matches == 0 {
+        return ScanOutcome::Skip;
+    }
+
+    let mut rendered: Vec<String> = Vec::new();
+    if mark_lines {
+        let mut lookback: std::collections::VecDeque<(usize, usize, String, bool)> =
+            std::collections::VecDeque::new();
+        let mut cluster: Vec<(usize, usize, String, bool)> = Vec::new();
+        let mut cluster_hi = 0usize;
+        let mut active = false;
+        for (idx, text) in lines.iter().enumerate() {
+            let lineno = idx + 1;
+            let is_match = is_match_line[idx];
+            if is_match {
+                let lo = idx.saturating_sub(cfg.context_before);
+                let hi = idx + cfg.context_after;
+                if active && lo <= cluster_hi + 1 {
+                    let cluster_end = cluster.last().map_or(lo, |c| c.0);
+                    for lb in &lookback {
+                        if lb.0 > cluster_end && lb.0 < idx {
+                            cluster.push(lb.clone());
+                        }
+                    }
+                    cluster.push((idx, lineno, (*text).to_string(), true));
+                    if hi > cluster_hi {
+                        cluster_hi = hi;
+                    }
+                } else {
+                    if active {
+                        flush_grep_cluster(&mut rendered, &cluster, &display, cfg.line_numbers);
+                        rendered.push("--".into());
+                        cluster.clear();
+                    }
+                    active = true;
+                    for lb in &lookback {
+                        if lb.0 >= lo {
+                            cluster.push(lb.clone());
+                        }
+                    }
+                    cluster.push((idx, lineno, (*text).to_string(), true));
+                    cluster_hi = hi;
+                }
+            } else if active && idx <= cluster_hi {
+                cluster.push((idx, lineno, (*text).to_string(), false));
+            }
+            if cfg.context_before > 0 {
+                lookback.push_back((idx, lineno, (*text).to_string(), is_match));
+                while lookback.len() > cfg.context_before {
+                    lookback.pop_front();
+                }
+            }
+        }
+        if active {
+            flush_grep_cluster(&mut rendered, &cluster, &display, cfg.line_numbers);
+        }
+    }
+
+    ScanOutcome::Match(FileScan {
+        display,
+        mtime,
+        total_matches,
+        rendered,
+    })
+}
+
+/// Render one merged context cluster: match lines use `:`, context lines use
+/// `-`, with the display path prefix and (optionally) the line number, exactly
+/// as the host `content` mode does.
+fn flush_grep_cluster(
+    rendered: &mut Vec<String>,
+    cluster: &[(usize, usize, String, bool)],
+    display: &str,
+    line_numbers: bool,
+) {
+    for (_, lineno, text, is_match) in cluster {
+        let sep = if *is_match { ':' } else { '-' };
+        if line_numbers {
+            rendered.push(format!("{display}{sep}{lineno}{sep}{text}"));
+        } else {
+            rendered.push(format!("{display}{sep}{text}"));
+        }
+    }
+}
+
 /// Compile a glob, auto-prefixing bare patterns with `**/` the way the JS
 /// Glob tool does, so `*.rs` matches at any depth.
 fn build_glob(pattern: &str) -> Option<globset::GlobSet> {
@@ -1215,6 +1996,32 @@ fn build_glob(pattern: &str) -> Option<globset::GlobSet> {
         builder.add(globset::Glob::new(&format!("**/{pattern}")).ok()?);
     }
     builder.build().ok()
+}
+
+/// Compile a ripgrep file type's globs into a set matched against the file
+/// NAME (rg `--type` semantics). Unlike [`build_glob`], no `**/` prefix is
+/// added: type globs are basename patterns and rg matches them on the file
+/// name alone. Returns `None` if any glob fails to compile, which falls back
+/// to the host (rg's own table always compiles, so this is defensive only).
+fn build_type_glob(globs: &[&str]) -> Option<globset::GlobSet> {
+    let mut builder = globset::GlobSetBuilder::new();
+    for g in globs {
+        builder.add(globset::Glob::new(g).ok()?);
+    }
+    builder.build().ok()
+}
+
+/// Map a blocking-pool `JoinError` onto the tool's mutability: read-only tools
+/// (`read` / `grep` / `glob`) are idempotent, so `None` sends the call back to
+/// the host instead of failing it; mutating tools (`write` / `edit`) hold a
+/// permission grant and may have partially applied, so the failure is reported
+/// rather than risking a double write through the host path.
+fn blocking_pool_failure(mutating: bool, message: String) -> Option<ExecutableToolResult> {
+    if mutating {
+        Some(err_result(format!("native tool task failed: {message}")))
+    } else {
+        None
+    }
 }
 
 fn ok_result(content: String) -> ExecutableToolResult {
@@ -1897,12 +2704,296 @@ m2
         assert!(result.content.contains("invalid regex"));
     }
 
-    #[test]
-    fn grep_with_type_filter_falls_back() {
+    #[tokio::test]
+    async fn grep_with_type_filter_matches_natively() {
         let (_dir, ts) = setup();
+        // `type: rust` (rg `--type rust` = `*.rs`) keeps only src/lib.rs.
+        let rust = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "beta", "type": "rust", "output_mode": "content" }),
+            )
+            .unwrap();
+        assert!(!rust.is_error, "content: {}", rust.content);
+        assert!(
+            rust.content.contains("lib.rs:2"),
+            "content: {}",
+            rust.content
+        );
+        assert!(
+            !rust.content.contains("a.txt:"),
+            "type=rust must exclude a.txt: {}",
+            rust.content
+        );
+        // `type: txt` (rg `--type txt` = `*.txt`) keeps only a.txt.
+        let txt = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "beta", "type": "txt", "output_mode": "content" }),
+            )
+            .unwrap();
+        assert!(
+            txt.content.contains("a.txt:2:beta"),
+            "content: {}",
+            txt.content
+        );
+        assert!(
+            !txt.content.contains("lib.rs"),
+            "type=txt must exclude lib.rs: {}",
+            txt.content
+        );
+    }
+
+    #[test]
+    fn grep_with_unknown_type_falls_back_to_the_host() {
+        let (_dir, ts) = setup();
+        // The static type table only covers one rg release, while the host runs
+        // whatever rg is on PATH and also honours user `--type-add` definitions
+        // from `.ripgreprc`. An unknown name therefore hands the call back to
+        // the host instead of synthesising rg's "unrecognized file type" error.
+        assert!(
+            ts.execute("Grep", &json!({ "pattern": "x", "type": "kimiunknown" }))
+                .is_none(),
+            "unknown type must fall back to the host"
+        );
+        // A known type is still served natively (the table is a fast path).
         assert!(
             ts.execute("Grep", &json!({ "pattern": "x", "type": "rust" }))
-                .is_none()
+                .is_some(),
+            "known type must stay native"
+        );
+        // A mistyped `type` argument is a schema error the host owns.
+        assert!(
+            ts.execute("Grep", &json!({ "pattern": "x", "type": 7 }))
+                .is_none(),
+            "non-string type must fall back to the host"
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_include_ignored_searches_gitignored_files() {
+        let dir = tempfile::tempdir().unwrap();
+        // Mark the temp dir as a git repo so `.gitignore` is honored by
+        // default (rg / the `ignore` crate require a git context).
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        std::fs::write(dir.path().join("ignored.txt"), "needle ignored\n").unwrap();
+        std::fs::write(dir.path().join("kept.txt"), "needle kept\n").unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+
+        let default = ts.execute("Grep", &json!({ "pattern": "needle" })).unwrap();
+        assert!(
+            default.content.contains("kept.txt"),
+            "content: {}",
+            default.content
+        );
+        assert!(
+            !default.content.contains("ignored.txt"),
+            "gitignored file must be skipped by default: {}",
+            default.content
+        );
+
+        // rg `--no-ignore` surfaces the gitignored file.
+        let with_ignored = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "needle", "include_ignored": true }),
+            )
+            .unwrap();
+        assert!(
+            with_ignored.content.contains("kept.txt"),
+            "content: {}",
+            with_ignored.content
+        );
+        assert!(
+            with_ignored.content.contains("ignored.txt"),
+            "include_ignored must surface the gitignored file: {}",
+            with_ignored.content
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_multiline_spans_lines_with_per_line_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("span.txt"),
+            "alpha\nstart MATCH\nmiddle\nend MATCH\ntail\nbeta\n",
+        )
+        .unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({
+                    "pattern": "start MATCH.*?end MATCH",
+                    "output_mode": "content",
+                    "multiline": true,
+                }),
+            )
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        // rg `-U` reports every physical line the match spans, each with its
+        // own line number and the `:` match separator.
+        let lines: Vec<&str> = result.content.lines().collect();
+        assert_eq!(
+            lines,
+            vec![
+                "span.txt:2:start MATCH",
+                "span.txt:3:middle",
+                "span.txt:4:end MATCH",
+            ],
+            "content: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_multiline_count_matches_counts_matches_not_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("span.txt"),
+            "alpha\nstart MATCH\nmiddle\nend MATCH\ntail\nbeta\n",
+        )
+        .unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({
+                    "pattern": "start MATCH.*?end MATCH",
+                    "output_mode": "count_matches",
+                    "multiline": true,
+                }),
+            )
+            .unwrap();
+        // One match spanning three lines counts as 1 (rg `--count-matches -U`).
+        assert!(
+            result.content.contains("span.txt:1"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result
+                .content
+                .contains("Found 1 total occurrence across 1 file."),
+            "content: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_multiline_context_and_cluster_separator() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("span.txt"),
+            "alpha\nstart MATCH\nmiddle\nend MATCH\ntail\nbeta\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("multi.txt"),
+            "x1\nA\nB\ny1\ny2\ny3\nA\nB\nz1\n",
+        )
+        .unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        // -C1 window around the single multiline match in span.txt.
+        let span = ts
+            .execute(
+                "Grep",
+                &json!({
+                    "pattern": "start MATCH.*?end MATCH",
+                    "output_mode": "content",
+                    "multiline": true,
+                    "-C": 1,
+                    "path": "span.txt",
+                }),
+            )
+            .unwrap();
+        let span_lines: Vec<&str> = span.content.lines().collect();
+        assert_eq!(
+            span_lines,
+            vec![
+                "span.txt-1-alpha",
+                "span.txt:2:start MATCH",
+                "span.txt:3:middle",
+                "span.txt:4:end MATCH",
+                "span.txt-5-tail",
+            ],
+            "content: {}",
+            span.content
+        );
+        // Two disjoint `A\nB` matches with -C1 produce a `--` cluster break.
+        let multi = ts
+            .execute(
+                "Grep",
+                &json!({
+                    "pattern": "A\nB",
+                    "output_mode": "content",
+                    "multiline": true,
+                    "-C": 1,
+                    "path": "multi.txt",
+                }),
+            )
+            .unwrap();
+        let multi_lines: Vec<&str> = multi.content.lines().collect();
+        assert_eq!(
+            multi_lines,
+            vec![
+                "multi.txt-1-x1",
+                "multi.txt:2:A",
+                "multi.txt:3:B",
+                "multi.txt-4-y1",
+                "--",
+                "multi.txt-6-y3",
+                "multi.txt:7:A",
+                "multi.txt:8:B",
+                "multi.txt-9-z1",
+            ],
+            "content: {}",
+            multi.content
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_type_include_ignored_multiline_combine() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "combo.ts\n").unwrap();
+        std::fs::write(
+            dir.path().join("combo.ts"),
+            "head\nstart MATCH\nmid\nend MATCH\ntail\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("combo.txt"), "start MATCH\nend MATCH\n").unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        // include_ignored surfaces the gitignored combo.ts, type=ts drops
+        // combo.txt, and multiline spans the match across lines 2-4.
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({
+                    "pattern": "start MATCH.*?end MATCH",
+                    "output_mode": "content",
+                    "type": "ts",
+                    "include_ignored": true,
+                    "multiline": true,
+                }),
+            )
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("combo.ts:2:start MATCH"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("combo.ts:4:end MATCH"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("combo.txt"),
+            "type=ts must exclude combo.txt: {}",
+            result.content
         );
     }
 
@@ -1956,6 +3047,145 @@ m2
             "content: {}",
             result.content
         );
+    }
+
+    /// Build a wider fixture tree so the parallel walker has real fan-out.
+    fn build_parallel_tree(root: &std::path::Path, files: usize) {
+        for i in 0..files {
+            let dir = root.join(format!("d{:02}", i % 12));
+            std::fs::create_dir_all(&dir).unwrap();
+            let body = if i % 3 == 0 {
+                format!("filler\nneedle_{i} here\nfiller\n")
+            } else {
+                "filler line one\nno match here\nfiller\n".to_string()
+            };
+            std::fs::write(dir.join(format!("f{i:04}.txt")), body).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn grep_parallel_walk_is_deterministic() {
+        let dir = tempfile::tempdir().unwrap();
+        build_parallel_tree(dir.path(), 120);
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+
+        // The walk fans out unordered, but the aggregate is re-sorted, so two
+        // runs over the same tree must be byte-identical in every mode.
+        for mode in ["files_with_matches", "content", "count_matches"] {
+            let args = json!({ "pattern": "needle_", "output_mode": mode });
+            let first = ts.execute("Grep", &args).unwrap();
+            let second = ts.execute("Grep", &args).unwrap();
+            assert!(
+                first.content == second.content,
+                "mode {mode} drifted between parallel runs\nfirst:\n{}\nsecond:\n{}",
+                first.content,
+                second.content
+            );
+            assert!(
+                !first.content.is_empty() && !first.content.contains("No matches found"),
+                "mode {mode} found nothing:\n{}",
+                first.content
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn grep_content_clusters_and_merging_are_byte_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        // One merged cluster: the windows around lines 3 and 5 overlap, so no
+        // `--` separator appears inside this file.
+        std::fs::write(dir.path().join("merged.txt"), "a\nb\nmatch\nd\nmatch2\nf\n").unwrap();
+        // Two disjoint clusters separated by `--`.
+        std::fs::write(dir.path().join("split.txt"), "match1\nx\ny\nz\nmatch2\n").unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let result = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "match", "output_mode": "content", "-C": 1 }),
+            )
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        let lines: Vec<&str> = result.content.lines().collect();
+        assert_eq!(
+            lines,
+            vec![
+                "merged.txt-2-b",
+                "merged.txt:3:match",
+                "merged.txt-4-d",
+                "merged.txt:5:match2",
+                "merged.txt-6-f",
+                "split.txt:1:match1",
+                "split.txt-2-x",
+                "--",
+                "split.txt-4-z",
+                "split.txt:5:match2",
+            ],
+            "content: {}",
+            result.content
+        );
+        // Re-running yields the same bytes (path-ordered aggregation).
+        let again = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "match", "output_mode": "content", "-C": 1 }),
+            )
+            .unwrap();
+        assert_eq!(again.content, result.content);
+    }
+
+    #[tokio::test]
+    async fn grep_head_limit_offset_are_stable_under_parallelism() {
+        let dir = tempfile::tempdir().unwrap();
+        build_parallel_tree(dir.path(), 60);
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let args = json!({
+            "pattern": "needle_",
+            "output_mode": "content",
+            "head_limit": 5,
+            "offset": 0,
+        });
+        let first = ts.execute("Grep", &args).unwrap();
+        let second = ts.execute("Grep", &args).unwrap();
+        assert_eq!(first.content, second.content);
+        assert!(
+            first.content.contains("Results truncated to 5 lines"),
+            "content: {}",
+            first.content
+        );
+        // Exactly head_limit result lines precede the truncation notice.
+        let body = first.content.split("\n\n").next().unwrap();
+        assert_eq!(body.lines().count(), 5, "content: {}", first.content);
+    }
+
+    #[test]
+    fn grep_expired_deadline_sets_the_atomic_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("needle.txt"), "needle\n").unwrap();
+        let regex = regex::Regex::new("needle").unwrap();
+        let cfg = GrepScanConfig {
+            regex: &regex,
+            mode: GrepMode::FilesWithMatches,
+            context_before: 0,
+            context_after: 0,
+            line_numbers: true,
+            multiline: false,
+        };
+        // A deadline already in the past: the first visited entry must trip
+        // the atomic timeout flag and abort the walk with no results.
+        let collected = grep_collect(
+            dir.path(),
+            dir.path(),
+            &cfg,
+            None,
+            None,
+            false,
+            GrepWalkLimits {
+                deadline: std::time::Instant::now(),
+                scan_cap: GREP_WALK_SCAN_CAP,
+            },
+        );
+        assert!(collected.timed_out);
+        assert!(collected.per_file.is_empty());
     }
 
     #[test]
@@ -2091,6 +3321,39 @@ m2
             result.content.contains("native-bash"),
             "content: {}",
             result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_streams_output_chunks_to_the_progress_callback() {
+        let Some(shell) = find_bash() else { return };
+        let (_dir, ts) = setup_with_shell(Some(&shell));
+        let chunks = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = chunks.clone();
+        let emit = move |kind: &str, text: &str| {
+            seen.lock()
+                .unwrap()
+                .push((kind.to_string(), text.to_string()));
+        };
+        let result = ts
+            .execute_tool_streaming(
+                Some("pc1"),
+                "Bash",
+                &json!({ "command": "echo hello-stream" }),
+                Some(&emit),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("hello-stream"),
+            "full output intact"
+        );
+        let seen = chunks.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|(kind, text)| kind == "stdout" && text.contains("hello-stream")),
+            "at least one stdout chunk carries the output: {seen:?}"
         );
     }
 
@@ -2243,5 +3506,536 @@ m2
             accepted, contracted,
             "NATIVE_TOOL_NAMES and tool-name-contract.json disagree — update both together"
         );
+    }
+
+    // ── Ordering contract: sort before the hard cap ─────────────────────
+
+    fn scan(display: &str, mtime: u64, total_matches: usize) -> FileScan {
+        FileScan {
+            display: display.to_string(),
+            mtime,
+            total_matches,
+            rendered: Vec::new(),
+        }
+    }
+
+    fn displays(per_file: &[FileScan]) -> Vec<&str> {
+        per_file.iter().map(|f| f.display.as_str()).collect()
+    }
+
+    #[test]
+    fn grep_file_cap_keeps_the_sorted_prefix_not_the_walk_order() {
+        // The parallel walk yields files in scheduling order. Truncating before
+        // sorting kept a nondeterministic subset, which `head_limit` then paged
+        // over — so the cap is parameterised here and applied after the sort.
+        let mut per_file = vec![
+            scan("zeta.txt", 10, 1),
+            scan("alpha.txt", 30, 1),
+            scan("mid.txt", 20, 1),
+            scan("beta.txt", 30, 1),
+        ];
+        assert!(grep_sort_and_cap(
+            &mut per_file,
+            GrepMode::FilesWithMatches,
+            2
+        ));
+        // mtime DESC, ties broken by display path ASC: alpha(30) outranks
+        // beta(30) on the path, and both outrank mid(20) / zeta(10).
+        assert_eq!(displays(&per_file), vec!["alpha.txt", "beta.txt"]);
+    }
+
+    #[test]
+    fn grep_file_cap_is_inert_below_the_limit() {
+        // Nothing is dropped, and each mode's own ordering still applies.
+        let mut per_file = vec![scan("b.txt", 9, 1), scan("a.txt", 1, 2)];
+        assert!(!grep_sort_and_cap(
+            &mut per_file,
+            GrepMode::FilesWithMatches,
+            5
+        ));
+        assert_eq!(displays(&per_file), vec!["b.txt", "a.txt"], "mtime DESC");
+        // `content` / `count_matches` ignore mtime entirely: path ASC.
+        let mut per_file = vec![scan("b.txt", 9, 1), scan("a.txt", 1, 2)];
+        assert!(!grep_sort_and_cap(&mut per_file, GrepMode::CountMatches, 5));
+        assert_eq!(displays(&per_file), vec!["a.txt", "b.txt"], "path ASC");
+        assert_eq!(
+            per_file[1].total_matches, 1,
+            "entries must not be reordered"
+        );
+    }
+
+    #[test]
+    fn grep_same_second_files_order_by_path_in_every_run() {
+        // The engine and the host both quantise mtime to whole seconds
+        // (`duration_since(UNIX_EPOCH).as_secs()` vs `Math.trunc(mtimeMs/1000)`),
+        // so the files a `git checkout` leaves with identical mtimes are ordered
+        // by path — never by walk order or by rg's output index.
+        let dir = tempfile::tempdir().unwrap();
+        let names = ["delta.txt", "alpha.txt", "charlie.txt", "bravo.txt"];
+        for name in names {
+            std::fs::write(dir.path().join(name), "needle\n").unwrap();
+        }
+        let mtimes: Vec<u64> = names
+            .iter()
+            .map(|name| mtime_secs(&std::fs::metadata(dir.path().join(name)).unwrap()))
+            .collect();
+        if mtimes.windows(2).any(|pair| pair[0] != pair[1]) {
+            eprintln!("skipping: fixture files straddled a second boundary ({mtimes:?})");
+            return;
+        }
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let args = json!({ "pattern": "needle" });
+        let first = ts.execute("Grep", &args).unwrap();
+        let second = ts.execute("Grep", &args).unwrap();
+        assert_eq!(first.content, second.content, "parallel runs drifted");
+        assert_eq!(
+            first.content.lines().collect::<Vec<_>>(),
+            vec!["alpha.txt", "bravo.txt", "charlie.txt", "delta.txt"]
+        );
+    }
+
+    #[test]
+    fn mtime_secs_reports_whole_seconds_since_the_epoch() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("m.txt"), "x\n").unwrap();
+        let meta = std::fs::metadata(dir.path().join("m.txt")).unwrap();
+        let elapsed = meta
+            .modified()
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        // The host quantises with `Math.trunc(mtimeMs / 1000)`; the engine has
+        // to land on the same integer or same-second files order differently.
+        assert_eq!(mtime_secs(&meta), elapsed.as_secs());
+        assert_eq!(mtime_secs(&meta), elapsed.as_millis() as u64 / 1000);
+    }
+
+    // ── Walk resource bounds ────────────────────────────────────────────
+
+    #[test]
+    fn grep_walk_worker_count_is_explicitly_bounded() {
+        // `ignore` defaults to one worker per CPU, which multiplies with
+        // `spawn_blocking` × MAX_PARALLEL_TOOLS concurrent native calls.
+        let threads = grep_walk_threads();
+        assert!(threads >= 1, "`ignore` treats 0 workers as serial");
+        assert!(
+            threads <= GREP_WALK_THREADS,
+            "walk workers {threads} exceed the cap {GREP_WALK_THREADS}"
+        );
+        assert_eq!(
+            GREP_WALK_SCAN_CAP,
+            GREP_MAX_FILES * 2,
+            "the soft walk cap must stay a small multiple of the hard cap"
+        );
+    }
+
+    #[test]
+    fn grep_walk_scan_cap_stops_the_parallel_walk() {
+        let dir = tempfile::tempdir().unwrap();
+        build_parallel_tree(dir.path(), 12);
+        let regex = regex::Regex::new("needle_").unwrap();
+        let cfg = GrepScanConfig {
+            regex: &regex,
+            mode: GrepMode::Content,
+            context_before: 0,
+            context_after: 0,
+            line_numbers: true,
+            multiline: false,
+        };
+        let collect = |scan_cap: usize| {
+            grep_collect(
+                dir.path(),
+                dir.path(),
+                &cfg,
+                None,
+                None,
+                false,
+                GrepWalkLimits {
+                    deadline: Instant::now() + GREP_TIME_BUDGET,
+                    scan_cap,
+                },
+            )
+        };
+        // A cap of 0 trips on the very first visited entry: nothing is scanned
+        // and the result is flagged truncated rather than silently empty.
+        let capped = collect(0);
+        assert!(capped.file_cap_truncated, "scan cap must flag truncation");
+        assert!(capped.per_file.is_empty(), "no file may be scanned");
+        // The production cap leaves the walk untouched.
+        let uncapped = collect(GREP_WALK_SCAN_CAP);
+        assert!(!uncapped.file_cap_truncated);
+        assert!(!uncapped.timed_out);
+        assert_eq!(uncapped.per_file.len(), 4, "every 3rd of 12 files matches");
+    }
+
+    // ── JoinError split by mutability ───────────────────────────────────
+
+    /// A panic inside `spawn_blocking` surfaces to the awaiting task as a real
+    /// `JoinError`, which is exactly the failure mode the split has to handle.
+    fn panicking_tool(_root: &Path, _args: &Value) -> Option<ExecutableToolResult> {
+        panic!("synthetic blocking-pool failure");
+    }
+
+    #[tokio::test]
+    async fn readonly_tool_join_error_falls_back_to_the_host() {
+        let (_dir, ts) = setup();
+        // read/grep/glob are idempotent: re-running one on the host is always
+        // safe, and a task lost to the runtime must not reach the model as a
+        // tool failure.
+        assert!(
+            ts.run_readonly_file_tool_on_blocking_pool(&json!({ "path": "a.txt" }), panicking_tool)
+                .await
+                .is_none(),
+            "a read-only JoinError must fall back to the host"
+        );
+    }
+
+    #[tokio::test]
+    async fn mutating_tool_join_error_becomes_an_error_result() {
+        let (_dir, ts) = setup();
+        // write/edit already hold a permission grant and may have partially
+        // applied, so the host must not be allowed to re-run them.
+        let result = ts
+            .run_mutating_file_tool_on_blocking_pool(&json!({ "path": "a.txt" }), panicking_tool)
+            .await
+            .expect("a mutating JoinError must not fall back to the host");
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("native tool task failed"),
+            "content: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn blocking_pool_failure_splits_on_mutability() {
+        assert!(blocking_pool_failure(false, "boom".to_string()).is_none());
+        let result = blocking_pool_failure(true, "boom".to_string()).unwrap();
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("boom"),
+            "content: {}",
+            result.content
+        );
+    }
+
+    // ── Malformed arguments belong to the host's zod schema ─────────────
+
+    #[test]
+    fn grep_rejects_mistyped_arguments_instead_of_ignoring_them() {
+        let (_dir, ts) = setup();
+        // The engine short-circuits ahead of the host's zod validation, so a
+        // present-but-mistyped argument has to fall back; coercing it would
+        // report a successful search that ignored what the model asked for
+        // (`{"multiline":"true"}` silently meaning `false`).
+        let malformed = [
+            json!({ "pattern": "beta", "multiline": "true" }),
+            json!({ "pattern": "beta", "include_ignored": 1 }),
+            json!({ "pattern": "beta", "-i": "yes" }),
+            json!({ "pattern": "beta", "-n": 0 }),
+            json!({ "pattern": "beta", "-C": "2" }),
+            json!({ "pattern": "beta", "-A": -1 }),
+            json!({ "pattern": "beta", "-B": 1.5 }),
+            json!({ "pattern": "beta", "head_limit": "10" }),
+            json!({ "pattern": "beta", "offset": true }),
+            json!({ "pattern": "beta", "output_mode": "matches" }),
+            json!({ "pattern": "beta", "output_mode": 3 }),
+            json!({ "pattern": "beta", "glob": 7 }),
+            json!({ "pattern": "beta", "path": ["a.txt"] }),
+            json!({ "pattern": "beta", "type": true }),
+            json!({ "pattern": 7 }),
+            json!({}),
+        ];
+        for args in malformed {
+            assert!(
+                ts.execute("Grep", &args).is_none(),
+                "malformed args must fall back to the host: {args}"
+            );
+        }
+    }
+
+    #[test]
+    fn grep_treats_absent_and_null_arguments_as_schema_defaults() {
+        let (_dir, ts) = setup();
+        let baseline = ts.execute("Grep", &json!({ "pattern": "beta" })).unwrap();
+        let defaults = [
+            json!({ "pattern": "beta", "multiline": null }),
+            json!({ "pattern": "beta", "include_ignored": null }),
+            json!({ "pattern": "beta", "type": null, "glob": null, "path": null }),
+            json!({ "pattern": "beta", "output_mode": null }),
+            json!({ "pattern": "beta", "head_limit": null, "offset": null }),
+            json!({ "pattern": "beta", "-i": null, "-n": null, "-A": null, "-B": null, "-C": null }),
+        ];
+        for args in defaults {
+            let result = match ts.execute("Grep", &args) {
+                Some(result) => result,
+                None => panic!("absent/null must mean the schema default: {args}"),
+            };
+            assert_eq!(result.content, baseline.content, "args: {args}");
+        }
+    }
+
+    // ── Read errors drop the whole file ─────────────────────────────────
+
+    /// A line source that serves `lines` copies of one matching line and then
+    /// either ends cleanly or fails, standing in for the two ways a file read
+    /// can stop. Injecting it keeps the read-error contract testable without a
+    /// filesystem that fails on demand.
+    struct ScriptedReader {
+        lines: usize,
+        fail_after: bool,
+    }
+
+    impl std::io::Read for ScriptedReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.lines == 0 {
+                return if self.fail_after {
+                    Err(std::io::Error::other("synthetic read failure"))
+                } else {
+                    Ok(0)
+                };
+            }
+            self.lines -= 1;
+            let payload = b"needle line\n";
+            let n = payload.len().min(buf.len());
+            buf[..n].copy_from_slice(&payload[..n]);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn grep_read_error_skips_the_whole_file() {
+        let regex = regex::Regex::new("needle").unwrap();
+        let cfg = GrepScanConfig {
+            regex: &regex,
+            mode: GrepMode::Content,
+            context_before: 0,
+            context_after: 0,
+            line_numbers: true,
+            multiline: false,
+        };
+        // `Ok(0) | Err(_) => break` used to report the prefix read so far as a
+        // complete result; a partially readable file must not masquerade as one.
+        let reader = std::io::BufReader::new(ScriptedReader {
+            lines: 1,
+            fail_after: true,
+        });
+        assert!(
+            matches!(
+                scan_grep_lines(reader, &cfg, "broken.txt".to_string(), 7),
+                ScanOutcome::Skip
+            ),
+            "an I/O error must drop the file"
+        );
+    }
+
+    #[test]
+    fn grep_clean_eof_keeps_the_scanned_matches() {
+        let regex = regex::Regex::new("needle").unwrap();
+        let cfg = GrepScanConfig {
+            regex: &regex,
+            mode: GrepMode::Content,
+            context_before: 0,
+            context_after: 0,
+            line_numbers: true,
+            multiline: false,
+        };
+        // The happy path is pinned alongside it: a clean EOF must still yield
+        // everything that was read, so the error branch cannot be "always skip".
+        let reader = std::io::BufReader::new(ScriptedReader {
+            lines: 3,
+            fail_after: false,
+        });
+        match scan_grep_lines(reader, &cfg, "ok.txt".to_string(), 1234) {
+            ScanOutcome::Match(scan) => {
+                assert_eq!(scan.display, "ok.txt");
+                assert_eq!(scan.mtime, 1234);
+                assert_eq!(scan.total_matches, 3);
+                assert_eq!(
+                    scan.rendered,
+                    vec![
+                        "ok.txt:1:needle line",
+                        "ok.txt:2:needle line",
+                        "ok.txt:3:needle line"
+                    ]
+                );
+            }
+            ScanOutcome::Skip => panic!("a fully served file must not be skipped"),
+            ScanOutcome::Oversized => panic!("a tiny file must not be oversized"),
+        }
+    }
+
+    // ── Multiline zero-width / EOF semantics (pinned against rg 15.0.0) ──
+
+    fn multiline_regex(pattern: &str) -> regex::Regex {
+        // rg `-U --multiline-dotall`: `.` matches `\n`, and `^`/`$` stay
+        // anchored per line.
+        regex::RegexBuilder::new(pattern)
+            .multi_line(true)
+            .dot_matches_new_line(true)
+            .build()
+            .unwrap()
+    }
+
+    fn scan_multiline(
+        dir: &Path,
+        name: &str,
+        body: &str,
+        pattern: &str,
+        mode: GrepMode,
+    ) -> ScanOutcome {
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        let regex = multiline_regex(pattern);
+        let cfg = GrepScanConfig {
+            regex: &regex,
+            mode,
+            context_before: 0,
+            context_after: 0,
+            line_numbers: true,
+            multiline: true,
+        };
+        scan_grep_file_multiline(&path, dir, &cfg)
+    }
+
+    fn matched_scan(outcome: ScanOutcome, what: &str) -> FileScan {
+        match outcome {
+            ScanOutcome::Match(scan) => scan,
+            ScanOutcome::Skip => panic!("{what}: expected a match, the file was skipped"),
+            ScanOutcome::Oversized => panic!("{what}: expected a match, the file was oversized"),
+        }
+    }
+
+    #[test]
+    fn multiline_eof_zero_width_match_is_not_counted_or_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        // rg -U --count-matches '$' over "a\nb\n" reports 2 (offsets 1 and 3);
+        // the third zero-width match sits at EOF, where `line_at(content.len())`
+        // is out of range and clamping it would wrongly re-mark the last line.
+        let scan = matched_scan(
+            scan_multiline(dir.path(), "withnl.txt", "a\nb\n", "$", GrepMode::Content),
+            "$ over \"a\\nb\\n\"",
+        );
+        assert_eq!(scan.total_matches, 2, "rg --count-matches reports 2");
+        assert_eq!(scan.rendered, vec!["withnl.txt:1:a", "withnl.txt:2:b"]);
+        // `x*` matches at every offset: rg counts `len` (4), not `len + 1` (5).
+        let scan = matched_scan(
+            scan_multiline(
+                dir.path(),
+                "withnl2.txt",
+                "a\nb\n",
+                "x*",
+                GrepMode::CountMatches,
+            ),
+            "x* over \"a\\nb\\n\"",
+        );
+        assert_eq!(scan.total_matches, 4, "rg --count-matches reports 4");
+        // `\z` needs a buffer end that is not a line boundary.
+        assert!(
+            matches!(
+                scan_multiline(
+                    dir.path(),
+                    "withnl3.txt",
+                    "a\nb\n",
+                    r"\z",
+                    GrepMode::CountMatches
+                ),
+                ScanOutcome::Skip
+            ),
+            "rg finds nothing for `\\z` in a newline-terminated file"
+        );
+        // An empty file has no line to attribute any match to.
+        assert!(
+            matches!(
+                scan_multiline(
+                    dir.path(),
+                    "empty.txt",
+                    "",
+                    "x*",
+                    GrepMode::FilesWithMatches
+                ),
+                ScanOutcome::Skip
+            ),
+            "rg exits 1 on an empty file"
+        );
+    }
+
+    #[test]
+    fn multiline_zero_width_match_on_a_newline_spans_into_the_next_line() {
+        let dir = tempfile::tempdir().unwrap();
+        // rg -U -n '$' over "a\nb" prints BOTH lines while counting 1: the
+        // zero-width match sits on the '\n' byte and rg spans the line it
+        // terminates plus the one after it.
+        let scan = matched_scan(
+            scan_multiline(dir.path(), "nonl.txt", "a\nb", "$", GrepMode::Content),
+            "$ over \"a\\nb\"",
+        );
+        assert_eq!(scan.total_matches, 1, "rg --count-matches reports 1");
+        assert_eq!(scan.rendered, vec!["nonl.txt:1:a", "nonl.txt:2:b"]);
+        // Same rule for a non-`$` zero-width pattern: `\b` over "a\nb" counts 3
+        // (the EOF boundary is dropped) and still prints both lines.
+        let scan = matched_scan(
+            scan_multiline(dir.path(), "nonl2.txt", "a\nb", r"\b", GrepMode::Content),
+            "\\b over a\\nb",
+        );
+        assert_eq!(scan.total_matches, 3, "rg --count-matches reports 3");
+        assert_eq!(scan.rendered, vec!["nonl2.txt:1:a", "nonl2.txt:2:b"]);
+    }
+
+    #[test]
+    fn multiline_sole_eof_match_in_a_dangling_last_line_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        // rg -U --count-matches '\z' over "xy" reports 1 and prints line 1: the
+        // only match is at EOF, and dropping it would remove the file from
+        // `files_with_matches` entirely — a false negative, which is worse than
+        // an off-by-one count.
+        let scan = matched_scan(
+            scan_multiline(dir.path(), "xy.txt", "xy", r"\z", GrepMode::Content),
+            "\\z over xy",
+        );
+        assert_eq!(scan.total_matches, 1, "rg --count-matches reports 1");
+        assert_eq!(scan.rendered, vec!["xy.txt:1:xy"]);
+        // Once another match exists, rg drops the EOF one again: `\b|\z` over
+        // "xy" counts 1, not 2.
+        let scan = matched_scan(
+            scan_multiline(
+                dir.path(),
+                "xy2.txt",
+                "xy",
+                r"\b|\z",
+                GrepMode::CountMatches,
+            ),
+            "\\b|\\z over xy",
+        );
+        assert_eq!(scan.total_matches, 1, "rg --count-matches reports 1");
+    }
+
+    #[test]
+    fn multiline_anchors_stay_per_line_like_ripgrep() {
+        let dir = tempfile::tempdir().unwrap();
+        // rg -U keeps `^` anchored per line, so multi_line(true) is required:
+        // over "a\nb\nc" it reports 3, over "ab\ncd\n" 2 (the EOF `^` is dropped).
+        let scan = matched_scan(
+            scan_multiline(
+                dir.path(),
+                "abc.txt",
+                "a\nb\nc",
+                "^",
+                GrepMode::CountMatches,
+            ),
+            "^ over \"a\\nb\\nc\"",
+        );
+        assert_eq!(scan.total_matches, 3, "rg --count-matches reports 3");
+        let scan = matched_scan(
+            scan_multiline(
+                dir.path(),
+                "abcd.txt",
+                "ab\ncd\n",
+                "^",
+                GrepMode::CountMatches,
+            ),
+            "^ over \"ab\\ncd\\n\"",
+        );
+        assert_eq!(scan.total_matches, 2, "rg --count-matches reports 2");
     }
 }

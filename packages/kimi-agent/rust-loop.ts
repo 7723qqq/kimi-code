@@ -437,11 +437,53 @@ type EngineEvent =
       arguments: unknown;
       content: string;
       is_error: boolean;
-      note?: string;
+      note?: string | null;
     }
   | { type: 'goal.budget.limit_reached'; goal_id: string }
   /** A racing provider lost; the host may abort its in-flight request. */
-  | { type: 'llm_chat.cancel'; request_id: string };
+  | { type: 'llm_chat.cancel'; request_id: string }
+  /** Native `Agent` tool lifecycle (P51): the mirror of v2's `Subagent*`
+   *  Event2 surface, mapped onto `input.onSubagentEvent`. */
+  | {
+      type: 'subagent.spawned';
+      subagent_id: string;
+      subagent_name: string;
+      parent_tool_call_id?: string | null;
+      description?: string | null;
+      run_in_background?: boolean | null;
+    }
+  | { type: 'subagent.started'; subagent_id: string }
+  | {
+      type: 'subagent.completed';
+      subagent_id: string;
+      result_summary: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        total_tokens?: number;
+        input_cache_read?: number;
+        input_cache_creation?: number;
+      };
+    }
+  | { type: 'subagent.failed'; subagent_id: string; error: string }
+  /** P57: native bash output stream (`tool.progress` mirror). */
+  | {
+      type: 'tool.native.progress';
+      turn_id: string;
+      tool_call_id: string;
+      kind: string;
+      text: string;
+    };
+
+/** `host/checkpoint` payload (P53): native write executions snapshot
+ *  pre-images host-side before writing and note post-images after. */
+interface CheckpointWire {
+  turn_id: string;
+  tool_call_id: string;
+  phase: 'prepare' | 'record';
+  paths: string[];
+  executed?: boolean;
+}
 
 interface RunTurnResult {
   stop_reason: string;
@@ -566,6 +608,7 @@ interface KimiAgentNativeModule {
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
+    checkpointCb?: (callbackId: number) => void,
     turnEventCb?: (callbackId: number) => void,
     telemetryCb?: (callbackId: number) => void,
     listToolsCb?: (callbackId: number) => void,
@@ -638,6 +681,7 @@ export class NapiEngine {
     askQuestionCb?: (request: AskQuestionWire) => Promise<AskQuestionWireResult>,
     stateReadCb?: (request: StateReadWire) => Promise<StateReadWireResult>,
     stateWriteCb?: (request: StateWriteWire) => Promise<StateWriteWireResult>,
+    checkpointCb?: (request: CheckpointWire) => Promise<void>,
     turnEventCb?: (event: TurnEventWire) => void,
     telemetryCb?: (event: TelemetryEventWire) => void,
     listToolsCb?: () => Promise<ListToolsResult>,
@@ -731,6 +775,17 @@ export class NapiEngine {
             return JSON.stringify(result);
           });
 
+    // Checkpoint channel (P53): resolve like the request/response callbacks.
+    // The host captures pre-images before the engine writes and notes
+    // post-images after; an unwired host skips checkpointing (fail-open).
+    const checkpointHandler =
+      checkpointCb === undefined
+        ? undefined
+        : makeCallbackHandler(async (payload: string) => {
+            await checkpointCb(JSON.parse(payload) as CheckpointWire);
+            return 'null';
+          });
+
     // Turn lifecycle channel: fetch the payload but never resolve. Unlike a
     // display event, a dropped durable record corrupts the transcript, so a
     // rejected payload is reported instead of swallowed.
@@ -781,6 +836,7 @@ export class NapiEngine {
       askQuestionHandler,
       stateReadHandler,
       stateWriteHandler,
+      checkpointHandler,
       turnEventHandler,
       telemetryHandler,
       listToolsHandler,
@@ -850,6 +906,9 @@ export class AgentProcess {
     | ((req: StateWriteWire) => Promise<StateWriteWireResult>)
     | null = null;
 
+  /** Callback for handling host/checkpoint requests from Rust (P53). */
+  private checkpointHandler: ((req: CheckpointWire) => Promise<void>) | null = null;
+
   /** Callback for fire-and-forget host/event notifications from Rust. */
   private eventHandler: ((event: EngineEvent) => void) | null = null;
 
@@ -893,6 +952,10 @@ export class AgentProcess {
 
   setStateWriteHandler(handler: (req: StateWriteWire) => Promise<StateWriteWireResult>) {
     this.stateWriteHandler = handler;
+  }
+
+  setCheckpointHandler(handler: (req: CheckpointWire) => Promise<void>) {
+    this.checkpointHandler = handler;
   }
 
   setEventHandler(handler: (event: EngineEvent) => void) {
@@ -1053,6 +1116,8 @@ export class AgentProcess {
       await this.handleHostStateRead(msg);
     } else if (msg.method === 'host/state_write') {
       await this.handleHostStateWrite(msg);
+    } else if (msg.method === 'host/checkpoint') {
+      await this.handleHostCheckpoint(msg);
     } else if (msg.method === 'host/list_tools') {
       await this.handleHostListTools(msg);
     } else if (msg.method === 'host/goal') {
@@ -1101,12 +1166,27 @@ export class AgentProcess {
     }
   }
 
+  private async handleHostCheckpoint(msg: RpcMessage) {
+    if (!this.checkpointHandler) {
+      // Unwired host: the engine fail-opens and skips checkpointing.
+      this.writeHostError(msg.id, 'host does not support checkpoint');
+      return;
+    }
+    try {
+      await this.checkpointHandler(msg.params as CheckpointWire);
+      this.writeHostResult(msg.id, null);
+    } catch (error) {
+      // Fail-open: a checkpoint failure skips the snapshot but never
+      // blocks the write.
+      this.writeHostError(msg.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private async handleHostStateWrite(msg: RpcMessage) {
     if (!this.stateWriteHandler) {
       this.writeHostError(msg.id, 'host does not support state bridge');
       return;
-    }
-    try {
+    }    try {
       const result = await this.stateWriteHandler(msg.params as StateWriteWire);
       this.writeHostResult(msg.id, result);
     } catch (error) {
@@ -1349,6 +1429,7 @@ type ActiveCallbacks = {
   askQuestion?: (req: AskQuestionWire) => Promise<AskQuestionWireResult>;
   stateRead?: (req: StateReadWire) => Promise<StateReadWireResult>;
   stateWrite?: (req: StateWriteWire) => Promise<StateWriteWireResult>;
+  checkpoint?: (req: CheckpointWire) => Promise<void>;
   listTools: () => Promise<ListToolsResult>;
   goal: () => GoalContext | undefined;
   turnEvent?: (event: TurnEventWire) => void;
@@ -1374,6 +1455,10 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
         systemPrompt?: string;
         tools?: string[];
         disallowedTools?: string[];
+        promptPrefix?: string;
+        /** Serialized `{ min_chars, continuation_prompt, retries }` (the
+         *  serde shape the engine parses). */
+        summaryPolicyJson?: string;
       }[]
     | undefined;
   return {
@@ -1421,8 +1506,15 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
       system_prompt: p.systemPrompt,
       tools: p.tools,
       disallowed_tools: p.disallowedTools,
+      prompt_prefix: p.promptPrefix,
+      summary_policy:
+        p.summaryPolicyJson === undefined
+          ? undefined
+          : (JSON.parse(p.summaryPolicyJson) as unknown),
     })),
     subagent_timeout_ms: params['subagentTimeoutMs'],
+    agent_tool_veto: params['agentToolVeto'],
+    tools_veto: params['toolsVeto'],
   };
 }
 
@@ -1494,6 +1586,9 @@ export class StdioSessionTransport implements SessionTransport {
     if (c.stateWrite !== undefined) {
       this.agent.setStateWriteHandler((req) => c.stateWrite!(req));
     }
+    if (c.checkpoint !== undefined) {
+      this.agent.setCheckpointHandler((req) => c.checkpoint!(req));
+    }
     this.agent.setListToolsHandler(() => c.listTools());
     this.agent.setGoalHandler(() => Promise.resolve(c.goal() ?? null));
     this.agent.setTurnEventHandler((event) => c.turnEvent?.(event));
@@ -1527,7 +1622,11 @@ export class StdioSessionTransport implements SessionTransport {
 
   async status(sessionId: string): Promise<SessionStatus> {
     const w = await this.agent.sessionStatus(sessionId);
-    return { activeTurnId: w.active_turn_id, pendingTurnIds: w.pending_turn_ids };
+    return {
+      activeTurnId: w.active_turn_id,
+      pendingTurnIds: w.pending_turn_ids,
+      engine: w.engine ?? null,
+    };
   }
 
   async isSettled(sessionId: string): Promise<boolean> {
@@ -1775,6 +1874,13 @@ export function createRunTurnOverride(
             const response = await active!.stateWrite!(JSON.parse(requestJson) as StateWriteWire);
             return JSON.stringify(response);
           },
+    checkpoint:
+      active!.checkpoint === undefined
+        ? undefined
+        : async (requestJson: string): Promise<string> => {
+            await active!.checkpoint!(JSON.parse(requestJson) as CheckpointWire);
+            return 'null';
+          },
     listTools: async (): Promise<string> => JSON.stringify(await active!.listTools()),
     goal: () => {
       const g = active!.goal();
@@ -1927,14 +2033,65 @@ export function createRunTurnOverride(
             result: {
               output: event.content,
               isError: event.is_error,
-              note: event.note,
+              note: event.note ?? undefined,
             } as never,
+          });
+          break;
+        }
+        case 'tool.native.progress': {
+          input.onToolProgress?.({
+            turnId: Number(event.turn_id),
+            toolCallId: event.tool_call_id,
+            update: {
+              kind: event.kind === 'stderr' ? 'stderr' : 'stdout',
+              text: event.text,
+            },
           });
           break;
         }
         case 'goal.budget.limit_reached': {
           // Forwarded for host-side accounting; the turn already stops
           // with a BudgetLimited stop reason from the Rust loop.
+          break;
+        }
+        case 'subagent.spawned': {
+          input.onSubagentEvent?.({
+            type: 'subagent.spawned',
+            subagentId: event.subagent_id,
+            subagentName: event.subagent_name,
+            parentToolCallId: event.parent_tool_call_id ?? undefined,
+            description: event.description ?? undefined,
+            runInBackground: event.run_in_background ?? false,
+          });
+          break;
+        }
+        case 'subagent.started': {
+          input.onSubagentEvent?.({ type: 'subagent.started', subagentId: event.subagent_id });
+          break;
+        }
+        case 'subagent.completed': {
+          input.onSubagentEvent?.({
+            type: 'subagent.completed',
+            subagentId: event.subagent_id,
+            resultSummary: event.result_summary,
+            usage:
+              event.usage === undefined
+                ? undefined
+                : {
+                    inputOther: event.usage.input_tokens ?? 0,
+                    output: event.usage.output_tokens ?? 0,
+                    inputCacheRead: event.usage.input_cache_read ?? 0,
+                    inputCacheCreation: event.usage.input_cache_creation ?? 0,
+                  },
+          });
+          break;
+        }
+        case 'subagent.failed': {
+          input.onSubagentEvent?.({
+            type: 'subagent.failed',
+            subagentId: event.subagent_id,
+            error: event.error,
+          });
           break;
         }
         default:
@@ -2158,6 +2315,13 @@ export function createRunTurnOverride(
       askQuestion: askUserQuestion,
       stateRead,
       stateWrite,
+      checkpoint: async (req: CheckpointWire) => {
+        await input.onCheckpoint?.({
+          turnId: Number(req.turn_id),
+          phase: req.phase,
+          paths: req.paths,
+        });
+      },
       listTools: listToolsHandler,
       goal: () => options?.getGoal?.() ?? projectEngineGoal(input.getGoal?.()),
       turnEvent: (event) => input.onTurnEvent?.(event),
@@ -2177,6 +2341,8 @@ export function createRunTurnOverride(
         github: githubCredentials,
         subagentProfiles: input.subagentProfiles,
         subagentTimeoutMs: input.subagentTimeoutMs,
+        agentToolVeto: input.agentToolVeto,
+        toolsVeto: input.toolsVeto,
       });
       // A stdio crash re-spawns the agent process; a session on the old
       // process is dead and must be rebuilt (the crash-recovery contract).
@@ -2236,8 +2402,23 @@ export function createRunTurnOverride(
             systemPrompt: p.systemPrompt,
             tools: p.tools,
             disallowedTools: p.disallowedTools,
+            promptPrefix: p.promptPrefix,
+            // napi carries the policy as a serialized JSON string; the
+            // engine parses it with the serde snake_case field names.
+            summaryPolicyJson: p.summaryPolicy
+              ? JSON.stringify({
+                  min_chars: p.summaryPolicy.minChars,
+                  continuation_prompt: p.summaryPolicy.continuationPrompt,
+                  retries: p.summaryPolicy.retries,
+                })
+              : undefined,
           })),
           subagentTimeoutMs: input.subagentTimeoutMs,
+          // P52 native-path vetoes (swarm Agent denial / btw full tool
+          // denial): part of the session fingerprint, so an enter/exit
+          // rebuilds the session and the engine sees the fresh reasons.
+          agentToolVeto: input.agentToolVeto,
+          toolsVeto: input.toolsVeto,
         };
         // Stable delegates over the shared `active` slot: bound once at
         // session create, read the current turn's handlers at call time
@@ -2257,6 +2438,8 @@ export function createRunTurnOverride(
             active!.stateRead === undefined ? undefined : (req) => active!.stateRead!(req),
           stateWrite:
             active!.stateWrite === undefined ? undefined : (req) => active!.stateWrite!(req),
+          checkpoint:
+            active!.checkpoint === undefined ? undefined : (req) => active!.checkpoint!(req),
           listTools: () => active!.listTools(),
           goal: () => active!.goal(),
           turnEvent: (event) => active!.turnEvent?.(event),

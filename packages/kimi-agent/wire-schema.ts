@@ -116,6 +116,18 @@ export const telemetryEventSchema = z.discriminatedUnion('event', [
     at_step: z.number().optional(),
     interrupt_reason: z.enum(['aborted', 'error']),
   }),
+  // P54: per-native-execution tool telemetry (v2 `ToolCallEvent`).
+  z.object({
+    event: z.literal('tool_call'),
+    turn_id: z.number(),
+    tool_call_id: z.string(),
+    tool_name: z.string(),
+    outcome: z.enum(['success', 'error', 'cancelled']),
+    duration_ms: z.number(),
+    dup_type: z.enum(['normal', 'same_step', 'cross_step']),
+    error_type: z.enum(['cancelled', 'error']).optional(),
+    trace_id: z.string().optional(),
+  }),
 ]);
 
 export type TelemetryEventWire = z.infer<typeof telemetryEventSchema>;
@@ -210,10 +222,22 @@ export const runTurnParamsSchema = z.object({
         system_prompt: z.string().optional(),
         tools: z.array(z.string()).optional(),
         disallowed_tools: z.array(z.string()).optional(),
+        prompt_prefix: z.string().optional(),
+        summary_policy: z
+          .object({
+            min_chars: z.number(),
+            continuation_prompt: z.string(),
+            retries: z.number(),
+          })
+          .optional(),
       }),
     )
     .optional(),
   subagent_timeout_ms: z.number().optional(),
+  /** P52 native-path vetoes: non-empty reason = the engine rejects the
+   *  affected native executions with this text as the tool result. */
+  agent_tool_veto: z.string().optional(),
+  tools_veto: z.string().optional(),
 });
 
 // ── EngineSession handle over stdio (M1d 3b) ──────────────────────────────
@@ -263,6 +287,15 @@ export const sessionHistoryParamsSchema = z.object({
 export const sessionStatusResultSchema = z.object({
   active_turn_id: z.number().nullable(),
   pending_turn_ids: z.array(z.number()),
+  /** P56 (G-5): execution-path summary of the last completed turn. */
+  engine: z
+    .object({
+      transport: z.string().nullable(),
+      native_tool_calls: z.number().nullable(),
+      steps: z.number().nullable(),
+      stop_reason: z.string().nullable(),
+    })
+    .optional(),
 });
 
 export type SessionStatusWire = z.infer<typeof sessionStatusResultSchema>;

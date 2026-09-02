@@ -35,6 +35,12 @@ export interface CheckpointRestored extends CheckpointRestoredPayload {}
 
 export interface IAgentCheckpointService {
   readonly _serviceBrand: undefined;
+  /** Pre-write snapshot for engine-native write executions (P53,
+   *  `host/checkpoint` `prepare`). */
+  prepareNativeWrite(turnId: number, paths: readonly string[]): Promise<void>;
+  /** Post-write digest for engine-native write executions (P53,
+   *  `host/checkpoint` `record`). */
+  recordNativeAfterWrite(turnId: number, paths: readonly string[]): Promise<void>;
 }
 
 export const IAgentCheckpointService =
@@ -114,6 +120,32 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
       }
     }
     return group;
+  }
+
+  /** Pre-write snapshot for engine-native write executions (P53): the
+   *  `onWillExecuteTool` seam does not fire for them, so the engine calls
+   *  this over `host/checkpoint` before writing. Idempotent per turn+path,
+   *  same as the host-path hook. */
+  async prepareNativeWrite(turnId: number, paths: readonly string[]): Promise<void> {
+    await this.capturePaths(turnId, paths);
+  }
+
+  /** Post-write digest for engine-native write executions (P53). Paths
+   *  without a captured pre-image are skipped — prepare never ran for
+   *  them. */
+  async recordNativeAfterWrite(turnId: number, paths: readonly string[]): Promise<void> {
+    const group = this.checkpoints.get(turnId);
+    if (group === undefined) return;
+    for (const path of paths) {
+      const snapshot = group.files.get(path);
+      if (snapshot === undefined) continue;
+      try {
+        const bytes = await this.fs.readBytes(path, CHECKPOINT_MAX_FILE_BYTES + 1);
+        if (bytes.length <= CHECKPOINT_MAX_FILE_BYTES) snapshot.afterSha = sha256Bytes(bytes);
+      } catch {
+        snapshot.afterSha = undefined;
+      }
+    }
   }
 
   private async capturePaths(turnId: number, paths: readonly string[]): Promise<void> {

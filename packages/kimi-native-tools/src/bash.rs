@@ -73,7 +73,10 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
     let is_bash = shell_args.len() == 1 && shell_args[0] == "-c";
     let is_powershell = shell_args.iter().any(|a| a == "-Command");
     let mut command = if cfg!(windows) && is_bash {
-        format!("export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\"; {}", config.command)
+        format!(
+            "export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\"; {}",
+            config.command
+        )
     } else {
         config.command.clone()
     };
@@ -390,7 +393,10 @@ fn which_bash() -> Result<String, ()> {
     ];
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
         candidates.push(format!("{}\\Programs\\Git\\bin\\bash.exe", local_app_data));
-        candidates.push(format!("{}\\Programs\\Git\\usr\\bin\\bash.exe", local_app_data));
+        candidates.push(format!(
+            "{}\\Programs\\Git\\usr\\bin\\bash.exe",
+            local_app_data
+        ));
     }
 
     for candidate in &candidates {
@@ -651,7 +657,11 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(result.exit_code, 0, "stderr: {}", result.stderr);
-        assert!(result.stdout.contains("quoted-path-ok"), "stdout: {}", result.stdout);
+        assert!(
+            result.stdout.contains("quoted-path-ok"),
+            "stdout: {}",
+            result.stdout
+        );
     }
 
     #[test]

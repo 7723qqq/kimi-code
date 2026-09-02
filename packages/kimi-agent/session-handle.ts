@@ -49,6 +49,13 @@ export interface SessionTurnOutcome {
 export interface SessionStatus {
   activeTurnId: number | null;
   pendingTurnIds: number[];
+  /** P56 (G-5): execution-path summary of the last completed turn. */
+  engine?: {
+    transport: string | null;
+    native_tool_calls: number | null;
+    steps: number | null;
+    stop_reason: string | null;
+  } | null;
 }
 
 /** Session-scoped host callbacks (the run_turn callback set plus the goal provider). */
@@ -60,6 +67,8 @@ export interface SessionCallbacks {
   askQuestion?: (request: string) => Promise<string>;
   stateRead?: (request: string) => Promise<string>;
   stateWrite?: (request: string) => Promise<string>;
+  /** P53: native write executions snapshot pre-images host-side (fire-and-forget response). */
+  checkpoint?: (request: string) => Promise<string>;
   turnEvent?: (eventJson: string) => void;
   telemetry?: (eventJson: string) => void;
   listTools?: () => Promise<string>;
@@ -78,6 +87,7 @@ interface SessionNativeModule {
     askQuestionCb?: (callbackId: number) => void,
     stateReadCb?: (callbackId: number) => void,
     stateWriteCb?: (callbackId: number) => void,
+    checkpointCb?: (callbackId: number) => void,
     turnEventCb?: (callbackId: number) => void,
     telemetryCb?: (callbackId: number) => void,
     listToolsCb?: (callbackId: number) => void,
@@ -331,6 +341,7 @@ class NapiSessionTransport implements SessionTransport {
     const askQuestion = callbacks.askQuestion;
     const stateRead = callbacks.stateRead;
     const stateWrite = callbacks.stateWrite;
+    const checkpoint = callbacks.checkpoint;
     const turnEvent = callbacks.turnEvent;
     const telemetry = callbacks.telemetry;
     const listTools = callbacks.listTools;
@@ -352,6 +363,12 @@ class NapiSessionTransport implements SessionTransport {
       stateWrite === undefined
         ? undefined
         : makeRequestCallback(this.mod, (p) => stateWrite(p)),
+      checkpoint === undefined
+        ? undefined
+        : makeRequestCallback(this.mod, async (p) => {
+            await checkpoint(p);
+            return 'null';
+          }),
       turnEvent === undefined ? undefined : makeEventCallback(this.mod, turnEvent),
       telemetry === undefined ? undefined : makeEventCallback(this.mod, telemetry),
       listTools === undefined

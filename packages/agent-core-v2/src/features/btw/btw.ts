@@ -1,7 +1,16 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { defineState } from '#/state/state';
 
 export const TOOL_CALL_DISABLED_MESSAGE =
   'Tool calls are disabled for side questions. Answer with text only.';
+
+/**
+ * Per-agent-context marker (P52): the btw side-channel sets it to the
+ * formatted deny reason on its forked child context, and the loop service
+ * forwards it to the engine as `toolsVeto` so native tool execution is
+ * rejected exactly like the host veto chain does.
+ */
+export const btwToolsVetoKey = defineState<string | null>('btw.toolsVeto', () => null);
 
 export const SIDE_QUESTION_SYSTEM_REMINDER = `
 This is a side-channel conversation with the user. You should answer user questions directly based on what you already know.

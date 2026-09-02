@@ -13,6 +13,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import { ToolProgress, ToolCallStarted, ToolResultEvent } from '#/agent/toolExecutor/toolExecutorEvents';
 import { IConfigService } from '#/app/config/config';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { type FinishReason } from '#/kosong/contract/provider';
@@ -46,10 +47,23 @@ import {
   type QuestionResult,
 } from '#/session/question/question';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  SubagentCompleted,
+  SubagentFailed,
+  SubagentSpawned,
+  SubagentStarted,
+} from '#/session/subagent/mirrorAgentRun';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { resolveSubagentTimeoutMs } from '#/session/subagent/configSection';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentCheckpointService } from '#/agent/checkpoint/checkpointService';
+import {
+  NativeBackgroundAgentTask,
+  type NativeBackgroundOutcome,
+} from './nativeBackgroundAgentTask';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -60,6 +74,10 @@ import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { btwToolsVetoKey } from '#/features/btw/btw';
+import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
+import { agentDeniedInSwarmModeMessage } from '#/features/swarm/agent/swarmService';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
@@ -67,6 +85,7 @@ import { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   EngineTurnEvent,
+  SubagentCreatedEvent,
   TurnEndedEvent as TurnEndedTelemetryEvent,
   TurnInterruptedEvent,
   TurnStartedEvent as TurnStartedTelemetryEvent,
@@ -117,6 +136,7 @@ import {
   type AskQuestionWireItem,
   type AskQuestionWireResult,
   type EngineOverrideProvider,
+  type EngineSubagentEvent,
   type TurnEngine,
   type TurnEngineGoalContext,
   type TurnEngineInput,
@@ -1059,7 +1079,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }),
       );
       options.onStarted?.(1);
-      const input = this.buildEngineInput(turnId, signal, 1);
+      const input = await this.buildEngineInput(turnId, signal, 1);
       const result = await engine(input);
       if (result.telemetry !== undefined) {
         const engineTurn: EngineTurnEvent = {
@@ -1095,11 +1115,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
   }
 
-  private buildEngineInput(
+  private async buildEngineInput(
     turnId: number,
     signal: AbortSignal,
     step: number,
-  ): TurnEngineInput {
+  ): Promise<TurnEngineInput> {
     const modelContext = this.profile.resolveModelContext();
     return {
       turnId,
@@ -1596,9 +1616,59 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       onTurnTelemetry: this.engineOwnsTurnLifecycle()
         ? (event) => this.forwardEngineTurnTelemetry(event)
         : undefined,
-      subagentProfiles: this.collectSubagentProfiles(),
+      onSubagentEvent: (event) => this.dispatchEngineSubagentEvent(event),
+      onCheckpoint: (event) => {
+        const checkpoint = this.instantiation.invokeFunction((accessor) =>
+          accessor.get(IAgentCheckpointService),
+        );
+        if (event.phase === 'prepare') {
+          return checkpoint.prepareNativeWrite(event.turnId, event.paths);
+        }
+        return checkpoint.recordNativeAfterWrite(event.turnId, event.paths);
+      },
+      onToolProgress: (event) => {
+        void this.dispatcher.dispatch(
+          new ToolProgress({
+            agentId: this.scopeContext.agentId,
+            turnId: event.turnId,
+            toolCallId: event.toolCallId,
+            update: event.update,
+          }),
+        );
+      },
+      subagentProfiles: await this.collectSubagentProfiles(),
       subagentTimeoutMs: resolveSubagentTimeoutMs(this.config),
+      agentToolVeto: this.collectAgentToolVeto(),
+      toolsVeto: this.collectToolsVeto(),
     };
+  }
+
+  /**
+   * Native-path veto snapshots (P52): the host `onBeforeExecuteTool` veto
+   * chain does not run for engine-local tool execution, so the two vetoes
+   * without an engine-native counterpart — swarm's `Agent` denial and
+   * btw's full tool denial — are resolved here and pushed to the engine
+   * as deny reasons. Absent when the marking feature is not assembled in
+   * this context (nothing to veto).
+   */
+  private collectAgentToolVeto(): string | undefined {
+    try {
+      const swarm = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentSwarmService),
+      );
+      if (!swarm.isActive) return undefined;
+      const approval = this.instantiation.invokeFunction(
+        (accessor) => accessor.get(IAgentToolApprovalService),
+      );
+      return approval.formatDenyMessage(agentDeniedInSwarmModeMessage());
+    } catch {
+      return undefined;
+    }
+  }
+
+  private collectToolsVeto(): string | undefined {
+    if (!this.states.has(btwToolsVetoKey)) return undefined;
+    return this.states.get(btwToolsVetoKey) ?? undefined;
   }
 
   /**
@@ -1606,11 +1676,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
    * `Agent` tool (P46). Plugin-sourced profiles stay host-only: their
    * execution may depend on plugin resources the engine cannot see, and
    * an absent profile routes the call back to the host tool.
+   *
+   * P51 also resolves each profile's `promptPrefix` (a spawn-time function
+   * in v2) into the string the engine prepends to the prompt, and pushes
+   * the `summaryPolicy` verbatim. A failed prefix resolution degrades to
+   * no prefix, matching v2 `applyProfilePromptPrefix`.
    */
-  private collectSubagentProfiles(): readonly TurnEngineSubagentProfile[] {
+  private async collectSubagentProfiles(): Promise<readonly TurnEngineSubagentProfile[]> {
     try {
-      const catalog = this.instantiation.invokeFunction((accessor) =>
-        accessor.get(ISessionAgentProfileCatalog),
+      const [catalog, sessionContext, process] = this.instantiation.invokeFunction(
+        (accessor) =>
+          [
+            accessor.get(ISessionAgentProfileCatalog),
+            accessor.get(ISessionContext),
+            accessor.get(IHostProcessService),
+          ] as const,
       );
       const snapshot: TurnEngineSubagentProfile[] = [];
       for (const profile of catalog.list()) {
@@ -1622,6 +1702,18 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         } catch {
           systemPrompt = undefined;
         }
+        let promptPrefix: string | undefined;
+        if (profile.promptPrefix !== undefined) {
+          try {
+            const resolved = await profile.promptPrefix({
+              cwd: sessionContext.cwd,
+              process,
+            });
+            promptPrefix = resolved.length > 0 ? resolved : undefined;
+          } catch {
+            promptPrefix = undefined;
+          }
+        }
         const details = [profile.description, profile.whenToUse]
           .filter((part): part is string => typeof part === 'string' && part.length > 0)
           .join(' ');
@@ -1631,11 +1723,123 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           systemPrompt,
           tools: profile.tools,
           disallowedTools: profile.disallowedTools,
+          promptPrefix,
+          summaryPolicy: profile.summaryPolicy,
         });
       }
       return snapshot;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Mirror the engine's native `Agent` lifecycle events onto the host's
+   * event surface (P51): the same `Subagent*` Event2 vocabulary the
+   * host-side subagent path dispatches (v2 `mirrorAgentRun`), plus the
+   * `subagent_created` telemetry. No scope handle exists engine-side, so
+   * the lifecycle hooks and status republish of `mirrorAgentRun` stay
+   * host-tool-only.
+   */
+  private dispatchEngineSubagentEvent(event: EngineSubagentEvent): void {
+    const agentId = this.scopeContext.agentId;
+    switch (event.type) {
+      case 'subagent.spawned': {
+        const parentToolCallId = event.parentToolCallId ?? '';
+        if (event.runInBackground) {
+          this.registerNativeBackgroundTask(event);
+        }
+        void this.dispatcher.dispatch(
+          new SubagentSpawned({
+            subagentId: event.subagentId,
+            subagentName: event.subagentName,
+            parentToolCallId,
+            parentAgentId: agentId,
+            callerAgentId: agentId,
+            description: event.description,
+            runInBackground: event.runInBackground,
+          }),
+        );
+        const telemetryEvent: SubagentCreatedEvent = {
+          subagent_name: event.subagentName,
+          run_in_background: false,
+          fork: false,
+          agent_id: event.subagentId,
+          parent_agent_id: agentId,
+          parent_tool_call_id: parentToolCallId,
+          model: undefined,
+        };
+        this.telemetry.withContext(this.telemetryContext.get()).track2('subagent_created', telemetryEvent);
+        break;
+      }
+      case 'subagent.started':
+        void this.dispatcher.dispatch(new SubagentStarted({ subagentId: event.subagentId }));
+        break;
+      case 'subagent.completed':
+        this.resolveNativeBackground(event.subagentId, { result: event.resultSummary });
+        void this.dispatcher.dispatch(
+          new SubagentCompleted({
+            subagentId: event.subagentId,
+            resultSummary: event.resultSummary,
+            usage: event.usage,
+          }),
+        );
+        break;
+      case 'subagent.failed':
+        this.resolveNativeBackground(event.subagentId, { result: event.error, error: event.error });
+        void this.dispatcher.dispatch(
+          new SubagentFailed({ subagentId: event.subagentId, error: event.error }),
+        );
+        break;
+    }
+  }
+
+  /**
+   * Engine-native background subagents (P58): the spawned event registers a
+   * bridging task in the host task system, and the completion event settles
+   * it — so the settle → notification → synthetic-turn path is exactly the
+   * host-spawned one.
+   */
+  private readonly nativeBackgroundCompletions = new Map<
+    string,
+    (outcome: NativeBackgroundOutcome) => void
+  >();
+
+  private registerNativeBackgroundTask(event: {
+    subagentId: string;
+    subagentName: string;
+    parentToolCallId?: string;
+    description?: string;
+  }): void {
+    try {
+      const tasks = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentTaskService),
+      );
+      const completion = new Promise<NativeBackgroundOutcome>((resolve) => {
+        this.nativeBackgroundCompletions.set(event.subagentId, resolve);
+      });
+      tasks.registerTask(
+        new NativeBackgroundAgentTask(
+          event.subagentId,
+          event.subagentName,
+          event.parentToolCallId ?? '',
+          event.description ?? event.subagentName,
+          completion,
+        ),
+        { detached: true },
+      );
+    } catch {
+      // Task registration unavailable: the completion event still resolves
+      // the Subagent* event surface; only the notification turn is lost.
+      this.nativeBackgroundCompletions.delete(event.subagentId);
+    }
+  }
+
+  private resolveNativeBackground(subagentId: string, outcome: NativeBackgroundOutcome): void {
+    const resolve = this.nativeBackgroundCompletions.get(subagentId);
+    if (resolve !== undefined) {
+      this.nativeBackgroundCompletions.delete(subagentId);
+      resolve(outcome);
     }
   }
 
@@ -1756,15 +1960,41 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private dispatchEngineUIBridge(turnId: number, event: LoopRecordedEvent): void {
-    if (event.type !== 'content.part') return;
-    const part = event.part;
-    if (part.type === 'text') {
+    if (event.type === 'content.part') {
+      const part = event.part;
+      if (part.type === 'text') {
+        void this.dispatcher.dispatch(
+          new AssistantDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.text }),
+        );
+      } else if (part.type === 'think') {
+        void this.dispatcher.dispatch(
+          new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.think }),
+        );
+      }
+      return;
+    }
+    // P61: bridge the engine's native tool transcript events onto the TUI's
+    // streaming card events — the UI bridge previously forwarded only
+    // content parts, so native tool executions had no cards at all.
+    if (event.type === 'tool.call') {
       void this.dispatcher.dispatch(
-        new AssistantDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.text }),
+        new ToolCallStarted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          toolCallId: event.toolCallId,
+          name: event.name,
+          args: event.args,
+        }),
       );
-    } else if (part.type === 'think') {
+    } else if (event.type === 'tool.result') {
       void this.dispatcher.dispatch(
-        new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.think }),
+        new ToolResultEvent({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          toolCallId: event.toolCallId,
+          output: event.result.output,
+          isError: event.result.isError,
+        }),
       );
     }
   }

@@ -192,7 +192,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
   async function driveWriteTurn(
     workspace: string,
     permission: { decision: 'allow' | 'deny'; reason?: string },
-    opts: { resetEngine?: boolean } = {},
+    opts: { resetEngine?: boolean; toolsVeto?: string; agentToolVeto?: string } = {},
   ): Promise<{
     events: unknown[];
     permissionCalls: Array<{ name: string; arguments: unknown }>;
@@ -272,6 +272,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         permissionCalls.push({ name: call.name, arguments: call.arguments });
         return permission;
       },
+      toolsVeto: opts.toolsVeto,
+      agentToolVeto: opts.agentToolVeto,
     } satisfies TurnEngineInputLike;
 
     const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
@@ -358,13 +360,29 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       systemPrompt?: string;
       tools?: string[];
       disallowedTools?: string[];
+      promptPrefix?: string;
+      summaryPolicy?: { minChars: number; continuationPrompt: string; retries: number };
     }>,
+    opts: {
+      respond?: (
+        call: number,
+        chatInput: { messages: Array<{ role: string; content: string }> },
+      ) => Promise<{
+        toolCalls?: unknown[];
+        providerFinishReason?: string;
+        usage?: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
+        text?: string;
+      }>;
+      toolsVeto?: string;
+      agentToolVeto?: string;
+    } = {},
   ): Promise<{
     events: unknown[];
     permissionCalls: Array<{ name: string; arguments: unknown }>;
     hostToolExecutions: number;
     chatCalls: number;
     result: unknown;
+    subagentEvents: Array<Record<string, unknown>>;
   }> {
     const mod = await import('./rust-loop');
     mod.shutdownRustEngine();
@@ -376,6 +394,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(engine).toBeDefined();
 
     const events: unknown[] = [];
+    const subagentEvents: Array<Record<string, unknown>> = [];
     const permissionCalls: Array<{ name: string; arguments: unknown }> = [];
     let hostToolExecutions = 0;
     let chatCalls = 0;
@@ -387,10 +406,28 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         modelAlias: 'test-model',
         modelId: 'test-model',
         systemPrompt: 'You are a test driver.',
-        async chat(chatInput: {
-          onTextPart?: (part: { type: 'text'; text: string }) => void | Promise<void>;
-        }) {
+        async chat(
+          chatInput: {
+            messages?: Array<{ role: string; content: string }>;
+            onTextPart?: (part: { type: 'text'; text: string }) => void | Promise<void>;
+          },
+        ) {
           const call = chatCalls++;
+          if (opts.respond !== undefined) {
+            const reply = await opts.respond(call, {
+              messages: chatInput.messages ?? [],
+            });
+            if (reply.text !== undefined) {
+              await chatInput.onTextPart?.({ type: 'text', text: reply.text });
+            }
+            return {
+              toolCalls: reply.toolCalls ?? [],
+              providerFinishReason: reply.providerFinishReason ?? 'stop',
+              usage:
+                reply.usage ??
+                { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
           if (call === 0) {
             // Parent: launch the subagent.
             return {
@@ -448,11 +485,16 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         permissionCalls.push({ name: call.name, arguments: call.arguments });
         return { decision: 'allow' as const };
       },
+      onSubagentEvent: (event: Record<string, unknown>) => {
+        subagentEvents.push(event);
+      },
+      toolsVeto: opts.toolsVeto,
+      agentToolVeto: opts.agentToolVeto,
       subagentProfiles: profiles,
     } satisfies TurnEngineInputLike;
 
     const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
-    return { events, permissionCalls, hostToolExecutions, chatCalls, result };
+    return { events, permissionCalls, hostToolExecutions, chatCalls, result, subagentEvents };
   }
 
   it('runs a native foreground Agent call from the pushed profile snapshot', async () => {
@@ -503,6 +545,145 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(out.hostToolExecutions).toBe(1);
     // The parent finish chat still happens after the host-ran result.
     expect(out.chatCalls).toBe(2);
+  });
+
+  // P51: promptPrefix rides ahead of the prompt, the summary policy drives
+  // a continuation turn, and the lifecycle events mirror v2's surface.
+  it('applies the prompt prefix, distills the summary, and mirrors lifecycle events', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-distill-'));
+    tempDirs.push(workspace);
+
+    const longSummary = 'the loop lives in run_turn.rs with a full step-cycle analysis';
+    const out = await driveAgentTurn(
+      workspace,
+      [
+        {
+          name: 'researcher',
+          systemPrompt: 'You are a research subagent.',
+          promptPrefix: '<git-context>',
+          summaryPolicy: { minChars: 40, continuationPrompt: 'Summarize fully.', retries: 1 },
+        },
+      ],
+      {
+        respond: async (call) => {
+          if (call === 0) {
+            return {
+              toolCalls: [
+                {
+                  type: 'function',
+                  id: 'agent-call-1',
+                  name: 'Agent',
+                  arguments: JSON.stringify({
+                    subagent_type: 'researcher',
+                    prompt: 'find the loop',
+                    description: 'Loop probe',
+                  }),
+                },
+              ],
+              providerFinishReason: 'tool_calls',
+            };
+          }
+          if (call === 1) {
+            // The subagent's first turn: too short for the policy floor.
+            return { text: 'too short' };
+          }
+          if (call === 2) {
+            // The distillation continuation turn (the prompt/policy content
+            // itself is asserted by the Rust unit tests; host-proxy chats
+            // receive the host projection, not the engine-side messages).
+            return { text: longSummary };
+          }
+          return {};
+        },
+      },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    // Parent launch, subagent turn, continuation turn, parent finish.
+    expect(out.chatCalls).toBe(4);
+    expect(out.hostToolExecutions).toBe(0);
+
+    expect(out.subagentEvents.map((e) => e.type)).toEqual([
+      'subagent.spawned',
+      'subagent.started',
+      'subagent.completed',
+    ]);
+    const spawned = out.subagentEvents[0];
+    expect(spawned.subagentName).toBe('researcher');
+    expect(spawned.parentToolCallId).toBe('agent-call-1');
+    expect(spawned.description).toBe('Loop probe');
+    const completed = out.subagentEvents[2];
+    expect(completed.resultSummary).toBe(longSummary);
+    expect((completed.usage as { inputOther: number }).inputOther).toBeGreaterThan(0);
+
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(String(toolResultEvents[0].result?.output)).toContain(longSummary);
+  });
+
+  // P52: the native-path veto mirrors — btw's full tool denial and swarm's
+  // Agent denial — reject engine-local execution without touching the host
+  // executor (whose own veto chain would deny there too).
+  it('rejects every native tool call when the btw tools veto is set', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-btw-veto-'));
+    tempDirs.push(workspace);
+
+    const out = await driveWriteTurn(
+      workspace,
+      { decision: 'allow' },
+      { toolsVeto: 'Tool calls are disabled for side questions. Answer with text only.' },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.fileExisted).toBe(false, 'the vetoed Write must not touch the disk');
+    expect(out.hostToolExecutions).toBe(0, 'no host fallback — the veto denies locally');
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'call-stdio-write',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(toolResultEvents[0].result?.isError).toBe(true);
+    expect(String(toolResultEvents[0].result?.output)).toContain(
+      'Tool calls are disabled for side questions',
+    );
+  });
+
+  it('rejects the native Agent call when the swarm agent veto is set', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-swarm-veto-'));
+    tempDirs.push(workspace);
+
+    const out = await driveAgentTurn(
+      workspace,
+      [{ name: 'researcher', systemPrompt: 'You are a research subagent.' }],
+      { agentToolVeto: 'Agent is denied while swarm mode is active.' },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.hostToolExecutions).toBe(0);
+    // Parent launch, parent finish — the subagent never ran.
+    expect(out.chatCalls).toBe(2);
+    expect(out.subagentEvents).toEqual([], 'no lifecycle events for a vetoed Agent call');
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(toolResultEvents[0].result?.isError).toBe(true);
+    expect(String(toolResultEvents[0].result?.output)).toContain(
+      'Agent is denied while swarm mode is active.',
+    );
   });
 
   // v2 `toolDedupeService` mirror (G-6 #2): identical native calls issued
