@@ -218,21 +218,17 @@ describe('OAuthService', () => {
   }
 
   function stubManagedModelsFetch(): ReturnType<typeof vi.fn> {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [
-            {
-              id: 'kimi-k2',
-              context_length: 131072,
-              supports_reasoning: true,
-              display_name: 'Kimi K2',
-            },
-          ],
-        }),
-        { status: 200 },
-      ),
-    );
+    const body = JSON.stringify({
+      data: [
+        {
+          id: 'kimi-k2',
+          context_length: 131072,
+          supports_reasoning: true,
+          display_name: 'Kimi K2',
+        },
+      ],
+    });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(body, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
   }
@@ -263,9 +259,8 @@ describe('OAuthService', () => {
     });
     const fetchMock = vi.fn().mockImplementation(async () => {
       await gate;
-      return {
-        ok: true,
-        json: async () => ({
+      return new Response(
+        JSON.stringify({
           data: [
             {
               id: 'kimi-k2',
@@ -287,7 +282,8 @@ describe('OAuthService', () => {
             },
           ],
         }),
-      };
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
     });
     vi.stubGlobal('fetch', fetchMock);
     return { fetchMock, releaseFetch };
@@ -1041,19 +1037,21 @@ describe('OAuthService', () => {
       ...providers,
       [OAUTH_PROVIDER]: { ...providers[OAUTH_PROVIDER]!, baseUrl: 'https://api.changed.example.com' },
     };
-    resolveFetch({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            context_length: 131072,
-            supports_reasoning: true,
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    resolveFetch(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              context_length: 131072,
+              supports_reasoning: true,
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(pending).resolves.toEqual({ changed: [], unchanged: [], failed: [] });
     expect(configReplace).not.toHaveBeenCalled();

@@ -2988,8 +2988,12 @@ P47–P60 落地时未跑全量测试，本批补齐并分类：
   `test/state/stateManifest.test.ts`（P52 新增 `btw.toolsVeto` 状态键 → `gen:state-manifest` 重生成）。
 - **本机平台性、非代码**：`profile/binding`（`G:\\…` vs `G:/…` 路径分隔符）、`staleGuard`（Windows 临时目录
   对非绝对 cwd 解析报 `PATH_INVALID`）、`mcpCore/oauth/callback-server`。CI 只在 Ubuntu 跑，这三类不判为缺陷。
-- **仍红、待单独处理**：`test/app/auth/auth.test.ts` 6 条（OAuthService 的 catalog/default-model 回写断言，
-  与 P47–P60 无关，早于本批存在）。
+- **上游合并带入、已修**：`test/app/auth/auth.test.ts` 6 条。根因不在 agent-core-v2：`packages/oauth` 的
+  `readResponseBodyWithLimit`（`utils.ts:17`，读 `headers.get('content-length')` + `body.getReader()`）已被
+  `fetchManagedKimiCodeModels` 用上，而 auth 测试仍返回手搓的 fetch 假对象（无 `headers`/`body`），且
+  `stubManagedModelsFetch` 用 `mockResolvedValue` 复用同一个 `Response` —— 流只能读一次，第二次即
+  `ReadableStream is locked`。修法：三处假响应改为每次调用新建真 `Response`。错误原本被
+  `authService.ts:388-392` 吞成 `failed[].reason`，所以断言只看到 `[]` vs 一条 reason。
 - **并发级联**：`tower/store`、`workspaceMcp`×2、`connection-manager`、`tool`、`wire/resume`、`dateChange`
   单独跑全绿——全量并发时出现 `Worker forks emitted error`，属测试池资源，不是代码。
 
@@ -3011,6 +3015,6 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 - cargo：947 lib + 18 集成全绿；`cargo fmt --check` 干净、`clippy --all-targets` 0 警告
 - 新增测试：审批记忆 7 条（含反向验证：关掉查表即红 2 条）、崩溃预算 1 条、`/status` 回落原因 1 条、
   rust-engine 快照记录 1 条、btw 契约断言 2 条
-- vitest：kimi-agent 123/9（重建 addon 后）；agent-core-v2 `permissionGate` 17/17、`btw` 2/2、`loop` 51/51、`stateManifest` 绿、`app/auth` 6 条仍红（见下）；apps/kimi-code `rust-engine` + `status-panel` 37/37
+- vitest：kimi-agent 123/9（重建 addon 后）；agent-core-v2 `permissionGate` 17/17、`btw` 2/2、`loop` 51/51、`stateManifest` 绿、`app/auth` 4 文件全绿（修桩后）；apps/kimi-code `rust-engine` + `status-panel` 37/37
 - typecheck：agent-core-v2 `tsc --noEmit` 通过；oxlint（含 `--type-aware`）0 error
-- 全量 agent-core-v2 仍不绿：`app/auth` 6 条是**上游合并带入**的既有红（`authService.ts` 最后由 `2bf7ed22d7` 改、测试由 `3ec721c6bc` 合并改，与本仓 P47–P62 无关），根因已定位到刷新 try 内某服务在失败用例的容器里未注册（错误被 `authService.ts:388-392` 吞成 `failed[].reason`），需一次带栈的排查 + 判定该改测试还是改服务；`profile/binding`、`staleGuard`、`mcpCore/oauth/callback-server` 是 Windows 路径/端口差异（CI 只跑 Ubuntu）；`tower`/`workspaceMcp`/`connection-manager`/`tool`/`wire/resume`/`dateChange` 单独跑全绿，全量并发时是 `Worker forks emitted error` 级联
+- 全量 agent-core-v2 在本机仍不绿的只剩两类：`profile/binding`、`staleGuard`、`mcpCore/oauth/callback-server` 是 Windows 路径/端口差异（CI 只跑 Ubuntu）；`tower`/`workspaceMcp`/`connection-manager`/`tool`/`wire/resume`/`dateChange` 单独跑全绿，全量并发时是 `Worker forks emitted error` 级联
