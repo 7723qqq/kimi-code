@@ -11,12 +11,16 @@
 //!   It can now be wired for real: the host-agnostic pipeline in
 //!   [`crate::pipeline`] makes an engine context constructible without the
 //!   stdio or napi host;
-//! - no WebSocket surface, so streaming events have no transport.
+//! - WebSocket framing exists ([`ws`]: RFC 6455 handshake, frame codec,
+//!   control frames, fragmentation) but is **not reachable in product** — the
+//!   HTTP listener does not route an upgrade to it, and it speaks no
+//!   kap-server `/api/v1/ws` message schema yet.
 //!
 //! The `/api/v1` surface the app actually serves is still `packages/kap-server`.
 
 pub mod http;
 pub mod router;
+pub mod ws;
 
 use std::sync::Arc;
 use serde_json::{Value, json};

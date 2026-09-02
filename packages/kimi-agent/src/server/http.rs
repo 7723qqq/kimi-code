@@ -8,9 +8,11 @@
 //! Deliberately minimal, in the direction of refusing work rather than guessing
 //! at it:
 //!
-//! - **One request per connection.** Every response carries `Connection: close`,
-//!   so there is no keep-alive state machine, no pipelining, and no framing
-//!   ambiguity between two requests on one socket.
+//! - **One request per connection.** Every REST response carries
+//!   `Connection: close`, so there is no keep-alive state machine, no
+//!   pipelining, and no framing ambiguity between two requests on one socket.
+//!   The sole exception is a WebSocket upgrade, which keeps the socket and
+//!   hands its framing to [`ws`].
 //! - **`Content-Length` only.** Any `Transfer-Encoding` is rejected, which
 //!   closes the CL.TE / TE.CL request-smuggling family outright instead of
 //!   implementing both framings and deciding which one wins.
@@ -36,6 +38,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::server::HttpServer;
 use crate::server::router::{HttpRequest, HttpResponse};
+use crate::server::ws;
 
 /// Hard cap on the request header block, including the request line.
 const MAX_HEADER_BYTES: usize = 16 * 1024;
@@ -113,8 +116,8 @@ pub async fn serve(addr: &str, server: Arc<HttpServer>) -> io::Result<ServerHand
 }
 
 async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io::Result<()> {
-    let request = match timeout(READ_TIMEOUT, read_request(&mut stream)).await {
-        Ok(Ok(Some(request))) => request,
+    let received = match timeout(READ_TIMEOUT, read_request(&mut stream)).await {
+        Ok(Ok(Some(received))) => received,
         Ok(Ok(None)) => return Ok(()),
         Ok(Err(reason)) => {
             return write_response(&mut stream, &HttpResponse::bad_request(reason.message())).await;
@@ -124,13 +127,33 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
         }
     };
 
-    let response = server.handle_request(&request).await;
+    if ws::is_upgrade(&received.request) {
+        let Received { request, leftover } = received;
+        return match ws::serve_echo(stream, &request, leftover).await {
+            Ok(()) => Ok(()),
+            Err(ws::WsError::Io(error)) => Err(error),
+            Err(error) => {
+                // The ws layer already answered a framing violation with a
+                // Close frame; there is nothing left for the caller to do.
+                tracing::debug!(?error, "websocket connection closed");
+                Ok(())
+            }
+        };
+    }
+
+    let response = server.handle_request(&received.request).await;
     write_response(&mut stream, &response).await
+}
+
+/// One parsed request plus the bytes that arrived in the same packet after it.
+struct Received {
+    request: HttpRequest,
+    leftover: Vec<u8>,
 }
 
 /// Read exactly one request off the socket. `None` means the peer closed the
 /// connection before sending anything.
-async fn read_request(stream: &mut TcpStream) -> Result<Option<HttpRequest>, RejectReason> {
+async fn read_request(stream: &mut TcpStream) -> Result<Option<Received>, RejectReason> {
     let mut buffered: Vec<u8> = Vec::with_capacity(CHUNK_BYTES);
     let mut chunk = vec![0_u8; CHUNK_BYTES];
 
@@ -171,11 +194,16 @@ async fn read_request(stream: &mut TcpStream) -> Result<Option<HttpRequest>, Rej
         }
     }
 
-    // Bytes past `expected` are a pipelined follow-up we never promised to read;
-    // the connection closes after this response, so they are simply dropped.
-    body.truncate(expected);
+    // Bytes past `expected` are either a WebSocket frame that shared the
+    // handshake packet or a pipelined request; hand them on rather than drop
+    // them, since the ws path reads frames from this same socket.
+    let leftover = if body.len() > expected {
+        body.split_off(expected)
+    } else {
+        Vec::new()
+    };
     request.body = body;
-    Ok(Some(request))
+    Ok(Some(Received { request, leftover }))
 }
 
 /// Locate the blank line that ends the header block.

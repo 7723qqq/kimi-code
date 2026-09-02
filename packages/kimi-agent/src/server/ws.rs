@@ -1,0 +1,637 @@
+//! RFC 6455 WebSocket endpoint for the native REST surface.
+//!
+//! Scope of this module is the **transport**: handshake, framing, control
+//! frames, and fragmentation. It does not yet speak kap-server's `/api/v1/ws`
+//! message schema — the echo loop in [`serve_echo`] exists to prove the framing
+//! round-trips against a real socket, and is the seam the protocol layer
+//! attaches to next.
+//!
+//! Zero new crates. SHA-1 is implemented here rather than pulled in: the
+//! handshake digest is a non-secret anti-caching value fixed by RFC 6455 §1.3,
+//! its correct output is pinned by a known-answer test, and collision
+//! resistance is not part of what it protects. Base64 comes from the crate
+//! reqwest already resolves.
+//!
+//! Spec rules this implementation enforces, each because skipping it lets a
+//! peer desynchronize the parser:
+//!
+//! - client frames **must** be masked, server frames **never** are (§5.1);
+//! - RSV bits must be zero — no extension is negotiated (§5.2);
+//! - control frames must not be fragmented and must carry ≤ 125 bytes (§5.5);
+//! - a 64-bit length must fit the configured cap, and only after a `FIN` may a
+//!   new data frame start (§5.4);
+//! - `Close` payloads are empty or ≥ 2 bytes with a code sendable by a peer.
+
+use std::io;
+
+use crate::server::router::HttpRequest;
+use base64::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::net::TcpStream;
+
+/// The magic value RFC 6455 §1.3 concatenates with the client key before SHA-1.
+const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+const OP_CONTINUATION: u8 = 0x0;
+const OP_TEXT: u8 = 0x1;
+const OP_BINARY: u8 = 0x2;
+const OP_CLOSE: u8 = 0x8;
+const OP_PING: u8 = 0x9;
+const OP_PONG: u8 = 0xA;
+
+/// Cap on a single frame payload and on an assembled message.
+const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+
+/// Why the connection is being torn down, and the close code to send back.
+#[derive(Debug)]
+pub enum WsError {
+    /// Protocol violation: code 1002 (protocol error).
+    Proto(&'static str),
+    /// Unsupported data: code 1003.
+    Unsupported(u8),
+    /// Message over the cap: code 1009.
+    TooLarge,
+    /// Invalid UTF-8 in a text message: code 1007.
+    InvalidUtf8,
+    Io(io::Error),
+}
+
+impl From<io::Error> for WsError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl WsError {
+    /// The close code this failure maps to, or `None` when the peer broke the
+    /// contract so early no frame can be sent.
+    pub fn close_code(&self) -> Option<u16> {
+        match self {
+            Self::Proto(_) => Some(1002),
+            Self::Unsupported(_) => Some(1003),
+            Self::TooLarge => Some(1009),
+            Self::InvalidUtf8 => Some(1007),
+            Self::Io(_) => None,
+        }
+    }
+}
+
+pub struct Frame {
+    pub is_final: bool,
+    pub opcode: u8,
+    pub payload: Vec<u8>,
+}
+
+/// True when this request asks for a WebSocket upgrade we can honour.
+///
+/// A `Content-Length` on an upgrade is rejected outright: an upgrade request
+/// carries no body, and accepting one would make us consume the first frame's
+/// bytes as body data.
+pub fn is_upgrade(request: &HttpRequest) -> bool {
+    let wants_upgrade = request.headers.get("upgrade").is_some_and(|value| {
+        value
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case("websocket"))
+    });
+    let connection_ok = request.headers.get("connection").is_some_and(|value| {
+        value
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
+    });
+    let version_ok = request
+        .headers
+        .get("sec-websocket-version")
+        .map(String::as_str)
+        == Some("13");
+
+    request.headers.contains_key("sec-websocket-key")
+        && wants_upgrade
+        && connection_ok
+        && version_ok
+        && !request.headers.contains_key("content-length")
+}
+
+/// The `Sec-WebSocket-Accept` value for a client key.
+pub fn accept_value(client_key: &str) -> String {
+    let digest = sha1(format!("{client_key}{WS_GUID}").as_bytes());
+    BASE64_STANDARD.encode(digest)
+}
+
+/// The 101 response completing the handshake.
+pub fn handshake_response(client_key: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {}\r\n\r\n",
+        accept_value(client_key)
+    )
+    .into_bytes()
+}
+
+/// Serve the upgraded connection as an echo endpoint until the peer closes it.
+///
+/// `leftover` holds bytes the HTTP reader already pulled off the socket past the
+/// handshake — a client may coalesce the handshake and its first frame into one
+/// packet, and dropping them would desynchronize the framing parser.
+pub async fn serve_echo(
+    stream: TcpStream,
+    request: &HttpRequest,
+    leftover: Vec<u8>,
+) -> Result<(), WsError> {
+    let key = request
+        .headers
+        .get("sec-websocket-key")
+        .ok_or(WsError::Proto("missing Sec-WebSocket-Key"))?;
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut reader = FrameReader::new(reader, leftover);
+    writer.write_all(&handshake_response(key)).await?;
+
+    // A partially received message: (opcode, bytes so far). Only one may be
+    // open at a time, and no new data frame may start until it is finished.
+    let mut fragment: Option<(u8, Vec<u8>)> = None;
+
+    loop {
+        let frame = match read_frame(&mut reader).await {
+            Ok(frame) => frame,
+            Err(error) => {
+                if let Some(code) = error.close_code() {
+                    let _ = send_close(&mut writer, code).await;
+                }
+                return Err(error);
+            }
+        };
+
+        match frame.opcode {
+            OP_PING => write_frame(&mut writer, OP_PONG, &frame.payload).await?,
+            OP_PONG => {}
+            OP_CLOSE => {
+                if let Some(payload) = frame.payload.get(..2) {
+                    let code = u16::from_be_bytes([payload[0], payload[1]]);
+                    if !is_sendable_close(code) {
+                        let _ = send_close(&mut writer, 1002).await;
+                        return Err(WsError::Proto("invalid close code"));
+                    }
+                } else if frame.payload.len() == 1 {
+                    let _ = send_close(&mut writer, 1002).await;
+                    return Err(WsError::Proto("close payload of one byte"));
+                }
+                let _ = send_close(&mut writer, 1000).await;
+                return Ok(());
+            }
+            OP_TEXT | OP_BINARY => {
+                if fragment.is_some() {
+                    let _ = send_close(&mut writer, 1002).await;
+                    return Err(WsError::Proto("data frame while fragmented"));
+                }
+                if frame.is_final {
+                    finish_message(&mut writer, frame.opcode, frame.payload).await?;
+                } else {
+                    fragment = Some((frame.opcode, frame.payload));
+                }
+            }
+            OP_CONTINUATION => {
+                let Some((opcode, mut buffered)) = fragment.take() else {
+                    let _ = send_close(&mut writer, 1002).await;
+                    return Err(WsError::Proto("continuation without a start"));
+                };
+                if buffered.len() + frame.payload.len() > MAX_MESSAGE_BYTES {
+                    let _ = send_close(&mut writer, 1009).await;
+                    return Err(WsError::TooLarge);
+                }
+                buffered.extend_from_slice(&frame.payload);
+                if frame.is_final {
+                    finish_message(&mut writer, opcode, buffered).await?;
+                } else {
+                    fragment = Some((opcode, buffered));
+                }
+            }
+            other => {
+                let _ = send_close(&mut writer, 1003).await;
+                return Err(WsError::Unsupported(other));
+            }
+        }
+    }
+}
+
+/// Echo one complete message back, validating text payloads as we go.
+async fn finish_message(
+    writer: &mut WriteHalf<TcpStream>,
+    opcode: u8,
+    payload: Vec<u8>,
+) -> Result<(), WsError> {
+    if opcode == OP_TEXT && std::str::from_utf8(&payload).is_err() {
+        let _ = send_close(writer, 1007).await;
+        return Err(WsError::InvalidUtf8);
+    }
+    write_frame(writer, opcode, &payload).await
+}
+
+async fn send_close(writer: &mut WriteHalf<TcpStream>, code: u16) -> Result<(), WsError> {
+    write_frame(writer, OP_CLOSE, &code.to_be_bytes()).await
+}
+
+/// True for codes a peer is allowed to put in a Close frame (§7.4).
+fn is_sendable_close(code: u16) -> bool {
+    (1000..=4999).contains(&code) && !matches!(code, 1004 | 1005 | 1006 | 1015 | (1016..=2999))
+}
+
+async fn read_frame(reader: &mut FrameReader) -> Result<Frame, WsError> {
+    let mut head = [0_u8; 2];
+    reader.read_exact(&mut head).await?;
+
+    let (first, second) = (head[0], head[1]);
+    if first & 0x70 != 0 {
+        return Err(WsError::Proto("non-zero RSV bits"));
+    }
+    let is_final = first & 0x80 != 0;
+    let opcode = first & 0x0f;
+    if second & 0x80 == 0 {
+        return Err(WsError::Proto("client frame not masked"));
+    }
+    let masked_len = (second & 0x7f) as usize;
+
+    let length = match masked_len {
+        126 => {
+            let mut two = [0_u8; 2];
+            reader.read_exact(&mut two).await?;
+            u16::from_be_bytes(two) as usize
+        }
+        127 => {
+            let mut eight = [0_u8; 8];
+            reader.read_exact(&mut eight).await?;
+            let wide = u64::from_be_bytes(eight);
+            if wide > MAX_MESSAGE_BYTES as u64 {
+                return Err(WsError::TooLarge);
+            }
+            wide as usize
+        }
+        short => short,
+    };
+
+    if length > MAX_MESSAGE_BYTES {
+        return Err(WsError::TooLarge);
+    }
+    let is_control = opcode & 0x8 != 0;
+    if is_control {
+        if !is_final {
+            return Err(WsError::Proto("fragmented control frame"));
+        }
+        if length > 125 {
+            return Err(WsError::Proto("oversized control frame"));
+        }
+    }
+
+    let mut mask = [0_u8; 4];
+    reader.read_exact(&mut mask).await?;
+    let mut payload = vec![0_u8; length];
+    reader.read_exact(&mut payload).await?;
+    for (index, byte) in payload.iter_mut().enumerate() {
+        *byte ^= mask[index & 3];
+    }
+
+    Ok(Frame {
+        is_final,
+        opcode,
+        payload,
+    })
+}
+
+async fn write_frame(
+    writer: &mut WriteHalf<TcpStream>,
+    opcode: u8,
+    payload: &[u8],
+) -> Result<(), WsError> {
+    let len = payload.len();
+    let mut head = vec![0x80 | opcode];
+    if len <= 125 {
+        head.push(len as u8);
+    } else if len <= u16::MAX as usize {
+        head.push(126);
+        head.extend_from_slice(&(len as u16).to_be_bytes());
+    } else {
+        head.push(127);
+        head.extend_from_slice(&(len as u64).to_be_bytes());
+    }
+    // Server-to-client frames must be unmasked: no mask bit, no mask key.
+    writer.write_all(&head).await?;
+    writer.write_all(payload).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
+/// A buffered reader over the split socket, seeded with the bytes the HTTP
+/// layer already consumed from the packet but did not use.
+struct FrameReader {
+    reader: ReadHalf<TcpStream>,
+    buffer: Vec<u8>,
+    position: usize,
+}
+
+impl FrameReader {
+    fn new(reader: ReadHalf<TcpStream>, seed: Vec<u8>) -> Self {
+        Self {
+            reader,
+            buffer: seed,
+            position: 0,
+        }
+    }
+
+    async fn read_exact(&mut self, out: &mut [u8]) -> Result<(), WsError> {
+        while self.buffer.len() - self.position < out.len() {
+            let mut chunk = [0_u8; 4096];
+            let read = self.reader.read(&mut chunk).await?;
+            if read == 0 {
+                return Err(WsError::Io(io::Error::from(io::ErrorKind::UnexpectedEof)));
+            }
+            self.buffer.extend_from_slice(&chunk[..read]);
+        }
+        out.copy_from_slice(&self.buffer[self.position..self.position + out.len()]);
+        self.position += out.len();
+        if self.position == self.buffer.len() {
+            self.buffer.clear();
+            self.position = 0;
+        }
+        Ok(())
+    }
+}
+
+/// SHA-1 (RFC 3174), used only for the WebSocket handshake digest.
+fn sha1(input: &[u8]) -> [u8; 20] {
+    let mut state: [u32; 5] = [
+        0x6745_2301,
+        0xEFCD_AB89,
+        0x98BADCFE,
+        0x1032_5476,
+        0xC3D2_E1F0,
+    ];
+
+    let bit_len = (input.len() as u64).wrapping_mul(8);
+    let mut message = Vec::with_capacity(input.len() + 72);
+    message.extend_from_slice(input);
+    message.push(0x80);
+    while message.len() % 64 != 56 {
+        message.push(0);
+    }
+    message.extend_from_slice(&bit_len.to_be_bytes());
+
+    for block in message.chunks(64) {
+        let mut words = [0_u32; 80];
+        for index in 0..16 {
+            words[index] =
+                u32::from_be_bytes(block[index * 4..index * 4 + 4].try_into().unwrap_or([0; 4]));
+        }
+        for index in 16..80 {
+            words[index] =
+                (words[index - 3] ^ words[index - 8] ^ words[index - 14] ^ words[index - 16])
+                    .rotate_left(1);
+        }
+
+        let [mut a, mut b, mut c, mut d, mut e] = state;
+        for (index, &word) in words.iter().enumerate() {
+            let (function, constant) = match index {
+                0..=19 => ((b & c) | (!b & d), 0x5A82_7999),
+                20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
+                _ => (b ^ c ^ d, 0xCA62_C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(function)
+                .wrapping_add(e)
+                .wrapping_add(constant)
+                .wrapping_add(word);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+
+        state = [
+            state[0].wrapping_add(a),
+            state[1].wrapping_add(b),
+            state[2].wrapping_add(c),
+            state[3].wrapping_add(d),
+            state[4].wrapping_add(e),
+        ];
+    }
+
+    let mut out = [0_u8; 20];
+    for (index, word) in state.iter().enumerate() {
+        out[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::net::{TcpListener, TcpStream};
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn sha1_matches_rfc3174_known_answers() {
+        assert_eq!(
+            hex(&sha1(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(hex(&sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(
+            hex(&sha1(b"The quick brown fox jumps over the lazy dog")),
+            "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"
+        );
+        // 64 bytes exactly: the padding must spill into a second block.
+        assert_eq!(
+            hex(&sha1(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
+            "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
+        );
+    }
+
+    #[test]
+    fn accept_value_matches_the_rfc6455_section_13_example() {
+        assert_eq!(
+            accept_value("dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+    }
+
+    #[test]
+    fn handshake_response_carries_the_negotiation_headers() {
+        let response = String::from_utf8(handshake_response("dGhlIHNhbXBsZSBub25jZQ==")).unwrap();
+        assert!(response.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
+        assert!(response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"));
+        assert!(response.ends_with("\r\n\r\n"));
+    }
+
+    fn upgrade_request(extra: &[(&str, &str)]) -> HttpRequest {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("upgrade".into(), "websocket".into());
+        headers.insert("connection".into(), "Upgrade".into());
+        headers.insert("sec-websocket-version".into(), "13".into());
+        headers.insert(
+            "sec-websocket-key".into(),
+            "dGhlIHNhbXBsZSBub25jZQ==".into(),
+        );
+        for (name, value) in extra {
+            headers.insert((*name).into(), (*value).into());
+        }
+        HttpRequest {
+            method: "GET".into(),
+            path: "/api/v1/ws".into(),
+            headers,
+            body: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn accepts_a_well_formed_upgrade_and_refuses_an_incomplete_one() {
+        assert!(is_upgrade(&upgrade_request(&[])));
+        // case-insensitive, and a multi-token Connection header is normal
+        assert!(is_upgrade(&upgrade_request(&[(
+            "connection",
+            "keep-alive, Upgrade"
+        )])));
+        assert!(!is_upgrade(&upgrade_request(&[(
+            "sec-websocket-version",
+            "8"
+        )])));
+        assert!(!is_upgrade(&upgrade_request(&[("content-length", "0")])));
+    }
+
+    /// Upgrade through the real listener, so the handshake bytes are consumed
+    /// by the HTTP layer exactly as they would be in product. Returns the
+    /// client socket, the server handle, and the raw 101 response.
+    async fn connect_upgraded(
+        key: &str,
+    ) -> (TcpStream, crate::server::http::ServerHandle, Vec<u8>) {
+        let handle = crate::server::http::serve(
+            "127.0.0.1:0",
+            Arc::new(crate::server::HttpServer::in_memory().unwrap()),
+        )
+        .await
+        .unwrap();
+        let mut client = TcpStream::connect(handle.local_addr).await.unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET /api/v1/ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n\
+                     Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n\
+                     Sec-WebSocket-Version: 13\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+
+        let mut handshake = Vec::new();
+        while !handshake.ends_with(b"\r\n\r\n") {
+            let mut byte = [0_u8; 1];
+            if client.read(&mut byte).await.unwrap() == 0 {
+                break;
+            }
+            handshake.push(byte[0]);
+        }
+        (client, handle, handshake)
+    }
+
+    #[tokio::test]
+    async fn handshakes_and_echoes_a_masked_text_frame_over_a_real_socket() {
+        let (mut client, handle, handshake) = connect_upgraded("dGhlIHNhbXBsZSBub25jZQ==").await;
+        let text = String::from_utf8_lossy(&handshake).into_owned();
+
+        // The 101 must carry the RFC's own accept value for this key.
+        assert!(text.starts_with("HTTP/1.1 101"), "{text}");
+        assert!(text.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), "{text}");
+
+        client
+            .write_all(&masked_frame(OP_TEXT, b"hi"))
+            .await
+            .unwrap();
+        let mut echoed = [0_u8; 4];
+        client.read_exact(&mut echoed).await.unwrap();
+        // Server frames are unmasked: FIN|text, then a 7-bit length of 2.
+        assert_eq!(echoed, [0x81, 0x02, b'h', b'i']);
+
+        client
+            .write_all(&masked_frame(OP_CLOSE, &1000_u16.to_be_bytes()))
+            .await
+            .unwrap();
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn an_unmasked_client_frame_is_refused_with_1002() {
+        let (mut client, handle, _) = connect_upgraded("abc").await;
+
+        // 0x81 with the mask bit clear — a conforming server must not read it.
+        client.write_all(&[0x81, 0x00]).await.unwrap();
+        let mut reply = [0_u8; 8];
+        let read = client.read(&mut reply).await.unwrap();
+        assert!(read >= 4, "expected a close frame, got {read} bytes");
+        assert_eq!(reply[0], 0x88, "not a Close frame");
+        assert_eq!(&reply[2..4], &1002_u16.to_be_bytes());
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn leftover_bytes_before_the_first_frame_are_not_dropped() {
+        // A client that coalesces handshake + first frame into one packet must
+        // still be parsed: the HTTP reader buffers past the header block, and
+        // the surplus reaches us as `leftover`.
+        let coalesced_frame = masked_frame(OP_TEXT, b"early");
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let request = HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/ws".into(),
+                headers: std::collections::HashMap::from([(
+                    "sec-websocket-key".to_string(),
+                    "dGhlIHNhbXBsZSBub25jZQ==".to_string(),
+                )]),
+                body: Vec::new(),
+            };
+            let _ = serve_echo(stream, &request, coalesced_frame).await;
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let mut reply = [0_u8; 256];
+        // The echo of the coalesced frame should arrive with the handshake.
+        let read = client.read(&mut reply).await.unwrap();
+        let text = String::from_utf8_lossy(&reply[..read]).into_owned();
+        assert!(text.contains("101 Switching Protocols"), "{text}");
+        assert!(
+            text.ends_with("early"),
+            "coalesced frame lost: {:?}",
+            &reply[..read]
+        );
+    }
+
+    #[test]
+    fn close_codes_a_peer_must_not_send_are_rejected() {
+        assert!(is_sendable_close(1000) && is_sendable_close(1001) && is_sendable_close(4000));
+        // 1005/1006 are status-only, 1015 is reserved, and 1016..2999 is
+        // reserved by the spec for future use.
+        for code in [1004_u16, 1005, 1006, 1015, 1016, 2999, 999, 5000] {
+            assert!(!is_sendable_close(code), "{code} must not be sendable");
+        }
+    }
+
+    /// Build a masked client frame (the mask key is all zeros so the payload
+    /// survives unchanged and the test stays readable).
+    fn masked_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x80 | opcode, 0x80 | payload.len() as u8];
+        out.extend_from_slice(&[0, 0, 0, 0]);
+        out.extend_from_slice(payload);
+        out
+    }
+}

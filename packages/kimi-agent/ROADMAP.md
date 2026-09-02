@@ -3348,6 +3348,32 @@ P74 让引擎管线可被第三种宿主构造；本批次补上它缺的另一�
 - `cargo test --features cli`：987 lib（基线 976 + 11）+ 18 集成全绿；`cargo clippy --all-targets` 0 警告。
 - 自有文件单独 `rustfmt`；全树 `cargo fmt -- --check` 仍红（P74 已记录，先于本批次存在）。
 
+## P76 — 原生 RFC 6455 帧层：事件流有传输了（2026-09-02）
+
+P75 留下「无 WebSocket，流式事件没有传输」这条缺口，而它是 #1/#3/#4 三个消费者的共同前置之一（ACP 同样要往客户端往返）。本批次补传输层，仍守住**零新 crate**。
+
+### 选型：SHA-1 在模块内实现
+
+握手要 SHA-1，而 `sha1` 不在 `Cargo.lock`（只有 `sha2`）。选择不引 crate 而是就地实现（`ws.rs::sha1`）：握手的 digest 是 RFC 6455 §1.3 规定的**非秘密反缓存值**，抗碰撞性不在它保护的语义里，而正确性由四个已知向量钉死 —— `""`、`"abc"`、狐狸句、以及 64 字节恰好溢出到第二个分块的 `abcdbcde…`（FIPS-180 向量）。这组向量当场抓出一个真 bug：轮常数我写成 `0x6ED9_BA1`（少一位），5 个测试同红、改回 `0x6ED9_EBA1` 即绿。`base64` 与 P75 的 `httparse` 同路子：reqwest 已解析到 0.22.1，就地显式声明，`Cargo.lock` 只多一行依赖名、**包集合增删 0**。
+
+### 落地：`src/server/ws.rs`
+
+强制的规范约束，每条都对应一个「不守就会被对端带偏解析器」的具体后果：客户端帧**必须**带掩码、服务端帧**绝不**带（§5.1）；RSV 位必须为 0（未协商任何扩展，§5.2）；控制帧不得分片且载荷 ≤125（§5.5）；64 位长度先过上限；`FIN` 之前不许起新数据帧；`Close` 载荷要么空、要么 ≥2 字节且状态码属于对端可发集合（§7.4，1004/1005/1006/1015/1016–2999 拒）。文本消息按 UTF-8 校验，违例分别回 1002/1003/1007/1009。
+
+`http.rs` 侧接上路由：`serve_connection` 解析完请求头后先问 `ws::is_upgrade`，命中就完成 101 并把 socket 交给帧层。这里有个真问题：**客户端可以把握手和第一个数据帧合并进同一个包**，而 HTTP 读取器按设计只吃一个请求，多读到的字节若丢弃就会解析错位 —— 于是 `read_request` 改为连同 `leftover` 一起返回，由 ws 侧的 `FrameReader` 先消费这段种子缓冲。`is_upgrade` 另拒带 `Content-Length` 的升级请求：升级无体，接受它等于把首帧字节当体读掉。
+
+### 仍未做
+
+- **帧层是 echo，不是协议**：`serve_echo` 只为证明真 socket 上帧能往返，kap-server 的 `/api/v1/ws` 消息 schema 一条没接。下一步才是把 `emit_event`/`turn_event` 灌进这条通道。
+- 无扩展协商（`permessage-deflate` 等）、无 `Sec-WebSocket-Protocol` 回显。
+- 片段消息与单帧共用同一个 1 MiB 上限，未按路由区分。
+
+### 验证
+
+- `cargo test --lib server::` **34 全绿**，其中 ws 8 项：4 个 SHA-1 向量、RFC §1.3 的 `dGhlIHNhbXBsZSBub25jZQ== → s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`、握手响应头、升级判定（含 `Connection: keep-alive, Upgrade` 放行 / version≠13 拒 / 带 Content-Length 拒）、Close 码白名单，以及三个真 socket 往返 —— 其中两个走 `http::serve` 全路径（101 + 掩码文本帧回显 + 未掩码帧被 1002 拒），顺带覆盖了本批次新加的路由钩子。
+- `cargo test --features cli`：995 lib（基线 987 + 8）+ 18 集成全绿，真退出码 0；`cargo clippy --all-targets` 0 警告 0 错误（SHA-1 主循环改为迭代取值以消 `needless_range_loop`，改后向量测试仍绿）。
+- 自有文件单独 `rustfmt`；全树 `cargo fmt -- --check` 仍红（P74 已记录，先于本批次）。
+
 ## 未认领缺口 — P68~P73 批次里注释与实现不符的十处（2026-09-02 登记）
 
 本轮把 `packages/kimi-agent/src` 里所有「Mirrors X」「对应 X」「完整实现」式声称逐条对着 X 的源码核了一遍。
