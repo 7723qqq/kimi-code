@@ -131,6 +131,8 @@ export interface NativeLlmDef {
   api_key: string;
   model: string;
   max_tokens?: number;
+  /** Extra headers the provider config declares, sent with every request. */
+  custom_headers?: Record<string, string>;
 }
 
 /** Options controlling the native (in-Rust) execution paths. */
@@ -1445,7 +1447,14 @@ type ActiveCallbacks = {
 /** Convert the napi-shaped session params to the snake_case stdio wire. */
 function toStdioSessionParams(params: Record<string, unknown>): Record<string, unknown> {
   const nativeLlm = params['nativeLlm'] as
-    | { protocol: string; apiKey?: string; baseUrl?: string; model: string; maxTokens?: number }
+    | {
+        protocol: string;
+        apiKey?: string;
+        baseUrl?: string;
+        model: string;
+        maxTokens?: number;
+        customHeaders?: Record<string, string>;
+      }
     | undefined;
   const telemetry = params['telemetry'] as
     | { mode: string; providerType: string; protocol: string; thinkingEffort?: string }
@@ -1489,6 +1498,7 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             api_key: nativeLlm.apiKey,
             model: nativeLlm.model,
             max_tokens: nativeLlm.maxTokens,
+            custom_headers: nativeLlm.customHeaders,
           },
     workspace_root: params['workspaceRoot'],
     native_tools: params['nativeTools'],
@@ -2400,6 +2410,7 @@ export function createRunTurnOverride(
                   baseUrl: nativeLlm.base_url,
                   model: nativeLlm.model,
                   maxTokens: nativeLlm.max_tokens,
+                  customHeaders: nativeLlm.custom_headers,
                 },
           workspaceRoot,
           nativeTools,

@@ -306,6 +306,69 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     });
   });
 
+  it('P64: provider customHeaders reach the native transport', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: {
+            defaultModel: 'kimi-k2',
+            type: 'kimi',
+            apiKey: 'k',
+            baseUrl: 'https://api.example.com',
+            customHeaders: { 'x-org-id': 'acme' },
+          },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await maybeLoadRustEngine('/home/u');
+
+    expect(capturedNativeLlm).toEqual({
+      protocol: 'openai',
+      base_url: 'https://api.example.com/v1',
+      api_key: 'k',
+      model: 'kimi-k2',
+      custom_headers: { 'x-org-id': 'acme' },
+    });
+  });
+
+  it('P64: a provider cannot duplicate the credential headers the engine sets', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: {
+            defaultModel: 'kimi-k2',
+            type: 'kimi',
+            apiKey: 'k',
+            baseUrl: 'https://api.example.com',
+            customHeaders: { Authorization: 'Bearer other', 'x-trace': 'on' },
+          },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: { custom_headers?: Record<string, string> } | undefined;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await maybeLoadRustEngine('/home/u');
+
+    expect(
+      capturedNativeLlm?.custom_headers,
+      'P64: reqwest appends headers, so a second authorization would send a broken credential',
+    ).toEqual({ 'x-trace': 'on' });
+  });
+
   it('falls back to agent.nativeLlmProvider when the default model provider is unsupported', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,

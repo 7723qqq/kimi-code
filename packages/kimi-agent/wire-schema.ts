@@ -166,6 +166,7 @@ const nativeLlmConfig = z.object({
   api_key: z.string(),
   model: z.string(),
   max_tokens: z.number().optional(),
+  custom_headers: z.record(z.string(), z.string()).optional(),
 });
 
 const policySnapshot = z.object({

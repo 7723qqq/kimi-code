@@ -810,6 +810,9 @@ pub struct JsNativeLlmConfig {
     pub api_key: String,
     pub model: String,
     pub max_tokens: Option<u32>,
+    /// Extra headers from `[providers.*].customHeaders`, sent with every
+    /// request. Absent means none.
+    pub custom_headers: Option<std::collections::HashMap<String, String>>,
 }
 
 #[napi(object)]
@@ -1325,7 +1328,7 @@ async fn build_engine_pipeline(
                             api_key: cfg.api_key.clone(),
                             model: cfg.model.clone(),
                             max_tokens: cfg.max_tokens,
-                            custom_headers: Default::default(),
+                            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
                         },
                         params.system_prompt.clone(),
                     )

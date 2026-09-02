@@ -24,12 +24,16 @@ interface LlmProviderDef {
   system_prompt: string;
 }
 
+/** Headers the native transport sets itself; a provider must not add a second value. */
+const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'anthropic-version']);
+
 interface NativeLlmDef {
   protocol: 'openai' | 'anthropic';
   base_url: string;
   api_key: string;
   model: string;
   max_tokens?: number;
+  custom_headers?: Record<string, string>;
 }
 
 /** A native-transport candidate: either a usable definition, or why it is not. */
@@ -42,7 +46,13 @@ interface RustEngineConfig {
   defaultModel?: string;
   providers?: Record<
     string,
-    { defaultModel?: string; type?: string; apiKey?: string; baseUrl?: string }
+    {
+      defaultModel?: string;
+      type?: string;
+      apiKey?: string;
+      baseUrl?: string;
+      customHeaders?: Record<string, string>;
+    }
   >;
   models?: Record<string, { provider?: string; model?: string; systemPrompt?: string }>;
   agent?: {
@@ -180,12 +190,22 @@ function tryResolveNativeLlm(
     return { reason: `provider "${providerName}" has no resolvable model` };
   }
 
+  const customHeaders = Object.fromEntries(
+    // reqwest appends headers instead of replacing them, so a custom
+    // authorization / x-api-key would ship as a second value and the provider
+    // would see a broken credential. The engine owns these three.
+    Object.entries(provider.customHeaders ?? {}).filter(
+      ([key]) => !AUTH_HEADERS.has(key.toLowerCase()),
+    ),
+  );
+
   return {
     def: {
       protocol,
       base_url: normalizeBaseUrl(protocol, provider.baseUrl),
       api_key: provider.apiKey,
       model,
+      custom_headers: Object.keys(customHeaders).length > 0 ? customHeaders : undefined,
     },
   };
 }

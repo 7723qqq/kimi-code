@@ -3064,3 +3064,19 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 - addon 重建后：kimi-agent vitest 4 文件全绿（3 skipped）；agent-core-v2 `tsc --noEmit` 通过、
   `test/agent/loop` + `test/agent/permissionGate` 12 文件全绿、`check:engine-zero-js-loop` OK
 - 未验证：真实长会话里压缩时点随窗口变化（需要一次长上下文实跑）
+
+## P64 — `[providers.*].customHeaders` 接进原生 transport（2026-09-02）
+
+`NativeLlmConfig.custom_headers` 早就有了、`llm/http.rs:115` 也会发，但**四道都在丢**：宿主解析不读配置、
+TS 线型没这个字段、`wire-schema.ts` 的 `nativeLlmConfig` 没这个键（zod 默认剥未知键 → 就算发出去也在入口被丢）、
+napi 的 `JsNativeLlmConfig` 干脆没这个字段且转换处硬写 `Default::default()`。四处补齐后网关型 provider
+（需要额外请求头）在原生 transport 上第一次真正可用。
+
+守卫：`rust-engine.ts` 过滤掉引擎自己拥有的三个头（`authorization` / `x-api-key` / `anthropic-version`，
+大小写不敏感）。原因是 reqwest 的 `.header()` 是追加不是替换，重复 credential 会发出两个值——
+比不发还糟。宿主侧 header 机制（`resolveOutboundHeaders` + per-request 刷新）仍归 2b。
+
+### 验证
+
+- cargo 949 lib + 18 集成全绿；addon 重建，`napi-contract.d.ts` 长出 `customHeaders`
+- apps/kimi-code `rust-engine` 单文件全绿（+2 条 P64：header 透传、credential 去重）；kimi-agent 整包全绿

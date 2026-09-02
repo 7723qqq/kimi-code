@@ -95,6 +95,11 @@ export interface JsNativeLlmConfig {
   apiKey: string
   model: string
   maxTokens?: number
+  /**
+   * Extra headers from `[providers.*].customHeaders`, sent with every
+   * request. Absent means none.
+   */
+  customHeaders?: Record<string, string>
 }
 
 export interface JsRunTurnParams {
