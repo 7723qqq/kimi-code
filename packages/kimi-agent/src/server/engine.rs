@@ -89,6 +89,8 @@ impl HostCallbacks for ServerHost {
 pub struct TurnReport {
     pub turn_id: String,
     pub stop_reason: String,
+    /// The turn's final assistant text; empty when the loop ended without one.
+    pub reply: String,
     pub steps: u32,
     pub usage: TokenUsage,
     /// Events the turn emitted through the counting wrapper — the same events
@@ -270,8 +272,16 @@ impl ServerEngine {
             )
             .map_err(EngineError::Store)?;
 
+        let reply = transcript
+            .iter()
+            .rev()
+            .find(|message| message.role == "assistant")
+            .map(|message| message.content.clone())
+            .unwrap_or_default();
+
         Ok(TurnReport {
             turn_id,
+            reply,
             stop_reason: format!("{:?}", result.stop_reason),
             steps: result.steps,
             usage: result.usage,

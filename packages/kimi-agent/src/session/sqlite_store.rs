@@ -138,6 +138,19 @@ impl SqliteSessionStore {
         Ok(out)
     }
 
+    /// The turn number a new turn for this session should take, derived from
+    /// the `turns` table so a caller that owns the store does not have to keep
+    /// its own counter — one would reset on restart and collide on insert.
+    pub fn next_turn_number(&self, session_id: &str) -> Result<u32, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let highest: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(turn_number), 0) FROM turns WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        Ok(highest.max(0) as u32 + 1)
+    }
+
     /// Append turn messages and record turn execution metadata.
     pub fn save_turn(
         &self,
@@ -186,9 +199,8 @@ impl SqliteSessionStore {
         session_id: &str,
     ) -> Result<Vec<LLMMessage>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY id ASC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY id ASC")?;
         let rows = stmt.query_map(params![session_id], |row| {
             let role: String = row.get(0)?;
             let content: String = row.get(1)?;
@@ -209,12 +221,7 @@ impl SqliteSessionStore {
     }
 
     /// Put a key-value pair in a state domain (state bridge storage).
-    pub fn put_state(
-        &self,
-        domain: &str,
-        key: &str,
-        value: &Value,
-    ) -> Result<(), rusqlite::Error> {
+    pub fn put_state(&self, domain: &str, key: &str, value: &Value) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let val_str = serde_json::to_string(value).unwrap_or_default();
@@ -230,15 +237,10 @@ impl SqliteSessionStore {
     }
 
     /// Get a value from a state domain.
-    pub fn get_state(
-        &self,
-        domain: &str,
-        key: &str,
-    ) -> Result<Option<Value>, rusqlite::Error> {
+    pub fn get_state(&self, domain: &str, key: &str) -> Result<Option<Value>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT value FROM state_entries WHERE domain = ?1 AND key = ?2",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT value FROM state_entries WHERE domain = ?1 AND key = ?2")?;
         let mut rows = stmt.query(params![domain, key])?;
         if let Some(row) = rows.next()? {
             let s: String = row.get(0)?;
@@ -280,7 +282,9 @@ mod tests {
     #[test]
     fn test_sqlite_session_lifecycle() {
         let store = SqliteSessionStore::in_memory().unwrap();
-        store.create_session("sess-1", Some("Test Session")).unwrap();
+        store
+            .create_session("sess-1", Some("Test Session"))
+            .unwrap();
 
         let msgs = vec![
             LLMMessage::user("Hello"),
@@ -315,7 +319,12 @@ mod tests {
         assert!(store.get_state("skill", "unknown").unwrap().is_none());
 
         store
-            .save_checkpoint("sess-1", "chk-1", "Step 1", &serde_json::json!({ "step": 1 }))
+            .save_checkpoint(
+                "sess-1",
+                "chk-1",
+                "Step 1",
+                &serde_json::json!({ "step": 1 }),
+            )
             .unwrap();
     }
 }
