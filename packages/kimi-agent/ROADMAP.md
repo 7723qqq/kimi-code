@@ -3010,6 +3010,17 @@ thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic
 鉴权侧的可移植接缝：`getAuth({force})` → `oauthTokenAdapter` → `authService` → `oauth-manager` 单飞刷新，
 最终 header 由 `resolveOutboundHeaders` 合成。
 
+**2a 落地地图（模型能力下发，已核实的接线点）**：宿主侧不需要新造数据 —— `ProfileModelContext`
+（`agent-core-v2/src/agent/profile/profile.ts:89-98`）已经带着 `modelCapabilities`、`maxOutputSize`、
+`alwaysThinking`、`thinkingLevel`、`reservedContextSize`、`compactionTriggerRatio`。要接的四点：
+① `engineOverride.ts` 的 `TurnEngineInput` 加一个窗口字段；② `loopService.ts:1124` 的
+`buildEngineInput()` 从 `resolveModelContext()` 填它（该函数在 `check-engine-zero-js-loop` 的
+`ENGINE_PATH_FUNCTIONS` 名单里，按名称+声明行匹配，函数体内改动安全，不得新增同名的第二个函数）；
+③ `rust-loop.ts` 会话参数（`:2365-2385`）+ `wire-schema.ts` 镜像；④ Rust 侧
+`CreateEngineSessionParams`/`RunTurnParams` 收字段，线程到 `turn_loop/run_turn.rs:290` 的
+`CompactionConfig`——`max_context_tokens`/`trigger_ratio`/`reserved_context_size` 三个旋钮结构里都有，
+只缺宿主值，替换掉 `CompactionConfig::default()` 即完成 2a 的验收（引擎不再假设 128k）。
+
 ### 验证
 
 - cargo：947 lib + 18 集成全绿；`cargo fmt --check` 干净、`clippy --all-targets` 0 警告
