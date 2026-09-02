@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path';
 import { loadRuntimeConfigSafe, resolveConfigPath, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 import type { TurnEngine } from '@moonshot-ai/agent-core-v2';
 
-import { setEngineExecution } from '#/utils/engine-execution';
+import { patchEngineExecution, setEngineExecution } from '#/utils/engine-execution';
 
 interface LlmProviderDef {
   name: string;
@@ -30,6 +30,12 @@ interface NativeLlmDef {
   api_key: string;
   model: string;
   max_tokens?: number;
+}
+
+/** A native-transport candidate: either a usable definition, or why it is not. */
+interface NativeLlmResolution {
+  def?: NativeLlmDef;
+  reason?: string;
 }
 
 interface RustEngineConfig {
@@ -105,44 +111,45 @@ function extractMultiLlmProviders(
  *
  * Only static-key `openai`/`kimi` (Chat Completions) and `anthropic`
  * (Messages) providers are supported; anything else falls back to the host
- * proxy.
+ * proxy, and the returned reason says why.
  */
-function extractNativeLlm(config: RustEngineConfig): NativeLlmDef | undefined {
+function extractNativeLlm(config: RustEngineConfig): NativeLlmResolution {
+  const tried: NativeLlmResolution[] = [];
+
   // 1) Try the current default model's provider.
   const defaultModelAlias = config.defaultModel;
-  if (defaultModelAlias) {
-    const modelConfig = config.models?.[defaultModelAlias];
-    const providerName = modelConfig?.provider;
-    if (providerName) {
-      const result = tryResolveNativeLlm(config, providerName, modelConfig?.model);
-      if (result !== undefined) return result;
-    }
+  const modelConfig = defaultModelAlias === undefined ? undefined : config.models?.[defaultModelAlias];
+  const providerName = modelConfig?.provider;
+  if (providerName !== undefined) {
+    const resolution = tryResolveNativeLlm(config, providerName, modelConfig?.model);
+    if (resolution.def !== undefined) return resolution;
+    tried.push(resolution);
   }
 
   // 2) Fall back to agent.nativeLlmProvider (legacy behaviour).
   const legacyName = config.agent?.nativeLlmProvider;
-  if (legacyName) {
-    const result = tryResolveNativeLlm(config, legacyName);
-    if (result !== undefined) return result;
+  if (legacyName !== undefined) {
+    const resolution = tryResolveNativeLlm(config, legacyName);
+    if (resolution.def !== undefined) return resolution;
+    tried.push(resolution);
   }
 
-  return undefined;
+  return tried[0] ?? { reason: 'the default model has no provider configured' };
 }
 
 /**
- * Resolve a single provider into a `NativeLlmDef`. Returns `undefined` when
- * the provider is missing, has an unsupported type, or lacks a static
+ * Resolve a single provider into a `NativeLlmDef`. Returns a reason when the
+ * provider is missing, has an unsupported type, or lacks a static
  * `baseUrl`/`apiKey` — in which case the caller can try the next candidate.
  */
 function tryResolveNativeLlm(
   config: RustEngineConfig,
   providerName: string,
   explicitModel?: string,
-): NativeLlmDef | undefined {
+): NativeLlmResolution {
   const provider = config.providers?.[providerName];
   if (!provider) {
-    console.warn(`[kimi-agent] provider "${providerName}" not found in providers.`);
-    return undefined;
+    return { reason: `provider "${providerName}" is not configured` };
   }
 
   const protocol =
@@ -152,16 +159,14 @@ function tryResolveNativeLlm(
         ? 'openai'
         : undefined;
   if (protocol === undefined) {
-    console.warn(
-      `[kimi-agent] provider "${providerName}" type "${provider.type ?? 'unknown'}" is not supported by the native transport.`,
-    );
-    return undefined;
+    return {
+      reason: `provider "${providerName}" type "${provider.type ?? 'unknown'}" has no native transport`,
+    };
   }
   if (!provider.baseUrl || !provider.apiKey) {
-    console.warn(
-      `[kimi-agent] provider "${providerName}" needs a static baseUrl + apiKey for the native transport.`,
-    );
-    return undefined;
+    return {
+      reason: `provider "${providerName}" has no static baseUrl + apiKey for the native transport`,
+    };
   }
 
   // Use the explicit model from the model alias, or fall back to the
@@ -172,15 +177,16 @@ function tryResolveNativeLlm(
     if (alias) model = alias[1].model;
   }
   if (!model) {
-    console.warn(`[kimi-agent] provider "${providerName}" has no resolvable model.`);
-    return undefined;
+    return { reason: `provider "${providerName}" has no resolvable model` };
   }
 
   return {
-    protocol,
-    base_url: normalizeBaseUrl(protocol, provider.baseUrl),
-    api_key: provider.apiKey,
-    model,
+    def: {
+      protocol,
+      base_url: normalizeBaseUrl(protocol, provider.baseUrl),
+      api_key: provider.apiKey,
+      model,
+    },
   };
 }
 
@@ -216,8 +222,8 @@ export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: stri
  * `rust-loop`'s `isRustEngineAvailable` against the same candidate paths,
  * but stays dependency-free — importing rust-loop drags the whole
  * agent-core-v2 graph in, which is several seconds on a cold test worker.
- * Only existence checks, never loads: an unset `agent.engine` falls back
- * to the JS loop exactly when this guard is false.
+ * Only existence checks, never loads: a missing bundle is a startup error,
+ * never a JS fallback — the gate is rust-only for the migration.
  */
 function isEngineLoadable(): boolean {
   const root = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -292,6 +298,9 @@ async function resolveRustEngine(
         'Build the native bundle (start-native.bat / `make rust-build`).',
     );
   }
+  // Wired but unrun: the gate is rust-only and the bundle is loadable, so the
+  // TS engine is off from here — without guessing a transport yet.
+  setEngineExecution({ rust: true });
 
   // Extract MultiLLM providers and native execution options when configured.
   // `nativeLlm` is resolved **dynamically** on each turn so that when the user
@@ -358,7 +367,9 @@ async function resolveRustEngine(
       // (which update `default_model` in config.toml) are reflected.
       const reloaded = loadRuntimeConfigSafe(resolvedConfig);
       if (reloaded.fileError !== undefined) return;
-      return extractNativeLlm(reloaded.config);
+      const resolution = extractNativeLlm(reloaded.config);
+      patchEngineExecution({ llmFallbackReason: resolution.reason });
+      return resolution.def;
     },
     nativeTools,
     rustSelfContained,
@@ -375,6 +386,9 @@ async function resolveRustEngine(
       const baseUrl = github?.baseUrl;
       if (token === undefined && baseUrl === undefined) return undefined;
       return { token, baseUrl };
+    },
+    onEngineUnavailable: (detail) => {
+      patchEngineExecution({ transport: 'dead', llmFallbackReason: detail });
     },
     onTurnResult: (result) => {
       // The transport is read, never resolved: a status-backed observation
@@ -430,8 +444,6 @@ async function resolveRustEngine(
       '[kimi-agent] rust engine failed to initialize (napi addon unloadable and stdio CLI failed to start) — the TS agent engine is disabled.',
     );
   }
-  // Wired but unrun: the report says so rather than guessing a transport.
-  setEngineExecution({ rust: true });
   rustTurnEngine = engine;
   return rustTurnEngine;
 }

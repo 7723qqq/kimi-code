@@ -237,4 +237,105 @@ describe('AgentPermissionGate', () => {
     const svc = make();
     expect(svc.data()).toEqual({ mode: 'yolo', rules });
   });
+
+  describe('per-call approval memo', () => {
+    function makeCall(
+      toolName: string,
+      args: Record<string, unknown> = {},
+      over: { turnId?: number; id?: string } = {},
+    ): ResolvedToolExecutionHookContext {
+      const base = makeContext(toolName, args);
+      const toolCall: ToolCall = { ...base.toolCall, id: over.id ?? base.toolCall.id };
+      return { ...base, turnId: over.turnId ?? base.turnId, toolCall, toolCalls: [toolCall] };
+    }
+
+    it('does not prompt again for the host-forwarded leg of an authorized call', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      const ctx = makeCall('Write', { path: 'outside/x.ts' });
+
+      await svc.authorize(ctx);
+
+      expect(resolvePermissionResolution).toHaveBeenCalledTimes(1);
+
+      const forwarded = await executorEvents.fireBeforeExecute(ctx);
+
+      expect(forwarded).toBeUndefined();
+      expect(resolvePermissionResolution).toHaveBeenCalledTimes(1);
+      expect(requestToolApproval).not.toHaveBeenCalled();
+
+      await executorEvents.fireBeforeExecute(ctx);
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('replays the authorized execution metadata into the forwarded leg', async () => {
+      const executionMetadata = { marker: 'granted' };
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      resolvePermissionResolution.mockResolvedValue({ executionMetadata });
+      const svc = make();
+      const ctx = makeCall('Bash', { command: 'ls' });
+
+      await svc.authorize(ctx);
+
+      expect(await executorEvents.fireBeforeExecute(ctx)).toEqual({ executionMetadata });
+      expect(requestToolApproval).not.toHaveBeenCalled();
+    });
+
+    it('does not memoize an ask the user rejected', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      resolvePermissionResolution.mockResolvedValue({ veto: { output: 'nope', isError: true } });
+      const svc = make();
+      const ctx = makeCall('Bash', { command: 'rm -rf /' });
+
+      expect((await svc.authorize(ctx))?.veto).toBeDefined();
+
+      await executorEvents.fireBeforeExecute(ctx);
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('misses the memo for a different tool call id', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      await svc.authorize(makeCall('Write', { path: 'a.ts' }));
+
+      await executorEvents.fireBeforeExecute(makeCall('Write', { path: 'a.ts' }, { id: 'other' }));
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('misses the memo in a different turn', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      await svc.authorize(makeCall('Write', { path: 'a.ts' }));
+
+      await executorEvents.fireBeforeExecute(makeCall('Write', { path: 'a.ts' }, { turnId: 2 }));
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('misses the memo when the arguments drifted for the same call id', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      const ctx = makeCall('Write', { path: 'a.ts' });
+      await svc.authorize(ctx);
+
+      await executorEvents.fireBeforeExecute({ ...ctx, args: { path: 'b.ts' } });
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not memoize a bare policy approve', async () => {
+      const svc = make();
+      const ctx = makeCall('Read', { path: 'a.ts' });
+      await svc.authorize(ctx);
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+
+      const decision = await executorEvents.fireBeforeExecute(ctx);
+
+      expect(requestToolApproval).toHaveBeenCalledTimes(1);
+      expect(decision).toBeUndefined();
+    });
+  });
 });

@@ -713,6 +713,11 @@ pub struct JsRunTurnParams {
     /// grant) runs inside the Rust process. Any tool not in that set, or
     /// any argument shape the toolset cannot handle, falls back to the
     /// host (`host/execute_tool`).
+    ///
+    /// Absent means `false`: executing on the host stays the fail-safe for a
+    /// caller that does not state an intent, and the product default
+    /// (native on) is resolved by the TS adapter — matching the stdio wire,
+    /// where an absent `native_tools` is likewise false.
     pub native_tools: Option<bool>,
     /// Rust engine self-contained mode. When true, the engine refuses to
     /// fall back to the host proxy for LLM calls — the user must

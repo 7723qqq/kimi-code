@@ -5,10 +5,13 @@
 //! (permission gate, stale/plan/dedup guards, truncation) and reports the
 //! v2-shaped result. Everything the v2 tool supports beyond that stays
 //! host-owned by falling back (returning `None`):
-//! - `resume` / `fork` / `run_in_background` / `model` arguments
+//! - `fork`, and an explicit `model` override (`requires_host`)
 //! - profiles missing from the pushed snapshot (plugin sources, external
 //!   backends like claude-code/codex)
 //! - a turn without an injected subagent runtime
+//!
+//! `resume` (P55) and `run_in_background` (P58) started out on that list and
+//! are native now.
 //!
 //! The host keeps its `Agent` tool registered either way, so a fallback is
 //! a routing decision, never a capability loss.

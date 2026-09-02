@@ -191,6 +191,12 @@ export interface RustEngineOptions {
    */
   onTurnResult?: (result: Awaited<ReturnType<TurnEngineAdapter>>) => void;
   /**
+   * Called on every turn attempt after the stdio engine spent its restart
+   * budget, with the reason the turn then throws. The host reports the dead
+   * engine instead of leaving it invisible.
+   */
+  onEngineUnavailable?: (detail: string) => void;
+  /**
    * Ask the host an interactive question and wait for a human answer
    * (`host/ask_question`). The per-turn engine input's `askUserQuestion`
    * takes precedence when both are wired; when neither is, the engine
@@ -1698,19 +1704,31 @@ export function activeEngineMode(): EngineMode {
  * is not running" and the only way out was restarting the CLI. Dropping back
  * to `'js'` lets the next turn re-run `initEngine` and spawn a replacement —
  * but only a few times, since a binary that crashes every turn is broken and
- * respawning it is churn.
+ * respawning it is churn. Past the budget the engine is declared unavailable
+ * with a reason a turn can surface, instead of failing on a stale mode.
+ * The budget counts consecutive broken turns, not lifetime crashes: a turn
+ * that completes resets it.
  */
 let stdioCrashes = 0;
 const MAX_STDIO_RESTARTS = 3;
+let engineUnavailable: string | undefined;
+
+function accountStdioCrash(): void {
+  stdioCrashes += 1;
+  if (stdioCrashes <= MAX_STDIO_RESTARTS) {
+    engineMode = 'js';
+    return;
+  }
+  engineUnavailable =
+    `rust engine died after ${stdioCrashes} crashes and stopped restarting — ` +
+    'restart the CLI to bring it back';
+}
 
 function onAgentProcessExit(agent: AgentProcess): void {
   // A stale process exiting — one already replaced or shut down — must not
   // disturb the mode of the process now in use.
   if (agentProcess !== agent) return;
-  stdioCrashes += 1;
-  if (stdioCrashes <= MAX_STDIO_RESTARTS) {
-    engineMode = 'js';
-  }
+  accountStdioCrash();
 }
 
 /**
@@ -1727,6 +1745,7 @@ let forcedTransport: 'napi' | 'stdio' | undefined;
  * return the same mode.
  */
 function initEngine(): EngineMode {
+  if (engineUnavailable !== undefined) return engineMode;
   if (engineMode !== 'js') return engineMode;
 
   // 1) Try napi-rs first (in-process, no subprocess overhead), unless a
@@ -1919,6 +1938,11 @@ export function createRunTurnOverride(
   };
 
   const engine = async (input: TurnEngineInputAdapter) => {
+    if (engineUnavailable !== undefined) {
+      options?.onEngineUnavailable?.(engineUnavailable);
+      throw new Error(engineUnavailable);
+    }
+
     // v2 hands us a numeric turnId; the wire protocol and LoopRecordedEvent
     // use a string, so normalize once per turn.
     const turnIdStr = String(input.turnId);
@@ -2528,6 +2552,7 @@ export function createRunTurnOverride(
         nativeToolCallCount: rustResult.native_tool_calls,
       },
     };
+    stdioCrashes = 0;
     options?.onTurnResult?.(turnResult);
     return turnResult;
   };
@@ -2617,6 +2642,7 @@ export function shutdownRustEngine() {
   engineMode = 'js';
   forcedTransport = undefined;
   stdioCrashes = 0;
+  engineUnavailable = undefined;
 }
 
 /**
@@ -2635,6 +2661,19 @@ export function forceEngineTransport(mode: 'napi' | 'stdio'): void {
  */
 export function activeAgentProcessForTests(): { stop(): void } | null {
   return agentProcess;
+}
+
+/**
+ * Test seam: record a stdio crash the way the process exit handler does, so
+ * the restart budget can be driven past its cap without four real respawns.
+ */
+export function recordStdioCrashForTests(): void {
+  accountStdioCrash();
+}
+
+/** Test seam: why the engine stopped restarting, or `undefined` while it can. */
+export function engineUnavailableForTests(): string | undefined {
+  return engineUnavailable;
 }
 
 /**

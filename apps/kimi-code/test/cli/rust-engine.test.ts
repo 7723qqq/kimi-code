@@ -356,6 +356,32 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     expect(capturedNativeLlm).toBeUndefined();
   });
 
+  it('reports the native-transport decline on the status snapshot, not stdout', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: { defaultModel: 'kimi-k2', type: 'kimi' },
+        },
+        agent: { engine: 'rust', nativeLlmProvider: 'kimi' },
+      }),
+    });
+    const { maybeLoadRustEngine, snapshot, capturedOptions } = await loadEngineAndSnapshot();
+    await maybeLoadRustEngine('/home/u');
+
+    const nativeLlm = capturedOptions()['nativeLlm'] as () => unknown;
+    expect(nativeLlm()).toBeUndefined();
+
+    expect(snapshot.engineExecution()).toEqual({
+      rust: true,
+      llmFallbackReason:
+        'provider "kimi" has no static baseUrl + apiKey for the native transport',
+    });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('honours multiLlm even when engine = "js" is configured (value ignored)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.loadRuntimeConfigSafe.mockReturnValue({

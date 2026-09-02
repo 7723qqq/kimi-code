@@ -807,6 +807,39 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(pidAfter).not.toBe(pidBefore, 'a replacement process must have been spawned');
   });
 
+  it('gives up restarting the stdio engine once the crash budget is spent', async () => {
+    // Past the cap the engine must say so: an engine closure the host already
+    // holds used to keep failing on a stale transport with no way out.
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-crash-budget-'));
+    tempDirs.push(workspace);
+
+    let reported: string | undefined;
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+      onEngineUnavailable: (detail: string) => {
+        reported = detail;
+      },
+    });
+    expect(engine).toBeDefined();
+
+    for (let crash = 0; crash < 3; crash += 1) mod.recordStdioCrashForTests();
+    expect(mod.engineUnavailableForTests()).toBeUndefined();
+    expect(mod.activeEngineMode()).toBe('js');
+
+    mod.recordStdioCrashForTests();
+    expect(mod.engineUnavailableForTests()).toContain('stopped restarting');
+
+    await expect(engine?.({} as never)).rejects.toThrow(/restart the CLI/);
+    expect(reported).toContain('stopped restarting');
+
+    mod.shutdownRustEngine();
+    expect(mod.engineUnavailableForTests()).toBeUndefined();
+  });
+
   it('aborts a running turn at the next step boundary', { timeout: 15_000 }, async () => {
     const mod = await import('./rust-loop');
     mod.shutdownRustEngine();

@@ -1783,6 +1783,7 @@ export default {
         engineJsLoop: 'js (v2 loop)',
         enginePending: 'rust (wired, no turn yet)',
         engineLlm: 'llm {{transport}}',
+        engineLlmFallback: 'llm proxy reason: {{reason}}',
         engineNativeTools: 'native tools: {{count}}',
         contextWindow: 'Context window',
         noContextData: 'No context window data available.',

@@ -6,7 +6,9 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentStateService } from '#/agent/state/agentState';
 import {
+  btwToolsVetoKey,
   ISessionBtwService,
   SIDE_QUESTION_SYSTEM_REMINDER,
   TOOL_CALL_DISABLED_MESSAGE,
@@ -25,6 +27,8 @@ describe('SessionBtwService', () => {
   let appendReminder: ReturnType<typeof vi.fn>;
   let formatDenyMessage: ReturnType<typeof vi.fn>;
   let executorEvents: ToolExecutorEventStubs;
+  let contributeState: ReturnType<typeof vi.fn>;
+  let setState: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -32,6 +36,8 @@ describe('SessionBtwService', () => {
     appendReminder = vi.fn(() => 'reminder-id');
     formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
+    contributeState = vi.fn();
+    setState = vi.fn();
 
     const child = {
       id: 'agent-btw-1',
@@ -39,6 +45,7 @@ describe('SessionBtwService', () => {
         get: (id: unknown) => {
           if (id === IAgentToolApprovalService) return { formatDenyMessage };
           if (id === IAgentToolExecutorService) return executorEvents.executor;
+          if (id === IAgentStateService) return { contributeState, set: setState };
           return undefined;
         },
       },
@@ -88,6 +95,12 @@ describe('SessionBtwService', () => {
   it('vetoes every tool call on the child through the btw deny listener', async () => {
     const svc = ix.get(ISessionBtwService);
     await svc.start();
+
+    expect(contributeState).toHaveBeenCalledWith(btwToolsVetoKey);
+    expect(setState).toHaveBeenCalledWith(
+      btwToolsVetoKey,
+      `${TOOL_CALL_DISABLED_MESSAGE} [worker guidance]`,
+    );
 
     const toolCall: ToolCall = { type: 'function', id: 'call_1', name: 'Bash', arguments: '{}' };
     const decision = await executorEvents.fireBeforeExecute({

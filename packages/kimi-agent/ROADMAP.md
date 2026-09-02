@@ -2921,3 +2921,96 @@ P46/P51/P55 后子代理语义的最后一块：`run_in_background`。v2 的 bac
 - cargo：946 lib（+2：`max_tokens_truncation_fails_the_subagent_run`、`resume_turns_distill_under_the_same_policy`）+ 18 集成全绿；clippy `-D warnings` 0、fmt 干净
 - 重建：kimi-agent-cli release、napi addon
 - vitest：kimi-agent 122/9；agent-core-v2 引擎套件 67/67；typecheck 通过
+
+## P62 — 回退面审查批 1：宿主回退的缺陷修补（2026-09-02）
+
+> 前置：一次「引擎还有哪些地方回落到 TS」的分层审查。结论分三层——整轮 loop 已无静默回落（P40 把启动门改成 throw），
+> LLM 传输与工具执行仍有活的宿主回退腿（多数是已决议的过渡态），以及四条未记录的缺陷，本批修这四条。
+> owner 同时定调：**推进剔除 v2 的运行时腿**，批 2（LLM 全原生 → 删 `host/llm_chat`）按 M2 切片格式执行。
+
+### 1. 双重审批弹窗（真缺陷，非过渡态）
+
+原生认领的工具先在 Rust 过许可链：`host/check_permission` → `checkToolPermission` → `gate.authorize`
+→ `resolvePermissionResolution` → kind `ask` → `requestToolApproval`（**弹窗 #1**，`loopService.ts:1186` /
+`permissionGateService.ts:67` / `toolApprovalService.ts:96`）。批准后 `NativeToolset::execute_tool_streaming`
+才可能返回 `None`（沙箱逃逸 `tools/mod.rs:594-598`、`bash run_in_background` `:1188`、Windows 无 shell `:1210`、
+`grep` 未知 type、`agent` 的 fork/model / 未知 profile）→ `callbacks.rs` 的 `None` 臂转 `host/execute_tool`
+→ `toolExecutor.execute` → `onBeforeExecuteTool` → 同一个 gate 的 `adjudicate` 再判 → **弹窗 #2**。
+`engineOverride.ts:230-236` 早已写明「deny 不得重试因为会 prompt twice」，缺的是 allow+`None` 这一半。
+
+**修法（owner 选：v2 侧按调用记忆审批，Rust 不动、不引入 grant 透传）**：`AgentPermissionGate` 加私有
+`Map<`${turnId}\0${toolCallId}`, entry>`——该类是唯一同时看到两条腿的地方，且注册在 Agent 作用域，
+隔离是结构性的。写：只在 `authorize` 且 `kind === 'ask'` 且无 veto（= 真人点了批准）；`deny`/`result`/
+任何 veto/纯策略 `approve` 一律不写（缓存 approve 会把 mode/规则变更冻住）。读：`adjudicate` 开头
+`consume` 且**命中即删**（一次授权只付一次执行），有 `executionMetadata` 就 `pass(metadata)` 后 abstain——
+顺带补上现状缺口：`authorize` 算出的 metadata 原本被丢弃，而 `toolExecutorService.ts:421,439` 只从事件读。
+plan 否决 / P52 veto / hook / stale 不在 gate 里（活在其它监听者与 Rust 侧），命中记忆只跳过 gate 自己那条腿。
+键面复校 name+args（两侧 `arguments` 同源同串），TTL 60s / 上限 64，形状照抄
+`features/interaction/interactionAgentRuntime.ts:24-25,54-64`。不改 `loopService.ts`，避开
+`check-engine-zero-js-loop` 的名称+行匹配。
+
+### 2. host-proxy 回落原因不再每轮打 stdout
+
+`nativeLlm` 每轮重解析（`rust-loop.ts:1932`），未命中原生 transport 时 `rust-engine.ts` 用 `console.warn`
+打四句话之一——TUI 不拦 console，所以纯 OAuth 登录用户每轮在界面里看到一行。改为：`tryResolveNativeLlm` /
+`extractNativeLlm` 返回 `{ def?, reason? }` 并**不打 stdout**；reason 由 thunk 就地
+`patchEngineExecution({ llmFallbackReason })` 记进快照，`/status` 的 Engine 行追加
+`llm proxy reason: …`（新 i18n 键 `tui.messages.statusPanel.engineLlmFallback`，en/zh + 重生成 JSON）。
+`setEngineExecution({ rust: true })` 上移到 bundle 门之后，保证 thunk 一定有基线可合并。
+
+### 3. stdio 崩溃预算与「引擎已死」
+
+`stdioCrashes` 原本只在 `shutdownRustEngine()` 归零、成功一轮不归零 → 一天里分散崩 3 次就永久关掉恢复路径；
+且超过 `MAX_STDIO_RESTARTS` 后 `engineMode` 停在 `'stdio'` 而 `agentProcess` 为 null，之后每轮撞
+`getAgent()!` 或 `'Agent process is not running'`——正是注释声称已修的「crash used to be terminal」，
+只是搬到了上限之后。修：记账抽成 `accountStdioCrash()`，一轮跑完即 `stdioCrashes = 0`（预算只数连续失败）；
+预算耗尽时记 `engineUnavailable` 原因，`initEngine` 不再拉起、每轮入口 `throw` 带「restart the CLI」指引，
+并经新接缝 `onEngineUnavailable` 让宿主把 `transport: 'dead'` + 原因记进 `/status`（owner 定：**不恢复 JS
+loop 逃生门**，维持 P40）。新增测试接缝 `recordStdioCrashForTests` / `engineUnavailableForTests`，
+与既有 `activeAgentProcessForTests` 同风格。
+
+### 4. 注释与默认值漂移
+
+- `rust-engine.ts` 的 `isEngineLoadable` 注释仍写「guard 为 false 时回落 JS loop」，实际是 throw（P40 只改了头部注释）。
+- `tools/agent_tool.rs` 模块头仍把 `resume` / `run_in_background` 列为宿主回退，P55/P58 已原生化（同文件测试是反证）。
+- **`napi_bindings.rs` 的 `native_tools.unwrap_or(false)` 不改**：审查原判「与 TS 默认 true 相反 → 翻成 true」，
+  复核后**推翻**。stdio 线（`rpc/types.rs:508` + `:1087` 的断言）同样是「缺省即 false」，两侧本就一致；
+  翻 napi 会制造新的不一致，且让未声明意图的调用方静默绕过宿主工具生命周期。产品默认 true 归 TS 适配器
+  （`rust-loop.ts:1791`）所有；改为在字段文档里把「缺省=false 是 fail-safe」写清。
+
+### 5. 本批顺带修好的既有失败
+
+P47–P60 落地时未跑全量测试，本批补齐并分类：
+
+- **批内引入、已修**：`test/features/btw/btw.test.ts`（P52 在子作用域加了 `IAgentStateService` 写入，桩没补
+  → `contributeState` of undefined；顺带把「veto 原因写进子作用域状态」这条契约钉进断言）；
+  `test/agent/loop/loop.test.ts` 快照（P58 改了工具描述 → `llm.tools_snapshot`/`toolsHash` 重生成）；
+  `test/state/stateManifest.test.ts`（P52 新增 `btw.toolsVeto` 状态键 → `gen:state-manifest` 重生成）。
+- **本机平台性、非代码**：`profile/binding`（`G:\\…` vs `G:/…` 路径分隔符）、`staleGuard`（Windows 临时目录
+  对非绝对 cwd 解析报 `PATH_INVALID`）、`mcpCore/oauth/callback-server`。CI 只在 Ubuntu 跑，这三类不判为缺陷。
+- **仍红、待单独处理**：`test/app/auth/auth.test.ts` 6 条（OAuthService 的 catalog/default-model 回写断言，
+  与 P47–P60 无关，早于本批存在）。
+- **并发级联**：`tower/store`、`workspaceMcp`×2、`connection-manager`、`tool`、`wire/resume`、`dateChange`
+  单独跑全绿——全量并发时出现 `Worker forks emitted error`，属测试池资源，不是代码。
+
+### 6. 登记给批 2 的缺口（删 `host/llm_chat` 的前置）
+
+`llm/http.rs` 与 kosong 的系统性差距，补齐前删除宿主腿等于把「静默回退 TS」换成「功能消失」：
+thinking/`reasoning_effort` 全缺、`ContentBlock` 无 think 变体、Anthropic `cache_control` 断点缺失、
+流式只发 text delta、错误分类塌成 `llm http status {code}`、缺 `openai_responses`/`google-genai`(+`vertexai`)/
+`antigravity` 整条线、无 request trace、`NativeLlmConfig.custom_headers` 有字段无填充（`rpc/types.rs:442-457`）。
+**另记一条此前未登记的架构事实**：压缩有两套——宿主腿下走 v2 `fullCompactionService`
+（按 `APIContextOverflowError` 真摘要 + 溢出恢复），native-http 下走引擎 `compact_messages`
+（窗口硬编码 128k、无 model capability、最旧消息换成占位，`run_turn.rs:288-290,387-410`），
+即静态 key 用户今天已经拿不到溢出恢复。批 2 把压缩归属统一到引擎侧（同时定掉 M1d 分叉的一半）。
+鉴权侧的可移植接缝：`getAuth({force})` → `oauthTokenAdapter` → `authService` → `oauth-manager` 单飞刷新，
+最终 header 由 `resolveOutboundHeaders` 合成。
+
+### 验证
+
+- cargo：947 lib + 18 集成全绿；`cargo fmt --check` 干净、`clippy --all-targets` 0 警告
+- 新增测试：审批记忆 7 条（含反向验证：关掉查表即红 2 条）、崩溃预算 1 条、`/status` 回落原因 1 条、
+  rust-engine 快照记录 1 条、btw 契约断言 2 条
+- vitest：kimi-agent 123/9（重建 addon 后）；agent-core-v2 `permissionGate` 17/17、`btw` 2/2、`loop` 51/51、`stateManifest` 绿、`app/auth` 6 条仍红（见下）；apps/kimi-code `rust-engine` + `status-panel` 37/37
+- typecheck：agent-core-v2 `tsc --noEmit` 通过；oxlint（含 `--type-aware`）0 error
+- 全量 agent-core-v2 仍不绿：`app/auth` 6 条是**上游合并带入**的既有红（`authService.ts` 最后由 `2bf7ed22d7` 改、测试由 `3ec721c6bc` 合并改，与本仓 P47–P62 无关），根因已定位到刷新 try 内某服务在失败用例的容器里未注册（错误被 `authService.ts:388-392` 吞成 `failed[].reason`），需一次带栈的排查 + 判定该改测试还是改服务；`profile/binding`、`staleGuard`、`mcpCore/oauth/callback-server` 是 Windows 路径/端口差异（CI 只跑 Ubuntu）；`tower`/`workspaceMcp`/`connection-manager`/`tool`/`wire/resume`/`dateChange` 单独跑全绿，全量并发时是 `Worker forks emitted error` 级联

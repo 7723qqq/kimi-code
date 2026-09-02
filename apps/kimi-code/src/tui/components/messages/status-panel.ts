@@ -86,6 +86,11 @@ function formatEngineStatus(engine: EngineExecution | undefined): string | undef
   if (engine.llmTransport !== undefined) {
     parts.push(t('tui.messages.statusPanel.engineLlm', { transport: engine.llmTransport }));
   }
+  if (engine.llmFallbackReason !== undefined) {
+    parts.push(
+      t('tui.messages.statusPanel.engineLlmFallback', { reason: engine.llmFallbackReason }),
+    );
+  }
   if (engine.nativeToolCalls !== undefined) {
     parts.push(
       t('tui.messages.statusPanel.engineNativeTools', { count: engine.nativeToolCalls }),
