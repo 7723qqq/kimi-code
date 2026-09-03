@@ -33,6 +33,8 @@ export interface AgentTaskInfoBase {
   readonly timeoutMs?: number;
 }
 
+import type {} from '#/agent/tools/os/bash/process-task';
+
 export interface AgentTaskInfoByKind {}
 
 export type AgentTaskKind = Extract<keyof AgentTaskInfoByKind, string>;

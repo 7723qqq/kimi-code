@@ -17,6 +17,7 @@ import { PRODUCT_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import type { EngineExecution } from '#/utils/engine-execution';
 import { currentTheme } from '#/tui/theme';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 import {
   formatTokenCount,
   ratioSeverity,
@@ -135,7 +136,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const rows: FieldRow[] = [
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
-    { label: 'Permissions', value: permission },
+    { label: 'Permissions', value: PERMISSION_MODE_DISPLAY_NAMES[permission] },
     { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {

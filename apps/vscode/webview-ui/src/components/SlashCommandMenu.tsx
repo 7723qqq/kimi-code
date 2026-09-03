@@ -51,10 +51,21 @@ export function SlashCommandMenu({
   onHover,
 }: SlashCommandMenuProps) {
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const hoverSelectionRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (hoverSelectionRef.current === selectedIndex) {
+      hoverSelectionRef.current = null;
+      return;
+    }
+    hoverSelectionRef.current = null;
     selectedRef.current?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
+
+  const handleHover = (index: number) => {
+    hoverSelectionRef.current = index;
+    onHover(index);
+  };
 
   if (commands.length === 0) {
     return (
@@ -72,7 +83,7 @@ export function SlashCommandMenu({
             key={cmd.name}
             ref={idx === selectedIndex ? selectedRef : null}
             onClick={() => onSelect(cmd.name)}
-            onMouseEnter={() => onHover(idx)}
+            onMouseMove={() => handleHover(idx)}
             className={cn(
               'w-full px-2 py-1.5 text-left flex items-center justify-between gap-3',
               idx === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50',

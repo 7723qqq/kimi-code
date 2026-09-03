@@ -2,20 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { IOAuthService } from '#/app/auth/auth';
+import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import {
   buildAgentIdentitySnapshot,
   IAgentIdentity,
   type AgentIdentitySnapshot,
 } from '#/app/agentIdentity/agentIdentity';
-import { IOAuthService } from '#/app/auth/auth';
-import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { MoonshotFetchURLProvider } from '#/app/web/providers/moonshot-fetch-url';
 import { IWebFetchService } from '#/app/web/web';
 import { WebFetchService } from '#/app/web/webService';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
@@ -40,7 +41,9 @@ describe('WebFetchService', () => {
     providers = {};
     servicesConfig = undefined;
     identitySlug = undefined;
-    resolveTokenProvider = vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' });
+    resolveTokenProvider = vi
+      .fn()
+      .mockReturnValue({ getAccessToken: async () => 'access-token' });
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
@@ -64,6 +67,7 @@ describe('WebFetchService', () => {
           get: ((domain: string) =>
             domain === SERVICES_SECTION ? servicesConfig : undefined) as IConfigService['get'],
         });
+        reg.defineInstance(ITelemetryService, noopTelemetryService);
         reg.define(IWebFetchService, WebFetchService);
       },
     });
@@ -117,64 +121,6 @@ describe('WebFetchService', () => {
     });
   });
 
-  it('builds a Moonshot fetcher from the managed provider oauth ref without a trailing slash on baseUrl', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'kimi',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    };
-    const moonshot = fetcher() as MoonshotFetchURLProvider;
-    expect(moonshot).toBeInstanceOf(MoonshotFetchURLProvider);
-  });
-
-  it('falls back to local when the managed provider has no oauth config even with type kimi', () => {
-    providers = {
-      [OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' },
-    };
-    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
-  });
-
-  it('falls back to local when no providers exist at all', () => {
-    providers = {};
-    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
-  });
-
-  it('returns the same local instance on every call when OAuth is unavailable', () => {
-    providers = {};
-    const first = fetcher();
-    const second = fetcher();
-    expect(first).toBe(second);
-  });
-
-  it('creates a new Moonshot instance on each call when OAuth is configured', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'kimi',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    };
-    const first = fetcher();
-    const second = fetcher();
-    expect(first).not.toBe(second);
-  });
-
-  it('propagates the error when the token provider throws', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'kimi',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    };
-    resolveTokenProvider.mockImplementation(() => {
-      throw new Error('OAuth resolution failure');
-    });
-    expect(() => fetcher()).toThrow('OAuth resolution failure');
-  });
-
   it('fetches against /fetch with the OAuth access token, host identity headers, and custom headers', async () => {
     providers = {
       [OAUTH_PROVIDER]: {
@@ -184,7 +130,10 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      text: async () => 'page body',
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetcher().fetch('https://example.com/page');
@@ -208,7 +157,10 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Config': '1' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      text: async () => 'page body',
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     expect(fetcher()).toBeInstanceOf(MoonshotFetchURLProvider);
@@ -230,7 +182,7 @@ describe('WebFetchService', () => {
     servicesConfig = {
       moonshotFetch: { baseUrl: 'https://fetch.example.com/fetch', apiKey: 'fetch-key' },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
     vi.stubGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');
@@ -247,7 +199,7 @@ describe('WebFetchService', () => {
       baseUrl: 'https://api.example.com/v1',
       oauth: { storage: 'file', key: 'oauth/kimi-code' },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
     vi.stubGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');

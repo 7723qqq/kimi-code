@@ -172,8 +172,8 @@ function formatDirectoryCompletionValue(
 
 export const BUILTIN_SLASH_COMMANDS = [
   {
-    name: 'yolo',
-    aliases: ['yes'],
+    name: 'ask-when-needed',
+    aliases: ['yolo', 'yes'],
     get description() {
       return t('tui.slashCommands.yolo');
     },
@@ -181,8 +181,8 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'auto',
-    aliases: [],
+    name: 'never-ask',
+    aliases: ['auto'],
     get description() {
       return t('tui.slashCommands.auto');
     },
@@ -254,11 +254,11 @@ export const BUILTIN_SLASH_COMMANDS = [
       return t('tui.slashCommands.tower');
     },
     priority: 100,
-    argumentHint: '[status|teardown|on|off] | <objective>',
+    argumentHint: '[status|teardown|on|off] | <base-branch>',
     completeArgs: towerArgumentCompletions,
-    // Every form stays available while busy: objectives steer into the
-    // running coordinator turn (see sendMessage in kimi-tui.ts), so /tower
-    // commands never wait for the previous one to finish.
+    // Every form stays available while busy: base selections apply to the next
+    // TowerInit of the running coordinator turn, so /tower commands never wait
+    // for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
   },

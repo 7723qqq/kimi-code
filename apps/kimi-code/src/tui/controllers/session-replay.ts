@@ -30,6 +30,9 @@ import { formatBackgroundTaskTranscript } from '../utils/background-task-status'
 import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import { nextTranscriptId } from '../utils/transcript-id';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
@@ -52,8 +55,6 @@ import {
   type SkillActivationProjection,
   type PluginCommandProjection,
 } from '../utils/message-replay';
-import { formatBashOutputForDisplay } from '../utils/shell-output';
-import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import type { SessionEventHandler } from './session-event-handler';
 import type { StreamingUIController } from './streaming-ui';
 
@@ -709,7 +710,9 @@ export class SessionReplayRenderer {
         'status',
         mode === 'manual'
           ? t('tui.statusMessages.replayYoloModeOff')
-          : t('tui.statusMessages.replayPermissionMode', { mode }),
+          : t('tui.statusMessages.replayPermissionMode', {
+              mode: PERMISSION_MODE_DISPLAY_NAMES[mode],
+            }),
         'notice',
       ),
     );

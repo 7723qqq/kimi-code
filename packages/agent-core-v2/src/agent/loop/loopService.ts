@@ -9,7 +9,6 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
@@ -19,7 +18,7 @@ import { type FinishReason } from '#/kosong/contract/provider';
 import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type TokenUsage } from '#/kosong/contract/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
-import { AgentCron, type CronRuntime } from '#/features/cron/cronAgentRuntime';
+import { IAgentCronService } from '#/features/cron/cronService';
 import {
   computeNextCronRun,
   cronToHuman,
@@ -30,12 +29,12 @@ import {
 import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
 import type { CronTask } from '#/features/cron/cronTask';
 import { MAX_CRON_JOBS_PER_SESSION, MAX_PROMPT_BYTES } from '#/features/cron/tools/cron-create/cron-create';
-import { AgentGoal } from '#/features/goal/goalAgentRuntime';
+import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalBudgetLimits } from '#/features/goal/types';
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { AgentTodo } from '#/features/todo/todoAgentRuntime';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { readTodoItems } from '#/features/todo/todoItem';
 import { OrderedHookSlot } from '#/hooks';
 import {
@@ -45,7 +44,6 @@ import {
   type QuestionResponse,
   type QuestionResult,
 } from '#/session/question/question';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
@@ -524,7 +522,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private startTurn(job: TurnJob): void {
     const origin = job.seed.origin;
     void this.dispatcher.dispatch(
-      new TurnPrompt({ agentId: this.scopeContext.agentId, input: job.seed.input, origin }),
+      new TurnPrompt({
+        agentId: this.scopeContext.agentId,
+        input: job.seed.input,
+        origin,
+        promptId: job.seed.promptId,
+      }),
     );
     job.turn.state = 'running';
     this.activeTurnJob = job;
@@ -532,6 +535,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       new TurnStarted({
         agentId: this.scopeContext.agentId,
         turnId: job.turn.id,
+        promptId: job.seed.promptId,
         origin,
         prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
         promptAttachments: turnPromptAttachments(job.seed.input, origin),
@@ -1214,10 +1218,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       },
       stateRead: async (request) => {
         if (request.domain === 'todo') {
-          const lifecycle = this.instantiation.invokeFunction((accessor) =>
-            accessor.get(IAgentLifecycleService),
+          const todo = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentTodoService),
           );
-          const todo = lifecycle.resolve(this.scopeContext.agentContext, AgentTodo);
           return { value: todo.get() };
         }
         if (request.domain === 'plan') {
@@ -1233,14 +1236,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           };
         }
         if (request.domain === 'cron') {
-          const cron = cronRuntimeOf(this.instantiation, this.scopeContext.agentContext);
+          const cron = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentCronService),
+          );
           return { value: cronEntriesWire(cron) };
         }
         if (request.domain === 'goal') {
-          const lifecycle = this.instantiation.invokeFunction((accessor) =>
-            accessor.get(IAgentLifecycleService),
+          const goal = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentGoalService),
           );
-          const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
           return { value: goal.getGoal() };
         }
         if (request.domain === 'task') {
@@ -1281,10 +1285,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
               'invalid todo state value: expected an array of todo items',
             );
           }
-          const lifecycle = this.instantiation.invokeFunction((accessor) =>
-            accessor.get(IAgentLifecycleService),
+          const todo = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentTodoService),
           );
-          const todo = lifecycle.resolve(this.scopeContext.agentContext, AgentTodo);
           await todo.replace(readTodoItems(request.value));
           return { ok: true, value: todo.get() };
         }
@@ -1333,7 +1336,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             );
           }
           const action = (value as { action?: unknown }).action;
-          const cron = cronRuntimeOf(this.instantiation, this.scopeContext.agentContext);
+          const cron = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentCronService),
+          );
           if (action === 'create') {
             const input = value as { cron?: unknown; prompt?: unknown; recurring?: unknown };
             if (typeof input.cron !== 'string' || typeof input.prompt !== 'string') {
@@ -1467,10 +1472,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             );
           }
           const action = (value as { action?: unknown }).action;
-          const lifecycle = this.instantiation.invokeFunction((accessor) =>
-            accessor.get(IAgentLifecycleService),
+          const goal = this.instantiation.invokeFunction((accessor) =>
+            accessor.get(IAgentGoalService),
           );
-          const goal = lifecycle.resolve(this.scopeContext.agentContext, AgentGoal);
           if (action === 'create') {
             const input = value as { objective?: unknown; completion_criterion?: unknown };
             if (typeof input.objective !== 'string') {
@@ -2010,14 +2014,7 @@ const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
 const MAX_REASONABLE_TIME_BUDGET_MS = 24 * 60 * 60 * 1000;
 const BUDGET_UNITS = ['turns', 'tokens', 'milliseconds', 'seconds', 'minutes', 'hours'] as const;
 
-function cronRuntimeOf(instantiation: IInstantiationService, agentContext: AgentContext): CronRuntime {
-  const lifecycle = instantiation.invokeFunction((accessor) =>
-    accessor.get(IAgentLifecycleService),
-  );
-  return lifecycle.resolve(agentContext, AgentCron);
-}
-
-function cronEntryWire(cron: CronRuntime, task: CronTask): Record<string, unknown> {
+function cronEntryWire(cron: IAgentCronService, task: CronTask): Record<string, unknown> {
   const recurring = task.recurring !== false;
   let humanSchedule = task.cron;
   let nextFireAt: string | null = null;
@@ -2043,8 +2040,8 @@ function cronEntryWire(cron: CronRuntime, task: CronTask): Record<string, unknow
   };
 }
 
-function cronEntriesWire(cron: CronRuntime): Record<string, unknown>[] {
-  return cron.list().map((task) => cronEntryWire(cron, task));
+function cronEntriesWire(cron: IAgentCronService): Record<string, unknown>[] {
+  return cron.list().map((task: CronTask) => cronEntryWire(cron, task));
 }
 
 function isBudgetUnit(unit: string): unit is (typeof BUDGET_UNITS)[number] {

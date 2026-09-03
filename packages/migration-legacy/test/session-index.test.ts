@@ -1,9 +1,7 @@
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-
 import { appendSessionIndexEntry, ensureSessionIndexEntry } from '../src/session-index.js';
 
 let target: string;

@@ -68,6 +68,8 @@ import type {
   SessionSummaryPage,
   SkillSummary,
   PluginCommandDef,
+  SuggestFilesInput,
+  SuggestFilesResult,
   Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
@@ -140,6 +142,7 @@ export type SetSessionSwarmModeRpcInput =
 
 export interface SetSessionTowerModeRpcInput extends SessionIdRpcInput {
   readonly enabled: boolean;
+  readonly base?: string;
 }
 
 export interface ActivateSkillRpcInput extends SessionIdRpcInput {
@@ -253,7 +256,11 @@ export abstract class SDKRpcClientBase {
 
   async listSessions(input: ListSessionsOptions = {}): Promise<readonly SessionSummary[]> {
     const rpc = await this.getRpc();
-    return rpc.listSessions(input);
+    return rpc.listSessions({
+      workDir: input.workDir,
+      sessionId: input.sessionId,
+      includeArchive: input.includeArchived,
+    });
   }
 
   /**
@@ -812,8 +819,7 @@ export abstract class SDKRpcClientBase {
     const maxContextTokens = capability?.max_input_tokens ?? capability?.max_context_tokens ?? 0;
     const contextTokens = context.tokenCount;
     // Deliberately unclamped: >100% is the documented overflow signal on this
-    // path (see acp-adapter's formatContextUsage), unlike the schema-bounded
-    // REST status surfaces which clamp to 1.
+    // path, unlike the schema-bounded REST status surfaces which clamp to 1.
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
     const hasUsage =
       usage.byModel !== undefined || usage.total !== undefined || usage.currentTurn !== undefined;
@@ -847,6 +853,17 @@ export abstract class SDKRpcClientBase {
    */
   async listPluginCommandsGlobal(): Promise<readonly PluginCommandDef[]> {
     return [];
+  }
+
+  /**
+   * Workspace-root file suggestions, no session required. The v1 engine has
+   * no equivalent capability, so the base reports `undefined`; the v2 client
+   * overrides with the workspace handler's fs service.
+   */
+  async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
+    void workDir;
+    void input;
+    return undefined;
   }
 
   async listBackgroundTasks(

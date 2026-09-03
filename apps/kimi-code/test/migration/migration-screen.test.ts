@@ -32,6 +32,7 @@ vi.mock('#/i18n', () => ({
       'tui.migration.complete': ' Migration complete',
       'tui.migration.sessionsMigrated': '  ✓ {{count}} sessions migrated',
       'tui.migration.kindsMigrated': '  ✓ {{kinds}}',
+      'tui.migration.skipped': '  Nothing needed migrating.',
       'tui.migration.pluginsNotSupported':
         '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
       'tui.migration.oldDataKept': ' Old data kept at ~/.kimi/ — kimi-cli still works.',
@@ -70,7 +71,9 @@ function makePlan(over: Partial<MigrationPlan> = {}): MigrationPlan {
     hasConfig: true,
     hasMcp: true,
     hasUserHistory: true,
-    oauthCredentials: ['kimi-code.json'],
+    hasSkills: false,
+    hasPlans: false,
+    oauthCredentials: ['kimi-code'],
     workdirs: [],
     detectedPlugins: [],
     detectedMcpOauthServers: [],
@@ -315,16 +318,14 @@ function makeReport(
         wroteTuiSibling: false,
         migratedHooks: 0,
         droppedHooks: 0,
+        sourceUnreadable: false,
+        deviceIdCopied: false,
         siblingContents: { providers: [], models: [], hooks: 0 },
       },
-      mcp: {
-        mergedServers: [],
-        keptNewForConflicts: [],
-        droppedServers: [],
-        wroteSiblingDueToConflict: false,
-      },
-      userHistory: { copied: 12, skippedExisting: 0, failures: [] },
-      skills: { copied: 0, skippedExisting: 0, failures: [] },
+      mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false, sourceUnreadable: false },
+      userHistory: { copied: 12, skippedExisting: 0 },
+      skills: { copied: 0, skippedExisting: 0 },
+      plans: { copied: 0, skippedExisting: 0 },
       sessions: {
         scope: 'all',
         bucketsScanned: 0,
@@ -338,7 +339,6 @@ function makeReport(
         sessionsSkippedMalformed: 0,
         sessionsFailed: [],
         sessionsConflicts: [],
-        sessionsDebrisArchived: [],
         ...over,
       },
       ...summaryOver,
@@ -349,6 +349,7 @@ function makeReport(
       detectedPlugins: ['p1', 'p2'],
       configConflictNotice: null,
       tuiConflictNotice: null,
+      plansCopiedNotice: null,
       ...noticesOver,
     },
   };
@@ -367,6 +368,40 @@ describe('MigrationScreenComponent — result phase', () => {
     expect(out).toContain('Migration complete');
     expect(out).toContain('50 sessions migrated');
     expect(out).toContain('2 kimi-cli plugins');
+  });
+
+  it('renders nothing-needed-migrating when every counter is zero', () => {
+    const c = new MigrationScreenComponent({
+      plan: makePlan(),
+      sourceHome: '/x/.kimi',
+      targetHome: '/y/.kimi-code',
+      onComplete: () => {},
+    });
+    c._testShowResult(
+      makeReport(
+        { sessionsAttempted: 0, sessionsMigrated: 0 },
+        {
+          config: {
+            migrated: false,
+            tuiExtracted: false,
+            droppedProviders: [],
+            droppedModels: [],
+            droppedKeys: [],
+            configConflicts: [],
+            wroteSiblingDueToConflict: false,
+            wroteTuiSibling: false,
+            migratedHooks: 0,
+            droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
+            siblingContents: { providers: [], models: [], hooks: 0 },
+          },
+          userHistory: { copied: 0, skippedExisting: 0 },
+        },
+      ),
+    );
+    const out = c.render(80).join('\n');
+    expect(out).toContain('Nothing needed migrating');
   });
 
   it('renders migrated hooks in the ✓ line and dropped hooks as a warning', () => {
@@ -391,6 +426,8 @@ describe('MigrationScreenComponent — result phase', () => {
             wroteTuiSibling: false,
             migratedHooks: 2,
             droppedHooks: 1,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
         },
@@ -440,6 +477,8 @@ describe('MigrationScreenComponent — result phase', () => {
             wroteTuiSibling: false,
             migratedHooks: 0,
             droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
         },
@@ -474,14 +513,11 @@ describe('MigrationScreenComponent — result phase', () => {
             wroteTuiSibling: false,
             migratedHooks: 0,
             droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
-          mcp: {
-            mergedServers: ['m'],
-            keptNewForConflicts: [],
-            droppedServers: [],
-            wroteSiblingDueToConflict: true,
-          },
+          mcp: { mergedServers: ['m'], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: true, sourceUnreadable: false },
         },
       ),
     );
@@ -519,6 +555,8 @@ describe('MigrationScreenComponent — result phase', () => {
             wroteTuiSibling: false,
             migratedHooks: 0,
             droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
             siblingContents: {
               providers: ['openai', 'managed:kimi-code'],
               models: ['gpt4'],
@@ -574,6 +612,8 @@ describe('MigrationScreenComponent — result phase', () => {
             wroteTuiSibling: false,
             migratedHooks: 0,
             droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
         },

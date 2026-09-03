@@ -39,6 +39,7 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -969,7 +970,14 @@ export async function applyExperimentalFeatureChanges(
       // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice('Tower mode takes effect after restarting Kimi Code.');
     }
-    host.track('experimental_features_apply', { changed: changes.length });
+    host.track('experimental_features_apply', {
+      changed: changes.length,
+      flags: features
+        .filter((feature) => feature.enabled)
+        .map((feature) => feature.id)
+        .toSorted()
+        .join(','),
+    });
   } catch (error) {
     host.showError(
       t('tui.statusMessages.updateExperimentsFailed', { error: formatErrorMessage(error) }),
@@ -1048,7 +1056,9 @@ export async function applyUpdatePreferenceChoice(
 
 async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
   if (mode === host.state.appState.permissionMode) {
-    host.showStatus(t('tui.messages.configPermissionUnchanged', { mode }));
+    host.showStatus(
+      t('tui.messages.configPermissionUnchanged', { mode: PERMISSION_MODE_DISPLAY_NAMES[mode] }),
+    );
     return;
   }
 
@@ -1065,7 +1075,9 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   }
 
   host.setAppState({ permissionMode: mode });
-  host.showNotice(t('tui.messages.configPermissionMode', { mode }));
+  host.showNotice(
+    t('tui.messages.configPermissionMode', { mode: PERMISSION_MODE_DISPLAY_NAMES[mode] }),
+  );
 }
 
 export function showSettingsSelector(host: SlashCommandHost): void {

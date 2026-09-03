@@ -114,21 +114,6 @@ export * from '#/state/state';
 export * from '#/state/stateContribution';
 export * from '#/state/agentModel';
 export * from '#/state/agentEffect';
-export {
-  AgentRuntimeContributionPoint,
-  AgentRuntimeOverrideContributionPoint,
-  defineAgentRuntimeContract,
-  defineAgentRuntimeProvider,
-} from '#/agent/runtime/agentRuntime';
-export type {
-  AgentRuntimeContributionSnapshot,
-  AgentRuntimeDefinition,
-  AgentRuntimeIdentity,
-  AgentRuntimeProvider,
-  AgentRuntimeSnapshot,
-  AgentRuntimeStatus,
-  RuntimeOf,
-} from '#/agent/runtime/agentRuntime';
 export * from '#/state/eventDispatcher';
 import '#/state/eventDispatcherService';
 export * from '#/_base/state/stateRegistry';
@@ -280,7 +265,7 @@ export * from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderS
 export type { SkillSource } from '#/features/skill/catalog/types';
 export * from '#/features/skill/tools/skill';
 export * from '#/features/skill/skill';
-export * from '#/features/skill/skillAgentRuntime';
+export * from '#/features/skill/skillService';
 import '#/features/skill/skillFeature';
 export * from '#/features/skill/catalog/types';
 export * from '#/features/skill/catalog/configSection';
@@ -333,6 +318,8 @@ export * from '#/app/flag/flagService';
 
 export * from '#/agent/activityView/activityView';
 import '#/agent/activityView/activityViewService';
+export * from '#/agent/modeMutex/modeMutex';
+import '#/agent/modeMutex/modeMutexService';
 export * from '#/features/btw/btw';
 export * from '#/features/btw/btwService';
 import '#/features/btw/btwFeature';
@@ -347,6 +334,11 @@ export * from '#/features/plan/planOps';
 export * from '#/features/plan/planService';
 import '#/features/dateChange/dateChangeFeature';
 import '#/features/plan/planFeature';
+export * from '#/features/fileHistory/fileHistory';
+export * from '#/features/fileHistory/fileHistoryOps';
+export * from '#/features/fileHistory/fileHistoryService';
+export * from '#/features/fileHistory/flag';
+import '#/features/fileHistory/fileHistoryFeature';
 export * from '#/features/externalHooks/configSection';
 export * from '#/features/externalHooks/app/externalHooksRunner';
 export * from '#/features/externalHooks/app/externalHooksRunnerService';
@@ -376,7 +368,7 @@ export * from '#/features/goal/tools/update-goal/update-goal';
 import '#/features/goal/tools/update-goal/updateGoalTool';
 export * from '#/features/goal/goalDeadlineScheduler';
 export * from '#/features/goal/goal';
-export * from '#/features/goal/goalAgentRuntime';
+export * from '#/features/goal/goalService';
 export * from '#/features/goal/goalOps';
 export * from '#/features/goal/types';
 import '#/features/goal/goalFeature';
@@ -449,7 +441,7 @@ export * from '#/agent/task/taskService';
 import '#/features/cron/configSection';
 export * from '#/features/cron/cronTask';
 export * from '#/features/cron/configSection';
-export * from '#/features/cron/cronAgentRuntime';
+export * from '#/features/cron/cronService';
 export * from '#/features/cron/cronOps';
 import '#/features/cron/cronFeature';
 export * from '#/features/cron/tools/cron-create/cron-create';
@@ -509,8 +501,8 @@ export * from '#/app/sessionExport/zip';
 export * from '#/app/sessionLegacy/sessionLegacy';
 export * from '#/app/sessionLegacy/sessionLegacyService';
 export * from '#/features/interaction/interaction';
-export * from '#/features/interaction/interactionAgentRuntime';
 export * from '#/features/interaction/interactionOps';
+export * from '#/features/interaction/interactionService';
 export * from '#/features/interaction/sessionInteractions';
 import '#/features/interaction/interactionFeature';
 export * from '#/session/sessionContext/sessionContext';
@@ -639,12 +631,12 @@ export * from '#/agent/contextMemory/loopEventFold';
 export * from '#/agent/contextMemory/messageId';
 export * from '#/agent/contextMemory/contextTranscript';
 export * from '#/agent/contextMemory/types';
-export { AgentReminder, ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+export * from '#/features/reminder/reminderService';
 export * from '#/features/reminder/systemReminder';
 export * from '#/features/reminder/types';
 import '#/features/reminder/reminderFeature';
 export * from '#/features/dateChange/dateChange';
-export * from '#/features/dateChange/dateChangeAgentRuntime';
+export * from '#/features/dateChange/dateChangeService';
 export * from '#/agent/contextProjector/contextProjector';
 export * from '#/agent/contextProjector/contextProjectorService';
 export * from '#/agent/contextProjector/mediaProjection';
@@ -740,7 +732,7 @@ export * from '#/features/sessionInit/profile/init';
 import '#/features/sessionInit/sessionInitFeature';
 export * from '#/features/todo/todoItem';
 export * from '#/features/todo/todoListReminder';
-export * from '#/features/todo/todoAgentRuntime';
+export * from '#/features/todo/todoService';
 export * from '#/features/todo/tools/todo-list/todo-list';
 import '#/features/todo/todoFeature';
 export * from '#/tool/toolContract';

@@ -1,11 +1,10 @@
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdir, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-
 import { detectMigration, runMigration } from '../src/index.js';
+import { computeWorkdirBucket, oldMd5BucketName } from '../src/sessions/workdir-bucket.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const SOURCE_HOME = join(FIXTURES, 'multi-workdir', '.kimi');
@@ -154,8 +153,83 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
         target: tgt,
       });
 
-      expect(report.summary.skills).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
+      expect(report.summary.skills).toEqual({ copied: 0, skippedExisting: 0 });
       await expect(readFile(join(tgt, 'skills', 'mine', 'SKILL.md'))).rejects.toThrow();
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write a completed marker when the legacy config cannot be parsed', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'bad-config-marker-src-'));
+    try {
+      await writeFile(join(src, 'config.toml'), 'this is = = not valid toml [[[');
+      const plan = await detectMigration({ sourcePath: src });
+      expect(plan.hasConfig).toBe(true);
+
+      const report = await runMigration({
+        plan,
+        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+        source: src,
+        target: tgt,
+      });
+
+      expect(report.summary.config.sourceUnreadable).toBe(true);
+      await expect(readFile(join(src, '.migrated-to-kimi-code'), 'utf-8')).rejects.toThrow();
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write a completed marker when the legacy mcp.json cannot be parsed', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'bad-mcp-marker-src-'));
+    try {
+      await writeFile(join(src, 'mcp.json'), 'not json {{{');
+      const plan = await detectMigration({ sourcePath: src });
+
+      const report = await runMigration({
+        plan,
+        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+        source: src,
+        target: tgt,
+      });
+
+      expect(report.summary.mcp.sourceUnreadable).toBe(true);
+      await expect(readFile(join(src, '.migrated-to-kimi-code'), 'utf-8')).rejects.toThrow();
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write a completed marker when a session target is occupied by a foreign session', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'conflict-marker-src-'));
+    try {
+      const workdir = '/workspace/conflict-proj';
+      const uuid = 'conflict-session';
+      const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
+      await mkdir(join(bucket, uuid), { recursive: true });
+      await writeFile(join(src, 'kimi.json'), JSON.stringify({ work_dirs: [{ path: workdir }] }));
+      await writeFile(join(bucket, uuid, 'context.jsonl'), '{"role":"user","content":"hi"}\n');
+
+      const foreignDir = join(
+        tgt,
+        'sessions',
+        computeWorkdirBucket(workdir),
+        `ses_${uuid}`,
+      );
+      await mkdir(foreignDir, { recursive: true });
+      await writeFile(join(foreignDir, 'state.json'), '{}');
+
+      const plan = await detectMigration({ sourcePath: src });
+      const report = await runMigration({
+        plan,
+        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+        source: src,
+        target: tgt,
+      });
+
+      expect(report.summary.sessions.sessionsConflicts).toHaveLength(1);
+      await expect(readFile(join(src, '.migrated-to-kimi-code'), 'utf-8')).rejects.toThrow();
     } finally {
       await rm(src, { recursive: true, force: true });
     }
@@ -188,9 +262,11 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
         target: tgt,
       });
       // The credential must not be copied into the target.
-      await expect(readFile(join(tgt, 'credentials', 'kimi-code.json'), 'utf-8')).rejects.toThrow();
+      await expect(
+        readFile(join(tgt, 'credentials', 'kimi-code.json'), 'utf-8'),
+      ).rejects.toThrow();
       // The report tells the user to sign in again in kimi-code.
-      expect(report.notices.oauthLoginsRequiringRelogin).toContain('kimi-code.json');
+      expect(report.notices.oauthLoginsRequiringRelogin).toContain('kimi-code');
     } finally {
       await rm(src, { recursive: true, force: true });
     }

@@ -16,8 +16,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // Windows cold starts routinely exceed vitest's 5s default.
 vi.setConfig({ testTimeout: 30_000 });
 
-import { createKimiHarness } from '#/index';
-import type { KimiError, KimiHarness } from '#/index';
+import { createKimiHarness, KimiHarness } from '#/index';
+import type { KimiError } from '#/index';
 import { SDKRpcClientBase } from '#/rpc';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 
@@ -367,6 +367,45 @@ describe('KimiHarness.createSession transport link', () => {
     } finally {
       await harness.close();
     }
+  });
+
+  it('evaluates sessionStartedDynamicProperties at every session_started emission', async () => {
+    const records: TelemetryRecord[] = [];
+    const rpc = new StubRpc();
+    let flags = 'tower';
+    const harness = new KimiHarness(rpc, {
+      homeDir: '/tmp/home',
+      configPath: '/tmp/config.toml',
+      auth: { status: async () => ({ providers: [] }) } as never,
+      telemetry: recordingTelemetry(records),
+      ensureConfigFile: async () => undefined,
+      onClose: () => undefined,
+      sessionStartedDynamicProperties: () => ({ experimental_flags: flags }),
+    });
+
+    await harness.createSession({ id: 'ses_dynamic_one', workDir: '/tmp/work' });
+    flags = 'tower,wait_for';
+    await harness.createSession({ id: 'ses_dynamic_two', workDir: '/tmp/work' });
+    await harness.createSession({
+      id: 'ses_dynamic_three',
+      workDir: '/tmp/work',
+      sessionStartedProperties: { experimental_flags: 'caller_supplied' },
+    });
+
+    const started = records.filter((record) => record.event === 'session_started');
+    expect(started).toHaveLength(3);
+    expect(started[0]).toMatchObject({
+      sessionId: 'ses_dynamic_one',
+      properties: { experimental_flags: 'tower' },
+    });
+    expect(started[1]).toMatchObject({
+      sessionId: 'ses_dynamic_two',
+      properties: { experimental_flags: 'tower,wait_for' },
+    });
+    expect(started[2]).toMatchObject({
+      sessionId: 'ses_dynamic_three',
+      properties: { experimental_flags: 'tower,wait_for' },
+    });
   });
 
   it('emits session_fork with the forked session context', async () => {

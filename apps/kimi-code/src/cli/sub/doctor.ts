@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
+import { resolveConfigPath } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 import { z } from 'zod';
 
 import { t } from '#/i18n';
 import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
-import { getDataDir } from '#/utils/paths';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -112,7 +112,7 @@ async function runDoctorCommand(
 function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): ResolvedDoctorDeps {
   return {
     cwd: deps?.cwd ?? (() => process.cwd()),
-    defaultConfigPath: deps?.defaultConfigPath ?? (() => join(getDataDir(), 'config.toml')),
+    defaultConfigPath: deps?.defaultConfigPath ?? (() => resolveConfigPath({})),
     defaultTuiConfigPath: deps?.defaultTuiConfigPath ?? getTuiConfigPath,
     stdout: deps?.stdout ?? process.stdout,
     stderr: deps?.stderr ?? process.stderr,
@@ -122,9 +122,6 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
     validateConfigToml:
       deps?.validateConfigToml ??
       (async (text, filePath) => {
-        // Default v2 route: validate with the agent-core-v2 section registry
-        // instead of a whole-document schema. Loaded lazily so the v2 module
-        // graph stays off the doctor's startup path.
         const { validateConfigTomlV2 } = await import('../v2/validate-config');
         return validateConfigTomlV2(text, filePath);
       }),

@@ -1,9 +1,7 @@
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-
 import { isConfigStubOrMissing, isTuiStubOrMissing } from '../src/stub-detect.js';
 
 let dir: string;
@@ -20,7 +18,7 @@ describe('isConfigStubOrMissing', () => {
   });
 
   it('returns true when content matches DEFAULT_CONFIG_FILE_TEXT exactly', async () => {
-    // Verbatim from the removed v1 kimi-core package (harness/configs/toml.ts)
+    // From packages/kimi-core/src/harness/configs/toml.ts:42
     const stub =
       '# ~/.kimi-code/config.toml\n' +
       '# Runtime settings for Kimi Code.\n' +

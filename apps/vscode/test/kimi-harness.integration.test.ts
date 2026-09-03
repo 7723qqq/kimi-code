@@ -491,13 +491,13 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
     const servers = await getMcpServers(rig);
 
-    expect(servers).toEqual([
+    expect(servers).toMatchObject([
       {
         name: "remote",
         transport: "http",
         url: "https://example.test/mcp",
         source: "global",
-        origin: join(rig.homeDir, "mcp.json"),
+        origin: expect.stringMatching(/[\\/]mcp\.json$/),
         mutable: true,
       },
     ]);

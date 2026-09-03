@@ -1,5 +1,6 @@
 // node/vscode_extension/webview-ui/src/App.tsx
 import { useEffect, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { isPreflightError } from 'shared/errors';
 import type { UIStreamEvent, StreamError, ExtensionConfig } from 'shared/types';
 
@@ -18,7 +19,8 @@ import './styles/index.css';
 
 function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   const { processEvent, startNewConversation, sessionId } = useChatStore();
-  const { setMCPServers, setExtensionConfig, extensionConfig } = useSettingsStore();
+  const { setExtensionConfig, extensionConfig } = useSettingsStore();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
@@ -44,7 +46,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
 
   useEffect(() => {
     const unsubs = [
-      bridge.on(Events.MCPServersChanged, setMCPServers),
+      bridge.on(Events.MCPServersChanged, () => void queryClient.invalidateQueries({ queryKey: ['mcpServers'] })),
       bridge.on(Events.ExtensionConfigChanged, ({ config }: { config: ExtensionConfig }) =>
         setExtensionConfig(config),
       ),
@@ -58,7 +60,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [setMCPServers, setExtensionConfig, startNewConversation]);
+  }, [queryClient, setExtensionConfig, startNewConversation]);
 
   useEffect(() => {
     if (!extensionConfig.enableNewConversationShortcut) return;

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  AgentCron,
-  AgentGoal,
+  IAgentCronService,
+  IAgentGoalService,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -138,6 +138,7 @@ function makeFakeHarness() {
   const eventListeners = new Set<(event: DomainEvent) => void>();
   const profileState: { profileName: string | undefined } = { profileName: undefined };
 
+  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
   const agentServices = new Map<unknown, unknown>([
     [
       IAgentProfileService,
@@ -177,13 +178,13 @@ function makeFakeHarness() {
       },
     ],
     [IAgentTaskService, { list: vi.fn(() => []) }],
+    [IAgentCronService, { getNextFireTime: vi.fn(() => null) }],
+    [IAgentGoalService, goal],
     [
       IAgentScopeContext,
       makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
     ],
   ]);
-  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
-  const cron = { getNextFireTime: vi.fn(() => null) };
   const agent = fakeScope('main', agentServices);
 
   const sessionServices = new Map<unknown, unknown>([
@@ -193,11 +194,6 @@ function makeFakeHarness() {
       {
         list: vi.fn(() => []),
         handleOf: vi.fn(() => agent),
-        resolve: vi.fn((_context: unknown, capability: unknown) => {
-          if (capability === AgentGoal) return goal;
-          if (capability === AgentCron) return cron;
-          throw new Error('unexpected capability');
-        }),
       },
     ],
   ]);

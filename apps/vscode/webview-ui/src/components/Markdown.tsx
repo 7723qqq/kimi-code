@@ -1,5 +1,5 @@
 import { IconVideo } from '@tabler/icons-react';
-import { useRequest } from 'ahooks';
+import { useQuery } from '@tanstack/react-query';
 import React, { memo, useMemo, useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -146,8 +146,9 @@ function LocalImage({
   alt?: string;
   onPreview: (uri: string) => void;
 }) {
-  const { data } = useRequest(() => bridge.getImageDataUri(src), {
-    cacheKey: `local-image:${src}`,
+  const { data } = useQuery({
+    queryKey: ['localImage', src],
+    queryFn: () => bridge.getImageDataUri(src),
     staleTime: 10000,
   });
 

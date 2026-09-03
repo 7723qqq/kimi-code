@@ -1,9 +1,7 @@
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-
 import { writeReport } from '../src/report.js';
 import type { MigrationReport } from '../src/types.js';
 
@@ -35,16 +33,14 @@ describe('writeReport', () => {
           wroteTuiSibling: false,
           migratedHooks: 0,
           droppedHooks: 0,
+          sourceUnreadable: false,
+          deviceIdCopied: false,
           siblingContents: { providers: [], models: [], hooks: 0 },
         },
-        mcp: {
-          mergedServers: [],
-          keptNewForConflicts: [],
-          droppedServers: [],
-          wroteSiblingDueToConflict: false,
-        },
-        userHistory: { copied: 0, skippedExisting: 0, failures: [] },
-        skills: { copied: 0, skippedExisting: 0, failures: [] },
+        mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false, sourceUnreadable: false },
+        userHistory: { copied: 0, skippedExisting: 0 },
+        skills: { copied: 0, skippedExisting: 0 },
+        plans: { copied: 0, skippedExisting: 0 },
         sessions: {
           scope: 'all',
           bucketsScanned: 0,
@@ -58,7 +54,6 @@ describe('writeReport', () => {
           sessionsSkippedMalformed: 0,
           sessionsFailed: [],
           sessionsConflicts: [],
-          sessionsDebrisArchived: [],
         },
       },
       notices: {
@@ -67,6 +62,7 @@ describe('writeReport', () => {
         detectedPlugins: [],
         configConflictNotice: null,
         tuiConflictNotice: null,
+        plansCopiedNotice: null,
       },
     };
     await writeReport(tgt, report);

@@ -1,12 +1,13 @@
 
 import {
-  AgentCron,
   IAgentLifecycleService,
   MAIN_AGENT_ID,
   resumeSessionById,
   ensureMainAgent,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { IAgentCronService } from '@moonshot-ai/agent-core-v2/features/cron/cronService';
+import type { CronTask } from '@moonshot-ai/agent-core-v2/features/cron/cronTask';
 import { cronToHuman, parseCronExpression } from '@moonshot-ai/agent-core-v2/features/cron/internal/cron-expr';
 import { z } from 'zod';
 
@@ -81,13 +82,12 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         return;
       }
       const manager = handle.accessor.get(IAgentLifecycleService);
-      const mainContext = manager.get(MAIN_AGENT_ID);
-      const cron =
-        mainContext === undefined ? undefined : manager.resolve(mainContext, AgentCron);
+      const agentScope = manager.handleOf(MAIN_AGENT_ID);
+      const cron = agentScope?.accessor.get(IAgentCronService);
       const tasks =
         cron === undefined
           ? []
-          : cron.list().map((task) => {
+          : cron.list().map((task: CronTask) => {
               const next = cron.getNextFireForTask(task.id);
               let humanSchedule: string | undefined;
               try {
@@ -152,11 +152,18 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         return;
       }
       const manager = handle.accessor.get(IAgentLifecycleService);
-      let mainContext = manager.get(MAIN_AGENT_ID);
-      if (mainContext === undefined) {
-        mainContext = await ensureMainAgent(handle);
+      let agentScope = manager.handleOf(MAIN_AGENT_ID);
+      if (agentScope === undefined) {
+        await ensureMainAgent(handle);
+        agentScope = manager.handleOf(MAIN_AGENT_ID);
       }
-      const cronSvc = manager.resolve(mainContext, AgentCron);
+      const cronSvc = agentScope?.accessor.get(IAgentCronService);
+      if (cronSvc === undefined) {
+        reply.send(
+          errEnvelope(ErrorCode.INTERNAL_ERROR, `main agent cron service unavailable`, req.id),
+        );
+        return;
+      }
       const task = cronSvc.addTask({ cron, prompt, recurring: recurring ?? true });
       const next = cronSvc.getNextFireForTask(task.id);
       const taskWire = {
@@ -203,9 +210,8 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         return;
       }
       const manager = handle.accessor.get(IAgentLifecycleService);
-      const mainContext = manager.get(MAIN_AGENT_ID);
-      const cron =
-        mainContext === undefined ? undefined : manager.resolve(mainContext, AgentCron);
+      const agentScope = manager.handleOf(MAIN_AGENT_ID);
+      const cron = agentScope?.accessor.get(IAgentCronService);
       if (cron?.getTask(task_id) === undefined) {
         reply.send(
           errEnvelope(ErrorCode.TASK_NOT_FOUND, `cron task ${task_id} does not exist`, req.id),

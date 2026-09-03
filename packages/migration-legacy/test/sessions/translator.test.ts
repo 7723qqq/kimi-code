@@ -1,15 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { describe, expect, it } from 'vitest';
-
-import { extractToolCallDisplays } from '../../src/sessions/tool-call-display.js';
 import {
   translateContextLines,
   containsUsableMessage,
   analyzeContextContent,
+  extractLastUsageTokenCount,
 } from '../../src/sessions/translator.js';
+import { extractToolCallDisplays } from '../../src/sessions/tool-call-display.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
 
@@ -50,9 +49,7 @@ describe('translateContextLines', () => {
     const line = JSON.stringify({
       role: 'assistant',
       content: [{ type: 'text', text: 'ok' }],
-      tool_calls: [
-        { type: 'function', id: 'Shell:0', function: { name: 'Shell', arguments: '{}' } },
-      ],
+      tool_calls: [{ type: 'function', id: 'Shell:0', function: { name: 'Shell', arguments: '{}' } }],
     });
     const [msg] = translateContextLines([line]);
     expect(msg!.role).toBe('assistant');
@@ -99,7 +96,10 @@ describe('translateContextLines', () => {
   });
 
   it('skips malformed JSON lines silently and continues', () => {
-    const out = translateContextLines(['not-json-here', '{"role":"user","content":"ok"}']);
+    const out = translateContextLines([
+      'not-json-here',
+      '{"role":"user","content":"ok"}',
+    ]);
     expect(out).toHaveLength(1);
     expect(out[0]!.role).toBe('user');
   });
@@ -183,7 +183,38 @@ describe('analyzeContextContent', () => {
     // A mostly-broken file that still has one well-formed marker line is not
     // outright corrupt — treat it like an empty session.
     expect(
-      analyzeContextContent(['not-json', '{broken', '{"role":"_system_prompt","content":"x"}']),
+      analyzeContextContent([
+        'not-json',
+        '{broken',
+        '{"role":"_system_prompt","content":"x"}',
+      ]),
     ).toBe('empty');
+  });
+});
+
+describe('extractLastUsageTokenCount', () => {
+  it('returns the token_count of the last _usage row', () => {
+    expect(
+      extractLastUsageTokenCount([
+        '{"role":"_usage","token_count":100}',
+        '{"role":"user","content":"hi"}',
+        '{"role":"_usage","token_count":9133}',
+      ]),
+    ).toBe(9133);
+  });
+
+  it('returns undefined when no _usage row exists', () => {
+    expect(extractLastUsageTokenCount(['{"role":"user","content":"hi"}'])).toBeUndefined();
+  });
+
+  it('ignores malformed lines and non-numeric token_count values', () => {
+    expect(
+      extractLastUsageTokenCount([
+        'not-json',
+        '{"role":"_usage","token_count":"many"}',
+        '{"role":"_usage","token_count":-5}',
+        '{"role":"_usage"}',
+      ]),
+    ).toBeUndefined();
   });
 });

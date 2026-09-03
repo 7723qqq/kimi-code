@@ -10,7 +10,7 @@ import {
 } from '#/_base/errors/unexpectedError';
 import {
   WIRE_PROTOCOL_VERSION,
-  AgentGoal,
+  IAgentGoalService,
   type WireRecord,
   type PromptOrigin,
 } from '#/index';
@@ -195,6 +195,26 @@ describe('Agent resume', () => {
       expect(ctx.context.get()).not.toContainEqual(
         expect.objectContaining({ origin: { kind: 'injection', variant: 'interruption' } }),
       );
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('persists prompt terminal events as durable records so replays can reconcile the queue', async () => {
+    const persistence = new RecordingAgentPersistence([resumeConfigRecord()]);
+    const ctx = testAgent({ persistence, autoConfigure: false });
+
+    try {
+      await ctx.restorePersisted();
+      ctx.mockNextResponse({ type: 'text', text: 'done' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+      await ctx.untilTurnEnd();
+
+      await vi.waitFor(() => {
+        const types = persistence.appended.map((record) => record.type);
+        expect(types).toContain('prompt.accepted');
+        expect(types).toContain('prompt.completed');
+      });
     } finally {
       await ctx.dispose();
     }
@@ -776,7 +796,7 @@ describe('Agent resume', () => {
     try {
       await ctx.restorePersisted();
 
-      const goal = ctx.resolve(AgentGoal).getGoal().goal;
+      const goal = ctx.get(IAgentGoalService).getGoal().goal;
       expect(goal).toMatchObject({
         status: 'paused',
         wallClockMs: 7_000,
@@ -833,7 +853,7 @@ describe('Agent resume', () => {
     try {
       await ctx.restorePersisted();
 
-      expect(ctx.resolve(AgentGoal).getGoal().goal).toMatchObject({
+      expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
         status: 'paused',
         wallClockMs: 5_000,
       });

@@ -24,9 +24,13 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
+    "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "pathe": "^2.0.3",
     "smol-toml": "^1.6.1",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@moonshot-ai/transcript": "workspace:^"
   }
 }

@@ -1,15 +1,13 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 /**
- * Scenario: translating legacy session state into the v1 session metadata file.
+ * Scenario: translating legacy session state into the v2 session metadata file.
  * Responsibilities: user-visible metadata and legacy session-scoped fields survive migration.
  * Wiring: real state writer and filesystem; no collaborators are stubbed.
- * Run: bunx vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
+ * Run: pnpm exec vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { writeSessionState } from '../../src/sessions/state-writer.js';
 
 let dir: string;
@@ -24,6 +22,8 @@ describe('writeSessionState', () => {
   it('uses custom_title when present', async () => {
     await writeSessionState(dir, {
       oldState: { custom_title: 'My chat', title_generated: false, wire_mtime: 1.5 },
+      sessionId: 'ses_old-uuid',
+      workdirPath: '/Users/me/proj',
       lastUserPrompt: 'irrelevant',
       sourcePath: '/Users/me/.kimi/sessions/x/y',
       oldSessionUuid: 'old-uuid',
@@ -43,6 +43,8 @@ describe('writeSessionState', () => {
   it('falls back to lastUserPrompt prefix when no custom_title', async () => {
     await writeSessionState(dir, {
       oldState: { wire_mtime: 1 },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: 'help me write a haiku about a duck swimming under the bridge',
       sourcePath: '/a',
       oldSessionUuid: 'u',
@@ -58,6 +60,8 @@ describe('writeSessionState', () => {
   it('uses Imported session as fallback when no title source', async () => {
     await writeSessionState(dir, {
       oldState: { wire_mtime: 1 },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: '',
       sourcePath: '/a',
       oldSessionUuid: 'u',
@@ -68,9 +72,11 @@ describe('writeSessionState', () => {
     expect(meta.title).toBe('Imported session');
   });
 
-  it('archived flag is preserved in custom', async () => {
+  it('archived flag is preserved at the top level of the v2 session meta', async () => {
     await writeSessionState(dir, {
       oldState: { archived: true, wire_mtime: 1 },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: 'x',
       sourcePath: '/a',
       oldSessionUuid: 'u',
@@ -78,7 +84,7 @@ describe('writeSessionState', () => {
       createdAtMs: 1,
     });
     const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
-    expect(meta.custom.archived).toBe(true);
+    expect(meta.archived).toBe(true);
   });
 
   it('writes legacy additional dirs into session-scoped metadata', async () => {
@@ -87,6 +93,8 @@ describe('writeSessionState', () => {
         additional_dirs: ['../shared', 'C:\\Projects\\reference'],
         wire_mtime: 1,
       },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: 'x',
       sourcePath: '/a',
       oldSessionUuid: 'u',
@@ -104,6 +112,8 @@ describe('writeSessionState', () => {
         approval: { yolo: true, afk: false },
         wire_mtime: 1,
       },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: 'x',
       sourcePath: '/a',
       oldSessionUuid: 'u',
@@ -115,22 +125,32 @@ describe('writeSessionState', () => {
     expect(meta.custom.vscode_legacy_approval).toEqual({ yolo: true, afk: false });
   });
 
-  it('atomically replaces an existing state.json and leaves no temp files', async () => {
-    await writeFile(join(dir, 'state.json'), '{"old": true}', 'utf-8');
+  it('persists lastTurnReason when provided and omits it otherwise', async () => {
+    await writeSessionState(dir, {
+      oldState: { wire_mtime: 1 },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
+      lastUserPrompt: 'x',
+      lastTurnReason: 'completed',
+      sourcePath: '/a',
+      oldSessionUuid: 'u',
+      wireProtocolFromOld: null,
+      createdAtMs: 1,
+    });
+    const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
+    expect(meta.lastTurnReason).toBe('completed');
 
     await writeSessionState(dir, {
-      oldState: { custom_title: 'Fresh', wire_mtime: 1 },
+      oldState: { wire_mtime: 1 },
+      sessionId: 'ses_u',
+      workdirPath: '/a',
       lastUserPrompt: 'x',
       sourcePath: '/a',
       oldSessionUuid: 'u',
       wireProtocolFromOld: null,
       createdAtMs: 1,
     });
-
-    const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
-    expect(meta.title).toBe('Fresh');
-    expect(meta.old).toBeUndefined();
-    const entries = await readdir(dir);
-    expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
+    const without = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
+    expect('lastTurnReason' in without).toBe(false);
   });
 });

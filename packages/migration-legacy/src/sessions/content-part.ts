@@ -3,18 +3,9 @@ import { existsSync } from 'node:fs';
 export type NormalizedContentPart =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'think'; readonly think: string; readonly encrypted?: string }
-  | {
-      readonly type: 'image_url';
-      readonly imageUrl: { readonly url: string; readonly id?: string };
-    }
-  | {
-      readonly type: 'audio_url';
-      readonly audioUrl: { readonly url: string; readonly id?: string };
-    }
-  | {
-      readonly type: 'video_url';
-      readonly videoUrl: { readonly url: string; readonly id?: string };
-    };
+  | { readonly type: 'image_url'; readonly imageUrl: { readonly url: string; readonly id?: string } }
+  | { readonly type: 'audio_url'; readonly audioUrl: { readonly url: string; readonly id?: string } }
+  | { readonly type: 'video_url'; readonly videoUrl: { readonly url: string; readonly id?: string } };
 
 export function normalizeContentPart(part: unknown): NormalizedContentPart {
   if (typeof part !== 'object' || part === null) {
@@ -42,9 +33,22 @@ export function normalizeContentPart(part: unknown): NormalizedContentPart {
     case 'video':
       return convertMediaPart('video', 'video_url', 'videoUrl', p);
 
+    case 'image_url':
+      return convertMediaPart('image', 'image_url', 'imageUrl', asMediaRecord(p['image_url']));
+    case 'audio_url':
+      return convertMediaPart('audio', 'audio_url', 'audioUrl', asMediaRecord(p['audio_url']));
+    case 'video_url':
+      return convertMediaPart('video', 'video_url', 'videoUrl', asMediaRecord(p['video_url']));
+
     default:
       return { type: 'text', text: `[unsupported content: ${JSON.stringify(part)}]` };
   }
+}
+
+function asMediaRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 /** Safely coerce an unknown value to string for text fields. Avoids

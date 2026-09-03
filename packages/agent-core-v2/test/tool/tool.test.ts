@@ -14,7 +14,6 @@ import type { TokenUsage } from '#/kosong/contract/usage';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { reminderAgentRuntimeProvider, AgentReminder } from '#/features/reminder/reminderAgentRuntime';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -36,14 +35,14 @@ import {
   type SubagentToolInput,
 } from '#/agent/tools/agent/agent';
 import {
-  FORK_CONTEXT_NOTICE,
   FORK_EXPERIMENTAL_UNAVAILABLE,
   FORK_WITH_MODEL_UNAVAILABLE,
   FORK_WITH_RESUME_UNAVAILABLE,
   FORK_WITH_TYPE_UNAVAILABLE,
 } from '#/session/subagent/spawn';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID, SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
@@ -99,21 +98,8 @@ import {
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../agent/agentContext/stubs';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { ManagedAgent } from '#/session/agentLifecycle/managedAgent';
-import { AgentTodo, todoAgentRuntimeProvider } from '#/features/todo/todoAgentRuntime';
-import { AgentInteraction, interactionAgentRuntimeProvider } from '#/features/interaction/interactionAgentRuntime';
-import { AgentCron, cronAgentRuntimeProvider } from '#/features/cron/cronAgentRuntime';
-import { AgentGoal, goalAgentRuntimeProvider } from '#/features/goal/goalAgentRuntime';
-import { AgentSkill, skillAgentRuntimeProvider } from '#/features/skill/skillAgentRuntime';
 
 const signal = new AbortController().signal;
-
-function secondaryModelFlags(enabled = true): TestAgentServiceOverride {
-  return appService(
-    IFlagService,
-    stubFlag((id) => enabled && id === SECONDARY_MODEL_FLAG_ID),
-  );
-}
 
 function forkFlags(enabled = true): TestAgentServiceOverride {
   return appService(
@@ -236,7 +222,6 @@ interface AgentLifecycleStub extends IAgentLifecycleService, ISessionSubagentSer
   readonly run: ReturnType<typeof vi.fn<ISessionSubagentService['run']>>;
   readonly get: ReturnType<typeof vi.fn<IAgentLifecycleService['get']>>;
   readonly publishedEvents: Event2[];
-  restoreRuntimes(agent: AgentContext): Promise<void>;
   addHandle(
     agentId: string,
     profileName: string,
@@ -253,7 +238,6 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
   const handles = new Map<string, IAgentScopeHandle>();
   const servicesByAgentId = new Map(options.handleServices);
   const contextsByAgentId = new Map<string, AgentContext>();
-  let adoptedManaged: ManagedAgent | undefined;
   const publishedEvents: Event2[] = [];
   const contextFor = (agentId: string): AgentContext => {
     let context = contextsByAgentId.get(agentId);
@@ -324,6 +308,14 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
             inheritUserTools: () => {},
             register: () => {},
             unregister: () => {},
+          } as never;
+        }
+        if (serviceId === IAgentReminderService) {
+          return {
+            _serviceBrand: undefined,
+            register: () => noopDisposable(),
+            notify: () => {},
+            reconcileWhenIdle: () => Promise.resolve(),
           } as never;
         }
         if (serviceId === IEventBus) {
@@ -429,71 +421,10 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     get: vi.fn((agentId: string) => contextsByAgentId.get(agentId)),
     handleOf: vi.fn((agentId: string) => handles.get(agentId)),
     list: vi.fn(() => [...handles.keys()].map((agentId) => contextFor(agentId))),
-    resolve: vi.fn(((agent, definition) => {
-      if (adoptedManaged !== undefined && adoptedManaged.context.agentId === agent.agentId) {
-        return adoptedManaged.runtimeSet.resolve(definition);
-      }
-      throw new Error('unexpected resolve');
-    }) as IAgentLifecycleService['resolve']),
-    inspect: vi.fn((agent) => {
-      if (adoptedManaged !== undefined && adoptedManaged.context.agentId === agent.agentId) {
-        return {
-          identity: { agentId: agent.agentId, generation: agent.generation },
-          contributions: adoptedManaged.runtimeSet.inspect(),
-        };
-      }
-      throw new Error('unexpected inspect');
-    }),
     adopt: vi.fn((adopted) => {
       const adoptedHandle = adopted as IAgentScopeHandle;
       handles.set(adoptedHandle.id, adoptedHandle);
-      adoptedManaged = new ManagedAgent(agentContextOf(adoptedHandle), adoptedHandle, [
-        {
-          definition: AgentReminder,
-          provider: reminderAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-        {
-          definition: AgentTodo,
-          provider: todoAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-        {
-          definition: AgentInteraction,
-          provider: interactionAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-        {
-          definition: AgentCron,
-          provider: cronAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-        {
-          definition: AgentGoal,
-          provider: goalAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-        {
-          definition: AgentSkill,
-          provider: skillAgentRuntimeProvider,
-          generation: 1,
-          active: true,
-        },
-      ]);
-      return adoptedManaged.context;
-    }),
-    attachRuntimes: vi.fn(() => {
-      adoptedManaged?.attachDurableRuntimes();
-    }),
-    restoreRuntimes: vi.fn(async (agent) => {
-      const managed = adoptedManaged;
-      if (managed === undefined || managed.context.agentId !== agent.agentId) return;
-      await managed.runtimeSet.restore();
+      return agentContextOf(adoptedHandle);
     }),
     broadcastPermissionMode: vi.fn(),
     remove: vi.fn(async (agent) => {
@@ -1042,7 +973,7 @@ describe('Agent tool description', () => {
   });
 
   it('renders the pool in config order with the default first and a generic primary line', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1067,7 +998,7 @@ describe('Agent tool description', () => {
   });
 
   it('lists the caller-in-pool alias with a [main model] marker and renders empty descriptions bare', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1090,7 +1021,7 @@ describe('Agent tool description', () => {
   });
 
   it('marks the caller-as-default alias with both [default] and [main model]', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'mock-model',
@@ -1130,7 +1061,7 @@ describe('Agent tool description', () => {
   });
 
   it('advertises the model parameter when a pool is configured', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1149,13 +1080,9 @@ describe('Agent tool description', () => {
     expect(properties['model']?.enum).toBeUndefined();
   });
 
-  it('strips the model parameter and pool description while the experiment is off', () => {
-    ctx = createTestAgent(secondaryModelFlags(false), {
+  it('strips the model parameter and pool description when no pool is configured', () => {
+    ctx = createTestAgent({
       initialConfig: {
-        secondaryModel: {
-          defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
-        },
         models: POOL_MODEL_ENTRIES,
       },
     });
@@ -1166,7 +1093,7 @@ describe('Agent tool description', () => {
   });
 
   it('treats a pool-less default_model as an implicit single-entry pool', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: { defaultModel: 'provider/fast' },
         models: POOL_MODEL_ENTRIES,
@@ -1182,7 +1109,7 @@ describe('Agent tool description', () => {
   });
 
   it('hides the model parameter and the pool description when force is set', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: { defaultModel: 'provider/fast', force: true },
         models: POOL_MODEL_ENTRIES,
@@ -1569,8 +1496,7 @@ describe('Agent tool execution contract', () => {
     const [runAgent, runRequest] = lifecycle.run.mock.calls[0]!;
     expect(runAgent).toMatchObject({ agentId: 'agent-child' });
     const runPrompt = runRequest.kind === 'prompt' ? runRequest.prompt : '';
-    expect(runPrompt).toContain(FORK_CONTEXT_NOTICE);
-    expect(runPrompt).toContain('Continue the analysis');
+    expect(runPrompt).toBe('Continue the analysis');
   });
 
   it('forks without requiring the caller profile in the catalog', async () => {
@@ -1644,7 +1570,7 @@ describe('Agent tool execution contract', () => {
     const created = telemetryRecords.filter((record) => record.event === 'subagent_created');
     expect(created.length).toBeGreaterThan(0);
     for (const record of created) {
-      expect(record.properties).toMatchObject({ fork: true });
+      expect(record.properties).toMatchObject({ fork: true, model_source: 'inherited' });
     }
   });
 
@@ -1702,7 +1628,7 @@ describe('Agent tool execution contract', () => {
 
   it('spawns the subagent on the pool default model when the tool call omits model', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1735,7 +1661,7 @@ describe('Agent tool execution contract', () => {
 
   it('spawns on the caller model when the tool call opts into "primary"', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1764,7 +1690,7 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child', 'agent-child-2'],
     });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1800,7 +1726,7 @@ describe('Agent tool execution contract', () => {
 
   it('spawns on the pool alias chosen via the model parameter', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1827,7 +1753,7 @@ describe('Agent tool execution contract', () => {
 
   it('rejects a model choice outside the pool, listing the available models', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1870,7 +1796,7 @@ describe('Agent tool execution contract', () => {
 
   it('binds the forced default_model and rejects any explicit choice, "primary" included', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: { defaultModel: 'provider/fast', force: true },
       },
@@ -1898,7 +1824,7 @@ describe('Agent tool execution contract', () => {
 
   it('rejects a pool that gained the reserved "primary" key through a runtime config edit', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -1932,7 +1858,6 @@ describe('Agent tool execution contract', () => {
     const context = createAgentToolContext(
       lifecycle,
       modelProviderServices(modelCatalogResolving('mock-model', 'provider/bad')),
-      secondaryModelFlags(),
       {
         initialConfig: {
           secondaryModel: { defaultModel: 'provider/bad', models: { 'provider/bad': 'broken' } },
@@ -1954,7 +1879,7 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub({
       createError: new Error('MCP server failed to start'),
     });
-    const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
+    const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: { defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } },
       },
@@ -2035,6 +1960,7 @@ describe('Agent tool execution contract', () => {
       parentToolCallId: 'call_agent',
       runInBackground: false,
       model: 'provider/secondary',
+      modelSource: 'secondary_pool',
     });
     await mirrorAgentRun(
       requester,
@@ -2064,6 +1990,7 @@ describe('Agent tool execution contract', () => {
         fork: false,
         agent_id: 'agent-child',
         model: 'provider/secondary',
+        model_source: 'secondary_pool',
         parent_agent_id: 'main',
         parent_tool_call_id: 'call_agent',
       },
@@ -2859,7 +2786,7 @@ describe('AgentSwarm tool description', () => {
   });
 
   it('renders the configured pool with the default marker and a generic primary line', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -2893,7 +2820,7 @@ describe('AgentSwarm tool description', () => {
   });
 
   it('advertises the model parameter when a pool is configured', () => {
-    ctx = createTestAgent(secondaryModelFlags(), {
+    ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
@@ -2968,7 +2895,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
         },
         {
           kind: 'spawn',
@@ -2982,7 +2909,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
         },
       ],
     });
@@ -3017,7 +2944,6 @@ describe('AgentSwarm tool execution contract', () => {
     };
     ctx = createTestAgent(
       swarmServices(swarmService),
-      secondaryModelFlags(),
       {
         initialConfig: {
           secondaryModel: {
@@ -3046,11 +2972,11 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
+            plan: { profileName: 'explore', model: 'provider/fast', modelSource: 'secondary_pool', thinking: undefined, fork: false },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', thinking: undefined, fork: false },
+            plan: { profileName: 'explore', model: 'provider/fast', modelSource: 'secondary_pool', thinking: undefined, fork: false },
           }),
         ],
       }),
@@ -3078,7 +3004,6 @@ describe('AgentSwarm tool execution contract', () => {
     };
     ctx = createTestAgent(
       swarmServices(swarmService),
-      secondaryModelFlags(),
       {
         initialConfig: {
           secondaryModel: {
@@ -3108,11 +3033,11 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
           }),
         ],
       }),
@@ -3231,7 +3156,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', thinking: 'off', fork: false },
+          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
         },
       ],
     });
@@ -3862,7 +3787,7 @@ describe('Agent tools', () => {
     });
 
     it('routes registered user tools through tool.call request/response', async () => {
-      await ctx.restoreRuntimes();
+      await ctx.restorePersisted();
       ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
       expect(
@@ -3876,8 +3801,8 @@ describe('Agent tools', () => {
         [wire] prompt.accepted             { "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Look up moon" } ], "time": "<time>" }
         [emit] prompt.accepted             { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Look up moon" } ] }
         [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up moon" } ], "createdAt": "<time>" }
-        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "origin": { "kind": "user" }, "prompt": "Look up moon" }
+        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "time": "<time>" }
+        [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Look up moon" }
         [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
         [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ] }
         [emit] prompt.started              { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
@@ -3953,12 +3878,13 @@ describe('Agent tools', () => {
         [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "lastTurn": { "turnId": 0, "reason": "completed", "at": "<time>" }, "background": [], "agentId": "main" }
         [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 176 }
         [wire] tools.unregister_user_tool     { "agentId": "main", "name": "Lookup", "time": "<time>" }
+        [wire] prompt.completed               { "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed", "time": "<time>" }
         [emit] prompt.completed               { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed" }
         [wire] prompt.accepted                { "agentId": "main", "promptId": "<msg-2>", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "time": "<time>" }
         [emit] prompt.accepted                { "time": "<time>", "agentId": "main", "promptId": "<msg-2>", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ] }
         [emit] prompt.submitted               { "time": "<time>", "agentId": "main", "promptId": "<msg-2>", "userMessageId": "<msg-2>", "status": "running", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "createdAt": "<time>" }
-        [wire] turn.prompt                    { "agentId": "main", "input": [ { "type": "text", "text": "Can you still use Lookup?" } ], "origin": { "kind": "user" }, "time": "<time>" }
-        [emit] turn.started                   { "time": "<time>", "agentId": "main", "turnId": 1, "origin": { "kind": "user" }, "prompt": "Can you still use Lookup?" }
+        [wire] turn.prompt                    { "agentId": "main", "input": [ { "type": "text", "text": "Can you still use Lookup?" } ], "origin": { "kind": "user" }, "promptId": "<msg-2>", "time": "<time>" }
+        [emit] turn.started                   { "time": "<time>", "agentId": "main", "turnId": 1, "promptId": "<msg-2>", "origin": { "kind": "user" }, "prompt": "Can you still use Lookup?" }
         [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
         [emit] context.spliced                { "time": "<time>", "agentId": "main", "start": 5, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-2>" } ] }
         [emit] prompt.started                 { "time": "<time>", "agentId": "main", "promptId": "<msg-2>" }

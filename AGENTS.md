@@ -37,7 +37,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | Primary language | **TypeScript** 6.0.2 (strict mode) |
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
-| Published CLI runtime | **Node.js** >= 22.19.0 (`engines` floor of the published package; unchanged by the dev-toolchain migration) |
+| Published CLI runtime | **Bun** >= 1.4 (`engines` of the published app and native packages — `bun build --compile` single-file binaries). Upstream's `node >= 22.19.0` floor is deliberately not carried in this fork |
 | Native code | **Rust** (via napi-rs for Node addon, pure Rust CLI tools) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
@@ -222,7 +222,7 @@ scripts/
 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
 - **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
-- **Published package engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致的消费者契约），不随本次开发工具链迁移变化。
+- **Published package engines**: 发布包与 native 包的 `engines` 一律是 `bun >= 1.4`（`apps/kimi-code`、`packages/kimi-native-tools`、`packages/pi-tui`），全仓没有任何 Node 下限。合并上游时**不要把 Node 侧工具链内容拉回来** —— `pnpm-lock.yaml`、`engines.node`、Node-only 脚本、SEA 构建步骤、装 Node 的 CI job 一律拒绝，相关需求在 Bun 上重新表达。两个例外：self-update 仍要能识别*已装好的* legacy SEA 安装（只读兼容，不再产出 SEA 产物）；`packages/node-sdk` 是产品 SDK 的包名，不属于工具链。
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -454,6 +454,17 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ---
 
+## Upstream Merge Policy
+
+Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is the source of truth for product behavior; the fork keeps only four kinds of delta: i18n, the Rust engine / native-tools gate, `packages/kimi-agent`, and the Bun toolchain. Anything else in the fork's `HEAD` side of a conflict is legacy and should lose.
+
+- **Upstream `agent-core` (v1) / `agent-core-v2` engine behavior lands in Rust, not in TS.** Resolve the TS conflict by taking `theirs` so the TS build and tests stay faithful to upstream's shape, then register the behavior delta as a work item in `packages/kimi-agent/ROADMAP.md`. Do not re-implement new upstream engine behavior in TS — that builds the thing being retired. Gate proving it: `(cd packages/agent-core-v2 && bun run check:engine-zero-js-loop)` must stay green after every engine batch.
+- **Node-side toolchain content is never pulled back** — see Environment Requirements above. Audit the **auto-merged index**, not just conflicted files: git merges `package.json`, `flake.nix`, `vitest.config.ts`, and `.github/workflows` without asking, so a Node floor or a pnpm job can land silently.
+- **Fork-only files upstream deletes stay deleted only when the fork's coupling is migrated.** A modify/delete conflict is not resolved by `git rm` alone — grep the removed module for importers first; fork-only importers (absent from both base and upstream) mean the fork built on top of it and needs a new home.
+- `packages/node-sdk` is `@moonshot-ai/kimi-code-sdk`, the internal SDK seam used by `apps/kimi-code` and `apps/vscode`. Its directory name refers to its Node runtime target; it is product surface, not toolchain.
+
+---
+
 ## Version Management (Changesets)
 
 - **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
@@ -468,8 +479,8 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Experimental Features
 
-- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
-- Flags are env-driven; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`, the minidb read-model flag defaulted to `true` before its gating was removed):
+- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand; see `packages/agent-core-v2/docs/flag.md`), then check it with `flags.enabled('my-feature')` (or `IFlagService.enabled(id)` inside services).
+- Flags are env-driven; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`). Precedence is per-flag env > `[experimental]` config > master env > the flag's `default` — an explicit `[experimental]` entry in `config.toml` overrides the `KIMI_CODE_EXPERIMENTAL_FLAG` master switch:
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
 - Release by flipping the flag's `default` to `true`.

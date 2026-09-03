@@ -1,5 +1,6 @@
 import { IconFolder, IconFolderOpen, IconCheck, IconHome } from '@tabler/icons-react';
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -22,14 +23,13 @@ export function WorkDirModal() {
     setCurrentWorkDir,
   } = useSettingsStore();
   const { startNewConversation } = useChatStore();
-  const [workDirs, setWorkDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (workDirModalOpen) {
-      void bridge.getRegisteredWorkDirs().then(setWorkDirs);
-    }
-  }, [workDirModalOpen]);
+  const { data: workDirs = [], isPending, isError } = useQuery({
+    queryKey: ["registeredWorkDirs"],
+    queryFn: () => bridge.getRegisteredWorkDirs(),
+    enabled: workDirModalOpen,
+  });
 
   const handleSelect = async (dir: string | null) => {
     setLoading(true);
@@ -78,7 +78,12 @@ export function WorkDirModal() {
         </DialogHeader>
 
         <div className="space-y-1 max-h-64 overflow-y-auto -mx-1 px-1">
-          {workDirs.map((dir) => (
+          {isPending ? (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading…</div>
+          ) : isError ? (
+            <div className="px-3 py-8 text-center text-xs text-destructive">Failed to load working directories</div>
+          ) : (
+            workDirs.map((dir) => (
             <button
               key={dir}
               onClick={() => {
@@ -102,7 +107,8 @@ export function WorkDirModal() {
                 <span className="text-xs text-muted-foreground">(root)</span>
               )}
             </button>
-          ))}
+            ))
+          )}
         </div>
 
         <DialogFooter className="sm:justify-between gap-2">

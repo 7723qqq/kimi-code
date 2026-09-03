@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 79 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 82 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -59,6 +59,7 @@
 //     contextMemory                                   src/agent/contextMemory/contextOps.ts
 //     contextProjector.lastRepairSignature            src/agent/contextProjector/contextProjectorService.ts
 //     externalHooks.stopHookContinuationUsed          src/features/externalHooks/agent/agentExternalHooksService.ts
+//     fileHistory                                     src/features/fileHistory/fileHistoryOps.ts
 //     fullCompaction                                  src/agent/fullCompaction/compactionOps.ts
 //     fullCompaction.activeTurnId                     src/agent/fullCompaction/fullCompactionService.ts
 //     fullCompaction.compactionCountInTurn            src/agent/fullCompaction/fullCompactionService.ts
@@ -96,6 +97,7 @@
 //     profile.emittedToolPatternWarnings              src/agent/profile/profileService.ts
 //     prompt.launching                                src/agent/prompt/promptService.ts
 //     promptAdmission                                 src/agent/prompt/promptOps.ts
+//     promptResolution                                src/agent/prompt/promptService.ts
 //     runtime.binding                                 src/agent/runtimeBinding/runtimeBindingService.ts
 //     runtimeBinding                                  src/agent/runtimeBinding/runtimeBindingOps.ts
 //     shellCommand.tasks                              src/agent/shellCommand/shellCommandService.ts
@@ -123,6 +125,7 @@
 //     toolExecutor.toolCallDupTypes                   src/agent/toolExecutor/toolExecutorService.ts
 //     toolSelect.pendingLoaded                        src/agent/toolSelect/toolSelectService.ts
 //     tower                                           src/features/tower/towerOps.ts
+//     tower.base                                      src/features/tower/towerOps.ts
 //     tower.owner                                     src/features/tower/towerOps.ts
 //     turn                                            src/agent/loop/turnOps.ts
 //     userTool                                        src/agent/userTool/userToolOps.ts
@@ -1338,6 +1341,8 @@ export interface AgentStateSnapshot {
   'promptAdmission': Map<string, true>;
   // src/agent/prompt/promptService.ts
   'prompt.launching': boolean;
+  // replayable · durable — folds: PromptCompleted, PromptAborted, PromptSteered
+  'promptResolution': Map<string, true>;
   // src/agent/runtimeBinding/runtimeBindingOps.ts
   // replayable · durable — folds: RuntimeSetBinding
   'runtimeBinding': /* RuntimeBinding — packages/agent-core-v2/src/runtime/runtime.ts */ {
@@ -1487,6 +1492,23 @@ export interface AgentStateSnapshot {
   }>;
   // src/features/externalHooks/agent/agentExternalHooksService.ts
   'externalHooks.stopHookContinuationUsed': boolean;
+  // src/features/fileHistory/fileHistoryOps.ts
+  // replayable · durable — folds: FileHistoryCheckpointed, FileHistoryTracked
+  'fileHistory': /* FileHistoryState — packages/agent-core-v2/src/features/fileHistory/fileHistory.ts */ {
+    readonly checkpoints: readonly /* FileHistoryCheckpointRecord — packages/agent-core-v2/src/features/fileHistory/fileHistory.ts */ {
+      readonly turnId: number;
+      readonly phase?: 'start' | 'end';
+      readonly entries: Readonly<Record<string, /* FileBackupEntry — packages/agent-core-v2/src/features/fileHistory/fileHistory.ts */ {
+        readonly key: string | null;
+        readonly version: number;
+        readonly contentHash?: string;
+        readonly size?: number;
+        readonly oversize?: boolean;
+        readonly mtimeMs?: number;
+      }>>;
+    }[];
+    readonly tracked: readonly string[];
+  };
   // src/features/plan/injection/planModeInjection.ts
   'plan.wasActive': boolean;
   // src/features/plan/planOps.ts
@@ -1505,6 +1527,8 @@ export interface AgentStateSnapshot {
   // src/features/tower/towerOps.ts
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower': boolean;
+  // replayable · durable — folds: TowerModeEnter, TowerModeExit
+  'tower.base': string | null;
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower.owner': string | undefined;
 }

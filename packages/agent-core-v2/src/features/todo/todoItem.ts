@@ -4,9 +4,9 @@ export type TodoStatus = 'pending' | 'in_progress' | 'done';
 export type TodoKind = 'milestone' | 'task';
 
 export interface TodoItem {
-  readonly id: string;
-  readonly parentId: string | null;
-  readonly kind: TodoKind;
+  readonly id?: string;
+  readonly parentId?: string | null;
+  readonly kind?: TodoKind;
   readonly title: string;
   readonly status: TodoStatus;
   readonly progress?: number;
@@ -86,7 +86,7 @@ export function computeTodoProgress(todos: readonly TodoItem[]): TodoProgressRep
   }
   const childrenOf = new Map<string, TodoItem[]>();
   for (const todo of todos) {
-    if (todo.parentId === null) continue;
+    if (!todo.parentId) continue;
     const list = childrenOf.get(todo.parentId) ?? [];
     list.push(todo);
     childrenOf.set(todo.parentId, list);
@@ -94,11 +94,11 @@ export function computeTodoProgress(todos: readonly TodoItem[]): TodoProgressRep
   const byId = new Map<string, number>();
   for (const todo of todos) {
     if (todo.kind === 'milestone') continue;
-    byId.set(todo.id, leafProgress(todo));
+    if (todo.id) byId.set(todo.id, leafProgress(todo));
   }
   const milestones = todos.filter((todo) => todo.kind === 'milestone');
   if (milestones.length === 0) {
-    const values = todos.map((todo) => byId.get(todo.id) ?? 0);
+    const values = todos.map((todo) => (todo.id ? byId.get(todo.id) ?? 0 : leafProgress(todo)));
     return {
       overall: mean(values),
       done: todos.filter((todo) => todo.status === 'done').length,
@@ -108,16 +108,17 @@ export function computeTodoProgress(todos: readonly TodoItem[]): TodoProgressRep
   }
   const milestoneValues: number[] = [];
   for (const milestone of milestones) {
+    if (!milestone.id) continue;
     const children = childrenOf.get(milestone.id) ?? [];
     const value =
       children.length === 0
         ? leafProgress(milestone)
-        : mean(children.map((child) => byId.get(child.id) ?? 0));
+        : mean(children.map((child) => (child.id ? byId.get(child.id) ?? 0 : 0)));
     byId.set(milestone.id, value);
     milestoneValues.push(value);
   }
   const done = todos.filter((todo) =>
-    todo.kind === 'milestone' ? (byId.get(todo.id) ?? 0) >= 100 : todo.status === 'done',
+    todo.kind === 'milestone' ? (todo.id ? (byId.get(todo.id) ?? 0) >= 100 : false) : todo.status === 'done',
   ).length;
   return {
     overall: mean(milestoneValues),
@@ -144,9 +145,9 @@ export function renderTodoList(todos: readonly TodoItem[], title = 'Current todo
   }
   const report = computeTodoProgress(todos);
   const childrenOf = new Map<string, TodoItem[]>();
-  const known = new Set(todos.map((todo) => todo.id));
+  const known = new Set(todos.map((todo) => todo.id).filter((id): id is string => id !== undefined && id !== ''));
   for (const todo of todos) {
-    if (todo.parentId === null || !known.has(todo.parentId)) continue;
+    if (!todo.parentId || !known.has(todo.parentId)) continue;
     const list = childrenOf.get(todo.parentId) ?? [];
     list.push(todo);
     childrenOf.set(todo.parentId, list);
@@ -154,7 +155,7 @@ export function renderTodoList(todos: readonly TodoItem[], title = 'Current todo
   const lines: string[] = [
     `${title} (overall ${report.done}/${report.total} · ${report.overall}%)`,
   ];
-  const roots = todos.filter((todo) => todo.parentId === null || !known.has(todo.parentId));
+  const roots = todos.filter((todo) => !todo.parentId || !known.has(todo.parentId));
   for (const root of roots) {
     renderTreeLine(root, childrenOf, report.byId, 0, lines);
   }
@@ -169,12 +170,15 @@ function renderTreeLine(
   lines: string[],
 ): void {
   const indent = '  '.repeat(depth + 1);
-  const progress = byId.get(item.id) ?? 0;
+  const idStr = item.id ? `${item.id}: ` : '';
+  const progress = item.id ? byId.get(item.id) ?? 0 : leafProgress(item);
   const status = effectiveStatus(item, progress);
   const suffix = progressSuffix(item, childrenOf, progress);
-  lines.push(`${indent}${statusMarker(status)} ${item.id}: ${item.title}${suffix}`);
-  for (const child of childrenOf.get(item.id) ?? []) {
-    renderTreeLine(child, childrenOf, byId, depth + 1, lines);
+  lines.push(`${indent}${statusMarker(status)} ${idStr}${item.title}${suffix}`);
+  if (item.id) {
+    for (const child of childrenOf.get(item.id) ?? []) {
+      renderTreeLine(child, childrenOf, byId, depth + 1, lines);
+    }
   }
 }
 
@@ -191,7 +195,7 @@ function progressSuffix(
   progress: number,
 ): string {
   if (item.kind === 'milestone') {
-    const children = childrenOf.get(item.id) ?? [];
+    const children = item.id ? childrenOf.get(item.id) ?? [] : [];
     const done = children.filter((child) => child.status === 'done').length;
     return ` (${done}/${children.length} · ${progress}%)`;
   }

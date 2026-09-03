@@ -30,7 +30,8 @@ export interface IAgentTowerService {
    * mode whose feature is inert.
    */
   readonly isActive: boolean;
-  enter(): Promise<void>;
+  readonly requestedBase: string | undefined;
+  enter(base?: string): Promise<void>;
   exit(): void;
 }
 

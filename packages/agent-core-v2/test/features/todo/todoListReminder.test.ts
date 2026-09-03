@@ -51,16 +51,12 @@ function priorTodoReminder(): ContextMessage {
   };
 }
 
-function todoItem(id: string, title: string, status: 'pending' | 'in_progress' | 'done'): TodoItem {
-  return { id, parentId: null, kind: 'task', title, status };
-}
-
 describe('todoListStaleReminder', () => {
   it('skips reminder injection when TodoList is not active', async () => {
     const history = Array.from({ length: 10 }, () => assistantMessage());
     const result = todoListStaleReminder({
       history,
-      todos: [todoItem('T1', 'Investigate todo reminder', 'in_progress')],
+      todos: [{ title: 'Investigate todo reminder', status: 'in_progress' }],
       active: false,
     });
 
@@ -69,19 +65,19 @@ describe('todoListStaleReminder', () => {
 
   it('injects a reminder after enough assistant turns since the last TodoList write', async () => {
     const todos: TodoItem[] = [
-      todoItem('T1', 'Read current TodoList implementation', 'in_progress'),
-      todoItem('T2', 'Add reminder injector tests', 'pending'),
+      { title: 'Read current TodoList implementation', status: 'in_progress' },
+      { title: 'Add reminder injector tests', status: 'pending' },
     ];
     const history = [todoListWrite(todos), ...Array.from({ length: 10 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
 
     expect(result).toContain('Current todo list:');
-    expect(result).toContain('[in_progress] T1: Read current TodoList implementation');
-    expect(result).toContain('[pending] T2: Add reminder injector tests');
+    expect(result).toContain('1. [in_progress] Read current TodoList implementation');
+    expect(result).toContain('2. [pending] Add reminder injector tests');
   });
 
   it('does not inject before the assistant-turn threshold', async () => {
-    const todos: TodoItem[] = [todoItem('T1', 'Read code', 'in_progress')];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [todoListWrite(todos), ...Array.from({ length: 9 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
 
@@ -89,7 +85,7 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject another reminder before the reminder spacing threshold', async () => {
-    const todos: TodoItem[] = [todoItem('T1', 'Read code', 'in_progress')];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 10 }, () => assistantMessage()),
@@ -102,7 +98,7 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not treat TodoList query mode as a write', async () => {
-    const todos: TodoItem[] = [todoItem('T1', 'Read code', 'in_progress')];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 5 }, () => assistantMessage()),

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-
 import { OldKimiJsonSchema, OldSessionStateSchema } from '../src/kimi-cli-schema.js';
 
 describe('OldKimiJsonSchema', () => {

@@ -19,12 +19,12 @@ import {
 } from '#/agent/loop/engineOverride';
 import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { IFlagService } from '#/app/flag/flag';
-import { AgentCron } from '#/features/cron/cronAgentRuntime';
-import { AgentGoal } from '#/features/goal/goalAgentRuntime';
+import { AgentCron } from '#/features/cron/cronService';
+import { AgentGoal } from '#/features/goal/goalService';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { AgentTodo } from '#/features/todo/todoAgentRuntime';
+import { AgentTodo } from '#/features/todo/todoService';
 import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
 import type { ContentPart, Message } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
