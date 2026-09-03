@@ -81,11 +81,7 @@ impl HttpResponse {
     /// Construct a 401 Unauthorized response with a specific error code,
     /// setting `WWW-Authenticate: Bearer realm="kimi-code"`.
     pub fn unauthorized_with_code(code: u32, msg: impl Into<String>) -> Self {
-        Self::unauthorized_challenge(
-            code,
-            msg,
-            format!("Bearer realm=\"{DEFAULT_AUTH_REALM}\""),
-        )
+        Self::unauthorized_challenge(code, msg, format!("Bearer realm=\"{DEFAULT_AUTH_REALM}\""))
     }
 
     /// Construct a 401 Unauthorized response with an explicit `WWW-Authenticate` challenge header
@@ -106,7 +102,8 @@ impl HttpResponse {
                 "data": null,
             }),
         );
-        resp.headers.insert("WWW-Authenticate".into(), challenge.into());
+        resp.headers
+            .insert("WWW-Authenticate".into(), challenge.into());
         resp
     }
 

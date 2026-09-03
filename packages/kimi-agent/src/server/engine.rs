@@ -134,11 +134,7 @@ pub struct ServerEngine {
 }
 
 impl ServerEngine {
-    pub fn new(
-        spec: PipelineSpec,
-        hub: Arc<EventHub>,
-        store: Arc<SqliteSessionStore>,
-    ) -> Self {
+    pub fn new(spec: PipelineSpec, hub: Arc<EventHub>, store: Arc<SqliteSessionStore>) -> Self {
         Self {
             spec,
             hub,

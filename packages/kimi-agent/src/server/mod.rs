@@ -214,7 +214,10 @@ impl HttpServer {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| format!("cron-{}", fastrand::u64(..)));
-                let recurring = body.get("recurring").and_then(|v| v.as_bool()).unwrap_or(true);
+                let recurring = body
+                    .get("recurring")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
 
                 let entry = CronEntry {
                     id: id.clone(),

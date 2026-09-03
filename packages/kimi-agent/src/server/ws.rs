@@ -379,15 +379,23 @@ async fn handle_inbound(
     if let Some(presented) = token
         && !auth.check_token(Some(presented.as_str())).is_allowed()
     {
-        let refusal =
-            ws_protocol::ack(&id, ws_protocol::WS_AUTH_ERROR_CODE, "unauthorized", json!({}))?;
+        let refusal = ws_protocol::ack(
+            &id,
+            ws_protocol::WS_AUTH_ERROR_CODE,
+            "unauthorized",
+            json!({}),
+        )?;
         write_frame(writer, OP_TEXT, &refusal).await?;
         send_close(writer, 1000).await?;
         return Ok(true);
     }
 
-    let acceptance =
-        ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ws_protocol::client_hello_ack())?;
+    let acceptance = ws_protocol::ack(
+        &id,
+        ws_protocol::ACK_OK,
+        "success",
+        ws_protocol::client_hello_ack(),
+    )?;
     write_frame(writer, OP_TEXT, &acceptance).await?;
     Ok(false)
 }
@@ -630,7 +638,8 @@ mod tests {
 
     #[test]
     fn handshake_response_carries_the_negotiation_headers() {
-        let response = String::from_utf8(handshake_response("dGhlIHNhbXBsZSBub25jZQ==", None)).unwrap();
+        let response =
+            String::from_utf8(handshake_response("dGhlIHNhbXBsZSBub25jZQ==", None)).unwrap();
         assert!(response.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
         assert!(response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"));
         assert!(response.ends_with("\r\n\r\n"));
@@ -761,7 +770,10 @@ mod tests {
         // The 101 must carry the RFC's own accept value for this key.
         assert!(text.starts_with("HTTP/1.1 101"), "{text}");
         assert!(text.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), "{text}");
-        assert_eq!(read_server_hello(&mut client).await["payload"]["protocol_version"], 2);
+        assert_eq!(
+            read_server_hello(&mut client).await["payload"]["protocol_version"],
+            2
+        );
         for _ in 0..50 {
             if hub.subscriber_count() == 1 {
                 break;
@@ -929,8 +941,12 @@ mod tests {
 
         // A bearer header clears the handshake gate, so the frame-layer check is
         // the only thing left to answer the hello.
-        let (mut client, _) =
-            connect_client(handle.local_addr, "key-ok", &[("authorization", "Bearer tok3n")]).await;
+        let (mut client, _) = connect_client(
+            handle.local_addr,
+            "key-ok",
+            &[("authorization", "Bearer tok3n")],
+        )
+        .await;
         read_server_hello(&mut client).await;
         client
             .write_all(&masked_frame(
@@ -959,11 +975,11 @@ mod tests {
         .await;
         read_server_hello(&mut liar).await;
         liar.write_all(&masked_frame(
-                OP_TEXT,
-                br#"{"type":"client_hello","id":"c-2","payload":{"token":"someone-elses"}}"#,
-            ))
-            .await
-            .unwrap();
+            OP_TEXT,
+            br#"{"type":"client_hello","id":"c-2","payload":{"token":"someone-elses"}}"#,
+        ))
+        .await
+        .unwrap();
         let refusal: serde_json::Value =
             serde_json::from_str(&read_text_frame(&mut liar).await).unwrap();
         assert_eq!(refusal["code"], 40112, "{refusal}");
@@ -972,7 +988,10 @@ mod tests {
 
         let mut tail = [0_u8; 4];
         liar.read_exact(&mut tail).await.unwrap();
-        assert_eq!(tail[0], 0x88, "expected a Close after the refusal, got {tail:?}");
+        assert_eq!(
+            tail[0], 0x88,
+            "expected a Close after the refusal, got {tail:?}"
+        );
         assert_eq!(&tail[2..], &1000_u16.to_be_bytes());
 
         handle.shutdown();

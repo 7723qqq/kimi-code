@@ -88,7 +88,8 @@ impl ServerAuth {
         let home = match std::env::var_os("KIMI_CODE_HOME") {
             Some(from_env) => std::path::PathBuf::from(from_env),
             None => {
-                let os_home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+                let os_home =
+                    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
                 std::path::PathBuf::from(os_home).join(".kimi-code")
             }
         };
@@ -172,11 +173,7 @@ impl ServerAuth {
             return true;
         }
         let method = method.to_ascii_uppercase();
-        (method == "GET"
-            && matches!(
-                path,
-                "/api/v1/healthz" | "/api/v1/health" | "/health"
-            ))
+        (method == "GET" && matches!(path, "/api/v1/healthz" | "/api/v1/health" | "/health"))
             || path == "/openapi.json"
             || path == "/asyncapi.json"
     }
@@ -336,7 +333,10 @@ mod tests {
         assert!(ServerAuth::is_bypassed("GET", "/openapi.json"));
         assert!(ServerAuth::is_bypassed("OPTIONS", "/api/v1/sessions"));
         assert!(!ServerAuth::is_bypassed("GET", "/api/v1/sessions"));
-        assert!(!ServerAuth::is_bypassed("POST", "/api/v1/sessions/s1/prompt"));
+        assert!(!ServerAuth::is_bypassed(
+            "POST",
+            "/api/v1/sessions/s1/prompt"
+        ));
         assert!(!ServerAuth::is_bypassed("GET", "/api/v1/ws"));
         assert!(!ServerAuth::is_bypassed("POST", "/health"));
     }
@@ -375,7 +375,8 @@ mod tests {
         let loaded = ServerAuth::load_or_create(&path).expect("reads back");
         assert_eq!(loaded.token(), Some(token.as_str()), "must not re-roll");
         assert!(
-            loaded.check_bearer(Some(&format!("Bearer {token}")))
+            loaded
+                .check_bearer(Some(&format!("Bearer {token}")))
                 .is_allowed()
         );
 

@@ -583,7 +583,10 @@ mod tests {
             "GET /api/v1/sessions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer nope\r\n\r\n",
         )
         .await;
-        assert!(wrong.starts_with("HTTP/1.1 401 Unauthorized\r\n"), "{wrong}");
+        assert!(
+            wrong.starts_with("HTTP/1.1 401 Unauthorized\r\n"),
+            "{wrong}"
+        );
 
         let health = exchange(
             handle.local_addr,
@@ -599,7 +602,11 @@ mod tests {
     async fn a_websocket_upgrade_needs_the_token_and_echoes_the_protocol_it_accepted() {
         let handle = serve_with_token().await;
 
-        let refused = exchange(handle.local_addr, &upgrade_request("kimi-code.bearer.wrong")).await;
+        let refused = exchange(
+            handle.local_addr,
+            &upgrade_request("kimi-code.bearer.wrong"),
+        )
+        .await;
         assert!(
             refused.starts_with("HTTP/1.1 401 Unauthorized\r\n"),
             "{refused}"
