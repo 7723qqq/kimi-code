@@ -61,6 +61,32 @@ impl CronScheduler {
         }
     }
 
+    /// Add or update an entry dynamically. Returns true if parsed and added.
+    pub fn add_entry(&mut self, entry: CronEntry) -> bool {
+        if let Ok(parsed) = parse(&entry.cron) {
+            if let Some(pos) = self.entries.iter().position(|s| s.entry.id == entry.id) {
+                self.entries[pos] = ScheduledEntry { entry, parsed };
+            } else {
+                self.entries.push(ScheduledEntry { entry, parsed });
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove an entry by ID. Returns true if removed, false if not found.
+    pub fn remove_entry(&mut self, id: &str) -> bool {
+        let before = self.entries.len();
+        self.entries.retain(|s| s.entry.id != id);
+        self.entries.len() < before
+    }
+
+    /// List all currently scheduled entries.
+    pub fn list_entries(&self) -> Vec<CronEntry> {
+        self.entries.iter().map(|s| s.entry.clone()).collect()
+    }
+
     /// The earliest next fire (epoch ms) across all entries, strictly after
     /// `from_ms`, or `None` when no entry will ever fire again.
     pub fn next_fire_at(&self, from_ms: i64) -> Option<i64> {
@@ -271,5 +297,33 @@ mod tests {
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
+    }
+
+    #[test]
+    fn test_dynamic_add_remove_and_list_entries() {
+        let mut sched = CronScheduler::new(vec![entry("a", "0 9 * * *", "job a", true)], 0);
+        assert_eq!(sched.list_entries().len(), 1);
+
+        // Add valid entry
+        assert!(sched.add_entry(entry("b", "30 14 * * *", "job b", true)));
+        assert_eq!(sched.list_entries().len(), 2);
+
+        // Add invalid entry fails
+        assert!(!sched.add_entry(entry("c", "invalid cron", "job c", true)));
+        assert_eq!(sched.list_entries().len(), 2);
+
+        // Update existing entry
+        assert!(sched.add_entry(entry("a", "0 10 * * *", "job a updated", false)));
+        assert_eq!(sched.list_entries().len(), 2);
+        let list = sched.list_entries();
+        let a_entry = list.iter().find(|e| e.id == "a").unwrap();
+        assert_eq!(a_entry.cron, "0 10 * * *");
+        assert_eq!(a_entry.prompt, "job a updated");
+        assert!(!a_entry.recurring);
+
+        // Remove entry
+        assert!(sched.remove_entry("a"));
+        assert_eq!(sched.list_entries().len(), 1);
+        assert!(!sched.remove_entry("a")); // Already removed
     }
 }

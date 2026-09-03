@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
 import {
-  createKimiHarnessV2,
+  createKimiHarnessNative,
   flushDiagnosticLogsSync,
   log,
   setLocale as setAgentCoreLocale,
@@ -91,10 +91,8 @@ export async function runShell(
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
     ...(engineOverride !== undefined ? { engineOverride } : {}),
   };
-  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
-  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine.
-  const harness = createKimiHarnessV2(harnessOptions);
+  // Real native harness powered by Rust EngineSessionHandle
+  const harness = createKimiHarnessNative(harnessOptions);
   startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,

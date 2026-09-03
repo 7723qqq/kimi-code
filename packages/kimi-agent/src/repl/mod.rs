@@ -296,6 +296,8 @@ async fn build_repl_tool_defs(
     defs.push(crate::tools::skill::skill_tool_def());
     defs.push(crate::tools::knowledge_tool::knowledge_tool_def());
     defs.push(crate::tools::team_tool::team_tool_def());
+    defs.push(crate::tools::swarm_tool::agent_swarm_tool_def());
+    defs.extend(crate::tools::tower::tower_tool_defs());
     defs
 }
 
@@ -372,11 +374,20 @@ pub async fn start_repl(
             model: native_llm_def.model,
             max_tokens: native_llm_def.max_tokens,
             custom_headers: HashMap::new(),
+            reasoning_effort: None,
+            thinking_budget: None,
+            auth_provider: None,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));
 
     let policy_snapshot = config.build_policy_snapshot(Some(workspace.clone()));
+    // G-6 #6: PreToolUse hooks ride the same snapshot; the guard runs them
+    // before native tool calls (the dummy host's own tool execution never
+    // fires user hooks).
+    let hook_guard = Arc::new(crate::tools::external_hooks::HookGuard::new(
+        policy_snapshot.pre_tool_hooks.clone(),
+    ));
     let permission_engine = Arc::new(PermissionEngine::new(policy_snapshot));
     let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
 
@@ -424,6 +435,19 @@ pub async fn start_repl(
             .with_github_credentials(github_credentials.clone()),
     );
     let plan_guard_store = state_store.clone();
+    // Stale-write gate (v2 `staleGuardService`, G-6 #3): one REPL process =
+    // one session; the gate's plan exemption reads through the local store
+    // via the dummy host's `state_read`, same seam as the product paths.
+    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
+        workspace.clone(),
+    )));
+    // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8). The REPL's
+    // dummy host cannot execute CreateGoal, so non-auto routing stays off —
+    // goal creation remains native; the stale mutation veto still applies.
+    let goal_guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
+        Some(permission_engine.mode()),
+        false,
+    ));
     let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: base_callbacks,
         toolset,
@@ -436,6 +460,12 @@ pub async fn start_repl(
             let args = args.clone();
             Box::pin(async move { plan_mode_guard(&store, &tool_name, &args) })
         })),
+        stale_guard: Some(stale_gate),
+        goal_guard: Some(goal_guard),
+        hook_guard: Some(hook_guard),
+        // REPL has no swarm/btw contexts — nothing to veto.
+        agent_tool_veto: None,
+        tools_veto: None,
     });
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone())
@@ -450,6 +480,7 @@ pub async fn start_repl(
         llm: llm.clone(),
         callbacks: tool_callbacks.clone(),
         max_steps: 25,
+        max_context_tokens: None,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
             let gh = gh_for_defs.clone();
@@ -464,6 +495,9 @@ pub async fn start_repl(
                 eprintln!("[Checkpoint error]: {e}");
             }
         })),
+        // REPL spawns subagents through its own invoke_subagent family; the
+        // foreground `Agent` context has no session cancel slot to consult.
+        agent_cancel_slot: None,
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;
 
@@ -794,48 +828,66 @@ mod tests {
 
     #[tokio::test]
     async fn test_repl_tool_defs_complete() {
-        let saved_token = std::env::var("GITHUB_TOKEN").ok();
-        let saved_gh = std::env::var("GH_TOKEN").ok();
-        unsafe {
-            std::env::remove_var("GITHUB_TOKEN");
-            std::env::remove_var("GH_TOKEN");
-        }
-        let defs = build_repl_tool_defs(&McpManager::new(), None).await;
-        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
-        for expected in [
-            "invoke_subagent",
-            "manage_subagents",
-            "define_subagent",
-            "ask_user_question",
-            "TodoList",
-            "EnterPlanMode",
-            "GetGoal",
-            "CronList",
-            "CronCreate",
-            "CronDelete",
-            "UpdateGoal",
-            "SetGoalBudget",
-            "TaskList",
-            "TaskOutput",
-            "TaskStop",
-            "TaskWait",
-            "ExitPlanMode",
-            "CreateGoal",
-            "Skill",
-        ] {
-            assert!(names.contains(&expected), "missing tool def: {expected}");
-        }
-        // Without a resolvable token the 34 GitHub defs are gated off
-        // (v2 `when: hasGitHubToken`).
-        assert!(!names.iter().any(|name| name.starts_with("GitHub")));
-        match saved_token {
-            Some(value) => unsafe { std::env::set_var("GITHUB_TOKEN", value) },
-            None => unsafe { std::env::remove_var("GITHUB_TOKEN") },
-        }
-        match saved_gh {
-            Some(value) => unsafe { std::env::set_var("GH_TOKEN", value) },
-            None => unsafe { std::env::remove_var("GH_TOKEN") },
-        }
+        // The "no GitHub defs" assertion reads the live GITHUB_TOKEN /
+        // GH_TOKEN environment, which other tests mutate in parallel, so
+        // the whole env window (remove → build defs → assert → restore)
+        // must hold GITHUB_ENV_TEST_LOCK. A std MutexGuard cannot span the
+        // `.await` inside `build_repl_tool_defs` (clippy await-holding-lock),
+        // so the serialized region runs on a dedicated blocking thread
+        // instead — serialization semantics are unchanged.
+        std::thread::spawn(|| {
+            let _env_guard = crate::tools::github::GITHUB_ENV_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let saved_token = std::env::var("GITHUB_TOKEN").ok();
+            let saved_gh = std::env::var("GH_TOKEN").ok();
+            unsafe {
+                std::env::remove_var("GITHUB_TOKEN");
+                std::env::remove_var("GH_TOKEN");
+            }
+            let defs = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test runtime")
+                .block_on(build_repl_tool_defs(&McpManager::new(), None));
+            let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+            for expected in [
+                "invoke_subagent",
+                "manage_subagents",
+                "define_subagent",
+                "ask_user_question",
+                "TodoList",
+                "EnterPlanMode",
+                "GetGoal",
+                "CronList",
+                "CronCreate",
+                "CronDelete",
+                "UpdateGoal",
+                "SetGoalBudget",
+                "TaskList",
+                "TaskOutput",
+                "TaskStop",
+                "TaskWait",
+                "ExitPlanMode",
+                "CreateGoal",
+                "Skill",
+            ] {
+                assert!(names.contains(&expected), "missing tool def: {expected}");
+            }
+            // Without a resolvable token the 34 GitHub defs are gated off
+            // (v2 `when: hasGitHubToken`).
+            assert!(!names.iter().any(|name| name.starts_with("GitHub")));
+            match saved_token {
+                Some(value) => unsafe { std::env::set_var("GITHUB_TOKEN", value) },
+                None => unsafe { std::env::remove_var("GITHUB_TOKEN") },
+            }
+            match saved_gh {
+                Some(value) => unsafe { std::env::set_var("GH_TOKEN", value) },
+                None => unsafe { std::env::remove_var("GH_TOKEN") },
+            }
+        })
+        .join()
+        .expect("env-serialized tool-def check panicked");
     }
 
     #[tokio::test]
@@ -852,8 +904,9 @@ mod tests {
     #[tokio::test]
     async fn test_repl_state_bridge_reads_defaults_and_round_trips() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let callbacks =
-            ReplDummyHostCallbacks::new(Arc::new(StateStore::for_workspace(tmp.path()).unwrap()));
+        let callbacks = ReplDummyHostCallbacks::new(Arc::new(
+            StateStore::for_dir(tmp.path().join("state")).unwrap(),
+        ));
         let read = |domain: &str| {
             callbacks.state_read(StateReadRequest {
                 domain: domain.into(),
@@ -917,7 +970,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_passes_when_inactive() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         assert!(
             plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none()
         );
@@ -927,7 +981,8 @@ mod tests {
     #[test]
     fn test_plan_enter_creates_empty_plan_file() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -939,7 +994,8 @@ mod tests {
     #[tokio::test]
     async fn test_repl_execute_tool_fallback_names_the_tool() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let callbacks = ReplDummyHostCallbacks::new(std::sync::Arc::new(store));
         let request = crate::rpc::types::ToolExecuteRequest {
             tool_name: "GitHubGetRepo".into(),
@@ -956,7 +1012,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_non_plan_writes() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -977,7 +1034,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_allows_plan_file_write() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -1000,7 +1058,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_taskstop_and_cron_mutations() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
@@ -1024,7 +1083,8 @@ mod tests {
     #[test]
     fn test_plan_mode_guard_denies_task_stop() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let store = crate::storage::state_store::StateStore::for_workspace(tmp.path()).unwrap();
+        let store =
+            crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let outcome = store
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();

@@ -15,6 +15,14 @@ use serde_json::{Value, json};
 
 use crate::turn_loop::types::{ExecutableToolResult, ToolInfo};
 
+/// Serializes every test that reads or writes the `GITHUB_TOKEN` /
+/// `GH_TOKEN` / `GITHUB_API_URL` process environment. Environment variables
+/// are global mutable state, so two such tests running in parallel flake
+/// each other (one removes the variable the other just set) — hold this
+/// lock for the entire test body, including the save/restore window.
+#[cfg(test)]
+pub(crate) static GITHUB_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// No-token error text, verbatim from v2 `github-request.ts`.
 pub const GITHUB_NO_TOKEN_ERROR: &str = "No GitHub token configured. Set token in the [github] section of config.toml, or set the GITHUB_TOKEN (or GH_TOKEN) environment variable.";
 
@@ -2903,24 +2911,44 @@ mod tests {
         assert!(result.content.contains("expected string"));
     }
 
-    #[tokio::test]
-    async fn test_unknown_tool_returns_none_and_case_insensitive_dispatch() {
-        assert!(
-            execute_github_tool("GitHubNope", &json!({}), None)
-                .await
-                .is_none()
-        );
-        // Case-insensitive dispatch; invalid args short-circuit before any
-        // network call.
-        let result = execute_github_tool("githubgetrepo", &json!({}), None)
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(
-            result
-                .content
-                .starts_with("Invalid arguments for GitHubGetRepo: ")
-        );
+    #[test]
+    fn test_unknown_tool_returns_none_and_case_insensitive_dispatch() {
+        // The dispatch path resolves credentials from the live GITHUB_TOKEN /
+        // GH_TOKEN / GITHUB_API_URL environment before validation
+        // short-circuits, so the call window holds GITHUB_ENV_TEST_LOCK (see
+        // its doc). A std MutexGuard cannot span the `.await` inside
+        // `execute_github_tool` (clippy await-holding-lock), so the
+        // serialized region runs on a dedicated thread — same pattern as
+        // repl's test_repl_tool_defs_complete.
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _env_guard = GITHUB_ENV_TEST_LOCK
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime")
+                    .block_on(async {
+                        assert!(
+                            execute_github_tool("GitHubNope", &json!({}), None)
+                                .await
+                                .is_none()
+                        );
+                        // Case-insensitive dispatch; invalid args short-circuit
+                        // before any network call.
+                        let result = execute_github_tool("githubgetrepo", &json!({}), None)
+                            .await
+                            .unwrap();
+                        assert!(result.is_error);
+                        assert!(
+                            result
+                                .content
+                                .starts_with("Invalid arguments for GitHubGetRepo: ")
+                        );
+                    });
+            });
+        });
     }
 
     #[test]
@@ -3030,6 +3058,12 @@ mod tests {
 
     #[test]
     fn test_github_token_env() {
+        // Env vars are process-global: serialize against the other
+        // GITHUB_*-touching tests (poison recovery keeps one panic from
+        // cascading into false env failures).
+        let _env_guard = GITHUB_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let saved_token = std::env::var("GITHUB_TOKEN").ok();
         let saved_gh = std::env::var("GH_TOKEN").ok();
         unsafe {
@@ -3058,6 +3092,11 @@ mod tests {
 
     #[test]
     fn test_credentials_config_wins_over_env() {
+        // Env vars are process-global: serialize against the other
+        // GITHUB_*-touching tests (see GITHUB_ENV_TEST_LOCK).
+        let _env_guard = GITHUB_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let saved_token = std::env::var("GITHUB_TOKEN").ok();
         let saved_gh = std::env::var("GH_TOKEN").ok();
         let saved_url = std::env::var("GITHUB_API_URL").ok();
@@ -3172,6 +3211,11 @@ mod tests {
 
     #[test]
     fn test_has_token_gating() {
+        // Env vars are process-global: serialize against the other
+        // GITHUB_*-touching tests (see GITHUB_ENV_TEST_LOCK).
+        let _env_guard = GITHUB_ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let saved_token = std::env::var("GITHUB_TOKEN").ok();
         let saved_gh = std::env::var("GH_TOKEN").ok();
         unsafe {

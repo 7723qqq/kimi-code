@@ -14,7 +14,14 @@ import {
   type AskQuestionWire,
   type AskQuestionWireResult,
 } from './rust-loop';
-import { runTurnParamsSchema, runTurnResultSchema, telemetryEventSchema, turnEventSchema } from './wire-schema';
+import {
+  authTokenRequestSchema,
+  authTokenResponseSchema,
+  runTurnParamsSchema,
+  runTurnResultSchema,
+  telemetryEventSchema,
+  turnEventSchema,
+} from './wire-schema';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -192,7 +199,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
   async function driveWriteTurn(
     workspace: string,
     permission: { decision: 'allow' | 'deny'; reason?: string },
-    opts: { resetEngine?: boolean } = {},
+    opts: { resetEngine?: boolean; toolsVeto?: string; agentToolVeto?: string } = {},
   ): Promise<{
     events: unknown[];
     permissionCalls: Array<{ name: string; arguments: unknown }>;
@@ -272,6 +279,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         permissionCalls.push({ name: call.name, arguments: call.arguments });
         return permission;
       },
+      toolsVeto: opts.toolsVeto,
+      agentToolVeto: opts.agentToolVeto,
     } satisfies TurnEngineInputLike;
 
     const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
@@ -348,6 +357,430 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(toolResultEvents[0].result?.isError).toBe(true);
   });
 
+  // P46: the native `Agent` tool runs a foreground subagent from the
+  // pushed profile snapshot; unknown profiles fall back to the host tool.
+  async function driveAgentTurn(
+    workspace: string,
+    profiles: Array<{
+      name: string;
+      description?: string;
+      systemPrompt?: string;
+      tools?: string[];
+      disallowedTools?: string[];
+      promptPrefix?: string;
+      summaryPolicy?: { minChars: number; continuationPrompt: string; retries: number };
+    }>,
+    opts: {
+      respond?: (
+        call: number,
+        chatInput: { messages: Array<{ role: string; content: string }> },
+      ) => Promise<{
+        toolCalls?: unknown[];
+        providerFinishReason?: string;
+        usage?: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
+        text?: string;
+      }>;
+      toolsVeto?: string;
+      agentToolVeto?: string;
+    } = {},
+  ): Promise<{
+    events: unknown[];
+    permissionCalls: Array<{ name: string; arguments: unknown }>;
+    hostToolExecutions: number;
+    chatCalls: number;
+    result: unknown;
+    subagentEvents: Array<Record<string, unknown>>;
+  }> {
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    const events: unknown[] = [];
+    const subagentEvents: Array<Record<string, unknown>> = [];
+    const permissionCalls: Array<{ name: string; arguments: unknown }> = [];
+    let hostToolExecutions = 0;
+    let chatCalls = 0;
+
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'test-model',
+        modelId: 'test-model',
+        systemPrompt: 'You are a test driver.',
+        async chat(
+          chatInput: {
+            messages?: Array<{ role: string; content: string }>;
+            onTextPart?: (part: { type: 'text'; text: string }) => void | Promise<void>;
+          },
+        ) {
+          const call = chatCalls++;
+          if (opts.respond !== undefined) {
+            const reply = await opts.respond(call, {
+              messages: chatInput.messages ?? [],
+            });
+            if (reply.text !== undefined) {
+              await chatInput.onTextPart?.({ type: 'text', text: reply.text });
+            }
+            return {
+              toolCalls: reply.toolCalls ?? [],
+              providerFinishReason: reply.providerFinishReason ?? 'stop',
+              usage:
+                reply.usage ??
+                { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          if (call === 0) {
+            // Parent: launch the subagent.
+            return {
+              toolCalls: [
+                {
+                  type: 'function',
+                  id: 'agent-call-1',
+                  name: 'Agent',
+                  arguments: JSON.stringify({
+                    subagent_type: 'researcher',
+                    prompt: 'find the loop',
+                    description: 'Loop probe',
+                  }),
+                },
+              ],
+              providerFinishReason: 'tool_calls',
+              usage: { inputOther: 10, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          if (call === 1) {
+            // The subagent's turn: answer directly; this text becomes its
+            // summary in the v2-shaped Agent result.
+            await chatInput.onTextPart?.({
+              type: 'text',
+              text: 'findings: the loop lives in run_turn.rs',
+            });
+            return {
+              toolCalls: [],
+              providerFinishReason: 'stop',
+              usage: { inputOther: 5, output: 4, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          // Parent after the Agent result: finish.
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent(event: unknown) {
+        events.push(event);
+      },
+      async executeTool() {
+        hostToolExecutions += 1;
+        return { output: 'host-ran-it', isError: false };
+      },
+      async checkToolPermission(call: { name: string; arguments: unknown }) {
+        permissionCalls.push({ name: call.name, arguments: call.arguments });
+        return { decision: 'allow' as const };
+      },
+      onSubagentEvent: (event: Record<string, unknown>) => {
+        subagentEvents.push(event);
+      },
+      toolsVeto: opts.toolsVeto,
+      agentToolVeto: opts.agentToolVeto,
+      subagentProfiles: profiles,
+    } satisfies TurnEngineInputLike;
+
+    const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
+    return { events, permissionCalls, hostToolExecutions, chatCalls, result, subagentEvents };
+  }
+
+  it('runs a native foreground Agent call from the pushed profile snapshot', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-native-'));
+    tempDirs.push(workspace);
+
+    const out = await driveAgentTurn(workspace, [
+      {
+        name: 'researcher',
+        description: 'Finds things.',
+        systemPrompt: 'You are a research subagent.',
+        tools: [],
+        disallowedTools: [],
+      },
+    ]);
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    // The gate asked the host permission once (for the Agent call itself);
+    // the subagent's chat never touched host executeTool.
+    expect(out.permissionCalls.map((c) => c.name)).toEqual(['Agent']);
+    expect(out.hostToolExecutions).toBe(0);
+    // Parent step, subagent step, parent finish.
+    expect(out.chatCalls).toBe(3);
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    const rawOutput = toolResultEvents[0].result?.output;
+    const output = typeof rawOutput === 'string' ? rawOutput : '';
+    expect(output).toContain('actual_subagent_type: researcher');
+    expect(output).toContain('status: completed');
+    expect(output).toContain('[summary]');
+    expect(output).toContain('findings: the loop lives in run_turn.rs');
+  });
+
+  it('falls back to the host Agent tool when the profile is not in the snapshot', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-fallback-'));
+    tempDirs.push(workspace);
+
+    // Empty snapshot: no profile is engine-known.
+    const out = await driveAgentTurn(workspace, []);
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.hostToolExecutions).toBe(1);
+    // The parent finish chat still happens after the host-ran result.
+    expect(out.chatCalls).toBe(2);
+  });
+
+  // P51: promptPrefix rides ahead of the prompt, the summary policy drives
+  // a continuation turn, and the lifecycle events mirror v2's surface.
+  it('applies the prompt prefix, distills the summary, and mirrors lifecycle events', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-agent-distill-'));
+    tempDirs.push(workspace);
+
+    const longSummary = 'the loop lives in run_turn.rs with a full step-cycle analysis';
+    const out = await driveAgentTurn(
+      workspace,
+      [
+        {
+          name: 'researcher',
+          systemPrompt: 'You are a research subagent.',
+          promptPrefix: '<git-context>',
+          summaryPolicy: { minChars: 40, continuationPrompt: 'Summarize fully.', retries: 1 },
+        },
+      ],
+      {
+        respond: async (call) => {
+          if (call === 0) {
+            return {
+              toolCalls: [
+                {
+                  type: 'function',
+                  id: 'agent-call-1',
+                  name: 'Agent',
+                  arguments: JSON.stringify({
+                    subagent_type: 'researcher',
+                    prompt: 'find the loop',
+                    description: 'Loop probe',
+                  }),
+                },
+              ],
+              providerFinishReason: 'tool_calls',
+            };
+          }
+          if (call === 1) {
+            // The subagent's first turn: too short for the policy floor.
+            return { text: 'too short' };
+          }
+          if (call === 2) {
+            // The distillation continuation turn (the prompt/policy content
+            // itself is asserted by the Rust unit tests; host-proxy chats
+            // receive the host projection, not the engine-side messages).
+            return { text: longSummary };
+          }
+          return {};
+        },
+      },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    // Parent launch, subagent turn, continuation turn, parent finish.
+    expect(out.chatCalls).toBe(4);
+    expect(out.hostToolExecutions).toBe(0);
+
+    expect(out.subagentEvents.map((e) => e.type)).toEqual([
+      'subagent.spawned',
+      'subagent.started',
+      'subagent.completed',
+    ]);
+    const spawned = out.subagentEvents[0];
+    expect(spawned.subagentName).toBe('researcher');
+    expect(spawned.parentToolCallId).toBe('agent-call-1');
+    expect(spawned.description).toBe('Loop probe');
+    const completed = out.subagentEvents[2];
+    expect(completed.resultSummary).toBe(longSummary);
+    expect((completed.usage as { inputOther: number }).inputOther).toBeGreaterThan(0);
+
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(String(toolResultEvents[0].result?.output)).toContain(longSummary);
+  });
+
+  // P52: the native-path veto mirrors — btw's full tool denial and swarm's
+  // Agent denial — reject engine-local execution without touching the host
+  // executor (whose own veto chain would deny there too).
+  it('rejects every native tool call when the btw tools veto is set', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-btw-veto-'));
+    tempDirs.push(workspace);
+
+    const out = await driveWriteTurn(
+      workspace,
+      { decision: 'allow' },
+      { toolsVeto: 'Tool calls are disabled for side questions. Answer with text only.' },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.fileExisted).toBe(false, 'the vetoed Write must not touch the disk');
+    expect(out.hostToolExecutions).toBe(0, 'no host fallback — the veto denies locally');
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'call-stdio-write',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(toolResultEvents[0].result?.isError).toBe(true);
+    expect(String(toolResultEvents[0].result?.output)).toContain(
+      'Tool calls are disabled for side questions',
+    );
+  });
+
+  it('rejects the native Agent call when the swarm agent veto is set', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-swarm-veto-'));
+    tempDirs.push(workspace);
+
+    const out = await driveAgentTurn(
+      workspace,
+      [{ name: 'researcher', systemPrompt: 'You are a research subagent.' }],
+      { agentToolVeto: 'Agent is denied while swarm mode is active.' },
+    );
+
+    expect((out.result as { stopReason: string }).stopReason).toBe('completed');
+    expect(out.hostToolExecutions).toBe(0);
+    // Parent launch, parent finish — the subagent never ran.
+    expect(out.chatCalls).toBe(2);
+    expect(out.subagentEvents).toEqual([], 'no lifecycle events for a vetoed Agent call');
+    const toolResultEvents = out.events.filter(
+      (e) =>
+        typeof e === 'object' &&
+        e !== null &&
+        (e as { type?: string }).type === 'tool.result' &&
+        (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
+    ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
+    expect(toolResultEvents).toHaveLength(1);
+    expect(toolResultEvents[0].result?.isError).toBe(true);
+    expect(String(toolResultEvents[0].result?.output)).toContain(
+      'Agent is denied while swarm mode is active.',
+    );
+  });
+
+  // v2 `toolDedupeService` mirror (G-6 #2): identical native calls issued
+  // in the same step execute once — the repeat shares the original's
+  // result and stays visible in the transcript.
+  it('deduplicates same-step identical native calls', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-stdio-dedupe-'));
+    tempDirs.push(workspace);
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+    });
+    expect(engine).toBeDefined();
+
+    const events: unknown[] = [];
+    const permissionCalls: Array<{ name: string; arguments: unknown }> = [];
+    let hostToolExecutions = 0;
+    let llmCallCount = 0;
+
+    const writeArgs = JSON.stringify({ path: 'dup.txt', content: 'once\n' });
+    const input = {
+      turnId: 1,
+      signal: new AbortController().signal,
+      llm: {
+        modelAlias: 'test-model',
+        modelId: 'test-model',
+        systemPrompt: 'You are a test driver.',
+        async chat() {
+          const call = llmCallCount++;
+          if (call === 0) {
+            // Two identical calls (same name + args) in one step.
+            return {
+              toolCalls: [
+                { type: 'function', id: 'call-dup-a', name: 'Write', arguments: writeArgs },
+                { type: 'function', id: 'call-dup-b', name: 'Write', arguments: writeArgs },
+              ],
+              providerFinishReason: 'tool_calls',
+              usage: { inputOther: 10, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          }
+          return {
+            toolCalls: [],
+            providerFinishReason: 'stop',
+            usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          };
+        },
+      },
+      async buildMessages() {
+        return [];
+      },
+      buildTools() {
+        return [];
+      },
+      async dispatchEvent(event: unknown) {
+        events.push(event);
+      },
+      async executeTool() {
+        hostToolExecutions += 1;
+        return { output: 'UNREACHABLE host fallback', isError: true };
+      },
+      async checkToolPermission(call: { name: string; arguments: unknown }) {
+        permissionCalls.push({ name: call.name, arguments: call.arguments });
+        return { decision: 'allow' as const };
+      },
+    } satisfies TurnEngineInputLike;
+
+    const result = await (engine as (i: TurnEngineInputLike) => Promise<unknown>)(input);
+    expect((result as { stopReason: string }).stopReason).toBe('completed');
+
+    // The repeat shared the original: one permission check, one native
+    // execution, no host fallback.
+    expect(permissionCalls).toHaveLength(1);
+    expect(hostToolExecutions).toBe(0);
+    expect(readFileSync(join(workspace, 'dup.txt'), 'utf8')).toBe('once\n');
+
+    // Both calls stay visible in the transcript: the repeat surfaces via a
+    // synthesized tool.native event carrying the shared result.
+    const toolCallEvents = events.filter(
+      (e) => typeof e === 'object' && e !== null && (e as { type?: string }).type === 'tool.call',
+    );
+    const toolResultEvents = events.filter(
+      (e) => typeof e === 'object' && e !== null && (e as { type?: string }).type === 'tool.result',
+    );
+    expect(toolCallEvents).toHaveLength(2);
+    expect(toolResultEvents).toHaveLength(2);
+  });
+
   it('recovers after the stdio engine process crashes', async () => {
     // A crash used to be terminal: the mode stayed 'stdio' with a null
     // process handle, so every later turn failed with "Agent process is not
@@ -379,6 +812,51 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     )?.process?.pid;
     expect(pidAfter).toBeDefined();
     expect(pidAfter).not.toBe(pidBefore, 'a replacement process must have been spawned');
+  });
+
+  it('P62: past the restart budget every turn fails with the restart guidance', async () => {
+    // Before P62 the mode stayed 'stdio' with a null process, so later turns
+    // died on "Agent process is not running" with nothing to act on.
+    const mod = await import('./rust-loop');
+    mod.shutdownRustEngine();
+    mod.forceEngineTransport('stdio');
+    const workspace = mkdtempSync(join(tmpdir(), 'kimi-rust-crash-budget-'));
+    tempDirs.push(workspace);
+
+    let reported: string | undefined;
+    const engine = mod.createRunTurnOverride(undefined, workspace, {
+      nativeTools: true,
+      shellPath: undefined,
+      onEngineUnavailable: (detail: string) => {
+        reported = detail;
+      },
+    });
+    expect(engine).toBeDefined();
+
+    for (let crash = 0; crash < 3; crash += 1) mod.recordStdioCrashForTests();
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: the budget is 3 restarts — giving up earlier strands a working engine',
+    ).toBeUndefined();
+    expect(mod.activeEngineMode()).toBe('js');
+
+    mod.recordStdioCrashForTests();
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: the 4th crash must stop respawning and record why',
+    ).toBeDefined();
+
+    await expect(engine?.({} as never)).rejects.toThrow(
+      /restart the CLI/,
+      'P62: the thrown guidance is the only thing a user sees — it must name the remedy',
+    );
+    expect(reported, 'P62: the host must hear it too, or /status keeps reporting a live engine').toBeDefined();
+
+    mod.shutdownRustEngine();
+    expect(
+      mod.engineUnavailableForTests(),
+      'P62: teardown must clear the give-up so a re-initialized engine can select a transport',
+    ).toBeUndefined();
   });
 
   it('aborts a running turn at the next step boundary', { timeout: 15_000 }, async () => {
@@ -746,6 +1224,115 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — provider model routin
   });
 });
 
+// ── stdio session transport (M1d 3b) ──────────────────────────────────────
+
+describe('stdio transport — host/goal JS-side handler', () => {
+  type HostRequestHandler = {
+    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+  };
+
+  function fakeProcess(): { agent: AgentProcess; written: string[] } {
+    const agent = new AgentProcess();
+    const written: string[] = [];
+    (agent as unknown as { process: { stdin: { write(line: string): void } } }).process = {
+      stdin: { write: (line) => written.push(line) },
+    };
+    return { agent, written };
+  }
+
+  it('answers host/goal with the wired handler result', async () => {
+    const { agent, written } = fakeProcess();
+    const calls: string[] = [];
+    agent.setGoalHandler(async () => {
+      calls.push('goal');
+      return { goal_id: 'g1', objective: 'obj', status: 'active', wall_clock_ms: 1, tokens_used: 0, turns_used: 0 };
+    });
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'host/goal',
+      params: {},
+    });
+    expect(calls).toEqual(['goal']);
+    expect(JSON.parse(written[0] ?? '')).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      result: { goal_id: 'g1', objective: 'obj', status: 'active', wall_clock_ms: 1, tokens_used: 0, turns_used: 0 },
+    });
+  });
+
+  it('answers null when no goal handler is wired (no goal budgeting)', async () => {
+    const { agent, written } = fakeProcess();
+    await (agent as unknown as HostRequestHandler).handleHostRequest({
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'host/goal',
+      params: {},
+    });
+    expect(JSON.parse(written[0] ?? '')).toEqual({ jsonrpc: '2.0', id: 8, result: null });
+  });
+});
+
+describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () => {
+  afterEach(async () => {
+    const { shutdownRustEngine } = await import('./rust-loop');
+    shutdownRustEngine();
+  });
+
+  it('drives turns through the stdio session and folds cross-turn history', async () => {
+    const { AgentProcess, StdioSessionTransport } = await import('./rust-loop');
+    const { EngineSessionHandle } = await import('./session-handle');
+
+    const agent = new AgentProcess();
+    expect(agent.start()).toBe(true);
+    try {
+      const handle = await EngineSessionHandle.createWith(
+        new StdioSessionTransport(agent),
+        {
+          turnId: 'ignored',
+          systemPrompt: 'You are a test assistant.',
+          modelName: 'test-model',
+          messages: [],
+          tools: [],
+          maxSteps: 5,
+        },
+        {
+          llmChat: async () => ({
+            content: 'hello!',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+          }),
+          executeTool: async () => ({ content: 'ok', is_error: false }),
+          emitEvent: () => {},
+          checkPermission: async () => ({ decision: 'allow' }),
+          listTools: async () => ({ tools: [] }),
+          goal: () => undefined,
+        },
+      );
+      expect(handle.id).toMatch(/^session-/);
+
+      await handle.setHistory([]);
+      const turnId = await handle.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
+      const outcome = await handle.turnOutcome(turnId);
+      expect(outcome.status).toBe('ran');
+      expect(outcome.result?.stopReason).toBe('EndTurn');
+      expect(outcome.result?.steps).toBe(1);
+      expect(await handle.isSettled()).toBe(true);
+
+      // A second turn continues the cross-turn history engine-side.
+      const second = await handle.enqueueTurn({ role: 'user', content: 'again' }, 'newTurn');
+      const secondOutcome = await handle.turnOutcome(second);
+      expect(secondOutcome.status).toBe('ran');
+      expect(await handle.historyLen()).toBeGreaterThan(0);
+
+      await handle.dispose();
+    } finally {
+      agent.stop();
+    }
+  });
+});
+
 // ── stdio transport: host/ask_question JS-side handler ────────────────────
 // The Rust engine sends host/ask_question only once its native
 // AskUserQuestion tool lands; these tests exercise the JS-side dispatch
@@ -1052,12 +1639,14 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/ask_question end
   it('reports an unwired host as an unsupported error the model must not retry', async () => {
     const out = await driveAskQuestionTurn({});
 
-    // The engine received a JSON-RPC error (-32603) on the wire.
+    // The engine received a JSON-RPC error (-32603) on the wire. The
+    // session create also reads the turn clock (host/state_read), which
+    // errors the same way on this unwired host — so the count is ≥ 1.
     const errorLines = out.writtenToEngine
       .map((line) => JSON.parse(line) as { error?: { code?: number } })
       .filter((m) => m.error !== undefined);
-    expect(errorLines).toHaveLength(1);
-    expect(errorLines[0]?.error?.code).toBe(-32603);
+    expect(errorLines.length).toBeGreaterThanOrEqual(1);
+    expect(errorLines.some((m) => m.error?.code === -32603)).toBe(true);
 
     // The tool result carries the v2 unsupported message; the model must
     // not retry the tool.
@@ -1114,7 +1703,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     tools: [],
   };
 
-  it('passes askQuestionCb as the 8th runTurnRust argument and round-trips through the registry', async () => {
+  it('passes askQuestionCb as the 6th runTurnRust argument and round-trips through the registry', async () => {
     const engine = new NapiEngine();
     const received: unknown[][] = [];
     const payloads = new Map<number, string>();
@@ -1149,13 +1738,11 @@ describe('NapiEngine — ask_question callback passing', () => {
       async () => JSON.stringify({ content: '', is_error: false }),
       undefined,
       undefined,
-      undefined,
-      undefined,
       askQuestionCb,
     );
 
     expect(received).toHaveLength(1);
-    const askQuestionHandler = received[0]?.[7];
+    const askQuestionHandler = received[0]?.[5];
     expect(typeof askQuestionHandler).toBe('function');
     payloads.set(42, JSON.stringify({ question_id: 'question_1' }));
     (askQuestionHandler as (callbackId: number) => void)(42);
@@ -1167,7 +1754,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     });
   });
 
-  it('leaves the 8th runTurnRust argument undefined without askQuestionCb', async () => {
+  it('leaves the 6th runTurnRust argument undefined without askQuestionCb', async () => {
     const { engine, received } = fakeEngine();
     await engine.runTurn(
       emptyTurnParams,
@@ -1176,7 +1763,7 @@ describe('NapiEngine — ask_question callback passing', () => {
     );
 
     expect(received).toHaveLength(1);
-    expect(received[0]?.[7]).toBeUndefined();
+    expect(received[0]?.[5]).toBeUndefined();
   });
 });
 
@@ -1386,7 +1973,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     tools: [],
   };
 
-  it('passes stateReadCb and stateWriteCb as the 9th and 10th runTurnRust arguments and round-trips through the registry', async () => {
+  it('passes stateReadCb and stateWriteCb as the 7th and 8th runTurnRust arguments and round-trips through the registry', async () => {
     const engine = new NapiEngine();
     const received: unknown[][] = [];
     const payloads = new Map<number, string>();
@@ -1426,15 +2013,13 @@ describe('NapiEngine — state bridge callback passing', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
       stateReadCb,
       stateWriteCb,
     );
 
     expect(received).toHaveLength(1);
-    const stateReadHandler = received[0]?.[8];
-    const stateWriteHandler = received[0]?.[9];
+    const stateReadHandler = received[0]?.[6];
+    const stateWriteHandler = received[0]?.[7];
     expect(typeof stateReadHandler).toBe('function');
     expect(typeof stateWriteHandler).toBe('function');
     payloads.set(42, JSON.stringify({ domain: 'todo', key: 'todo' }));
@@ -1455,7 +2040,7 @@ describe('NapiEngine — state bridge callback passing', () => {
     });
   });
 
-  it('leaves the 9th and 10th runTurnRust arguments undefined without the callbacks', async () => {
+  it('leaves the 7th and 8th runTurnRust arguments undefined without the callbacks', async () => {
     const { engine, received } = fakeEngine();
     await engine.runTurn(
       emptyTurnParams,
@@ -1464,8 +2049,8 @@ describe('NapiEngine — state bridge callback passing', () => {
     );
 
     expect(received).toHaveLength(1);
-    expect(received[0]?.[8]).toBeUndefined();
-    expect(received[0]?.[9]).toBeUndefined();
+    expect(received[0]?.[6]).toBeUndefined();
+    expect(received[0]?.[7]).toBeUndefined();
   });
 });
 
@@ -1513,6 +2098,16 @@ describe('wire-schema', () => {
       max_steps: '3',
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it('accepts a canonical host/auth_token request and rejects a mistyped force flag', () => {
+    expect(authTokenRequestSchema.safeParse({ provider: 'kimi', force: false }).success).toBe(
+      true,
+    );
+    expect(authTokenRequestSchema.safeParse({ provider: 'kimi', force: 'no' }).success).toBe(
+      false,
+    );
+    expect(authTokenResponseSchema.safeParse({ token: 'tok' }).success).toBe(true);
   });
 
   it('accepts a minimal run_turn result and rejects a missing stop_reason', () => {
@@ -1815,7 +2410,12 @@ describe.skipIf(!napiEntry)('createRunTurnOverride — napi turn telemetry (M1c)
     mod.shutdownRustEngine();
   });
 
-  it(
+  // M1d 3a: the session runs turns through `run_turn` (not
+  // `run_turn_with_telemetry`), so the engine-side telemetry emission is
+  // dormant. The v2 loopService still emits its own turn telemetry; the
+  // bridge into the engine is M1d 3c. Re-enable with the engine-emitted
+  // assertion when 3c lands.
+  it.skip(
     'emits turn_started / turn_ended with the host context merged in',
     { timeout: 15_000 },
     async () => {

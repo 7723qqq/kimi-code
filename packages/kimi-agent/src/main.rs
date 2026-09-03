@@ -4,23 +4,33 @@
 //!   kimi-agent [--health] [--test]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use clap::Parser;
+use tokio::sync::oneshot;
 
 use kimi_agent::{
-    callbacks::{CountingCallbacks, HostCallbacks, NativeToolCallbacks, RpcHostCallbacks},
-    llm::{
-        http::NativeHttpLlm,
-        multi::{LlmProvider, MultiLLM},
-        proxy::HostLlmProxy,
-    },
+    callbacks::{HostCallbacks, RpcHostCallbacks},
+    pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec},
+    rpc::types::NativeLlmConfig,
     rpc::{
         server::RpcServer,
-        types::{self, CancelTurnParams, HealthStatus, RunTurnResult, TokenUsage},
+        types::{
+            self, CancelTurnParams, HealthStatus, Message, RunTurnParams, RunTurnResult,
+            SessionCancelParams, SessionEnqueueParams, SessionHistoryParams, SessionIdParams,
+            SessionOutcomeResult, SessionStatusResult, SessionTurnOutcomeParams, TokenUsage,
+        },
     },
-    turn_loop::{run_turn::run_turn, types::*},
+    session::{
+        Admission, EngineSession, GoalProvider, QuiescenceGuard, SessionConfig, ToolDefsProvider,
+        TurnOutcome, TurnRequest,
+    },
+    subagent::{ParentCancel, SubagentManager},
+    turn_loop::{
+        run_turn::{run_turn, run_turn_with_telemetry},
+        types::*,
+    },
 };
 
 #[derive(Parser)]
@@ -49,6 +59,19 @@ struct Cli {
     /// Run a self-test and exit
     #[arg(long)]
     test: bool,
+
+    /// Serve the native REST + WebSocket API on ADDRESS (e.g.
+    /// 127.0.0.1:8080) instead of speaking stdio JSON-RPC
+    #[arg(long, value_name = "ADDRESS")]
+    serve: Option<String>,
+
+    /// Where `--serve` keeps its session database (default: ./.kimi-agent)
+    #[arg(long, value_name = "PATH", default_value = ".kimi-agent")]
+    data_dir: String,
+
+    /// Skip the bearer credential for `--serve` (loopback binds only)
+    #[arg(long)]
+    no_auth: bool,
 }
 
 #[tokio::main]
@@ -80,12 +103,17 @@ async fn main() -> anyhow::Result<()> {
         return kimi_agent::repl::start_repl(config, cwd, cli.model).await;
     }
 
+    if cli.serve.is_some() {
+        return run_serve(&cli).await;
+    }
+
     // Build the RPC server and register handlers
     let server = Arc::new(RpcServer::new());
 
-    // Shared map of turn_id → cancellation flag, so CANCEL_TURN can
-    // signal a running turn to abort before its next step.
-    let cancel_map: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    // Shared map of turn_id → cancellation signal, so CANCEL_TURN can
+    // signal a running turn to abort before its next step — and, since
+    // P51, wake the foreground subagent's event-driven wait immediately.
+    let cancel_map: Arc<Mutex<HashMap<String, ParentCancel>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
     // Register run_turn handler
@@ -102,179 +130,29 @@ async fn main() -> anyhow::Result<()> {
             // None = unbounded, mirroring the JS loop (which only stops
             // on a configured `maxStepsPerTurn`).
             let max_steps = input.max_steps.unwrap_or(u32::MAX);
+            let max_context_tokens = input.max_context_tokens;
 
-            // Create and register a cancellation flag for this turn.
-            let cancel_flag = Arc::new(AtomicBool::new(false));
+            // Create and register a cancellation signal for this turn.
+            let cancel = ParentCancel::new();
             {
                 let mut map = cancel_map.lock().unwrap();
-                map.insert(turn_id.clone(), cancel_flag.clone());
+                map.insert(turn_id.clone(), cancel.clone());
             }
 
-            // Build the HostCallbacks from the RPC server, optionally
-            // wrapped so read-only tools execute natively inside the
-            // workspace sandbox.
-            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks {
-                server: server.clone(),
-            });
-            // Count every event this turn emits (step lifecycle, deltas,
-            // native tools, goal budget limits) for the turn telemetry.
-            let turn_event_count = Arc::new(AtomicU32::new(0));
-            let event_bus = Arc::new(kimi_agent::events::EventBus::new());
-            let base_callbacks: Arc<dyn HostCallbacks> = Arc::new(
-                CountingCallbacks::new(base_callbacks, turn_event_count.clone())
-                    .with_bus(event_bus.clone()),
-            );
-            let native_tool_count = Arc::new(AtomicU32::new(0));
-            // P26 批 4: when `rust_self_contained` is set, build a local
-            // truncator so result truncation + spill happen in-process and
-            // the host's `host/finalize_tool_result` seam is bypassed.
-            let truncator = if input.rust_self_contained {
-                input
-                    .workspace_root
-                    .as_deref()
-                    .map(std::path::Path::new)
-                    .map(|root| {
-                        Arc::new(
-                            kimi_agent::tool_result_truncation::ToolResultTruncator::for_workspace(
-                                root,
-                            ),
-                        )
-                    })
-            } else {
-                None
-            };
-            let permission_engine = input
-                .policy_snapshot
-                .map(|s| Arc::new(kimi_agent::permission::PermissionEngine::new(s)));
-            let callbacks: Arc<dyn HostCallbacks> =
-                match (input.native_tools, input.workspace_root.as_deref()) {
-                    (true, Some(root)) => {
-                        match kimi_agent::tools::NativeToolset::new(
-                            root,
-                            input.shell_path.as_deref(),
-                        ) {
-                            Some(toolset) => {
-                                // Plan-mode guard (v2
-                                // `AgentPlanService.guardToolExecution`):
-                                // guarded native calls read the host's plan
-                                // state through the state bridge and are
-                                // denied when plan mode forbids them.
-                                // Unguarded tools skip the round-trip.
-                                let plan_callbacks = base_callbacks.clone();
-                                let plan_workspace = input.workspace_root.clone();
-                                Arc::new(NativeToolCallbacks {
-                                    inner: base_callbacks.clone(),
-                                    toolset: Arc::new(
-                                        toolset
-                                            .with_callbacks(base_callbacks.clone())
-                                            .with_github_credentials(
-                                                kimi_agent::tools::github::GitHubCredentials {
-                                                    token: input.github_token.clone(),
-                                                    base_url: input.github_base_url.clone(),
-                                                },
-                                            ),
-                                    ),
-                                    native_count: native_tool_count.clone(),
-                                    truncator: truncator.clone(),
-                                    permission_engine,
-                                    plan_guard: Some(Arc::new(move |tool_name, args| {
-                                        if !kimi_agent::tools::plan_mode::plan_guarded_tool(
-                                            tool_name,
-                                        ) {
-                                            return Box::pin(async { None });
-                                        }
-                                        let callbacks = plan_callbacks.clone();
-                                        let tool_name = tool_name.to_string();
-                                        let args = args.clone();
-                                        let workspace = plan_workspace.clone();
-                                        Box::pin(async move {
-                                            let request =
-                                                kimi_agent::rpc::types::StateReadRequest {
-                                                    domain: "plan".into(),
-                                                    key: "plan".into(),
-                                                    turn_id: String::new(),
-                                                    tool_call_id: String::new(),
-                                                };
-                                            match callbacks.state_read(request).await {
-                                                Ok(response) => {
-                                                    kimi_agent::tools::plan_mode::plan_denial(
-                                                        &response.value,
-                                                        &tool_name,
-                                                        &args,
-                                                        workspace
-                                                            .as_deref()
-                                                            .map(std::path::Path::new),
-                                                    )
-                                                }
-                                                Err(_) => None,
-                                            }
-                                        })
-                                    })),
-                                })
-                            }
-                            None => base_callbacks.clone(),
-                        }
-                    }
-                    _ => base_callbacks.clone(),
-                };
-
-            // Build the LLM — MultiLLM providers, native HTTP, or host proxy.
-            // Priority must match the napi channel (napi_bindings.rs):
-            // providers (concurrent MultiLLM race) → native_llm → host
-            // proxy. Checking native_llm first would silently route a
-            // MultiLLM session to a single model on this transport.
-            let llm: Box<dyn LLM> = if !input.providers.is_empty() {
-                let providers: Vec<LlmProvider> = input
-                    .providers
-                    .iter()
-                    .map(|p| LlmProvider {
-                        name: p.name.clone(),
-                        system_prompt: p.system_prompt.clone(),
-                        model: p.model.clone(),
-                        callbacks: callbacks.clone(),
-                    })
-                    .collect();
-                let multi = MultiLLM::new(providers);
-                Box::new(multi)
-            } else if let Some(cfg) = input.native_llm.clone() {
-                let sink_callbacks = callbacks.clone();
-                Box::new(
-                    NativeHttpLlm::new(cfg, input.system_prompt.clone())
-                        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event))),
-                )
-            } else {
-                // Self-contained mode: refuse to fall back to host proxy.
-                if input.rust_self_contained {
-                    return Err(types::JsonRpcError::internal_error(
-                        "rustSelfContained=true requires providers or native_llm to be \
-                         set; refusing to fall back to host/llm_chat (P26 批 1)"
-                            .to_string(),
-                    ));
-                }
-                Box::new(
-                    HostLlmProxy::new(input.system_prompt.clone(), input.model_name.clone())
-                        .with_callbacks(callbacks.clone()),
-                )
-            };
+            // The engine pipeline is shared with the session handle: the
+            // callback chain (counting + native tools over the RPC host
+            // bridge) and the LLM selection are built once per context.
+            let pipeline =
+                build_engine_pipeline(&input, server.clone(), Some(cancel.clone()), None).await?;
+            let llm = pipeline.llm;
+            let callbacks = pipeline.callbacks;
+            let turn_event_count = pipeline.turn_event_count;
+            let native_tool_count = pipeline.native_tool_count;
 
             let messages: Vec<LLMMessage> = input
                 .messages
                 .into_iter()
-                .map(|m| LLMMessage {
-                    role: m.role,
-                    content: m.content,
-                    blocks: m.blocks,
-                    tool_calls: m
-                        .tool_calls
-                        .into_iter()
-                        .map(|tc| ToolCall {
-                            id: tc.id,
-                            name: tc.name,
-                            arguments: tc.arguments,
-                        })
-                        .collect(),
-                    tool_call_id: m.tool_call_id,
-                })
+                .map(wire_message_to_llm)
                 .collect();
 
             let tool_defs: Vec<ToolInfo> = input
@@ -291,13 +169,14 @@ async fn main() -> anyhow::Result<()> {
 
             let run_input = RunTurnInput {
                 turn_id: turn_id.clone(),
-                llm: &*llm,
+                llm: llm.as_ref(),
                 messages,
                 tools: &tools,
                 tool_defs,
                 max_steps,
+                max_context_tokens,
                 goal: input.goal,
-                cancellation: Some(cancel_flag.clone()),
+                cancellation: Some(cancel.flag()),
             };
 
             let result = match input.telemetry {
@@ -344,6 +223,345 @@ async fn main() -> anyhow::Result<()> {
         })
     });
 
+    // ── EngineSession handle over stdio (M1d 3b) ─────────────────────────
+    // The stdio transport gets the same session surface as the napi addon:
+    // create once (the engine pipeline is built once), enqueue turns, await
+    // outcomes. The registry + outcome receivers mirror napi_bindings.rs.
+
+    // Register session/create handler
+    {
+        let s = server.clone();
+        RpcServer::register_arc(&server, types::methods::SESSION_CREATE, move |params| {
+            let server = s.clone();
+            Box::pin(async move {
+                let input: RunTurnParams = serde_json::from_value(params).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                })?;
+                // P55: session-wide cancel slot — the pump refreshes it per
+                // turn, `cancel_turn` triggers it, and the native `Agent`
+                // tool reads the live signal from it.
+                let agent_cancel_slot: Arc<Mutex<Option<ParentCancel>>> =
+                    Arc::new(Mutex::new(None));
+                let pipeline = build_engine_pipeline(
+                    &input,
+                    server.clone(),
+                    None,
+                    Some(agent_cancel_slot.clone()),
+                )
+                .await?;
+
+                // Turn-start tool table: pulled fresh from the host per turn
+                // on native transports (host-proxy rebuilds tools inside
+                // llm_chat and never consults the engine's table).
+                let is_host_proxy = pipeline.llm.transport() == "host-proxy";
+                let tool_callbacks = pipeline.callbacks.clone();
+                let tool_defs_provider: ToolDefsProvider = if is_host_proxy {
+                    Arc::new(|| Box::pin(async { Vec::new() }))
+                } else {
+                    Arc::new(move || {
+                        let callbacks = tool_callbacks.clone();
+                        Box::pin(async move {
+                            callbacks
+                                .list_tools()
+                                .await
+                                .map(|r| r.tools)
+                                .unwrap_or_default()
+                        })
+                    })
+                };
+
+                // Fresh goal snapshot per turn (budget checks + steering),
+                // read through the host/goal seam; unwired hosts degrade to
+                // no goal budgeting.
+                let goal_callbacks = pipeline.callbacks.clone();
+                let goal_provider: Option<GoalProvider> = Some(Arc::new(move || {
+                    let callbacks = goal_callbacks.clone();
+                    Box::pin(async move { callbacks.goal().await.ok().flatten() })
+                }));
+
+                let session = EngineSession::new(SessionConfig {
+                    llm: pipeline.llm.clone(),
+                    callbacks: pipeline.callbacks.clone(),
+                    max_steps: input.max_steps.unwrap_or(u32::MAX),
+                    max_context_tokens: input.max_context_tokens,
+                    tool_defs: tool_defs_provider,
+                    goal: goal_provider,
+                    on_before_turn: None,
+                    agent_cancel_slot: Some(agent_cancel_slot),
+                })
+                .await;
+
+                let session_id =
+                    format!("session-{}", SESSION_NEXT_ID.fetch_add(1, Ordering::SeqCst));
+                SESSION_REGISTRY
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(
+                        session_id.clone(),
+                        SessionEntry {
+                            session: Arc::new(session),
+                            turn_event_count: pipeline.turn_event_count,
+                            native_tool_count: pipeline.native_tool_count,
+                            llm_transport: pipeline.llm.transport().to_string(),
+                            quiescence_guard: Arc::new(Mutex::new(None)),
+                        },
+                    );
+                serde_json::to_value(&session_id).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+                })
+            })
+        });
+    }
+
+    // Register session/enqueue_turn handler
+    RpcServer::register_arc(&server, types::methods::SESSION_ENQUEUE_TURN, |params| {
+        Box::pin(async move {
+            let input: SessionEnqueueParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let admission = parse_admission(&input.admission)?;
+            let receipt = entry
+                .session
+                .enqueue_turn(TurnRequest::user(
+                    wire_message_to_llm(input.prompt),
+                    admission,
+                ))
+                .map_err(types::JsonRpcError::internal_error)?;
+            let (turn_id, outcome) = receipt.into_parts();
+            SESSION_OUTCOMES
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((input.session_id, turn_id), outcome);
+            serde_json::to_value(turn_id).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/turn_outcome handler
+    RpcServer::register_arc(&server, types::methods::SESSION_TURN_OUTCOME, |params| {
+        Box::pin(async move {
+            let input: SessionTurnOutcomeParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let receiver = {
+                let mut outcomes = SESSION_OUTCOMES.lock().unwrap_or_else(|e| e.into_inner());
+                outcomes
+                    .remove(&(input.session_id.clone(), input.turn_id))
+                    .ok_or_else(|| {
+                        types::JsonRpcError::internal_error(format!(
+                            "no outcome pending for {} turn {}",
+                            input.session_id, input.turn_id
+                        ))
+                    })?
+            };
+            let entry = session_entry(&input.session_id)?;
+            let outcome = receiver
+                .await
+                .map_err(|_| types::JsonRpcError::internal_error("session dropped".to_string()))?
+                .map_err(types::JsonRpcError::internal_error)?;
+            let result = match outcome {
+                TurnOutcome::Ran(res) => SessionOutcomeResult {
+                    status: "ran".into(),
+                    result: Some(RunTurnResult {
+                        stop_reason: format!("{:?}", res.stop_reason),
+                        steps: res.steps,
+                        usage: res.usage,
+                        events_emitted: entry.turn_event_count.load(Ordering::Relaxed),
+                        llm_retries: res.llm_retries,
+                        llm_transport: entry.llm_transport.clone(),
+                        native_tool_calls: entry.native_tool_count.load(Ordering::Relaxed),
+                    }),
+                },
+                TurnOutcome::CancelledBeforeStart => SessionOutcomeResult {
+                    status: "cancelledBeforeStart".into(),
+                    result: None,
+                },
+            };
+            serde_json::to_value(&result).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/cancel_turn handler
+    RpcServer::register_arc(&server, types::methods::SESSION_CANCEL_TURN, |params| {
+        Box::pin(async move {
+            let input: SessionCancelParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            serde_json::to_value(entry.session.cancel_turn(input.turn_id)).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/status handler
+    RpcServer::register_arc(&server, types::methods::SESSION_STATUS, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let status = entry.session.status();
+            let result = SessionStatusResult {
+                active_turn_id: status.active_turn_id,
+                pending_turn_ids: status.pending_turn_ids,
+                engine: status.engine,
+            };
+            serde_json::to_value(&result).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/is_settled handler
+    RpcServer::register_arc(&server, types::methods::SESSION_IS_SETTLED, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            serde_json::to_value(entry.session.is_settled()).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/settled handler
+    RpcServer::register_arc(&server, types::methods::SESSION_SETTLED, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            entry.session.settled().await;
+            Ok(serde_json::Value::Null)
+        })
+    });
+
+    // Register session/try_acquire_quiescence handler
+    RpcServer::register_arc(
+        &server,
+        types::methods::SESSION_TRY_ACQUIRE_QUIESCENCE,
+        |params| {
+            Box::pin(async move {
+                let input: SessionIdParams = serde_json::from_value(params).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                })?;
+                let entry = session_entry(&input.session_id)?;
+                let acquired = match entry.session.try_acquire_quiescence() {
+                    Some(guard) => {
+                        *entry
+                            .quiescence_guard
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(guard);
+                        true
+                    }
+                    None => false,
+                };
+                serde_json::to_value(acquired).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+                })
+            })
+        },
+    );
+
+    // Register session/release_quiescence handler
+    RpcServer::register_arc(
+        &server,
+        types::methods::SESSION_RELEASE_QUIESCENCE,
+        |params| {
+            Box::pin(async move {
+                let input: SessionIdParams = serde_json::from_value(params).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                })?;
+                let entry = session_entry(&input.session_id)?;
+                *entry
+                    .quiescence_guard
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
+                Ok(serde_json::Value::Null)
+            })
+        },
+    );
+
+    // Register session/set_history handler
+    RpcServer::register_arc(&server, types::methods::SESSION_SET_HISTORY, |params| {
+        Box::pin(async move {
+            let input: SessionHistoryParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history: Vec<LLMMessage> =
+                input.history.into_iter().map(wire_message_to_llm).collect();
+            entry.session.set_history(history);
+            Ok(serde_json::Value::Null)
+        })
+    });
+
+    // Register session/clear_history handler
+    RpcServer::register_arc(&server, types::methods::SESSION_CLEAR_HISTORY, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            entry.session.clear_history();
+            Ok(serde_json::Value::Null)
+        })
+    });
+
+    // Register session/extend_history handler
+    RpcServer::register_arc(&server, types::methods::SESSION_EXTEND_HISTORY, |params| {
+        Box::pin(async move {
+            let input: SessionHistoryParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history: Vec<LLMMessage> =
+                input.history.into_iter().map(wire_message_to_llm).collect();
+            entry.session.extend_history(history);
+            Ok(serde_json::Value::Null)
+        })
+    });
+
+    // Register session/history_len handler
+    RpcServer::register_arc(&server, types::methods::SESSION_HISTORY_LEN, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            serde_json::to_value(entry.session.history_len()).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/get_history handler
+    RpcServer::register_arc(&server, types::methods::SESSION_GET_HISTORY, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history: Vec<Message> = entry
+                .session
+                .snapshot_history()
+                .into_iter()
+                .map(llm_message_to_wire)
+                .collect();
+            serde_json::to_value(history).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/dispose handler
+    RpcServer::register_arc(&server, types::methods::SESSION_DISPOSE, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            SESSION_REGISTRY
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&input.session_id);
+            Ok(serde_json::Value::Null)
+        })
+    });
+
     // Register cancel_turn handler
     let cm = cancel_map.clone();
     RpcServer::register_arc(&server, types::methods::CANCEL_TURN, move |params| {
@@ -354,8 +572,8 @@ async fn main() -> anyhow::Result<()> {
 
             let cancelled = {
                 let map = cancel_map.lock().unwrap();
-                if let Some(flag) = map.get(&input.turn_id) {
-                    flag.store(true, Ordering::Relaxed);
+                if let Some(cancel) = map.get(&input.turn_id) {
+                    cancel.trigger();
                     true
                 } else {
                     false
@@ -417,6 +635,276 @@ async fn main() -> anyhow::Result<()> {
     server.run().await
 }
 
+// ── Engine pipeline (shared by RUN_TURN and the session handle) ────────────
+
+/// The stdio entry's view of the shared engine pipeline
+/// (`kimi_agent::pipeline`). Everything the chain itself does — counting
+/// wrapper, native-tool wrapper and its guards, LLM selection — lives there
+/// now; this only maps the typed wire params into a `PipelineSpec` and applies
+/// the stdio host policy: a per-pipeline subagent manager snapshotted from
+/// `params.subagent_profiles`, plus the cancel slot that lets a replacement
+/// turn be reached by `session/cancel`.
+async fn build_engine_pipeline(
+    params: &RunTurnParams,
+    server: Arc<RpcServer>,
+    parent_cancel: Option<ParentCancel>,
+    parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
+) -> Result<EnginePipeline, types::JsonRpcError> {
+    let spec = PipelineSpec {
+        system_prompt: params.system_prompt.clone(),
+        model_name: params.model_name.clone(),
+        providers: params
+            .providers
+            .iter()
+            .map(|p| PipelineProvider {
+                name: p.name.clone(),
+                system_prompt: p.system_prompt.clone(),
+                model: p.model.clone(),
+            })
+            .collect(),
+        native_llm: params.native_llm.clone(),
+        workspace_root: params.workspace_root.clone(),
+        native_tools: params.native_tools,
+        rust_self_contained: params.rust_self_contained,
+        shell_path: params.shell_path.clone(),
+        policy_snapshot: params.policy_snapshot.clone(),
+        github_token: params.github_token.clone(),
+        github_base_url: params.github_base_url.clone(),
+        subagent_timeout_ms: params.subagent_timeout_ms,
+        agent_tool_veto: params.agent_tool_veto.clone(),
+        tools_veto: params.tools_veto.clone(),
+        caller_agent_id: params.caller_agent_id.clone(),
+        session_id: params.session_id.clone(),
+    };
+
+    // Subagent manager for the native `Agent` tool (P46): one per pipeline (the
+    // legacy stdio entry rebuilds the pipeline per turn; the session entry
+    // builds once). An empty snapshot means every `Agent` call falls back to
+    // the host tool.
+    let subagent_manager = Arc::new(SubagentManager::new());
+    subagent_manager
+        .register_profile_snapshot(&params.subagent_profiles)
+        .await;
+
+    pipeline::build_engine_pipeline(
+        &spec,
+        Arc::new(RpcHostCallbacks { server }),
+        PipelineHost {
+            subagent_manager,
+            parent_cancel,
+            parent_cancel_slot,
+            mcp_manager: None,
+            event_bus: None,
+        },
+    )
+    .await
+    .map_err(|error| types::JsonRpcError::internal_error(error.message))
+}
+
+/// The composition root for the standalone server: config -> `PipelineSpec` ->
+/// `ServerEngine` -> `HttpServer` -> TCP listener.
+///
+/// Until now every part of that chain existed but nothing assembled it, so the
+/// native REST surface was unreachable from a real process.
+async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
+    let address = cli.serve.clone().expect("checked by the caller");
+
+    // The credential is kap-server's own: a bearer token in
+    // `<kimi home>/server.token`, generated on first run so one client
+    // credential works against either server. `--no-auth` opts out, and only on
+    // loopback — `http::serve` is what actually refuses a non-loopback bind
+    // with no credential, so this early check just fails with a usable message.
+    let host = address
+        .rsplit_once(':')
+        .map_or(address.as_str(), |(host, _)| host);
+    let loopback =
+        matches!(host, "127.0.0.1" | "localhost" | "::1") || host.strip_prefix("127.").is_some();
+    let (auth, token_path) = if cli.no_auth {
+        if !loopback {
+            anyhow::bail!("--no-auth only allows a loopback address, refusing to serve {address}");
+        }
+        (kimi_agent::server::auth::ServerAuth::disabled(), None)
+    } else {
+        let path = kimi_agent::server::auth::ServerAuth::default_token_path().ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot resolve the kimi home for server.token: set KIMI_CODE_HOME, or pass --no-auth to serve loopback without a credential"
+            )
+        })?;
+        let auth = kimi_agent::server::auth::ServerAuth::load_or_create(&path)
+            .map_err(|error| anyhow::anyhow!("cannot read or create {path:?}: {error}"))?;
+        (auth, Some(path))
+    };
+
+    let (config, source) = match cli.config.as_ref() {
+        Some(path) => {
+            let cfg = kimi_agent::config::KimiConfig::from_file(path)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            (cfg, path.clone())
+        }
+        None => kimi_agent::config::KimiConfig::discover()
+            .map_err(|error| anyhow::anyhow!("{error}"))?,
+    };
+
+    let native = config.extract_native_llm(cli.model.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no native LLM resolved from {source:?}: give the model a provider with base_url + api_key, or point --model at one"
+        )
+    })?;
+
+    let workspace = std::env::current_dir()?;
+    let spec = PipelineSpec {
+        system_prompt: "You are kimi-agent, running as a standalone service.".into(),
+        model_name: native.model.clone(),
+        providers: Vec::new(),
+        native_llm: Some(NativeLlmConfig {
+            protocol: native.protocol,
+            base_url: native.base_url,
+            api_key: native.api_key,
+            model: native.model,
+            max_tokens: native.max_tokens,
+            custom_headers: Default::default(),
+            reasoning_effort: None,
+            thinking_budget: None,
+            auth_provider: None,
+        }),
+        workspace_root: Some(workspace.display().to_string()),
+        native_tools: true,
+        // The standalone server has no JS host to fall back to; refusing the
+        // host-proxy leg here means a misconfiguration fails at startup rather
+        // than mid-turn.
+        rust_self_contained: true,
+        shell_path: None,
+        policy_snapshot: Some(config.build_policy_snapshot(Some(workspace.clone()))),
+        github_token: config.github.token.clone(),
+        github_base_url: config.github.base_url.clone(),
+        subagent_timeout_ms: None,
+        agent_tool_veto: None,
+        tools_veto: None,
+    };
+
+    std::fs::create_dir_all(&cli.data_dir)?;
+    let db_path = std::path::Path::new(&cli.data_dir).join("sessions.db");
+    let store = Arc::new(
+        kimi_agent::session::sqlite_store::SqliteSessionStore::open(&db_path)
+            .map_err(|error| anyhow::anyhow!("cannot open {db_path:?}: {error}"))?,
+    );
+
+    // One hub for both sides: a turn publishes onto its session's lane and
+    // connecting WebSocket clients attach through the same registry, so a turn's
+    // events genuinely reach them with the numbering that lane assigns.
+    let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
+    let engine =
+        kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone());
+    let server = kimi_agent::server::HttpServer::with_hub(store, hub)
+        .with_engine(engine)
+        .with_auth(auth);
+    let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;
+    let credential = match &token_path {
+        Some(path) => format!("bearer token {path:?}"),
+        None => "no credential (--no-auth)".into(),
+    };
+    println!(
+        "kimi-agent serving /api/v1 on http://{} (config {source:?}, db {db_path:?}, {credential})",
+        handle.local_addr
+    );
+
+    // Park forever. Ctrl-C terminates the process; there is no graceful drain
+    // of in-flight turns yet, and no signal handler is installed on purpose
+    // rather than pretending to have one.
+    std::future::pending::<()>().await;
+    Ok(())
+}
+
+/// Convert a wire `Message` into the engine's `LLMMessage` (the tool-call
+/// structural mapping).
+fn wire_message_to_llm(m: Message) -> LLMMessage {
+    LLMMessage {
+        role: m.role,
+        content: m.content,
+        blocks: m.blocks,
+        tool_calls: m
+            .tool_calls
+            .into_iter()
+            .map(|tc| ToolCall {
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+            })
+            .collect(),
+        tool_call_id: m.tool_call_id,
+    }
+}
+
+fn llm_message_to_wire(m: LLMMessage) -> Message {
+    Message {
+        role: m.role,
+        content: m.content,
+        blocks: m.blocks,
+        tool_calls: m
+            .tool_calls
+            .into_iter()
+            .map(|tc| types::LlmToolCall {
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+            })
+            .collect(),
+        tool_call_id: m.tool_call_id,
+    }
+}
+
+fn parse_admission(value: &str) -> Result<Admission, types::JsonRpcError> {
+    match value {
+        "newTurn" => Ok(Admission::NewTurn),
+        "activeOrNewTurn" => Ok(Admission::ActiveOrNewTurn),
+        "activeOrNextTurn" => Ok(Admission::ActiveOrNextTurn),
+        "activeTurnOnly" => Ok(Admission::ActiveTurnOnly),
+        other => Err(types::JsonRpcError::internal_error(format!(
+            "unknown admission mode: {other}"
+        ))),
+    }
+}
+
+// ── EngineSession registry (M1d 3b, mirrors napi_bindings.rs) ──────────────
+
+/// Live sessions keyed by id. One CLI process runs one session today; the
+/// registry keeps the surface uniform for tests and future multi-session
+/// hosts. A disposed session's pump task parks forever on its wakeup channel
+/// (bounded: one session per process) — teardown joins it in M2.
+#[derive(Clone)]
+struct SessionEntry {
+    session: Arc<EngineSession>,
+    turn_event_count: Arc<AtomicU32>,
+    native_tool_count: Arc<AtomicU32>,
+    llm_transport: String,
+    /// The live quiescence guard (M1c RAII). Acquire stores it; release
+    /// drops it — the drop replays held turns and wakes the pump.
+    quiescence_guard: Arc<Mutex<Option<QuiescenceGuard>>>,
+}
+
+static SESSION_REGISTRY: LazyLock<Mutex<HashMap<String, SessionEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Outcome receivers for enqueued turns, keyed by (session, turn). Enqueue
+/// stores the receiver; `session/turn_outcome` takes it and resolves the
+/// caller once the pump finishes the turn.
+type SessionOutcomeMap = HashMap<(String, u64), oneshot::Receiver<Result<TurnOutcome, String>>>;
+static SESSION_OUTCOMES: LazyLock<Mutex<SessionOutcomeMap>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static SESSION_NEXT_ID: AtomicU32 = AtomicU32::new(1);
+
+fn session_entry(session_id: &str) -> Result<SessionEntry, types::JsonRpcError> {
+    SESSION_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| {
+            types::JsonRpcError::internal_error(format!("unknown session: {session_id}"))
+        })
+}
+
 /// Self-test: runs the turn loop with a mock LLM.
 async fn run_self_test() -> anyhow::Result<()> {
     eprintln!("Running self-test...");
@@ -440,6 +928,7 @@ async fn run_self_test() -> anyhow::Result<()> {
         tools: &[],
         tool_defs: vec![],
         max_steps: 5,
+        max_context_tokens: None,
         goal: None,
         cancellation: None,
     };
@@ -498,6 +987,7 @@ impl LLM for MockLlm {
         Box::pin(async move {
             Ok(LLMChatResponse {
                 content: String::new(),
+                thinking: vec![],
                 tool_calls: vec![],
                 finish_reason: Some("stop".into()),
                 usage: TokenUsage {

@@ -16,7 +16,9 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
+import { IEngineOverrideService } from '@moonshot-ai/agent-core-v2';
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
+import { maybeLoadRustEngine } from '#/cli/rust-engine';
 import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -372,6 +374,19 @@ async function runServerInProcess(
     // only covers host-level events.
     telemetry: true,
     webAssetsDir,
+    seeds: await (async () => {
+      const engine = await maybeLoadRustEngine().catch(() => undefined);
+      if (engine === undefined) return [];
+      return [
+        [
+          IEngineOverrideService,
+          {
+            getEngine: () => engine,
+            ownsTurnLifecycle: true,
+          },
+        ] as const,
+      ];
+    })(),
   });
   logger.info('serving the REST/WS API and the bundled web UI');
   running = {

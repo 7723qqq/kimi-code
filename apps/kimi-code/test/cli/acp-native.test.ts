@@ -157,6 +157,10 @@ describe('kimi acp', () => {
           ({
             auth: { login: loginStub },
           }) as unknown as ReturnType<typeof actual.createKimiHarnessV2>,
+        createKimiHarnessNative: () =>
+          ({
+            auth: { login: loginStub },
+          }) as unknown as ReturnType<typeof actual.createKimiHarnessNative>,
       };
     });
     vi.resetModules();

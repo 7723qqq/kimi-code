@@ -46,12 +46,16 @@ export const permissionCheckRequestSchema = z.object({
   arguments: z.unknown(),
 });
 
-export const toolFinalizeRequestSchema = z.object({
-  tool_name: z.string(),
-  tool_call_id: z.string(),
-  content: z.string(),
-  is_error: z.boolean(),
-  note: z.string().optional(),
+// ── Rust→JS: OAuth token fetch (`host/auth_token`) ─────────────────────────
+// The host owns the OAuth store (single-flight refresh); `force` asks it to
+// refresh past the cache after a 401/403 from the provider.
+export const authTokenRequestSchema = z.object({
+  provider: z.string(),
+  force: z.boolean(),
+});
+
+export const authTokenResponseSchema = z.object({
+  token: z.string(),
 });
 
 // ── Rust→JS: turn lifecycle (`turn_events.rs`, `host/turn_event`) ──────────
@@ -124,6 +128,18 @@ export const telemetryEventSchema = z.discriminatedUnion('event', [
     at_step: z.number().optional(),
     interrupt_reason: z.enum(['aborted', 'error']),
   }),
+  // P54: per-native-execution tool telemetry (v2 `ToolCallEvent`).
+  z.object({
+    event: z.literal('tool_call'),
+    turn_id: z.number(),
+    tool_call_id: z.string(),
+    tool_name: z.string(),
+    outcome: z.enum(['success', 'error', 'cancelled']),
+    duration_ms: z.number(),
+    dup_type: z.enum(['normal', 'same_step', 'cross_step']),
+    error_type: z.enum(['cancelled', 'error']).optional(),
+    trace_id: z.string().optional(),
+  }),
 ]);
 
 export type TelemetryEventWire = z.infer<typeof telemetryEventSchema>;
@@ -162,6 +178,9 @@ const nativeLlmConfig = z.object({
   api_key: z.string(),
   model: z.string(),
   max_tokens: z.number().optional(),
+  custom_headers: z.record(z.string(), z.string()).optional(),
+  reasoning_effort: z.string().optional(),
+  thinking_budget: z.number().optional(),
 });
 
 const policySnapshot = z.object({
@@ -197,6 +216,7 @@ export const runTurnParamsSchema = z.object({
   ),
   tools: z.array(toolDef),
   max_steps: z.number().optional(),
+  max_context_tokens: z.number().optional(),
   providers: z
     .array(z.object({ name: z.string(), model: z.string(), system_prompt: z.string() }))
     .optional(),
@@ -210,4 +230,95 @@ export const runTurnParamsSchema = z.object({
   github_token: z.string().optional(),
   github_base_url: z.string().optional(),
   telemetry: telemetryContext.optional(),
+  subagent_profiles: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string().optional(),
+        system_prompt: z.string().optional(),
+        tools: z.array(z.string()).optional(),
+        disallowed_tools: z.array(z.string()).optional(),
+        prompt_prefix: z.string().optional(),
+        summary_policy: z
+          .object({
+            min_chars: z.number(),
+            continuation_prompt: z.string(),
+            retries: z.number(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+  subagent_timeout_ms: z.number().optional(),
+  /** P52 native-path vetoes: non-empty reason = the engine rejects the
+   *  affected native executions with this text as the tool result. */
+  agent_tool_veto: z.string().optional(),
+  tools_veto: z.string().optional(),
 });
+
+// ── EngineSession handle over stdio (M1d 3b) ──────────────────────────────
+// The stdio transport drives the same session surface as the napi addon.
+// These mirror `SessionEnqueueParams` / `SessionIdParams` /
+// `SessionTurnOutcomeParams` / `SessionCancelParams` / `SessionHistoryParams`
+// / `SessionOutcomeResult` / `SessionStatusResult` in rpc/types.rs.
+
+/** The wire `Message` shape (rpc/types.rs) — prompts and history entries. */
+export const sessionMessageSchema = z.object({
+  role: z.string(),
+  content: z.string(),
+  blocks: z.array(z.unknown()).optional(),
+  tool_calls: z
+    .array(z.object({ id: z.string(), name: z.string(), arguments: z.unknown() }))
+    .optional(),
+  tool_call_id: z.string().optional(),
+});
+
+export type SessionMessageWire = z.infer<typeof sessionMessageSchema>;
+
+export const sessionEnqueueTurnParamsSchema = z.object({
+  session_id: z.string(),
+  prompt: sessionMessageSchema,
+  admission: z.enum(['newTurn', 'activeOrNewTurn', 'activeOrNextTurn', 'activeTurnOnly']),
+});
+
+export const sessionIdParamsSchema = z.object({
+  session_id: z.string(),
+});
+
+export const sessionTurnOutcomeParamsSchema = z.object({
+  session_id: z.string(),
+  turn_id: z.number(),
+});
+
+export const sessionCancelParamsSchema = z.object({
+  session_id: z.string(),
+  turn_id: z.number().optional(),
+});
+
+export const sessionHistoryParamsSchema = z.object({
+  session_id: z.string(),
+  history: z.array(sessionMessageSchema),
+});
+
+export const sessionStatusResultSchema = z.object({
+  active_turn_id: z.number().nullable(),
+  pending_turn_ids: z.array(z.number()),
+  /** P56 (G-5): execution-path summary of the last completed turn. */
+  engine: z
+    .object({
+      transport: z.string().nullable(),
+      native_tool_calls: z.number().nullable(),
+      steps: z.number().nullable(),
+      stop_reason: z.string().nullable(),
+    })
+    .optional(),
+});
+
+export type SessionStatusWire = z.infer<typeof sessionStatusResultSchema>;
+
+export const sessionTurnOutcomeResultSchema = z.object({
+  status: z.enum(['ran', 'cancelledBeforeStart']),
+  result: runTurnResultSchema.optional(),
+});
+
+export type SessionTurnOutcomeWire = z.infer<typeof sessionTurnOutcomeResultSchema>;

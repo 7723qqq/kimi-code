@@ -195,7 +195,9 @@ pub async fn run_llm_stream_with(
                 // as stream errors instead of silently ending with whatever
                 // partial content arrived — the SDK path throws on these too.
                 if let Some(message) = extract_in_band_error(&parsed) {
-                    emit(StreamEvent::Error(format!("Provider stream error: {message}")));
+                    emit(StreamEvent::Error(format!(
+                        "Provider stream error: {message}"
+                    )));
                     break;
                 }
 
@@ -748,7 +750,10 @@ mod tests {
             None
         );
         assert_eq!(extract_in_band_error(&json!({ "type": "ping" })), None);
-        assert_eq!(extract_in_band_error(&json!({ "type": "message_stop" })), None);
+        assert_eq!(
+            extract_in_band_error(&json!({ "type": "message_stop" })),
+            None
+        );
         assert_eq!(extract_in_band_error(&json!({})), None);
     }
 

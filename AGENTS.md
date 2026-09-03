@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 0.38.0 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 0.39.1 (the main CLI app)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -116,7 +116,7 @@ src/
 
 **CLI subcommands:** `acp`, `doctor`, `export`, `login`, `migrate`, `provider`, `upgrade`, `vis`, `web` (plus the hidden `__plugin_run_node` for plugin execution)
 
-**TUI slash commands (43 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `multi-llm`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `workflow`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `exit`, `version`
+**TUI slash commands (44 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `team`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `remote-control`, `exit`, `version`
 
 **Build output:**
 | Output | Path |
@@ -188,6 +188,8 @@ packages/
 **`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
+
+**`kimi-agent`** — Next-generation Rust agent engine designed to progressively replace `agent-core-v2`. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). See `packages/kimi-agent/ROADMAP.md`.
 
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.

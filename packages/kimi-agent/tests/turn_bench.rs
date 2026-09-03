@@ -65,6 +65,7 @@ impl LLM for BenchLlm {
         Box::pin(async move {
             Ok(LLMChatResponse {
                 content: String::new(),
+                thinking: vec![],
                 tool_calls: calls,
                 finish_reason: Some("tool_calls".into()),
                 usage: TokenUsage {
@@ -149,6 +150,7 @@ async fn run_turn_sync(
         tools: &[],
         tool_defs: vec![],
         max_steps: steps,
+        max_context_tokens: None,
         goal: None,
         cancellation: None,
     };
@@ -221,6 +223,11 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
         truncator: None,
         permission_engine: None,
         plan_guard: None,
+        stale_guard: None,
+        goal_guard: None,
+        hook_guard: None,
+        agent_tool_veto: None,
+        tools_veto: None,
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;
     let started = Instant::now();

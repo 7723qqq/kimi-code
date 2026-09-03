@@ -2049,10 +2049,15 @@ pub async fn native_llm_stream(config: NativeLlmStreamConfig) -> NativeLlmStream
 ///
 /// The function returns immediately; `on_event` receives
 /// `{ kind: 'part'|'done'|'error', part?, metadata?, error? }` objects as the
-/// stream progresses. The stream runs on a dedicated thread with its own
-/// current-thread tokio runtime (the napi async runtime is private and the
-/// JsFunction handle cannot cross into the `#[napi] async` future), which is
-/// fine for an LLM stream: one call, one connection.
+/// stream progresses. The stream runs on a process-wide lazily-created
+/// shared tokio runtime (the napi async runtime is private and the JsFunction
+/// handle cannot cross into the `#[napi] async` future). A multi-thread
+/// runtime with 2 workers is used: stream concurrency is low (typically one
+/// stream per CLI session), but a shared current-thread runtime cannot drive
+/// multiple spawned streams without a blocking caller, so multi-thread keeps
+/// semantics simple at negligible cost. The runtime and its 2 worker threads
+/// are process-resident: once created on the first streaming call, they are
+/// never torn down for the lifetime of the process.
 #[napi]
 pub fn native_llm_stream_streaming(
     config: NativeLlmStreamConfig,
@@ -2095,71 +2100,69 @@ pub fn native_llm_stream_streaming(
             .collect(),
     };
 
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                tsfn.call(
-                    Ok(NativeLlmStreamEvent {
-                        kind: "error".to_string(),
-                        part: None,
-                        metadata: None,
-                        error: Some(format!("tokio runtime init failed: {e}")),
-                    }),
-                    napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
-                );
-                return;
-            }
-        };
-        let result = rt.block_on(llm_stream::run_llm_stream_with(&stream_config, |event| {
-            let js_event = match event {
-                llm_stream::StreamEvent::Part(p) => NativeLlmStreamEvent {
-                    kind: "part".to_string(),
-                    part: Some(NativeLlmStreamPart {
-                        part_type: p.part_type,
-                        text: p.text,
-                        think: p.think,
-                        encrypted: p.encrypted,
-                        id: p.id,
-                        name: p.name,
-                        arguments: p.arguments,
-                        arguments_part: p.arguments_part,
-                        stream_index: p.stream_index,
-                    }),
-                    metadata: None,
-                    error: None,
-                },
-                llm_stream::StreamEvent::Done(m) => NativeLlmStreamEvent {
-                    kind: "done".to_string(),
-                    part: None,
-                    metadata: Some(NativeLlmStreamMetadata {
-                        response_id: m.response_id,
-                        finish_reason: m.finish_reason,
-                        input_tokens: m.input_tokens,
-                        output_tokens: m.output_tokens,
-                        cached_tokens: m.cached_tokens,
-                        trace_id: m.trace_id,
-                    }),
-                    error: None,
-                },
-                llm_stream::StreamEvent::Error(e) => NativeLlmStreamEvent {
-                    kind: "error".to_string(),
-                    part: None,
-                    metadata: None,
-                    error: Some(e),
-                },
-            };
-            // NonBlocking: just enqueue for the JS event loop; never blocks the
-            // SSE decode loop.
-            tsfn.call(
-                Ok(js_event),
-                napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
-            );
-        }));
-        if let Err(e) = result {
+    match llm_stream_runtime() {
+        Ok(rt) => {
+            rt.spawn(async move {
+                let result = llm_stream::run_llm_stream_with(&stream_config, |event| {
+                    let js_event = match event {
+                        llm_stream::StreamEvent::Part(p) => NativeLlmStreamEvent {
+                            kind: "part".to_string(),
+                            part: Some(NativeLlmStreamPart {
+                                part_type: p.part_type,
+                                text: p.text,
+                                think: p.think,
+                                encrypted: p.encrypted,
+                                id: p.id,
+                                name: p.name,
+                                arguments: p.arguments,
+                                arguments_part: p.arguments_part,
+                                stream_index: p.stream_index,
+                            }),
+                            metadata: None,
+                            error: None,
+                        },
+                        llm_stream::StreamEvent::Done(m) => NativeLlmStreamEvent {
+                            kind: "done".to_string(),
+                            part: None,
+                            metadata: Some(NativeLlmStreamMetadata {
+                                response_id: m.response_id,
+                                finish_reason: m.finish_reason,
+                                input_tokens: m.input_tokens,
+                                output_tokens: m.output_tokens,
+                                cached_tokens: m.cached_tokens,
+                                trace_id: m.trace_id,
+                            }),
+                            error: None,
+                        },
+                        llm_stream::StreamEvent::Error(e) => NativeLlmStreamEvent {
+                            kind: "error".to_string(),
+                            part: None,
+                            metadata: None,
+                            error: Some(e),
+                        },
+                    };
+                    // NonBlocking: just enqueue for the JS event loop; never blocks the
+                    // SSE decode loop.
+                    tsfn.call(
+                        Ok(js_event),
+                        napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                })
+                .await;
+                if let Err(e) = result {
+                    tsfn.call(
+                        Ok(NativeLlmStreamEvent {
+                            kind: "error".to_string(),
+                            part: None,
+                            metadata: None,
+                            error: Some(e),
+                        }),
+                        napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+            });
+        }
+        Err(e) => {
             tsfn.call(
                 Ok(NativeLlmStreamEvent {
                     kind: "error".to_string(),
@@ -2170,8 +2173,31 @@ pub fn native_llm_stream_streaming(
                 napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
             );
         }
-    });
+    }
     Ok(())
+}
+
+/// Process-wide lazily-created shared tokio runtime for LLM streaming tasks.
+///
+/// Built once per process instead of one current-thread runtime per stream
+/// call: runtime creation (thread spawn + io/time drivers) is the dominant
+/// per-call overhead. Initialization failures are not cached, so a later
+/// stream call retries the build.
+static LLM_STREAM_RUNTIME: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
+    once_cell::sync::OnceCell::new();
+
+fn llm_stream_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    LLM_STREAM_RUNTIME.get_or_try_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            // Stream concurrency is low (typically one stream per CLI session);
+            // 2 workers give headroom for concurrent streams without spawning
+            // a worker per CPU.
+            .worker_threads(2)
+            .thread_name("kimi-llm-stream")
+            .build()
+            .map_err(|e| format!("tokio runtime init failed: {e}"))
+    })
 }
 
 // ============================================================================

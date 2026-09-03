@@ -236,6 +236,9 @@ pub async fn execute_define_subagent(
             description,
             system_prompt,
             tools,
+            disallowed_tools: Vec::new(),
+            prompt_prefix: None,
+            summary_policy: None,
             model: None,
         })
         .await;
@@ -364,6 +367,7 @@ mod tests {
             Box::pin(async {
                 Ok(crate::turn_loop::types::LLMChatResponse {
                     content: "Autonomous research result complete.".into(),
+                    thinking: Vec::new(),
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage {

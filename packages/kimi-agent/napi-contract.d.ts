@@ -15,7 +15,7 @@ export declare function cancelTurn(turnId: string): void
  * transports only — host-proxy rebuilds tools inside `llm_chat`), and the
  * goal snapshot through `goal_cb` per turn (snake_case wire goal, or null).
  */
-export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void): object
+export declare function createEngineSession(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, checkpointCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, goalCb?: (callbackId: number) => void, authTokenCb?: (callbackId: number) => void): object
 
 /**
  * Emit a one-shot `tracing::info!` event. Used by the test harness to
@@ -41,6 +41,14 @@ export declare function getCallbackPayload(id: number): string | null
  */
 export declare function initTracingFromEnv(): boolean
 
+/** P56 (G-5): cross-process engine execution summary. */
+export interface JsEngineExecSummary {
+  transport?: string
+  nativeToolCalls?: number
+  steps?: number
+  stopReason?: string
+}
+
 export interface JsGoalContext {
   goalId: string
   objective: string
@@ -62,6 +70,17 @@ export interface JsLlmProviderDef {
   systemPrompt: string
 }
 
+/** MCP server configuration for pure-Rust MCP manager (P73). */
+export interface JsMcpServerConfig {
+  name: string
+  transport: string
+  command?: string
+  args?: Array<string>
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+}
+
 export interface JsMessage {
   role: string
   content: string
@@ -80,13 +99,28 @@ export interface JsMessage {
 }
 
 export interface JsNativeLlmConfig {
-  /** "openai" (Chat Completions) or "anthropic" (Messages). */
+  /** "openai" (Chat Completions) or "anthropic" (Messages), or "google" / "openai_responses". */
   protocol: string
   /** API base URL including the version segment (e.g. `.../v1`). */
   baseUrl: string
   apiKey: string
   model: string
   maxTokens?: number
+  /**
+   * Extra headers from `[providers.*].customHeaders`, sent with every
+   * request. Absent means none.
+   */
+  customHeaders?: Record<string, string>
+  /** Reasoning effort for OpenAI-compatible models (e.g. "low", "medium", "high", "max"). */
+  reasoningEffort?: string
+  /** Thinking budget in tokens for Anthropic Messages API. */
+  thinkingBudget?: number
+  /**
+   * OAuth-managed auth: the host-side provider name the transport asks for
+   * a bearer token (`host/auth_token`) instead of using the static
+   * `api_key`. Absent means static-key auth.
+   */
+  authProvider?: string
 }
 
 export interface JsRunTurnParams {
@@ -97,6 +131,11 @@ export interface JsRunTurnParams {
   tools: Array<JsToolDef>
   /** Step cap for the turn loop. `None` = unbounded (JS-loop semantics). */
   maxSteps?: number
+  /**
+   * Context window the host resolved for the active model. `None` keeps the
+   * engine's default compaction budget.
+   */
+  maxContextTokens?: number
   goal?: JsGoalContext
   /**
    * Native HTTP LLM transport. When present, Rust calls the provider
@@ -118,6 +157,11 @@ export interface JsRunTurnParams {
    * grant) runs inside the Rust process. Any tool not in that set, or
    * any argument shape the toolset cannot handle, falls back to the
    * host (`host/execute_tool`).
+   *
+   * Absent means `false`: executing on the host stays the fail-safe for a
+   * caller that does not state an intent, and the product default
+   * (native on) is resolved by the TS adapter — matching the stdio wire,
+   * where an absent `native_tools` is likewise false.
    */
   nativeTools?: boolean
   /**
@@ -148,6 +192,28 @@ export interface JsRunTurnParams {
    * merged into the engine-emitted `host/telemetry` events.
    */
   telemetry?: JsTelemetryContext
+  /**
+   * Session profile catalog snapshot (P46): profiles the native `Agent`
+   * tool may spawn. Empty/absent = every `Agent` call falls back to
+   * the host tool.
+   */
+  subagentProfiles?: Array<JsSubagentProfile>
+  /**
+   * Host-resolved foreground subagent timeout in ms (v2
+   * `resolveSubagentTimeoutMs`). Absent → engine default (2h). `i64`
+   * because napi cannot read JS numbers as `u64`.
+   */
+  subagentTimeoutMs?: number
+  /**
+   * P52 native-path vetoes (host-formatted deny reasons; see
+   * `RunTurnParams`).
+   */
+  agentToolVeto?: string
+  toolsVeto?: string
+  callerAgentId?: string
+  sessionId?: string
+  /** Native MCP servers configuration (P73). */
+  mcpServers?: Array<JsMcpServerConfig>
 }
 
 export interface JsRunTurnResult {
@@ -174,6 +240,35 @@ export interface JsRunTurnResult {
 export interface JsSessionStatus {
   activeTurnId?: number
   pendingTurnIds: Array<number>
+  /** P56 (G-5): execution-path summary of the last completed turn. */
+  engine?: JsEngineExecSummary
+}
+
+/** A subagent profile from the host's session catalog snapshot (P46). */
+export interface JsSubagentProfile {
+  name: string
+  description?: string
+  systemPrompt?: string
+  /**
+   * Explicit tool allowlist; empty means every tool minus
+   * `disallowed_tools`.
+   */
+  tools?: Array<string>
+  disallowedTools?: Array<string>
+  /**
+   * Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+   * prepended to the prompt as `{prefix}
+
+  {prompt}` (P51).
+   */
+  promptPrefix?: string
+  /**
+   * Serialized summary distillation policy (v2
+   * `AgentProfileSummaryPolicy`): `{ minChars, continuationPrompt,
+   * retries }` (P51). Serialized JSON because napi cannot express
+   * nested optionals in a flat object cleanly.
+   */
+  summaryPolicyJson?: string
 }
 
 /**
@@ -248,7 +343,7 @@ export declare function resolveCallback(id: number, error?: string | undefined |
  * async work is dispatched via `env.execute_tokio_future` so the JS event
  * loop stays alive to process TSFN callbacks.
  */
-export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, finalizeToolCb?: (callbackId: number) => void, drainSteersCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void): object
+export declare function runTurnRust(params: JsRunTurnParams, llmChatCb: (callbackId: number) => void, executeToolCb: (callbackId: number) => void, emitEventCb?: (callbackId: number) => void, checkPermissionCb?: (callbackId: number) => void, askQuestionCb?: (callbackId: number) => void, stateReadCb?: (callbackId: number) => void, stateWriteCb?: (callbackId: number) => void, checkpointCb?: (callbackId: number) => void, turnEventCb?: (callbackId: number) => void, telemetryCb?: (callbackId: number) => void, listToolsCb?: (callbackId: number) => void, authTokenCb?: (callbackId: number) => void): object
 
 /**
  * Cancel a turn by id (active → interrupted at the next step boundary;
@@ -277,6 +372,14 @@ export declare function sessionEnqueueTurn(sessionId: string, prompt: string, ad
 
 /** Append messages to the cross-turn history (e.g. a resumed transcript). */
 export declare function sessionExtendHistory(sessionId: string, historyJson: string): void
+
+/**
+ * The session's current cross-turn history as a JSON `LLMMessage[]` — the
+ * inverse of `session_set_history`. Lets the host carry the conversation
+ * across an engine-session rebuild (a mid-session model / permission change)
+ * and implement undo / fork without losing context.
+ */
+export declare function sessionGetHistory(sessionId: string): string
 
 export declare function sessionHistoryLen(sessionId: string): number
 

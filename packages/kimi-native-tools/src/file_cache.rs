@@ -213,13 +213,9 @@ impl FileReadCache {
         if let Some(pos) = inner.order.iter().position(|k| *k == key) {
             let _ = inner.order.remove(pos);
         }
-        inner.entries.insert(
-            key.clone(),
-            CacheEntry {
-                result,
-                snap: post,
-            },
-        );
+        inner
+            .entries
+            .insert(key.clone(), CacheEntry { result, snap: post });
         inner.order.push_back(key);
     }
 
@@ -441,7 +437,9 @@ mod tests {
         let pre = snapshot(&ps).unwrap();
         cache.put(ps.clone(), Some(-3), None, ok_result("tail3", 5), pre);
         assert_eq!(
-            cache.get(&ps, Some(-3), Some(MAX_LINES as u32)).map(|r| r.content),
+            cache
+                .get(&ps, Some(-3), Some(MAX_LINES as u32))
+                .map(|r| r.content),
             Some("tail3".to_string())
         );
         // A different tail offset is a distinct key → miss.

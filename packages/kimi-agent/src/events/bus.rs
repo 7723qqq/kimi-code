@@ -73,6 +73,11 @@ impl EventBus {
         }
     }
 
+    /// Live subscriber count.
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.read().unwrap().len()
+    }
+
     /// Publish an event to all matching subscribers.
     pub fn publish(&self, event: &EngineEvent) {
         let subs = self.subscribers.read().unwrap();

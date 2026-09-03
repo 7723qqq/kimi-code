@@ -160,6 +160,7 @@ impl LLM for HostLlmProxy {
 
             Ok(LLMChatResponse {
                 content: response.content,
+                thinking: vec![],
                 tool_calls,
                 finish_reason: response.finish_reason,
                 usage,

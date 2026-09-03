@@ -14,7 +14,7 @@ import {
   type KimiRegion,
   type ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-import { createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessNative } from '@moonshot-ai/kimi-code-sdk';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
@@ -63,7 +63,7 @@ export async function runLoginFlow(
   // keeps its configured hosts).
   const region = options.region ?? regionForBareLogin(persistedKimiOAuthRef());
   const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarnessNative({
     identity,
     uiMode: 'cli',
   });
@@ -120,7 +120,7 @@ export async function runLoginFlow(
 export async function runGoogleLoginFlow(): Promise<never> {
   const manager = new GoogleOAuthManager();
   const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarnessNative({
     identity,
     uiMode: 'cli',
   });
@@ -183,7 +183,7 @@ export async function runGoogleLoginFlow(): Promise<never> {
 export async function runAntigravitySyncFlow(): Promise<never> {
   const manager = new GoogleOAuthManager();
   const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarnessNative({
     identity,
     uiMode: 'cli',
   });

@@ -26,12 +26,19 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
       getConfig: vi.fn(async () => ({ providers: {}, models: {} })),
       setConfig: vi.fn(async () => {}),
     })),
+    createKimiHarnessNative: vi.fn(() => ({
+      auth: {
+        login: mockLogin,
+      },
+      getConfig: vi.fn(async () => ({ providers: {}, models: {} })),
+      setConfig: vi.fn(async () => {}),
+    })),
   };
 });
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
-import { createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessNative, createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
 
 import { registerLoginCommand } from '#/cli/sub/login';
 import { openUrl } from '#/utils/open-url';
@@ -50,6 +57,7 @@ describe('kimi login', () => {
     mockLogin.mockReset();
     vi.mocked(openUrl).mockReset();
     vi.mocked(createKimiHarnessV2).mockClear();
+    vi.mocked(createKimiHarnessNative).mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);

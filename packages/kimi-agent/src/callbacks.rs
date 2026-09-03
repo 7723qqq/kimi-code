@@ -8,12 +8,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, ListToolsResponse, LlmChatRequest,
-    LlmChatResponse, PermissionCheckRequest, PermissionDecision, StateReadRequest,
-    StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
-    ToolExecuteResponse, ToolFinalizeRequest,
+    AskQuestionRequest, AskQuestionResponse, AuthTokenResponse, BoxFuture, CheckpointRequest,
+    ListToolsResponse, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
+    StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse, ToolExecuteRequest,
+    ToolExecuteResponse,
 };
-use crate::turn_loop::types::LLMMessage;
+use crate::turn_loop::types::{GoalContext, LLMMessage};
+
+/// Sentinel returned by [`HostCallbacks::checkpoint`] when the host has no
+/// checkpoint support — the trait default, or a napi host that never wired the
+/// `checkpoint` TSFN. Callers treat it as fail-open (capability absent, not a
+/// failure); one shared constant keeps the producers and the consumer in
+/// [`StateStoreCallbacks`] from drifting apart.
+pub const CHECKPOINT_UNSUPPORTED: &str = "host does not support checkpoint";
 
 /// Host-provided callbacks that the turn loop needs to call back to JS.
 pub trait HostCallbacks: Send + Sync {
@@ -81,6 +88,17 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Err("host does not support state bridge".into()) })
     }
 
+    /// Host-side file checkpoint for native write executions (P53:
+    /// `host/checkpoint`). `phase: "prepare"` must complete — pre-image
+    /// captured — before the engine writes; `phase: "record"` notes the
+    /// post-image after execution. Fail-open: the default errors and the
+    /// caller skips checkpointing (the pre-P53 status quo, native writes
+    /// never checkpointed).
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let _ = request;
+        Box::pin(async { Err(CHECKPOINT_UNSUPPORTED.into()) })
+    }
+
     /// Fetch the host's current tool table (M1d: `host/list_tools`). Called
     /// before each LLM call on native transports so mid-turn registry
     /// changes (feature tools, MCP reconnects) reach the model — the
@@ -92,33 +110,44 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Err("host does not support list_tools".into()) })
     }
 
-    /// Hand a natively-executed result to the host for finalization before it
-    /// enters the model context. The host owns result truncation and
-    /// spill-to-disk, so without this seam a large native result reaches the
-    /// model unprocessed while the same call on the host path would be
-    /// truncated and spilled. The default returns the result unchanged, for
-    /// hosts that do not implement the seam.
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        Box::pin(async move {
-            Ok(ToolExecuteResponse {
-                content: request.content,
-                is_error: request.is_error,
-                note: request.note,
-            })
-        })
+    /// Fetch the host's current goal snapshot (M1d 3b: `host/goal`). The
+    /// session's goal provider reads it fresh per turn so host-side goal
+    /// changes (pause, budget edits, terminal states) are reflected. Bounded
+    /// by [`HOST_LIST_TOOLS_TIMEOUT`]-style host bookkeeping; the default
+    /// answers with an error so sessions without the seam run without goal
+    /// budgeting, matching the no-goal fallback.
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        Box::pin(async { Err("host does not support goal".into()) })
     }
 
-    /// Ask the host to release steering the user injected during this turn.
-    /// The host owns the turn's step-request queue and records each steer into
-    /// the transcript as it releases it, so an engine driving the whole turn
-    /// has to ask at every step head — otherwise the prompt waits for the turn
-    /// to end. The default answers with nothing, for hosts without the seam.
+    /// Fetch a bearer token for an OAuth-managed provider (`host/auth_token`).
+    /// The host owns the OAuth store — single-flight refresh, expiry-aware
+    /// cache — so the transport asks instead of holding credentials; `force`
+    /// asks it to refresh past the cache after a 401/403 from the provider.
+    /// The default errors so an unwired host (REPL, tests) keeps static-key
+    /// transports working unchanged.
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let _ = (provider, force);
+        Box::pin(async { Err("host does not support oauth token fetch".into()) })
+    }
+
+    /// Release the steering prompts injected during the active turn. The
+    /// engine-local steer queue (see `SteerQueueCallbacks`) serves this at
+    /// every step head; the default answers with nothing.
     fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+
+    /// Record which goal was active when a turn started (G-6 #8). The turn
+    /// loop calls this with its turn-start goal snapshot; the native-tool
+    /// gate uses it to veto goal mutation calls from a turn whose goal has
+    /// since changed. The default ignores the binding — paths without the
+    /// gate never veto on staleness.
+    fn set_turn_goal(&self, _turn_id: &str, _goal_id: Option<&str>) {}
 
     /// Fire-and-forget event notification to the JS host. Used by the
     /// native LLM / native tool paths to report step boundaries, streaming
@@ -170,16 +199,6 @@ pub const HOST_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Bash caps at 300s); this covers a stalled host.
 pub const HOST_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// Outer bound on finalizing a natively-executed result. The host truncates and
-/// optionally spills a string — no human in the loop — so a stalled call must
-/// not hold the turn open for as long as a real tool execution may.
-pub const HOST_FINALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Outer bound on releasing queued mid-turn steering. Like finalization this is
-/// host bookkeeping with no human in the loop, so a stalled answer must not
-/// hold the step open.
-pub const HOST_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
 /// Outer bound on a host state bridge call (state_read / state_write). The
 /// host applies domain semantics to durable state — bookkeeping with no
 /// human in the loop — so a stalled answer must not hold the step open.
@@ -190,6 +209,11 @@ pub const HOST_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 /// so a stalled answer must not hold the step open; on timeout run_turn
 /// falls back to the turn-start snapshot.
 pub const HOST_LIST_TOOLS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Outer bound on a `host/auth_token` call. A cache hit answers immediately;
+/// a miss triggers an OAuth refresh round-trip (network, no human in the
+/// loop), so the bound covers one slow refresh rather than a stalled host.
+pub const HOST_AUTH_TOKEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A concrete implementation of [`HostCallbacks`] backed by the stdio
 /// JSON-RPC server. Used in the CLI binary mode.
@@ -304,6 +328,25 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let params = serde_json::to_value(&request)
+                .map_err(|e| format!("Checkpoint serialize error: {e}"))?;
+            // Bounded: pre-image capture is host bookkeeping, but the engine
+            // waits for it before writing — the timeout bounds that wait.
+            server
+                .invoke(
+                    crate::rpc::types::methods::HOST_CHECKPOINT,
+                    params,
+                    Some(HOST_STATE_TIMEOUT),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("Checkpoint error: {e}"))
+        })
+    }
+
     fn state_write(
         &self,
         request: StateWriteRequest,
@@ -326,43 +369,6 @@ impl HostCallbacks for RpcHostCallbacks {
         })
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        let server = self.server.clone();
-        Box::pin(async move {
-            let params = serde_json::to_value(&request)
-                .map_err(|e| format!("Tool finalize serialize error: {e}"))?;
-            let response_value = server
-                .invoke(
-                    crate::rpc::types::methods::HOST_FINALIZE_TOOL_RESULT,
-                    params,
-                    Some(HOST_FINALIZE_TIMEOUT),
-                )
-                .await
-                .map_err(|e| format!("Tool finalize error: {e}"))?;
-            serde_json::from_value(response_value)
-                .map_err(|e| format!("Tool finalize parse error: {e}"))
-        })
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        let server = self.server.clone();
-        Box::pin(async move {
-            let response_value = server
-                .invoke(
-                    crate::rpc::types::methods::HOST_DRAIN_STEERS,
-                    serde_json::json!({}),
-                    Some(HOST_DRAIN_TIMEOUT),
-                )
-                .await
-                .map_err(|e| format!("Drain steers error: {e}"))?;
-            serde_json::from_value(response_value)
-                .map_err(|e| format!("Drain steers parse error: {e}"))
-        })
-    }
-
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         let server = self.server.clone();
         Box::pin(async move {
@@ -376,6 +382,43 @@ impl HostCallbacks for RpcHostCallbacks {
                 .map_err(|e| format!("List tools error: {e}"))?;
             serde_json::from_value(response_value)
                 .map_err(|e| format!("List tools response parse error: {e}"))
+        })
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_GOAL,
+                    serde_json::json!({}),
+                    Some(HOST_LIST_TOOLS_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Goal error: {e}"))?;
+            serde_json::from_value(response_value)
+                .map_err(|e| format!("Goal response parse error: {e}"))
+        })
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let server = self.server.clone();
+        Box::pin(async move {
+            let response_value = server
+                .invoke(
+                    crate::rpc::types::methods::HOST_AUTH_TOKEN,
+                    serde_json::json!({ "provider": provider, "force": force }),
+                    Some(HOST_AUTH_TOKEN_TIMEOUT),
+                )
+                .await
+                .map_err(|e| format!("Auth token error: {e}"))?;
+            let token = serde_json::from_value::<AuthTokenResponse>(response_value)
+                .map_err(|e| format!("Auth token response parse error: {e}"))?;
+            Ok(token.token)
         })
     }
 
@@ -406,6 +449,27 @@ impl HostCallbacks for RpcHostCallbacks {
     }
 }
 
+/// File write paths a native call targets (P53 checkpoint seam): the same
+/// inference the tool scheduler uses for conflict detection, filtered to
+/// file accesses that write.
+fn checkpoint_write_paths(tool_name: &str, args: &serde_json::Value) -> Vec<String> {
+    use crate::turn_loop::types::{FileOperation, ToolResourceAccess};
+    crate::turn_loop::tool_scheduler::infer_tool_accesses(tool_name, args)
+        .into_iter()
+        .filter_map(|access| match access {
+            ToolResourceAccess::File(file)
+                if matches!(
+                    file.operation,
+                    FileOperation::Write | FileOperation::ReadWrite
+                ) =>
+            {
+                Some(file.path)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// A [`HostCallbacks`] decorator that executes tools natively (inside the
 /// Rust process, sandboxed to the workspace) and forwards everything the
 /// sandbox cannot handle to the wrapped callbacks.
@@ -424,10 +488,8 @@ pub struct NativeToolCallbacks {
     /// holds the same handle to fill in `TurnResult::native_tool_calls`.
     pub native_count: Arc<AtomicU32>,
     /// Optional in-process truncator (P26 批 4). When `Some`, large native
-    /// results are truncated and spilled locally; the host's
-    /// `finalize_tool_result` seam is bypassed. When `None`, the wrapper
-    /// falls back to `inner.finalize_tool_result(...)` for backwards
-    /// compatibility.
+    /// results are truncated and spilled locally. When `None` (no workspace
+    /// root), results pass through untruncated.
     pub truncator: Option<Arc<crate::tool_result_truncation::ToolResultTruncator>>,
     /// Optional in-process permission engine (P26 批 3). When `Some`, tool
     /// calls are evaluated against the per-turn `PolicySnapshot` locally in
@@ -441,6 +503,33 @@ pub struct NativeToolCallbacks {
     /// paths read the host's plan state through the state bridge per
     /// guarded call.
     pub plan_guard: Option<Arc<PlanGuard>>,
+    /// Optional stale-write gate (v2 `staleGuardService` mirror, G-6 #3).
+    /// Before a native Write/Edit executes, the gate vetoes targets that
+    /// were never read or changed on disk since; after every completed
+    /// read/write execution (native or host-forwarded) it records the
+    /// target's mtime, so a read the host served also clears a later native
+    /// write. State is per-session (mounted once by the pipeline builder).
+    pub stale_guard: Option<Arc<crate::tools::stale_guard::StaleGate>>,
+    /// Optional goal-operation guard (v2 `goalAgentRuntime` mirror, G-6
+    /// #7/#8). CreateGoal calls route to the host when the permission mode
+    /// is not `auto` (so the host's goal-start review fires); goal mutation
+    /// calls from a turn whose goal has changed since are vetoed.
+    pub goal_guard: Option<Arc<crate::tools::goal_guard::GoalGuard>>,
+    /// Optional PreToolUse hook gate (v2 `agentExternalHooksService` mirror,
+    /// G-6 #6). User-configured hook commands run before native tool calls;
+    /// exit 2 or a JSON deny blocks the call (fail-closed).
+    pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
+    /// P52 native-path vetoes (the host `onBeforeExecuteTool` veto-chain
+    /// listeners that have no engine-native counterpart). Non-empty reason:
+    /// the affected native calls are rejected with the verbatim reason as
+    /// the (error) tool result — no execution, no host fallback. This gate
+    /// runs before permission, matching the veto chain's precedence.
+    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `tools_veto` denies every native tool (btw side-channel contexts).
+    /// Non-native calls still fall back to the host, whose own veto chain
+    /// denies them there.
+    pub agent_tool_veto: Option<String>,
+    pub tools_veto: Option<String>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -462,9 +551,6 @@ impl HostCallbacks for NativeToolCallbacks {
         &self,
         request: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        if !self.toolset.handles(&request.tool_name) {
-            return self.inner.execute_tool(request);
-        }
         let this = NativeToolCallbacks {
             inner: self.inner.clone(),
             toolset: self.toolset.clone(),
@@ -472,14 +558,67 @@ impl HostCallbacks for NativeToolCallbacks {
             truncator: self.truncator.clone(),
             permission_engine: self.permission_engine.clone(),
             plan_guard: self.plan_guard.clone(),
+            stale_guard: self.stale_guard.clone(),
+            goal_guard: self.goal_guard.clone(),
+            hook_guard: self.hook_guard.clone(),
+            agent_tool_veto: self.agent_tool_veto.clone(),
+            tools_veto: self.tools_veto.clone(),
         };
         Box::pin(async move {
+            // G-6 #7: a CreateGoal that must be reviewed (permission mode is
+            // not `auto`) runs on the host, whose full veto chain — goal-start
+            // review included — then applies. Treated exactly like a tool the
+            // sandbox cannot handle: host executes, observations still apply.
+            if !this.toolset.handles(&request.tool_name)
+                || this
+                    .goal_guard
+                    .as_ref()
+                    .is_some_and(|g| g.requires_host(&request.tool_name))
+            {
+                let response = this.inner.execute_tool(request.clone()).await?;
+                // v2 `observeExecution` covers host-served read/writes too —
+                // recording here keeps a later native Write to this file
+                // from tripping on a read the host path served.
+                if let Some(gate) = &this.stale_guard {
+                    gate.observe(&request.tool_name, &request.arguments, response.is_error);
+                }
+                return Ok(response);
+            }
             if let Some(guard) = &this.plan_guard
                 && let Some(reason) = guard(&request.tool_name, &request.arguments).await
             {
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too
                 // (same contract as the permission denial below).
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // P52 veto gate, before permission — the host veto chain outranks
+            // everything (v2 `beforeToolExecuteEvent` aggregation). A denial
+            // is the tool result the model sees; no execution, no fallback.
+            let veto_reason = if let Some(reason) = &this.tools_veto {
+                Some(reason.clone())
+            } else if let Some(reason) = &this.agent_tool_veto
+                && request.tool_name.eq_ignore_ascii_case("agent")
+            {
+                Some(reason.clone())
+            } else {
+                None
+            };
+            if let Some(reason) = veto_reason {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
                     "turn_id": request.turn_id,
@@ -546,22 +685,175 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
+            // PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6),
+            // after permission and plan — v2's chain order. A block is the
+            // tool result the model sees (fail-closed on hook errors); no
+            // execution, no host fallback.
+            if let Some(guard) = &this.hook_guard
+                && let Some(reason) = guard.denial(&request).await
+            {
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // Goal-operation stale veto (v2 `goalAgentRuntime`, G-6 #8),
+            // after permission and before the stale-write guard: a goal
+            // mutation call from a turn whose goal changed is the tool
+            // result the model sees; no execution, no host fallback.
+            if let Some(guard) = &this.goal_guard
+                && let Some(reason) = guard
+                    .stale_denial(this.inner.as_ref(), &request.turn_id, &request.tool_name)
+                    .await
+            {
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // Stale-write guard (v2 `staleGuardService`, G-6 #3), after the
+            // permission verdict and before execution — v2 chain order is
+            // permission → plan → staleGuard. A denial is the tool result
+            // the model sees; no execution, no host fallback.
+            if let Some(gate) = &this.stale_guard
+                && let Some(reason) = gate
+                    .denial(this.inner.as_ref(), &request.tool_name, &request.arguments)
+                    .await
+            {
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            // P53 checkpoint prepare (v2 `onWillExecuteTool` counterpart):
+            // the engine is about to write these files — the host captures
+            // their pre-images before the write lands. Fail-open: a failure
+            // or unwired host skips the snapshot. At this point every deny
+            // gate (veto / plan / permission / hook / stale) has passed.
+            let checkpoint_paths = checkpoint_write_paths(&request.tool_name, &request.arguments);
+            if !checkpoint_paths.is_empty() {
+                let _ = this
+                    .inner
+                    .checkpoint(CheckpointRequest {
+                        turn_id: request.turn_id.clone(),
+                        tool_call_id: request.tool_call_id.clone(),
+                        phase: "prepare".into(),
+                        paths: checkpoint_paths.clone(),
+                        executed: false,
+                    })
+                    .await;
+            }
+            let started = std::time::Instant::now();
+            // P57 tool.progress stream: bash output chunks flow to the host
+            // as `tool.native.progress` events (fire-and-forget UI updates).
+            let progress_inner = this.inner.clone();
+            let progress_turn_id = request.turn_id.clone();
+            let progress_call_id = request.tool_call_id.clone();
+            let on_update = |kind: &str, text: &str| {
+                progress_inner.emit_event(serde_json::json!({
+                    "type": "tool.native.progress",
+                    "turn_id": progress_turn_id,
+                    "tool_call_id": progress_call_id,
+                    "kind": kind,
+                    "text": text,
+                }));
+            };
             let result = this
                 .toolset
-                .execute_tool(&request.tool_name, &request.arguments)
+                .execute_tool_streaming(
+                    Some(&request.tool_call_id),
+                    &request.tool_name,
+                    &request.arguments,
+                    Some(&on_update),
+                )
                 .await;
             match result {
                 Some(result) => {
                     this.native_count.fetch_add(1, Ordering::Relaxed);
+                    // Self-write refresh + read recording: re-stat after the
+                    // completed execution (v2 `observeExecution`), so
+                    // consecutive writes never trip the guard.
+                    if let Some(gate) = &this.stale_guard {
+                        gate.observe(&request.tool_name, &request.arguments, result.is_error);
+                    }
+                    // P53 checkpoint record (v2 `onDidExecuteTool` counter-
+                    // part): the write landed — note the post-image so undo
+                    // can detect manual edits. Fire-and-forget: a failure
+                    // leaves the group with an unresolvable after-state,
+                    // which restore treats as a conflict, not data loss.
+                    if !checkpoint_paths.is_empty() {
+                        let _ = this
+                            .inner
+                            .checkpoint(CheckpointRequest {
+                                turn_id: request.turn_id.clone(),
+                                tool_call_id: request.tool_call_id.clone(),
+                                phase: "record".into(),
+                                paths: checkpoint_paths,
+                                executed: true,
+                            })
+                            .await;
+                    }
+                    // P54 tool_call telemetry (v2 `trackToolCall` counter-
+                    // part): outcome + duration for every native execution.
+                    // `dup_type` is always `normal` — dedupe-supplied repeats
+                    // never reach the execution layer. Field set must stay
+                    // exactly the v2 `ToolCallEvent` shape (strict telemetry
+                    // property check host-side).
+                    let mut telemetry_event = serde_json::json!({
+                        "event": "tool_call",
+                        "turn_id": request.turn_id.parse::<u64>().unwrap_or(0),
+                        "tool_call_id": request.tool_call_id,
+                        "tool_name": request.tool_name,
+                        "outcome": if result.is_error { "error" } else { "success" },
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                        "dup_type": "normal",
+                    });
+                    if result.is_error {
+                        telemetry_event["error_type"] = serde_json::Value::String("error".into());
+                    }
+                    this.inner.telemetry(telemetry_event);
                     let raw = ToolExecuteResponse {
                         content: result.content,
                         is_error: result.is_error,
                         note: result.note,
                     };
-                    // P26 批 4: when a local truncator is configured, run the
-                    // policy in-process and bypass the host's finalize seam.
-                    // The TS host still receives the *truncated* text via
-                    // emit_event so its transcript shows what the model saw.
+                    // The local truncator runs the result policy in-process
+                    // (truncate + spill to `<workspace>/.kimi/spill`). The TS
+                    // host still receives the *truncated* text via emit_event
+                    // so its transcript shows what the model saw.
                     let finalized = match this.truncator.as_ref() {
                         Some(truncator) => {
                             let f = truncator.truncate(
@@ -579,24 +871,7 @@ impl HostCallbacks for NativeToolCallbacks {
                                 note: f.note,
                             }
                         }
-                        None => {
-                            // Legacy path: the host owns result truncation and
-                            // spill-to-disk; a large native result must not
-                            // reach the model raw the way an identical
-                            // host-executed call never could.
-                            this.inner
-                                .finalize_tool_result(ToolFinalizeRequest {
-                                    tool_name: request.tool_name.clone(),
-                                    tool_call_id: request.tool_call_id.clone(),
-                                    content: raw.content.clone(),
-                                    is_error: raw.is_error,
-                                    note: raw.note.clone(),
-                                })
-                                .await
-                                // A failed result policy must not cost the
-                                // model its tool output.
-                                .unwrap_or(raw)
-                        }
+                        None => raw,
                     };
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
@@ -611,8 +886,16 @@ impl HostCallbacks for NativeToolCallbacks {
                     Ok(finalized)
                 }
                 // Sandbox escape or unrecognized argument shape — the host
-                // already allowed the call, so run it there.
-                None => this.inner.execute_tool(request).await,
+                // already allowed the call, so run it there. The completed
+                // host execution is observed like any other, so a later
+                // native Write to this file doesn't trip on it.
+                None => {
+                    let response = this.inner.execute_tool(request.clone()).await?;
+                    if let Some(gate) = &this.stale_guard {
+                        gate.observe(&request.tool_name, &request.arguments, response.is_error);
+                    }
+                    Ok(response)
+                }
             }
         })
     }
@@ -645,19 +928,52 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.state_write(request)
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        self.inner.drain_steers()
-    }
-
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
-        self.inner.list_tools()
+        let inner = self.inner.clone();
+        let mcp_mgr = self.toolset.mcp_manager().cloned();
+        Box::pin(async move {
+            let host_res = inner.list_tools().await;
+            if let Some(mcp) = mcp_mgr {
+                let mcp_tools = mcp.list_tool_infos().await;
+                match host_res {
+                    Ok(mut response) => {
+                        for tool in mcp_tools {
+                            if !response.tools.iter().any(|t| t.name == tool.name) {
+                                response.tools.push(tool);
+                            }
+                        }
+                        Ok(response)
+                    }
+                    Err(err) => {
+                        if !mcp_tools.is_empty() {
+                            Ok(ListToolsResponse { tools: mcp_tools })
+                        } else {
+                            Err(err)
+                        }
+                    }
+                }
+            } else {
+                host_res
+            }
+        })
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        if let Some(guard) = &self.goal_guard {
+            guard.bind_turn(turn_id, goal_id);
+        }
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -746,19 +1062,24 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.state_write(request)
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
-    }
-
-    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
-        self.inner.drain_steers()
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        self.inner.checkpoint(request)
     }
 
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -786,6 +1107,183 @@ impl HostCallbacks for CountingCallbacks {
             bus.publish_json(event.clone());
         }
         self.inner.telemetry(event);
+    }
+}
+
+/// Host callbacks adapter that serves state bridge calls (`state_read`, `state_write`, `checkpoint`)
+/// using a local [`crate::storage::StateStore`].
+pub struct StateStoreCallbacks {
+    pub inner: Arc<dyn HostCallbacks>,
+    pub store: Arc<crate::storage::StateStore>,
+}
+
+impl HostCallbacks for StateStoreCallbacks {
+    fn llm_chat(
+        &self,
+        request: LlmChatRequest,
+    ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+        self.inner.llm_chat(request)
+    }
+
+    fn execute_tool(
+        &self,
+        request: ToolExecuteRequest,
+    ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+        self.inner.execute_tool(request)
+    }
+
+    fn check_permission(
+        &self,
+        request: PermissionCheckRequest,
+    ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+        self.inner.check_permission(request)
+    }
+
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        self.inner.ask_question(request)
+    }
+
+    fn state_read(
+        &self,
+        request: StateReadRequest,
+    ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            // Plan mode and goal are host-owned live session state. Consult
+            // the host first; fall back to the local store only when the host
+            // cannot answer (standalone REPL, or a host that has not wired the
+            // state bridge).
+            if request.domain == "plan" || request.domain == "goal" {
+                if let Ok(resp) = inner.state_read(request.clone()).await {
+                    return Ok(resp);
+                }
+                return store
+                    .read_state(&request.domain, &request.key)
+                    .map(|value| StateReadResponse { value });
+            }
+            // Engine-owned domains (todo / cron / turn, and the task
+            // *list*) are authored by native tools against the local store, so
+            // it is the read/write authority and the host is the fallback.
+            // Task *output* (a task-id key) is host-owned live data and skips
+            // the local list.
+            if let Some(value) = (request.domain != "task" || request.key == "task")
+                .then(|| store.read_domain(&request.domain))
+                .flatten()
+            {
+                return Ok(StateReadResponse { value });
+            }
+            match inner.state_read(request.clone()).await {
+                Ok(resp) => Ok(resp),
+                Err(_) => store
+                    .read_state(&request.domain, &request.key)
+                    .map(|value| StateReadResponse { value }),
+            }
+        })
+    }
+
+    fn state_write(
+        &self,
+        request: StateWriteRequest,
+    ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            // Plan and goal domains are host-owned: route to host inner first,
+            // falling back to local store when the host does not implement it.
+            if request.domain == "plan" || request.domain == "goal" {
+                if let Ok(resp) = inner.state_write(request.clone()).await {
+                    return Ok(resp);
+                }
+                return match store.apply_write(&request.domain, &request.value) {
+                    Ok(outcome) => {
+                        let _ = store.write_domain(&request.domain, &outcome.stored);
+                        Ok(StateWriteResponse {
+                            ok: true,
+                            value: outcome.response,
+                        })
+                    }
+                    Err(store_err) => Err(store_err),
+                };
+            }
+            match store.apply_write(&request.domain, &request.value) {
+                Ok(outcome) => {
+                    let _ = store.write_domain(&request.domain, &outcome.stored);
+                    Ok(StateWriteResponse {
+                        ok: true,
+                        value: outcome.response,
+                    })
+                }
+                Err(store_err) => match inner.state_write(request).await {
+                    Ok(resp) => Ok(resp),
+                    Err(_) => Err(store_err),
+                },
+            }
+        })
+    }
+
+    fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let store_res = store.checkpoint();
+            // The local StateStore snapshot is the durable undo anchor. The host
+            // checkpoint is a secondary, fail-open anchor: the
+            // CHECKPOINT_UNSUPPORTED sentinel means the host simply has no
+            // checkpoint support (trait default / unwired napi TSFN), so the
+            // local result stands. Any *other* host error means the host anchor
+            // is incomplete and a later `/undo` could restore the wrong state —
+            // surface it rather than swallowing it as before.
+            match inner.checkpoint(request).await {
+                Ok(()) => store_res,
+                Err(err) if err == CHECKPOINT_UNSUPPORTED => store_res,
+                Err(err) => Err(err),
+            }
+        })
+    }
+
+    fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+        self.inner.list_tools()
+    }
+
+    fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
+    fn drain_steers(&self) -> BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
+        self.inner.drain_steers()
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        self.inner.set_turn_goal(turn_id, goal_id);
+    }
+
+    fn emit_event(&self, event: serde_json::Value) {
+        self.inner.emit_event(event);
+    }
+
+    fn turn_event(&self, event: crate::turn_events::TurnEvent) {
+        self.store.fold_turn_event(&event);
+        self.inner.turn_event(event);
+    }
+
+    fn telemetry(&self, event: serde_json::Value) {
+        self.inner.telemetry(event);
+    }
+
+    fn cancel_llm_chat(&self, request_id: &str) {
+        self.inner.cancel_llm_chat(request_id);
     }
 }
 
@@ -830,44 +1328,6 @@ mod tests {
         fn emit_event(&self, event: serde_json::Value) {
             self.events.lock().unwrap().push(event);
         }
-
-        fn finalize_tool_result(
-            &self,
-            request: ToolFinalizeRequest,
-        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-            Box::pin(async move {
-                Ok(ToolExecuteResponse {
-                    content: format!("finalized:{}", request.content),
-                    is_error: request.is_error,
-                    note: request.note,
-                })
-            })
-        }
-    }
-
-    /// A decorator that forgets to forward `finalize_tool_result` silently
-    /// answers with the trait default, so the host policy never runs and every
-    /// natively-executed result reaches the model raw.
-    #[tokio::test]
-    async fn test_counting_callbacks_forwards_result_finalization() {
-        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let counting = CountingCallbacks::new(
-            Arc::new(RecordingCallbacks {
-                events: events.clone(),
-            }),
-            Arc::new(AtomicU32::new(0)),
-        );
-        let resolved = counting
-            .finalize_tool_result(ToolFinalizeRequest {
-                tool_name: "Read".into(),
-                tool_call_id: "c".into(),
-                content: "body".into(),
-                is_error: false,
-                note: None,
-            })
-            .await
-            .unwrap();
-        assert_eq!(resolved.content, "finalized:body");
     }
 
     #[test]
@@ -957,11 +1417,242 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
 
     use crate::tools::NativeToolset;
+
+    /// Inner callbacks for the P52 veto tests: counts host executions and
+    /// permission consults, and records every `emit_event` payload.
+    struct VetoProbeCallbacks {
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        checkpoints: Arc<std::sync::Mutex<Vec<CheckpointRequest>>>,
+        telemetry_events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl HostCallbacks for VetoProbeCallbacks {
+        fn telemetry(&self, event: serde_json::Value) {
+            self.telemetry_events.lock().unwrap().push(event);
+        }
+        fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+            self.checkpoints.lock().unwrap().push(request);
+            Box::pin(async { Ok(()) })
+        }
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    type VetoProbe = (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    );
+
+    fn veto_setup(agent_tool_veto: Option<String>, tools_veto: Option<String>) -> VetoProbe {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(VetoProbeCallbacks {
+                permission_calls: permission_calls.clone(),
+                executed: executed.clone(),
+                events: events.clone(),
+                checkpoints: Arc::new(std::sync::Mutex::new(Vec::new())),
+                telemetry_events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto,
+            tools_veto,
+        };
+        (dir, native, permission_calls, executed, events)
+    }
+
+    fn veto_events(events: &std::sync::Mutex<Vec<serde_json::Value>>) -> Vec<(String, String)> {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| {
+                let kind = event.get("type")?.as_str()?.to_string();
+                let content = event.get("content")?.as_str()?.to_string();
+                Some((kind, content))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_tools_veto_denies_every_native_call() {
+        let (_dir, native, permission_calls, executed, events) =
+            veto_setup(None, Some("side chat: tools are off".into()));
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "a.txt" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(response.content, "side chat: tools are off");
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            0,
+            "veto outranks permission"
+        );
+        assert_eq!(executed.load(Ordering::Relaxed), 0, "no host fallback");
+        assert_eq!(
+            veto_events(&events),
+            vec![(
+                "tool.native".to_string(),
+                "side chat: tools are off".to_string()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_veto_denies_only_agent() {
+        let (_dir, native, permission_calls, executed, events) =
+            veto_setup(Some("swarm mode denies Agent".into()), None);
+        let denied = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Agent".into(),
+                arguments: serde_json::json!({ "prompt": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(denied.is_error);
+        assert_eq!(denied.content, "swarm mode denies Agent");
+        // Any other tool passes the veto gate and reaches permission.
+        let allowed = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Glob".into(),
+                arguments: serde_json::json!({ "pattern": "*.rs" }),
+            })
+            .await
+            .unwrap();
+        assert!(!allowed.is_error, "non-Agent tools are not vetoed");
+        assert_eq!(permission_calls.load(Ordering::Relaxed), 1);
+        let events = veto_events(&events);
+        assert_eq!(
+            events[0],
+            (
+                "tool.native".to_string(),
+                "swarm mode denies Agent".to_string()
+            )
+        );
+        let _ = executed;
+    }
+
+    #[tokio::test]
+    async fn test_native_write_checkpoints_prepare_and_record() {
+        let (_dir, _native, _permission_calls, _executed, _events) = veto_setup(None, None);
+        // Drill into the inner probe: the setup closure hides it, so drive
+        // the public seam twice and assert on the checkpoint calls via a
+        // fresh probe we control directly.
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let checkpoints = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let telemetry_events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(VetoProbeCallbacks {
+                permission_calls: Arc::new(AtomicU32::new(0)),
+                executed: Arc::new(AtomicU32::new(0)),
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+                checkpoints: checkpoints.clone(),
+                telemetry_events: telemetry_events.clone(),
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "turn-7".into(),
+                tool_call_id: "c9".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "cp.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(!response.is_error);
+        let recorded = checkpoints.lock().unwrap().clone();
+        let phases: Vec<&str> = recorded.iter().map(|r| r.phase.as_str()).collect();
+        assert_eq!(phases, vec!["prepare", "record"]);
+        assert_eq!(recorded[0].turn_id, "turn-7");
+        assert_eq!(recorded[0].paths, vec!["cp.txt".to_string()]);
+        assert!(!recorded[0].executed);
+        assert!(recorded[1].executed);
+        // P54: one tool_call telemetry event, success outcome, numeric turn
+        // id (the wire turn id is not numeric here, so it degrades to 0).
+        let telemetry = telemetry_events.lock().unwrap();
+        assert_eq!(telemetry.len(), 1);
+        let event = &telemetry[0];
+        assert_eq!(event["event"], "tool_call");
+        assert_eq!(event["tool_call_id"], "c9");
+        assert_eq!(event["tool_name"], "Write");
+        assert_eq!(event["outcome"], "success");
+        assert_eq!(event["dup_type"], "normal");
+        assert_eq!(event["turn_id"], 0);
+        assert!(event["duration_ms"].is_u64());
+    }
 
     #[tokio::test]
     async fn test_native_write_requires_permission_and_runs_on_allow() {
@@ -1090,6 +1781,667 @@ mod tests {
         assert!(!response.is_error);
     }
 
+    /// Base callbacks for stale-gate tests: scripted permission verdict,
+    /// recorded events, counted host executions, and a scripted plan domain
+    /// for the state bridge.
+    struct StaleGateHostCallbacks {
+        decision: PermissionDecision,
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        plan: std::sync::Mutex<Option<serde_json::Value>>,
+        state_reads: Arc<AtomicU32>,
+    }
+
+    impl HostCallbacks for StaleGateHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            let decision = self.decision.clone();
+            Box::pin(async move { Ok(decision) })
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        fn state_read(
+            &self,
+            _: StateReadRequest,
+        ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+            self.state_reads.fetch_add(1, Ordering::Relaxed);
+            let value = self.plan.lock().unwrap().clone();
+            Box::pin(async move {
+                Ok(StateReadResponse {
+                    value: value.ok_or("no plan state")?,
+                })
+            })
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn stale_gate_setup(
+        decision: PermissionDecision,
+        plan: Option<serde_json::Value>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        Arc<AtomicU32>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let state_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(StaleGateHostCallbacks {
+                decision,
+                permission_calls: permission_calls.clone(),
+                executed: executed.clone(),
+                events: events.clone(),
+                plan: std::sync::Mutex::new(plan),
+                state_reads: state_reads.clone(),
+            }),
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
+                dir.path().to_path_buf(),
+            )))),
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+        (dir, native, executed, native_count, events, state_reads)
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_denies_unread_native_write() {
+        let (dir, native, executed, native_count, events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert!(response.content.contains("has not been read by this agent"));
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "a stale denial must not fall back to the host"
+        );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            0,
+            "a stale denial executed nowhere"
+        );
+        let events = events.lock().unwrap();
+        let native_event = events
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal must be reported as tool.native");
+        assert_eq!(native_event["is_error"], true);
+        assert!(
+            native_event["content"]
+                .as_str()
+                .unwrap()
+                .contains("has not been read by this agent")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "hello",
+            "the denied write must not touch the file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_allows_read_then_native_write() {
+        let (dir, native, _executed, native_count, _events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let read = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "a.txt" }),
+            })
+            .await
+            .unwrap();
+        assert!(!read.is_error);
+        let write = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(!write.is_error, "read-then-write must pass: {write:?}");
+        assert_eq!(native_count.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "x"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_guard_records_host_forwarded_reads() {
+        // A `region` Read falls back to the host (media pipeline); the gate
+        // must still record it so a later native Write to the same file
+        // passes.
+        let (dir, native, executed, _native_count, _events, _state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("media.txt"), "hello").unwrap();
+        let read = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Read".into(),
+                arguments: serde_json::json!({ "path": "media.txt", "region": {} }),
+            })
+            .await
+            .unwrap();
+        assert!(!read.is_error);
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            1,
+            "the region read runs on the host"
+        );
+        let write = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c2".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "media.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !write.is_error,
+            "a host-served read must clear the native write: {write:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_permission_deny_beats_stale_guard() {
+        // v2 chain order: permission → plan → staleGuard. A permission deny
+        // short-circuits before the stale gate is consulted at all.
+        let (dir, native, _executed, _native_count, _events, state_reads) = stale_gate_setup(
+            PermissionDecision {
+                decision: "deny".into(),
+                reason: Some("user declined".into()),
+            },
+            Some(serde_json::json!({ "active": false })),
+        );
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert!(response.content.contains("user declined"));
+        assert!(!response.content.contains("has not been read"));
+        assert_eq!(
+            state_reads.load(Ordering::Relaxed),
+            0,
+            "the stale gate must not be consulted after a permission deny"
+        );
+    }
+
+    /// Base callbacks for goal-guard tests: scripted permission verdict, a
+    /// scripted current goal, counted host executions, recorded events.
+    struct GoalGateHostCallbacks {
+        decision: PermissionDecision,
+        permission_calls: Arc<AtomicU32>,
+        executed: Arc<AtomicU32>,
+        goal_reads: Arc<AtomicU32>,
+        events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        goal: std::sync::Mutex<Option<crate::turn_loop::types::GoalContext>>,
+    }
+
+    impl HostCallbacks for GoalGateHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            self.executed.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.permission_calls.fetch_add(1, Ordering::Relaxed);
+            let decision = self.decision.clone();
+            Box::pin(async move { Ok(decision) })
+        }
+
+        fn emit_event(&self, event: serde_json::Value) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
+            self.goal_reads.fetch_add(1, Ordering::Relaxed);
+            let goal = self.goal.lock().unwrap().clone();
+            Box::pin(async move { Ok(goal) })
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn goal_gate_setup(
+        mode: crate::permission::PermissionMode,
+        route_to_host: bool,
+        current_goal: Option<crate::turn_loop::types::GoalContext>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        Arc<crate::tools::goal_guard::GoalGuard>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let goal_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let guard = Arc::new(crate::tools::goal_guard::GoalGuard::new(
+            Some(mode),
+            route_to_host,
+        ));
+        let fake: Arc<dyn HostCallbacks> = Arc::new(GoalGateHostCallbacks {
+            decision: PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            permission_calls: permission_calls.clone(),
+            executed: executed.clone(),
+            goal_reads: goal_reads.clone(),
+            events: events.clone(),
+            goal: std::sync::Mutex::new(current_goal),
+        });
+        let toolset = Arc::new(
+            NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(fake.clone()),
+        );
+        let native = NativeToolCallbacks {
+            inner: fake,
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: Some(guard.clone()),
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+        (
+            dir,
+            native,
+            executed,
+            native_count,
+            permission_calls,
+            goal_reads,
+            events,
+            guard,
+        )
+    }
+
+    fn gate_goal(id: &str) -> crate::turn_loop::types::GoalContext {
+        crate::turn_loop::types::GoalContext {
+            goal_id: id.into(),
+            objective: String::new(),
+            status: crate::turn_loop::types::GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: None,
+            tokens_used: 0,
+            turns_used: 0,
+            wall_clock_ms: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_routes_create_goal_to_host_outside_auto_mode() {
+        let (_dir, native, executed, native_count, permission_calls, _goal_reads, _events, _guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Manual,
+                true,
+                Some(gate_goal("g1")),
+            );
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "CreateGoal".into(),
+                arguments: serde_json::json!({ "objective": "do it" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !response.is_error,
+            "the host runs the reviewed call: {response:?}"
+        );
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            1,
+            "non-auto CreateGoal must run on the host"
+        );
+        assert_eq!(
+            native_count.load(Ordering::Relaxed),
+            0,
+            "routed calls are not native executions"
+        );
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            0,
+            "routing happens before the engine's permission step"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_keeps_create_goal_native_in_auto_mode() {
+        let (_dir, native, executed, native_count, permission_calls, _goal_reads, _events, _guard) =
+            goal_gate_setup(crate::permission::PermissionMode::Auto, true, None);
+        let _response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "CreateGoal".into(),
+                arguments: serde_json::json!({ "objective": "do it" }),
+            })
+            .await
+            .unwrap();
+        // The native CreateGoal runs against the test fake whose state
+        // bridge is unwired — the result is a bridge error, but the point
+        // is that it executed natively, not on the host.
+        assert_eq!(native_count.load(Ordering::Relaxed), 1);
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            permission_calls.load(Ordering::Relaxed),
+            1,
+            "auto mode goes through the native permission gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_vetoes_stale_goal_mutation() {
+        let (_dir, native, executed, _native_count, _permission_calls, goal_reads, events, guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Auto,
+                true,
+                Some(gate_goal("g2")),
+            );
+        guard.bind_turn("t", Some("g1"));
+
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "UpdateGoal".into(),
+                arguments: serde_json::json!({ "status": "complete" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(
+            response.content,
+            "Goal changed since this turn started; ignored stale goal tool call."
+        );
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+        assert_eq!(goal_reads.load(Ordering::Relaxed), 1);
+        let native_event = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal is reported as tool.native")
+            .clone();
+        assert_eq!(native_event["is_error"], true);
+    }
+
+    #[tokio::test]
+    async fn test_goal_guard_exempts_read_only_goal_tools() {
+        let (_dir, native, _executed, _native_count, _permission_calls, goal_reads, _events, guard) =
+            goal_gate_setup(
+                crate::permission::PermissionMode::Auto,
+                true,
+                Some(gate_goal("g2")),
+            );
+        guard.bind_turn("t", Some("g1"));
+
+        // GetGoal is read-only and never stale-checked (v2 `isGoalMutationTool`
+        // excludes it): it runs (natively or via the fallback) without a veto.
+        let _response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "GetGoal".into(),
+                arguments: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            goal_reads.load(Ordering::Relaxed),
+            0,
+            "the stale check must not fire for GetGoal"
+        );
+    }
+
+    /// PreToolUse hook gate tests: a scripted hook list runs before native
+    /// execution through the same fake host as the goal-gate setup.
+    #[allow(clippy::type_complexity)]
+    fn hook_gate_setup(
+        hooks: Vec<crate::permission::HookDef>,
+    ) -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<AtomicU32>,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let permission_calls = Arc::new(AtomicU32::new(0));
+        let executed = Arc::new(AtomicU32::new(0));
+        let native_count = Arc::new(AtomicU32::new(0));
+        let goal_reads = Arc::new(AtomicU32::new(0));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let fake: Arc<dyn HostCallbacks> = Arc::new(GoalGateHostCallbacks {
+            decision: PermissionDecision {
+                decision: "allow".into(),
+                reason: None,
+            },
+            permission_calls: permission_calls.clone(),
+            executed: executed.clone(),
+            goal_reads: goal_reads.clone(),
+            events: events.clone(),
+            goal: std::sync::Mutex::new(None),
+        });
+        let toolset = Arc::new(
+            NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(fake.clone()),
+        );
+        let native = NativeToolCallbacks {
+            inner: fake,
+            toolset,
+            native_count: native_count.clone(),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: Some(Arc::new(crate::tools::external_hooks::HookGuard::new(
+                hooks,
+            ))),
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+        (
+            dir,
+            native,
+            executed,
+            native_count,
+            permission_calls,
+            goal_reads,
+            events,
+        )
+    }
+
+    fn hook_exit_two_with_stderr() -> crate::permission::HookDef {
+        crate::permission::HookDef {
+            event: "PreToolUse".into(),
+            matcher: String::new(),
+            command: if cfg!(windows) {
+                "echo denied by gate hook 1>&2 & exit /b 2".into()
+            } else {
+                "echo denied by gate hook >&2; exit 2".into()
+            },
+            timeout: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hook_guard_denies_native_call() {
+        let (_dir, native, executed, _native_count, _permission_calls, _goal_reads, events) =
+            hook_gate_setup(vec![hook_exit_two_with_stderr()]);
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(response.is_error);
+        assert_eq!(response.content, "denied by gate hook");
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "a hook block must not fall back to the host"
+        );
+        let native_event = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "tool.native")
+            .expect("the refusal is reported as tool.native")
+            .clone();
+        assert_eq!(native_event["is_error"], true);
+        assert_eq!(native_event["content"], "denied by gate hook");
+    }
+
+    #[tokio::test]
+    async fn test_hook_guard_allows_when_hook_passes() {
+        let (_dir, native, executed, native_count, _permission_calls, _goal_reads, _events) =
+            hook_gate_setup(vec![crate::permission::HookDef {
+                event: "PreToolUse".into(),
+                matcher: String::new(),
+                command: if cfg!(windows) {
+                    "exit /b 0".into()
+                } else {
+                    "exit 0".into()
+                },
+                timeout: None,
+            }]);
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "made.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !response.is_error,
+            "an allowing hook must not block: {response:?}"
+        );
+        assert_eq!(native_count.load(Ordering::Relaxed), 1);
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
+    }
     /// A stub that answers questions, recording the request it received.
     struct AskQuestionCallbacks {
         received: Arc<std::sync::Mutex<Option<AskQuestionRequest>>>,
@@ -1201,6 +2553,11 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -1363,6 +2720,11 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();
@@ -1376,5 +2738,310 @@ mod tests {
         assert_eq!(read_req.as_ref().unwrap().turn_id, "turn-2");
         let write_req = write_received.lock().unwrap();
         assert!(!write_req.as_ref().unwrap().undoable);
+    }
+
+    #[tokio::test]
+    async fn test_state_store_callbacks_local_bridge() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        let dummy = Arc::new(RecordingCallbacks {
+            events: Arc::new(std::sync::Mutex::new(Vec::new())),
+        });
+        let adapter = StateStoreCallbacks {
+            inner: dummy.clone(),
+            store: store.clone(),
+        };
+
+        // 1. Initial read of todo domain returns default empty array
+        let read_req = StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: "turn-1".into(),
+            tool_call_id: "call-1".into(),
+        };
+        let read_res = adapter.state_read(read_req).await.unwrap();
+        assert_eq!(read_res.value, serde_json::json!([]));
+
+        // 2. Write todo item via StateStoreCallbacks
+        let write_req = StateWriteRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            value: serde_json::json!([
+                { "id": "1", "title": "Refactor host bridge", "status": "completed" }
+            ]),
+            undoable: true,
+            turn_id: "turn-1".into(),
+            tool_call_id: "call-1".into(),
+        };
+        let write_res = adapter.state_write(write_req).await.unwrap();
+        assert!(write_res.ok);
+        assert_eq!(write_res.value[0]["title"], "Refactor host bridge");
+
+        // 3. Read back verified from store
+        let read_req2 = StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: "turn-2".into(),
+            tool_call_id: "call-2".into(),
+        };
+        let read_res2 = adapter.state_read(read_req2).await.unwrap();
+        assert_eq!(read_res2.value[0]["title"], "Refactor host bridge");
+
+        // 4. Checkpoint works locally
+        adapter
+            .checkpoint(CheckpointRequest {
+                turn_id: "turn-2".into(),
+                tool_call_id: "call-2".into(),
+                phase: "prepare".into(),
+                paths: vec!["test.txt".into()],
+                executed: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(store.checkpoint_depth(), 1);
+    }
+
+    /// A host whose checkpoint reports a real failure (not the unsupported
+    /// sentinel): the StateStore bridge must surface it, because the host's
+    /// undo anchor is then incomplete.
+    struct CheckpointFailingCallbacks;
+
+    impl HostCallbacks for CheckpointFailingCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "allow".into(),
+                    reason: None,
+                })
+            })
+        }
+        fn checkpoint(&self, _: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+            Box::pin(async { Err("pre-image capture failed: disk full".into()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_state_store_checkpoint_surfaces_real_host_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(CheckpointFailingCallbacks),
+            store: store.clone(),
+        };
+        let err = adapter
+            .checkpoint(CheckpointRequest {
+                turn_id: "turn-1".into(),
+                tool_call_id: "call-1".into(),
+                phase: "prepare".into(),
+                paths: vec!["test.txt".into()],
+                executed: false,
+            })
+            .await
+            .expect_err("a real host checkpoint failure must propagate");
+        assert!(
+            err.contains("pre-image capture failed"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A host that answers plan reads: the bridge must prefer it over a stale
+    /// local `plan.json` so the guard sees the live Plan-mode toggle.
+    struct PlanHostCallbacks {
+        plan: serde_json::Value,
+    }
+
+    impl HostCallbacks for PlanHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "allow".into(),
+                    reason: None,
+                })
+            })
+        }
+        fn state_read(
+            &self,
+            request: StateReadRequest,
+        ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+            let plan = self.plan.clone();
+            Box::pin(async move {
+                if request.domain == "plan" {
+                    Ok(StateReadResponse { value: plan })
+                } else {
+                    Err("host does not support state bridge".into())
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_state_read_plan_prefers_host_over_stale_local() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        // A stale local plan.json says Plan mode is OFF.
+        store
+            .write_domain("plan", &serde_json::json!({ "active": false }))
+            .unwrap();
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(PlanHostCallbacks {
+                plan: serde_json::json!({ "active": true }),
+            }),
+            store: store.clone(),
+        };
+        let resp = adapter
+            .state_read(StateReadRequest {
+                domain: "plan".into(),
+                key: "plan".into(),
+                turn_id: "t".into(),
+                tool_call_id: "c".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.value["active"],
+            serde_json::json!(true),
+            "the host's live Plan mode must win over the stale local file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_state_read_plan_falls_back_to_local_when_host_silent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        store
+            .write_domain("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        // RecordingCallbacks uses the trait-default state_read (an error), so
+        // the bridge must fall back to the local plan.json.
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(RecordingCallbacks {
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            store: store.clone(),
+        };
+        let resp = adapter
+            .state_read(StateReadRequest {
+                domain: "plan".into(),
+                key: "plan".into(),
+                turn_id: "t".into(),
+                tool_call_id: "c".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.value["active"],
+            serde_json::json!(true),
+            "with no host plan state, the local store is the fallback"
+        );
+    }
+
+    struct HostWithToolsCallbacks {
+        tools: Vec<crate::turn_loop::types::ToolInfo>,
+    }
+
+    impl HostCallbacks for HostWithToolsCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+
+        fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+            let tools = self.tools.clone();
+            Box::pin(async move { Ok(ListToolsResponse { tools }) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mcp_mgr = Arc::new(crate::mcp::McpManager::new());
+        let mock_client = crate::mcp::McpClient::mock("test_server");
+        mcp_mgr.add_client(mock_client).await;
+
+        let toolset = Arc::new(
+            NativeToolset::new(tmp.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_mcp(mcp_mgr),
+        );
+
+        let inner = Arc::new(HostWithToolsCallbacks {
+            tools: vec![crate::turn_loop::types::ToolInfo {
+                name: "host_custom_tool".into(),
+                description: "host tool description".into(),
+                input_schema: serde_json::json!({}),
+            }],
+        });
+
+        let callbacks = NativeToolCallbacks {
+            inner,
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+        };
+
+        let res = callbacks.list_tools().await.unwrap();
+        assert!(res.tools.iter().any(|t| t.name == "host_custom_tool"));
+        assert!(
+            res.tools
+                .iter()
+                .any(|t| t.name.starts_with("mcp__test_server__"))
+        );
     }
 }

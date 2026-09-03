@@ -79,6 +79,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: actions/cache@v4
         with:
@@ -86,7 +88,32 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/kimi-agent/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-agent/Cargo.lock') }}
+            packages/kimi-native-tools/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-agent/Cargo.lock', 'packages/kimi-native-tools/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      # Quality gates run once (on ubuntu) before either test suite: plain
+      # rustfmt plus clippy with warnings denied for both Rust packages.
+      - name: Check formatting (kimi-agent)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: packages/kimi-agent
+        run: cargo fmt --check
+
+      - name: Check formatting (kimi-native-tools)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: packages/kimi-native-tools
+        run: cargo fmt --check
+
+      - name: Clippy (kimi-agent)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: packages/kimi-agent
+        run: cargo clippy --all-targets --features cli -- -D warnings
+
+      - name: Clippy (kimi-native-tools)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: packages/kimi-native-tools
+        run: cargo clippy --all-targets -- -D warnings
 
       # `--features cli` is what builds the `kimi-agent-cli` binary the
       # integration tests spawn. It sits behind `required-features`, so a bare
@@ -103,6 +130,12 @@ jobs:
         run: |
           ls target/debug/kimi-agent-cli target/debug/kimi-agent-cli.exe 2>/dev/null \
             || { echo "::error::kimi-agent-cli missing; integration tests would silently skip"; exit 1; }
+
+      # cdylib crate, so there are no doc tests — `--lib` covers the whole
+      # suite. Pure cargo: the napi CLI is not needed to build or run it.
+      - name: Test kimi-native-tools
+        working-directory: packages/kimi-native-tools
+        run: cargo test --lib
 
   # pi-tui's suite runs on node:test (not vitest), so the root `bun run test`
   # does not execute it; it needs its own job.

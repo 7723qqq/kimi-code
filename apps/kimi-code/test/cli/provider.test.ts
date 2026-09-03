@@ -34,6 +34,10 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
       harnessRouting.kimiHarnessV2Constructor(...args);
       return harnessRouting.harness;
     },
+    createKimiHarnessNative: (...args: unknown[]) => {
+      harnessRouting.kimiHarnessV2Constructor(...args);
+      return harnessRouting.harness;
+    },
   };
 });
 

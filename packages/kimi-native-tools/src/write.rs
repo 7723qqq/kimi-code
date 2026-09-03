@@ -245,7 +245,12 @@ mod tests {
     fn test_write_new_file() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.txt");
-        let result = write_file(path.to_str().unwrap(), "hello world", WriteMode::Overwrite, true);
+        let result = write_file(
+            path.to_str().unwrap(),
+            "hello world",
+            WriteMode::Overwrite,
+            true,
+        );
         assert!(result.error.is_none());
         assert_eq!(result.bytes_written, 11);
 
@@ -379,7 +384,12 @@ mod tests {
         let path = dir.path().join("atomic.txt");
         fs::write(&path, b"old").unwrap();
 
-        let result = write_file(path.to_str().unwrap(), "new content", WriteMode::Overwrite, true);
+        let result = write_file(
+            path.to_str().unwrap(),
+            "new content",
+            WriteMode::Overwrite,
+            true,
+        );
         assert!(result.error.is_none());
         assert_eq!(result.bytes_written, 11);
 
@@ -406,13 +416,20 @@ mod tests {
         fs::write(&target, b"original").unwrap();
         symlink(&target, &link).unwrap();
 
-        let result = write_file(link.to_str().unwrap(), "via link", WriteMode::Overwrite, true);
+        let result = write_file(
+            link.to_str().unwrap(),
+            "via link",
+            WriteMode::Overwrite,
+            true,
+        );
         assert!(result.error.is_none());
 
         // The symlink itself must remain a symlink and the target must be updated.
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert_eq!(fs::read_to_string(&target).unwrap(), "via link");
         assert_eq!(fs::read_to_string(&link).unwrap(), "via link");
     }
-
 }

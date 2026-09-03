@@ -22,6 +22,46 @@ use super::types::*;
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
 
+/// Goal/plan state snapshot backed by the host callbacks.
+///
+/// The injection providers render synchronously, while the state authority is
+/// behind the async `host/state_read` channel — so the turn loop refreshes
+/// this snapshot at each step head (see the injection pass) and the providers
+/// read the cached values. A failed read keeps the previous value, so a host
+/// without the state bridge degrades to "no goal/plan reminder" instead of
+/// erroring the turn.
+#[derive(Default)]
+struct CallbackStateSnapshot {
+    goal: std::sync::Mutex<Option<serde_json::Value>>,
+    plan: std::sync::Mutex<Option<serde_json::Value>>,
+}
+
+impl CallbackStateSnapshot {
+    async fn refresh(&self, callbacks: &dyn HostCallbacks) {
+        for (domain, slot) in [("goal", &self.goal), ("plan", &self.plan)] {
+            let request = crate::rpc::types::StateReadRequest {
+                domain: domain.to_string(),
+                key: domain.to_string(),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            };
+            let value = callbacks.state_read(request).await.ok().map(|r| r.value);
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = value;
+        }
+    }
+}
+
+impl crate::injection::goal_plan::StateStore for CallbackStateSnapshot {
+    fn read_domain(&self, domain: &str) -> Option<serde_json::Value> {
+        let slot = match domain {
+            "goal" => &self.goal,
+            "plan" => &self.plan,
+            _ => return None,
+        };
+        slot.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 /// Build a [`TurnResult`] with the turn's telemetry counters.
 ///
 /// `events_emitted`, `llm_transport` and `native_tool_calls` are left empty
@@ -203,6 +243,10 @@ pub fn run_turn<'a>(
     let user_messages = input.messages.clone();
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
+    // Bind this turn to the goal that was active when it started (G-6 #8):
+    // the native goal gate vetoes mutation calls once the current goal no
+    // longer matches. The default no-op leaves unguarded paths unbound.
+    callbacks.set_turn_goal(&turn_id, goal.as_ref().map(|g| g.goal_id.as_str()));
 
     Box::pin(async move {
         let mut total_usage = crate::rpc::types::TokenUsage::default();
@@ -241,30 +285,33 @@ pub fn run_turn<'a>(
         // Default retry configuration for LLM calls within this turn.
         let retry_config = RetryConfig::default();
 
-        // Context compaction knobs. The engine has no model capability
-        // data, so the window defaults to a fixed 128k-token budget.
-        let compaction_config = crate::compaction::CompactionConfig::default();
+        // Context compaction knobs. The window comes from the host's model
+        // resolution; without it the budget falls back to the fixed default.
+        let compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
-        // goal/plan-mode providers register from the local state store.
-        //
-        // The state store is created only on the paths that actually build
-        // injections: `StateStore::for_workspace` creates `<cwd>/.kimi/state/`,
-        // and in host-proxy mode the host owns both the transcript and the
-        // state, so creating that directory here would be a side effect with
-        // no consumer — it would leave an untracked directory behind in
-        // whatever workspace the user happened to run in.
+        // goal/plan-mode providers read the state through the host callbacks
+        // (the same channel the state-bridge tools write through), so the
+        // reminders track the state authority wherever it lives — the host in
+        // the product, the local store in the REPL. No local store is built
+        // here: in the product the state lives host-side and a workspace- or
+        // home-local directory would be a side effect with no consumer.
         let mut injection_registry = crate::injection::InjectionRegistry::with_defaults();
-        if input.llm.transport() != "host-proxy"
-            && let Ok(cwd) = std::env::current_dir()
-            && let Ok(store) = crate::storage::state_store::StateStore::for_workspace(&cwd)
-        {
+        let goal_plan_state = Arc::new(CallbackStateSnapshot::default());
+        if input.llm.transport() != "host-proxy" {
             crate::injection::goal_plan::register_goal_plan_injections(
                 &mut injection_registry,
-                std::sync::Arc::new(store),
+                goal_plan_state.clone(),
             );
         }
+
+        // Tool-call dedup guard (v2 `toolDedupeService` mirror, G-6 #2):
+        // same-step repeats share the original's result instead of executing,
+        // cross-step streaks earn escalating reminders, and a 12-repeat
+        // streak stops the turn. State is per-turn (v2 resets the streak
+        // when the turn id changes), so the guard lives only in this call.
+        let mut tool_dedupe = crate::tools::tool_dedupe::DedupeGuard::new();
 
         for step_num in 0..max_steps {
             steps = step_num + 1;
@@ -370,6 +417,11 @@ pub fn run_turn<'a>(
             // the host owns the transcript and injects itself, so the
             // pass is skipped there to avoid duplicate reminders.
             if input.llm.transport() != "host-proxy" {
+                // Refresh the goal/plan snapshot through the host callbacks so
+                // the injections render the state the tools just wrote — the
+                // same channel, so a mid-turn plan exit or goal pause shows up
+                // at this step head. A failed read keeps the previous value.
+                goal_plan_state.refresh(callbacks.as_ref()).await;
                 for text in injection_registry.build_injections() {
                     messages.push(crate::injection::injection_message(text));
                 }
@@ -391,19 +443,61 @@ pub fn run_turn<'a>(
 
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
-            let step_result = execute_loop_step_with_retry(
+            let step_result = match execute_loop_step_with_retry(
                 &turn_id,
                 step_num,
                 input.llm,
                 messages.clone(),
                 input.tools,
-                step_tool_defs,
+                step_tool_defs.clone(),
                 &retry_config,
             )
             .await
-            .map_err(|e| -> Box<dyn std::error::Error + 'a> {
-                Box::new(std::io::Error::other(e.to_string()))
-            })?;
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if crate::compaction::is_context_overflow_error(&err_str) {
+                        let injections = crate::injection::split_injections(&mut messages);
+                        let force_compacted =
+                            crate::compaction::force_compact_messages(&messages, &compaction_config);
+                        if force_compacted.len() < messages.len() {
+                            tracing::warn!(
+                                turn_id = %turn_id,
+                                step = step_num,
+                                before = messages.len(),
+                                after = force_compacted.len(),
+                                "recovered from context overflow via emergency compaction"
+                            );
+                            messages = force_compacted;
+                            messages.extend(injections);
+                            match execute_loop_step_with_retry(
+                                &turn_id,
+                                step_num,
+                                input.llm,
+                                messages.clone(),
+                                input.tools,
+                                step_tool_defs,
+                                &retry_config,
+                            )
+                            .await
+                            {
+                                Ok(res) => res,
+                                Err(retry_err) => {
+                                    return Err(Box::new(std::io::Error::other(retry_err.to_string()))
+                                        as Box<dyn std::error::Error + 'a>);
+                                }
+                            }
+                        } else {
+                            return Err(Box::new(std::io::Error::other(err_str))
+                                as Box<dyn std::error::Error + 'a>);
+                        }
+                    } else {
+                        return Err(Box::new(std::io::Error::other(err_str))
+                            as Box<dyn std::error::Error + 'a>);
+                    }
+                }
+            };
 
             total_usage.input_tokens += step_result.usage.input_tokens;
             total_usage.output_tokens += step_result.usage.output_tokens;
@@ -450,6 +544,29 @@ pub fn run_turn<'a>(
                         tool_call_id: None,
                     });
 
+                    // Tool-call dedup plan (v2 `toolDedupeService`, G-6 #2):
+                    // identical calls inside this step never execute twice —
+                    // a repeat awaits the original's result instead. Scoped
+                    // to natively-executable names: calls forwarded to the
+                    // host stay under the host's own dedup service. Cells
+                    // carry each call's result by its position in
+                    // `tool_calls` (the scheduler preserves call order).
+                    let dedupe_plan = tool_dedupe.plan_step_by(&tool_calls, |tc| {
+                        crate::tools::is_native_tool_name(&tc.name)
+                            .then(|| crate::tools::tool_dedupe::make_key(&tc.name, &tc.arguments))
+                    });
+                    let call_index: std::collections::HashMap<String, usize> = tool_calls
+                        .iter()
+                        .enumerate()
+                        .map(|(i, tc)| (tc.id.clone(), i))
+                        .collect();
+                    let dedupe_cells: Vec<
+                        std::sync::Arc<tokio::sync::OnceCell<ExecutableToolResult>>,
+                    > = tool_calls
+                        .iter()
+                        .map(|_| std::sync::Arc::default())
+                        .collect();
+
                     // Execute tools with resource-conflict scheduling:
                     // non-conflicting calls run concurrently, conflicting
                     // calls (e.g. two writes to the same file) are
@@ -457,25 +574,74 @@ pub fn run_turn<'a>(
                     let exec_fn = {
                         let turn_id = turn_id.clone();
                         let callbacks = callbacks.clone();
+                        let dedupe_cells = dedupe_cells.clone();
+                        let original_of = dedupe_plan.original_of.clone();
                         move |tc: ToolCall| {
+                            let index = call_index.get(&tc.id).copied();
+                            // The step's first same-key occurrence this
+                            // repeat shares (`None` for originals).
+                            let dup_source = index
+                                .zip(index.map(|i| original_of[i]))
+                                .filter(|(i, o)| i != o)
+                                .map(|(_, o)| o);
                             let turn_id = turn_id.clone();
                             let callbacks = callbacks.clone();
+                            let dedupe_cells = dedupe_cells.clone();
                             async move {
+                                // A same-step repeat never executes: it
+                                // shares the original's result, which the
+                                // step's finalize pass rewrites with any
+                                // repeat reminder before the results reach
+                                // the history (v2 deferred resolution). The
+                                // fallback only runs if the original's task
+                                // vanished before publishing (a cancellation
+                                // abort) — never executes the tool, matching
+                                // v2's lost-deferred error result.
+                                if let Some(original) = dup_source {
+                                    let shared = dedupe_cells[original]
+                                        .get_or_init(|| async {
+                                            ExecutableToolResult {
+                                                content: "Tool call deduplicated but original result was lost".into(),
+                                                is_error: true,
+                                                note: None,
+                                            }
+                                        })
+                                        .await;
+                                    return Ok(shared.clone());
+                                }
                                 let req = ToolExecuteRequest {
                                     turn_id: turn_id.clone(),
                                     tool_call_id: tc.id.clone(),
                                     tool_name: tc.name.clone(),
                                     arguments: tc.arguments.clone(),
                                 };
-                                let response = callbacks
-                                    .execute_tool(req)
-                                    .await
-                                    .map_err(|e| format!("Tool execution error: {e}"))?;
-                                Ok(ExecutableToolResult {
-                                    content: response.content,
-                                    is_error: response.is_error,
-                                    note: response.note,
-                                })
+                                // Publish the outcome through the cell so a
+                                // repeat can share it; a transport error
+                                // becomes the same error result the
+                                // scheduler would synthesize for it.
+                                let execute = async {
+                                    match callbacks.execute_tool(req).await {
+                                        Ok(response) => ExecutableToolResult {
+                                            content: response.content,
+                                            is_error: response.is_error,
+                                            note: response.note,
+                                        },
+                                        Err(e) => ExecutableToolResult {
+                                            content: format!("Tool execution error: {e}"),
+                                            is_error: true,
+                                            note: None,
+                                        },
+                                    }
+                                };
+                                match index {
+                                    Some(i) => {
+                                        let result = dedupe_cells[i].get_or_init(|| execute).await;
+                                        Ok(result.clone())
+                                    }
+                                    // Unknown call id (defensive): no cell to
+                                    // share through, execute plainly.
+                                    None => Ok(execute.await),
+                                }
                             }
                         }
                     };
@@ -486,7 +652,7 @@ pub fn run_turn<'a>(
                             accesses: tool_scheduler::infer_tool_accesses(&tc.name, &tc.arguments),
                         })
                         .collect();
-                    let results = match tool_scheduler::execute_scheduled(
+                    let mut results = match tool_scheduler::execute_scheduled(
                         input.cancellation.as_ref(),
                         scheduled,
                         exec_fn,
@@ -515,9 +681,34 @@ pub fn run_turn<'a>(
                         }
                     };
 
+                    // Dedup finalize (v2 `finalizeResult` + `endStep`):
+                    // streak reminders are appended to the originals'
+                    // results, same-step repeats receive the original's
+                    // final result, and the cross-step streak advances.
+                    let dedupe_force_stop = tool_dedupe.finalize_step(&dedupe_plan, &mut results);
+
                     // Insert tool results, each linked back to its call
                     // via `tool_call_id` (same call order as `tool_calls`).
                     for (i, tr) in results.iter().enumerate() {
+                        // A same-step repeat shared the original's execution
+                        // and never reached the native gate, so no tool.native
+                        // event surfaced it — emit one here so the transcript
+                        // still shows the call with its shared result (v2
+                        // keeps the vetoed repeat visible).
+                        if dedupe_plan.original_of.get(i).is_some_and(|o| *o != i)
+                            && let Some(tc) = tool_calls.get(i)
+                        {
+                            callbacks.emit_event(serde_json::json!({
+                                "type": "tool.native",
+                                "turn_id": turn_id,
+                                "tool_call_id": tc.id,
+                                "tool_name": tc.name,
+                                "arguments": tc.arguments,
+                                "content": tr.content,
+                                "is_error": tr.is_error,
+                                "note": tr.note,
+                            }));
+                        }
                         messages.push(LLMMessage {
                             role: "tool".into(),
                             content: tr.content.clone(),
@@ -525,6 +716,19 @@ pub fn run_turn<'a>(
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
                         });
+                    }
+
+                    if dedupe_force_stop {
+                        // v2 `stopTurn`: the turn ends as `completed` once
+                        // the step's results are recorded.
+                        return Ok(turn_result(
+                            LoopTurnStopReason::EndTurn,
+                            steps,
+                            total_usage,
+                            0,
+                            llm_retries,
+                            messages.clone(),
+                        ));
                     }
                 }
                 LoopStepStopReason::Aborted => {
@@ -567,7 +771,10 @@ fn render_goal_steering(
     turn_wall_clock_ms: i64,
 ) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("## Goal\n{}", goal.objective));
+    lines.push(format!(
+        "## Goal\n{}",
+        crate::goal::escape_untrusted_text(&goal.objective)
+    ));
 
     // Progress line
     let total_tokens = goal.tokens_used + turn_tokens;
@@ -654,17 +861,22 @@ mod tests {
 
     /// Helper: create an RpcHostCallbacks from an RpcServer.
     ///
-    /// Registers the per-step host seams (`drain_steers`, `list_tools`) with
+    /// Registers the per-step host seams (`list_tools`, `state_read`) with
     /// no-op answers: with no local handler the server falls back to a stdio
     /// round-trip that stalls for the full timeout, which used to cost every
     /// native-transport test 30s per step.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
-        RpcServer::register_arc(&server, types::methods::HOST_DRAIN_STEERS, |_params| {
-            Box::pin(async move { Ok(serde_json::json!([])) })
-        });
         RpcServer::register_arc(&server, types::methods::HOST_LIST_TOOLS, |_params| {
             Box::pin(async move {
                 let resp = types::ListToolsResponse { tools: vec![] };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        RpcServer::register_arc(&server, types::methods::HOST_STATE_READ, |_params| {
+            Box::pin(async move {
+                let resp = types::StateReadResponse {
+                    value: serde_json::Value::Null,
+                };
                 serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
             })
         });
@@ -760,6 +972,7 @@ mod tests {
                 if return_tc {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: tcs,
                         finish_reason: Some("tool_calls".into()),
                         usage: TokenUsage {
@@ -772,6 +985,7 @@ mod tests {
                 } else {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -809,6 +1023,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -817,6 +1032,142 @@ mod tests {
         assert!(result.is_ok());
         let turn = result.unwrap();
         assert_eq!(turn.steps, 1);
+    }
+
+    /// Callbacks wrapper recording `set_turn_goal` bindings.
+    struct GoalBindingCallbacks {
+        inner: Arc<dyn HostCallbacks>,
+        #[allow(clippy::type_complexity)]
+        bound: Arc<Mutex<Vec<(String, Option<String>)>>>,
+    }
+
+    impl HostCallbacks for GoalBindingCallbacks {
+        fn llm_chat(
+            &self,
+            request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+        {
+            self.inner.llm_chat(request)
+        }
+
+        fn execute_tool(
+            &self,
+            request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ToolExecuteResponse, String>,
+        > {
+            self.inner.execute_tool(request)
+        }
+
+        fn check_permission(
+            &self,
+            request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::PermissionDecision, String>,
+        > {
+            self.inner.check_permission(request)
+        }
+
+        fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+            self.bound
+                .lock()
+                .unwrap()
+                .push((turn_id.to_string(), goal_id.map(str::to_string)));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_turn_binds_start_goal_for_stale_check() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let base = rpc_callbacks(server.clone());
+        let bound = Arc::new(Mutex::new(Vec::new()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(GoalBindingCallbacks {
+            inner: base.clone(),
+            bound: bound.clone(),
+        });
+
+        let goal = crate::turn_loop::types::GoalContext {
+            goal_id: "g-1".into(),
+            objective: "objective".into(),
+            status: crate::turn_loop::types::GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            wall_clock_budget_ms: None,
+            tokens_used: 0,
+            turns_used: 0,
+            wall_clock_ms: 0,
+        };
+        let input = RunTurnInput {
+            turn_id: "turn-goal".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: None,
+            goal: Some(goal),
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            bound.lock().unwrap().as_slice(),
+            &[("turn-goal".to_string(), Some("g-1".to_string()))],
+            "run_turn must bind the turn-start goal for the stale gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_turn_binds_no_goal_when_goalless() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let base = rpc_callbacks(server.clone());
+        let bound = Arc::new(Mutex::new(Vec::new()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(GoalBindingCallbacks {
+            inner: base.clone(),
+            bound: bound.clone(),
+        });
+        let input = RunTurnInput {
+            turn_id: "turn-goal-free".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            bound.lock().unwrap().as_slice(),
+            &[("turn-goal-free".to_string(), None)],
+            "a goal-less turn binds None so the stale gate skips it"
+        );
     }
 
     #[tokio::test]
@@ -849,6 +1200,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -882,6 +1234,7 @@ mod tests {
             Box::pin(async move {
                 Ok(LLMChatResponse {
                     content: String::new(),
+                    thinking: vec![],
                     tool_calls: vec![],
                     finish_reason: Some(fr.into()),
                     usage: TokenUsage {
@@ -913,6 +1266,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -938,6 +1292,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -963,6 +1318,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -994,6 +1350,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![ToolCall {
                             id: "tc1".into(),
                             name: "read".into(),
@@ -1036,6 +1393,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1069,6 +1427,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -1086,6 +1445,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage {
@@ -1126,6 +1486,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1170,6 +1531,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -1181,6 +1543,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -1216,6 +1579,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1235,6 +1599,316 @@ mod tests {
                 && m.tool_call_id.as_deref() == Some("tc1")
                 && m.content == "stub"),
             "step 2 history must contain the tool result: {second:?}"
+        );
+    }
+
+    // ── Tool-call dedup (v2 `toolDedupeService` mirror, G-6 #2) ─────────
+
+    /// A same-step repeat of an identical call never executes: the host
+    /// runs the original once, and the repeat receives the same result.
+    #[tokio::test]
+    async fn test_same_step_duplicate_executes_once() {
+        struct DupLlm {
+            call: AtomicU32,
+        }
+        impl LLM for DupLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "dup-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![
+                                ToolCall {
+                                    id: "tc1".into(),
+                                    name: "read".into(),
+                                    arguments: serde_json::json!({"path": "/a.txt"}),
+                                },
+                                // Same key, different call id — the repeat.
+                                ToolCall {
+                                    id: "tc2".into(),
+                                    name: "read".into(),
+                                    arguments: serde_json::json!({"path": "/a.txt"}),
+                                },
+                            ],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = DupLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let executions = Arc::new(AtomicU32::new(0));
+        let counter = executions.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, move |_params| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-same-step-dedup".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+        let result = run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            executions.load(Ordering::SeqCst),
+            1,
+            "the repeat must share the original's execution"
+        );
+        // Both calls keep their result messages, with identical content.
+        let tool_msgs: Vec<&LLMMessage> = result
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_msgs.len(), 2);
+        assert_eq!(tool_msgs[0].tool_call_id.as_deref(), Some("tc1"));
+        assert_eq!(tool_msgs[1].tool_call_id.as_deref(), Some("tc2"));
+        assert_eq!(tool_msgs[0].content, "stub");
+        assert_eq!(tool_msgs[1].content, "stub");
+    }
+
+    /// Calls with non-native names are exempt from engine-side dedup: they
+    /// run on the host, whose own dedup service stays authoritative.
+    #[tokio::test]
+    async fn test_same_step_duplicate_of_host_tool_still_executes_twice() {
+        struct HostDupLlm {
+            call: AtomicU32,
+        }
+        impl LLM for HostDupLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "host-dup-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![
+                                ToolCall {
+                                    id: "tc1".into(),
+                                    name: "echo".into(),
+                                    arguments: serde_json::json!({"text": "hello"}),
+                                },
+                                ToolCall {
+                                    id: "tc2".into(),
+                                    name: "echo".into(),
+                                    arguments: serde_json::json!({"text": "hello"}),
+                                },
+                            ],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = HostDupLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let executions = Arc::new(AtomicU32::new(0));
+        let counter = executions.clone();
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, move |_params| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-host-tool-no-dedup".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(
+            executions.load(Ordering::SeqCst),
+            2,
+            "non-native names bypass engine dedup (the host dedups them)"
+        );
+    }
+
+    /// Cross-step repeats earn the escalating reminders, and the 12th
+    /// consecutive identical call force-stops the turn as `completed`.
+    #[tokio::test]
+    async fn test_repeat_streak_appends_reminders_and_force_stops() {
+        struct RepeatLlm {
+            call: AtomicU32,
+        }
+        impl LLM for RepeatLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "repeat-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        thinking: vec![],
+                        tool_calls: vec![ToolCall {
+                            id: format!("tc{call}"),
+                            name: "read".into(),
+                            arguments: serde_json::json!({"path": "/a.txt"}),
+                        }],
+                        finish_reason: Some("tool_calls".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+        let llm = RepeatLlm {
+            call: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-repeat-streak".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            // Generous ceiling: the force stop, not max_steps, must end it.
+            max_steps: 20,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+        let result = run_turn(input, &callbacks).await.unwrap();
+
+        assert_eq!(result.steps, 12, "force stop at the 12th repeat");
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+        let tool_msgs: Vec<&LLMMessage> = result
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_msgs.len(), 12);
+        // Streak 1 and 2 stay untouched; 3 earns reminder 1.
+        assert_eq!(tool_msgs[0].content, "stub");
+        assert_eq!(tool_msgs[1].content, "stub");
+        assert!(
+            tool_msgs[2]
+                .content
+                .contains("repeated several times in a row")
+        );
+        // Streak 5 embeds the count (reminder 2).
+        assert!(tool_msgs[4].content.contains("issued 5 times in a row"));
+        // Streak 8 and 12 carry the final-response reminder; 12 stops the turn.
+        assert!(
+            tool_msgs[7]
+                .content
+                .contains("Write your final response now")
+        );
+        assert!(
+            tool_msgs[11]
+                .content
+                .contains("Write your final response now")
         );
     }
 
@@ -1270,6 +1944,7 @@ mod tests {
                     }
                     Ok(LLMChatResponse {
                         content: "done".into(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -1300,6 +1975,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -1351,6 +2027,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1396,6 +2073,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1444,6 +2122,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1501,6 +2180,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1549,6 +2229,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1586,6 +2267,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -1681,6 +2363,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancellation),
         };
@@ -1717,6 +2400,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -1763,6 +2447,7 @@ mod tests {
                     }
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -1807,6 +2492,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
         };
@@ -1876,6 +2562,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2019,6 +2706,7 @@ mod tests {
                     *captured.lock().unwrap() = params.messages.clone();
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2065,6 +2753,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2124,6 +2813,7 @@ mod tests {
                     *captured.lock().unwrap() = params.messages.clone();
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage {
@@ -2154,6 +2844,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2206,6 +2897,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2261,6 +2953,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
         };
@@ -2333,6 +3026,7 @@ mod tests {
                     if call == 0 {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
                                 name: "read".into(),
@@ -2344,6 +3038,7 @@ mod tests {
                     } else {
                         Ok(LLMChatResponse {
                             content: String::new(),
+                            thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
@@ -2403,6 +3098,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2451,6 +3147,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
@@ -2487,6 +3184,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2532,6 +3230,7 @@ mod tests {
                 Box::pin(async move {
                     Ok(LLMChatResponse {
                         content: String::new(),
+                        thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
@@ -2567,6 +3266,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
@@ -2577,5 +3277,105 @@ mod tests {
             0,
             "host-proxy mode must not pull the engine-side tool table"
         );
+    }
+
+    #[tokio::test]
+    async fn test_context_overflow_triggers_emergency_compaction_and_recovers() {
+        struct OverflowRecoverLlm {
+            call_count: AtomicU32,
+        }
+        impl LLM for OverflowRecoverLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "overflow-model"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let count = self.call_count.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if count == 0 {
+                        // First call fails with a context overflow error.
+                        Err(Box::new(std::io::Error::other(
+                            "llm http status 400 Bad Request: context_length_exceeded",
+                        )) as Box<dyn std::error::Error + Send + Sync>)
+                    } else {
+                        // Second call succeeds after compaction.
+                        assert!(
+                            params
+                                .messages
+                                .iter()
+                                .any(|m| m.content.contains("compacted")),
+                            "the compacted messages must be passed to the retry call"
+                        );
+                        Ok(LLMChatResponse {
+                            content: "Recovered successfully".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = OverflowRecoverLlm {
+            call_count: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            turn_id: "test-overflow-recovery".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u3".into(),
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_context_tokens: Some(100_000),
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert_eq!(llm.call_count.load(Ordering::SeqCst), 2);
+        assert_eq!(result.messages.last().unwrap().content, "Recovered successfully");
     }
 }

@@ -3,7 +3,7 @@
 //! Ported for `kimi-agent` (P26 批 2). Executes in-process in Rust using
 //! `reqwest` and `scraper`.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use scraper::{Html, Selector};
@@ -16,6 +16,8 @@ const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
      (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
 const DEFAULT_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// Redirect hops followed before giving up — the cap `Policy::limited` used.
+const MAX_REDIRECT_HOPS: usize = 10;
 
 pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let url_str = args.get("url")?.as_str()?;
@@ -27,39 +29,116 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
         });
     }
 
-    if let Err(err) = validate_url(url_str, false) {
-        return Some(ExecutableToolResult {
-            content: format!("Failed to fetch URL: {err}"),
-            is_error: true,
-            note: None,
-        });
-    }
+    let mut current_url = url_str.to_string();
+    let mut redirects: usize = 0;
 
-    let client = match reqwest::Client::builder()
-        .user_agent(DEFAULT_USER_AGENT)
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return Some(ExecutableToolResult {
-                content: format!("Failed to initialize HTTP client: {e}"),
-                is_error: true,
-                note: None,
-            });
-        }
-    };
+    let response = loop {
+        let parsed = match Url::parse(&current_url) {
+            Ok(p) => p,
+            Err(e) => {
+                return Some(ExecutableToolResult {
+                    content: format!("Failed to fetch URL: Invalid URL: {e}"),
+                    is_error: true,
+                    note: None,
+                });
+            }
+        };
 
-    let response = match client.get(url_str).send().await {
-        Ok(resp) => resp,
-        Err(e) => {
-            return Some(ExecutableToolResult {
-                content: format!("Failed to fetch URL due to network error: {url_str}. {e}"),
-                is_error: true,
-                note: None,
-            });
+        let addrs = match resolve_and_validate_url(&parsed, false) {
+            Ok(a) => a,
+            Err(err) => {
+                return Some(ExecutableToolResult {
+                    content: format!("Failed to fetch URL: {err}"),
+                    is_error: true,
+                    note: None,
+                });
+            }
+        };
+
+        let host = match parsed.host_str() {
+            Some(h) => h,
+            None => {
+                return Some(ExecutableToolResult {
+                    content: "Failed to fetch URL: URL has no host".to_string(),
+                    is_error: true,
+                    note: None,
+                });
+            }
+        };
+
+        // Pin the resolved public addresses into reqwest to close the
+        // DNS-rebinding / TOCTOU window (mirroring kimi-native-tools).
+        let mut builder = reqwest::Client::builder()
+            .user_agent(DEFAULT_USER_AGENT)
+            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+            .redirect(reqwest::redirect::Policy::none());
+
+        if !addrs.is_empty() {
+            builder = builder.resolve_to_addrs(host, &addrs);
         }
+
+        let client = match builder.build() {
+            Ok(c) => c,
+            Err(e) => {
+                return Some(ExecutableToolResult {
+                    content: format!("Failed to initialize HTTP client: {e}"),
+                    is_error: true,
+                    note: None,
+                });
+            }
+        };
+
+        let resp = match client.get(&current_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Some(ExecutableToolResult {
+                    content: format!("Failed to fetch URL due to network error: {current_url}. {e}"),
+                    is_error: true,
+                    note: None,
+                });
+            }
+        };
+
+        let status = resp.status();
+        if status.is_redirection() {
+            if redirects >= MAX_REDIRECT_HOPS {
+                return Some(ExecutableToolResult {
+                    content: format!("Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"),
+                    is_error: true,
+                    note: None,
+                });
+            }
+            redirects += 1;
+            let location = match resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+            {
+                Some(loc) => loc,
+                None => {
+                    return Some(ExecutableToolResult {
+                        content: "Failed to fetch URL: Redirect without Location header".to_string(),
+                        is_error: true,
+                        note: None,
+                    });
+                }
+            };
+            match parsed.join(location) {
+                Ok(next) => {
+                    current_url = next.to_string();
+                    continue;
+                }
+                Err(e) => {
+                    return Some(ExecutableToolResult {
+                        content: format!("Failed to fetch URL: Invalid redirect URL: {e}"),
+                        is_error: true,
+                        note: None,
+                    });
+                }
+            }
+        }
+
+        break resp;
     };
 
     let status = response.status();
@@ -140,9 +219,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
 
 // ── SSRF Validation ──────────────────────────────────────────────────────────
 
-pub fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
-    let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
-
+pub fn resolve_and_validate_url(parsed: &Url, allow_private: bool) -> Result<Vec<SocketAddr>, String> {
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
@@ -156,25 +233,31 @@ pub fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
         .host_str()
         .ok_or_else(|| "URL has no host".to_string())?;
 
-    if allow_private {
-        return Ok(());
-    }
+    let port = parsed.port_or_known_default().unwrap_or(80);
 
     let host_lower = host.to_lowercase();
-    if host_lower == "localhost" || host_lower.ends_with(".localhost") {
+    if !allow_private && (host_lower == "localhost" || host_lower.ends_with(".localhost")) {
         return Err(format!("Refusing to fetch private host: \"{host}\""));
     }
 
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
+        if !allow_private && is_private_ip(ip) {
             return Err(format!("Refusing to fetch private address: \"{host}\""));
         }
-        return Ok(());
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
-    let port = parsed.port_or_known_default().unwrap_or(80);
-    if let Ok(addrs) = format!("{host}:{port}").to_socket_addrs() {
-        for addr in addrs {
+    let addrs: Vec<SocketAddr> = format!("{host}:{port}")
+        .to_socket_addrs()
+        .map_err(|e| format!("Cannot resolve host \"{host}\": {e}"))?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(format!("Cannot resolve host \"{host}\": no addresses"));
+    }
+
+    if !allow_private {
+        for addr in &addrs {
             if is_private_ip(addr.ip()) {
                 return Err(format!(
                     "Refusing to fetch host \"{host}\": resolves to private address \"{}\".",
@@ -184,7 +267,12 @@ pub fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
         }
     }
 
-    Ok(())
+    Ok(addrs)
+}
+
+pub fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
+    let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
+    resolve_and_validate_url(&parsed, allow_private).map(|_| ())
 }
 
 fn is_private_ip(ip: IpAddr) -> bool {
@@ -379,5 +467,22 @@ mod tests {
     fn test_clean_text_whitespace() {
         let raw = "   hello   \n\n\t  world  !  ";
         assert_eq!(clean_text(raw), "hello world !");
+    }
+
+    #[test]
+    fn test_resolve_and_validate_url_pinning() {
+        let parsed_public = Url::parse("http://1.1.1.1/").unwrap();
+        let addrs = resolve_and_validate_url(&parsed_public, false).unwrap();
+        assert_eq!(addrs.len(), 1);
+        assert_eq!(addrs[0].ip(), "1.1.1.1".parse::<IpAddr>().unwrap());
+        assert_eq!(addrs[0].port(), 80);
+
+        let parsed_private = Url::parse("http://10.255.0.1:8080/").unwrap();
+        let err = resolve_and_validate_url(&parsed_private, false).unwrap_err();
+        assert!(err.contains("Refusing to fetch private address"));
+
+        let parsed_localhost = Url::parse("http://localhost:3000/").unwrap();
+        let err_lh = resolve_and_validate_url(&parsed_localhost, false).unwrap_err();
+        assert!(err_lh.contains("Refusing to fetch private host"));
     }
 }

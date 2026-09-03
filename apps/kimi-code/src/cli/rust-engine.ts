@@ -13,10 +13,16 @@
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { loadRuntimeConfigSafe, resolveConfigPath, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
+import {
+  KimiAuthFacade,
+  loadRuntimeConfigSafe,
+  resolveConfigPath,
+  resolveKimiHome,
+} from '@moonshot-ai/kimi-code-sdk';
 import type { TurnEngine } from '@moonshot-ai/agent-core-v2';
 
-import { setEngineExecution } from '#/utils/engine-execution';
+import { createKimiCodeHostIdentity } from '#/cli/version';
+import { patchEngineExecution, setEngineExecution } from '#/utils/engine-execution';
 
 interface LlmProviderDef {
   name: string;
@@ -24,21 +30,62 @@ interface LlmProviderDef {
   system_prompt: string;
 }
 
+/** Headers the native transport sets itself; a provider must not add a second value. */
+const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'anthropic-version', 'x-goog-api-key']);
+
 interface NativeLlmDef {
-  protocol: 'openai' | 'anthropic';
+  protocol:
+    | 'openai'
+    | 'openai_responses'
+    | 'openai-responses'
+    | 'anthropic'
+    | 'google'
+    | 'google-genai'
+    | 'gemini';
   base_url: string;
   api_key: string;
   model: string;
   max_tokens?: number;
+  custom_headers?: Record<string, string>;
+  reasoning_effort?: string;
+  thinking_budget?: number;
+  /** OAuth-managed auth: the transport fetches bearer tokens via `host/auth_token`. */
+  auth_provider?: string;
+}
+
+/** A native-transport candidate: either a usable definition, or why it is not. */
+interface NativeLlmResolution {
+  def?: NativeLlmDef;
+  reason?: string;
 }
 
 interface RustEngineConfig {
   defaultModel?: string;
+  thinking?: { enabled?: boolean; effort?: string };
   providers?: Record<
     string,
-    { defaultModel?: string; type?: string; apiKey?: string; baseUrl?: string }
+    {
+      defaultModel?: string;
+      type?: string;
+      apiKey?: string;
+      baseUrl?: string;
+      maxTokens?: number;
+      customHeaders?: Record<string, string>;
+      /** OAuth-managed auth material (managed logins write this; `apiKey` stays empty). */
+      oauth?: { key?: string; oauthHost?: string };
+    }
   >;
-  models?: Record<string, { provider?: string; model?: string; systemPrompt?: string }>;
+  models?: Record<
+    string,
+    {
+      provider?: string;
+      model?: string;
+      systemPrompt?: string;
+      defaultEffort?: string;
+      reasoningEffort?: string;
+      maxTokens?: number;
+    }
+  >;
   agent?: {
     multiLlm?: string[];
     nativeLlmProvider?: string;
@@ -100,68 +147,90 @@ function extractMultiLlmProviders(
  * Rust engine calls the correct provider endpoint on the next turn.
  *
  * `agent.nativeLlmProvider` is kept as a fallback: when the default model's
- * provider is not suitable for native transport (e.g. OAuth-managed, missing
- * static key), the named provider is tried instead.
+ * provider is not suitable for native transport (e.g. missing static key
+ * and OAuth material), the named provider is tried instead.
  *
- * Only static-key `openai`/`kimi` (Chat Completions) and `anthropic`
- * (Messages) providers are supported; anything else falls back to the host
- * proxy.
+ * `openai`/`kimi` (Chat Completions), `anthropic` (Messages), `google`
+ * (GenAI) and `openai_responses` providers are supported, with a static
+ * key or OAuth-managed auth (the transport then fetches bearer tokens via
+ * `host/auth_token`); anything else falls back to the host proxy, and the
+ * returned reason says why.
  */
-function extractNativeLlm(config: RustEngineConfig): NativeLlmDef | undefined {
+function extractNativeLlm(config: RustEngineConfig): NativeLlmResolution {
+  const tried: NativeLlmResolution[] = [];
+
   // 1) Try the current default model's provider.
   const defaultModelAlias = config.defaultModel;
-  if (defaultModelAlias) {
-    const modelConfig = config.models?.[defaultModelAlias];
-    const providerName = modelConfig?.provider;
-    if (providerName) {
-      const result = tryResolveNativeLlm(config, providerName, modelConfig?.model);
-      if (result !== undefined) return result;
-    }
+  const modelConfig =
+    defaultModelAlias === undefined ? undefined : config.models?.[defaultModelAlias];
+  const providerName = modelConfig?.provider;
+  if (providerName !== undefined) {
+    const resolution = tryResolveNativeLlm(config, providerName, modelConfig?.model, modelConfig);
+    if (resolution.def !== undefined) return resolution;
+    tried.push(resolution);
   }
 
   // 2) Fall back to agent.nativeLlmProvider (legacy behaviour).
   const legacyName = config.agent?.nativeLlmProvider;
-  if (legacyName) {
-    const result = tryResolveNativeLlm(config, legacyName);
-    if (result !== undefined) return result;
+  if (legacyName !== undefined) {
+    const resolution = tryResolveNativeLlm(config, legacyName);
+    if (resolution.def !== undefined) return resolution;
+    tried.push(resolution);
   }
 
-  return undefined;
+  return tried[0] ?? { reason: 'the default model has no provider configured' };
 }
 
 /**
- * Resolve a single provider into a `NativeLlmDef`. Returns `undefined` when
- * the provider is missing, has an unsupported type, or lacks a static
+ * Resolve a single provider into a `NativeLlmDef`. Returns a reason when the
+ * provider is missing, has an unsupported type, or lacks a static
  * `baseUrl`/`apiKey` — in which case the caller can try the next candidate.
  */
 function tryResolveNativeLlm(
   config: RustEngineConfig,
   providerName: string,
   explicitModel?: string,
-): NativeLlmDef | undefined {
+  modelAliasConfig?: {
+    defaultEffort?: string;
+    reasoningEffort?: string;
+    maxTokens?: number;
+  },
+): NativeLlmResolution {
   const provider = config.providers?.[providerName];
   if (!provider) {
-    console.warn(`[kimi-agent] provider "${providerName}" not found in providers.`);
-    return undefined;
+    return { reason: `provider "${providerName}" is not configured` };
   }
 
   const protocol =
     provider.type === 'anthropic'
       ? 'anthropic'
-      : provider.type === 'openai' || provider.type === 'kimi'
-        ? 'openai'
-        : undefined;
+      : provider.type === 'google' || provider.type === 'gemini' || provider.type === 'google-genai'
+        ? 'google'
+        : provider.type === 'openai_responses' || provider.type === 'openai-responses'
+          ? 'openai_responses'
+          : provider.type === 'openai' || provider.type === 'kimi'
+            ? 'openai'
+            : undefined;
   if (protocol === undefined) {
-    console.warn(
-      `[kimi-agent] provider "${providerName}" type "${provider.type ?? 'unknown'}" is not supported by the native transport.`,
-    );
-    return undefined;
+    return {
+      reason: `provider "${providerName}" type "${provider.type ?? 'unknown'}" has no native transport`,
+    };
   }
-  if (!provider.baseUrl || !provider.apiKey) {
-    console.warn(
-      `[kimi-agent] provider "${providerName}" needs a static baseUrl + apiKey for the native transport.`,
-    );
-    return undefined;
+  const hasOAuth = provider.oauth !== undefined;
+  const staticKey = typeof provider.apiKey === 'string' ? provider.apiKey : '';
+  const hasStaticKey = staticKey.length > 0;
+  if (!hasStaticKey && !hasOAuth) {
+    return {
+      reason: `provider "${providerName}" has neither a static apiKey nor oauth material for the native transport`,
+    };
+  }
+  // OAuth-managed logins (managed Kimi) write the endpoint into the config;
+  // a provider without either URL has no resolvable endpoint (e.g. Google
+  // OAuth, whose endpoint lives inside the GenAI SDK client).
+  if (!provider.baseUrl) {
+    return {
+      reason: `provider "${providerName}" has no baseUrl for the native transport`,
+    };
   }
 
   // Use the explicit model from the model alias, or fall back to the
@@ -172,15 +241,62 @@ function tryResolveNativeLlm(
     if (alias) model = alias[1].model;
   }
   if (!model) {
-    console.warn(`[kimi-agent] provider "${providerName}" has no resolvable model.`);
-    return undefined;
+    return { reason: `provider "${providerName}" has no resolvable model` };
+  }
+
+  const customHeaders = Object.fromEntries(
+    // reqwest appends headers instead of replacing them, so a custom
+    // authorization / x-api-key would ship as a second value and the provider
+    // would see a broken credential. The engine owns these three.
+    Object.entries(provider.customHeaders ?? {}).filter(
+      ([key]) => !AUTH_HEADERS.has(key.toLowerCase()),
+    ),
+  );
+
+  let reasoningEffort: string | undefined;
+  let thinkingBudget: number | undefined;
+
+  const thinkingConfig = config.thinking;
+  const modelEffort =
+    modelAliasConfig?.defaultEffort ??
+    modelAliasConfig?.reasoningEffort ??
+    thinkingConfig?.effort;
+
+  if (
+    thinkingConfig?.enabled !== false &&
+    modelEffort &&
+    modelEffort !== 'off' &&
+    modelEffort !== 'none'
+  ) {
+    if (protocol === 'anthropic') {
+      if (modelEffort === 'low') thinkingBudget = 1024;
+      else if (modelEffort === 'medium') thinkingBudget = 4096;
+      else if (modelEffort === 'high' || modelEffort === 'on') thinkingBudget = 32000;
+      else {
+        const parsed = Number.parseInt(modelEffort, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          thinkingBudget = parsed;
+        } else {
+          thinkingBudget = 32000;
+        }
+      }
+    } else {
+      reasoningEffort = modelEffort;
+    }
   }
 
   return {
-    protocol,
-    base_url: normalizeBaseUrl(protocol, provider.baseUrl),
-    api_key: provider.apiKey,
-    model,
+    def: {
+      protocol,
+      base_url: normalizeBaseUrl(protocol, provider.baseUrl),
+      api_key: staticKey,
+      model,
+      max_tokens: modelAliasConfig?.maxTokens ?? provider.maxTokens,
+      custom_headers: Object.keys(customHeaders).length > 0 ? customHeaders : undefined,
+      reasoning_effort: reasoningEffort,
+      thinking_budget: thinkingBudget,
+      auth_provider: hasOAuth ? providerName : undefined,
+    },
   };
 }
 
@@ -199,9 +315,12 @@ function tryResolveNativeLlm(
  *   append `/v1`. URLs that already end in `/vN` (including `/v1`) are
  *   passed through.
  */
-export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: string): string {
+export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, '');
-  if (protocol === 'openai') {
+  if (protocol === 'google' || protocol === 'google-genai' || protocol === 'gemini') {
+    return trimmed;
+  }
+  if (protocol === 'openai' || protocol === 'openai_responses' || protocol === 'openai-responses') {
     return /\/v\d+($|\/)/.test(trimmed) ? trimmed : `${trimmed}/v1`;
   }
   // anthropic
@@ -216,8 +335,8 @@ export function normalizeBaseUrl(protocol: 'openai' | 'anthropic', baseUrl: stri
  * `rust-loop`'s `isRustEngineAvailable` against the same candidate paths,
  * but stays dependency-free — importing rust-loop drags the whole
  * agent-core-v2 graph in, which is several seconds on a cold test worker.
- * Only existence checks, never loads: an unset `agent.engine` falls back
- * to the JS loop exactly when this guard is false.
+ * Only existence checks, never loads: a missing bundle is a startup error,
+ * never a JS fallback — the gate is rust-only for the migration.
  */
 function isEngineLoadable(): boolean {
   const root = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -292,6 +411,9 @@ async function resolveRustEngine(
         'Build the native bundle (start-native.bat / `make rust-build`).',
     );
   }
+  // Wired but unrun: the gate is rust-only and the bundle is loadable, so the
+  // TS engine is off from here — without guessing a transport yet.
+  setEngineExecution({ rust: true });
 
   // Extract MultiLLM providers and native execution options when configured.
   // `nativeLlm` is resolved **dynamically** on each turn so that when the user
@@ -341,6 +463,21 @@ async function resolveRustEngine(
     shellPath = undefined;
   }
 
+  // OAuth token channel for `auth_provider`-configured native transports
+  // (managed Kimi login). The facade owns the OAuth store — single-flight
+  // refresh, expiry-aware cache — so the engine asks instead of holding
+  // credentials; `force` is the post-401 refresh path. Built lazily: the
+  // common static-key session never pays for it.
+  let authFacade: KimiAuthFacade | undefined;
+  const authTokenFacade = () => {
+    authFacade ??= new KimiAuthFacade({
+      homeDir: resolvedHome,
+      configPath: resolvedConfig,
+      identity: createKimiCodeHostIdentity(),
+    });
+    return authFacade;
+  };
+
   // Dynamic import of the Rust adapter via the workspace package. The gate
   // above already established the bundle is loadable, so a failure here is a
   // broken install — surfaced, never silently traded for the TS loop.
@@ -358,7 +495,13 @@ async function resolveRustEngine(
       // (which update `default_model` in config.toml) are reflected.
       const reloaded = loadRuntimeConfigSafe(resolvedConfig);
       if (reloaded.fileError !== undefined) return;
-      return extractNativeLlm(reloaded.config);
+      const resolution = extractNativeLlm(reloaded.config);
+      patchEngineExecution({ llmFallbackReason: resolution.reason });
+      return resolution.def;
+    },
+    authToken: (request) => {
+      const provider = authTokenFacade().resolveOAuthTokenProvider(request.provider);
+      return provider.getAccessToken({ force: request.force });
     },
     nativeTools,
     rustSelfContained,
@@ -375,6 +518,9 @@ async function resolveRustEngine(
       const baseUrl = github?.baseUrl;
       if (token === undefined && baseUrl === undefined) return undefined;
       return { token, baseUrl };
+    },
+    onEngineUnavailable: (detail) => {
+      patchEngineExecution({ transport: 'dead', llmFallbackReason: detail });
     },
     onTurnResult: (result) => {
       // The transport is read, never resolved: a status-backed observation
@@ -396,6 +542,9 @@ async function resolveRustEngine(
         ? 'yolo'
         : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
       const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
+      const hooks = (cfg['hooks'] as
+        | Array<{ event?: string; matcher?: string; command?: string; timeout?: number }>
+        | undefined) ?? [];
       return {
         mode,
         deny_rules: rules
@@ -407,6 +556,16 @@ async function resolveRustEngine(
         allow_rules: rules
           .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
           .map((r) => r.pattern!),
+        // G-6 #6: user-configured external hooks ride the snapshot so the
+        // engine can run PreToolUse hooks before native tool calls.
+        pre_tool_hooks: hooks
+          .filter((h) => typeof h.command === 'string')
+          .map((h) => ({
+            event: h.event ?? '',
+            matcher: h.matcher ?? '',
+            command: h.command ?? '',
+            timeout: h.timeout,
+          })),
       };
     },
   });
@@ -417,8 +576,6 @@ async function resolveRustEngine(
       '[kimi-agent] rust engine failed to initialize (napi addon unloadable and stdio CLI failed to start) — the TS agent engine is disabled.',
     );
   }
-  // Wired but unrun: the report says so rather than guessing a transport.
-  setEngineExecution({ rust: true });
   rustTurnEngine = engine;
   return rustTurnEngine;
 }

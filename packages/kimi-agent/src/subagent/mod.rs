@@ -7,4 +7,6 @@ pub mod manager;
 pub mod types;
 
 pub use manager::SubagentManager;
-pub use types::{SubagentDefinition, SubagentInstance, SubagentState, SubagentSummary};
+pub use types::{
+    ParentCancel, SubagentDefinition, SubagentInstance, SubagentState, SubagentSummary,
+};

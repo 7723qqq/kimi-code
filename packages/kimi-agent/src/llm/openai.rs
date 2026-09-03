@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::llm::wire::WireMessage;
+use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
@@ -17,7 +17,7 @@ use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo}
 /// - Tool results become `{ role: "tool", tool_call_id, content }`.
 /// - An assistant turn that only calls tools sends `content: null`.
 pub fn build_request(model: &str, messages: &[WireMessage], tools: &[ToolInfo]) -> Value {
-    build_request_with_options(model, messages, tools, false)
+    build_request_full(model, messages, tools, false, None)
 }
 
 /// Build an OpenAI Chat Completions request body, optionally streaming.
@@ -29,6 +29,17 @@ pub fn build_request_with_options(
     tools: &[ToolInfo],
     stream: bool,
 ) -> Value {
+    build_request_full(model, messages, tools, stream, None)
+}
+
+/// Build an OpenAI Chat Completions request body with streaming and optional reasoning effort.
+pub fn build_request_full(
+    model: &str,
+    messages: &[WireMessage],
+    tools: &[ToolInfo],
+    stream: bool,
+    reasoning_effort: Option<&str>,
+) -> Value {
     let msgs: Vec<Value> = messages.iter().map(project_message).collect();
 
     let mut req = json!({
@@ -38,6 +49,13 @@ pub fn build_request_with_options(
     });
     if stream {
         req["stream_options"] = json!({ "include_usage": true });
+    }
+    if let Some(effort) = reasoning_effort
+        && !effort.is_empty()
+        && effort != "off"
+        && effort != "none"
+    {
+        req["reasoning_effort"] = json!(effort);
     }
 
     if !tools.is_empty() {
@@ -129,6 +147,7 @@ fn project_block(b: &ContentBlock) -> Value {
             }
             json!({ "type": "video_url", "video_url": video })
         }
+        ContentBlock::Think { think, .. } => json!({ "type": "text", "text": think }),
     }
 }
 
@@ -185,8 +204,23 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         }
     }
 
+    let mut thinking = Vec::new();
+    let reasoning = message
+        .get("reasoning_content")
+        .and_then(|c| c.as_str())
+        .or_else(|| message.get("reasoning").and_then(|c| c.as_str()));
+    if let Some(think) = reasoning
+        && !think.is_empty()
+    {
+        thinking.push(ContentBlock::Think {
+            think: think.to_string(),
+            encrypted: None,
+        });
+    }
+
     Ok(LLMChatResponse {
         content,
+        thinking,
         tool_calls,
         finish_reason,
         usage: parse_usage(v.get("usage")),
@@ -194,7 +228,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 }
 
 fn parse_usage(usage: Option<&Value>) -> TokenUsage {
-    let input_tokens = usage
+    let raw_input = usage
         .and_then(|u| u.get("prompt_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
@@ -202,22 +236,22 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
         .and_then(|u| u.get("completion_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
-    let total_tokens = usage
-        .and_then(|u| u.get("total_tokens"))
-        .and_then(|x| x.as_u64())
-        .map(|t| t as u32)
-        .unwrap_or(input_tokens + output_tokens);
-    // OpenAI reports cache hits under `prompt_tokens_details.cached_tokens`;
-    // they are part of `prompt_tokens` and must not double-count `input`.
+    // OpenAI reports cache hits under `prompt_tokens_details.cached_tokens`,
+    // which are already part of `prompt_tokens`. The wire's `input_tokens`
+    // means the uncached remainder — the host reads it straight into
+    // `inputOther`, and the host-proxy leg fills that same field from
+    // kosong's already-subtracted `inputOther` (`rust-loop.ts:2262`) — so the
+    // subtraction belongs here for the two legs to agree.
     let input_cache_read = usage
         .and_then(|u| u.get("prompt_tokens_details"))
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
+    let input_tokens = raw_input.saturating_sub(input_cache_read);
     TokenUsage {
         input_tokens,
         output_tokens,
-        total_tokens,
+        total_tokens: input_tokens + output_tokens,
         input_cache_read,
         input_cache_creation: 0,
     }
@@ -241,11 +275,12 @@ const MAX_STREAM_TOOL_CALLS: usize = 256;
 
 /// Accumulates OpenAI Chat Completions stream chunks into a final
 /// [`LLMChatResponse`]. Feed each SSE `data:` JSON payload to
-/// [`StreamAccumulator::feed`]; text deltas are returned so the caller can
+/// [`StreamAccumulator::feed`]; text or thinking deltas are returned so the caller can
 /// forward them to the host.
 #[derive(Debug, Default)]
 pub struct StreamAccumulator {
     content: String,
+    thinking: String,
     tool_calls: Vec<PartialToolCall>,
     finish_reason: Option<String>,
     usage: TokenUsage,
@@ -272,9 +307,9 @@ impl StreamAccumulator {
         self.tool_calls.get_mut(index)
     }
 
-    /// Feed one stream chunk. Returns the text delta contained in the
+    /// Feed one stream chunk. Returns the text or thinking delta contained in the
     /// chunk, if any.
-    pub fn feed(&mut self, v: &Value) -> Option<String> {
+    pub fn feed(&mut self, v: &Value) -> Option<StreamDelta> {
         // The final usage-only chunk has an empty `choices` array.
         if let Some(usage) = v.get("usage")
             && !usage.is_null()
@@ -312,15 +347,24 @@ impl StreamAccumulator {
             }
         }
 
-        let text = delta
-            .get("content")
+        if let Some(think) = delta
+            .get("reasoning_content")
             .and_then(|c| c.as_str())
-            .or_else(|| delta.get("reasoning_content").and_then(|c| c.as_str()))?;
-        if text.is_empty() {
-            return None;
+            .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
+            && !think.is_empty()
+        {
+            self.thinking.push_str(think);
+            return Some(StreamDelta::Think(think.to_string()));
         }
-        self.content.push_str(text);
-        Some(text.to_string())
+
+        if let Some(text) = delta.get("content").and_then(|c| c.as_str())
+            && !text.is_empty()
+        {
+            self.content.push_str(text);
+            return Some(StreamDelta::Text(text.to_string()));
+        }
+
+        None
     }
 
     /// Finalize the accumulated stream into a response.
@@ -342,8 +386,19 @@ impl StreamAccumulator {
                     })
             })
             .collect();
+
+        let thinking = if self.thinking.is_empty() {
+            vec![]
+        } else {
+            vec![ContentBlock::Think {
+                think: self.thinking,
+                encrypted: None,
+            }]
+        };
+
         LLMChatResponse {
             content: self.content,
+            thinking,
             tool_calls,
             finish_reason: self.finish_reason,
             usage: self.usage,
@@ -460,7 +515,8 @@ mod tests {
         });
         let parsed = parse_response(&v).unwrap();
         assert_eq!(parsed.usage.input_cache_read, 30);
-        assert_eq!(parsed.usage.input_tokens, 40);
+        assert_eq!(parsed.usage.input_tokens, 10);
+        assert_eq!(parsed.usage.total_tokens, 15);
         assert_eq!(parsed.usage.input_cache_creation, 0);
     }
 
@@ -570,9 +626,9 @@ mod tests {
 
         // Text deltas.
         let d1 = acc.feed(&json!({ "choices": [{ "delta": { "content": "Hel" } }] }));
-        assert_eq!(d1.as_deref(), Some("Hel"));
+        assert_eq!(d1, Some(StreamDelta::Text("Hel".into())));
         let d2 = acc.feed(&json!({ "choices": [{ "delta": { "content": "lo" } }] }));
-        assert_eq!(d2.as_deref(), Some("lo"));
+        assert_eq!(d2, Some(StreamDelta::Text("lo".into())));
 
         // Tool call split across chunks (arguments arrive in fragments).
         acc.feed(&json!({ "choices": [{ "delta": { "tool_calls": [
@@ -684,16 +740,67 @@ mod tests {
                 "delta": { "reasoning_content": "Thinking about " }
             }]
         }));
-        assert_eq!(delta1.as_deref(), Some("Thinking about "));
+        assert_eq!(delta1, Some(StreamDelta::Think("Thinking about ".into())));
 
         let delta2 = acc.feed(&json!({
             "choices": [{
                 "delta": { "content": "the solution." }
             }]
         }));
-        assert_eq!(delta2.as_deref(), Some("the solution."));
+        assert_eq!(delta2, Some(StreamDelta::Text("the solution.".into())));
 
         let resp = acc.finish();
-        assert_eq!(resp.content, "Thinking about the solution.");
+        assert_eq!(resp.content, "the solution.");
+        assert_eq!(resp.thinking.len(), 1);
+        assert_eq!(
+            resp.thinking[0],
+            ContentBlock::Think {
+                think: "Thinking about ".into(),
+                encrypted: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_response_extracts_reasoning_content() {
+        let v = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "42",
+                    "reasoning_content": "Let me calculate 6 * 7"
+                },
+                "finish_reason": "stop"
+            }],
+        });
+        let parsed = parse_response(&v).unwrap();
+        assert_eq!(parsed.content, "42");
+        assert_eq!(parsed.thinking.len(), 1);
+        assert_eq!(
+            parsed.thinking[0],
+            ContentBlock::Think {
+                think: "Let me calculate 6 * 7".into(),
+                encrypted: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_build_request_reasoning_effort() {
+        let msgs = vec![WireMessage {
+            role: "user".into(),
+            content: "hello".into(),
+            blocks: vec![],
+            tool_calls: vec![],
+            tool_call_id: None,
+        }];
+        let req_high = build_request_full("gpt-4o", &msgs, &[], true, Some("high"));
+        assert_eq!(req_high["reasoning_effort"], "high");
+
+        let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"));
+        assert!(req_off.get("reasoning_effort").is_none());
+
+        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None);
+        assert!(req_none.get("reasoning_effort").is_none());
     }
 }

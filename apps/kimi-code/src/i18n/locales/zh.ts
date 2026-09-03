@@ -1736,6 +1736,7 @@ export default {
         engineJsLoop: 'js（v2 循环）',
         enginePending: 'rust（已接入，尚无 turn）',
         engineLlm: 'LLM {{transport}}',
+        engineLlmFallback: 'LLM 代理原因：{{reason}}',
         engineNativeTools: '原生工具：{{count}}',
         contextWindow: '上下文窗口',
         noContextData: '无上下文窗口数据。',

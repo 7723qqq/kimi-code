@@ -52,12 +52,43 @@ impl Default for CompactionConfig {
     }
 }
 
-/// Rough token estimate for a text: one token per 4 characters (the usual
-/// heuristic for English text). CJK text is underestimated, but the
-/// estimate only drives the compaction trigger, not provider limits.
-pub fn estimate_tokens(text: &str) -> u32 {
-    text.chars().count().div_ceil(4) as u32
+/// Config for the window the host resolved for the active model. Every other
+/// knob stays at its default; a missing or non-positive window falls back to
+/// [`DEFAULT_MAX_CONTEXT_TOKENS`].
+pub fn config_for_window(max_context_tokens: Option<u32>) -> CompactionConfig {
+    match max_context_tokens {
+        Some(tokens) if tokens > 0 => CompactionConfig {
+            max_context_tokens: tokens,
+            ..CompactionConfig::default()
+        },
+        _ => CompactionConfig::default(),
+    }
 }
+
+/// Character-based token-count estimates for messages, tools, and content parts,
+/// mirroring `packages/kosong/src/tokens.ts` (`tsEstimateTokens`).
+/// ASCII ≈ 4 chars/token, non-ASCII (CJK/Unicode) ≈ 1 token/char.
+pub fn estimate_tokens(text: &str) -> u32 {
+    let mut ascii_count = 0usize;
+    let mut non_ascii_count = 0usize;
+    for ch in text.chars() {
+        if (ch as u32) <= 127 {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+    }
+    (ascii_count.div_ceil(4) + non_ascii_count) as u32
+}
+
+/// Estimate tokens for JSON-serialized content. The multiplier compensates
+/// for the heuristic's under-counting of JSON's dense punctuation (matching kosong `JSON_TOKEN_MULTIPLIER = 1.3`).
+pub fn estimate_tokens_for_json(text: &str) -> u32 {
+    ((estimate_tokens(text) as f64) * 1.3).ceil() as u32
+}
+
+/// Flat token cost assigned to media parts, mirroring kosong `MEDIA_TOKEN_ESTIMATE = 2000`.
+pub const MEDIA_TOKEN_ESTIMATE: u32 = 2000;
 
 /// Rough token estimate for a single message: text content, multimodal
 /// blocks, tool call names/arguments, and the tool call id.
@@ -66,18 +97,16 @@ pub fn estimate_message_tokens(message: &LLMMessage) -> u32 {
     for block in &message.blocks {
         tokens += match block {
             ContentBlock::Text { text } => estimate_tokens(text),
-            ContentBlock::Image { media_type, data } => {
-                estimate_tokens(media_type) + estimate_tokens(data)
-            }
-            ContentBlock::ImageUrl { url } => estimate_tokens(url),
-            ContentBlock::AudioUrl { url, id } | ContentBlock::VideoUrl { url, id } => {
-                estimate_tokens(url) + id.as_deref().map_or(0, estimate_tokens)
-            }
+            ContentBlock::Image { .. }
+            | ContentBlock::ImageUrl { .. }
+            | ContentBlock::AudioUrl { .. }
+            | ContentBlock::VideoUrl { .. } => MEDIA_TOKEN_ESTIMATE,
+            ContentBlock::Think { think, .. } => estimate_tokens(think),
         };
     }
     for call in &message.tool_calls {
         tokens += estimate_tokens(&call.name);
-        tokens += estimate_tokens(&call.arguments.to_string());
+        tokens += estimate_tokens_for_json(&call.arguments.to_string());
     }
     if let Some(id) = &message.tool_call_id {
         tokens += estimate_tokens(id);
@@ -115,6 +144,12 @@ pub fn compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> V
     if !should_compact(estimate_messages_tokens(messages), config) {
         return messages.to_vec();
     }
+    force_compact_messages(messages, config)
+}
+
+/// Unconditionally compact `messages` if a safe split point exists, bypassing the
+/// `should_compact` threshold estimate. Used for runtime context overflow recovery.
+pub fn force_compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> Vec<LLMMessage> {
     let count = compute_compact_count(messages, config);
     if count == 0 {
         return messages.to_vec();
@@ -128,6 +163,23 @@ pub fn compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> V
     });
     compacted.extend_from_slice(&messages[count as usize..]);
     compacted
+}
+
+/// Classify whether an LLM error string indicates that the context length / window was exceeded.
+/// Mirrors `CONTEXT_OVERFLOW_MESSAGE_PATTERNS` in `agent-core-v2` / `kosong`.
+pub fn is_context_overflow_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("context_length_exceeded")
+        || lower.contains("context_length")
+        || lower.contains("context length")
+        || lower.contains("context window")
+        || lower.contains("maximum context")
+        || lower.contains("max_tokens")
+        || lower.contains("model token limit")
+        || lower.contains("too many tokens")
+        || lower.contains("prompt is too long")
+        || lower.contains("input token count")
+        || lower.contains("exceeds the maximum size")
 }
 
 /// Placeholder text standing in for the compacted prefix. The TS side
@@ -289,6 +341,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn config_for_window_uses_the_host_window_and_keeps_other_knobs() {
+        let host_window = 262_144;
+        let config = config_for_window(Some(host_window));
+        let default = CompactionConfig::default();
+        assert_eq!(
+            config.max_context_tokens, host_window,
+            "P63: compaction must budget against the window the host resolved, not the engine default"
+        );
+        assert_eq!(
+            config.trigger_ratio, default.trigger_ratio,
+            "P63: only the window is host-owned; the ratio moves with the compaction batch (2e)"
+        );
+        assert_eq!(
+            config.reserved_context_size, default.reserved_context_size,
+            "P63: reserved headroom is host-owned from 2e, not before"
+        );
+    }
+
+    #[test]
+    fn config_for_window_falls_back_without_a_usable_window() {
+        let default = CompactionConfig::default();
+        assert_eq!(
+            config_for_window(None).max_context_tokens,
+            default.max_context_tokens,
+            "P63: a host that resolves no window must keep the engine default budget"
+        );
+        assert_eq!(
+            config_for_window(Some(0)).max_context_tokens,
+            default.max_context_tokens,
+            "P63: the model catalog spells unknown capability as 0; honouring it would leave no room at all"
+        );
+    }
+
     fn tool_call(id: &str) -> ToolCall {
         ToolCall {
             id: id.into(),
@@ -325,6 +411,23 @@ mod tests {
         assert_eq!(estimate_tokens("a"), 1);
         assert_eq!(estimate_tokens("abcd"), 1);
         assert_eq!(estimate_tokens("abcdefgh"), 2);
+        // CJK / Unicode parity with kosong tsEstimateTokens
+        assert_eq!(estimate_tokens("你好"), 2);
+        assert_eq!(estimate_tokens("ab你"), 2);
+        // JSON multiplier
+        assert_eq!(estimate_tokens_for_json("abcd"), 2); // ceil(1 * 1.3) = 2
+    }
+
+    #[test]
+    fn test_estimate_message_tokens_media_and_json() {
+        let text_msg = msg("user", "abcd");
+        assert_eq!(estimate_message_tokens(&text_msg), 1);
+
+        let mut img_msg = msg("user", "");
+        img_msg.blocks.push(ContentBlock::ImageUrl {
+            url: "http://example.com/pic.png".into(),
+        });
+        assert_eq!(estimate_message_tokens(&img_msg), MEDIA_TOKEN_ESTIMATE);
     }
 
     #[test]
@@ -472,5 +575,35 @@ mod tests {
         assert!(can_split_after(&messages, 0));
         // Out of bounds is never safe.
         assert!(!can_split_after(&messages, 5));
+    }
+
+    #[test]
+    fn test_is_context_overflow_error() {
+        assert!(is_context_overflow_error("llm http status 400: context_length_exceeded"));
+        assert!(is_context_overflow_error("Error: maximum context length exceeded"));
+        assert!(is_context_overflow_error("prompt is too long for model"));
+        assert!(is_context_overflow_error("request exceeds the model token limit"));
+        assert!(!is_context_overflow_error("llm http status 401: unauthorized"));
+        assert!(!is_context_overflow_error("llm http status 429: rate limit"));
+    }
+
+    #[test]
+    fn test_force_compact_bypasses_should_compact_threshold() {
+        let config = small_config(100_000);
+        let mut messages = vec![msg("system", "sys")];
+        messages.push(msg("user", "u1"));
+        messages.push(msg("assistant", "a1"));
+        messages.push(msg("user", "u2"));
+        messages.push(msg("assistant", "a2"));
+        messages.push(msg("user", "u3"));
+
+        // Normal compact_messages does not trigger because 100k window is far away:
+        assert_eq!(compact_messages(&messages, &config).len(), messages.len());
+
+        // force_compact_messages triggers and summarizes older turns:
+        let forced = force_compact_messages(&messages, &config);
+        assert!(forced.len() < messages.len());
+        assert_eq!(forced[0].content, "sys");
+        assert!(forced[1].content.contains("compacted"));
     }
 }

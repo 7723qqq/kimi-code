@@ -122,6 +122,24 @@ describe('status panel report lines', () => {
     expect(output).toContain('rust | stdio | llm host-proxy | native tools: 0');
   });
 
+  it('P62: /status explains why the LLM was served through the host proxy', () => {
+    const output = buildStatusReportLines({
+      ...engineBase,
+      engine: {
+        rust: true,
+        transport: 'napi',
+        llmTransport: 'host-proxy',
+        llmFallbackReason: 'provider "main" has no static baseUrl + apiKey',
+        nativeToolCalls: 0,
+      },
+    }).join(newline);
+    expect(
+      output,
+      'P62: the decline reason must reach /status now that it is no longer printed to stdout',
+    ).toContain('llm host-proxy | llm proxy reason: provider "main" has no static');
+    expect(output).toContain('native tools: 0');
+  });
+
   it('prefers the fetched status tower mode over the cached value', () => {
     const lines = buildStatusReportLines({
       version: '1.2.3',

@@ -12,6 +12,7 @@ import { toErrorMessage } from '#/_base/errors/errorMessage';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import { ToolProgress, ToolCallStarted, ToolResultEvent } from '#/agent/toolExecutor/toolExecutorEvents';
 import { IConfigService } from '#/app/config/config';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { type FinishReason } from '#/kosong/contract/provider';
@@ -46,18 +47,25 @@ import {
 } from '#/session/question/question';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentCheckpointService } from '#/agent/checkpoint/checkpointService';
+import {
+  NativeBackgroundAgentTask,
+  type NativeBackgroundOutcome,
+} from './nativeBackgroundAgentTask';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { btwToolsVetoKey } from '#/features/btw/btw';
+import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
+import { agentDeniedInSwarmModeMessage } from '#/features/swarm/agent/swarmService';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
@@ -65,6 +73,7 @@ import { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   EngineTurnEvent,
+  SubagentCreatedEvent,
   TurnEndedEvent as TurnEndedTelemetryEvent,
   TurnInterruptedEvent,
   TurnStartedEvent as TurnStartedTelemetryEvent,
@@ -115,9 +124,13 @@ import {
   type AskQuestionWireItem,
   type AskQuestionWireResult,
   type EngineOverrideProvider,
+  type EngineSubagentEvent,
   type TurnEngine,
   type TurnEngineGoalContext,
   type TurnEngineInput,
+  type TurnEngineSubagentProfile,
+  type TurnLifecycleEvent,
+  type TurnTelemetryEvent,
 } from './engineOverride';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
@@ -257,9 +270,39 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           this.rejectAssignment(request, error);
           throw error;
         }
+        if (request.kind === 'steer' && this.engineOverride.deliverSteer !== undefined) {
+          this.deliverEngineSteer(active, request);
+          break;
+        }
         this.assignStep(active, request, options);
         break;
     }
+  }
+
+  /**
+   * Engine-path steer delivery. The queue path cannot serve a mid-turn steer
+   * under an engine-driven turn — the engine never consumes the host step
+   * queue, and `releaseActiveTurn` cancels whatever is left — so the steer
+   * materializes into the context immediately and is pushed into the engine's
+   * own steer queue for delivery at the running turn's next step head.
+   */
+  private deliverEngineSteer(job: TurnJob, request: StepRequest): void {
+    const assignment = this.pendingAssignments.get(request);
+    this.pendingAssignments.delete(request);
+    const step: Step = {
+      id: request.id,
+      turnId: job.turn.id,
+      state: 'completed',
+      signal: job.turn.signal,
+      result: Promise.resolve({ type: 'completed' } as StepResult),
+      cancel: () => false,
+    };
+    assignment?.resolve({ turn: job.turn, step });
+    this.materializeRequest(request);
+    const projected = this.projector.project([request.resolveContextMessages()[0]!]);
+    const message = projected.at(-1);
+    if (message === undefined) return;
+    void this.engineOverride.deliverSteer?.(message).catch(() => undefined);
   }
 
   private createAndQueueTurn(request: StepRequest): void {
@@ -337,14 +380,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.activeTurnJob;
     if (job === undefined || (turnId !== undefined && job.turn.id !== turnId)) return false;
     if (job.controller.signal.aborted) return true;
-    void this.dispatcher.dispatch(
-      new TurnCancel({
-        agentId: this.scopeContext.agentId,
-        turnId: job.turn.id,
-        target: 'active',
-        reason: cancelReasonFor(cancellation),
-      }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnCancel({
+          agentId: this.scopeContext.agentId,
+          turnId: job.turn.id,
+          target: 'active',
+          reason: cancelReasonFor(cancellation),
+        }),
+      );
+    }
     job.controller.abort(cancellation);
     return true;
   }
@@ -521,26 +566,30 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private startTurn(job: TurnJob): void {
     const origin = job.seed.origin;
-    void this.dispatcher.dispatch(
-      new TurnPrompt({
-        agentId: this.scopeContext.agentId,
-        input: job.seed.input,
-        origin,
-        promptId: job.seed.promptId,
-      }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnPrompt({
+          agentId: this.scopeContext.agentId,
+          input: job.seed.input,
+          origin,
+          promptId: job.seed.promptId,
+        }),
+      );
+    }
     job.turn.state = 'running';
     this.activeTurnJob = job;
-    void this.dispatcher.dispatch(
-      new TurnStarted({
-        agentId: this.scopeContext.agentId,
-        turnId: job.turn.id,
-        promptId: job.seed.promptId,
-        origin,
-        prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
-        promptAttachments: turnPromptAttachments(job.seed.input, origin),
-      }),
-    );
+    if (!this.engineOwnsTurnLifecycle()) {
+      void this.dispatcher.dispatch(
+        new TurnStarted({
+          agentId: this.scopeContext.agentId,
+          turnId: job.turn.id,
+          promptId: job.seed.promptId,
+          origin,
+          prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
+          promptAttachments: turnPromptAttachments(job.seed.input, origin),
+        }),
+      );
+    }
     void this.runTurn(job.turn, job.ready).then(job.result.resolve, job.result.reject);
   }
 
@@ -553,18 +602,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const telemetryContext = this.telemetryContext.get();
     const turnTelemetry = this.telemetry.withContext(telemetryContext);
     const { mode, provider_type, protocol } = telemetryContext;
+    const engineOwnsLifecycle = this.engineOwnsTurnLifecycle();
     let thinkingEffort: string | undefined;
     let result: TurnResult | undefined;
     try {
       thinkingEffort = this.llmRequester.prepareTurnConfig(turn.id)?.thinkingEffort;
-      const started: TurnStartedTelemetryEvent = {
-        turn_id: turn.id,
-        mode,
-        provider_type,
-        protocol,
-        thinking_effort: thinkingEffort,
-      };
-      turnTelemetry.track2('turn_started', started);
+      if (!engineOwnsLifecycle) {
+        const started: TurnStartedTelemetryEvent = {
+          turn_id: turn.id,
+          mode,
+          provider_type,
+          protocol,
+          thinking_effort: thinkingEffort,
+        };
+        turnTelemetry.track2('turn_started', started);
+      }
       result = await this.run({
         turnId: turn.id,
         signal: turn.signal,
@@ -581,7 +633,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         result?.type === 'completed'
           ? this.lastRequestTraceId
           : this.activeRequestTrace?.traceId;
-      if (result !== undefined) {
+      if (result !== undefined && !engineOwnsLifecycle) {
         const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
         const interruptReason =
           result.type === 'completed' ? undefined : interruptReasonFor(result);
@@ -615,17 +667,19 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           turnTelemetry.track2('turn_interrupted', interrupted);
         }
       }
-      const ended: TurnEndedTelemetryEvent = {
-        turn_id: turn.id,
-        reason: result?.type ?? 'failed',
-        duration_ms: Date.now() - startedAt,
-        mode,
-        provider_type,
-        protocol,
-        thinking_effort: thinkingEffort,
-        trace_id: traceId,
-      };
-      turnTelemetry.track2('turn_ended', ended);
+      if (!engineOwnsLifecycle) {
+        const ended: TurnEndedTelemetryEvent = {
+          turn_id: turn.id,
+          reason: result?.type ?? 'failed',
+          duration_ms: Date.now() - startedAt,
+          mode,
+          provider_type,
+          protocol,
+          thinking_effort: thinkingEffort,
+          trace_id: traceId,
+        };
+        turnTelemetry.track2('turn_ended', ended);
+      }
       this.activeRequestTrace = undefined;
       this.lastRequestTraceId = undefined;
       this.pumpTurns();
@@ -713,6 +767,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
+    // An external engine (e.g. the Rust kimi-agent engine) drives the whole
+    // turn in place of the JS step loop. The engine consumes the turn to
+    // completion and reports events back through the engine input; the JS
+    // step loop is never entered.
+    const engine = this.engineOverride.getEngine();
+    if (engine !== undefined) {
+      return this.driveEngineTurn(options, engine);
+    }
     const runtime = this.createLoopRuntime(options);
     try {
       while (true) {
@@ -720,21 +782,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           const begun = this.beginLoopStep(runtime);
           if ('result' in begun) return begun.result;
           runtime.current = begun.step;
-          // An external engine (e.g. the Rust kimi-agent engine) drives the
-          // whole turn in place of the JS loop. The override runs once per
-          // turn on the first step; the engine consumes the turn to
-          // completion and reports events back through the engine input.
-          const engine = this.engineOverride.getEngine();
-          if (engine !== undefined && runtime.steps === 1) {
-            const stepResult = await this.executeTurnViaEngine(runtime, engine, begun.step, options.onStarted);
-            const completed = this.completeLoopStep(runtime, stepResult);
-            if (completed !== undefined) return completed;
-            return {
-              type: 'completed',
-              steps: runtime.steps,
-              truncated: stepResult.stopReason === 'truncated',
-            };
-          }
           const result = await this.executeLoopStep(
             runtime.turnId,
             begun.step.signal,
@@ -986,81 +1033,87 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   /**
-   * External-engine turn drive. The engine runs the whole turn and reports
-   * transcript events back through `dispatchEvent`; this method only wraps
-   * the call with the step lifecycle UI events (started/completed) that the
-   * JS path would have produced in `beginStep`/`finishStep`. The engine is
-   * responsible for dispatching its own `step.begin`/`step.end` into the
-   * context, so `beginStep` is intentionally not called.
+   * External-engine turn drive (M1d 3d). The engine runs the whole turn and
+   * reports transcript events back through `dispatchEvent`; this method only
+   * wraps the call with the turn-start plumbing the JS path would have
+   * produced: the injection gate, the step lifecycle UI event, and the
+   * after-step hooks. The engine is responsible for dispatching its own
+   * `step.begin`/`step.end` into the context, so the JS step loop is never
+   * entered.
    */
-  private async executeTurnViaEngine(
-    runtime: LoopRuntime,
+  private async driveEngineTurn(
+    options: LoopRunOptions,
     engine: TurnEngine,
-    step: StepRuntime,
-    onStarted: ((step: number) => void) | undefined,
-  ): Promise<StepExecutionResult> {
+  ): Promise<LoopRunResult> {
+    const runtime = this.createLoopRuntime(options);
     const turnId = runtime.turnId;
-    const signal = step.signal;
-    signal.throwIfAborted();
-    await this.hooks.onWillBeginStep.run({
-      turnId,
-      step: step.number,
-      firstStepOfTurn: step.number === 1,
-      signal,
-    });
-    void this.dispatcher.dispatch(
-      new TurnStepStarted({
-        agentId: this.scopeContext.agentId,
+    const signal = runtime.turnSignal;
+    try {
+      signal.throwIfAborted();
+      // The engine drives steps itself, so the queued turn requests are
+      // consumed here instead of by `beginLoopStep`. Materialize them so
+      // the prompt lands in the context transcript before the engine
+      // projects messages from it.
+      for (const request of runtime.queue.drain()) {
+        this.materializeRequest(request);
+      }
+      await this.hooks.onWillBeginStep.run({
         turnId,
-        step: step.number,
-        stepId: step.uuid,
-      }),
-    );
-    onStarted?.(step.number);
-    const input = this.buildEngineInput(turnId, signal, step.number);
-    const result = await engine(input);
-    if (result.telemetry !== undefined) {
-      const engineTurn: EngineTurnEvent = {
-        turn_id: turnId,
-        stop_reason: result.stopReason,
+        step: 1,
+        firstStepOfTurn: true,
+        signal,
+      });
+      const stepId = randomUUID();
+      void this.dispatcher.dispatch(
+        new TurnStepStarted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          step: 1,
+          stepId,
+        }),
+      );
+      options.onStarted?.(1);
+      const input = await this.buildEngineInput(turnId, signal, 1);
+      const result = await engine(input);
+      if (result.telemetry !== undefined) {
+        const engineTurn: EngineTurnEvent = {
+          turn_id: turnId,
+          stop_reason: result.stopReason,
+          steps: result.steps,
+          events_emitted: result.telemetry.eventsEmitted,
+          llm_retries: result.telemetry.llmRetries,
+          llm_transport: result.telemetry.llmTransport,
+          native_tool_call_count: result.telemetry.nativeToolCallCount,
+        };
+        this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
+      }
+      void this.dispatcher.dispatch(
+        new TurnStepCompleted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          step: 1,
+          stepId,
+          usage: result.usage,
+          finishReason: normalizeFinishReason(result.stopReason),
+          providerFinishReason: result.stopReason,
+        }),
+      );
+      await this.runAfterStep(turnId, signal, 1, true, result.usage, result.stopReason);
+      return {
+        type: 'completed',
         steps: result.steps,
-        events_emitted: result.telemetry.eventsEmitted,
-        llm_retries: result.telemetry.llmRetries,
-        llm_transport: result.telemetry.llmTransport,
-        native_tool_call_count: result.telemetry.nativeToolCallCount,
+        truncated: result.stopReason === 'truncated',
       };
-      this.telemetry.withContext(this.telemetryContext.get()).track2('engine_turn', engineTurn);
+    } finally {
+      runtime.queue.abortTurnScoped();
     }
-    void this.dispatcher.dispatch(
-      new TurnStepCompleted({
-        agentId: this.scopeContext.agentId,
-        turnId,
-        step: step.number,
-        stepId: step.uuid,
-        usage: result.usage,
-        finishReason: normalizeFinishReason(result.stopReason),
-        providerFinishReason: result.stopReason,
-      }),
-    );
-    await this.runAfterStep(
-      turnId,
-      signal,
-      step.number,
-      step.number === 1,
-      result.usage,
-      result.stopReason,
-    );
-    // The engine has already driven the turn to completion, so a hook asking
-    // to stop the turn is a no-op here: both branches of completeLoopStep
-    // return the same result for this path.
-    return { stopReason: result.stopReason, hookStopTurn: false };
   }
 
-  private buildEngineInput(
+  private async buildEngineInput(
     turnId: number,
     signal: AbortSignal,
     step: number,
-  ): TurnEngineInput {
+  ): Promise<TurnEngineInput> {
     const modelContext = this.profile.resolveModelContext();
     return {
       turnId,
@@ -1091,6 +1144,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         },
       },
       maxSteps: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
+      maxContextTokens:
+        modelContext.modelCapabilities.max_input_tokens ??
+        modelContext.modelCapabilities.max_context_tokens,
       buildMessages: async () => [...this.projector.project(this.context.get())],
       getGoal: () => this.getEngineGoal(),
       buildTools: () =>
@@ -1163,36 +1219,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           return denied(
             `permission check failed: ${error instanceof Error ? error.message : String(error)}`,
           );
-        }
-      },
-      finalizeToolResult: async (toolName, toolCallId, result) => {
-        const truncation = this.instantiation.invokeFunction((accessor) =>
-          accessor.get(IAgentToolResultTruncationService),
-        );
-        // Native engines return plain strings; the policy's output type is the
-        // mutable form, so flatten anything else before applying it.
-        const output =
-          typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
-        const shared = { note: result.note, stopTurn: result.stopTurn };
-        const executable =
-          result.isError === true
-            ? { output, isError: true as const, ...shared }
-            : { output, ...shared };
-        try {
-          const finalized = await truncation.truncateForModel({
-            toolName,
-            toolCallId,
-            result: executable,
-          });
-          return {
-            output: finalized.output,
-            isError: 'isError' in finalized && finalized.isError === true,
-            note: finalized.note,
-            stopTurn: finalized.stopTurn,
-          };
-        } catch {
-          // A failed result policy must not cost the model its tool output.
-          return result;
         }
       },
       askUserQuestion: async (request) => {
@@ -1581,13 +1607,303 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }
         throw stateBridgeError(-32001, `unknown state domain: ${request.domain}`);
       },
-      drainSteers: async () => {
-        const prompt = this.instantiation.invokeFunction((accessor) =>
-          accessor.get(IAgentPromptService),
+      onTurnEvent: this.engineOwnsTurnLifecycle()
+        ? (event) => this.dispatchEngineTurnEvent(event)
+        : undefined,
+      onTurnTelemetry: this.engineOwnsTurnLifecycle()
+        ? (event) => this.forwardEngineTurnTelemetry(event)
+        : undefined,
+      onSubagentEvent: (event) => this.dispatchEngineSubagentEvent(event),
+      onCheckpoint: (event) => {
+        const checkpoint = this.instantiation.invokeFunction((accessor) =>
+          accessor.get(IAgentCheckpointService),
         );
-        return prompt.drainSteered();
+        if (event.phase === 'prepare') {
+          return checkpoint.prepareNativeWrite(event.turnId, event.paths);
+        }
+        return checkpoint.recordNativeAfterWrite(event.turnId, event.paths);
       },
+      onToolProgress: (event) => {
+        void this.dispatcher.dispatch(
+          new ToolProgress({
+            agentId: this.scopeContext.agentId,
+            turnId: event.turnId,
+            toolCallId: event.toolCallId,
+            update: event.update,
+          }),
+        );
+      },
+      subagentProfiles: await this.collectSubagentProfiles(),
+      subagentTimeoutMs: resolveSubagentTimeoutMs(this.config),
+      agentToolVeto: this.collectAgentToolVeto(),
+      toolsVeto: this.collectToolsVeto(),
     };
+  }
+
+  /**
+   * Native-path veto snapshots (P52): the host `onBeforeExecuteTool` veto
+   * chain does not run for engine-local tool execution, so the two vetoes
+   * without an engine-native counterpart — swarm's `Agent` denial and
+   * btw's full tool denial — are resolved here and pushed to the engine
+   * as deny reasons. Absent when the marking feature is not assembled in
+   * this context (nothing to veto).
+   */
+  private collectAgentToolVeto(): string | undefined {
+    try {
+      const swarm = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentSwarmService),
+      );
+      if (!swarm.isActive) return undefined;
+      const approval = this.instantiation.invokeFunction(
+        (accessor) => accessor.get(IAgentToolApprovalService),
+      );
+      return approval.formatDenyMessage(agentDeniedInSwarmModeMessage());
+    } catch {
+      return undefined;
+    }
+  }
+
+  private collectToolsVeto(): string | undefined {
+    if (!this.states.has(btwToolsVetoKey)) return undefined;
+    return this.states.get(btwToolsVetoKey) ?? undefined;
+  }
+
+  /**
+   * Snapshot of the session profile catalog for the engine's native
+   * `Agent` tool (P46). Plugin-sourced profiles stay host-only: their
+   * execution may depend on plugin resources the engine cannot see, and
+   * an absent profile routes the call back to the host tool.
+   *
+   * P51 also resolves each profile's `promptPrefix` (a spawn-time function
+   * in v2) into the string the engine prepends to the prompt, and pushes
+   * the `summaryPolicy` verbatim. A failed prefix resolution degrades to
+   * no prefix, matching v2 `applyProfilePromptPrefix`.
+   */
+  private async collectSubagentProfiles(): Promise<readonly TurnEngineSubagentProfile[]> {
+    try {
+      const [catalog, sessionContext, process] = this.instantiation.invokeFunction(
+        (accessor) =>
+          [
+            accessor.get(ISessionAgentProfileCatalog),
+            accessor.get(ISessionContext),
+            accessor.get(IHostProcessService),
+          ] as const,
+      );
+      const snapshot: TurnEngineSubagentProfile[] = [];
+      for (const profile of catalog.list()) {
+        if (catalog.inspect(profile.name)?.sourceId === 'plugin') continue;
+        let systemPrompt: string | undefined;
+        try {
+          const rendered = profile.systemPrompt({});
+          systemPrompt = rendered.length > 0 ? rendered : undefined;
+        } catch {
+          systemPrompt = undefined;
+        }
+        let promptPrefix: string | undefined;
+        if (profile.promptPrefix !== undefined) {
+          try {
+            const resolved = await profile.promptPrefix({
+              cwd: sessionContext.cwd,
+              process,
+            });
+            promptPrefix = resolved.length > 0 ? resolved : undefined;
+          } catch {
+            promptPrefix = undefined;
+          }
+        }
+        const details = [profile.description, profile.whenToUse]
+          .filter((part): part is string => typeof part === 'string' && part.length > 0)
+          .join(' ');
+        snapshot.push({
+          name: profile.name,
+          description: details.length > 0 ? details : undefined,
+          systemPrompt,
+          tools: profile.tools,
+          disallowedTools: profile.disallowedTools,
+          promptPrefix,
+          summaryPolicy: profile.summaryPolicy,
+        });
+      }
+      return snapshot;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Mirror the engine's native `Agent` lifecycle events onto the host's
+   * event surface (P51): the same `Subagent*` Event2 vocabulary the
+   * host-side subagent path dispatches (v2 `mirrorAgentRun`), plus the
+   * `subagent_created` telemetry. No scope handle exists engine-side, so
+   * the lifecycle hooks and status republish of `mirrorAgentRun` stay
+   * host-tool-only.
+   */
+  private dispatchEngineSubagentEvent(event: EngineSubagentEvent): void {
+    const agentId = this.scopeContext.agentId;
+    switch (event.type) {
+      case 'subagent.spawned': {
+        const parentToolCallId = event.parentToolCallId ?? '';
+        if (event.runInBackground) {
+          this.registerNativeBackgroundTask(event);
+        }
+        void this.dispatcher.dispatch(
+          new SubagentSpawned({
+            subagentId: event.subagentId,
+            subagentName: event.subagentName,
+            parentToolCallId,
+            parentAgentId: agentId,
+            callerAgentId: agentId,
+            description: event.description,
+            runInBackground: event.runInBackground,
+          }),
+        );
+        const telemetryEvent: SubagentCreatedEvent = {
+          subagent_name: event.subagentName,
+          run_in_background: false,
+          fork: false,
+          agent_id: event.subagentId,
+          parent_agent_id: agentId,
+          parent_tool_call_id: parentToolCallId,
+          model: undefined,
+        };
+        this.telemetry.withContext(this.telemetryContext.get()).track2('subagent_created', telemetryEvent);
+        break;
+      }
+      case 'subagent.started':
+        void this.dispatcher.dispatch(new SubagentStarted({ subagentId: event.subagentId }));
+        break;
+      case 'subagent.completed':
+        this.resolveNativeBackground(event.subagentId, { result: event.resultSummary });
+        void this.dispatcher.dispatch(
+          new SubagentCompleted({
+            subagentId: event.subagentId,
+            resultSummary: event.resultSummary,
+            usage: event.usage,
+          }),
+        );
+        break;
+      case 'subagent.failed':
+        this.resolveNativeBackground(event.subagentId, { result: event.error, error: event.error });
+        void this.dispatcher.dispatch(
+          new SubagentFailed({ subagentId: event.subagentId, error: event.error }),
+        );
+        break;
+    }
+  }
+
+  /**
+   * Engine-native background subagents (P58): the spawned event registers a
+   * bridging task in the host task system, and the completion event settles
+   * it — so the settle → notification → synthetic-turn path is exactly the
+   * host-spawned one.
+   */
+  private readonly nativeBackgroundCompletions = new Map<
+    string,
+    (outcome: NativeBackgroundOutcome) => void
+  >();
+
+  private registerNativeBackgroundTask(event: {
+    subagentId: string;
+    subagentName: string;
+    parentToolCallId?: string;
+    description?: string;
+  }): void {
+    try {
+      const tasks = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentTaskService),
+      );
+      const completion = new Promise<NativeBackgroundOutcome>((resolve) => {
+        this.nativeBackgroundCompletions.set(event.subagentId, resolve);
+      });
+      tasks.registerTask(
+        new NativeBackgroundAgentTask(
+          event.subagentId,
+          event.subagentName,
+          event.parentToolCallId ?? '',
+          event.description ?? event.subagentName,
+          completion,
+        ),
+        { detached: true },
+      );
+    } catch {
+      // Task registration unavailable: the completion event still resolves
+      // the Subagent* event surface; only the notification turn is lost.
+      this.nativeBackgroundCompletions.delete(event.subagentId);
+    }
+  }
+
+  private resolveNativeBackground(subagentId: string, outcome: NativeBackgroundOutcome): void {
+    const resolve = this.nativeBackgroundCompletions.get(subagentId);
+    if (resolve !== undefined) {
+      this.nativeBackgroundCompletions.delete(subagentId);
+      resolve(outcome);
+    }
+  }
+
+  private engineOwnsTurnLifecycle(): boolean {
+    return (
+      this.engineOverride.ownsTurnLifecycle === true &&
+      this.engineOverride.getEngine() !== undefined
+    );
+  }
+
+  private dispatchEngineTurnEvent(event: TurnLifecycleEvent): void {
+    const agentId = this.scopeContext.agentId;
+    switch (event.type) {
+      case 'turn.prompt': {
+        const job = this.activeTurnJob;
+        if (job === undefined) break;
+        void this.dispatcher.dispatch(
+          new TurnPrompt({ agentId, input: job.seed.input, origin: job.seed.origin }),
+        );
+        break;
+      }
+      case 'turn.started': {
+        const job = this.activeTurnJob;
+        if (job === undefined) break;
+        const origin = job.seed.origin;
+        void this.dispatcher.dispatch(
+          new TurnStarted({
+            agentId,
+            turnId: event.turnId,
+            origin,
+            prompt: isDisplayablePromptOrigin(origin)
+              ? turnPromptText(job.seed.input, origin)
+              : undefined,
+            promptAttachments: turnPromptAttachments(job.seed.input, origin),
+          }),
+        );
+        break;
+      }
+      case 'turn.cancel': {
+        void this.dispatcher.dispatch(
+          new TurnCancel({
+            agentId,
+            turnId: event.turnId,
+            target: event.target,
+            reason: event.reason,
+          }),
+        );
+        break;
+      }
+      case 'turn.ended': {
+        void this.dispatcher.dispatch(
+          new TurnEnded({
+            agentId,
+            turnId: event.turnId,
+            reason: event.reason,
+            error: event.error as never,
+            durationMs: event.durationMs,
+          }),
+        );
+        break;
+      }
+    }
+  }
+
+  private forwardEngineTurnTelemetry(event: TurnTelemetryEvent): void {
+    const { event: name, ...payload } = event;
+    this.telemetry.track2(name, payload as never);
   }
 
   private askUserQuestionInBackground(
@@ -1641,15 +1957,41 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private dispatchEngineUIBridge(turnId: number, event: LoopRecordedEvent): void {
-    if (event.type !== 'content.part') return;
-    const part = event.part;
-    if (part.type === 'text') {
+    if (event.type === 'content.part') {
+      const part = event.part;
+      if (part.type === 'text') {
+        void this.dispatcher.dispatch(
+          new AssistantDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.text }),
+        );
+      } else if (part.type === 'think') {
+        void this.dispatcher.dispatch(
+          new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.think }),
+        );
+      }
+      return;
+    }
+    // P61: bridge the engine's native tool transcript events onto the TUI's
+    // streaming card events — the UI bridge previously forwarded only
+    // content parts, so native tool executions had no cards at all.
+    if (event.type === 'tool.call') {
       void this.dispatcher.dispatch(
-        new AssistantDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.text }),
+        new ToolCallStarted({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          toolCallId: event.toolCallId,
+          name: event.name,
+          args: event.args,
+        }),
       );
-    } else if (part.type === 'think') {
+    } else if (event.type === 'tool.result') {
       void this.dispatcher.dispatch(
-        new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId, delta: part.think }),
+        new ToolResultEvent({
+          agentId: this.scopeContext.agentId,
+          turnId,
+          toolCallId: event.toolCallId,
+          output: event.result.output,
+          isError: event.result.isError,
+        }),
       );
     }
   }

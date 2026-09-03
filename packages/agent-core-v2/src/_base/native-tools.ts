@@ -9,8 +9,7 @@ function reportNativeFailure(name: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   try {
     process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);
-  } catch {
-  }
+  } catch {}
 }
 
 function getNativeModule(): Record<string, unknown> | undefined {
@@ -803,6 +802,10 @@ export function tryNativeSelectCompactionUserMessages(
     maxTokens,
     headTokens,
   ]);
+}
+
+export function tryNativeEstimateTokensBatch(texts: readonly string[]): number | undefined {
+  return callNativeSync<number>('nativeEstimateTokensBatch', [[...texts]]);
 }
 
 export function tryNativeTruncateTextToTokensFromEnd(

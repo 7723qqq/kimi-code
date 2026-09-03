@@ -14,7 +14,9 @@ export interface RenderableToolResult {
 
 export function renderToolResultForModel(result: RenderableToolResult): ContentPart[] {
   const rendered = renderStatus(result);
-  if (result.note === undefined || result.note.length === 0) return rendered;
+  // Note: the engine wire serializes an absent note as JSON `null` — treat
+  // it like `undefined` (a bare null.length crashed the TUI, P61).
+  if (!result.note) return rendered;
   const only = rendered[0];
   if (rendered.length === 1 && only?.type === 'text') {
     return [textPart(only.text + '\n' + result.note)];

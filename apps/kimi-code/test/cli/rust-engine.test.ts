@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   isRustEngineAvailable: vi.fn(),
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
+  resolveOAuthTokenProvider: vi.fn(),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -25,6 +26,11 @@ vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
   loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
   resolveConfigPath: mocks.resolveConfigPath,
   resolveKimiHome: mocks.resolveKimiHome,
+  // constant/app.ts derives its OAuth error code from this at import time.
+  ErrorCodes: { AUTH_LOGIN_REQUIRED: 'AUTH_LOGIN_REQUIRED' },
+  KimiAuthFacade: class {
+    resolveOAuthTokenProvider = mocks.resolveOAuthTokenProvider;
+  },
 }));
 
 vi.mock('@moonshot-ai/agent-core-v2', () => ({
@@ -35,6 +41,14 @@ vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
   createRunTurnOverride: mocks.createRunTurnOverride,
   isRustEngineAvailable: mocks.isRustEngineAvailable,
   activeEngineMode: mocks.activeEngineMode,
+}));
+
+vi.mock('../../src/cli/version', () => ({
+  createKimiCodeHostIdentity: () => ({
+    productName: 'kimi-code-cli-test',
+    version: '0.0.0',
+    platform: 'test',
+  }),
 }));
 
 import { normalizeBaseUrl } from '../../src/cli/rust-engine';
@@ -93,6 +107,9 @@ beforeEach(() => {
   mocks.activeEngineMode.mockReset().mockReturnValue('napi');
   mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
+  mocks.resolveOAuthTokenProvider.mockReset().mockReturnValue({
+    getAccessToken: async () => 'token-from-host',
+  });
   // Bundle-present default: the rust-only gate requires a loadable bundle,
   // so the happy paths run against a loadable fixture; gate tests that pin
   // the missing-bundle error flip this back to false explicitly.
@@ -306,6 +323,69 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     });
   });
 
+  it('P64: provider customHeaders reach the native transport', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: {
+            defaultModel: 'kimi-k2',
+            type: 'kimi',
+            apiKey: 'k',
+            baseUrl: 'https://api.example.com',
+            customHeaders: { 'x-org-id': 'acme' },
+          },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await maybeLoadRustEngine('/home/u');
+
+    expect(capturedNativeLlm).toEqual({
+      protocol: 'openai',
+      base_url: 'https://api.example.com/v1',
+      api_key: 'k',
+      model: 'kimi-k2',
+      custom_headers: { 'x-org-id': 'acme' },
+    });
+  });
+
+  it('P64: a provider cannot duplicate the credential headers the engine sets', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: {
+            defaultModel: 'kimi-k2',
+            type: 'kimi',
+            apiKey: 'k',
+            baseUrl: 'https://api.example.com',
+            customHeaders: { Authorization: 'Bearer other', 'x-trace': 'on' },
+          },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: { custom_headers?: Record<string, string> } | undefined;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await maybeLoadRustEngine('/home/u');
+
+    expect(
+      capturedNativeLlm?.custom_headers,
+      'P64: reqwest appends headers, so a second authorization would send a broken credential',
+    ).toEqual({ 'x-trace': 'on' });
+  });
+
   it('falls back to agent.nativeLlmProvider when the default model provider is unsupported', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({
       ...okResult,
@@ -356,6 +436,35 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     expect(capturedNativeLlm).toBeUndefined();
   });
 
+  it('P62: the native-transport decline is recorded on the status snapshot, not stdout', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: { defaultModel: 'kimi-k2', type: 'kimi' },
+        },
+        agent: { engine: 'rust', nativeLlmProvider: 'kimi' },
+      }),
+    });
+    const { maybeLoadRustEngine, snapshot, capturedOptions } = await loadEngineAndSnapshot();
+    await maybeLoadRustEngine('/home/u');
+
+    const nativeLlm = capturedOptions()['nativeLlm'] as () => unknown;
+    expect(nativeLlm()).toBeUndefined();
+
+    expect(snapshot.engineExecution()).toEqual({
+      rust: true,
+      llmFallbackReason:
+        'provider "kimi" has neither a static apiKey nor oauth material for the native transport',
+    });
+    expect(
+      warn,
+      'P62: this resolver runs every turn, so warning here prints into the TUI once per turn',
+    ).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('honours multiLlm even when engine = "js" is configured (value ignored)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.loadRuntimeConfigSafe.mockReturnValue({
@@ -374,6 +483,72 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
       { name: 'kimi', model: 'kimi-k2', system_prompt: 'default prompt' },
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
+  });
+
+  it('resolves an OAuth-managed provider into an auth_provider native transport', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: {
+            defaultModel: 'kimi-k2',
+            type: 'kimi',
+            apiKey: '',
+            baseUrl: 'https://api.example.com/v1',
+            oauth: { key: 'kimi', storage: 'file' },
+          },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
+
+    expect(capturedNativeLlm).toEqual({
+      protocol: 'openai',
+      base_url: 'https://api.example.com/v1',
+      api_key: '',
+      model: 'kimi-k2',
+      auth_provider: 'kimi',
+    });
+  });
+
+  it('wires the OAuth token channel through to the adapter options', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({ ...okResult, config: makeConfig() });
+    const { maybeLoadRustEngine, capturedOptions } = await loadEngineAndSnapshot();
+    await maybeLoadRustEngine('/home/u');
+
+    const authToken = capturedOptions()['authToken'] as
+      | ((request: { provider: string; force: boolean }) => Promise<string>)
+      | undefined;
+    expect(authToken).toBeTypeOf('function');
+    await expect(authToken!({ provider: 'kimi', force: false })).resolves.toBe('token-from-host');
+    expect(mocks.resolveOAuthTokenProvider).toHaveBeenCalledWith('kimi');
+  });
+
+  it('keeps a provider without any credential material off the native transport', async () => {
+    mocks.loadRuntimeConfigSafe.mockReturnValue({
+      ...okResult,
+      config: makeConfig({
+        providers: {
+          kimi: { defaultModel: 'kimi-k2', type: 'kimi', baseUrl: 'https://api.example.com/v1' },
+        },
+      }),
+    });
+    const engine = vi.fn();
+    let capturedNativeLlm: unknown;
+    mocks.createRunTurnOverride.mockImplementation((_providers, _root, options) => {
+      capturedNativeLlm = options?.nativeLlm?.();
+      return engine;
+    });
+    const maybeLoadRustEngine = await loadMaybeRustEngine();
+    await maybeLoadRustEngine('/home/u');
+    expect(capturedNativeLlm).toBeUndefined();
   });
 });
 

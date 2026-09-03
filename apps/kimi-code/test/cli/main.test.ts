@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
     },
     KimiHarness: vi.fn(),
     createKimiHarnessV2: vi.fn(),
+    createKimiHarnessNative: vi.fn(),
   };
 });
 
@@ -79,6 +80,10 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
     ...actual,
     createKimiHarnessV2: (...args: unknown[]) => {
       mocks.createKimiHarnessV2(...args);
+      return mocks.harness;
+    },
+    createKimiHarnessNative: (...args: unknown[]) => {
+      mocks.createKimiHarnessNative(...args);
       return mocks.harness;
     },
     flushDiagnosticLogs: mocks.flushDiagnosticLogs,
@@ -225,6 +230,7 @@ describe('main entry command handling', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.exitCode = undefined;
     mocks.harness.ensureConfigFile.mockResolvedValue(undefined);
     mocks.harness.getConfig.mockResolvedValue({
       defaultModel: 'kimi-k2',
@@ -396,18 +402,17 @@ describe('main entry command handling', () => {
     // The entrypoint's Bun fast-fail is gated on `import.meta.main`. A module
     // import (this test, the ACP host, embedders) must not exit the host
     // process even if `globalThis.Bun` happens to be absent.
-    const originalBun = (globalThis as { Bun?: unknown }).Bun;
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit should not be called');
+    });
     try {
-      delete (globalThis as { Bun?: unknown }).Bun;
       main();
 
       const programArgs = await waitForProgramCall();
       expect(programArgs).toBeDefined();
-      expect(process.exitCode).toBeUndefined();
+      expect(exitSpy).not.toHaveBeenCalled();
     } finally {
-      if (originalBun !== undefined) {
-        (globalThis as { Bun?: unknown }).Bun = originalBun;
-      }
+      exitSpy.mockRestore();
     }
   });
 
@@ -428,7 +433,7 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBe(0);
     expect(mocks.createCliTelemetryBootstrap).toHaveBeenCalledTimes(1);
-    expect(mocks.createKimiHarnessV2).toHaveBeenCalledWith(
+    expect(mocks.createKimiHarnessNative).toHaveBeenCalledWith(
       expect.objectContaining({
         homeDir: '/tmp/kimi-home',
         telemetry: {

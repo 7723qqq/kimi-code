@@ -6,7 +6,7 @@
  */
 
 import {
-  createKimiHarnessV2,
+  createKimiHarnessNative,
   flushDiagnosticLogs,
   installGlobalProxyDispatcher,
   log,
@@ -122,7 +122,7 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarnessNative({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     telemetry: telemetryClient,

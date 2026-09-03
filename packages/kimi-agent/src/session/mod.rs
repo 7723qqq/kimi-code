@@ -23,6 +23,8 @@
 //! telemetry is served by the `host/telemetry` callback (M1c, emitted from
 //! `run_turn`), `host/list_tools` is M1d.
 
+pub mod sqlite_store;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -33,7 +35,6 @@ use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, ListToolsResponse, LlmChatRequest, LlmChatResponse,
     PermissionCheckRequest, PermissionDecision, StateReadRequest, StateReadResponse,
     StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
-    ToolFinalizeRequest,
 };
 use crate::turn_events::{TurnCancelReason, TurnCancelTarget, TurnEndReason, TurnEvent};
 use crate::turn_loop::run_turn::run_turn;
@@ -149,6 +150,10 @@ impl TurnReceipt {
 pub struct SessionStatus {
     pub active_turn_id: Option<u64>,
     pub pending_turn_ids: Vec<u64>,
+    /// P56 (G-5): execution-path summary of the most recent completed turn
+    /// — the cross-process half of `/status`'s engine line. `None` until
+    /// the session has run a turn.
+    pub engine: Option<crate::rpc::types::EngineExecSummary>,
 }
 
 /// Fresh-per-turn tool-table provider (the turn-start snapshot source; the
@@ -167,6 +172,9 @@ pub struct SessionConfig {
     pub callbacks: Arc<dyn HostCallbacks>,
     /// Step cap for every turn (v2 `maxStepsPerTurn`).
     pub max_steps: u32,
+    /// Context window the host resolved for the session's model (v2
+    /// `ModelCapability.max_context_tokens`); `None` keeps the engine default.
+    pub max_context_tokens: Option<u32>,
     /// Fresh tool definitions per turn (MCP tools can change mid-session;
     /// M1d replaces this provider with `host/list_tools`).
     pub tool_defs: ToolDefsProvider,
@@ -175,6 +183,12 @@ pub struct SessionConfig {
     pub goal: Option<GoalProvider>,
     /// Ran before each turn's first step (REPL: the undo checkpoint).
     pub on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// P55: session-wide slot the pump refreshes per turn with that turn's
+    /// [`ParentCancel`] signal. The native toolset shares the same Arc, so a
+    /// foreground `Agent` spawn sees the live signal even though the toolset
+    /// itself is built once per session. `None` = no native agent context.
+    pub agent_cancel_slot:
+        Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
 
 struct PendingTurn {
@@ -209,6 +223,8 @@ struct Core {
     /// Waiters resolved by [`EngineSession::settled`] once nothing is
     /// active, pending, or held.
     settle_waiters: Vec<oneshot::Sender<()>>,
+    /// P56 (G-5): execution-path summary of the last completed turn.
+    last_engine: Option<crate::rpc::types::EngineExecSummary>,
 }
 
 /// A turn parked by quiescence: the id was allocated at enqueue time (the
@@ -237,6 +253,9 @@ struct SessionContext {
     goal: Option<GoalProvider>,
     on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
     max_steps: u32,
+    max_context_tokens: Option<u32>,
+    /// P55: see [`SessionConfig::agent_cancel_slot`].
+    agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -248,6 +267,9 @@ pub struct EngineSession {
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
     /// Steer-queue-decorated callbacks (for event dispatch + state bridge).
     callbacks: Arc<dyn HostCallbacks>,
+    /// P55: shared with the pump (per-turn refresh) and `cancel_turn`
+    /// (trigger), and with the native toolset's agent context.
+    agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
 
 impl EngineSession {
@@ -263,6 +285,7 @@ impl EngineSession {
             quiescence_depth: 0,
             held: Vec::new(),
             settle_waiters: Vec::new(),
+            last_engine: None,
         }));
         let steer_queue = Arc::new(Mutex::new(Vec::new()));
         let ctx = Arc::new(SessionContext {
@@ -275,6 +298,8 @@ impl EngineSession {
             goal: config.goal,
             on_before_turn: config.on_before_turn,
             max_steps: config.max_steps,
+            max_context_tokens: config.max_context_tokens,
+            agent_cancel_slot: config.agent_cancel_slot.clone(),
         });
         let wakeup = Arc::new(Notify::new());
         let callbacks = ctx.callbacks.clone();
@@ -284,6 +309,7 @@ impl EngineSession {
             wakeup,
             steer_queue,
             callbacks,
+            agent_cancel_slot: config.agent_cancel_slot,
         }
     }
 
@@ -461,6 +487,13 @@ impl EngineSession {
         };
         match decision {
             Decision::CancelActive { turn_id } => {
+                // P55: wake the foreground `Agent` spawn's event-driven wait
+                // immediately (the flag store above covers step tops).
+                if let Some(slot) = &self.agent_cancel_slot
+                    && let Some(signal) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+                {
+                    signal.trigger();
+                }
                 self.callbacks.turn_event(TurnEvent::Cancel {
                     turn_id,
                     target: Some(TurnCancelTarget::Active),
@@ -486,6 +519,7 @@ impl EngineSession {
         SessionStatus {
             active_turn_id: core.active_turn_id,
             pending_turn_ids: core.pending.iter().map(|t| t.turn_id).collect(),
+            engine: core.last_engine.clone(),
         }
     }
 
@@ -571,6 +605,19 @@ impl EngineSession {
             .history
             .len()
     }
+
+    /// A clone of the current cross-turn history. The napi `session_get_history`
+    /// serializes this so the host can carry the conversation across an
+    /// engine-session rebuild (a mid-session model / permission change) and
+    /// implement undo / fork without losing context — the inverse of
+    /// [`Self::set_history`].
+    pub fn snapshot_history(&self) -> Vec<LLMMessage> {
+        self.core
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .history
+            .clone()
+    }
 }
 
 /// Exclusive quiescence window (v2 `IDisposable` from
@@ -650,6 +697,11 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             }
         };
 
+        // P55: publish this turn's cancel signal into the session-wide slot
+        // so the native `Agent` tool's foreground spawn awaits a signal the
+        // host's `cancel_turn` can trip immediately (not just at step tops).
+        // (Written after the entry destructure below, where `cancel` lives.)
+
         let (mut entry, history) = match next {
             Some(pair) => pair,
             None => {
@@ -674,6 +726,11 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             ..
         } = entry;
         let started = std::time::Instant::now();
+        if let Some(slot) = &ctx.agent_cancel_slot {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(
+                crate::subagent::types::ParentCancel::from_flag(cancel.clone()),
+            );
+        }
         ctx.callbacks.turn_event(TurnEvent::Prompt {
             turn_id,
             input,
@@ -690,9 +747,27 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             let mut core = core.lock().unwrap_or_else(|e| e.into_inner());
             core.active_turn_id = None;
             core.active_cancel = None;
+            if let Some(slot) = &ctx.agent_cancel_slot {
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            }
             if let Ok(TurnOutcome::Ran(result)) = &outcome {
                 core.history
                     .extend(result.messages.iter().skip(1 + history_len).cloned());
+                // P56 (G-5): remember how this turn executed for the
+                // cross-process status surface.
+                core.last_engine = Some(crate::rpc::types::EngineExecSummary {
+                    transport: Some(result.llm_transport.clone()),
+                    native_tool_calls: Some(result.native_tool_calls),
+                    steps: Some(result.steps),
+                    stop_reason: Some(format!("{:?}", result.stop_reason)),
+                });
+            } else if outcome.is_err() {
+                core.last_engine = Some(crate::rpc::types::EngineExecSummary {
+                    transport: None,
+                    native_tool_calls: None,
+                    steps: None,
+                    stop_reason: Some("failed".into()),
+                });
             }
             // Wake `settled()` waiters when nothing else is queued (M1c).
             maybe_settle_locked(&mut core);
@@ -763,6 +838,7 @@ async fn run_session_turn(
         tools: &[],
         tool_defs,
         max_steps: ctx.max_steps,
+        max_context_tokens: ctx.max_context_tokens,
         goal,
         cancellation: Some(cancel),
     };
@@ -824,13 +900,6 @@ impl HostCallbacks for SteerQueueCallbacks {
         self.inner.state_write(request)
     }
 
-    fn finalize_tool_result(
-        &self,
-        request: ToolFinalizeRequest,
-    ) -> futures_util::future::BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.finalize_tool_result(request)
-    }
-
     fn drain_steers(
         &self,
     ) -> futures_util::future::BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
@@ -845,6 +914,24 @@ impl HostCallbacks for SteerQueueCallbacks {
         &self,
     ) -> futures_util::future::BoxFuture<'static, Result<ListToolsResponse, String>> {
         self.inner.list_tools()
+    }
+
+    fn goal(
+        &self,
+    ) -> futures_util::future::BoxFuture<'static, Result<Option<GoalContext>, String>> {
+        self.inner.goal()
+    }
+
+    fn auth_token(
+        &self,
+        provider: String,
+        force: bool,
+    ) -> futures_util::future::BoxFuture<'static, Result<String, String>> {
+        self.inner.auth_token(provider, force)
+    }
+
+    fn set_turn_goal(&self, turn_id: &str, goal_id: Option<&str>) {
+        self.inner.set_turn_goal(turn_id, goal_id);
     }
 
     fn emit_event(&self, event: serde_json::Value) {
@@ -956,6 +1043,7 @@ mod tests {
     fn text_response(text: &str) -> LLMChatResponse {
         LLMChatResponse {
             content: text.into(),
+            thinking: Vec::new(),
             tool_calls: Vec::new(),
             finish_reason: Some("stop".into()),
             usage: TokenUsage::default(),
@@ -963,16 +1051,30 @@ mod tests {
     }
 
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
-        // The engine pulls the tool table before every LLM call (M1d). With
-        // no local handler the server falls back to a stdio round-trip that
-        // stalls for the full timeout, so the session tests answer it here
-        // with an empty table.
+        // The engine pulls the tool table before every LLM call (M1d) and the
+        // goal/plan injection snapshot reads the state bridge at each step
+        // head (M4). With no local handler the server falls back to a stdio
+        // round-trip that stalls for the full timeout, so the session tests
+        // answer both here.
         RpcServer::register_arc(
             &server,
             crate::rpc::types::methods::HOST_LIST_TOOLS,
             |_params| {
                 Box::pin(async move {
                     let resp = crate::rpc::types::ListToolsResponse { tools: vec![] };
+                    serde_json::to_value(&resp)
+                        .map_err(|e| crate::rpc::types::JsonRpcError::internal_error(e.to_string()))
+                })
+            },
+        );
+        RpcServer::register_arc(
+            &server,
+            crate::rpc::types::methods::HOST_STATE_READ,
+            |_params| {
+                Box::pin(async move {
+                    let resp = crate::rpc::types::StateReadResponse {
+                        value: serde_json::Value::Null,
+                    };
                     serde_json::to_value(&resp)
                         .map_err(|e| crate::rpc::types::JsonRpcError::internal_error(e.to_string()))
                 })
@@ -994,9 +1096,11 @@ mod tests {
             llm,
             callbacks,
             max_steps: 5,
+            max_context_tokens: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
             on_before_turn: None,
+            agent_cancel_slot: None,
         };
         EngineSession::new(config).await
     }

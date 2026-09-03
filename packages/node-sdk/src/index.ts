@@ -4,6 +4,8 @@ export { Session } from '#/session';
 export { KimiAuthFacade } from '#/auth';
 export { createKimiHarness, createKimiHarnessV2, SDKRpcClientV2 } from '#/sdk-rpc-client-v2';
 export type { SDKRpcClientV2Options } from '#/sdk-rpc-client-v2';
+export { createKimiHarnessNative, SDKRpcClientNative } from '#/native/sdk-rpc-client-native';
+export type { SDKRpcClientNativeOptions } from '#/native/sdk-rpc-client-native';
 export {
   createKimiConfigRpc,
   KimiConfigRpcClient,

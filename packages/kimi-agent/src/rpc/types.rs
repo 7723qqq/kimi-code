@@ -99,18 +99,6 @@ pub mod methods {
     /// instead of executing (natively or via the host).
     pub const HOST_CHECK_PERMISSION: &str = "host/check_permission";
 
-    /// Finalize a natively-executed tool result (Rust → JS host). The host
-    /// applies its own result policy — truncation and spill-to-disk — and
-    /// returns what the model should see.
-    pub const HOST_FINALIZE_TOOL_RESULT: &str = "host/finalize_tool_result";
-
-    /// Release queued mid-turn steering to the engine (Rust → JS host). The
-    /// host owns the turn's step-request queue, so without this call a prompt
-    /// the user injected during a turn would only reach the model after the
-    /// engine's turn ended. The host records each steer and returns the
-    /// messages the engine should append to its own history.
-    pub const HOST_DRAIN_STEERS: &str = "host/drain_steers";
-
     /// Fire-and-forget event notification (Rust → JS host).
     /// Used by the native LLM / native tool paths to report step
     /// boundaries, streaming deltas, and natively-executed tool results
@@ -149,6 +137,14 @@ pub mod methods {
     /// the resulting state.
     pub const HOST_STATE_WRITE: &str = "host/state_write";
 
+    /// Host-side file checkpoint for native write executions (Rust → JS
+    /// host, P53). `phase: "prepare"` runs before the engine writes — the
+    /// host must capture the pre-image before the response arrives;
+    /// `phase: "record"` notes the post-image after execution. Fail-open:
+    /// an unwired or failing host skips the snapshot (the pre-P53 status
+    /// quo — native writes were never checkpointed).
+    pub const HOST_CHECKPOINT: &str = "host/checkpoint";
+
     /// Fetch the host's current tool table (Rust → JS host, M1d). Called
     /// before each LLM call on native transports so mid-turn registry
     /// changes (feature tools, MCP reconnects) reach the model — the
@@ -156,6 +152,59 @@ pub mod methods {
     /// hosts without this seam. Host-proxy mode rebuilds tools host-side
     /// per call and never consults this.
     pub const HOST_LIST_TOOLS: &str = "host/list_tools";
+
+    /// Fetch the host's current goal snapshot (Rust → JS host, M1d 3b).
+    ///
+    /// The session's goal provider reads it fresh per turn (budget checks
+    /// plus steering), mirroring the napi `goal_cb` seam. The result is the
+    /// snake_case wire goal object, or JSON null when no goal is active.
+    pub const HOST_GOAL: &str = "host/goal";
+
+    /// Fetch a bearer token for an OAuth-managed provider (Rust → JS host).
+    /// The host owns the OAuth store (single-flight refresh); `force` asks it
+    /// to refresh past the cache after a 401/403 from the provider. The
+    /// response is `{ "token": "..." }`.
+    pub const HOST_AUTH_TOKEN: &str = "host/auth_token";
+
+    // ── EngineSession handle over stdio (M1d 3b) ─────────────────────────
+    // The stdio transport gets the same session surface as the napi addon:
+    // the pipeline is built once per session, and admission / the pending
+    // FIFO / the pump / turn ids / cancellation / quiescence live
+    // engine-side across turns.
+
+    /// Create a session handle. Params are the full `RunTurnParams` shape;
+    /// the per-turn fields (`messages` / `tools` / `goal`) are ignored.
+    pub const SESSION_CREATE: &str = "session/create";
+    /// Enqueue a prompt. Returns the engine-assigned turn id (monotonic).
+    pub const SESSION_ENQUEUE_TURN: &str = "session/enqueue_turn";
+    /// Resolve with the outcome of one enqueued turn (exactly once).
+    pub const SESSION_TURN_OUTCOME: &str = "session/turn_outcome";
+    /// Cancel a turn by id (active → step-boundary interrupt; queued or
+    /// quiescence-held → dropped). Without an id the active turn is cancelled.
+    pub const SESSION_CANCEL_TURN: &str = "session/cancel_turn";
+    /// Live session shape: active turn id + pending turn ids.
+    pub const SESSION_STATUS: &str = "session/status";
+    /// Whether the session is fully idle right now.
+    pub const SESSION_IS_SETTLED: &str = "session/is_settled";
+    /// Resolve once the session is fully idle.
+    pub const SESSION_SETTLED: &str = "session/settled";
+    /// Try to acquire the quiescence window (exclusive; parked turns replay
+    /// on release). Fails while a guard is held or a turn is outstanding.
+    pub const SESSION_TRY_ACQUIRE_QUIESCENCE: &str = "session/try_acquire_quiescence";
+    /// Release the quiescence window: held turns replay in FIFO order.
+    pub const SESSION_RELEASE_QUIESCENCE: &str = "session/release_quiescence";
+    /// Replace the session's cross-turn history.
+    pub const SESSION_SET_HISTORY: &str = "session/set_history";
+    /// Clear the session's cross-turn history.
+    pub const SESSION_CLEAR_HISTORY: &str = "session/clear_history";
+    /// Append messages to the cross-turn history.
+    pub const SESSION_EXTEND_HISTORY: &str = "session/extend_history";
+    /// Current cross-turn history length.
+    pub const SESSION_HISTORY_LEN: &str = "session/history_len";
+    /// Fetch the session's cross-turn history.
+    pub const SESSION_GET_HISTORY: &str = "session/get_history";
+    /// Drop the session handle.
+    pub const SESSION_DISPOSE: &str = "session/dispose";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -166,21 +215,6 @@ pub struct PermissionCheckRequest {
     pub tool_name: String,
     pub tool_call_id: String,
     pub arguments: serde_json::Value,
-}
-
-/// A tool result the engine executed in-process, handed to the host for
-/// finalization before it enters the model context. The host owns result
-/// truncation and spill-to-disk, so a large native result must go through the
-/// same policy a host-executed result does; the response is what the model
-/// actually sees.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolFinalizeRequest {
-    pub tool_name: String,
-    pub tool_call_id: String,
-    pub content: String,
-    pub is_error: bool,
-    #[serde(default)]
-    pub note: Option<String>,
 }
 
 /// The host's permission verdict for a [`PermissionCheckRequest`].
@@ -309,6 +343,28 @@ pub struct StateReadRequest {
     pub tool_call_id: String,
 }
 
+/// A host-side checkpoint request for a native write execution (Rust →
+/// JS host, P53). `phase: "prepare"` carries the pre-write paths — the
+/// host captures their pre-images before responding, and the engine does
+/// not write until the response lands. `phase: "record"` carries the same
+/// paths after execution so the host notes their post-images (used to
+/// detect manual edits at undo time). Fail-open on both sides: an
+/// unwired/failing host skips the snapshot (the pre-P53 status quo).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointRequest {
+    pub turn_id: String,
+    #[serde(default)]
+    pub tool_call_id: String,
+    /// `"prepare"` (pre-write snapshot) or `"record"` (post-write digest).
+    pub phase: String,
+    /// Absolute-or-workspace-relative write target paths.
+    pub paths: Vec<String>,
+    /// `record` only: whether the execution ran (failed prepares never
+    /// reach record).
+    #[serde(default)]
+    pub executed: bool,
+}
+
 /// The host's answer to a [`StateReadRequest`]: the domain wire value,
 /// opaque JSON serialized by the host (todo: `TodoItem[]`; plan:
 /// `{active, id?, path?}`).
@@ -357,6 +413,13 @@ pub struct ListToolsResponse {
     pub tools: Vec<crate::turn_loop::types::ToolInfo>,
 }
 
+/// Response body of `host/auth_token`: the bearer token the transport puts in
+/// the Authorization / x-api-key header.
+#[derive(Debug, Deserialize)]
+pub struct AuthTokenResponse {
+    pub token: String,
+}
+
 // ── Message content blocks (multimodal) ─────────────────────────────────
 
 /// A single content block within a message. Text-only messages keep using
@@ -383,6 +446,15 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Model reasoning content. `encrypted` carries the provider's attestation
+    /// signature (Anthropic `signature`), which must come back with the block.
+    /// The JSON shape is the host's `ThinkPart`, so a block crosses into the
+    /// transcript unchanged.
+    Think {
+        think: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encrypted: Option<String>,
+    },
 }
 
 // ── Native LLM configuration (Rust-side HTTP transport) ───────────────────
@@ -406,6 +478,17 @@ pub struct NativeLlmConfig {
     /// Extra headers sent with every request.
     #[serde(default)]
     pub custom_headers: std::collections::HashMap<String, String>,
+    /// Reasoning effort for OpenAI-compatible providers (e.g. `"low"`, `"medium"`, `"high"`, `"max"`).
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// Thinking budget in tokens for Anthropic Messages API.
+    #[serde(default)]
+    pub thinking_budget: Option<u32>,
+    /// OAuth-managed auth: the host-side provider name the transport asks for
+    /// a bearer token (`host/auth_token`) instead of using the static
+    /// `api_key`. `api_key` stays the fallback for providers that carry both.
+    #[serde(default)]
+    pub auth_provider: Option<String>,
 }
 
 /// Debug never renders the key: this struct is `{:?}`-formatted on paths that
@@ -420,6 +503,9 @@ impl std::fmt::Debug for NativeLlmConfig {
             .field("model", &self.model)
             .field("max_tokens", &self.max_tokens)
             .field("custom_headers", &self.custom_headers)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("thinking_budget", &self.thinking_budget)
+            .field("auth_provider", &self.auth_provider)
             .finish()
     }
 }
@@ -437,6 +523,9 @@ pub struct RunTurnParams {
     pub tools: Vec<ToolDef>,
     /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
+    /// Context window the host resolved for the active model. `None` keeps the
+    /// engine's default compaction budget.
+    pub max_context_tokens: Option<u32>,
     /// Multiple LLM providers for concurrent execution (MultiLLM).
     /// When present, overrides `system_prompt` + `model_name`.
     #[serde(default)]
@@ -483,6 +572,52 @@ pub struct RunTurnParams {
     /// merged into the engine-emitted `host/telemetry` events.
     #[serde(default)]
     pub telemetry: Option<crate::turn_loop::types::TelemetryContext>,
+    /// Session profile catalog snapshot (P46): the profiles the host lets
+    /// the native `Agent` tool spawn. Empty = every `Agent` call falls
+    /// back to the host tool.
+    #[serde(default)]
+    pub subagent_profiles: Vec<SubagentProfileWire>,
+    /// Host-resolved foreground subagent timeout in ms (v2
+    /// `resolveSubagentTimeoutMs`). `None` → engine default (2h).
+    #[serde(default)]
+    pub subagent_timeout_ms: Option<u64>,
+    /// P52 native-path vetoes: non-empty reason = the engine rejects the
+    /// affected native executions with this text as the tool result.
+    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `tools_veto` denies every native tool (btw side-channel contexts).
+    #[serde(default)]
+    pub agent_tool_veto: Option<String>,
+    #[serde(default)]
+    pub tools_veto: Option<String>,
+    #[serde(default)]
+    pub caller_agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// A subagent profile from the host's session catalog snapshot (P46).
+/// Mirrors the v2 `AgentProfile` fields the engine needs to run a
+/// foreground subagent: prompt, tool policy, description.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentProfileWire {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub system_prompt: String,
+    /// Explicit tool allowlist; empty means every tool minus
+    /// `disallowed_tools` (v2 `resolveActiveToolNames` subset).
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub disallowed_tools: Vec<String>,
+    /// Host-resolved prompt prefix (v2 `applyProfilePromptPrefix`),
+    /// prepended to the prompt as `{prefix}\n\n{prompt}`.
+    #[serde(default)]
+    pub prompt_prefix: Option<String>,
+    /// Summary distillation policy (v2 `AgentProfileSummaryPolicy`).
+    #[serde(default)]
+    pub summary_policy: Option<crate::subagent::types::SummaryPolicy>,
 }
 
 /// LLM provider definition for MultiLLM.
@@ -525,6 +660,79 @@ pub struct ToolDef {
     pub description: String,
     #[serde(default)]
     pub input_schema: serde_json::Value,
+}
+
+// ── EngineSession wire types (M1d 3b) ─────────────────────────────────────
+
+/// Params for `session/enqueue_turn`: one prompt as a wire `Message`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionEnqueueParams {
+    pub session_id: String,
+    pub prompt: Message,
+    pub admission: String,
+}
+
+/// Params for the session RPCs that address a session only.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionIdParams {
+    pub session_id: String,
+}
+
+/// Params for `session/turn_outcome`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionTurnOutcomeParams {
+    pub session_id: String,
+    pub turn_id: u64,
+}
+
+/// Params for `session/cancel_turn`. Without `turn_id` the active turn (if
+/// any) is cancelled.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionCancelParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub turn_id: Option<u64>,
+}
+
+/// Params for the history RPCs (`session/set_history` / `extend_history`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionHistoryParams {
+    pub session_id: String,
+    pub history: Vec<Message>,
+}
+
+/// Result of `session/turn_outcome`. Mirrors the napi `JsTurnOutcome`:
+/// `status` is `ran` or `cancelledBeforeStart`; `result` is present only
+/// for `ran`.
+#[derive(Debug, Serialize)]
+pub struct SessionOutcomeResult {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<RunTurnResult>,
+}
+
+/// P56 (G-5): execution-path summary of a session's last completed turn —
+/// the cross-process half of `/status`'s engine line.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EngineExecSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_tool_calls: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+}
+
+/// Result of `session/status`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionStatusResult {
+    pub active_turn_id: Option<u64>,
+    pub pending_turn_ids: Vec<u64>,
+    /// P56 (G-5): absent until the session has run a turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<EngineExecSummary>,
 }
 
 /// Result of a run_turn RPC call.
@@ -618,10 +826,14 @@ pub struct ToolExecuteResponse {
 
 /// Token usage tracking.
 ///
-/// Mirrors the host's 4-field `TokenUsage` (inputOther / output /
-/// inputCacheRead / inputCacheCreation): `input_tokens` covers non-cached
-/// input, and cache hits are reported separately so host-side token
-/// accounting stays accurate.
+/// Same 4 fields the host uses (`inputOther` / `output` / `inputCacheRead` /
+/// `inputCacheCreation`), so `input_tokens` is the **uncached** input
+/// remainder: the providers subtract the cache fields from the provider's raw
+/// prompt total (`llm/openai.rs::parse_usage`, `llm/anthropic.rs`
+/// `parse_response` and its stream accumulator), which is also exactly what
+/// the host-proxy leg supplies (`rust-loop.ts:2262` maps kosong's `inputOther`
+/// in). `total_tokens` is `input_tokens + output_tokens` under the same
+/// convention — not the provider's raw total.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     #[serde(default)]
@@ -906,14 +1118,6 @@ mod tests {
             serde_json::json!({"decision": "deny", "reason": "no"})
         );
 
-        // ToolFinalizeRequest: note defaults to null on deserialize.
-        let finalize: ToolFinalizeRequest = serde_json::from_value(serde_json::json!({
-            "tool_name": "Bash", "tool_call_id": "c3",
-            "content": "out", "is_error": false
-        }))
-        .unwrap();
-        assert_eq!(finalize.note, None);
-
         // RunTurnParams: every field round-trips; serde defaults fill the
         // optional ones the TS side may omit.
         let params: RunTurnParams = serde_json::from_value(serde_json::json!({
@@ -923,11 +1127,17 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [],
             "max_steps": 3,
+            "max_context_tokens": 262144,
             "github_token": "tok",
             "github_base_url": "https://github.example.com"
         }))
         .unwrap();
         assert_eq!(params.max_steps, Some(3));
+        assert_eq!(
+            params.max_context_tokens,
+            Some(262_144),
+            "P63: the stdio wire must carry the host window, or that transport keeps the 128k default"
+        );
         assert!(params.providers.is_empty());
         assert!(!params.native_tools);
         assert!(!params.rust_self_contained);
@@ -1287,6 +1497,34 @@ mod tests {
         assert_eq!(methods::HOST_ASK_QUESTION, "host/ask_question");
         assert_eq!(methods::HOST_STATE_READ, "host/state_read");
         assert_eq!(methods::HOST_STATE_WRITE, "host/state_write");
+        assert_eq!(methods::HOST_AUTH_TOKEN, "host/auth_token");
+    }
+
+    #[test]
+    fn test_native_llm_config_oauth_mode() {
+        let json = serde_json::json!({
+            "protocol": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "",
+            "model": "kimi-latest",
+            "auth_provider": "kimi"
+        });
+        let cfg: NativeLlmConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.auth_provider.as_deref(), Some("kimi"));
+        assert!(cfg.api_key.is_empty());
+
+        // The Debug impl redacts the key even when auth_provider is set.
+        let mut with_key = cfg.clone();
+        with_key.api_key = "super-secret".into();
+        let debug = format!("{with_key:?}");
+        assert!(
+            !debug.contains("super-secret"),
+            "debug must not leak the key"
+        );
+        assert!(
+            debug.contains("auth_provider"),
+            "debug carries the auth mode"
+        );
     }
 
     #[test]

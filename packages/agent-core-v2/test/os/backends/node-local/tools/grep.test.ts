@@ -555,8 +555,14 @@ describe('GrepTool', () => {
     expect(stat).toHaveBeenCalledWith('/workspace/src/new.ts');
   });
 
-  it('keeps v1 tie order for files modified within the same second', async () => {
-    const stdout = ['/workspace/src/a.ts', '/workspace/src/b.ts', '/workspace/src/c.ts', ''].join(
+  it('breaks same-second mtime ties on the file path, not on rg output order', async () => {
+    // rg lists c, b, a; a and b share one whole-second mtime (1000ms and
+    // 1500ms both truncate to 1). The engine quantises mtime the same way and
+    // breaks ties on the display path, so the host must too — rg's output index
+    // is walk order, which the engine's parallel walk cannot reproduce. The
+    // fixture is emitted in reverse path order on purpose: an index tiebreak
+    // would answer c, b, a.
+    const stdout = ['/workspace/src/c.ts', '/workspace/src/b.ts', '/workspace/src/a.ts', ''].join(
       '\n',
     );
     const stat = vi.fn(async (path: string) => {
@@ -1221,8 +1227,17 @@ describe('GrepTool', () => {
   });
 
   it('limits grep output to 250 lines by default', async () => {
-    const paths = Array.from({ length: 251 }, (_, index) => `/workspace/src/${String(index)}.ts`);
-    const displayPaths = Array.from({ length: 251 }, (_, index) => `src/${String(index)}.ts`);
+    // Zero-padded names keep lexicographic order equal to generation order, so
+    // this asserts paging and not the `files_with_matches` tiebreak (which is
+    // covered by its own test above).
+    const paths = Array.from(
+      { length: 251 },
+      (_, index) => `/workspace/src/${String(index).padStart(3, '0')}.ts`,
+    );
+    const displayPaths = Array.from(
+      { length: 251 },
+      (_, index) => `src/${String(index).padStart(3, '0')}.ts`,
+    );
     const stdout = [...paths, ''].join('\n');
     const tool = new GrepTool(
       createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
@@ -1241,8 +1256,15 @@ describe('GrepTool', () => {
   });
 
   it('treats head_limit zero as unlimited', async () => {
-    const paths = Array.from({ length: 251 }, (_, index) => `/workspace/src/${String(index)}.ts`);
-    const displayPaths = Array.from({ length: 251 }, (_, index) => `src/${String(index)}.ts`);
+    // Zero-padded for the same reason as the default-head_limit test above.
+    const paths = Array.from(
+      { length: 251 },
+      (_, index) => `/workspace/src/${String(index).padStart(3, '0')}.ts`,
+    );
+    const displayPaths = Array.from(
+      { length: 251 },
+      (_, index) => `src/${String(index).padStart(3, '0')}.ts`,
+    );
     const stdout = [...paths, ''].join('\n');
     const tool = new GrepTool(
       createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),

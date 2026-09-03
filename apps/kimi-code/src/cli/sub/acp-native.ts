@@ -21,6 +21,9 @@
 
 import type { Command } from 'commander';
 
+import { IEngineOverrideService, type ScopeSeed } from '@moonshot-ai/agent-core-v2';
+
+import { maybeLoadRustEngine } from '#/cli/rust-engine';
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { t } from '#/i18n';
@@ -58,6 +61,19 @@ export function registerNativeAcpCommand(parent: Command): void {
       const legacyCommand = process.argv[1];
       try {
         const { runAcpServer } = await import('@moonshot-ai/acp-server');
+        const engineOverride = await maybeLoadRustEngine().catch(() => undefined);
+        const extraSeeds: ScopeSeed =
+          engineOverride !== undefined
+            ? [
+                [
+                  IEngineOverrideService,
+                  {
+                    getEngine: () => engineOverride,
+                    ownsTurnLifecycle: true,
+                  },
+                ] as const,
+              ]
+            : [];
         await runAcpServer({
           homeDir: getDataDir(),
           agentInfo: { name: 'Kimi Code CLI', version: getVersion() },
@@ -65,6 +81,7 @@ export function registerNativeAcpCommand(parent: Command): void {
           ...(legacyCommand !== undefined && legacyCommand.length > 0
             ? { terminalAuthLegacyCommand: legacyCommand }
             : {}),
+          extraSeeds,
         });
         process.exit(0);
       } catch (error) {

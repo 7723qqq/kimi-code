@@ -237,4 +237,139 @@ describe('AgentPermissionGate', () => {
     const svc = make();
     expect(svc.data()).toEqual({ mode: 'yolo', rules });
   });
+
+  describe('per-call approval memo (P62 double approval prompt)', () => {
+    function makeCall(
+      toolName: string,
+      args: Record<string, unknown> = {},
+      over: { turnId?: number; id?: string } = {},
+    ): ResolvedToolExecutionHookContext {
+      const base = makeContext(toolName, args);
+      const toolCall: ToolCall = { ...base.toolCall, id: over.id ?? base.toolCall.id };
+      return { ...base, turnId: over.turnId ?? base.turnId, toolCall, toolCalls: [toolCall] };
+    }
+
+    it('P62: an authorized call is approved once across authorize and the executor gate', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      const ctx = makeCall('Write', { path: 'outside/x.ts' });
+
+      await svc.authorize(ctx);
+
+      const forwarded = await executorEvents.fireBeforeExecute(ctx);
+
+      expect(forwarded, 'P62: the gate must abstain on a remembered grant, not veto').toBeUndefined();
+      expect(
+        requestToolApproval,
+        'P62: the host-forwarded leg re-ran the gate and prompted the human a second time',
+      ).not.toHaveBeenCalled();
+    });
+
+    it('P62: a grant pays for exactly one execution, not for the whole turn', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      const ctx = makeCall('Write', { path: 'outside/x.ts' });
+      await svc.authorize(ctx);
+      await executorEvents.fireBeforeExecute(ctx);
+
+      await executorEvents.fireBeforeExecute(ctx);
+
+      expect(
+        requestToolApproval,
+        'P62: the memo must be consumed on use, so a repeat of the same call asks again',
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P62: executionMetadata from the grant reaches the executor (it is read only off the event)', async () => {
+      const executionMetadata = { marker: 'granted' };
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      resolvePermissionResolution.mockResolvedValue({ executionMetadata });
+      const svc = make();
+      const ctx = makeCall('Bash', { command: 'ls' });
+      await svc.authorize(ctx);
+
+      const decision = await executorEvents.fireBeforeExecute(ctx);
+
+      expect(
+        decision,
+        'P62: authorize computed metadata the executor could not see — it must be replayed through pass()',
+      ).toEqual({ executionMetadata });
+    });
+
+    it('P62 fail-closed: a rejected ask is never remembered', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      resolvePermissionResolution.mockResolvedValue({ veto: { output: 'nope', isError: true } });
+      const svc = make();
+      const ctx = makeCall('Bash', { command: 'rm -rf /' });
+
+      expect((await svc.authorize(ctx))?.veto, 'P62: the test needs the ask to come back vetoed').toBeDefined();
+
+      await executorEvents.fireBeforeExecute(ctx);
+
+      expect(
+        requestToolApproval,
+        'P62: a human denial leaked into the memo and skipped the second gate',
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P62 identity: a different tool call id gets its own approval', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      await svc.authorize(makeCall('Write', { path: 'a.ts' }));
+
+      await executorEvents.fireBeforeExecute(makeCall('Write', { path: 'a.ts' }, { id: 'other' }));
+      expect(
+        requestToolApproval,
+        'P62: an unrelated tool call inherited someone else grant',
+      ).toHaveBeenCalledTimes(1);
+
+      await executorEvents.fireBeforeExecute(makeCall('Write', { path: 'a.ts' }));
+      expect(
+        requestToolApproval,
+        'P62: contrast failed — the granted call itself also prompted, so the memo never applied',
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P62 identity: a grant does not cross turns', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      await svc.authorize(makeCall('Write', { path: 'a.ts' }));
+
+      await executorEvents.fireBeforeExecute(makeCall('Write', { path: 'a.ts' }, { turnId: 2 }));
+
+      expect(
+        requestToolApproval,
+        'P62: the memo key must include turnId — a later turn reused an earlier grant',
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P62 identity: drifted arguments are not the approved call', async () => {
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+      const svc = make();
+      const ctx = makeCall('Write', { path: 'a.ts' });
+      await svc.authorize(ctx);
+
+      await executorEvents.fireBeforeExecute({ ...ctx, args: { path: 'b.ts' } });
+
+      expect(
+        requestToolApproval,
+        'P62: same call id but different arguments — the memo must miss, not approve an unapproved write',
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('P62 scope: a bare policy approve is not remembered, so later verdicts still apply', async () => {
+      const svc = make();
+      const ctx = makeCall('Read', { path: 'a.ts' });
+      await svc.authorize(ctx);
+      policyResult = { policyName: 'p', result: { kind: 'ask' } };
+
+      const decision = await executorEvents.fireBeforeExecute(ctx);
+
+      expect(
+        requestToolApproval,
+        'P62: caching a pure policy approve would freeze mode/rule changes made after it',
+      ).toHaveBeenCalledTimes(1);
+      expect(decision, 'P62: the ask path abstains; the gate does not decide twice').toBeUndefined();
+    });
+  });
 });

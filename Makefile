@@ -78,6 +78,7 @@ rust-check:
 rust-test:
 	cd packages/kimi-agent && cargo test --features cli
 	cd packages/kimi-agent && cargo run --features cli -- --test
+	cd packages/kimi-native-tools && cargo test --lib
 
 ## vis
 

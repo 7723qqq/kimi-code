@@ -5,13 +5,18 @@
 //! gets the same shape the host path produces: per-line truncation, a
 //! spill-to-disk backup, and a pointer block the model reads.
 //!
-//! Strategy (identical to the TS service):
+//! Strategy (same shape as the TS service, with three real divergences):
 //!   1. If `is_error` is true or `content` is empty → return unchanged.
+//!      The TS service has no such early return; it shapes and spills an
+//!      error result like any other.
 //!   2. If raw text ≤ `DEFAULT_TOOL_RESULT_MAX_CHARS` (50_000) → return
-//!      unchanged.
+//!      unchanged. TS additionally returns untouched when `spillExempt` is
+//!      set — that field has no counterpart here.
 //!   3. Else: shape per-line (2_000 char cap), save the retained prefix
 //!      to a file under `spill_dir`, replace the model-facing content
-//!      with a pointer block carrying a `Read`-able `output_path`.
+//!      with a pointer block carrying a `Read`-able `output_path`. Where
+//!      TS reuses an existing spill's `totalChars`/`suffix`, this path
+//!      recomputes from the text in hand.
 //!
 //! The defaults are the same constants the TS service uses; changing
 //! them here without the TS side will make the two paths diverge.

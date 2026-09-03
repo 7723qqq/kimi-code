@@ -382,10 +382,12 @@ pub fn knowledge_confirm(id: String) -> Result<bool> {
 pub fn knowledge_reject(id: String) -> Result<bool> {
     with_db(|conn| {
         let now = now_iso();
-        let affected = conn.execute(
-            "UPDATE entries SET status = 'rejected', updated_at = ?1 WHERE id = ?2",
-            params![now, id],
-        ).map_err(|e| format!("{e}"))?;
+        let affected = conn
+            .execute(
+                "UPDATE entries SET status = 'rejected', updated_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )
+            .map_err(|e| format!("{e}"))?;
         Ok(affected > 0)
     })
 }
@@ -567,7 +569,8 @@ mod tests {
     }
 
     fn add_entry_id(title: &str, category: &str, content: &str) -> String {
-        let entry: serde_json::Value = serde_json::from_str(&add_entry(title, category, content)).unwrap();
+        let entry: serde_json::Value =
+            serde_json::from_str(&add_entry(title, category, content)).unwrap();
         entry["id"].as_str().unwrap().to_string()
     }
 
@@ -575,8 +578,7 @@ mod tests {
     fn test_open_creates_empty_db() {
         let _guard = TEST_LOCK.lock().unwrap();
         let db = TestDb::new();
-        let stats: serde_json::Value =
-            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        let stats: serde_json::Value = serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
         assert_eq!(stats["total"], 0);
         drop(db);
     }
@@ -585,7 +587,11 @@ mod tests {
     fn test_add_returns_entry_json() {
         let _guard = TEST_LOCK.lock().unwrap();
         let _db = TestDb::new();
-        let json = add_entry("Rust lifetimes", "coding-style", "Prefer explicit lifetimes.");
+        let json = add_entry(
+            "Rust lifetimes",
+            "coding-style",
+            "Prefer explicit lifetimes.",
+        );
         let entry: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(entry["title"], "Rust lifetimes");
         assert_eq!(entry["category"], "coding-style");
@@ -600,14 +606,21 @@ mod tests {
     fn test_search_fts_finds_matches() {
         let _guard = TEST_LOCK.lock().unwrap();
         let _db = TestDb::new();
-        add_entry("Error handling", "pitfall", "Always propagate errors with context.");
+        add_entry(
+            "Error handling",
+            "pitfall",
+            "Always propagate errors with context.",
+        );
         add_entry("Naming", "coding-style", "Use snake_case for functions.");
 
         let results: Vec<serde_json::Value> =
             parse_vec(&knowledge_search("error".to_string(), None, None, 10, 0.0).unwrap());
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["entry"]["title"], "Error handling");
-        assert!(results[0]["match_source"].as_array().unwrap().contains(&serde_json::json!("fts")));
+        assert!(results[0]["match_source"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("fts")));
     }
 
     #[test]
@@ -651,8 +664,14 @@ mod tests {
 
         // Path under the scoped entry's prefix matches.
         let results: Vec<serde_json::Value> = parse_vec(
-            &knowledge_search("".to_string(), Some("G:/repo/src".to_string()), None, 10, 0.0)
-                .unwrap(),
+            &knowledge_search(
+                "".to_string(),
+                Some("G:/repo/src".to_string()),
+                None,
+                10,
+                0.0,
+            )
+            .unwrap(),
         );
         assert_eq!(results.len(), 2);
         // Scoped entry scores higher (3.0 scope + 1.0 unscoped = 4.0*1.0 vs 1.0).
@@ -660,8 +679,7 @@ mod tests {
 
         // Unrelated path: only the unscoped entry matches.
         let results: Vec<serde_json::Value> = parse_vec(
-            &knowledge_search("".to_string(), Some("G:/other".to_string()), None, 10, 0.0)
-                .unwrap(),
+            &knowledge_search("".to_string(), Some("G:/other".to_string()), None, 10, 0.0).unwrap(),
         );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["entry"]["title"], "Global rule");
@@ -688,7 +706,10 @@ mod tests {
         );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["entry"]["title"], "Tagged rule");
-        assert!(results[0]["match_source"].as_array().unwrap().contains(&serde_json::json!("tag")));
+        assert!(results[0]["match_source"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("tag")));
     }
 
     #[test]
@@ -708,8 +729,9 @@ mod tests {
         .unwrap();
         add_entry("High confidence", "coding-style", "Definitely right.");
 
-        let results: Vec<serde_json::Value> =
-            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.8).unwrap());
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.8).unwrap(),
+        );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["entry"]["title"], "High confidence");
     }
@@ -721,8 +743,9 @@ mod tests {
         for i in 0..5 {
             add_entry(&format!("Rule {i}"), "coding-style", "Shared content body.");
         }
-        let results: Vec<serde_json::Value> =
-            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 2, 0.0).unwrap());
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("/".to_string()), None, 2, 0.0).unwrap(),
+        );
         assert_eq!(results.len(), 2);
     }
 
@@ -757,7 +780,10 @@ mod tests {
         .unwrap();
         let id: serde_json::Value = serde_json::from_str(&id).unwrap();
         let id = id["id"].as_str().unwrap();
-        assert!(knowledge_confirm(id.to_string()).expect("confirm failed"), "confirm returned false");
+        assert!(
+            knowledge_confirm(id.to_string()).expect("confirm failed"),
+            "confirm returned false"
+        );
         let results: Vec<serde_json::Value> =
             parse_vec(&knowledge_search("Content".to_string(), None, None, 10, 1.0).unwrap());
         assert_eq!(results.len(), 1);
@@ -775,8 +801,7 @@ mod tests {
         add_entry("B", "coding-style", "Two.");
         add_entry("C", "pitfall", "Three.");
 
-        let stats: serde_json::Value =
-            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        let stats: serde_json::Value = serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
         assert_eq!(stats["total"], 3);
         assert_eq!(stats["by_category"]["coding-style"], 2);
         assert_eq!(stats["by_category"]["pitfall"], 1);
@@ -827,8 +852,7 @@ mod tests {
         assert_eq!(results[0]["entry"]["title"], "Right rule");
 
         // Rejected entries stay in the database and show up in stats.
-        let stats: serde_json::Value =
-            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        let stats: serde_json::Value = serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
         assert_eq!(stats["total"], 2);
         assert_eq!(stats["by_status"]["rejected"], 1);
         assert_eq!(stats["by_status"]["confirmed"], 1);
@@ -840,13 +864,17 @@ mod tests {
         let db = TestDb::new();
         add_entry("Before close", "pitfall", "Content.");
         knowledge_close(Some("whatever".to_string())).unwrap();
-        assert!(knowledge_stats().is_err(), "operations must fail after close");
+        assert!(
+            knowledge_stats().is_err(),
+            "operations must fail after close"
+        );
 
         // Re-opening restores a working (fresh) database.
         let dir2 = tempfile::tempdir().unwrap();
         knowledge_open(dir2.path().join("kb3.db").to_string_lossy().to_string()).unwrap();
-        let results: Vec<serde_json::Value> =
-            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap());
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap(),
+        );
         assert!(results.is_empty());
         *DB.lock().unwrap() = None;
         drop(db);
@@ -883,10 +911,12 @@ mod tests {
         }
 
         knowledge_open(path.to_string_lossy().to_string()).unwrap();
-        let stats: serde_json::Value =
-            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        let stats: serde_json::Value = serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
         assert_eq!(stats["total"], 1);
-        assert_eq!(stats["by_status"]["confirmed"], 1, "legacy rows backfill as confirmed");
+        assert_eq!(
+            stats["by_status"]["confirmed"], 1,
+            "legacy rows backfill as confirmed"
+        );
         let results: Vec<serde_json::Value> =
             parse_vec(&knowledge_search("legacy".to_string(), None, None, 10, 0.0).unwrap());
         assert_eq!(results.len(), 1);
@@ -908,8 +938,7 @@ Second line.
 # pitfall:Second Entry
 Content only.
 "#;
-        let entries: Vec<serde_json::Value> =
-            parse_vec(&knowledge_import(md.to_string()).unwrap());
+        let entries: Vec<serde_json::Value> = parse_vec(&knowledge_import(md.to_string()).unwrap());
         assert_eq!(entries.len(), 2);
 
         let first = &entries[0];
@@ -944,8 +973,7 @@ Good content.
 # pitfall:Empty body
 ---
 "#;
-        let entries: Vec<serde_json::Value> =
-            parse_vec(&knowledge_import(md.to_string()).unwrap());
+        let entries: Vec<serde_json::Value> = parse_vec(&knowledge_import(md.to_string()).unwrap());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["title"], "Valid");
     }
@@ -1000,8 +1028,9 @@ Good content.
         let dir2 = tempfile::tempdir().unwrap();
         let path2 = dir2.path().join("kb2.db");
         knowledge_open(path2.to_string_lossy().to_string()).unwrap();
-        let results: Vec<serde_json::Value> =
-            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap());
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap(),
+        );
         assert!(results.is_empty());
         *DB.lock().unwrap() = None;
         drop(db);

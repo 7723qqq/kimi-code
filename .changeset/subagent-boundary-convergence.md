@@ -1,0 +1,6 @@
+---
+"@moonshot-ai/kimi-code": minor
+"@moonshot-ai/agent-core-v2": minor
+---
+
+Close the four P46 subagent boundaries in the Rust engine's native `Agent` tool. Summary distillation: a profile's `summaryPolicy` (minChars/continuationPrompt/retries) now travels to the engine, which re-prompts the subagent with the continuation prompt until the final assistant text clears the floor (UTF-16 length semantics, usage accumulated across continuation turns). Prompt prefix: the host resolves each profile's `promptPrefix` (e.g. the explore agent's git context) once per turn and the engine prepends it as `{prefix}\n\n{prompt}`. Cancellation: parent-turn cancel is now event-driven — a `CANCEL_TURN` flips the flag and wakes a notify, and the foreground subagent run future is dropped at its current await point instead of waiting for the next 100ms poll tick. Event mirroring: the engine emits `subagent.spawned/started/completed/failed` lifecycle events (keyed to the parent tool call id, with summary and usage), which the host maps onto the same Event2 surface as host-spawned subagents plus `subagent_created` telemetry, so UIs see native subagents identically. Remaining honest boundaries: stdio session-entry cancellation wiring, spawn-time vs snapshot-time prefix resolution, and the scope-handle-only parts of `mirrorAgentRun`.

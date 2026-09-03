@@ -17,12 +17,21 @@ export interface EngineExecution {
   readonly llmTransport?: string;
   /** Tool calls the engine executed in its own process rather than on the host. */
   readonly nativeToolCalls?: number;
+  /** Why the LLM went through the host proxy instead of the native transport.
+   *  Absent when the native transport served the turn. */
+  readonly llmFallbackReason?: string;
 }
 
 let current: EngineExecution | undefined;
 
 export function setEngineExecution(execution: EngineExecution): void {
   current = execution;
+}
+
+/** Merge into the recorded snapshot; a no-op before the engine is wired, when
+ *  there is no executor to report about yet. */
+export function patchEngineExecution(patch: Partial<EngineExecution>): void {
+  if (current !== undefined) current = { ...current, ...patch };
 }
 
 /** `undefined` means no decision has been recorded — e.g. a host that never

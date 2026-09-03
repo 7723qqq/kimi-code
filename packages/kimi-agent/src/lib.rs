@@ -3,6 +3,7 @@
 //! Shared library entry point for both the CLI binary (stdio JSON-RPC)
 //! and the napi-rs native addon (direct Node.js integration).
 
+pub mod acp;
 pub mod callbacks;
 pub mod compaction;
 pub mod config;
@@ -15,8 +16,10 @@ pub mod llm;
 pub mod mcp;
 pub mod napi_bindings;
 pub mod permission;
+pub mod pipeline;
 pub mod repl;
 pub mod rpc;
+pub mod server;
 pub mod session;
 pub mod storage;
 pub mod subagent;

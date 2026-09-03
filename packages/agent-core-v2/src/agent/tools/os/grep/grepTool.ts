@@ -317,6 +317,18 @@ export class GrepTool implements IGrepTool {
     };
   }
 
+  /**
+   * Order `files_with_matches`: whole-second mtime DESC, ties broken by file
+   * path ASC. Both halves are pinned by the native engine
+   * (`kimi-agent/src/tools/mod.rs` `grep_sort_and_cap`), which quantises mtime
+   * with `duration_since(UNIX_EPOCH).as_secs()` and breaks ties on the display
+   * path, so a `git checkout` / `clone` that leaves thousands of files sharing
+   * one mtime produces the same order on both paths. The tiebreak used to be
+   * rg's output index, which is walk order — deterministic for a single rg run
+   * but not reproducible by the engine's parallel walk. Code-unit comparison
+   * (rather than `localeCompare`) keeps it locale-independent and equivalent to
+   * Rust's `String` ordering over the same shared-root paths.
+   */
   private async sortFilesWithMatchesByMtime(
     fs: IHostFileSystem,
     lines: readonly ParsedGrepLine[],
@@ -326,7 +338,7 @@ export class GrepTool implements IGrepTool {
       lines,
       MTIME_STAT_CONCURRENCY,
       signal,
-      async (line, index) => {
+      async (line) => {
         const path =
           line.kind === 'record' ? line.filePath : line.kind === 'legacy' ? line.text : undefined;
         let mtime = 0;
@@ -337,12 +349,20 @@ export class GrepTool implements IGrepTool {
           } catch {
           }
         }
-        return { line, mtime, index };
+        return { line, mtime, sortKey: path ?? '' };
       },
     );
-    entries.sort((a, b) => b.mtime - a.mtime || a.index - b.index);
+    entries.sort((a, b) => b.mtime - a.mtime || compareFilePathOrder(a.sortKey, b.sortKey));
     return entries.map((entry) => entry.line);
   }
+}
+
+/** Ascending code-unit path order; the `files_with_matches` mtime tiebreak. */
+function compareFilePathOrder(a: string, b: string): number {
+  if (a < b) {
+    return -1;
+  }
+  return a > b ? 1 : 0;
 }
 
 registerAgentToolService(IGrepTool, GrepTool, {

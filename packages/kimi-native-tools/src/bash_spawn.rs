@@ -120,27 +120,35 @@ pub fn spawn_managed(
         cmd.process_group(0);
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn process: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn process: {e}"))?;
     let pid = child.id();
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
     let stdout_pipe = child.stdout.take();
     let stderr_pipe = child.stderr.take();
-    registry().insert(
-        id,
-        ManagedBash {
-            child,
-            exit: None,
-        },
-    );
+    registry().insert(id, ManagedBash { child, exit: None });
 
     let (stdout_done, stdout_rx) = mpsc_channel();
     let (stderr_done, stderr_rx) = mpsc_channel();
     if let Some(pipe) = stdout_pipe {
-        spawn_pipe_reader(pipe, id, BashSpawnEventKind::Stdout, on_event.clone(), stdout_done);
+        spawn_pipe_reader(
+            pipe,
+            id,
+            BashSpawnEventKind::Stdout,
+            on_event.clone(),
+            stdout_done,
+        );
     }
     if let Some(pipe) = stderr_pipe {
-        spawn_pipe_reader(pipe, id, BashSpawnEventKind::Stderr, on_event.clone(), stderr_done);
+        spawn_pipe_reader(
+            pipe,
+            id,
+            BashSpawnEventKind::Stderr,
+            on_event.clone(),
+            stderr_done,
+        );
     }
 
     std::thread::spawn(move || {
@@ -359,7 +367,12 @@ mod tests {
 
     fn platform_echo_command(text: &str) -> Vec<String> {
         if cfg!(windows) {
-            vec!["cmd".to_string(), "/c".to_string(), "echo".to_string(), text.to_string()]
+            vec![
+                "cmd".to_string(),
+                "/c".to_string(),
+                "echo".to_string(),
+                text.to_string(),
+            ]
         } else {
             vec!["sh".to_string(), "-c".to_string(), format!("echo {text}")]
         }
@@ -452,7 +465,8 @@ mod tests {
             .expect("exit event must be emitted");
         assert!(events[..exit_pos]
             .iter()
-            .any(|e| e.kind == BashSpawnEventKind::Stdout && e.data.as_deref().unwrap_or("").contains("hello")));
+            .any(|e| e.kind == BashSpawnEventKind::Stdout
+                && e.data.as_deref().unwrap_or("").contains("hello")));
 
         let exit = events[exit_pos].clone();
         assert_eq!(exit.exit_code, Some(0));
@@ -471,11 +485,20 @@ mod tests {
     fn test_spawn_stderr_streaming() {
         let collector = EventCollector::new();
         let argv = if cfg!(windows) {
-            vec!["cmd".to_string(), "/c".to_string(), "echo err-out 1>&2".to_string()]
+            vec![
+                "cmd".to_string(),
+                "/c".to_string(),
+                "echo err-out 1>&2".to_string(),
+            ]
         } else {
-            vec!["sh".to_string(), "-c".to_string(), "echo err-out >&2".to_string()]
+            vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "echo err-out >&2".to_string(),
+            ]
         };
-        let (id, _pid) = spawn_managed(&argv, None, None, None, collector.callback.clone()).unwrap();
+        let (id, _pid) =
+            spawn_managed(&argv, None, None, None, collector.callback.clone()).unwrap();
         let events = collector.wait_exit(Duration::from_secs(10));
         let stderr: String = events
             .iter()
@@ -562,7 +585,10 @@ mod tests {
         } else {
             vec!["pwd".to_string()]
         };
-        let env = vec![("KIMI_SPAWN_TEST_VAR".to_string(), "spawn-env-ok".to_string())];
+        let env = vec![(
+            "KIMI_SPAWN_TEST_VAR".to_string(),
+            "spawn-env-ok".to_string(),
+        )];
         let (id, _pid) = spawn_managed(
             &argv,
             Some(dir.path().to_str().unwrap()),
@@ -578,7 +604,10 @@ mod tests {
             .filter_map(|e| e.data.clone())
             .collect();
         assert!(!stdout.trim().is_empty(), "cwd output: {stdout:?}");
-        let exit = events.iter().find(|e| e.kind == BashSpawnEventKind::Exit).unwrap();
+        let exit = events
+            .iter()
+            .find(|e| e.kind == BashSpawnEventKind::Exit)
+            .unwrap();
         assert_eq!(exit.exit_code, Some(0));
         assert!(dispose_managed(id));
     }
@@ -587,12 +616,25 @@ mod tests {
     fn test_spawn_env_override_visible_to_child() {
         let collector = EventCollector::new();
         let argv = if cfg!(windows) {
-            vec!["cmd".to_string(), "/c".to_string(), "echo".to_string(), "%KIMI_SPAWN_TEST_VAR%".to_string()]
+            vec![
+                "cmd".to_string(),
+                "/c".to_string(),
+                "echo".to_string(),
+                "%KIMI_SPAWN_TEST_VAR%".to_string(),
+            ]
         } else {
-            vec!["sh".to_string(), "-c".to_string(), "echo $KIMI_SPAWN_TEST_VAR".to_string()]
+            vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "echo $KIMI_SPAWN_TEST_VAR".to_string(),
+            ]
         };
-        let env = vec![("KIMI_SPAWN_TEST_VAR".to_string(), "spawn-env-ok".to_string())];
-        let (id, _pid) = spawn_managed(&argv, None, None, Some(&env), collector.callback.clone()).unwrap();
+        let env = vec![(
+            "KIMI_SPAWN_TEST_VAR".to_string(),
+            "spawn-env-ok".to_string(),
+        )];
+        let (id, _pid) =
+            spawn_managed(&argv, None, None, Some(&env), collector.callback.clone()).unwrap();
         let events = collector.wait_exit(Duration::from_secs(10));
         let stdout: String = events
             .iter()

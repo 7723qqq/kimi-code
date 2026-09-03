@@ -133,10 +133,12 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
 
             let path_str = path.to_string_lossy();
             if is_sensitive_file(&path_str) {
-                filtered_sensitive
-                    .lock()
-                    .unwrap()
-                    .push(path.strip_prefix(search_path).unwrap_or(path).display().to_string());
+                filtered_sensitive.lock().unwrap().push(
+                    path.strip_prefix(search_path)
+                        .unwrap_or(path)
+                        .display()
+                        .to_string(),
+                );
                 return ignore::WalkState::Continue;
             }
 
@@ -531,10 +533,28 @@ mod tests {
 
         // Sensitive files are excluded from files and reported separately
         // (relativized to the search root).
-        assert!(result.files.iter().all(|f| !f.contains(".env")), "files: {:?}", result.files);
+        assert!(
+            result.files.iter().all(|f| !f.contains(".env")),
+            "files: {:?}",
+            result.files
+        );
         assert_eq!(result.filtered_sensitive.len(), 2);
-        assert!(result.filtered_sensitive.iter().any(|f| f.ends_with(".env")), "got: {:?}", result.filtered_sensitive);
-        assert!(result.filtered_sensitive.iter().any(|f| f.ends_with(".env.local")), "got: {:?}", result.filtered_sensitive);
+        assert!(
+            result
+                .filtered_sensitive
+                .iter()
+                .any(|f| f.ends_with(".env")),
+            "got: {:?}",
+            result.filtered_sensitive
+        );
+        assert!(
+            result
+                .filtered_sensitive
+                .iter()
+                .any(|f| f.ends_with(".env.local")),
+            "got: {:?}",
+            result.filtered_sensitive
+        );
         // Normal files are neither filtered nor sensitive-listed.
         assert!(result.files.iter().any(|f| f.ends_with("app.ts")));
         assert!(result.files.iter().any(|f| f.ends_with("data.txt")));

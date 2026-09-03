@@ -104,6 +104,15 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
       mocks.kimiHarnessV2Constructor(...args);
       return makeHarnessStub(args);
     },
+    createKimiHarnessNative: (...args: unknown[]) => {
+      const options = args[0] as { readonly homeDir?: string } | undefined;
+      const homeDir = options?.homeDir ?? '/tmp/kimi-code-test-home';
+      if (mocks.harnessCreatesDeviceIdOnConstruction) {
+        mocks.createKimiDeviceId(homeDir);
+      }
+      mocks.kimiHarnessV2Constructor(...args);
+      return makeHarnessStub(args);
+    },
   };
 });
 

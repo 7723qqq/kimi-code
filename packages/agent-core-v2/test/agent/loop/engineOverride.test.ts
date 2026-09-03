@@ -285,17 +285,13 @@ describe('external engine override', () => {
     expect(finished[0]!.finishReason).toBe('completed');
   });
 
-  it('drains steered prompts into the engine mid-turn and appends them to context', async () => {
-    const drained: Message[][] = [];
+  it('delivers steered prompts to the engine mid-turn and appends them to context', async () => {
+    const delivered: unknown[] = [];
     const engine: TurnEngine = async (input) => {
       engineInput = input;
-      let steered: readonly Message[] = [];
-      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
-        steered = (await input.drainSteers?.()) ?? [];
-        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 50 && delivered.length === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      drained.push([...steered]);
-      drained.push([...(await input.drainSteers?.()) ?? []]);
       await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
       await input.dispatchEvent({
         type: 'step.end',
@@ -307,33 +303,38 @@ describe('external engine override', () => {
       return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
     };
 
-    ctx = createTestAgentWithEngine(engine);
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine,
+        deliverSteer: async (message) => {
+          delivered.push(message);
+        },
+      }),
+    );
     void ctx.restoreRuntimes();
     const end = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
     await ctx.rpc.steer({ input: [{ type: 'text', text: 'Steered!' }] });
     await end;
 
-    expect(drained[0]).toHaveLength(1);
-    expect(drained[0]?.[0]).toMatchObject({ role: 'user' });
-    expect(drained[0]?.[0]?.content).toEqual([{ type: 'text', text: 'Steered!' }]);
-    expect(drained[1]).toHaveLength(0);
+    expect(delivered).toHaveLength(1);
+    const message = delivered[0] as { role: string; content: Array<{ type: string; text?: string }> };
+    expect(message.role).toBe('user');
+    expect(message.content).toEqual([{ type: 'text', text: 'Steered!' }]);
 
     const messages = await engineInput!.buildMessages();
     expect(
       messages.some(
-        (m) => m.role === 'user' && m.content.some((p) => p.type === 'text' && p.text === 'Steered!'),
+        (m) =>
+          m.role === 'user' &&
+          m.content.some((p) => p.type === 'text' && (p.text ?? '').includes('Steered!')),
       ),
     ).toBe(true);
   });
 
   it('settles steered prompts when the engine turn ends', async () => {
     const engine: TurnEngine = async (input) => {
-      let steered: readonly Message[] = [];
-      for (let i = 0; i < 50 && steered.length === 0; i += 1) {
-        steered = (await input.drainSteers?.()) ?? [];
-        if (steered.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
       await input.dispatchEvent({ type: 'step.begin', uuid: 'step-1', turnId: String(input.turnId), step: 1 });
       await input.dispatchEvent({
         type: 'step.end',
@@ -345,7 +346,12 @@ describe('external engine override', () => {
       return { stopReason: 'completed', steps: 1, usage: emptyUsage() };
     };
 
-    ctx = createTestAgentWithEngine(engine);
+    ctx = createTestAgent(
+      appService(IEngineOverrideService, {
+        getEngine: () => engine,
+        deliverSteer: async () => undefined,
+      }),
+    );
     void ctx.restoreRuntimes();
     const end = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
@@ -1812,5 +1818,122 @@ describe('external engine × state bridge', () => {
     await driveTurn();
 
     expect((writeError as { code?: number }).code).toBe(-32003);
+  });
+});
+
+describe('engine-owned turn lifecycle (M1d 3c)', () => {
+  let ctx: TestAgentContext | undefined;
+  let engineInput: TurnEngineInput | undefined;
+
+  function createTestAgentWithLifecycleEngine(
+    engine: TurnEngine,
+    ...overrides: TestAgentServiceOverride[]
+  ): TestAgentContext {
+    return createTestAgent(
+      appService(IEngineOverrideService, { getEngine: () => engine, ownsTurnLifecycle: true }),
+      ...overrides,
+    );
+  }
+
+  afterEach(async () => {
+    if (ctx !== undefined) {
+      await ctx.dispose();
+      ctx = undefined;
+    }
+  });
+
+  it('suppresses the loop durable events and folds the engine ones through the bridge', async () => {
+    engineInput = undefined;
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      input.onTurnEvent?.({ type: 'turn.prompt', turnId: input.turnId, input: [], origin: { kind: 'user' } });
+      input.onTurnEvent?.({ type: 'turn.started', turnId: input.turnId, origin: { kind: 'user' } });
+      input.onTurnEvent?.({ type: 'turn.ended', turnId: input.turnId, reason: 'completed', durationMs: 7 });
+      return { stopReason: 'completed', steps: 0, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithLifecycleEngine(engine);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    // The engine owns the lifecycle: the observable turn records appear
+    // exactly once, and they are the bridge folds (the loop suppressed its
+    // own). The bridge derives the started prompt from the turn seed.
+    const started = emitted(ctx, 'turn.started');
+    expect(started).toHaveLength(1);
+    expect(engineInput).toBeDefined();
+    expect(started[0]).toMatchObject({ turnId: engineInput!.turnId, prompt: 'Hello' });
+    const ended = emitted(ctx, 'turn.ended');
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({ reason: 'completed', turnId: engineInput!.turnId });
+    expect(typeof engineInput!.onTurnEvent).toBe('function');
+    expect(typeof engineInput!.onTurnTelemetry).toBe('function');
+  });
+
+  it('forwards engine turn telemetry to track2 without the loop duplicates', async () => {
+    const telemetry: TelemetryRecord[] = [];
+    engineInput = undefined;
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      input.onTurnTelemetry?.({
+        event: 'turn_started',
+        turn_id: String(input.turnId),
+        mode: 'cli',
+        provider_type: 'mock',
+        protocol: 'openai',
+      });
+      input.onTurnTelemetry?.({
+        event: 'turn_ended',
+        turn_id: String(input.turnId),
+        mode: 'cli',
+        provider_type: 'mock',
+        protocol: 'openai',
+        reason: 'completed',
+        duration_ms: 7,
+      });
+      input.onTurnEvent?.({ type: 'turn.ended', turnId: input.turnId, reason: 'completed' });
+      return { stopReason: 'completed', steps: 0, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithLifecycleEngine(
+      engine,
+      telemetryServices(recordingTelemetry(telemetry)),
+    );
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    const started = telemetry.filter((record) => record.event === 'turn_started');
+    const ended = telemetry.filter((record) => record.event === 'turn_ended');
+    expect(started).toHaveLength(1);
+    expect(ended).toHaveLength(1);
+    expect(engineInput).toBeDefined();
+    expect(started[0]?.properties).toMatchObject({
+      turn_id: String(engineInput!.turnId),
+      provider_type: 'mock',
+    });
+  });
+
+  it('keeps the loop-owned durable events when the engine does not own the lifecycle', async () => {
+    engineInput = undefined;
+    const engine: TurnEngine = async (input) => {
+      engineInput = input;
+      return { stopReason: 'completed', steps: 0, usage: emptyUsage() };
+    };
+
+    ctx = createTestAgentWithEngine(engine);
+    void ctx.restoreRuntimes();
+    const end = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await end;
+
+    expect(emitted(ctx, 'turn.started')).toHaveLength(1);
+    expect(emitted(ctx, 'turn.ended')).toHaveLength(1);
+    expect(engineInput).toBeDefined();
+    expect(engineInput!.onTurnEvent).toBeUndefined();
+    expect(engineInput!.onTurnTelemetry).toBeUndefined();
   });
 });
