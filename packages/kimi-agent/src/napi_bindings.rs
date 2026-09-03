@@ -422,7 +422,7 @@ impl HostCallbacks for NapiHostCallbacks {
 
     fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
         let Some(ref tsfn) = self.checkpoint_fn else {
-            return Box::pin(async { Err("host does not support checkpoint".to_string()) });
+            return Box::pin(async { Err(crate::callbacks::CHECKPOINT_UNSUPPORTED.to_string()) });
         };
         let tsfn = tsfn.clone();
         let input = serde_json::to_string(&request)
@@ -786,6 +786,8 @@ pub struct JsRunTurnParams {
     /// `RunTurnParams`).
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    pub caller_agent_id: Option<String>,
+    pub session_id: Option<String>,
     /// Native MCP servers configuration (P73).
     pub mcp_servers: Option<Vec<JsMcpServerConfig>>,
 }
@@ -850,7 +852,7 @@ pub struct JsLlmProviderDef {
 #[napi(object)]
 #[derive(Clone)]
 pub struct JsNativeLlmConfig {
-    /// "openai" (Chat Completions) or "anthropic" (Messages).
+    /// "openai" (Chat Completions) or "anthropic" (Messages), or "google" / "openai_responses".
     pub protocol: String,
     /// API base URL including the version segment (e.g. `.../v1`).
     pub base_url: String,
@@ -1308,6 +1310,8 @@ async fn build_engine_pipeline(
             .map(|timeout| timeout as u64),
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
+        caller_agent_id: params.caller_agent_id.clone(),
+        session_id: params.session_id.clone(),
     };
 
     pipeline::build_engine_pipeline(
@@ -1967,6 +1971,19 @@ pub fn session_history_len(session_id: String) -> napi::Result<u32> {
     guard_sync_panic(|| {
         let entry = session_entry(&session_id)?;
         Ok(entry.session.history_len() as u32)
+    })
+}
+
+/// The session's current cross-turn history as a JSON `LLMMessage[]` — the
+/// inverse of `session_set_history`. Lets the host carry the conversation
+/// across an engine-session rebuild (a mid-session model / permission change)
+/// and implement undo / fork without losing context.
+#[napi]
+pub fn session_get_history(session_id: String) -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        serde_json::to_string(&entry.session.snapshot_history())
+            .map_err(|e| napi::Error::from_reason(format!("history serialize: {e}")))
     })
 }
 

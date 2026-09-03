@@ -69,6 +69,9 @@ impl SqliteSessionStore {
                 turn_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                tool_calls TEXT,
+                tool_call_id TEXT,
+                blocks TEXT,
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
@@ -91,6 +94,22 @@ impl SqliteSessionStore {
             );
             ",
         )?;
+
+        // Ensure columns exist if table was created by older schema
+        let columns: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
+            let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            names.filter_map(std::result::Result::ok).collect()
+        };
+        if !columns.contains("tool_calls") {
+            let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
+        }
+        if !columns.contains("tool_call_id") {
+            let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT", []);
+        }
+        if !columns.contains("blocks") {
+            let _ = conn.execute("ALTER TABLE messages ADD COLUMN blocks TEXT", []);
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -138,6 +157,35 @@ impl SqliteSessionStore {
         Ok(out)
     }
 
+    /// Get summary for a specific session by ID.
+    pub fn get_session(&self, session_id: &str) -> Result<Option<SessionSummary>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT session_id, title, created_at, updated_at FROM sessions WHERE session_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(SessionSummary {
+                session_id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Delete a session and all its cascading turns, messages, and checkpoints.
+    pub fn delete_session(&self, session_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute(
+            "DELETE FROM sessions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        Ok(affected > 0)
+    }
+
     /// The turn number a new turn for this session should take, derived from
     /// the `turns` table so a caller that owns the store does not have to keep
     /// its own counter — one would reset on restart and collide on insert.
@@ -183,10 +231,29 @@ impl SqliteSessionStore {
         )?;
 
         for m in messages {
+            let tool_calls_json = if m.tool_calls.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&m.tool_calls).ok()
+            };
+            let blocks_json = if m.blocks.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&m.blocks).ok()
+            };
             conn.execute(
-                "INSERT INTO messages (session_id, turn_id, role, content, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![session_id, turn_id, m.role, m.content, now],
+                "INSERT INTO messages (session_id, turn_id, role, content, tool_calls, tool_call_id, blocks, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    session_id,
+                    turn_id,
+                    m.role,
+                    m.content,
+                    tool_calls_json,
+                    m.tool_call_id,
+                    blocks_json,
+                    now
+                ],
             )?;
         }
 
@@ -199,17 +266,29 @@ impl SqliteSessionStore {
         session_id: &str,
     ) -> Result<Vec<LLMMessage>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY id ASC")?;
+        let mut stmt = conn.prepare(
+            "SELECT role, content, tool_calls, tool_call_id, blocks FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+        )?;
         let rows = stmt.query_map(params![session_id], |row| {
             let role: String = row.get(0)?;
             let content: String = row.get(1)?;
+            let tool_calls_str: Option<String> = row.get(2)?;
+            let tool_call_id: Option<String> = row.get(3)?;
+            let blocks_str: Option<String> = row.get(4)?;
+
+            let tool_calls = tool_calls_str
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+            let blocks = blocks_str
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+
             Ok(LLMMessage {
                 role,
                 content,
-                blocks: Vec::new(),
-                tool_call_id: None,
-                tool_calls: Vec::new(),
+                blocks,
+                tool_call_id,
+                tool_calls,
             })
         })?;
 
@@ -326,5 +405,66 @@ mod tests {
                 &serde_json::json!({ "step": 1 }),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_sqlite_structured_tool_calls_and_blocks() {
+        use crate::turn_loop::types::{ContentBlock, ToolCall};
+
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-structured", None).unwrap();
+
+        let msgs = vec![
+            LLMMessage {
+                role: "user".into(),
+                content: "show me image".into(),
+                blocks: vec![ContentBlock::Text {
+                    text: "show me image".into(),
+                }],
+                tool_calls: vec![],
+                tool_call_id: None,
+            },
+            LLMMessage {
+                role: "assistant".into(),
+                content: "calling tool".into(),
+                blocks: vec![],
+                tool_calls: vec![ToolCall {
+                    id: "call_read_1".into(),
+                    name: "Read".into(),
+                    arguments: serde_json::json!({ "path": "file.txt" }),
+                }],
+                tool_call_id: None,
+            },
+            LLMMessage {
+                role: "tool".into(),
+                content: "file contents".into(),
+                blocks: vec![],
+                tool_calls: vec![],
+                tool_call_id: Some("call_read_1".into()),
+            },
+        ];
+
+        store
+            .save_turn("sess-structured", "turn-1", 1, &msgs, None)
+            .unwrap();
+
+        let loaded = store.load_session_history("sess-structured").unwrap();
+        assert_eq!(loaded.len(), 3);
+
+        // Turn 1 user message with blocks
+        assert_eq!(loaded[0].role, "user");
+        assert_eq!(loaded[0].blocks.len(), 1);
+
+        // Turn 1 assistant message with structured tool call
+        assert_eq!(loaded[1].role, "assistant");
+        assert_eq!(loaded[1].tool_calls.len(), 1);
+        assert_eq!(loaded[1].tool_calls[0].id, "call_read_1");
+        assert_eq!(loaded[1].tool_calls[0].name, "Read");
+        assert_eq!(loaded[1].tool_calls[0].arguments["path"], "file.txt");
+
+        // Turn 1 tool result with tool_call_id
+        assert_eq!(loaded[2].role, "tool");
+        assert_eq!(loaded[2].content, "file contents");
+        assert_eq!(loaded[2].tool_call_id.as_deref(), Some("call_read_1"));
     }
 }

@@ -136,6 +136,41 @@ impl HttpServer {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
                 Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
             },
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 5 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                match self.store.get_session(session_id) {
+                    Ok(Some(session)) => {
+                        let history = self
+                            .store
+                            .load_session_history(session_id)
+                            .unwrap_or_default();
+                        HttpResponse::ok(&json!({
+                            "session": session,
+                            "messages": history,
+                        }))
+                    }
+                    Ok(None) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("DELETE", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 5 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                match self.store.delete_session(session_id) {
+                    Ok(true) => {
+                        HttpResponse::ok(&json!({ "deleted": true, "sessionId": session_id }))
+                    }
+                    Ok(false) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
             ("POST", "/api/v1/sessions") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
@@ -293,6 +328,35 @@ mod tests {
             !String::from_utf8_lossy(&res_prompt.body).contains("Processed:"),
             "the canned reply is still being served"
         );
+
+        // 4. Get specific session
+        let req_get = HttpRequest {
+            method: "GET".into(),
+            path: format!("/api/v1/sessions/{sid}"),
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_get = server.handle_request(&req_get).await;
+        assert_eq!(res_get.status, 200);
+        let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
+        assert_eq!(val_get["session"]["session_id"], sid);
+        assert_eq!(val_get["session"]["title"], "Web REST Test");
+
+        // 5. Delete session
+        let req_del = HttpRequest {
+            method: "DELETE".into(),
+            path: format!("/api/v1/sessions/{sid}"),
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_del = server.handle_request(&req_del).await;
+        assert_eq!(res_del.status, 200);
+        let val_del: Value = serde_json::from_slice(&res_del.body).unwrap();
+        assert_eq!(val_del["deleted"], true);
+
+        // 6. Verify deleted
+        let res_get_after = server.handle_request(&req_get).await;
+        assert_eq!(res_get_after.status, 404);
     }
 
     fn engine_without_a_model(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> ServerEngine {
@@ -312,6 +376,8 @@ mod tests {
                 subagent_timeout_ms: None,
                 agent_tool_veto: None,
                 tools_veto: None,
+                caller_agent_id: None,
+                session_id: None,
             },
             hub,
             store,

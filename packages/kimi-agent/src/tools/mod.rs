@@ -218,6 +218,19 @@ pub fn is_native_tool_name(tool_name: &str) -> bool {
         || tool_name.starts_with("mcp__")
 }
 
+tokio::task_local! {
+    /// The id of the agent executing the current turn — "main" for the root
+    /// agent, a spawned subagent's id for its own turns. Scoped by the
+    /// subagent turn runner ([`crate::subagent::SubagentManager`]); the native
+    /// tower tools read it to attribute a call to the right roster agent and to
+    /// enforce the main-agent-only gate on the orchestration tools. Each
+    /// subagent turn runs in its own task, so concurrent workers carry
+    /// independent values with no shared-mutable race. When unset (a direct
+    /// toolset call, e.g. in a test), [`NativeToolset::effective_caller_agent_id`]
+    /// falls back to the construction-time `caller_agent_id`.
+    pub static CALLER_AGENT_ID: String;
+}
+
 /// Sandboxed native executor, rooted at the workspace.
 pub struct NativeToolset {
     root: PathBuf,
@@ -298,6 +311,21 @@ impl NativeToolset {
     pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
         self
+    }
+
+    /// The agent id executing the current turn: the [`CALLER_AGENT_ID`]
+    /// task-local when the turn runner scoped one (a subagent's id), else the
+    /// construction-time `caller_agent_id`, else `"main"`. The tower tools use
+    /// this so a worker's calls are attributed to the worker rather than to the
+    /// main agent, and the main-agent-only gate actually denies workers.
+    fn effective_caller_agent_id(&self) -> String {
+        CALLER_AGENT_ID
+            .try_with(|id| id.clone())
+            .unwrap_or_else(|_| {
+                self.caller_agent_id
+                    .clone()
+                    .unwrap_or_else(|| "main".to_string())
+            })
     }
 
     /// Attach a SubagentManager for in-process multi-agent collaboration.
@@ -531,7 +559,7 @@ impl NativeToolset {
             }
             "skill" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(skill::execute_skill(callbacks, args).await)
+                Some(skill::execute_skill(callbacks, self.session_id.as_deref(), args).await)
             }
             "team" => {
                 let mgr = self.subagent_manager.as_ref()?;
@@ -561,18 +589,21 @@ impl NativeToolset {
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
             "towerinit" | "tower_init" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 let session = self.session_id.as_deref().unwrap_or("session-main");
                 Some(
                     tower::execute_tower_init(&self.root, caller, session, &args.to_string()).await,
                 )
             }
             "towerplan" | "tower_plan" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_plan(&self.root, caller, &args.to_string()).await)
             }
             "towerspawn" | "tower_spawn" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 let session = self.session_id.as_deref().unwrap_or("session-main");
                 tower::execute_tower_spawn(
                     &self.root,
@@ -580,16 +611,19 @@ impl NativeToolset {
                     session,
                     self.subagent_manager.as_ref(),
                     tool_call_id,
+                    self.effective_parent_cancel().as_ref(),
                     &args.to_string(),
                 )
                 .await
             }
             "towermerge" | "tower_merge" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_merge(&self.root, caller, &args.to_string()).await)
             }
             "towerteardown" | "tower_teardown" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 let session = self.session_id.as_deref().unwrap_or("session-main");
                 Some(
                     tower::execute_tower_teardown(&self.root, caller, session, &args.to_string())
@@ -597,27 +631,33 @@ impl NativeToolset {
                 )
             }
             "towersend" | "tower_send" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_send(&self.root, caller, &args.to_string()).await)
             }
             "towerinbox" | "tower_inbox" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_inbox(&self.root, caller, &args.to_string()).await)
             }
             "towerfinding" | "tower_finding" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_finding(&self.root, caller, &args.to_string()).await)
             }
             "towerreview" | "tower_review" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_review(&self.root, caller, &args.to_string()).await)
             }
             "towermission" | "tower_mission" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_mission(&self.root, caller, &args.to_string()).await)
             }
             "towerstatus" | "tower_status" => {
-                let caller = self.caller_agent_id.as_deref().unwrap_or("main");
+                let caller = self.effective_caller_agent_id();
+                let caller = caller.as_str();
                 Some(tower::execute_tower_status(&self.root, caller).await)
             }
             "write" => {
@@ -1195,7 +1235,12 @@ impl NativeToolset {
         let walker = builder.build();
         for entry in walker.flatten() {
             let path = entry.path();
-            if path.components().any(|c| {
+            // Judge VCS metadata only *below the search root*: a workspace
+            // rooted at e.g. `/home/u/.git-configs/proj` or a `.tower/worktrees/…`
+            // checkout carries those names in its own prefix, and matching the
+            // absolute path would silently exclude every result.
+            let relative = path.strip_prefix(&search_root).unwrap_or(path);
+            if relative.components().any(|c| {
                 matches!(
                     c.as_os_str().to_str(),
                     Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
@@ -1206,7 +1251,6 @@ impl NativeToolset {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            let relative = path.strip_prefix(&search_root).unwrap_or(path);
             if glob.is_match(relative) || glob.is_match(path) {
                 if is_sensitive_file(&path.to_string_lossy()) {
                     filtered_sensitive += 1;
@@ -1661,6 +1705,7 @@ fn grep_collect(
     let oversized_walk = Arc::clone(&oversized);
     let scanned_walk = Arc::clone(&scanned);
     let cfg_copy = *cfg;
+    let search_root_owned = search_root.to_path_buf();
 
     // rg `--no-ignore` (include_ignored) turns off every ignore source: repo
     // .gitignore, .git/info/exclude, the global gitignore, .ignore/.rgignore,
@@ -1684,6 +1729,7 @@ fn grep_collect(
         let timed_out = Arc::clone(&timed_walk);
         let oversized = Arc::clone(&oversized_walk);
         let scanned = Arc::clone(&scanned_walk);
+        let walk_root = search_root_owned.clone();
         Box::new(move |entry: Result<ignore::DirEntry, ignore::Error>| {
             // The wall-clock budget is an atomic flag every worker can
             // check; hitting it flips `timed_out` and asks the walk to
@@ -1696,7 +1742,11 @@ fn grep_collect(
                 return WalkState::Continue;
             };
             let path = entry.path();
-            if path.components().any(|c| {
+            // Judge VCS metadata only *below the search root* (see the Glob
+            // walk): a workspace rooted under a path that itself contains
+            // `.git`/`.hg`/… would otherwise exclude every hit.
+            let relative = path.strip_prefix(&walk_root).unwrap_or(path);
+            if relative.components().any(|c| {
                 matches!(
                     c.as_os_str().to_str(),
                     Some(name) if VCS_DIRECTORIES_TO_EXCLUDE.contains(&name)
@@ -3170,6 +3220,29 @@ m2
         assert!(
             !result.content.contains(".git"),
             "VCS metadata must be excluded: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn glob_judges_vcs_exclusion_below_the_search_root_only() {
+        let dir = tempfile::tempdir().unwrap();
+        // The search root sits *under* a VCS-named directory. The exclusion must
+        // judge only the path relative to the search root, or the `.hg` in the
+        // root's own prefix would drop every result.
+        let proj = dir.path().join(".hg").join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("keep.txt"), "hello\n").unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+        let result = ts
+            .execute(
+                "Glob",
+                &json!({ "pattern": "**/*.txt", "path": ".hg/proj" }),
+            )
+            .unwrap();
+        assert!(
+            result.content.contains("keep.txt"),
+            "a search root under a VCS-named dir must still yield results: {}",
             result.content
         );
     }

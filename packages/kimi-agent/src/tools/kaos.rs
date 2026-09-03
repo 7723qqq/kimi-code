@@ -43,9 +43,19 @@ impl ExecutionEnvironment {
         match self {
             Self::Local => {
                 let mut cmd = tokio::process::Command::new(shell);
-                cmd.arg("-c")
-                    .arg(command)
-                    .current_dir(working_dir)
+                let shell_lower = shell.to_ascii_lowercase();
+                if shell_lower.ends_with("cmd.exe") || shell_lower == "cmd" {
+                    cmd.arg("/c").arg(command);
+                } else if shell_lower.contains("powershell") || shell_lower.contains("pwsh") {
+                    cmd.arg("-NoProfile")
+                        .arg("-NonInteractive")
+                        .arg("-Command")
+                        .arg(command);
+                } else {
+                    cmd.arg("-c").arg(command);
+                }
+                cmd.current_dir(working_dir)
+                    .stdin(std::process::Stdio::null())
                     .env("NO_COLOR", "1")
                     .env("TERM", "dumb")
                     .env("GIT_TERMINAL_PROMPT", "0")
@@ -64,6 +74,10 @@ impl ExecutionEnvironment {
                     cmd.arg("-w").arg(wd_str);
                 }
                 cmd.arg(container_id).arg(shell).arg("-c").arg(command);
+                cmd.stdin(std::process::Stdio::null())
+                    .env("NO_COLOR", "1")
+                    .env("TERM", "dumb")
+                    .env("GIT_TERMINAL_PROMPT", "0");
                 cmd
             }
             Self::Ssh {
@@ -94,6 +108,10 @@ impl ExecutionEnvironment {
                     command.to_string()
                 };
                 cmd.arg(remote_cmd);
+                cmd.stdin(std::process::Stdio::null())
+                    .env("NO_COLOR", "1")
+                    .env("TERM", "dumb")
+                    .env("GIT_TERMINAL_PROMPT", "0");
                 cmd
             }
         }
@@ -109,6 +127,34 @@ mod tests {
         let env = ExecutionEnvironment::Local;
         let cmd = env.build_command("bash", Path::new("/tmp"), "echo hello");
         assert_eq!(cmd.as_std().get_program(), "bash");
+    }
+
+    #[test]
+    fn test_local_command_builder_cmd_and_powershell() {
+        let env = ExecutionEnvironment::Local;
+
+        // CMD flavor
+        let cmd_cmd = env.build_command("cmd.exe", Path::new("C:\\"), "dir");
+        assert_eq!(cmd_cmd.as_std().get_program(), "cmd.exe");
+        let args_cmd: Vec<&str> = cmd_cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_str().unwrap())
+            .collect();
+        assert_eq!(args_cmd, ["/c", "dir"]);
+
+        // PowerShell flavor
+        let cmd_pwsh = env.build_command("pwsh", Path::new("C:\\"), "Get-Process");
+        assert_eq!(cmd_pwsh.as_std().get_program(), "pwsh");
+        let args_pwsh: Vec<&str> = cmd_pwsh
+            .as_std()
+            .get_args()
+            .map(|a| a.to_str().unwrap())
+            .collect();
+        assert_eq!(
+            args_pwsh,
+            ["-NoProfile", "-NonInteractive", "-Command", "Get-Process"]
+        );
     }
 
     #[test]

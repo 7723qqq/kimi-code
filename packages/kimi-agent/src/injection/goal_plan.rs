@@ -428,13 +428,58 @@ where
                 .unwrap_or_default()
         }),
     );
+
+    struct PlanCadence {
+        was_active: bool,
+        injected_at: Option<usize>,
+        turns_since: usize,
+    }
+    let tracker = Arc::new(std::sync::Mutex::new(PlanCadence {
+        was_active: false,
+        injected_at: None,
+        turns_since: 0,
+    }));
+    let plan_store = Arc::clone(&state_store);
     registry.register(
         "plan_mode",
         Box::new(move || {
-            state_store
-                .read_domain("plan")
-                .map(|value| plan_mode_injection_text(&value))
-                .unwrap_or_default()
+            let mut state = tracker.lock().unwrap();
+            let plan_val = plan_store.read_domain("plan");
+            let is_active = plan_val.as_ref().map(plan_is_active).unwrap_or(false);
+
+            if !is_active {
+                if state.was_active {
+                    state.was_active = false;
+                    state.injected_at = None;
+                    state.turns_since = 0;
+                    return plan_mode_exit_text();
+                }
+                return String::new();
+            }
+
+            let val = match plan_val {
+                Some(v) => v,
+                None => return String::new(),
+            };
+
+            if !state.was_active {
+                state.was_active = true;
+                state.injected_at = Some(0);
+                state.turns_since = 0;
+                return plan_mode_injection_text(&val);
+            }
+
+            state.turns_since += 1;
+            match plan_mode_variant(state.injected_at, state.turns_since, false) {
+                Some(PlanModeVariant::Full) => {
+                    state.turns_since = 0;
+                    plan_mode_injection_text(&val)
+                }
+                Some(PlanModeVariant::Sparse) => {
+                    plan_mode_sparse_text(&val)
+                }
+                None => String::new(),
+            }
         }),
     );
 }
@@ -802,5 +847,50 @@ Plan file: PLAN.md"#
         register_goal_plan_injections(&mut registry, Arc::new(store));
         assert_eq!(registry.providers[0].1(), "");
         assert_eq!(registry.providers[1].1(), "");
+    }
+
+    #[test]
+    fn test_register_plan_mode_cadence_and_exit() {
+        struct DynamicStore {
+            plan: std::sync::Mutex<Option<Value>>,
+        }
+        impl StateStore for DynamicStore {
+            fn read_domain(&self, domain: &str) -> Option<Value> {
+                if domain == "plan" {
+                    self.plan.lock().unwrap().clone()
+                } else {
+                    None
+                }
+            }
+        }
+
+        let store = Arc::new(DynamicStore {
+            plan: std::sync::Mutex::new(Some(json!({ "active": true, "path": "PLAN.md" }))),
+        });
+        let mut registry = FakeRegistry {
+            providers: Vec::new(),
+        };
+        register_goal_plan_injections(&mut registry, Arc::clone(&store));
+
+        // Turn 0: First activation -> Full reminder
+        let t0 = registry.providers[1].1();
+        assert!(t0.starts_with("Plan mode is active."));
+
+        // Turn 1: Dedup window -> Empty
+        let t1 = registry.providers[1].1();
+        assert_eq!(t1, "");
+
+        // Turn 2: Dedup window passed (>= 2) -> Sparse reminder
+        let t2 = registry.providers[1].1();
+        assert!(t2.starts_with("Plan mode still active"));
+
+        // Exit plan mode
+        *store.plan.lock().unwrap() = Some(json!({ "active": false }));
+        let t_exit = registry.providers[1].1();
+        assert_eq!(t_exit, plan_mode_exit_text());
+
+        // Subsequent turns after exit -> Empty
+        let t_after = registry.providers[1].1();
+        assert_eq!(t_after, "");
     }
 }

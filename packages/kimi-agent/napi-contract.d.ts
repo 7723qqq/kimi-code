@@ -99,7 +99,7 @@ export interface JsMessage {
 }
 
 export interface JsNativeLlmConfig {
-  /** "openai" (Chat Completions) or "anthropic" (Messages). */
+  /** "openai" (Chat Completions) or "anthropic" (Messages), or "google" / "openai_responses". */
   protocol: string
   /** API base URL including the version segment (e.g. `.../v1`). */
   baseUrl: string
@@ -210,6 +210,8 @@ export interface JsRunTurnParams {
    */
   agentToolVeto?: string
   toolsVeto?: string
+  callerAgentId?: string
+  sessionId?: string
   /** Native MCP servers configuration (P73). */
   mcpServers?: Array<JsMcpServerConfig>
 }
@@ -370,6 +372,14 @@ export declare function sessionEnqueueTurn(sessionId: string, prompt: string, ad
 
 /** Append messages to the cross-turn history (e.g. a resumed transcript). */
 export declare function sessionExtendHistory(sessionId: string, historyJson: string): void
+
+/**
+ * The session's current cross-turn history as a JSON `LLMMessage[]` — the
+ * inverse of `session_set_history`. Lets the host carry the conversation
+ * across an engine-session rebuild (a mid-session model / permission change)
+ * and implement undo / fork without losing context.
+ */
+export declare function sessionGetHistory(sessionId: string): string
 
 export declare function sessionHistoryLen(sessionId: string): number
 

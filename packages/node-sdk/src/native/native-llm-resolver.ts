@@ -1,7 +1,18 @@
 import { existsSync } from 'node:fs';
 import type { KimiConfig } from '#/config-local';
 
-const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'api-key']);
+// The engine's transports own these headers (openai/anthropic auth, the
+// anthropic-version pin, the google api-key); reqwest appends rather than
+// replaces, so a user customHeader with one of these names would ship a second
+// value and break the credential. Mirrors rust-engine.ts's AUTH_HEADERS — the
+// two native-LLM resolvers must agree, or the same provider resolves to
+// different headers depending on which entry point built the session.
+const AUTH_HEADERS = new Set([
+  'authorization',
+  'x-api-key',
+  'anthropic-version',
+  'x-goog-api-key',
+]);
 
 export interface JsNativeLlmConfig {
   protocol: string;
@@ -58,9 +69,9 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
   const protocol =
     typeStr === 'anthropic'
       ? 'anthropic'
-      : typeStr === 'google-genai'
+      : typeStr === 'google' || typeStr === 'gemini' || typeStr === 'google-genai'
         ? 'google'
-        : typeStr === 'openai_responses'
+        : typeStr === 'openai_responses' || typeStr === 'openai-responses'
           ? 'openai_responses'
           : typeStr === 'openai' || typeStr === 'kimi'
             ? 'openai'
@@ -99,10 +110,17 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
     modelEffort !== 'none'
   ) {
     if (protocol === 'anthropic') {
+      // Mirror rust-engine.ts exactly: high/on → 32000, an explicit numeric
+      // effort is used verbatim, anything else falls back to 32000. The old
+      // 16384/32768 split silently halved the high-tier reasoning budget versus
+      // the CLI's own resolver.
       if (modelEffort === 'low') thinkingBudget = 1024;
       else if (modelEffort === 'medium') thinkingBudget = 4096;
-      else if (modelEffort === 'high') thinkingBudget = 16384;
-      else if (modelEffort === 'max') thinkingBudget = 32768;
+      else if (modelEffort === 'high' || modelEffort === 'on') thinkingBudget = 32000;
+      else {
+        const parsed = Number.parseInt(modelEffort, 10);
+        thinkingBudget = !Number.isNaN(parsed) && parsed > 0 ? parsed : 32000;
+      }
     } else {
       reasoningEffort = modelEffort;
     }

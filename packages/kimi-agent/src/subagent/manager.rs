@@ -502,7 +502,11 @@ impl SubagentManager {
                 cancellation: cancel_flag,
             };
 
-            let run_result = crate::turn_loop::run_turn::run_turn(run_input, &callbacks)
+            let run_result = crate::tools::CALLER_AGENT_ID
+                .scope(
+                    subagent_id.clone(),
+                    crate::turn_loop::run_turn::run_turn(run_input, &callbacks),
+                )
                 .await
                 .map_err(|e| e.to_string());
 
@@ -594,41 +598,46 @@ impl SubagentManager {
             tool_call_id: None,
         }];
 
-        let outcome: Result<crate::turn_loop::types::TurnResult, RunExit> = async {
-            let turn_res = run_one(
-                &runtime,
-                &callbacks,
-                messages.clone(),
-                tool_defs.clone(),
-                &cancel_flag,
-                parent_cancel,
-            )
-            .await?;
-            // v2 `classifyTurnResult`: a max-token-truncated turn fails the
-            // run before any distillation attempt.
-            if matches!(
-                turn_res.stop_reason,
-                crate::turn_loop::types::LoopTurnStopReason::MaxTokens
-            ) {
-                return Err(RunExit::Failed(SUBAGENT_MAX_TOKENS_ERROR.into()));
-            }
-            match &def.summary_policy {
-                Some(policy) => {
-                    distill_continuations(
+        // Attribute this turn's native tool calls to the subagent, not to the
+        // main agent: the tower tools read CALLER_AGENT_ID to enforce the
+        // main-agent-only gate and to resolve the caller's roster name.
+        let outcome: Result<crate::turn_loop::types::TurnResult, RunExit> =
+            crate::tools::CALLER_AGENT_ID
+                .scope(id.to_string(), async {
+                    let turn_res = run_one(
                         &runtime,
                         &callbacks,
+                        messages.clone(),
                         tool_defs.clone(),
                         &cancel_flag,
                         parent_cancel,
-                        turn_res,
-                        policy,
                     )
-                    .await
-                }
-                None => Ok(turn_res),
-            }
-        }
-        .await;
+                    .await?;
+                    // v2 `classifyTurnResult`: a max-token-truncated turn fails the
+                    // run before any distillation attempt.
+                    if matches!(
+                        turn_res.stop_reason,
+                        crate::turn_loop::types::LoopTurnStopReason::MaxTokens
+                    ) {
+                        return Err(RunExit::Failed(SUBAGENT_MAX_TOKENS_ERROR.into()));
+                    }
+                    match &def.summary_policy {
+                        Some(policy) => {
+                            distill_continuations(
+                                &runtime,
+                                &callbacks,
+                                tool_defs.clone(),
+                                &cancel_flag,
+                                parent_cancel,
+                                turn_res,
+                                policy,
+                            )
+                            .await
+                        }
+                        None => Ok(turn_res),
+                    }
+                })
+                .await;
 
         match outcome {
             Ok(turn_res) => {
@@ -706,15 +715,19 @@ impl SubagentManager {
             });
             history
         };
-        let turn_res = match run_one(
-            &runtime,
-            &callbacks,
-            messages.clone(),
-            tool_defs.clone(),
-            &Arc::new(AtomicBool::new(false)),
-            parent_cancel,
-        )
-        .await
+        let turn_res = match crate::tools::CALLER_AGENT_ID
+            .scope(
+                id.to_string(),
+                run_one(
+                    &runtime,
+                    &callbacks,
+                    messages.clone(),
+                    tool_defs.clone(),
+                    &Arc::new(AtomicBool::new(false)),
+                    parent_cancel,
+                ),
+            )
+            .await
         {
             Ok(turn) => turn,
             // The parent-cancelled outcome flows through verbatim so the
@@ -906,7 +919,11 @@ impl SubagentManager {
             goal: None,
             cancellation: Some(cancel_flag.clone()),
         };
-        let run_result = crate::turn_loop::run_turn::run_turn(run_input, &callbacks)
+        let run_result = crate::tools::CALLER_AGENT_ID
+            .scope(
+                id.to_string(),
+                crate::turn_loop::run_turn::run_turn(run_input, &callbacks),
+            )
             .await
             .map_err(|e| e.to_string());
 

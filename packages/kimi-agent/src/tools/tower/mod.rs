@@ -45,15 +45,32 @@ fn spawn_detached_run(
     callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
     agent_id: &str,
     prompt: &str,
+    parent_cancel: Option<crate::subagent::types::ParentCancel>,
 ) {
     let agent = agent_id.to_string();
     let prompt = prompt.to_string();
     tokio::spawn(async move {
-        let _ = manager
-            .run_foreground_turn(&agent, &prompt, None)
+        // Mirror the swarm launcher's terminal handling: pass the parent cancel
+        // so a detached worker stops when the user cancels or the session ends
+        // (run_foreground_turn aborts the turn and kills the instance), and emit
+        // a terminal event for *every* outcome so the worker's card never sticks
+        // in "running" — the previous `let _ = …map(…)` swallowed the error and
+        // cancelled arms and only ever reported a clean completion.
+        match manager
+            .run_foreground_turn(&agent, &prompt, parent_cancel.as_ref())
             .await
-            .map(|outcome| {
-                if let crate::subagent::manager::ForegroundTurnOutcome::Completed(turn) = outcome {
+        {
+            Ok(crate::subagent::manager::ForegroundTurnOutcome::Completed(turn)) => {
+                if matches!(
+                    turn.stop_reason,
+                    crate::turn_loop::types::LoopTurnStopReason::Aborted
+                ) {
+                    callbacks.emit_event(serde_json::json!({
+                        "type": "subagent.failed",
+                        "subagent_id": agent,
+                        "error": "The tower worker was stopped before it finished.",
+                    }));
+                } else {
                     let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
                     callbacks.emit_event(serde_json::json!({
                         "type": "subagent.completed",
@@ -62,7 +79,22 @@ fn spawn_detached_run(
                         "usage": crate::tools::agent_tool::usage_json(&turn.usage),
                     }));
                 }
-            });
+            }
+            Ok(crate::subagent::manager::ForegroundTurnOutcome::ParentCancelled) => {
+                callbacks.emit_event(serde_json::json!({
+                    "type": "subagent.failed",
+                    "subagent_id": agent,
+                    "error": "The tower worker was stopped by the user before it finished.",
+                }));
+            }
+            Err(err) => {
+                callbacks.emit_event(serde_json::json!({
+                    "type": "subagent.failed",
+                    "subagent_id": agent,
+                    "error": err,
+                }));
+            }
+        }
     });
 }
 
@@ -84,6 +116,11 @@ pub async fn execute_tower_init(
 
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     match store.init(Some(session_id.to_string()), args.base).await {
         Ok(res) => {
@@ -160,6 +197,11 @@ pub async fn execute_tower_plan(
 
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     match store.plan(&args.missions).await {
         Ok(missions) => {
@@ -194,6 +236,7 @@ pub async fn execute_tower_spawn(
     session_id: &str,
     subagent_manager: Option<&Arc<SubagentManager>>,
     tool_call_id: Option<&str>,
+    parent_cancel: Option<&crate::subagent::types::ParentCancel>,
     raw_args: &str,
 ) -> Option<ExecutableToolResult> {
     if caller_agent_id != "main" {
@@ -215,6 +258,9 @@ pub async fn execute_tower_spawn(
 
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(&repo_root));
+    // Serialize this repo's tower state against concurrent workers (see above).
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -302,6 +348,7 @@ pub async fn execute_tower_spawn(
                 runtime.callbacks.clone(),
                 &agent_id,
                 &prompt,
+                parent_cancel.cloned(),
             );
 
             let lines = [
@@ -377,6 +424,7 @@ pub async fn execute_tower_spawn(
                 runtime.callbacks.clone(),
                 &agent_id,
                 &prompt,
+                parent_cancel.cloned(),
             );
 
             let lines = [
@@ -502,6 +550,11 @@ pub async fn execute_tower_merge(
 
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     match store.merge(&args.branch).await {
         Ok((commit, conflicts, noop)) => {
@@ -555,6 +608,11 @@ pub async fn execute_tower_teardown(
 
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     match store.teardown(args.force.unwrap_or(false)).await {
         Ok(report) => {
@@ -577,6 +635,11 @@ pub async fn execute_tower_send(
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -607,6 +670,11 @@ pub async fn execute_tower_inbox(
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -666,6 +734,11 @@ pub async fn execute_tower_finding(
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -697,6 +770,11 @@ pub async fn execute_tower_review(
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -728,6 +806,9 @@ pub async fn execute_tower_mission(
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(&repo_root));
+    // Serialize this repo's tower state against concurrent workers (see above).
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,
@@ -824,6 +905,11 @@ pub async fn execute_tower_mission(
 pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
+    // Serialize this repo's tower state against concurrent workers: hold the
+    // per-repo lock across the whole operation so its load→mutate→save cannot
+    // interleave with another agent's and lose an update.
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
 
     let state = match store.load().await {
         Ok(s) => s,

@@ -188,7 +188,11 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 && let Some(name) = fc.get("name").and_then(|n| n.as_str())
             {
                 let arguments = fc.get("args").cloned().unwrap_or(json!({}));
-                let id = format!("{}_{}", name, i);
+                let id = fc
+                    .get("id")
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("{}_{}", name, i));
                 tool_calls.push(ToolCall {
                     id,
                     name: name.to_string(),
@@ -307,7 +311,11 @@ impl StreamAccumulator {
                 && let Some(name) = fc.get("name").and_then(|n| n.as_str())
             {
                 let arguments = fc.get("args").cloned().unwrap_or(json!({}));
-                let id = format!("{}_{}", name, self.tool_calls.len() + i);
+                let id = fc
+                    .get("id")
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("{}_{}", name, self.tool_calls.len() + i));
                 self.tool_calls.push(ToolCall {
                     id,
                     name: name.to_string(),
@@ -421,5 +429,42 @@ mod tests {
         assert_eq!(resp.finish_reason.as_deref(), Some("stop"));
         assert_eq!(resp.usage.input_tokens, 15);
         assert_eq!(resp.usage.output_tokens, 8);
+    }
+
+    #[test]
+    fn test_parse_response_function_call_id_preservation() {
+        let resp_with_id = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "id": "call_exact_123",
+                            "name": "Write",
+                            "args": { "path": "test.txt", "content": "hello" }
+                        }
+                    }]
+                }
+            }]
+        });
+        let parsed = parse_response(&resp_with_id).unwrap();
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].id, "call_exact_123");
+        assert_eq!(parsed.tool_calls[0].name, "Write");
+
+        // Fallback without id
+        let resp_no_id = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "Read",
+                            "args": { "path": "test.txt" }
+                        }
+                    }]
+                }
+            }]
+        });
+        let parsed_no_id = parse_response(&resp_no_id).unwrap();
+        assert_eq!(parsed_no_id.tool_calls[0].id, "Read_0");
     }
 }

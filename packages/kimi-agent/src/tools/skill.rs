@@ -242,7 +242,11 @@ fn resolve_argument_names(wire: &SkillWire) -> Vec<String> {
 
 /// Execute the Skill tool natively: `state_read` the skill domain and render
 /// the v2-aligned skill content.
-pub async fn execute_skill(callbacks: &dyn HostCallbacks, args: &Value) -> ExecutableToolResult {
+pub async fn execute_skill(
+    callbacks: &dyn HostCallbacks,
+    session_id: Option<&str>,
+    args: &Value,
+) -> ExecutableToolResult {
     let name = args
         .get("skill")
         .or_else(|| args.get("name"))
@@ -254,7 +258,10 @@ pub async fn execute_skill(callbacks: &dyn HostCallbacks, args: &Value) -> Execu
         return err_result("Invalid Skill arguments: `skill` must not be empty.".into());
     }
     let skill_args = args.get("args").and_then(|a| a.as_str());
-    let session_id = args.get("session_id").and_then(|s| s.as_str());
+    let session_id = args
+        .get("session_id")
+        .and_then(|s| s.as_str())
+        .or(session_id);
     let request = StateReadRequest {
         domain: "skill".into(),
         key: name.into(),
@@ -500,7 +507,7 @@ mod tests {
     #[tokio::test]
     async fn test_renders_skill_content() {
         let (callbacks, read_received) = scripted(read_ok(sample_skill()));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "commit" })).await;
         assert!(!result.is_error);
         assert_eq!(
             result.content,
@@ -518,7 +525,7 @@ mod tests {
         let (callbacks, _) = scripted(Err(
             "State read error: [-32002] unknown skill: commit".into()
         ));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "commit" })).await;
         assert!(result.is_error);
         assert_eq!(
             result.content,
@@ -529,7 +536,7 @@ mod tests {
     #[tokio::test]
     async fn test_unsupported_host_returns_failure_message() {
         let (callbacks, _) = scripted(Err("host does not support state bridge".into()));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "commit" })).await;
         assert!(result.is_error);
         assert_eq!(result.content, STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE);
     }
@@ -539,7 +546,7 @@ mod tests {
         let (callbacks, _) = scripted(Err(
             "State read error: [-32001] unknown domain: skill".into()
         ));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "commit" })).await;
         assert!(result.is_error);
         assert!(result.content.contains("-32001"));
         assert!(result.content.contains("unknown domain"));
@@ -553,7 +560,7 @@ mod tests {
             serde_json::json!({ "skill": "" }),
             serde_json::json!({ "skill": 42 }),
         ] {
-            let result = execute_skill(&callbacks, &bad).await;
+            let result = execute_skill(&callbacks, None, &bad).await;
             assert!(result.is_error, "args: {bad}");
             assert!(result.content.contains("Invalid Skill arguments"));
         }
@@ -563,7 +570,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_wire_shape_returns_error() {
         let (callbacks, _) = scripted(read_ok(serde_json::json!({ "name": "commit" })));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "commit" })).await;
         assert!(result.is_error);
         assert!(result.content.contains("Invalid skill state from host"));
     }
@@ -573,6 +580,7 @@ mod tests {
         let (callbacks, read_received) = scripted(read_ok(sample_skill()));
         let result = execute_skill(
             &callbacks,
+            None,
             &serde_json::json!({
                 "skill": "commit",
                 "turn_id": "turn-42",
@@ -604,6 +612,7 @@ mod tests {
         let (callbacks, _) = scripted(read_ok(sample_skill()));
         let result = execute_skill(
             &callbacks,
+            None,
             &serde_json::json!({
                 "skill": "commit",
                 "args": "-m \"feat: new feature\""
@@ -626,7 +635,7 @@ mod tests {
     #[tokio::test]
     async fn test_name_field_fallback() {
         let (callbacks, read_received) = scripted(read_ok(sample_skill()));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "name": "commit" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "name": "commit" })).await;
         assert!(!result.is_error);
         assert_eq!(read_received.lock().unwrap().clone().unwrap().key, "commit");
     }
@@ -753,7 +762,7 @@ mod tests {
             }
         });
         let (callbacks, _) = scripted(read_ok(skill));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "brainstorm" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "brainstorm" })).await;
         assert!(!result.is_error);
         assert!(result.content.contains("<plugin-instructions plugin=\"superpowers\">\nUse AskUserQuestion for clarifying questions.\n</plugin-instructions>\n\nBrainstorm body."));
     }
@@ -768,7 +777,7 @@ mod tests {
         });
         let (callbacks, _) = scripted(read_ok(skill));
         let result =
-            execute_skill(&callbacks, &serde_json::json!({ "skill": "secret-skill" })).await;
+            execute_skill(&callbacks, None, &serde_json::json!({ "skill": "secret-skill" })).await;
         assert!(result.is_error);
         assert!(result.content.contains("model invocation is disabled"));
     }
@@ -782,8 +791,26 @@ mod tests {
             "skillType": "flow"
         });
         let (callbacks, _) = scripted(read_ok(skill));
-        let result = execute_skill(&callbacks, &serde_json::json!({ "skill": "flow-skill" })).await;
+        let result = execute_skill(&callbacks, None, &serde_json::json!({ "skill": "flow-skill" })).await;
         assert!(result.is_error);
         assert!(result.content.contains("not an inline skill"));
+    }
+
+    #[tokio::test]
+    async fn test_skill_interpolates_session_id_from_context() {
+        let skill = serde_json::json!({
+            "name": "session-test",
+            "description": "Session test skill",
+            "instructions": "session is ${KIMI_SESSION_ID}",
+        });
+        let (callbacks, _) = scripted(read_ok(skill));
+        let result = execute_skill(
+            &callbacks,
+            Some("session-xyz-123"),
+            &serde_json::json!({ "skill": "session-test" }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert!(result.content.contains("session is session-xyz-123"));
     }
 }

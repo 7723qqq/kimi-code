@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 use crate::tools::tower::frontmatter::{parse_frontmatter, render_frontmatter};
 use crate::tools::tower::git::{
@@ -18,6 +21,23 @@ use crate::tools::tower::types::{
     TowerRosterEntry, TowerSendInput, TowerState,
 };
 
+/// Process-global tower-state locks keyed by the resolved repo root. Tower
+/// workers run as concurrent tasks in one engine process and share a single
+/// `.tower/comms/state.json`; every read-modify-write must be serialized per
+/// repo so a later save cannot clobber an earlier one (lost update) or publish
+/// a half-written file. Keyed by the *resolved* root so a worktree cwd and the
+/// main checkout contend on one lock. The guard is held across a whole
+/// `execute_tower_*` call — the outermost entry — so the store's own methods
+/// nest freely (init → adopt_foreign_roster → save) without re-entering a
+/// non-reentrant mutex.
+static REPO_STATE_LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn state_lock_for(root: &Path) -> Arc<Mutex<()>> {
+    let registry = REPO_STATE_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
+    map.entry(root.to_path_buf()).or_default().clone()
+}
+
 pub struct TowerStore {
     pub repo_root: PathBuf,
 }
@@ -31,6 +51,13 @@ impl TowerStore {
 
     pub fn abs(&self, rel: &str) -> PathBuf {
         self.repo_root.join(rel)
+    }
+
+    /// The process-global mutex serializing this repo's tower state mutations.
+    /// Bind the returned `Arc` before locking so the guard can borrow it:
+    /// `let lock = store.state_lock(); let _guard = lock.lock().await;`.
+    pub fn state_lock(&self) -> Arc<Mutex<()>> {
+        state_lock_for(&self.repo_root)
     }
 
     pub async fn is_initialized(&self) -> bool {
@@ -238,7 +265,10 @@ impl TowerStore {
 
     pub async fn save(&self, state: &TowerState) -> Result<(), String> {
         let file = self.abs(STATE_FILE);
-        let tmp = format!("{}.tmp", file.to_string_lossy());
+        // A random suffix keeps two saves from ever interleaving into one tmp
+        // file and publishing a half-written state.json; the rename below is
+        // atomic either way, and the per-repo lock already serializes writers.
+        let tmp = format!("{}.{}.tmp", file.to_string_lossy(), fastrand::u64(..));
         let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
         fs::write(&tmp, format!("{json}\n").as_bytes())
             .await

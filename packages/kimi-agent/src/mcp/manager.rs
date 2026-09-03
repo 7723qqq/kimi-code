@@ -118,7 +118,8 @@ impl McpManager {
     ) {
         for (name, conf) in servers {
             if let Some(url) = &conf.url {
-                if let Ok(client) = McpClient::connect_sse(name, url, HashMap::new()).await {
+                let headers = conf.headers.clone().unwrap_or_default();
+                if let Ok(client) = McpClient::connect_sse(name, url, headers).await {
                     self.add_client(client).await;
                 }
             } else if let Some(cmd) = &conf.command {

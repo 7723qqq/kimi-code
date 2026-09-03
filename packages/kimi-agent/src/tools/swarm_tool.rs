@@ -312,7 +312,7 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
 
     for res in results {
         let agent_id_attr = match &res.agent_id {
-            Some(id) if !id.is_empty() => format!(" agent_id=\"{}\"", id),
+            Some(id) if !id.is_empty() => format!(" agent_id=\"{}\"", escape_xml_attribute(id)),
             _ => String::new(),
         };
         let mode_attr = if res.task.data.is_resume {
@@ -334,11 +334,15 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
             AgentRunStatus::Failed => "failed",
             AgentRunStatus::Aborted => "aborted",
         };
-        let body = if res.status == AgentRunStatus::Completed {
-            res.result.as_deref().unwrap_or("")
-        } else {
-            res.error.as_deref().unwrap_or("unknown error")
-        };
+        // Escape the body's XML tags: a subagent's result (or an error string)
+        // is untrusted text, and a literal `</subagent>` in it would otherwise
+        // close the element early and corrupt the whole result block.
+        let body =
+            crate::tools::skill::escape_xml_tags(if res.status == AgentRunStatus::Completed {
+                res.result.as_deref().unwrap_or("")
+            } else {
+                res.error.as_deref().unwrap_or("unknown error")
+            });
 
         lines.push(format!(
             "<subagent{mode_attr}{agent_id_attr}{item_attr}{state_attr} outcome=\"{outcome}\">{body}</subagent>"

@@ -605,6 +605,19 @@ impl EngineSession {
             .history
             .len()
     }
+
+    /// A clone of the current cross-turn history. The napi `session_get_history`
+    /// serializes this so the host can carry the conversation across an
+    /// engine-session rebuild (a mid-session model / permission change) and
+    /// implement undo / fork without losing context — the inverse of
+    /// [`Self::set_history`].
+    pub fn snapshot_history(&self) -> Vec<LLMMessage> {
+        self.core
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .history
+            .clone()
+    }
 }
 
 /// Exclusive quiescence window (v2 `IDisposable` from

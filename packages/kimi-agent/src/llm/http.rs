@@ -71,6 +71,11 @@ pub struct NativeHttpLlm {
     /// 401/403 forces a refresh — the host's OAuth manager keeps it fresh,
     /// so re-asking per request would only add round-trips.
     cached_token: std::sync::Mutex<Option<String>>,
+    /// Single-flight gate for the cold token fetch and the forced refresh:
+    /// held across the host round-trip so N concurrent callers share one
+    /// fetch instead of each triggering an OAuth refresh. Async because the
+    /// round-trip it serializes is itself async.
+    fetch_gate: tokio::sync::Mutex<()>,
 }
 
 impl NativeHttpLlm {
@@ -87,6 +92,7 @@ impl NativeHttpLlm {
             sink: None,
             auth: None,
             cached_token: std::sync::Mutex::new(None),
+            fetch_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -272,7 +278,11 @@ impl NativeHttpLlm {
         let is_anthropic = self.config.protocol == "anthropic";
         let mut req = self.client.post(self.endpoint()).json(body);
         if is_google {
-            req = req.header("x-goog-api-key", token);
+            if token.starts_with("ya29.") || self.config.auth_provider.is_some() {
+                req = req.header("authorization", format!("Bearer {token}"));
+            } else {
+                req = req.header("x-goog-api-key", token);
+            }
         } else if is_anthropic {
             req = req
                 .header("x-api-key", token)
@@ -298,12 +308,17 @@ impl NativeHttpLlm {
                     self.config.auth_provider
                 )
             })?;
-            let cached = self
-                .cached_token
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if let Some(token) = cached {
+            // Fast path: a cached token needs neither the gate nor a round-trip.
+            if let Some(token) = self.cached_token_value() {
+                return Ok(token);
+            }
+            // Single-flight the cold fetch. Without this gate, N concurrent
+            // first-requests would each call `host/auth_token` and the host's
+            // OAuth manager could refresh N times for one logical login. The
+            // winner populates the cache; the rest re-check under the gate and
+            // reuse it.
+            let _gate = self.fetch_gate.lock().await;
+            if let Some(token) = self.cached_token_value() {
                 return Ok(token);
             }
             return self.store_token(fetch(false).await?);
@@ -314,9 +329,22 @@ impl NativeHttpLlm {
     /// Force-refresh the OAuth token through the host after a 401/403.
     async fn refresh_credential(&self) -> Result<String, String> {
         match &self.auth {
-            Some(fetch) => self.store_token(fetch(true).await?),
+            // Serialize forced refreshes too, so concurrent 401s share one
+            // host round-trip instead of stampeding the OAuth manager.
+            Some(fetch) => {
+                let _gate = self.fetch_gate.lock().await;
+                self.store_token(fetch(true).await?)
+            }
             None => Ok(self.config.api_key.clone()),
         }
+    }
+
+    /// The currently cached token, if any.
+    fn cached_token_value(&self) -> Option<String> {
+        self.cached_token
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn store_token(&self, token: String) -> Result<String, String> {
@@ -654,6 +682,45 @@ mod tests {
         assert!(
             msg.contains("no token channel is wired"),
             "unexpected error: {msg}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn oauth_cold_fetch_is_single_flighted_across_concurrent_callers() {
+        let mut cfg = config("openai", "http://127.0.0.1:1/v1");
+        cfg.api_key = String::new();
+        cfg.auth_provider = Some("kimi".into());
+        let fetches = Arc::new(AtomicU32::new(0));
+        let fetch_count = fetches.clone();
+        let llm = Arc::new(
+            NativeHttpLlm::new(cfg, String::new()).with_auth_provider(Arc::new(move |_force| {
+                let n = fetch_count.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move {
+                    // Yield so concurrent callers pile up on the gate while the
+                    // winner is still fetching.
+                    tokio::task::yield_now().await;
+                    Ok(format!("token-{n}"))
+                })
+            })),
+        );
+
+        let mut joins = Vec::new();
+        for _ in 0..8 {
+            let llm = Arc::clone(&llm);
+            joins.push(tokio::spawn(async move { llm.credential().await.unwrap() }));
+        }
+        let mut tokens = Vec::new();
+        for join in joins {
+            tokens.push(join.await.unwrap());
+        }
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            1,
+            "concurrent cold fetches must collapse to a single host round-trip"
+        );
+        assert!(
+            tokens.iter().all(|t| t == "token-1"),
+            "every caller reuses the winner's token: {tokens:?}"
         );
     }
 }

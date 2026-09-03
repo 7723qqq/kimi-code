@@ -11,6 +11,7 @@
 /// session runs turns serially, so one active registration suffices).
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { authTokenRequestSchema, authTokenResponseSchema } from './wire-schema';
 
 /** A serialized LLMMessage crossing the session boundary. */
 export interface SessionPrompt {
@@ -108,6 +109,7 @@ interface SessionNativeModule {
   sessionClearHistory(sessionId: string): void;
   sessionExtendHistory(sessionId: string, historyJson: string): void;
   sessionHistoryLen(sessionId: string): number;
+  sessionGetHistory(sessionId: string): string;
   sessionDispose(sessionId: string): void;
   getCallbackPayload(id: number): string | null;
   resolveCallback(id: number, error: string | null, result: string | null): void;
@@ -290,6 +292,15 @@ export class EngineSessionHandle {
     return this.transport.historyLen(this.id);
   }
 
+  /**
+   * The current cross-turn history, the inverse of {@link setHistory}. Lets the
+   * host carry the conversation across an engine-session rebuild (a mid-session
+   * model / permission change) and implement undo / fork without losing context.
+   */
+  getHistory(): Promise<SessionPrompt[]> {
+    return this.transport.getHistory(this.id);
+  }
+
   dispose(): Promise<void> {
     return this.transport.dispose(this.id);
   }
@@ -322,6 +333,7 @@ export interface SessionTransport {
   clearHistory(sessionId: string): Promise<void>;
   extendHistory(sessionId: string, history: SessionPrompt[]): Promise<void>;
   historyLen(sessionId: string): Promise<number>;
+  getHistory(sessionId: string): Promise<SessionPrompt[]>;
   dispose(sessionId: string): Promise<void>;
 }
 
@@ -384,8 +396,9 @@ class NapiSessionTransport implements SessionTransport {
       authToken === undefined
         ? undefined
         : makeRequestCallback(this.mod, async (p) => {
-            const token = await authToken(p);
-            return JSON.stringify({ token });
+            const req = authTokenRequestSchema.parse(JSON.parse(p));
+            const token = await authToken(JSON.stringify(req));
+            return JSON.stringify(authTokenResponseSchema.parse({ token }));
           }),
     );
   }
@@ -440,6 +453,10 @@ class NapiSessionTransport implements SessionTransport {
 
   async historyLen(sessionId: string): Promise<number> {
     return this.mod.sessionHistoryLen(sessionId);
+  }
+
+  async getHistory(sessionId: string): Promise<SessionPrompt[]> {
+    return JSON.parse(this.mod.sessionGetHistory(sessionId)) as SessionPrompt[];
   }
 
   async dispose(sessionId: string): Promise<void> {

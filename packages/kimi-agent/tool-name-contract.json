@@ -124,8 +124,9 @@
     "tower_status": "snake twin of TowerStatus"
   },
   "notes": {
-    "Tower": "P83: All 11 Tower orchestration tools (TowerInit, TowerPlan, TowerSpawn, TowerMerge, TowerTeardown, TowerSend, TowerInbox, TowerFinding, TowerReview, TowerMission, TowerStatus) execute natively via the Git and .tower/ protocol.",
+    "Tower": "P85: All 11 Tower orchestration tools (TowerInit, TowerPlan, TowerSpawn, TowerMerge, TowerTeardown, TowerSend, TowerInbox, TowerFinding, TowerReview, TowerMission, TowerStatus) execute natively via the Git and .tower/ protocol.",
     "WaitFor": "P82: v2's task-wait tool (WaitFor) executes natively via the state bridge (domain: 'task', action: 'wait').",
+    "AgentSwarm": "P82: v2's AgentRunBatch executes natively (swarm_tool.rs). One intentional divergence from v2: empty strings in items / resume_agent_ids are filtered out before the >=2 count check, so a list of one real item plus one empty string is rejected here as a single item where v2 counted two; the native behaviour is the stricter, intended one.",
     "TaskWait": "REPL-only def (task_tools.rs:611). No v2 product tool is named TaskWait — v2's task-wait tool is WaitFor (host-owned).",
     "list_directory": "Executable natively (tools/mod.rs execute()) but advertised by NO tool def anywhere — not even build_repl_tool_defs. G-8's 'REPL 可达' was wrong; corrected here.",
     "Agent": "P46 (2026-09-02): the foreground core of v2's Agent tool (agentTool.ts) executes natively — the host pushes the session's profile catalog per turn and the engine runs the subagent through the same native pipeline. Routing is conditional: resume / fork / background / model args, profiles missing from the snapshot (plugin sources, external backends) and runtime-less transports fall back to the host tool, which stays registered. Pre-P46 this entry read 'host-owned, invoke_subagent family REPL-only' (G-8).",

@@ -65,17 +65,30 @@ pub fn config_for_window(max_context_tokens: Option<u32>) -> CompactionConfig {
     }
 }
 
-/// Rough token estimate for a text: one token per 4 characters (the usual
-/// heuristic for English text). Known biases against the TS side: CJK is
-/// underestimated (TS counts one token per non-ASCII character) and media
-/// parts are estimated from their base64/URL length (TS charges a fixed
-/// cost per media part). This is not just an early-trigger estimate —
-/// `fit_compact_count_to_window` compares it against
-/// `config.max_context_tokens`, so an under-count decides how much real
-/// history survives compaction, not only when compaction fires.
+/// Character-based token-count estimates for messages, tools, and content parts,
+/// mirroring `packages/kosong/src/tokens.ts` (`tsEstimateTokens`).
+/// ASCII ≈ 4 chars/token, non-ASCII (CJK/Unicode) ≈ 1 token/char.
 pub fn estimate_tokens(text: &str) -> u32 {
-    text.chars().count().div_ceil(4) as u32
+    let mut ascii_count = 0usize;
+    let mut non_ascii_count = 0usize;
+    for ch in text.chars() {
+        if (ch as u32) <= 127 {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+    }
+    (ascii_count.div_ceil(4) + non_ascii_count) as u32
 }
+
+/// Estimate tokens for JSON-serialized content. The multiplier compensates
+/// for the heuristic's under-counting of JSON's dense punctuation (matching kosong `JSON_TOKEN_MULTIPLIER = 1.3`).
+pub fn estimate_tokens_for_json(text: &str) -> u32 {
+    ((estimate_tokens(text) as f64) * 1.3).ceil() as u32
+}
+
+/// Flat token cost assigned to media parts, mirroring kosong `MEDIA_TOKEN_ESTIMATE = 2000`.
+pub const MEDIA_TOKEN_ESTIMATE: u32 = 2000;
 
 /// Rough token estimate for a single message: text content, multimodal
 /// blocks, tool call names/arguments, and the tool call id.
@@ -84,19 +97,16 @@ pub fn estimate_message_tokens(message: &LLMMessage) -> u32 {
     for block in &message.blocks {
         tokens += match block {
             ContentBlock::Text { text } => estimate_tokens(text),
-            ContentBlock::Image { media_type, data } => {
-                estimate_tokens(media_type) + estimate_tokens(data)
-            }
-            ContentBlock::ImageUrl { url } => estimate_tokens(url),
-            ContentBlock::AudioUrl { url, id } | ContentBlock::VideoUrl { url, id } => {
-                estimate_tokens(url) + id.as_deref().map_or(0, estimate_tokens)
-            }
+            ContentBlock::Image { .. }
+            | ContentBlock::ImageUrl { .. }
+            | ContentBlock::AudioUrl { .. }
+            | ContentBlock::VideoUrl { .. } => MEDIA_TOKEN_ESTIMATE,
             ContentBlock::Think { think, .. } => estimate_tokens(think),
         };
     }
     for call in &message.tool_calls {
         tokens += estimate_tokens(&call.name);
-        tokens += estimate_tokens(&call.arguments.to_string());
+        tokens += estimate_tokens_for_json(&call.arguments.to_string());
     }
     if let Some(id) = &message.tool_call_id {
         tokens += estimate_tokens(id);
@@ -401,6 +411,23 @@ mod tests {
         assert_eq!(estimate_tokens("a"), 1);
         assert_eq!(estimate_tokens("abcd"), 1);
         assert_eq!(estimate_tokens("abcdefgh"), 2);
+        // CJK / Unicode parity with kosong tsEstimateTokens
+        assert_eq!(estimate_tokens("你好"), 2);
+        assert_eq!(estimate_tokens("ab你"), 2);
+        // JSON multiplier
+        assert_eq!(estimate_tokens_for_json("abcd"), 2); // ceil(1 * 1.3) = 2
+    }
+
+    #[test]
+    fn test_estimate_message_tokens_media_and_json() {
+        let text_msg = msg("user", "abcd");
+        assert_eq!(estimate_message_tokens(&text_msg), 1);
+
+        let mut img_msg = msg("user", "");
+        img_msg.blocks.push(ContentBlock::ImageUrl {
+            url: "http://example.com/pic.png".into(),
+        });
+        assert_eq!(estimate_message_tokens(&img_msg), MEDIA_TOKEN_ESTIMATE);
     }
 
     #[test]

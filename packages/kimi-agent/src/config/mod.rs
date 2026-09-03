@@ -75,6 +75,8 @@ pub struct McpServerConfig {
     pub env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub url: Option<String>,
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

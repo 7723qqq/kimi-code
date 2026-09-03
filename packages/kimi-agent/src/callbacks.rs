@@ -15,6 +15,13 @@ use crate::rpc::types::{
 };
 use crate::turn_loop::types::{GoalContext, LLMMessage};
 
+/// Sentinel returned by [`HostCallbacks::checkpoint`] when the host has no
+/// checkpoint support — the trait default, or a napi host that never wired the
+/// `checkpoint` TSFN. Callers treat it as fail-open (capability absent, not a
+/// failure); one shared constant keeps the producers and the consumer in
+/// [`StateStoreCallbacks`] from drifting apart.
+pub const CHECKPOINT_UNSUPPORTED: &str = "host does not support checkpoint";
+
 /// Host-provided callbacks that the turn loop needs to call back to JS.
 pub trait HostCallbacks: Send + Sync {
     /// Send an LLM chat request to the JS host and return the response.
@@ -89,7 +96,7 @@ pub trait HostCallbacks: Send + Sync {
     /// never checkpointed).
     fn checkpoint(&self, request: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
         let _ = request;
-        Box::pin(async { Err("host does not support checkpoint".into()) })
+        Box::pin(async { Err(CHECKPOINT_UNSUPPORTED.into()) })
     }
 
     /// Fetch the host's current tool table (M1d: `host/list_tools`). Called
@@ -1146,6 +1153,23 @@ impl HostCallbacks for StateStoreCallbacks {
         let store = self.store.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
+            // Plan mode and goal are host-owned live session state. Consult
+            // the host first; fall back to the local store only when the host
+            // cannot answer (standalone REPL, or a host that has not wired the
+            // state bridge).
+            if request.domain == "plan" || request.domain == "goal" {
+                if let Ok(resp) = inner.state_read(request.clone()).await {
+                    return Ok(resp);
+                }
+                return store
+                    .read_state(&request.domain, &request.key)
+                    .map(|value| StateReadResponse { value });
+            }
+            // Engine-owned domains (todo / cron / turn, and the task
+            // *list*) are authored by native tools against the local store, so
+            // it is the read/write authority and the host is the fallback.
+            // Task *output* (a task-id key) is host-owned live data and skips
+            // the local list.
             if let Some(value) = (request.domain != "task" || request.key == "task")
                 .then(|| store.read_domain(&request.domain))
                 .flatten()
@@ -1168,6 +1192,23 @@ impl HostCallbacks for StateStoreCallbacks {
         let store = self.store.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
+            // Plan and goal domains are host-owned: route to host inner first,
+            // falling back to local store when the host does not implement it.
+            if request.domain == "plan" || request.domain == "goal" {
+                if let Ok(resp) = inner.state_write(request.clone()).await {
+                    return Ok(resp);
+                }
+                return match store.apply_write(&request.domain, &request.value) {
+                    Ok(outcome) => {
+                        let _ = store.write_domain(&request.domain, &outcome.stored);
+                        Ok(StateWriteResponse {
+                            ok: true,
+                            value: outcome.response,
+                        })
+                    }
+                    Err(store_err) => Err(store_err),
+                };
+            }
             match store.apply_write(&request.domain, &request.value) {
                 Ok(outcome) => {
                     let _ = store.write_domain(&request.domain, &outcome.stored);
@@ -1189,12 +1230,18 @@ impl HostCallbacks for StateStoreCallbacks {
         let inner = self.inner.clone();
         Box::pin(async move {
             let store_res = store.checkpoint();
-            // The host checkpoint anchors `/undo` pre-images; if it fails the
-            // anchor is incomplete and a later undo would silently restore the
-            // wrong state, so surface it instead of swallowing it. The local
-            // checkpoint runs first either way so its result is not lost.
-            inner.checkpoint(request).await?;
-            store_res
+            // The local StateStore snapshot is the durable undo anchor. The host
+            // checkpoint is a secondary, fail-open anchor: the
+            // CHECKPOINT_UNSUPPORTED sentinel means the host simply has no
+            // checkpoint support (trait default / unwired napi TSFN), so the
+            // local result stands. Any *other* host error means the host anchor
+            // is incomplete and a later `/undo` could restore the wrong state —
+            // surface it rather than swallowing it as before.
+            match inner.checkpoint(request).await {
+                Ok(()) => store_res,
+                Err(err) if err == CHECKPOINT_UNSUPPORTED => store_res,
+                Err(err) => Err(err),
+            }
         })
     }
 
@@ -2753,6 +2800,173 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(store.checkpoint_depth(), 1);
+    }
+
+    /// A host whose checkpoint reports a real failure (not the unsupported
+    /// sentinel): the StateStore bridge must surface it, because the host's
+    /// undo anchor is then incomplete.
+    struct CheckpointFailingCallbacks;
+
+    impl HostCallbacks for CheckpointFailingCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "allow".into(),
+                    reason: None,
+                })
+            })
+        }
+        fn checkpoint(&self, _: CheckpointRequest) -> BoxFuture<'static, Result<(), String>> {
+            Box::pin(async { Err("pre-image capture failed: disk full".into()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_state_store_checkpoint_surfaces_real_host_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(CheckpointFailingCallbacks),
+            store: store.clone(),
+        };
+        let err = adapter
+            .checkpoint(CheckpointRequest {
+                turn_id: "turn-1".into(),
+                tool_call_id: "call-1".into(),
+                phase: "prepare".into(),
+                paths: vec!["test.txt".into()],
+                executed: false,
+            })
+            .await
+            .expect_err("a real host checkpoint failure must propagate");
+        assert!(
+            err.contains("pre-image capture failed"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A host that answers plan reads: the bridge must prefer it over a stale
+    /// local `plan.json` so the guard sees the live Plan-mode toggle.
+    struct PlanHostCallbacks {
+        plan: serde_json::Value,
+    }
+
+    impl HostCallbacks for PlanHostCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "allow".into(),
+                    reason: None,
+                })
+            })
+        }
+        fn state_read(
+            &self,
+            request: StateReadRequest,
+        ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+            let plan = self.plan.clone();
+            Box::pin(async move {
+                if request.domain == "plan" {
+                    Ok(StateReadResponse { value: plan })
+                } else {
+                    Err("host does not support state bridge".into())
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_state_read_plan_prefers_host_over_stale_local() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        // A stale local plan.json says Plan mode is OFF.
+        store
+            .write_domain("plan", &serde_json::json!({ "active": false }))
+            .unwrap();
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(PlanHostCallbacks {
+                plan: serde_json::json!({ "active": true }),
+            }),
+            store: store.clone(),
+        };
+        let resp = adapter
+            .state_read(StateReadRequest {
+                domain: "plan".into(),
+                key: "plan".into(),
+                turn_id: "t".into(),
+                tool_call_id: "c".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.value["active"],
+            serde_json::json!(true),
+            "the host's live Plan mode must win over the stale local file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_state_read_plan_falls_back_to_local_when_host_silent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        store
+            .write_domain("plan", &serde_json::json!({ "active": true }))
+            .unwrap();
+        // RecordingCallbacks uses the trait-default state_read (an error), so
+        // the bridge must fall back to the local plan.json.
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(RecordingCallbacks {
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            store: store.clone(),
+        };
+        let resp = adapter
+            .state_read(StateReadRequest {
+                domain: "plan".into(),
+                key: "plan".into(),
+                turn_id: "t".into(),
+                tool_call_id: "c".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.value["active"],
+            serde_json::json!(true),
+            "with no host plan state, the local store is the fallback"
+        );
     }
 
     struct HostWithToolsCallbacks {

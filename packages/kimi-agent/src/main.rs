@@ -531,6 +531,24 @@ async fn main() -> anyhow::Result<()> {
         })
     });
 
+    // Register session/get_history handler
+    RpcServer::register_arc(&server, types::methods::SESSION_GET_HISTORY, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history: Vec<Message> = entry
+                .session
+                .snapshot_history()
+                .into_iter()
+                .map(llm_message_to_wire)
+                .collect();
+            serde_json::to_value(history).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
     // Register session/dispose handler
     RpcServer::register_arc(&server, types::methods::SESSION_DISPOSE, |params| {
         Box::pin(async move {
@@ -655,6 +673,8 @@ async fn build_engine_pipeline(
         subagent_timeout_ms: params.subagent_timeout_ms,
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
+        caller_agent_id: params.caller_agent_id.clone(),
+        session_id: params.session_id.clone(),
     };
 
     // Subagent manager for the native `Agent` tool (P46): one per pipeline (the
@@ -806,6 +826,24 @@ fn wire_message_to_llm(m: Message) -> LLMMessage {
             .tool_calls
             .into_iter()
             .map(|tc| ToolCall {
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+            })
+            .collect(),
+        tool_call_id: m.tool_call_id,
+    }
+}
+
+fn llm_message_to_wire(m: LLMMessage) -> Message {
+    Message {
+        role: m.role,
+        content: m.content,
+        blocks: m.blocks,
+        tool_calls: m
+            .tool_calls
+            .into_iter()
+            .map(|tc| types::LlmToolCall {
                 id: tc.id,
                 name: tc.name,
                 arguments: tc.arguments,

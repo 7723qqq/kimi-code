@@ -47,6 +47,7 @@ import {
   runTurnParamsSchema,
   sessionEnqueueTurnParamsSchema,
   sessionHistoryParamsSchema,
+  sessionMessageSchema,
   sessionStatusResultSchema,
   sessionTurnOutcomeResultSchema,
   telemetryEventSchema,
@@ -1485,6 +1486,11 @@ export class AgentProcess {
     return parseWireObject(z.number(), result, 'session/history_len result');
   }
 
+  async sessionGetHistory(sessionId: string): Promise<SessionMessageWire[]> {
+    const result = await this.request('session/get_history', { session_id: sessionId });
+    return parseWireObject(z.array(sessionMessageSchema), result, 'session/get_history result');
+  }
+
   async sessionDispose(sessionId: string): Promise<void> {
     await this.request('session/dispose', { session_id: sessionId });
   }
@@ -1627,7 +1633,7 @@ function sessionPromptToWire(prompt: SessionPrompt): SessionMessageWire {
 }
 
 /** Convert a wire `Message` to the `SessionPrompt` (napi shape). */
-function wireToSessionPrompt(m: WireMessage): SessionPrompt {
+function wireToSessionPrompt(m: SessionMessageWire | WireMessage): SessionPrompt {
   return {
     role: m.role,
     content: typeof m.content === 'string' ? m.content : '',
@@ -1761,6 +1767,11 @@ export class StdioSessionTransport implements SessionTransport {
 
   async historyLen(sessionId: string): Promise<number> {
     return this.agent.sessionHistoryLen(sessionId);
+  }
+
+  async getHistory(sessionId: string): Promise<SessionPrompt[]> {
+    const wire = await this.agent.sessionGetHistory(sessionId);
+    return wire.map(wireToSessionPrompt);
   }
 
   async dispose(sessionId: string): Promise<void> {

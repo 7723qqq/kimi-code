@@ -322,6 +322,8 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         subagent_timeout_ms: spec.subagent_timeout_ms,
         agent_tool_veto: spec.agent_tool_veto.clone(),
         tools_veto: spec.tools_veto.clone(),
+        caller_agent_id: spec.caller_agent_id.clone(),
+        session_id: spec.session_id.clone(),
     }
 }
 
@@ -347,6 +349,8 @@ mod tests {
             subagent_timeout_ms: None,
             agent_tool_veto: None,
             tools_veto: None,
+            caller_agent_id: None,
+            session_id: None,
         }
     }
 

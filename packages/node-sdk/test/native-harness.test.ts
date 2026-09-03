@@ -3,9 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { findKimiAgentAddon } from '@moonshot-ai/kimi-agent/session-handle';
+
 import { createKimiHarnessNative, type KimiHarness } from '../src/index';
 
-describe('createKimiHarnessNative (Rust EngineSessionHandle backend)', () => {
+// The native harness drives the Rust engine through the compiled napi addon, a
+// gitignored build artifact. Skip the suite when it is absent rather than fail
+// on `EngineSessionHandle.create` — a missing/stale addon must not masquerade as
+// a harness regression.
+const hasNativeAddon = findKimiAgentAddon() !== null;
+
+describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHandle backend)', () => {
   let homeDir: string;
   let harness: KimiHarness;
 
@@ -51,19 +59,17 @@ describe('createKimiHarnessNative (Rust EngineSessionHandle backend)', () => {
     await session.close();
   });
 
-  it('enqueues a prompt and receives turn events from EngineSessionHandle', async () => {
+  it('fails loud on a prompt when no provider is configured (no fake reply)', async () => {
     const session = await harness.createSession({
       workDir: homeDir,
     });
 
-    const receivedEvents: Array<{ type: string }> = [];
-    session.onEvent((event) => {
-      receivedEvents.push(event as { type: string });
-    });
-
-    await session.prompt('Test prompt');
-    expect(receivedEvents.some((e) => e.type === 'turn.started')).toBe(true);
-    expect(receivedEvents.some((e) => e.type === 'turn.ended')).toBe(true);
+    // This throwaway home has no [providers.*] and no [agent] nativeLlmProvider,
+    // so the self-contained Rust engine has no model to call. The turn must
+    // surface that loudly (the host llm_chat proxy throws) rather than resolve
+    // with the canned "Hello! I am Kimi Code." the old stub returned, which ended
+    // the turn looking like a real answer.
+    await expect(session.prompt('Test prompt')).rejects.toThrow(/no host LLM proxy/);
 
     await session.close();
   });
@@ -77,12 +83,14 @@ describe('createKimiHarnessNative (Rust EngineSessionHandle backend)', () => {
     await session.close();
   });
 
-  it('supports steer on active sessions', async () => {
+  it('fails loud on steer when no provider is configured', async () => {
     const session = await harness.createSession({
       workDir: homeDir,
     });
 
-    await expect(session.steer('Steer instruction')).resolves.toBeUndefined();
+    // steer on an idle session starts a turn, which hits the same missing-model
+    // path as prompt and must reject rather than silently succeed.
+    await expect(session.steer('Steer instruction')).rejects.toThrow(/no host LLM proxy/);
     await session.close();
   });
 });

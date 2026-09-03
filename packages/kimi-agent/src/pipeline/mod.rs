@@ -91,6 +91,8 @@ pub struct PipelineSpec {
     /// `tools_veto` denies every native tool (btw side-channel contexts).
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    pub caller_agent_id: Option<String>,
+    pub session_id: Option<String>,
 }
 
 /// The two per-entry policies the chain must not decide on its own.
@@ -218,6 +220,12 @@ pub async fn build_engine_pipeline(
                             token: spec.github_token.clone(),
                             base_url: spec.github_base_url.clone(),
                         });
+                    if let Some(ref caller) = spec.caller_agent_id {
+                        toolset = toolset.with_caller_agent_id(caller);
+                    }
+                    if let Some(ref session) = spec.session_id {
+                        toolset = toolset.with_session_id(session);
+                    }
                     if let Some(manager) = mcp_manager {
                         toolset = toolset.with_mcp(manager);
                     }
@@ -414,6 +422,8 @@ mod tests {
             subagent_timeout_ms: None,
             agent_tool_veto: None,
             tools_veto: None,
+            caller_agent_id: None,
+            session_id: None,
         }
     }
 

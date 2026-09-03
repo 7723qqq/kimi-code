@@ -3715,3 +3715,160 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - vitest：kimi-agent 125 passed（wire-schema `host/auth_token` round-trip）；apps/kimi-code
   rust-engine 31 passed（OAuth 解析 + token 通道接线 + 无材料回退）；node-sdk native-harness 5 passed
 - typecheck：apps/kimi-code、node-sdk 0 错误
+
+## P87 — Native Harness 完整能力收敛与闭环（2026-09-03）
+
+全面对齐并补齐 Native Harness 架构下的全部缺失接缝与接口覆盖（Batches 1–7）：
+
+1. **Rust 引擎与上下文穿透**：
+   - `PipelineSpec` 增加 `caller_agent_id` 与 `session_id`，直传 `NativeToolset`，并在 napi 与 stdio 两端打通，为子代理、Tower 与技能上下文建立原生会话标识。
+   - `execute_skill` 增加从上下文 `session_id` 的回退机制，确保变量插值行为与宿主完全一致。
+   - stdio 通道接入 `session/get_history` JSON-RPC 处理函数与消息转换。
+   - `StateStoreCallbacks` 完善：`state_read` 与 `state_write` 对 `plan` 与 `goal` 优先委派宿主回调，缺失时平滑降级至本地嵌入 store。
+   - 校准 `tool-name-contract.json` 中 Tower 条目索引至 P85。
+2. **TS 运行时与 SDK 完整覆盖**：
+   - `session-handle.ts` 对 `authToken` 回调请求与响应接入 `wire-schema.ts` 强校验。
+   - `rust-loop.ts` 修正 `sessionGetHistory` schema 与消息输入类型兼容。
+   - `SDKRpcClientNative` 补齐全部 RPC 接口重载：
+     - 文件管理（`uploadFile`、`deleteFile`）、会话诊断与警告（`getSessionWarnings`、`getTodos`、`reloadSession`）、命令控制（`cancelShellCommand`、`swarm`）。
+     - 会话压缩（`compact`、`cancelCompaction`，支持 Quiescence 互斥锁与 AbortController）、工作区提示词生成（`generateAgentsMd`）、带技能提问（`promptWithSkills`）、工作区本地 Shell 执行（`runShellCommand`）、上下文快照（`getContext`）、Btw 对话（`startBtw`）、定时任务（`getCronTasks`）。
+     - 磁盘级会话枚举（`listSessions` 融合内存与持久化 `session-meta.json`）、基于 `yazl` 的真实 ZIP 归档导出（`exportSession`）。
+     - 全局与会话级 MCP 管理面（增删改查、连接测试、OAuth 状态自洽）。
+     - 插件管理（`listPlugins`、`installPlugin`、`reloadPlugins`、`getPluginInfo` 等）及后台任务管理接口。
+     - 默认 fail-closed 的工作区信任策略持久化。
+     - 严格受控的 `Proxy` 拦截网，未覆盖调用抛出规范的 `NOT_IMPLEMENTED` 错误。
+3. **CLI 启动与导出集成**：
+   - `apps/kimi-code/src/cli/run-shell.ts` 正确传递 `skillDirs` 与 `engineOverride` 至原生 harness。
+   - `apps/kimi-code/src/cli/sub/export.ts` 真实产出有效 ZIP 压缩包并打印路径。
+
+### 验证
+
+- cargo：100+ lib/integration tests 全绿；fmt 干净。
+- vitest：`packages/node-sdk/test/native-harness.test.ts` 5/5 全部通过。
+- typecheck：`agent-core-v2`、`kimi-code-sdk`、`apps/kimi-code` 均 0 错误。
+- monorepo 全局检查无降级。
+
+## P88 — FetchURL SSRF DNS Rebinding 防御与 Plan-Mode Cadence 节律注入（2026-09-03）
+
+1. **FetchURL SSRF DNS Rebinding（TOCTOU）收敛**：
+   - 解决原生 `fetch_url` 工具在二次 DNS 解析时的 DNS Rebinding / TOCTOU 漏洞窗口（对齐 `kimi-native-tools` 规范）。
+   - 实现 `resolve_and_validate_url`：提前解析目标主机 IP，校验是否为回环（`127.0.0.1` / `::1`）、局域私网（RFC 1918 / RFC 4193）或云元数据地址（`169.254.169.254`）。
+   - 使用 `reqwest::ClientBuilder::resolve_to_addrs(host, &addrs)` 将首轮及每一重定向跳的已验证公共 SocketAddr 固定到 HTTP 客户端底层的连接器上，阻断 TCP 握手时的二次解析。
+   - 切换为手工重定向循环（上限 10 跳），对每次 301/302/307/308 的 `Location` 头严格执行 SSRF 拦截并返回精确的重定向拒绝原因。
+2. **Plan-Mode 状态机与多轮节律提醒（Cadence & Exit）**：
+   - 在 `register_goal_plan_injections` 中为 `plan_mode` 注入器引入状态机跟踪器（`PlanCadence`）：
+     - 首次激活注入：根据是否有已有计划文件内容返回完整版或重入版提示词（Full/Re-entry）。
+     - 去重窗口（Turn 1）：静默抑制重复提示（返回空串）。
+     - 稀疏刷新（Turn 2–4）：注入浓缩版精简提示（`plan_mode_sparse_text`）。
+     - 周期全量刷新（Turn >= 5）：重新注入完整指导规则。
+     - 计划退出（`active: false` 且之前处于激活态）：触发退出提醒（`plan_mode_exit_text`），通知模型规划限制已解除并恢复执行任务。
+
+### 验证
+
+- cargo：lib 1084 passed / 0 failed；`tools::fetch_url` 5/5 全部通过；`injection::goal_plan` 21/21 全部通过。
+- typecheck：全仓库通过（0 errors）。
+- lint：`bun run lint` 通过（0 errors）。
+
+## P89 — Anthropic 4-Slot 提示词缓存对齐与 Google GenAI 调用链路对齐（2026-09-03）
+
+1. **Anthropic 4-Slot 提示词缓存（Prompt Caching）对齐**：
+   - 对齐 `packages/kosong/src/providers/anthropic-cache-breakpoints.ts` 标准策略，充分利用 Anthropic 提供的全部 4 个 `cache_control` 插槽：
+     - 插槽 1：`system` 系统提示词。
+     - 插槽 2：`tools` 最后一个工具定义。
+     - 插槽 3：稳定历史断点（`msgs.len() >= 4` 时注入在 `msgs[msgs.len() - 3]` 末尾块），建立对话前缀缓存，新消息追加时前缀继续命中。
+     - 插槽 4：尾部断点（最新一条 user 消息末尾块）。
+   - 新增单元测试 `test_anthropic_prompt_caching_stable_history_and_tail` 验证插槽分布。
+2. **Google GenAI 调用链路与凭据形态对齐**：
+   - 在 `google_genai.rs` 中优先提取 upstream `functionCall.id`，并在缺失时平滑回退，避免多轮多工具调用 ID 丢失或跨轮次冲突。
+   - 在 `NativeHttpLlm::send_request` 中增强 Google 端点认证形态判定：当传入 Google OAuth Token（`ya29.*`）或配置了 `auth_provider` 时，自动采用 `Authorization: Bearer <token>` 请求头；静态 API Key 继续保持 `x-goog-api-key`。
+
+### 验证
+
+- cargo：lib 1086 passed / 0 failed；`llm` 89/89 全部通过。
+- typecheck：`@moonshot-ai/kimi-code`、`kimi-code-sdk` 均 0 错误。
+- sherif：✓ No issues found。
+
+## P90 — 上下文压缩 Token 估算算法（CJK/多模态/JSON）与 MCP SSE Headers 对齐（2026-09-03）
+
+1. **上下文压缩 Token 估算算法双端对齐（消除 CJK / 多模态偏见）**：
+   - 解决 `compaction/mod.rs` 源码注释中指出的原生估算器与 TS 端 `kosong` 的历史偏差（旧实现按全 ASCII/4 估算导致 CJK 严重低估、多模态按 base64 长度估算）：
+     - 严格对齐 `packages/kosong/src/tokens.ts`（`tsEstimateTokens`）：ASCII 字符按 `ceil(ascii / 4)` 计算，非 ASCII（CJK / Unicode）按 1 字符/token 统计。
+     - 多模态媒体块（Image, ImageUrl, AudioUrl, VideoUrl）统一采用固定常数 `MEDIA_TOKEN_ESTIMATE = 2000`。
+     - 工具调用入参 JSON 序列化字符统一引入 `JSON_TOKEN_MULTIPLIER = 1.3` 修正致密标点带来的 token 密度。
+   - 新增针对性单元测试 `test_estimate_tokens`（含 CJK 校验）及 `test_estimate_message_tokens_media_and_json`。
+2. **MCP SSE 连接 Headers 透传**：
+   - 在 `McpServerConfig` 中补齐 `headers: Option<HashMap<String, String>>` 配置字段。
+   - 在 `McpManager::spawn_from_config` 中将配置的自定义 headers 完整传递给 `McpClient::connect_sse`，确保原生引擎直连带鉴权 MCP SSE 端点时认证头不丢失。
+
+### 验证
+
+- cargo：lib 1087 passed / 0 failed；`compaction` 15/15 全部通过。
+- typecheck：全仓库通过（0 errors）。
+- lint：`bun run lint` 通过（0 errors）。
+- sherif：✓ No issues found。
+
+## P91 — 原生 SQLite 会话存储工具调用与多模态结构完整性持久化（2026-09-03）
+
+1. **SQLite 存储结构扩展与迁移（`sqlite_store.rs`）**：
+   - 解决原生 `SqliteSessionStore` 旧版本在保存/加载消息时仅持久化 `role` 与 `content`，导致 assistant 的结构化 `tool_calls`、tool 回复的 `tool_call_id` 以及用户消息的多模态 `blocks` 完全丢失的架构缺陷。
+   - 消息表（`messages`）新增 `tool_calls TEXT`、`tool_call_id TEXT` 与 `blocks TEXT` 列。
+   - 实现无损动态迁移：在 `init` 中通过 `PRAGMA table_info(messages)` 探测已有列，对旧数据库自动执行 `ALTER TABLE messages ADD COLUMN ...`，保持完全向后兼容。
+   - `save_turn`：在存入 SQLite 时将非空的 `m.tool_calls`、`m.blocks` 及 `m.tool_call_id` 序列化为结构化字段持久化。
+   - `load_session_history`：在加载历史时反序列化为具备完整工具调用 ID、参数及图片/代码块的 `LLMMessage`，确保会话持久化与重放具备 100% 格式保真度。
+   - 新增单元测试 `test_sqlite_structured_tool_calls_and_blocks` 验证端到端结构读写保真性。
+
+### 验证
+
+- cargo：lib 1088 passed / 0 failed；`session::sqlite_store` 3/3 全部通过。
+- typecheck：`@moonshot-ai/kimi-code` 0 错误。
+- sherif：✓ No issues found。
+
+## P92 — 原生 HTTP REST 服务 Sessions CRUD 完整路由对齐（2026-09-03）
+
+1. **会话详情与级联删除存储能力（`sqlite_store.rs`）**：
+   - 实现 `SqliteSessionStore::get_session`：按 `session_id` 单条查询会话元数据（`SessionSummary`）。
+   - 实现 `SqliteSessionStore::delete_session`：依据 SQLite 数据库外键 `ON DELETE CASCADE` 约束，原子删除会话及级联的 turns、messages 和 checkpoints。
+2. **原生 HTTP Server 路由对齐（`server/mod.rs`）**：
+   - 补齐此前缺失的两个核心会话端点：
+     - `GET /api/v1/sessions/:id`：读取指定会话详情与其全量消息历史（`history`）。
+     - `DELETE /api/v1/sessions/:id`：删除指定会话并返回删除状态，不存在时返回 404。
+   - 在 `test_http_sessions_crud_and_prompt` 中建立完整的 Create -> List -> Prompt -> Get -> Delete -> 404 回归验证链。
+
+### 验证
+
+- cargo：lib 1088 passed / 0 failed；`server` 82/82 全部通过。
+- typecheck：`@moonshot-ai/kimi-code` 0 错误。
+- sherif：✓ No issues found。
+
+## P93 — 定时任务调度器（CronScheduler）动态注册/撤销与查询能力补齐（2026-09-03）
+
+1. **CronScheduler 动态任务生命周期管理（`cron/scheduler.rs`）**：
+   - 解决此前 `CronScheduler` 仅支持在构建时传入静态 `entries` 且后台任务无法动态增删任务的限制。
+   - `add_entry`：动态添加或更新定时任务。自动解析并验证 Cron 表达式有效性；若存在相同 ID 任务则进行替换更新，若表达式无效则拒绝添加并返回 `false`。
+   - `remove_entry`：根据任务 ID 动态撤销定时任务，返回布尔值指示是否存在并成功移除。
+   - `list_entries`：获取当前调度器中排队生效的所有任务列表。
+   - 新增针对性单元测试 `test_dynamic_add_remove_and_list_entries` 验证动态新增、语法校验拒绝、同 ID 覆盖与移除逻辑。
+
+### 验证
+
+- cargo：lib 1089 passed / 0 failed；`cron` 57/57 全部通过。
+- typecheck：`@moonshot-ai/kimi-code` 0 错误。
+- sherif：✓ No issues found。
+
+## P94 — Kaos 多环境执行抽象协议隔离与 Shell 类型自适应（2026-09-03）
+
+1. **执行环境标准输入隔离与挂起防御（`tools/kaos.rs`）**：
+   - 解决此前 `ExecutionEnvironment::build_command` 在 `Local`、`Docker` 与 `Ssh` 模式下默认继承进程标准输入（`stdin`）的隐患。在所有执行环境中显式重定向 `stdin(Stdio::null())`，防止后台子命令吞噬宿主 stdio RPC 通信帧或在 Windows 管道中因等待输入产生死锁挂起。
+2. **Shell 语法自适应（CMD / PowerShell / Bash）**：
+   - 在 `ExecutionEnvironment::Local` 中根据传入的 Shell 可执行文件名自动适配启动参数：
+     - `cmd.exe` / `cmd`：采用 `/c <command>` 引导命令。
+     - `powershell` / `pwsh`：采用 `-NoProfile -NonInteractive -Command <command>` 无配置文件非交互模式。
+     - POSIX Shell（`bash` / `sh` / `zsh`）：保持 `-c <command>`。
+   - 新增单元测试 `test_local_command_builder_cmd_and_powershell`，断言各 Shell 类型的参数生成精确性。
+
+### 验证
+
+- cargo：lib 1090 passed / 0 failed；`tools::kaos` 4/4 全部通过。
+- typecheck：`@moonshot-ai/kimi-code` 0 错误。
+- sherif：✓ No issues found。
+

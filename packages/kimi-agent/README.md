@@ -30,7 +30,7 @@ packages/kimi-agent/src/
 - **Native Tools & Sandboxing (`src/tools/`)**:
   - Native filesystem tools: `Read`, `Write`, `Edit`, `Grep`, `Glob` constrained to workspace roots.
   - Process execution: Sandboxed `Bash` execution with stream callbacks, process tree termination, and timeout handling.
-  - Extended capabilities: `fetch_url` (with manual per-hop redirect validation and SSRF protection), `knowledge_tool` (SQLite FTS), `skill`, `agent_tool`.
+  - Extended capabilities: `fetch_url` (with manual per-hop redirect validation and SSRF protection), `knowledge_tool` (SQLite FTS), `skill`, `agent_tool`, `agent_swarm`, `wait_for`, and `Tower*` (11 native coordination tools).
 - **LLM Transport Layer (`src/llm/`)**:
   - Native HTTP/SSE transport for direct provider connections (OpenAI, Anthropic, Google Gemini).
   - Multi-LLM racing / fallback execution (`multi.rs`).

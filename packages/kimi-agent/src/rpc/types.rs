@@ -201,6 +201,8 @@ pub mod methods {
     pub const SESSION_EXTEND_HISTORY: &str = "session/extend_history";
     /// Current cross-turn history length.
     pub const SESSION_HISTORY_LEN: &str = "session/history_len";
+    /// Fetch the session's cross-turn history.
+    pub const SESSION_GET_HISTORY: &str = "session/get_history";
     /// Drop the session handle.
     pub const SESSION_DISPOSE: &str = "session/dispose";
 }
@@ -587,6 +589,10 @@ pub struct RunTurnParams {
     pub agent_tool_veto: Option<String>,
     #[serde(default)]
     pub tools_veto: Option<String>,
+    #[serde(default)]
+    pub caller_agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).

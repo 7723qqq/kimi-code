@@ -117,6 +117,21 @@ pub fn build_request_full(
         last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
 
+    // Stable history breakpoint: the last block of a message that is not one
+    // of the last 2 messages (aligning with `anthropic-cache-breakpoints.ts`).
+    // This creates a prefix cache covering the stable conversation history,
+    // utilizing all 4 Anthropic cache_control slots (system + tools + history + tail).
+    if msgs.len() >= 4 {
+        let stable_idx = msgs.len() - 3;
+        if let Some(stable_msg) = msgs.get_mut(stable_idx)
+            && let Some(content_arr) = stable_msg.get_mut("content").and_then(|c| c.as_array_mut())
+            && let Some(stable_block) = content_arr.last_mut()
+            && stable_block.get("cache_control").is_none()
+        {
+            stable_block["cache_control"] = json!({ "type": "ephemeral" });
+        }
+    }
+
     let effective_max_tokens = if let Some(budget) = thinking_budget {
         if budget > 0 && max_tokens <= budget {
             budget.saturating_add(4096)
@@ -1092,5 +1107,43 @@ mod tests {
         assert_eq!(default_max_tokens_for_model("claude-3-opus"), 4096);
         // Unknown model falls back to the generous TS ceiling, not a low guess.
         assert_eq!(default_max_tokens_for_model("some-unknown-model"), 128_000);
+    }
+
+    #[test]
+    fn test_anthropic_prompt_caching_stable_history_and_tail() {
+        let msgs = vec![
+            WireMessage::text("user", "turn 1"),
+            WireMessage::text("assistant", "answer 1"),
+            WireMessage::text("user", "turn 2"),
+            WireMessage::text("assistant", "answer 2"),
+            WireMessage::text("user", "turn 3"),
+        ];
+        let tools = vec![ToolInfo {
+            name: "read_file".into(),
+            description: "read a file".into(),
+            input_schema: json!({ "type": "object" }),
+        }];
+        let req = build_request_full("claude-3-7-sonnet", 4096, &msgs, &tools, true, None);
+
+        // Slot 1: system prompt (if present)
+        // Slot 2: last tool definition
+        let req_tools = req["tools"].as_array().unwrap();
+        assert_eq!(req_tools[0]["cache_control"]["type"], "ephemeral");
+
+        // Slot 3 & 4: stable history (msgs.len() - 3 = index 2) and tail (index 4)
+        let req_msgs = req["messages"].as_array().unwrap();
+        assert_eq!(req_msgs.len(), 5);
+
+        // stable history: index 2 ("turn 2") has cache_control
+        let stable_content = req_msgs[2]["content"].as_array().unwrap();
+        assert_eq!(stable_content[0]["cache_control"]["type"], "ephemeral");
+
+        // tail: index 4 ("turn 3") has cache_control
+        let tail_content = req_msgs[4]["content"].as_array().unwrap();
+        assert_eq!(tail_content[0]["cache_control"]["type"], "ephemeral");
+
+        // intermediate message: index 1 ("answer 1") does NOT have cache_control
+        let mid_content = req_msgs[1]["content"].as_array().unwrap();
+        assert!(mid_content[0].get("cache_control").is_none());
     }
 }
