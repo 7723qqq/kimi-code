@@ -45,6 +45,16 @@ import {
   type QuestionResponse,
   type QuestionResult,
 } from '#/session/question/question';
+import {
+  SubagentCompleted,
+  SubagentFailed,
+  SubagentSpawned,
+  SubagentStarted,
+} from '#/session/subagent/mirrorAgentRun';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { resolveSubagentTimeoutMs } from '#/session/subagent/configSection';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentCheckpointService } from '#/agent/checkpoint/checkpointService';
