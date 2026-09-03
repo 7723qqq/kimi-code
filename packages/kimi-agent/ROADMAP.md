@@ -3973,3 +3973,26 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
 
+## P99 — 原生工作区（Workspaces）模型持久化与管理面 REST 路由对齐（2026-09-04）
+
+1. **工作区 SQLite 持久化与标识编码算法（`session/sqlite_store.rs`）**：
+   - 实现 `encode_workdir_key`：严格对齐 TS 端 `encodeWorkDirKey`（`workdir-slug.ts`），规范化路径分隔符、截断 slug（≤ 40 字符）并利用 SHA-256 计算 12 位十六进制摘要，产出标准的 `wd_<slug>_<hash12>` 确定性工作区主键；
+   - SQLite 新增 `workspaces` 数据表（`workspace_id`, `root`, `name`, `created_at`, `last_opened_at`, `trusted`），并在初始化中通过 `PRAGMA table_info` 自动向 `sessions` 表迁移 `workspace_id TEXT` 关联外键；
+   - 增加 `WorkspaceSummary` 模型（`id`, `root`, `name`, `created_at`, `last_opened_at`, `session_count`），其中时间戳采用符合 `isoDateTimeSchema` 的 ISO-8601 毫秒级 UTC 字符串；
+   - 实现完整的生命周期方法：`create_workspace`、`list_workspaces`、`get_workspace`、`delete_workspace`、`is_workspace_trusted`、`set_workspace_trusted`，以及支持关联工作区的 `create_session_with_workspace`。
+2. **REST 路由分发流水线（`server/mod.rs`）**：
+   - `GET /api/v1/workspaces`：返回当前已注册的所有工作区列表（`{ "items": [...] }`），支持 Web UI 侧边栏与多工程项目切换；
+   - `POST /api/v1/workspaces`：根据请求 `root` 路径与可选 `name` 注册新工作区（201 Created，缺少 `root` 时返回 400 Bad Request）；
+   - `GET /api/v1/workspaces/:id` 与 `DELETE /api/v1/workspaces/:id`：单项查询与注销；
+   - `GET /api/v1/workspaces/:id/trust` 与 `POST /api/v1/workspaces/:id/trust`：查询与设置工作区信任决策状态；
+   - `POST /api/v1/sessions` 扩展支持从入站 payload 提取 `workspaceId` / `workspace_id` 并关联工作区，使工作区会话计数实时动态更新。
+3. **测试覆盖（`session/sqlite_store.rs` & `server/mod.rs`）**：
+   - `test_workspaces_crud_trust_and_session_count`：验证 SQLite 存储层工作区创建、默认信任态、手动信任切换、会话关联计数自增、列表与删除全生命周期；
+   - `test_http_workspaces_crud_and_trust`：端到端验证 HTTP 层空列表、400 参数拦截、201 创建、详情读取、信任开关、通过会话创建关联自增 session_count、200 删除以及 404 越界防卫。
+
+### 验证
+
+- cargo：lib 1103 passed / 0 failed（新增 2 项端到端测试）；`server::` 92/92 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+

@@ -225,6 +225,98 @@ impl HttpServer {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
                 Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
             },
+            // Workspaces endpoints
+            ("GET", "/api/v1/workspaces") => match self.store.list_workspaces() {
+                Ok(items) => HttpResponse::ok(&json!({ "items": items })),
+                Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+            },
+            ("POST", "/api/v1/workspaces") => {
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let root = match body.get("root").and_then(|v| v.as_str()) {
+                    Some(r) if !r.trim().is_empty() => r.trim(),
+                    _ => return HttpResponse::bad_request("Field 'root' is required"),
+                };
+                let name = body.get("name").and_then(|v| v.as_str());
+                match self.store.create_workspace(root, name) {
+                    Ok(ws) => HttpResponse::json(201, &json!(ws)),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("GET", p) if p.starts_with("/api/v1/workspaces/") && p.ends_with("/trust") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let workspace_id = segments[4];
+                if self
+                    .store
+                    .get_workspace(workspace_id)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    return HttpResponse::not_found();
+                }
+                match self.store.is_workspace_trusted(workspace_id) {
+                    Ok(trusted) => HttpResponse::ok(&json!({ "trusted": trusted })),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("POST", p) if p.starts_with("/api/v1/workspaces/") && p.ends_with("/trust") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let workspace_id = segments[4];
+                if self
+                    .store
+                    .get_workspace(workspace_id)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    return HttpResponse::not_found();
+                }
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let trusted = body
+                    .get("trusted")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                match self.store.set_workspace_trusted(workspace_id, trusted) {
+                    Ok(_) => HttpResponse::ok(&json!({ "trusted": trusted })),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("GET", p) if p.starts_with("/api/v1/workspaces/") && !p.ends_with("/trust") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 5 {
+                    return HttpResponse::not_found();
+                }
+                let workspace_id = segments[4];
+                match self.store.get_workspace(workspace_id) {
+                    Ok(Some(ws)) => HttpResponse::ok(&json!(ws)),
+                    Ok(None) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("DELETE", p) if p.starts_with("/api/v1/workspaces/") && !p.ends_with("/trust") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 5 {
+                    return HttpResponse::not_found();
+                }
+                let workspace_id = segments[4];
+                match self.store.delete_workspace(workspace_id) {
+                    Ok(true) => HttpResponse::ok(&json!({ "deleted": true })),
+                    Ok(false) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
             // Cron endpoints: session-scoped or global
             ("GET", p)
                 if (p.starts_with("/api/v1/sessions/") && p.ends_with("/cron"))
@@ -528,11 +620,23 @@ impl HttpServer {
                 };
                 let session_id = format!("sess-{}", fastrand::u64(..));
                 let title = body.get("title").and_then(|v| v.as_str());
+                let workspace_id = body
+                    .get("workspaceId")
+                    .or_else(|| body.get("workspace_id"))
+                    .and_then(|v| v.as_str());
 
-                match self.store.create_session(&session_id, title) {
-                    Ok(_) => {
-                        HttpResponse::json(201, &json!({ "sessionId": session_id, "title": title }))
-                    }
+                match self
+                    .store
+                    .create_session_with_workspace(&session_id, title, workspace_id)
+                {
+                    Ok(_) => HttpResponse::json(
+                        201,
+                        &json!({
+                            "sessionId": session_id,
+                            "title": title,
+                            "workspaceId": workspace_id
+                        }),
+                    ),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
@@ -1180,5 +1284,139 @@ mod tests {
             })
             .await;
         assert_eq!(res_api.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_workspaces_crud_and_trust() {
+        let server = HttpServer::in_memory().unwrap();
+
+        // 1. Initial list is empty
+        let res_list = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/workspaces".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_list.status, 200);
+        let val_list: Value = serde_json::from_slice(&res_list.body).unwrap();
+        assert_eq!(val_list["items"].as_array().unwrap().len(), 0);
+
+        // 2. Create workspace - missing root -> 400
+        let res_bad = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/workspaces".into(),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({})).unwrap(),
+            })
+            .await;
+        assert_eq!(res_bad.status, 400);
+
+        // 3. Create valid workspace
+        let res_create = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/workspaces".into(),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "root": "/workspace/my-app",
+                    "name": "My Application"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res_create.status, 201);
+        let ws: Value = serde_json::from_slice(&res_create.body).unwrap();
+        let ws_id = ws["id"].as_str().unwrap().to_string();
+        assert!(ws_id.starts_with("wd_my-app_"));
+        assert_eq!(ws["name"], "My Application");
+        assert_eq!(ws["session_count"], 0);
+
+        // 4. Get workspace by id
+        let res_get = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/workspaces/{ws_id}"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_get.status, 200);
+        let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
+        assert_eq!(val_get["id"], ws_id);
+
+        // 5. Query and toggle trust
+        let res_trust = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/workspaces/{ws_id}/trust"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_trust.status, 200);
+        let val_trust: Value = serde_json::from_slice(&res_trust.body).unwrap();
+        assert_eq!(val_trust["trusted"], true);
+
+        let res_set_trust = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/workspaces/{ws_id}/trust"),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "trusted": false })).unwrap(),
+            })
+            .await;
+        assert_eq!(res_set_trust.status, 200);
+        let val_set_trust: Value = serde_json::from_slice(&res_set_trust.body).unwrap();
+        assert_eq!(val_set_trust["trusted"], false);
+
+        // 6. Create session under workspace -> session_count updates
+        server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions".into(),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "title": "Task 1",
+                    "workspace_id": ws_id
+                }))
+                .unwrap(),
+            })
+            .await;
+
+        let res_get_updated = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/workspaces/{ws_id}"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let val_updated: Value = serde_json::from_slice(&res_get_updated.body).unwrap();
+        assert_eq!(val_updated["session_count"], 1);
+
+        // 7. Delete workspace
+        let res_del = server
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/workspaces/{ws_id}"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_del.status, 200);
+
+        // 8. Delete non-existent -> 404
+        let res_del_missing = server
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/workspaces/{ws_id}"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_del_missing.status, 404);
     }
 }

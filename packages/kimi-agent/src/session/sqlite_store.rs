@@ -6,12 +6,54 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::LLMMessage;
+
+/// Format a millisecond timestamp as an ISO-8601 string.
+fn format_iso(millis: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(millis)
+        .unwrap_or_default()
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Compute standard deterministic workspace ID `wd_<slug>_<hash12>`.
+pub fn encode_workdir_key(work_dir: &str) -> String {
+    let normalized = work_dir.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    let base = normalized.split('/').next_back().unwrap_or(normalized);
+
+    let mut slug = String::new();
+    for c in base.to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+            slug.push(c);
+        } else {
+            slug.push('-');
+        }
+    }
+    let slug = slug.trim_matches('-').to_string();
+    let slug = if slug.len() > 40 {
+        slug[..40].trim_matches('-').to_string()
+    } else {
+        slug
+    };
+    let final_slug = if slug.is_empty() || slug == "." || slug == ".." {
+        "workspace".to_string()
+    } else {
+        slug
+    };
+
+    let mut hasher = Sha256::new();
+    hasher.update(normalized.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    let hash12 = &hash[..12];
+
+    format!("wd_{final_slug}_{hash12}")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
@@ -19,6 +61,18 @@ pub struct SessionSummary {
     pub title: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceSummary {
+    pub id: String,
+    pub root: String,
+    pub name: String,
+    pub created_at: String,
+    pub last_opened_at: String,
+    pub session_count: usize,
 }
 
 pub struct SqliteSessionStore {
@@ -92,6 +146,15 @@ impl SqliteSessionStore {
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS workspaces (
+                workspace_id TEXT PRIMARY KEY,
+                root TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_opened_at INTEGER NOT NULL,
+                trusted INTEGER NOT NULL DEFAULT 1
+            );
             ",
         )?;
 
@@ -111,6 +174,15 @@ impl SqliteSessionStore {
             let _ = conn.execute("ALTER TABLE messages ADD COLUMN blocks TEXT", []);
         }
 
+        let session_columns: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+            let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            names.filter_map(std::result::Result::ok).collect()
+        };
+        if !session_columns.contains("workspace_id") {
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN workspace_id TEXT", []);
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -122,15 +194,26 @@ impl SqliteSessionStore {
         session_id: &str,
         title: Option<&str>,
     ) -> Result<(), rusqlite::Error> {
+        self.create_session_with_workspace(session_id, title, None)
+    }
+
+    /// Create or update a session header with an optional workspace association.
+    pub fn create_session_with_workspace(
+        &self,
+        session_id: &str,
+        title: Option<&str>,
+        workspace_id: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
-            "INSERT INTO sessions (session_id, title, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?3)
+            "INSERT INTO sessions (session_id, title, created_at, updated_at, workspace_id)
+             VALUES (?1, ?2, ?3, ?3, ?4)
              ON CONFLICT(session_id) DO UPDATE SET
                 title = coalesce(?2, title),
-                updated_at = ?3",
-            params![session_id, title, now],
+                updated_at = ?3,
+                workspace_id = coalesce(?4, workspace_id)",
+            params![session_id, title, now, workspace_id],
         )?;
         Ok(())
     }
@@ -139,7 +222,7 @@ impl SqliteSessionStore {
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT session_id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
+            "SELECT session_id, title, created_at, updated_at, workspace_id FROM sessions ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(SessionSummary {
@@ -147,6 +230,7 @@ impl SqliteSessionStore {
                 title: row.get(1)?,
                 created_at: row.get(2)?,
                 updated_at: row.get(3)?,
+                workspace_id: row.get(4)?,
             })
         })?;
 
@@ -161,7 +245,7 @@ impl SqliteSessionStore {
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionSummary>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT session_id, title, created_at, updated_at FROM sessions WHERE session_id = ?1",
+            "SELECT session_id, title, created_at, updated_at, workspace_id FROM sessions WHERE session_id = ?1",
         )?;
         let mut rows = stmt.query(params![session_id])?;
         if let Some(row) = rows.next()? {
@@ -170,10 +254,161 @@ impl SqliteSessionStore {
                 title: row.get(1)?,
                 created_at: row.get(2)?,
                 updated_at: row.get(3)?,
+                workspace_id: row.get(4)?,
             }))
         } else {
             Ok(None)
         }
+    }
+
+    /// Create or update a workspace.
+    pub fn create_workspace(
+        &self,
+        root: &str,
+        name: Option<&str>,
+    ) -> Result<WorkspaceSummary, rusqlite::Error> {
+        let id = encode_workdir_key(root);
+        let normalized_root = root.replace('\\', "/").trim_end_matches('/').to_string();
+        let base = normalized_root
+            .split('/')
+            .next_back()
+            .unwrap_or(&normalized_root)
+            .to_string();
+        let ws_name = name.unwrap_or(&base);
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (workspace_id, root, name, created_at, last_opened_at, trusted)
+             VALUES (?1, ?2, ?3, ?4, ?4, 1)
+             ON CONFLICT(workspace_id) DO UPDATE SET
+                name = coalesce(?3, name),
+                last_opened_at = ?4",
+            params![id, normalized_root, ws_name, now],
+        )?;
+
+        let session_count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        let (created_at, last_opened_at): (i64, i64) = conn.query_row(
+            "SELECT created_at, last_opened_at FROM workspaces WHERE workspace_id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+
+        Ok(WorkspaceSummary {
+            id,
+            root: normalized_root,
+            name: ws_name.to_string(),
+            created_at: format_iso(created_at),
+            last_opened_at: format_iso(last_opened_at),
+            session_count,
+        })
+    }
+
+    /// List all registered workspaces ordered by last opened time.
+    pub fn list_workspaces(&self) -> Result<Vec<WorkspaceSummary>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT w.workspace_id, w.root, w.name, w.created_at, w.last_opened_at,
+                    (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.workspace_id)
+             FROM workspaces w ORDER BY w.last_opened_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let root: String = row.get(1)?;
+            let name: String = row.get(2)?;
+            let created_at: i64 = row.get(3)?;
+            let last_opened_at: i64 = row.get(4)?;
+            let session_count: usize = row.get(5)?;
+            Ok(WorkspaceSummary {
+                id,
+                root,
+                name,
+                created_at: format_iso(created_at),
+                last_opened_at: format_iso(last_opened_at),
+                session_count,
+            })
+        })?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Retrieve a single workspace summary by ID.
+    pub fn get_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<WorkspaceSummary>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT w.workspace_id, w.root, w.name, w.created_at, w.last_opened_at,
+                    (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.workspace_id)
+             FROM workspaces w WHERE w.workspace_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![workspace_id])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let root: String = row.get(1)?;
+            let name: String = row.get(2)?;
+            let created_at: i64 = row.get(3)?;
+            let last_opened_at: i64 = row.get(4)?;
+            let session_count: usize = row.get(5)?;
+            Ok(Some(WorkspaceSummary {
+                id,
+                root,
+                name,
+                created_at: format_iso(created_at),
+                last_opened_at: format_iso(last_opened_at),
+                session_count,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Delete a workspace entry.
+    pub fn delete_workspace(&self, workspace_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute(
+            "DELETE FROM workspaces WHERE workspace_id = ?1",
+            params![workspace_id],
+        )?;
+        Ok(affected > 0)
+    }
+
+    /// Query whether a workspace is trusted. Default to true if unconfigured.
+    pub fn is_workspace_trusted(&self, workspace_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let trusted: Option<i64> = conn
+            .query_row(
+                "SELECT trusted FROM workspaces WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(trusted.map(|v| v != 0).unwrap_or(true))
+    }
+
+    /// Set trust state for a workspace.
+    pub fn set_workspace_trusted(
+        &self,
+        workspace_id: &str,
+        trusted: bool,
+    ) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute(
+            "UPDATE workspaces SET trusted = ?2 WHERE workspace_id = ?1",
+            params![workspace_id, if trusted { 1 } else { 0 }],
+        )?;
+        Ok(affected > 0)
     }
 
     /// Delete a session and all its cascading turns, messages, and checkpoints.
@@ -519,5 +754,50 @@ mod tests {
             .fork_session("sess-missing", "sess-none", None)
             .unwrap();
         assert!(!missing);
+    }
+
+    #[test]
+    fn test_workspaces_crud_trust_and_session_count() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+
+        // 1. Create workspace
+        let ws1 = store
+            .create_workspace("/path/to/my-project", Some("My Project"))
+            .unwrap();
+        assert!(ws1.id.starts_with("wd_my-project_"));
+        assert_eq!(ws1.root, "/path/to/my-project");
+        assert_eq!(ws1.name, "My Project");
+        assert_eq!(ws1.session_count, 0);
+
+        // 2. Default trust is true
+        assert!(store.is_workspace_trusted(&ws1.id).unwrap());
+        // Toggle trust to false
+        store.set_workspace_trusted(&ws1.id, false).unwrap();
+        assert!(!store.is_workspace_trusted(&ws1.id).unwrap());
+        store.set_workspace_trusted(&ws1.id, true).unwrap();
+        assert!(store.is_workspace_trusted(&ws1.id).unwrap());
+
+        // 3. Create session linked to workspace
+        store
+            .create_session_with_workspace("s1", Some("Session 1"), Some(&ws1.id))
+            .unwrap();
+        store
+            .create_session_with_workspace("s2", Some("Session 2"), Some(&ws1.id))
+            .unwrap();
+
+        // 4. Query workspace again -> session_count == 2
+        let ws1_updated = store.get_workspace(&ws1.id).unwrap().unwrap();
+        assert_eq!(ws1_updated.session_count, 2);
+
+        // 5. List workspaces
+        let list = store.list_workspaces().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, ws1.id);
+
+        // 6. Delete workspace
+        let deleted = store.delete_workspace(&ws1.id).unwrap();
+        assert!(deleted);
+        assert!(store.get_workspace(&ws1.id).unwrap().is_none());
+        assert_eq!(store.list_workspaces().unwrap().len(), 0);
     }
 }
