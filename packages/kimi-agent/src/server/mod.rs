@@ -47,6 +47,8 @@ pub struct HttpServer {
     heartbeat: Duration,
     cron_scheduler: Arc<Mutex<CronScheduler>>,
     task_runner: Arc<TaskRunner>,
+    server_id: String,
+    started_at: String,
 }
 
 impl HttpServer {
@@ -69,7 +71,17 @@ impl HttpServer {
             heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
             cron_scheduler: Arc::new(Mutex::new(CronScheduler::new(Vec::new(), 0))),
             task_runner: Arc::new(TaskRunner::new(None)),
+            server_id: format!("srv-{}", fastrand::u64(..)),
+            started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         }
+    }
+
+    pub fn server_id(&self) -> &str {
+        &self.server_id
+    }
+
+    pub fn started_at(&self) -> &str {
+        &self.started_at
     }
 
     /// Require `Authorization: Bearer <token>` (and the WebSocket subprotocol
@@ -159,6 +171,33 @@ impl HttpServer {
                 "status": "ok",
                 "version": env!("CARGO_PKG_VERSION"),
                 "engine": "kimi-agent-rust",
+            })),
+            ("GET", "/api/v1/meta") => {
+                let dangerous_bypass_auth = self.auth.is_disabled();
+                HttpResponse::ok(&json!({
+                    "server_version": env!("CARGO_PKG_VERSION"),
+                    "capabilities": {
+                        "websocket": true,
+                        "file_upload": true,
+                        "fs_query": true,
+                        "mcp": true,
+                        "tasks": true,
+                        "terminal": true,
+                    },
+                    "server_id": self.server_id,
+                    "started_at": self.started_at,
+                    "open_in_apps": [],
+                    "dangerous_bypass_auth": dangerous_bypass_auth,
+                    "backend": "rust",
+                    "web_title": "Kimi Code",
+                    "experimental_flags": {},
+                }))
+            }
+            ("GET", "/api/v1/config") => HttpResponse::ok(&json!({
+                "default_model": "kimi-latest",
+                "providers": {},
+                "models": {},
+                "services": {},
             })),
             ("GET", "/api/v1/sessions") => match self.store.list_sessions() {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
@@ -341,6 +380,87 @@ impl HttpServer {
                 match self.task_runner.stop(task_id).await {
                     Ok(wire) => HttpResponse::ok(&json!({ "stopped": true, "task": wire })),
                     Err(_) => HttpResponse::not_found(),
+                }
+            }
+
+            // Session sub-resources: status, abort, fork
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/status") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let busy = self
+                    .engine
+                    .as_ref()
+                    .map(|e| e.is_busy(session_id))
+                    .unwrap_or(false);
+                let history = self
+                    .store
+                    .load_session_history(session_id)
+                    .unwrap_or_default();
+                let context_tokens: usize = history.iter().map(|m| m.content.len() / 4).sum();
+                HttpResponse::ok(&json!({
+                    "busy": busy,
+                    "model": "kimi-latest",
+                    "thinking_level": "medium",
+                    "permission": "auto",
+                    "plan_mode": false,
+                    "swarm_mode": false,
+                    "tower_mode": false,
+                    "context_tokens": context_tokens,
+                }))
+            }
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/abort") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let aborted = self
+                    .engine
+                    .as_ref()
+                    .map(|e| e.cancel_turn(session_id))
+                    .unwrap_or(false);
+                HttpResponse::ok(&json!({ "aborted": aborted, "sessionId": session_id }))
+            }
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/fork") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let body: Value = if req.body.is_empty() {
+                    json!({})
+                } else {
+                    match serde_json::from_slice(&req.body) {
+                        Ok(v) => v,
+                        Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                    }
+                };
+                let new_session_id = format!("sess-{}", fastrand::u64(..));
+                let title = body.get("title").and_then(|v| v.as_str());
+
+                match self.store.fork_session(session_id, &new_session_id, title) {
+                    Ok(true) => HttpResponse::json(
+                        201,
+                        &json!({
+                            "sessionId": new_session_id,
+                            "sourceSessionId": session_id,
+                            "title": title
+                        }),
+                    ),
+                    Ok(false) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
 
@@ -823,5 +943,134 @@ mod tests {
             })
             .await;
         assert_eq!(res_missing.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_meta_and_config_endpoints() {
+        let server = HttpServer::in_memory().unwrap();
+
+        // 1. Meta endpoint
+        let res_meta = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/meta".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_meta.status, 200);
+        let val_meta: Value = serde_json::from_slice(&res_meta.body).unwrap();
+        assert_eq!(val_meta["backend"], "rust");
+        assert_eq!(val_meta["capabilities"]["websocket"], true);
+        assert_eq!(val_meta["capabilities"]["tasks"], true);
+        assert!(val_meta["server_id"].as_str().unwrap().starts_with("srv-"));
+        assert!(val_meta["started_at"].as_str().is_some());
+
+        // 2. Config endpoint
+        let res_cfg = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/config".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_cfg.status, 200);
+        let val_cfg: Value = serde_json::from_slice(&res_cfg.body).unwrap();
+        assert_eq!(val_cfg["default_model"], "kimi-latest");
+        assert!(val_cfg["providers"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_http_session_status_abort_and_fork() {
+        let server = HttpServer::in_memory().unwrap();
+        server
+            .store_arc()
+            .create_session("sess-test", Some("Original Session"))
+            .unwrap();
+
+        // 1. Session status
+        let res_status = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-test/status".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_status.status, 200);
+        let val_status: Value = serde_json::from_slice(&res_status.body).unwrap();
+        assert_eq!(val_status["busy"], false);
+        assert_eq!(val_status["permission"], "auto");
+
+        // 2. Abort when no active turn -> false
+        let res_abort = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-test/abort".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_abort.status, 200);
+        let val_abort: Value = serde_json::from_slice(&res_abort.body).unwrap();
+        assert_eq!(val_abort["aborted"], false);
+
+        // 3. Fork session
+        let res_fork = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-test/fork".into(),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "title": "Forked Branch" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res_fork.status, 201);
+        let val_fork: Value = serde_json::from_slice(&res_fork.body).unwrap();
+        let new_sid = val_fork["sessionId"].as_str().unwrap();
+        assert_eq!(val_fork["sourceSessionId"], "sess-test");
+        assert_eq!(val_fork["title"], "Forked Branch");
+
+        // Forked session can be queried
+        let res_forked_status = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{new_sid}/status"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_forked_status.status, 200);
+
+        // 4. Missing session on status/abort/fork -> 404
+        let res_missing_status = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/non-existent/status".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_missing_status.status, 404);
+
+        let res_missing_abort = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/non-existent/abort".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_missing_abort.status, 404);
+
+        let res_missing_fork = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/non-existent/fork".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_missing_fork.status, 404);
     }
 }

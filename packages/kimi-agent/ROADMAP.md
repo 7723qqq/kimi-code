@@ -3922,3 +3922,29 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码质量：`sherif` 0 issues；格式规范 `cargo fmt` 干净。
 
+## P97 — 原生 HTTP REST 服务 Meta 发现、Session Status / Abort / Fork 端点完整闭环（2026-09-04）
+
+1. **服务元数据发现与全局配置接口（`server/mod.rs`）**：
+   - `HttpServer` 增加 `server_id` 与 `started_at` 启动时间戳字段及公共访问器；
+   - 实现 `GET /api/v1/meta`：返回与 `packages/kap-server` 规范完全对齐的元数据信封（含 `server_version`、全量 capabilities `websocket` / `tasks` / `terminal` / `mcp` / `file_upload` / `fs_query`、`server_id`、`started_at`、`backend: "rust"`、`dangerous_bypass_auth`），支撑 Web UI、VS Code 扩展及客户端环境自发现；
+   - 实现 `GET /api/v1/config`：提供客户端初始化所需的基线配置数据结构，消除启动引导时的 404 异常。
+2. **会话执行控制与状态感知（`server/engine.rs` & `server/mod.rs`）**：
+   - `ServerEngine` 结构体新增 `active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>` 活跃轮次追踪器；
+   - 在 `execute` 执行入口中建立 RAII 活跃保护卫士（`ActiveGuard`），将当前会话的 `cancellation` 信号槽传递至底层 `RunTurnInput`；
+   - 提供 `is_busy(session_id)` 与 `cancel_turn(session_id)` 接口；
+   - 实现 `GET /api/v1/sessions/:id/status`：实时读取会话忙闲状态（`busy`）、模型配置、权限模式及上下文 Token 概算；
+   - 实现 `POST /api/v1/sessions/:id/abort`：协作式触发指定会话正在运行轮次的步边界中断，并返回 `{ "aborted": bool, "sessionId": id }`。
+3. **会话分支克隆（`session/sqlite_store.rs` & `server/mod.rs`）**：
+   - `SqliteSessionStore` 新增 `fork_session(source_id, new_id, title)`：支持从现有会话无损拷贝全量多模态历史消息至新会话分支；
+   - 实现 `POST /api/v1/sessions/:id/fork`：支持动态从已有会话派生新会话（201 Created），并在源会话不存在时返回 404 Not Found。
+4. **集成测试覆盖（`server/mod.rs` & `session/sqlite_store.rs`）**：
+   - `test_http_meta_and_config_endpoints`：验证 Meta 发现能力集与基础配置响应；
+   - `test_http_session_status_abort_and_fork`：端到端验证状态查询、无活跃轮次时 Abort 返回 false、以及 Fork 会话数据克隆与 404 容错；
+   - `test_fork_session_copies_history_and_creates_new_session`：验证 SQLite 存储层历史拷贝的完整保真性。
+
+### 验证
+
+- cargo：lib 1098 passed / 0 failed（新增 3 项端到端测试）；`server::` 88/88 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+

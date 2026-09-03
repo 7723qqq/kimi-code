@@ -19,7 +19,9 @@
 //! error rather than a stubbed-out success precisely so that a misconfiguration
 //! surfaces as one.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::callbacks::HostCallbacks;
 use crate::pipeline::{PipelineHost, PipelineSpec, build_engine_pipeline};
@@ -131,6 +133,7 @@ pub struct ServerEngine {
     hub: Arc<EventHub>,
     store: Arc<SqliteSessionStore>,
     max_steps: u32,
+    active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 impl ServerEngine {
@@ -140,6 +143,7 @@ impl ServerEngine {
             hub,
             store,
             max_steps: 32,
+            active_turns: Mutex::new(HashMap::new()),
         }
     }
 
@@ -150,6 +154,22 @@ impl ServerEngine {
 
     pub fn store(&self) -> &Arc<SqliteSessionStore> {
         &self.store
+    }
+
+    /// Check whether a turn is currently executing for the given session.
+    pub fn is_busy(&self, session_id: &str) -> bool {
+        self.active_turns.lock().unwrap().contains_key(session_id)
+    }
+
+    /// Signal cancellation for the active turn in the given session, if one is running.
+    pub fn cancel_turn(&self, session_id: &str) -> bool {
+        let turns = self.active_turns.lock().unwrap();
+        if let Some(flag) = turns.get(session_id) {
+            flag.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
     }
 
     /// Build an engine context for one turn and run it.
@@ -227,6 +247,26 @@ impl ServerEngine {
         prompt: &str,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut turns = self.active_turns.lock().unwrap();
+            turns.insert(session_id.to_string(), Arc::clone(&cancel));
+        }
+        struct ActiveGuard<'a> {
+            engine: &'a ServerEngine,
+            session_id: String,
+        }
+        impl<'a> Drop for ActiveGuard<'a> {
+            fn drop(&mut self) {
+                let mut turns = self.engine.active_turns.lock().unwrap();
+                turns.remove(&self.session_id);
+            }
+        }
+        let _guard = ActiveGuard {
+            engine: self,
+            session_id: session_id.to_string(),
+        };
+
         let mut messages = history;
         messages.push(LLMMessage::user(prompt));
         let input_len = messages.len();
@@ -240,7 +280,7 @@ impl ServerEngine {
             max_steps: self.max_steps,
             max_context_tokens: None,
             goal: None,
-            cancellation: None,
+            cancellation: Some(cancel),
         };
 
         let result = run_turn(input, callbacks)

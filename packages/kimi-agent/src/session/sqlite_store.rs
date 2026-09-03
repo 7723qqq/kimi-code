@@ -186,6 +186,25 @@ impl SqliteSessionStore {
         Ok(affected > 0)
     }
 
+    /// Fork an existing session into a new session with copied history.
+    pub fn fork_session(
+        &self,
+        source_session_id: &str,
+        new_session_id: &str,
+        title: Option<&str>,
+    ) -> Result<bool, rusqlite::Error> {
+        let history = self.load_session_history(source_session_id)?;
+        let source = self.get_session(source_session_id)?;
+        if source.is_none() {
+            return Ok(false);
+        }
+        self.create_session(new_session_id, title)?;
+        if !history.is_empty() {
+            self.save_turn(new_session_id, "turn-fork", 1, &history, None)?;
+        }
+        Ok(true)
+    }
+
     /// The turn number a new turn for this session should take, derived from
     /// the `turns` table so a caller that owns the store does not have to keep
     /// its own counter — one would reset on restart and collide on insert.
@@ -466,5 +485,39 @@ mod tests {
         assert_eq!(loaded[2].role, "tool");
         assert_eq!(loaded[2].content, "file contents");
         assert_eq!(loaded[2].tool_call_id.as_deref(), Some("call_read_1"));
+    }
+
+    #[test]
+    fn test_fork_session_copies_history_and_creates_new_session() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-orig", Some("Original")).unwrap();
+        let msgs = vec![
+            LLMMessage::user("hello from original"),
+            LLMMessage::assistant("assistant reply"),
+        ];
+        store
+            .save_turn("sess-orig", "turn-1", 1, &msgs, None)
+            .unwrap();
+
+        // Fork to sess-fork
+        let ok = store
+            .fork_session("sess-orig", "sess-fork", Some("Forked"))
+            .unwrap();
+        assert!(ok);
+
+        let forked = store.get_session("sess-fork").unwrap().unwrap();
+        assert_eq!(forked.session_id, "sess-fork");
+        assert_eq!(forked.title.as_deref(), Some("Forked"));
+
+        let forked_history = store.load_session_history("sess-fork").unwrap();
+        assert_eq!(forked_history.len(), 2);
+        assert_eq!(forked_history[0].content, "hello from original");
+        assert_eq!(forked_history[1].content, "assistant reply");
+
+        // Fork non-existent returns false
+        let missing = store
+            .fork_session("sess-missing", "sess-none", None)
+            .unwrap();
+        assert!(!missing);
     }
 }
