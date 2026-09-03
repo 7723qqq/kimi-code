@@ -780,6 +780,8 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         subagent_timeout_ms: None,
         agent_tool_veto: None,
         tools_veto: None,
+        caller_agent_id: None,
+        session_id: None,
     };
 
     std::fs::create_dir_all(&cli.data_dir)?;
