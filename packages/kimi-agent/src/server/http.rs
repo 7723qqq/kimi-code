@@ -159,6 +159,7 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
                 auth: server.auth(),
                 heartbeat: server.heartbeat(),
                 selected_protocol,
+                store: Some(server.store_arc()),
             },
         )
         .await

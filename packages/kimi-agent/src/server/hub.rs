@@ -196,6 +196,43 @@ impl EventHub {
         self.lanes.read().unwrap().len()
     }
 
+    /// Return the cursor `(seq, epoch)` for a given session, ensuring a lane exists.
+    pub fn ensure_lane_cursor(&self, session_id: &str) -> (u64, Arc<str>) {
+        let _bus = self.bus_for(session_id);
+        let lanes = self.lanes.read().unwrap();
+        let lane = lanes.get(session_id).expect("lane was just ensured");
+        (
+            lane.next_seq.load(Ordering::Relaxed),
+            Arc::clone(&lane.epoch),
+        )
+    }
+
+    /// Return the current cursor `(seq, epoch)` for a given session, if its lane exists.
+    pub fn session_cursor(&self, session_id: &str) -> Option<(u64, Arc<str>)> {
+        let lanes = self.lanes.read().unwrap();
+        lanes.get(session_id).map(|lane| {
+            (
+                lane.next_seq.load(Ordering::Relaxed),
+                Arc::clone(&lane.epoch),
+            )
+        })
+    }
+
+    /// Replay buffered events for a session with seq > `since_seq`.
+    pub fn replay_for(&self, session_id: &str, since_seq: u64) -> Vec<SequencedEvent> {
+        let lanes = self.lanes.read().unwrap();
+        let Some(lane) = lanes.get(session_id) else {
+            return Vec::new();
+        };
+        let _order = lane.order.lock().unwrap();
+        let history = lane.history.lock().unwrap();
+        history
+            .iter()
+            .filter(|e| e.seq > since_seq)
+            .cloned()
+            .collect()
+    }
+
     /// Attach a connection to every lane, present and future.
     ///
     /// Each existing lane's buffered history is replayed into the new

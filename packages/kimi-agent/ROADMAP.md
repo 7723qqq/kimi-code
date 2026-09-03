@@ -3898,3 +3898,27 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - lint：`bun run lint` 通过（0 errors）。
 - sherif：✓ No issues found。
 
+## P96 — WebSocket 业务级会话事件订阅与推流过滤打通（2026-09-03）
+
+1. **WS 控制协议扩展与会话订阅解析（`server/ws_protocol.rs`）**：
+   - `Inbound` 枚举扩展：`ClientHello` 补齐 `subscriptions` 数组与 `cursors` 字典解析；新增 `Subscribe` 与 `Unsubscribe` 控制帧；
+   - 增加 `CursorSpec` 结构体，支持从入站 payload 提取各会话的历史游标（`seq` 与可选 `epoch`）；
+   - 提供标准 Ack 封包构造器：`client_hello_ack`、`subscribe_ack` 与 `unsubscribe_ack`，格式与 `packages/kap-server` TS 端实现逐字段精确对齐（包含 `accepted_subscriptions`、`not_found`、`resync_required` 与 `cursors`）。
+2. **连接会话白名单与环形历史回放绑定（`server/hub.rs` & `server/ws.rs`）**：
+   - `EventHub` 扩展：新增 `ensure_lane_cursor`、`session_cursor` 与 `replay_for(session_id, since_seq)` 方法，在 lane 顺序锁保护下提取指定会话的历史切片；
+   - `WsOptions` 与 `serve_ws` 接入持久化 `SqliteSessionStore`，在会话订阅时校验会话合法性；
+   - 连接上下文维护 `subscriptions: Option<HashSet<String>>` 会话白名单（未声明时保持泛听兼容，一旦声明则严格按会话隔离推流）；
+   - 维护会话级 `delivered_seq` 发送序号高水位表，保证单调递增并彻底消除历史补发与实时广播之间的帧重叠；
+   - 客户端动态发起 `subscribe` 时立即补发未接收历史并挂载实时推流，发起 `unsubscribe` 时精确撤销订阅。
+3. **端到端集成测试覆盖（`server/ws.rs` & `server/ws_protocol.rs`）**：
+   - `session_subscription_filtering_and_ack`：验证 `client_hello` 初始订阅生效，连接仅接收已订阅会话的事件，无关会话事件被静默隔离；
+   - `dynamic_subscribe_and_unsubscribe_lifecycle`：验证连接无订阅建立后，动态订阅拉取历史回放、接收实时广播、动态退订停止接收的完整闭环；
+   - `subscribe_not_found_for_missing_session`：验证对不存在会话的订阅请求在 Ack 中返回 `not_found`；
+   - `ws_protocol::tests` 新增帧识别与游标解析单测。
+
+### 验证
+
+- cargo：lib 1095 passed / 0 failed；`server::` 86/86 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码质量：`sherif` 0 issues；格式规范 `cargo fmt` 干净。
+

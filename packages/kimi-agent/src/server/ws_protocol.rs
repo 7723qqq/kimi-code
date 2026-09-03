@@ -17,6 +17,7 @@
 //! unknown `type` is ignored, which is also what kap-server does) and
 //! `resync_required` (there is no `seq` to fall behind).
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::server::hub::SequencedEvent;
@@ -165,16 +166,52 @@ pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Err
     })
 }
 
-/// The `client_hello` ack body. kap-server lists what it attached and where each
-/// session's cursor stands; this server has no per-session subscription to
-/// attach, so it honestly reports having accepted nothing rather than pretending
-/// the subscription landed.
-pub fn client_hello_ack() -> Value {
+/// The `client_hello` ack body with session subscription outcomes and cursors.
+pub fn client_hello_ack(
+    accepted_subscriptions: &[String],
+    resync_required: &[String],
+    cursors: &HashMap<String, Value>,
+) -> Value {
     serde_json::json!({
-        "accepted_subscriptions": [],
-        "resync_required": [],
-        "cursors": {},
+        "accepted_subscriptions": accepted_subscriptions,
+        "resync_required": resync_required,
+        "cursors": cursors,
     })
+}
+
+/// The `subscribe` ack body.
+pub fn subscribe_ack(
+    accepted: &[String],
+    not_found: &[String],
+    resync_required: &[String],
+    cursors: &HashMap<String, Value>,
+) -> Value {
+    serde_json::json!({
+        "accepted": accepted,
+        "not_found": not_found,
+        "resync_required": resync_required,
+        "cursors": cursors,
+    })
+}
+
+/// The `unsubscribe` ack body.
+pub fn unsubscribe_ack(
+    accepted: &[String],
+    not_found: &[String],
+    resync_required: &[String],
+) -> Value {
+    serde_json::json!({
+        "accepted": accepted,
+        "not_found": not_found,
+        "resync_required": resync_required,
+    })
+}
+
+/// A cursor specification presented in inbound subscription frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CursorSpec {
+    pub seq: u64,
+    pub epoch: Option<String>,
 }
 
 /// What an inbound data frame asked for.
@@ -182,7 +219,23 @@ pub fn client_hello_ack() -> Value {
 pub enum Inbound {
     /// kap-server's `authorize()` reads a credential from `payload.token`. The
     /// `id` echoes back into the ack.
-    ClientHello { id: String, token: Option<String> },
+    ClientHello {
+        id: String,
+        token: Option<String>,
+        subscriptions: Vec<String>,
+        cursors: HashMap<String, CursorSpec>,
+    },
+    /// Subscribe to a list of sessions.
+    Subscribe {
+        id: String,
+        session_ids: Vec<String>,
+        cursors: HashMap<String, CursorSpec>,
+    },
+    /// Unsubscribe from a list of sessions.
+    Unsubscribe {
+        id: String,
+        session_ids: Vec<String>,
+    },
     /// The reply to our `ping`. Liveness is already proved by any inbound frame,
     /// so there is nothing to record.
     Pong,
@@ -193,23 +246,77 @@ pub enum Inbound {
     Unknown,
 }
 
+fn parse_string_array(payload: Option<&serde_json::Map<String, Value>>, key: &str) -> Vec<String> {
+    payload
+        .and_then(|p| p.get(key))
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_cursors(payload: Option<&serde_json::Map<String, Value>>) -> HashMap<String, CursorSpec> {
+    let mut cursors = HashMap::new();
+    if let Some(map) = payload
+        .and_then(|p| p.get("cursors"))
+        .and_then(Value::as_object)
+    {
+        for (k, v) in map {
+            if let Some(obj) = v.as_object() {
+                let seq = obj.get("seq").and_then(Value::as_u64).unwrap_or(0);
+                let epoch = obj.get("epoch").and_then(Value::as_str).map(str::to_string);
+                cursors.insert(k.clone(), CursorSpec { seq, epoch });
+            } else if let Some(seq) = v.as_u64() {
+                cursors.insert(k.clone(), CursorSpec { seq, epoch: None });
+            }
+        }
+    }
+    cursors
+}
+
 pub fn parse_inbound(raw: &[u8]) -> Inbound {
     let Ok(Value::Object(frame)) = serde_json::from_slice::<Value>(raw) else {
         return Inbound::Unknown;
     };
     match frame.get("type").and_then(Value::as_str) {
         Some("pong") => Inbound::Pong,
-        Some("client_hello") => Inbound::ClientHello {
-            id: request_id(&frame),
-            // kap-server only treats a *string* `token` as a credential; any
-            // other JSON type is as absent as if the field were missing.
-            token: frame
-                .get("payload")
-                .and_then(Value::as_object)
-                .and_then(|payload| payload.get("token"))
+        Some("client_hello") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let token = payload
+                .and_then(|p| p.get("token"))
                 .and_then(Value::as_str)
-                .map(str::to_string),
-        },
+                .map(str::to_string);
+            let subscriptions = parse_string_array(payload, "subscriptions");
+            let cursors = parse_cursors(payload);
+            Inbound::ClientHello {
+                id,
+                token,
+                subscriptions,
+                cursors,
+            }
+        }
+        Some("subscribe") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_ids = parse_string_array(payload, "session_ids");
+            let cursors = parse_cursors(payload);
+            Inbound::Subscribe {
+                id,
+                session_ids,
+                cursors,
+            }
+        }
+        Some("unsubscribe") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_ids = parse_string_array(payload, "session_ids");
+            Inbound::Unsubscribe { id, session_ids }
+        }
         Some(_) => Inbound::Unknown,
         None => Inbound::Unknown,
     }
@@ -295,9 +402,31 @@ mod tests {
     }
 
     #[test]
-    fn only_pong_and_client_hello_are_understood() {
+    fn inbound_frames_are_properly_discriminated() {
         assert_eq!(parse_inbound(br#"{"type":"pong"}"#), Inbound::Pong);
-        assert_eq!(parse_inbound(br#"{"type":"subscribe"}"#), Inbound::Unknown);
+        assert_eq!(
+            parse_inbound(
+                br#"{"type":"subscribe","id":"s1","payload":{"session_ids":["sess-a"]}}"#
+            ),
+            Inbound::Subscribe {
+                id: "s1".into(),
+                session_ids: vec!["sess-a".into()],
+                cursors: HashMap::new(),
+            }
+        );
+        assert_eq!(
+            parse_inbound(
+                br#"{"type":"unsubscribe","id":"u1","payload":{"session_ids":["sess-a"]}}"#
+            ),
+            Inbound::Unsubscribe {
+                id: "u1".into(),
+                session_ids: vec!["sess-a".into()],
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"unknown_type"}"#),
+            Inbound::Unknown
+        );
         assert_eq!(parse_inbound(b"not json at all"), Inbound::Unknown);
         assert_eq!(parse_inbound(br#"{"payload":{}}"#), Inbound::Unknown);
         assert_eq!(parse_inbound(b"[1,2,3]"), Inbound::Unknown);
@@ -305,12 +434,22 @@ mod tests {
 
     #[test]
     fn client_hello_reads_the_credential_where_kap_server_does() {
-        let hello = br#"{"type":"client_hello","id":"c1","payload":{"token":"tok3n"}}"#;
+        let hello = br#"{"type":"client_hello","id":"c1","payload":{"token":"tok3n","subscriptions":["s1"],"cursors":{"s1":{"seq":5,"epoch":"ep1"}}}}"#;
+        let mut expected_cursors = HashMap::new();
+        expected_cursors.insert(
+            "s1".into(),
+            CursorSpec {
+                seq: 5,
+                epoch: Some("ep1".into()),
+            },
+        );
         assert_eq!(
             parse_inbound(hello),
             Inbound::ClientHello {
                 id: "c1".into(),
                 token: Some("tok3n".into()),
+                subscriptions: vec!["s1".into()],
+                cursors: expected_cursors,
             }
         );
 
@@ -322,6 +461,8 @@ mod tests {
             Inbound::ClientHello {
                 id: "c2".into(),
                 token: None,
+                subscriptions: Vec::new(),
+                cursors: HashMap::new(),
             }
         );
         let wrong_type = br#"{"type":"client_hello","payload":{"token":42}}"#;
@@ -330,6 +471,8 @@ mod tests {
             Inbound::ClientHello {
                 id: String::new(),
                 token: None,
+                subscriptions: Vec::new(),
+                cursors: HashMap::new(),
             }
         );
     }

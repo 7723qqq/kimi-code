@@ -25,6 +25,7 @@
 //!   new data frame start (§5.4);
 //! - `Close` payloads are empty or ≥ 2 bytes with a code sendable by a peer.
 
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
@@ -167,6 +168,7 @@ pub struct WsOptions<'a> {
     /// [`ws_protocol::DEFAULT_HEARTBEAT`].
     pub heartbeat: Duration,
     pub selected_protocol: Option<String>,
+    pub store: Option<Arc<crate::session::sqlite_store::SqliteSessionStore>>,
 }
 
 /// Serve the upgraded connection as an event stream until the peer closes it or
@@ -191,6 +193,7 @@ pub async fn serve_ws(
         auth,
         heartbeat,
         selected_protocol,
+        store,
     } = options;
     let key = request
         .headers
@@ -211,6 +214,15 @@ pub async fn serve_ws(
     let connection_id = format!("ws-{:016x}", fastrand::u64(..));
     let hello = ws_protocol::server_hello(&connection_id, heartbeat, SUBSCRIBER_QUEUE_DEPTH)?;
     write_frame(&mut writer, OP_TEXT, &hello).await?;
+
+    // Active session subscriptions. If None, connection is in wildcard/unrestricted
+    // mode (for backwards compatibility with transport tests before client_hello).
+    // Once client_hello or subscribe is received, it becomes Some(set).
+    let mut subscriptions: Option<HashSet<String>> = None;
+
+    // Highest sequence number delivered per session to this connection,
+    // ensuring monotonic delivery and preventing replay/live duplicate events.
+    let mut delivered_seq: HashMap<String, u64> = HashMap::new();
 
     // Frame decoding lives in its own task so the main loop can await events and
     // inbound frames without cancelling a half-read frame — `read_frame` is not
@@ -279,8 +291,17 @@ pub async fn serve_ws(
                             return Err(WsError::Proto("data frame while fragmented"));
                         }
                         if frame.is_final {
-                            if handle_inbound(frame.opcode, &frame.payload, auth, &mut writer)
-                                .await?
+                            if handle_inbound(
+                                frame.opcode,
+                                &frame.payload,
+                                auth,
+                                &hub,
+                                store.as_deref(),
+                                &mut writer,
+                                &mut subscriptions,
+                                &mut delivered_seq,
+                            )
+                            .await?
                             {
                                 reader.abort();
                                 return Ok(());
@@ -302,7 +323,18 @@ pub async fn serve_ws(
                         }
                         buffered.extend_from_slice(&frame.payload);
                         if frame.is_final {
-                            if handle_inbound(opcode, &buffered, auth, &mut writer).await? {
+                            if handle_inbound(
+                                opcode,
+                                &buffered,
+                                auth,
+                                &hub,
+                                store.as_deref(),
+                                &mut writer,
+                                &mut subscriptions,
+                                &mut delivered_seq,
+                            )
+                            .await?
+                            {
                                 reader.abort();
                                 return Ok(());
                             }
@@ -330,8 +362,19 @@ pub async fn serve_ws(
             event = subscription.recv() => {
                 match event {
                     Ok(event) => {
-                        let payload = ws_protocol::event_envelope(&event)?;
-                        write_frame(&mut writer, OP_TEXT, &payload).await?;
+                        let sid = &*event.session_id;
+                        let should_send = match &subscriptions {
+                            None => true,
+                            Some(set) => set.contains(sid),
+                        };
+                        if should_send {
+                            let last = delivered_seq.entry(sid.to_string()).or_insert(0);
+                            if event.seq > *last {
+                                *last = event.seq;
+                                let payload = ws_protocol::event_envelope(&event)?;
+                                write_frame(&mut writer, OP_TEXT, &payload).await?;
+                            }
+                        }
                     }
                     // The hub released us (server teardown): a plain close.
                     Err(HubClosed::Detached) => break,
@@ -356,48 +399,176 @@ pub async fn serve_ws(
 /// A result of `true` means the connection must close now: the frame layer
 /// refused the credential. That is a different outcome from a transport error
 /// because the peer was told why, in an ack, first.
+#[allow(clippy::too_many_arguments)]
 async fn handle_inbound(
     opcode: u8,
     payload: &[u8],
     auth: &ServerAuth,
+    hub: &EventHub,
+    store: Option<&crate::session::sqlite_store::SqliteSessionStore>,
     writer: &mut WriteHalf<TcpStream>,
+    subscriptions: &mut Option<HashSet<String>>,
+    delivered_seq: &mut HashMap<String, u64>,
 ) -> Result<bool, WsError> {
     // kap-server parses every inbound message as JSON, so a binary frame that
     // will not parse is dropped without a word.
     if opcode != OP_TEXT {
         return Ok(false);
     }
-    let Inbound::ClientHello { id, token } = ws_protocol::parse_inbound(payload) else {
-        // `pong` proves liveness, which no bookkeeping here depends on; anything
-        // else is a frame this layer does not answer yet.
-        return Ok(false);
-    };
+    match ws_protocol::parse_inbound(payload) {
+        Inbound::Pong => Ok(false),
+        Inbound::ClientHello {
+            id,
+            token,
+            subscriptions: req_subs,
+            cursors,
+        } => {
+            // A `client_hello` that presents no credential is not a refusal: kap-server's
+            // `authorize()` returns early when nothing was sent, which is how a browser
+            // that already cleared the subprotocol gate gets through.
+            if let Some(presented) = token
+                && !auth.check_token(Some(presented.as_str())).is_allowed()
+            {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    ws_protocol::WS_AUTH_ERROR_CODE,
+                    "unauthorized",
+                    json!({}),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                send_close(writer, 1000).await?;
+                return Ok(true);
+            }
 
-    // A `client_hello` that presents no credential is not a refusal: kap-server's
-    // `authorize()` returns early when nothing was sent, which is how a browser
-    // that already cleared the subprotocol gate gets through.
-    if let Some(presented) = token
-        && !auth.check_token(Some(presented.as_str())).is_allowed()
-    {
-        let refusal = ws_protocol::ack(
-            &id,
-            ws_protocol::WS_AUTH_ERROR_CODE,
-            "unauthorized",
-            json!({}),
-        )?;
-        write_frame(writer, OP_TEXT, &refusal).await?;
-        send_close(writer, 1000).await?;
-        return Ok(true);
+            let mut accepted = Vec::new();
+            let mut resync_required = Vec::new();
+            let mut server_cursors = HashMap::new();
+            let mut all_replay_events = Vec::new();
+
+            let set = subscriptions.get_or_insert_with(HashSet::new);
+            for sid in req_subs {
+                let exists = if let Some(st) = store {
+                    st.get_session(&sid).ok().flatten().is_some()
+                        || hub.lane_session_ids().contains(&sid)
+                } else {
+                    true
+                };
+                if exists {
+                    set.insert(sid.clone());
+                    accepted.push(sid.clone());
+                    let (cur_seq, epoch) = hub.ensure_lane_cursor(&sid);
+                    server_cursors.insert(sid.clone(), json!({ "seq": cur_seq, "epoch": *epoch }));
+
+                    if let Some(c) = cursors.get(&sid) {
+                        if let Some(client_epoch) = &c.epoch {
+                            if client_epoch != &*epoch || c.seq > cur_seq {
+                                resync_required.push(sid.clone());
+                            }
+                        } else if c.seq > cur_seq {
+                            resync_required.push(sid.clone());
+                        }
+                    }
+
+                    let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
+                    all_replay_events.extend(hub.replay_for(&sid, since_seq));
+                }
+            }
+
+            let ack_payload =
+                ws_protocol::client_hello_ack(&accepted, &resync_required, &server_cursors);
+            let acceptance = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+            write_frame(writer, OP_TEXT, &acceptance).await?;
+
+            for re in all_replay_events {
+                let last = delivered_seq.entry(re.session_id.to_string()).or_insert(0);
+                if re.seq > *last {
+                    *last = re.seq;
+                    let payload = ws_protocol::event_envelope(&re)?;
+                    write_frame(writer, OP_TEXT, &payload).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::Subscribe {
+            id,
+            session_ids,
+            cursors,
+        } => {
+            let mut accepted = Vec::new();
+            let mut not_found = Vec::new();
+            let mut resync_required = Vec::new();
+            let mut server_cursors = HashMap::new();
+            let mut all_replay_events = Vec::new();
+
+            let set = subscriptions.get_or_insert_with(HashSet::new);
+            for sid in session_ids {
+                let exists = if let Some(st) = store {
+                    st.get_session(&sid).ok().flatten().is_some()
+                        || hub.lane_session_ids().contains(&sid)
+                } else {
+                    true
+                };
+                if exists {
+                    set.insert(sid.clone());
+                    accepted.push(sid.clone());
+                    let (cur_seq, epoch) = hub.ensure_lane_cursor(&sid);
+                    server_cursors.insert(sid.clone(), json!({ "seq": cur_seq, "epoch": *epoch }));
+
+                    if let Some(c) = cursors.get(&sid) {
+                        if let Some(client_epoch) = &c.epoch {
+                            if client_epoch != &*epoch || c.seq > cur_seq {
+                                resync_required.push(sid.clone());
+                            }
+                        } else if c.seq > cur_seq {
+                            resync_required.push(sid.clone());
+                        }
+                    }
+
+                    let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
+                    all_replay_events.extend(hub.replay_for(&sid, since_seq));
+                } else {
+                    not_found.push(sid);
+                }
+            }
+
+            let ack_payload = ws_protocol::subscribe_ack(
+                &accepted,
+                &not_found,
+                &resync_required,
+                &server_cursors,
+            );
+            let acceptance = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+            write_frame(writer, OP_TEXT, &acceptance).await?;
+
+            for re in all_replay_events {
+                let last = delivered_seq.entry(re.session_id.to_string()).or_insert(0);
+                if re.seq > *last {
+                    *last = re.seq;
+                    let payload = ws_protocol::event_envelope(&re)?;
+                    write_frame(writer, OP_TEXT, &payload).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::Unsubscribe { id, session_ids } => {
+            let mut accepted = Vec::new();
+            let not_found = Vec::new();
+            let resync_required = Vec::new();
+
+            if let Some(set) = subscriptions.as_mut() {
+                for sid in &session_ids {
+                    set.remove(sid);
+                    accepted.push(sid.clone());
+                }
+            }
+
+            let ack_payload = ws_protocol::unsubscribe_ack(&accepted, &not_found, &resync_required);
+            let acceptance = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+            write_frame(writer, OP_TEXT, &acceptance).await?;
+            Ok(false)
+        }
+        Inbound::Unknown => Ok(false),
     }
-
-    let acceptance = ws_protocol::ack(
-        &id,
-        ws_protocol::ACK_OK,
-        "success",
-        ws_protocol::client_hello_ack(),
-    )?;
-    write_frame(writer, OP_TEXT, &acceptance).await?;
-    Ok(false)
 }
 
 async fn send_close(writer: &mut WriteHalf<TcpStream>, code: u16) -> Result<(), WsError> {
@@ -1018,6 +1189,151 @@ mod tests {
             second["payload"]["nonce"], nonce,
             "a client correlates pings by nonce"
         );
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn session_subscription_filtering_and_ack() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        server
+            .store_arc()
+            .create_session("sess-target", None)
+            .unwrap();
+        server
+            .store_arc()
+            .create_session("sess-other", None)
+            .unwrap();
+        let hub = server.hub();
+        let (mut client, _, handle) = connect_upgraded(&server, "key-filter").await;
+        read_server_hello(&mut client).await;
+
+        // 1. Send client_hello with subscription to sess-target
+        client
+            .write_all(&masked_frame(
+                OP_TEXT,
+                br#"{"type":"client_hello","id":"c-sub","payload":{"subscriptions":["sess-target"]}}"#,
+            ))
+            .await
+            .unwrap();
+
+        let ack: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "c-sub");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(
+            ack["payload"]["accepted_subscriptions"],
+            json!(["sess-target"])
+        );
+        assert!(ack["payload"]["cursors"]["sess-target"].is_object());
+
+        // 2. Publish on an unrelated session and on target session
+        hub.bus_for("sess-other").publish(&step_event(1));
+        hub.bus_for("sess-target").publish(&step_event(2));
+
+        // 3. Client must receive only sess-target event, NOT sess-other
+        let received: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(received["session_id"], "sess-target");
+        assert_eq!(received["seq"], 1);
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn dynamic_subscribe_and_unsubscribe_lifecycle() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        server.store_arc().create_session("sess-1", None).unwrap();
+        let hub = server.hub();
+        let (mut client, _, handle) = connect_upgraded(&server, "key-dyn").await;
+        read_server_hello(&mut client).await;
+
+        // Greet with no initial subscriptions
+        client
+            .write_all(&masked_frame(
+                OP_TEXT,
+                br#"{"type":"client_hello","id":"c-empty","payload":{}}"#,
+            ))
+            .await
+            .unwrap();
+        let ack_hello: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack_hello["code"], 0);
+
+        // Publish to sess-1 while not subscribed; client does not receive it yet
+        hub.bus_for("sess-1").publish(&step_event(10));
+
+        // Subscribe to sess-1 dynamically with seq 0 (request replay)
+        client
+            .write_all(&masked_frame(
+                OP_TEXT,
+                br#"{"type":"subscribe","id":"sub-1","payload":{"session_ids":["sess-1"],"cursors":{"sess-1":{"seq":0}}}}"#,
+            ))
+            .await
+            .unwrap();
+
+        let ack_sub: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack_sub["type"], "ack");
+        assert_eq!(ack_sub["id"], "sub-1");
+        assert_eq!(ack_sub["code"], 0);
+        assert_eq!(ack_sub["payload"]["accepted"], json!(["sess-1"]));
+
+        // Client immediately receives the replayed event from history
+        let replayed: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(replayed["session_id"], "sess-1");
+        assert_eq!(replayed["seq"], 1);
+        assert_eq!(replayed["payload"]["step"], 10);
+
+        // Now publish a live event; client receives it
+        hub.bus_for("sess-1").publish(&step_event(11));
+        let live: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(live["session_id"], "sess-1");
+        assert_eq!(live["seq"], 2);
+        assert_eq!(live["payload"]["step"], 11);
+
+        // Unsubscribe from sess-1
+        client
+            .write_all(&masked_frame(
+                OP_TEXT,
+                br#"{"type":"unsubscribe","id":"unsub-1","payload":{"session_ids":["sess-1"]}}"#,
+            ))
+            .await
+            .unwrap();
+        let ack_unsub: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack_unsub["type"], "ack");
+        assert_eq!(ack_unsub["id"], "unsub-1");
+        assert_eq!(ack_unsub["code"], 0);
+        assert_eq!(ack_unsub["payload"]["accepted"], json!(["sess-1"]));
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn subscribe_not_found_for_missing_session() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let (mut client, _, handle) = connect_upgraded(&server, "key-404").await;
+        read_server_hello(&mut client).await;
+
+        client
+            .write_all(&masked_frame(
+                OP_TEXT,
+                br#"{"type":"subscribe","id":"sub-missing","payload":{"session_ids":["non-existent-session"]}}"#,
+            ))
+            .await
+            .unwrap();
+
+        let ack: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "sub-missing");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["not_found"], json!(["non-existent-session"]));
+        assert_eq!(ack["payload"]["accepted"], json!([]));
 
         handle.shutdown();
     }
