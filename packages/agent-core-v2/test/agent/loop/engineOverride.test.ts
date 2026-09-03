@@ -1068,7 +1068,6 @@ describe('external engine × state bridge', () => {
         kind: 'task',
         title: 'Read session-control.ts',
         status: 'in_progress',
-        progress: 40,
       },
     ]);
     await driveTurn();
@@ -1081,7 +1080,8 @@ describe('external engine × state bridge', () => {
           kind: 'task',
           title: 'Read session-control.ts',
           status: 'in_progress',
-          progress: 40,
+          progress: undefined,
+          description: undefined,
         },
       ],
     });
