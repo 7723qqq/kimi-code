@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/migration-legacy",
   "version": "0.1.16",
   "private": true,
-  "description": "Migrate kimi-cli (~/.kimi/) data into kimi-code (~/.kimi-code/).",
+  "description": "Migrate kimi-cli (~/.kimi/) data into kimi-code (~/.kimi-code/). M3-marked v2 library consumer — legacy session and config data migration tool.",
   "license": "MIT",
   "files": [
     "dist"

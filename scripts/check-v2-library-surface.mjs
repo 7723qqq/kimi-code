@@ -25,6 +25,7 @@ const CONSUMER_WHITELIST = new Set([
   'packages/klient',
   'packages/acp-server',
   'packages/node-sdk',
+  'packages/migration-legacy',
 ]);
 
 // Apps are explicitly out: `apps/kimi-code` runs the v2 runner for the
