@@ -3872,3 +3872,29 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - typecheck：`@moonshot-ai/kimi-code` 0 错误。
 - sherif：✓ No issues found。
 
+## P95 — 原生 HTTP REST 服务 Sessions Cron 与 Tasks 路由对齐（2026-09-03）
+
+1. **Cron 定时任务 REST 端点（`server/mod.rs` & `cron/scheduler.rs`）**：
+   - `CronEntry` 增加 `serde::Serialize` 派生，支持结构化 JSON 响应。
+   - `HttpServer` 结构体内置 `cron_scheduler: Arc<tokio::sync::Mutex<CronScheduler>>`，并提供 `with_cron_scheduler` / `cron_scheduler` 构建与访问接口。
+   - 补齐会话级与顶层定时任务路由：
+     - `GET /api/v1/sessions/:id/cron` 与 `GET /api/v1/cron`：获取所有活跃定时任务。
+     - `POST /api/v1/sessions/:id/cron` 与 `POST /api/v1/cron`：动态添加定时任务（自动校验表达式合法性，非法时返回 400 Bad Request，成功返回 201 Created）。
+     - `DELETE /api/v1/sessions/:id/cron/:task_id` 与 `DELETE /api/v1/cron/:task_id`：删除指定定时任务，成功返回 200，不存在返回 404。
+2. **Tasks 后台任务 REST 端点（`server/mod.rs`）**：
+   - `HttpServer` 结构体内置 `task_runner: Arc<TaskRunner>`，并提供 `with_task_runner` / `task_runner` 接口。
+   - 补齐任务查询与控制路由：
+     - `GET /api/v1/sessions/:id/tasks` 与 `GET /api/v1/tasks`：列出当前所有后台任务摘要。
+     - `GET /api/v1/sessions/:id/tasks/:task_id` 与 `GET /api/v1/tasks/:task_id`：获取指定任务详情与产物输出。
+     - `POST /api/v1/sessions/:id/tasks/:task_id/stop` 与 `POST /api/v1/tasks/:task_id/stop`：协作式停止后台任务。
+3. **回归验证**：
+   - 新增 `test_http_cron_endpoints` 与 `test_http_tasks_endpoints` 集成测试，覆盖空状态查询、非法 Cron 400 校验、创建 201、全局与会话路由对齐、任务创建/查询/停止等完整生命周期。
+
+### 验证
+
+- cargo：lib 1092 passed / 0 failed（新增 2 项 REST 路由端到端测试）。
+- cargo check：`--features cli` 与 `--tests` 均 0 errors。
+- typecheck：全仓库通过（0 errors）。
+- lint：`bun run lint` 通过（0 errors）。
+- sherif：✓ No issues found。
+

@@ -29,11 +29,15 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Mutex;
+
+use crate::cron::scheduler::{CronEntry, CronScheduler};
 use crate::server::auth::ServerAuth;
 use crate::server::engine::ServerEngine;
 use crate::server::hub::EventHub;
 use crate::server::router::{HttpRequest, HttpResponse};
 use crate::session::sqlite_store::SqliteSessionStore;
+use crate::storage::task_runner::TaskRunner;
 
 pub struct HttpServer {
     store: Arc<SqliteSessionStore>,
@@ -41,6 +45,8 @@ pub struct HttpServer {
     engine: Option<Arc<ServerEngine>>,
     auth: ServerAuth,
     heartbeat: Duration,
+    cron_scheduler: Arc<Mutex<CronScheduler>>,
+    task_runner: Arc<TaskRunner>,
 }
 
 impl HttpServer {
@@ -61,6 +67,8 @@ impl HttpServer {
             engine: None,
             auth: ServerAuth::disabled(),
             heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
+            cron_scheduler: Arc::new(Mutex::new(CronScheduler::new(Vec::new(), 0))),
+            task_runner: Arc::new(TaskRunner::new(None)),
         }
     }
 
@@ -93,6 +101,26 @@ impl HttpServer {
     pub fn with_engine(mut self, engine: ServerEngine) -> Self {
         self.engine = Some(Arc::new(engine));
         self
+    }
+
+    #[must_use]
+    pub fn with_cron_scheduler(mut self, scheduler: Arc<Mutex<CronScheduler>>) -> Self {
+        self.cron_scheduler = scheduler;
+        self
+    }
+
+    pub fn cron_scheduler(&self) -> Arc<Mutex<CronScheduler>> {
+        self.cron_scheduler.clone()
+    }
+
+    #[must_use]
+    pub fn with_task_runner(mut self, task_runner: Arc<TaskRunner>) -> Self {
+        self.task_runner = task_runner;
+        self
+    }
+
+    pub fn task_runner(&self) -> Arc<TaskRunner> {
+        self.task_runner.clone()
     }
 
     /// The session store, for a host that wants to read transcripts or share
@@ -136,6 +164,183 @@ impl HttpServer {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
                 Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
             },
+            // Cron endpoints: session-scoped or global
+            ("GET", p)
+                if (p.starts_with("/api/v1/sessions/") && p.ends_with("/cron"))
+                    || p == "/api/v1/cron" =>
+            {
+                if p != "/api/v1/cron" {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 6 {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                }
+                let scheduler = self.cron_scheduler.lock().await;
+                let entries = scheduler.list_entries();
+                HttpResponse::ok(&json!({ "entries": entries }))
+            }
+            ("POST", p)
+                if (p.starts_with("/api/v1/sessions/") && p.ends_with("/cron"))
+                    || p == "/api/v1/cron" =>
+            {
+                if p != "/api/v1/cron" {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 6 {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                }
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let cron_expr = match body.get("cron").and_then(|v| v.as_str()) {
+                    Some(c) if !c.trim().is_empty() => c.trim(),
+                    _ => return HttpResponse::bad_request("Field 'cron' is required"),
+                };
+                let prompt = match body.get("prompt").and_then(|v| v.as_str()) {
+                    Some(p) if !p.trim().is_empty() => p.trim(),
+                    _ => return HttpResponse::bad_request("Field 'prompt' is required"),
+                };
+                let id = body
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("cron-{}", fastrand::u64(..)));
+                let recurring = body.get("recurring").and_then(|v| v.as_bool()).unwrap_or(true);
+
+                let entry = CronEntry {
+                    id: id.clone(),
+                    cron: cron_expr.to_string(),
+                    prompt: prompt.to_string(),
+                    recurring,
+                };
+                let mut scheduler = self.cron_scheduler.lock().await;
+                if scheduler.add_entry(entry) {
+                    HttpResponse::json(
+                        201,
+                        &json!({
+                            "id": id,
+                            "cron": cron_expr,
+                            "prompt": prompt,
+                            "recurring": recurring
+                        }),
+                    )
+                } else {
+                    HttpResponse::bad_request("Invalid cron expression")
+                }
+            }
+            ("DELETE", p)
+                if (p.starts_with("/api/v1/sessions/") && p.contains("/cron/"))
+                    || p.starts_with("/api/v1/cron/") =>
+            {
+                let task_id = if p.starts_with("/api/v1/cron/") {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 5 {
+                        return HttpResponse::not_found();
+                    }
+                    segments[4]
+                } else {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 7 || segments[5] != "cron" {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                    segments[6]
+                };
+                let mut scheduler = self.cron_scheduler.lock().await;
+                if scheduler.remove_entry(task_id) {
+                    HttpResponse::ok(&json!({ "deleted": true, "taskId": task_id }))
+                } else {
+                    HttpResponse::not_found()
+                }
+            }
+
+            // Tasks endpoints: session-scoped or global
+            ("GET", p)
+                if (p.starts_with("/api/v1/sessions/") && p.ends_with("/tasks"))
+                    || p == "/api/v1/tasks" =>
+            {
+                if p != "/api/v1/tasks" {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 6 {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                }
+                let tasks = self.task_runner.list();
+                HttpResponse::ok(&json!({ "tasks": tasks }))
+            }
+            ("GET", p)
+                if (p.starts_with("/api/v1/sessions/")
+                    && p.contains("/tasks/")
+                    && !p.ends_with("/stop"))
+                    || (p.starts_with("/api/v1/tasks/") && !p.ends_with("/stop")) =>
+            {
+                let task_id = if p.starts_with("/api/v1/tasks/") {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 5 {
+                        return HttpResponse::not_found();
+                    }
+                    segments[4]
+                } else {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 7 || segments[5] != "tasks" {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                    segments[6]
+                };
+                match self.task_runner.entry(task_id) {
+                    Some(entry) => HttpResponse::ok(&json!({ "task": entry })),
+                    None => HttpResponse::not_found(),
+                }
+            }
+            ("POST", p)
+                if (p.starts_with("/api/v1/sessions/")
+                    && p.contains("/tasks/")
+                    && p.ends_with("/stop"))
+                    || (p.starts_with("/api/v1/tasks/") && p.ends_with("/stop")) =>
+            {
+                let task_id = if p.starts_with("/api/v1/tasks/") {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 6 {
+                        return HttpResponse::not_found();
+                    }
+                    segments[4]
+                } else {
+                    let segments: Vec<&str> = p.split('/').collect();
+                    if segments.len() != 8 || segments[5] != "tasks" {
+                        return HttpResponse::not_found();
+                    }
+                    let session_id = segments[4];
+                    if self.store.get_session(session_id).ok().flatten().is_none() {
+                        return HttpResponse::not_found();
+                    }
+                    segments[6]
+                };
+                match self.task_runner.stop(task_id).await {
+                    Ok(wire) => HttpResponse::ok(&json!({ "stopped": true, "task": wire })),
+                    Err(_) => HttpResponse::not_found(),
+                }
+            }
+
             ("GET", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
                 let segments: Vec<&str> = p.split('/').collect();
                 if segments.len() != 5 {
@@ -450,5 +655,170 @@ mod tests {
             .unwrap();
         assert_eq!(store.next_turn_number("s1").unwrap(), 2);
         assert_eq!(store.next_turn_number("missing").unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_http_cron_endpoints() {
+        let server = HttpServer::in_memory().unwrap();
+        let created = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions".into(),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "title": "cron-test" })).unwrap(),
+            })
+            .await;
+        let sid = serde_json::from_slice::<Value>(&created.body).unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // 1. Initial list is empty
+        let res_list = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/cron"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_list.status, 200);
+        let val_list: Value = serde_json::from_slice(&res_list.body).unwrap();
+        assert_eq!(val_list["entries"].as_array().unwrap().len(), 0);
+
+        // 2. Add invalid cron expression -> 400 Bad Request
+        let res_bad = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}/cron"),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "cron": "invalid cron",
+                    "prompt": "do something"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res_bad.status, 400);
+
+        // 3. Add valid cron entry
+        let res_add = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}/cron"),
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "id": "c1",
+                    "cron": "0 9 * * *",
+                    "prompt": "daily report",
+                    "recurring": true
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res_add.status, 201);
+        let val_add: Value = serde_json::from_slice(&res_add.body).unwrap();
+        assert_eq!(val_add["id"], "c1");
+
+        // 4. List again contains entry (test global route)
+        let res_list2 = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/cron".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_list2.status, 200);
+        let val_list2: Value = serde_json::from_slice(&res_list2.body).unwrap();
+        assert_eq!(val_list2["entries"].as_array().unwrap().len(), 1);
+
+        // 5. Delete cron entry
+        let res_del = server
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/sessions/{sid}/cron/c1"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_del.status, 200);
+
+        // 6. Delete non-existent cron entry -> 404
+        let res_del_missing = server
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/sessions/{sid}/cron/c1"),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_del_missing.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_tasks_endpoints() {
+        let server = HttpServer::in_memory().unwrap();
+        let runner = server.task_runner();
+
+        // Spawn a background task
+        runner
+            .spawn_task("task-1".into(), "test task".into(), async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                "task output".into()
+            })
+            .unwrap();
+
+        // 1. List tasks
+        let res_list = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/tasks".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_list.status, 200);
+        let val_list: Value = serde_json::from_slice(&res_list.body).unwrap();
+        let tasks = val_list["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["taskId"], "task-1");
+
+        // 2. Get single task
+        let res_get = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/tasks/task-1".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_get.status, 200);
+        let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
+        assert_eq!(val_get["task"]["taskId"], "task-1");
+
+        // 3. Stop task
+        let res_stop = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/tasks/task-1/stop".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_stop.status, 200);
+        let val_stop: Value = serde_json::from_slice(&res_stop.body).unwrap();
+        assert_eq!(val_stop["stopped"], true);
+
+        // 4. Missing task -> 404
+        let res_missing = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/tasks/non-existent".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_missing.status, 404);
     }
 }

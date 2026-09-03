@@ -14,7 +14,7 @@ use crate::cron::{ParsedCron, next_fire, parse};
 /// A cron job entry, mirroring the wire shape stored in `cron.json`
 /// (`id` / `cron` / `prompt` / `recurring`). Extra stored fields
 /// (`createdAt` / `nextFireAt` / `stale`) are ignored on deserialization.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CronEntry {
     pub id: String,
     pub cron: String,
