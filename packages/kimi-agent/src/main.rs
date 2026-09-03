@@ -72,6 +72,10 @@ struct Cli {
     /// Skip the bearer credential for `--serve` (loopback binds only)
     #[arg(long)]
     no_auth: bool,
+
+    /// Directory containing built Web UI static assets to serve (default: auto-detected)
+    #[arg(long, value_name = "PATH")]
+    web_assets: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -795,18 +799,37 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // connecting WebSocket clients attach through the same registry, so a turn's
     // events genuinely reach them with the numbering that lane assigns.
     let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-    let engine =
-        kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone());
-    let server = kimi_agent::server::HttpServer::with_hub(store, hub)
+    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone());
+    let mut server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
         .with_auth(auth);
+
+    let web_assets_dir = cli.web_assets.clone().or_else(|| {
+        let candidates = [
+            std::path::PathBuf::from("dist-web"),
+            std::path::PathBuf::from("apps/kimi-code/dist-web"),
+            std::path::PathBuf::from("../../apps/kimi-code/dist-web"),
+        ];
+        candidates
+            .into_iter()
+            .find(|p| p.join("index.html").is_file())
+    });
+
+    let has_web = if let Some(dir) = web_assets_dir {
+        server = server.with_web_assets(dir);
+        true
+    } else {
+        false
+    };
+
     let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;
     let credential = match &token_path {
         Some(path) => format!("bearer token {path:?}"),
         None => "no credential (--no-auth)".into(),
     };
+    let web_notice = if has_web { " and Web UI" } else { "" };
     println!(
-        "kimi-agent serving /api/v1 on http://{} (config {source:?}, db {db_path:?}, {credential})",
+        "kimi-agent serving /api/v1{web_notice} on http://{} (config {source:?}, db {db_path:?}, {credential})",
         handle.local_addr
     );
 

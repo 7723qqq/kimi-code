@@ -173,7 +173,15 @@ impl ServerAuth {
             return true;
         }
         let method = method.to_ascii_uppercase();
-        (method == "GET" && matches!(path, "/api/v1/healthz" | "/api/v1/health" | "/health"))
+        if method != "GET" && method != "HEAD" {
+            return false;
+        }
+        // Non-API routes (static assets, SPA fallback, schemas) are reachable without credentials,
+        // matching kap-server's defaultIsBypassed: !path.startsWith('/api/').
+        if !path.starts_with("/api/") && !path.starts_with("/api") {
+            return true;
+        }
+        matches!(path, "/api/v1/healthz" | "/api/v1/health" | "/health")
             || path == "/openapi.json"
             || path == "/asyncapi.json"
     }
@@ -331,6 +339,9 @@ mod tests {
         assert!(ServerAuth::is_bypassed("GET", "/api/v1/healthz"));
         assert!(ServerAuth::is_bypassed("GET", "/api/v1/health"));
         assert!(ServerAuth::is_bypassed("GET", "/openapi.json"));
+        assert!(ServerAuth::is_bypassed("GET", "/"));
+        assert!(ServerAuth::is_bypassed("GET", "/index.html"));
+        assert!(ServerAuth::is_bypassed("GET", "/assets/main.js"));
         assert!(ServerAuth::is_bypassed("OPTIONS", "/api/v1/sessions"));
         assert!(!ServerAuth::is_bypassed("GET", "/api/v1/sessions"));
         assert!(!ServerAuth::is_bypassed(

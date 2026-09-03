@@ -3948,3 +3948,28 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
 
+## P98 — 原生静态资产托管与 SPA 路由支撑（2026-09-04）
+
+1. **静态资产文件服务与 MIME 智能映射（`server/static_files.rs`）**：
+   - 实现 `mime_for_path`：覆盖 HTML、JS、MJS、CSS、JSON、SVG、PNG、JPG、ICO、WEBP、WASM、WOFF、WOFF2、TTF、SourceMap、TXT 等全类型 Web 静态资源；
+   - 路径安全沙箱防御：利用 `Path::components()` 校验，严格防御目录遍历攻击（阻断任何 `..`、根路径或驱动器前缀），确保目标资源完全限定在资产目录内；
+   - 单页应用（SPA）客户端路由支持：对于非 `/api` 开头的任意深层请求（如 `/chat/sess-123`），当目标物理文件不存在时自动回退提供 `index.html`（`text/html; charset=utf-8`），支撑客户端 Vue/React Router 自由跳转。
+2. **HTTP 服务端装配与公共资产认证豁免（`server/mod.rs` & `server/auth.rs`）**：
+   - `HttpResponse` 扩展 `bytes(status, content_type, body)` 原始二进制响应支持；
+   - `HttpServer` 增加 `web_assets_dir: Option<PathBuf>` 字段与 `with_web_assets` 构建方法；
+   - `ServerAuth::is_bypassed` 规则对齐 `packages/kap-server`：所有非 `/api/` 开头的 `GET`/`HEAD` 请求（静态文件与 SPA 页面）自动豁免 Bearer 鉴权，使浏览器可无凭据初次加载 Web UI 骨架，随后由前端从 URL `#token=` 或本地读取凭据发起受保护调用；
+   - `HttpServer::handle_request` 接入静态资产与 SPA 分发流水线。
+3. **CLI 服务端启动自动探测与装配（`main.rs`）**：
+   - `Cli` 增加 `--web-assets <PATH>` 参数；
+   - `run_serve` 自动探查标准前端产物候选路径（`dist-web`、`apps/kimi-code/dist-web`、`../../apps/kimi-code/dist-web`），发现时自动装载并打印就绪提示（`kimi-agent serving /api/v1 and Web UI on http://...`）。
+4. **集成测试覆盖（`server/static_files.rs` & `server/mod.rs`）**：
+   - `test_mime_for_path`：验证 9 种代表性资产的 Content-Type 精确解析；
+   - `test_serve_static_file_regular_and_spa_fallback`：验证根路径提供 `index.html`、精准资源读取、SPA 深层路由回退、目录遍历攻击 404 拦截以及 `/api` 路由不发生回退；
+   - `test_http_static_assets_and_spa_routing`：端到端验证通过 `HttpServer` 派发时的完整 HTTP 响应行为。
+
+### 验证
+
+- cargo：lib 1101 passed / 0 failed（新增 3 项端到端测试）；`server::` 91/91 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+

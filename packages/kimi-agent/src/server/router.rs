@@ -47,6 +47,16 @@ impl HttpResponse {
         }
     }
 
+    pub fn bytes(status: u16, content_type: impl Into<String>, body: Vec<u8>) -> Self {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".into(), content_type.into());
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
         self

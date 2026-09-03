@@ -22,10 +22,12 @@ pub mod engine;
 pub mod http;
 pub mod hub;
 pub mod router;
+pub mod static_files;
 pub mod ws;
 pub mod ws_protocol;
 
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -49,6 +51,7 @@ pub struct HttpServer {
     task_runner: Arc<TaskRunner>,
     server_id: String,
     started_at: String,
+    web_assets_dir: Option<PathBuf>,
 }
 
 impl HttpServer {
@@ -73,6 +76,7 @@ impl HttpServer {
             task_runner: Arc::new(TaskRunner::new(None)),
             server_id: format!("srv-{}", fastrand::u64(..)),
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            web_assets_dir: None,
         }
     }
 
@@ -82,6 +86,16 @@ impl HttpServer {
 
     pub fn started_at(&self) -> &str {
         &self.started_at
+    }
+
+    #[must_use]
+    pub fn with_web_assets(mut self, path: impl Into<PathBuf>) -> Self {
+        self.web_assets_dir = Some(path.into());
+        self
+    }
+
+    pub fn web_assets_dir(&self) -> Option<&Path> {
+        self.web_assets_dir.as_deref()
     }
 
     /// Require `Authorization: Bearer <token>` (and the WebSocket subprotocol
@@ -164,6 +178,14 @@ impl HttpServer {
             if !decision.is_allowed() {
                 return HttpResponse::unauthorized("Unauthorized");
             }
+        }
+
+        // Static file serving and SPA fallback for non-API routes
+        if !path.starts_with("/api")
+            && (method == "GET" || method == "HEAD")
+            && let Some(assets_dir) = &self.web_assets_dir
+        {
+            return static_files::serve_static_file(assets_dir, &req.path);
         }
 
         match (method.as_str(), path) {
@@ -1072,5 +1094,91 @@ mod tests {
             })
             .await;
         assert_eq!(res_missing_fork.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_static_assets_and_spa_routing() {
+        use std::fs::{self, File};
+        use std::io::Write;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let index_path = dir.path().join("index.html");
+        let mut f1 = File::create(&index_path).unwrap();
+        f1.write_all(b"<!DOCTYPE html><html><body>Kimi Web UI</body></html>")
+            .unwrap();
+
+        let assets_dir = dir.path().join("assets");
+        fs::create_dir(&assets_dir).unwrap();
+        let js_path = assets_dir.join("index-123.js");
+        let mut f2 = File::create(&js_path).unwrap();
+        f2.write_all(b"console.log('web ui loaded');").unwrap();
+
+        let server = HttpServer::in_memory().unwrap().with_web_assets(dir.path());
+
+        // 1. Root / serves index.html
+        let res_root = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_root.status, 200);
+        assert_eq!(
+            res_root.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(
+            res_root.body,
+            b"<!DOCTYPE html><html><body>Kimi Web UI</body></html>"
+        );
+
+        // 2. Static asset request
+        let res_asset = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/assets/index-123.js".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_asset.status, 200);
+        assert_eq!(
+            res_asset.header("content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert_eq!(res_asset.body, b"console.log('web ui loaded');");
+
+        // 3. SPA deep route fallback
+        let res_spa = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/session/sess-abc".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_spa.status, 200);
+        assert_eq!(
+            res_spa.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(
+            res_spa.body,
+            b"<!DOCTYPE html><html><body>Kimi Web UI</body></html>"
+        );
+
+        // 4. API routes do not fallback to index.html
+        let res_api = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/missing-route".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_api.status, 404);
     }
 }
