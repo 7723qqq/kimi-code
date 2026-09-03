@@ -4020,3 +4020,24 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
 
+## P101 — 模型目录探测（Model Catalog）与会话全量导出（Session Export）闭环（2026-09-04）
+
+1. **会话全量快照导出数据模型与持久化（`session/sqlite_store.rs`）**：
+   - 新增 `SessionExport` 结构体，封装 `SessionSummary` 会话元数据、全量 `LLMMessage` 多模态消息（含结构化 tool_calls 与 blocks）、会话总轮次计数（`turns_count`）以及 ISO-8601 格式导出时间戳；
+   - `SqliteSessionStore` 实现 `export_session(session_id)` 方法：原子读取会话头、消息流与轮次总数，若会话不存在则安全返回 `None`；
+   - 单元测试：`test_export_session_full_snapshot` 验证全量数据快照结构与 404 越界防卫。
+2. **模型目录探测与会话导出 REST 端点（`server/mod.rs` & `server/engine.rs`）**：
+   - `ServerEngine` 提供 `model_name()` 访问当前装配的活动模型标识；
+   - **`GET /api/v1/models` 与 `GET /api/v1/model-catalog`**：
+     - 返回可用模型元数据目录（`{ "default_model": ..., "items": [...] }`），支持前台 Web UI 动态拉取模型下拉选单、推理能力标记（tools, thinking, multimodal）与最大上下文窗口定义；
+   - **`GET /api/v1/sessions/:id/export` 与 `POST /api/v1/sessions/:id/export`**：
+     - 双向支持 GET 与 POST 请求获取会话快照导出 JSON，当会话不存在时返回 404 Not Found。
+3. **集成测试覆盖（`server/mod.rs`）**：
+   - `test_http_models_catalog_and_session_export`：验证 `/models` 与 `/model-catalog` 返回格式完备性、会话 GET/POST 导出内容一致性以及针对不存在会话的 404 拦截。
+
+### 验证
+
+- cargo：lib 1106 passed / 0 failed（新增 2 项端到端测试）；`server::` 94/94 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+

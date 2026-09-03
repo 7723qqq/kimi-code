@@ -225,6 +225,46 @@ impl HttpServer {
                 "models": {},
                 "services": {},
             })),
+            ("GET", "/api/v1/models") | ("GET", "/api/v1/model-catalog") => {
+                let default_model = self
+                    .engine
+                    .as_ref()
+                    .map(|e| e.model_name())
+                    .unwrap_or("kimi-latest");
+                let items = json!([
+                    {
+                        "id": default_model,
+                        "model": default_model,
+                        "display_name": format!("Active Model ({default_model})"),
+                        "provider": "default",
+                        "max_context_size": 262144,
+                        "capabilities": ["tools", "thinking", "multimodal"],
+                        "default": true,
+                    },
+                    {
+                        "id": "claude-3-7-sonnet-20250219",
+                        "model": "claude-3-7-sonnet-20250219",
+                        "display_name": "Claude 3.7 Sonnet",
+                        "provider": "anthropic",
+                        "max_context_size": 200000,
+                        "capabilities": ["tools", "thinking", "multimodal"],
+                        "default": false,
+                    },
+                    {
+                        "id": "gpt-4o",
+                        "model": "gpt-4o",
+                        "display_name": "GPT-4o",
+                        "provider": "openai",
+                        "max_context_size": 128000,
+                        "capabilities": ["tools", "multimodal"],
+                        "default": false,
+                    }
+                ]);
+                HttpResponse::ok(&json!({
+                    "default_model": default_model,
+                    "items": items
+                }))
+            }
             ("GET", "/api/v1/sessions") => match self.store.list_sessions() {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
                 Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
@@ -578,6 +618,20 @@ impl HttpServer {
                         }),
                     ),
                     Ok(false) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("GET", p) | ("POST", p)
+                if p.starts_with("/api/v1/sessions/") && p.ends_with("/export") =>
+            {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                match self.store.export_session(session_id) {
+                    Ok(Some(export)) => HttpResponse::ok(&json!(export)),
+                    Ok(None) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
@@ -1422,5 +1476,92 @@ mod tests {
             })
             .await;
         assert_eq!(res_del_missing.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_models_catalog_and_session_export() {
+        let server = HttpServer::in_memory().unwrap();
+
+        // 1. Models catalog
+        let res_models = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/models".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_models.status, 200);
+        let val_models: Value = serde_json::from_slice(&res_models.body).unwrap();
+        assert_eq!(val_models["default_model"], "kimi-latest");
+        let items = val_models["items"].as_array().unwrap();
+        assert!(!items.is_empty());
+        assert_eq!(items[0]["id"], "kimi-latest");
+
+        // Alternate /model-catalog endpoint also returns 200
+        let res_catalog = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/model-catalog".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_catalog.status, 200);
+
+        // 2. Session export
+        server
+            .store_arc()
+            .create_session("sess-to-export", Some("To Export"))
+            .unwrap();
+        server
+            .store_arc()
+            .save_turn(
+                "sess-to-export",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user(
+                    "Please export me",
+                )],
+                None,
+            )
+            .unwrap();
+
+        let res_exp_get = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-to-export/export".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_exp_get.status, 200);
+        let val_exp: Value = serde_json::from_slice(&res_exp_get.body).unwrap();
+        assert_eq!(val_exp["session"]["session_id"], "sess-to-export");
+        assert_eq!(val_exp["turns_count"], 1);
+        assert_eq!(val_exp["messages"].as_array().unwrap().len(), 1);
+        assert!(val_exp["exported_at"].is_string());
+
+        // POST export works symmetrically
+        let res_exp_post = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-to-export/export".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_exp_post.status, 200);
+
+        // Export non-existent returns 404
+        let res_exp_none = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-non-existent/export".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_exp_none.status, 404);
     }
 }

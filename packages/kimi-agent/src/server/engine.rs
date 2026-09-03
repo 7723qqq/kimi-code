@@ -156,6 +156,10 @@ impl ServerEngine {
         &self.store
     }
 
+    pub fn model_name(&self) -> &str {
+        &self.spec.model_name
+    }
+
     /// Check whether a turn is currently executing for the given session.
     pub fn is_busy(&self, session_id: &str) -> bool {
         self.active_turns.lock().unwrap().contains_key(session_id)

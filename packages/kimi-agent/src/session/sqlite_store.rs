@@ -66,6 +66,14 @@ pub struct SessionSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionExport {
+    pub session: SessionSummary,
+    pub messages: Vec<LLMMessage>,
+    pub turns_count: usize,
+    pub exported_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceSummary {
     pub id: String,
     pub root: String,
@@ -259,6 +267,34 @@ impl SqliteSessionStore {
         } else {
             Ok(None)
         }
+    }
+
+    /// Export an entire session's metadata and conversation history as a snapshot.
+    pub fn export_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionExport>, rusqlite::Error> {
+        let session = match self.get_session(session_id)? {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let messages = self.load_session_history(session_id)?;
+        let turns_count: usize = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM turns WHERE session_id = ?1",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0)
+        };
+        let now_iso = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        Ok(Some(SessionExport {
+            session,
+            messages,
+            turns_count,
+            exported_at: now_iso,
+        }))
     }
 
     /// Create or update a workspace.
@@ -799,5 +835,31 @@ mod tests {
         assert!(deleted);
         assert!(store.get_workspace(&ws1.id).unwrap().is_none());
         assert_eq!(store.list_workspaces().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_export_session_full_snapshot() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session("sess-exp", Some("Export Session"))
+            .unwrap();
+        let msgs = vec![
+            LLMMessage::user("Please export this"),
+            LLMMessage::assistant("Exporting now"),
+        ];
+        store
+            .save_turn("sess-exp", "turn-1", 1, &msgs, None)
+            .unwrap();
+
+        // Export existing
+        let export = store.export_session("sess-exp").unwrap().unwrap();
+        assert_eq!(export.session.session_id, "sess-exp");
+        assert_eq!(export.session.title.as_deref(), Some("Export Session"));
+        assert_eq!(export.messages.len(), 2);
+        assert_eq!(export.turns_count, 1);
+        assert!(!export.exported_at.is_empty());
+
+        // Export non-existent
+        assert!(store.export_session("sess-missing").unwrap().is_none());
     }
 }
