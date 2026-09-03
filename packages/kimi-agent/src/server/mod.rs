@@ -129,6 +129,10 @@ impl HttpServer {
         self
     }
 
+    pub fn engine(&self) -> Option<Arc<ServerEngine>> {
+        self.engine.clone()
+    }
+
     #[must_use]
     pub fn with_cron_scheduler(mut self, scheduler: Arc<Mutex<CronScheduler>>) -> Self {
         self.cron_scheduler = scheduler;

@@ -236,6 +236,14 @@ pub enum Inbound {
         id: String,
         session_ids: Vec<String>,
     },
+    /// Submit a prompt to drive an engine turn over WebSocket.
+    Prompt {
+        id: String,
+        session_id: String,
+        prompt: String,
+    },
+    /// Abort/cancel an active turn in a session over WebSocket.
+    Cancel { id: String, session_id: String },
     /// The reply to our `ping`. Liveness is already proved by any inbound frame,
     /// so there is nothing to record.
     Pong,
@@ -316,6 +324,35 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
             let payload = frame.get("payload").and_then(Value::as_object);
             let session_ids = parse_string_array(payload, "session_ids");
             Inbound::Unsubscribe { id, session_ids }
+        }
+        Some("prompt") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let prompt = payload
+                .and_then(|p| p.get("prompt"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Inbound::Prompt {
+                id,
+                session_id,
+                prompt,
+            }
+        }
+        Some("cancel") | Some("abort") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Inbound::Cancel { id, session_id }
         }
         Some(_) => Inbound::Unknown,
         None => Inbound::Unknown,
@@ -421,6 +458,23 @@ mod tests {
             Inbound::Unsubscribe {
                 id: "u1".into(),
                 session_ids: vec!["sess-a".into()],
+            }
+        );
+        assert_eq!(
+            parse_inbound(
+                br#"{"type":"prompt","id":"p1","payload":{"session_id":"sess-1","prompt":"hello"}}"#
+            ),
+            Inbound::Prompt {
+                id: "p1".into(),
+                session_id: "sess-1".into(),
+                prompt: "hello".into(),
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"cancel","id":"c1","payload":{"session_id":"sess-1"}}"#),
+            Inbound::Cancel {
+                id: "c1".into(),
+                session_id: "sess-1".into(),
             }
         );
         assert_eq!(

@@ -3996,3 +3996,27 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
 
+## P100 — WebSocket 双向全双工交互协议打通（Prompt / Cancel 帧驱动）（2026-09-04）
+
+1. **WS 双向交互控制协议扩展（`server/ws_protocol.rs`）**：
+   - `Inbound` 枚举扩展：引入 `Prompt { id, session_id, prompt }` 与 `Cancel { id, session_id }` 控制帧，兼容 `sessionId` / `session_id` 双写法；
+   - 单元测试覆盖：`inbound_frames_are_properly_discriminated` 增加 Prompt 与 Cancel 入站载荷精确反序列化断言。
+2. **WebSocket 异步驱动与单写者架构（`server/ws.rs`）**：
+   - `WsOptions` 新增 `engine: Option<Arc<ServerEngine>>` 字段，并在 `http.rs` 装配点与 `HttpServer::engine()` 访问器打通；
+   - 建立非阻塞异步外发帧通道 `async_frame_tx/rx`，接入 `tokio::select!` 统一管理，保持 WebSocket 单写者原则与连接最高响应度；
+   - **`Inbound::Prompt` 执行机制**：
+     - 前置校验：会话存在性检测（缺失返回 404 Ack）、引擎装配状态检查（未配置返回 503 Ack）、并发互斥校验（正在执行返回 409 Ack）；
+     - 自动将会话加入当前 WS 连接的 `subscriptions` 白名单；
+     - 异步生成 `tokio::spawn` 独立任务调用 `engine.run_turn`，执行期间产生的全量事件（思考过程、工具调用、输入输出）自动沿 Session Lane 和 WS 广播流式推回；
+     - 轮次执行结束后向连接回传成功或错误 Ack。
+   - **`Inbound::Cancel` 中断机制**：
+     - 收到取消请求时调用 `engine.cancel_turn(&session_id)` 立即触发步边界中断信号，并同步返回 Ack 指示取消生效状态。
+3. **集成测试覆盖（`server/ws.rs`）**：
+   - `test_ws_prompt_and_cancel_frames`：端到端验证通过 WebSocket 发起缺失会话 Prompt 得 404 Ack、无引擎时得 503 Ack、空闲会话发 Cancel 得 0 且 cancelled 为 false 的完整闭环。
+
+### 验证
+
+- cargo：lib 1104 passed / 0 failed（新增 1 项端到端测试）；`server::` 93/93 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+
