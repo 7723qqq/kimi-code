@@ -4041,3 +4041,24 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
 - 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
 - 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
 
+## P102 — MCP 会话与全局连接视图及工具清单 REST 端点打通（2026-09-04）
+
+1. **MCP 客户端传输感知与服务视图模型（`mcp/client.rs` & `mcp/manager.rs`）**：
+   - `McpClient` 新增 `transport_type()` 访问器，清晰识别 `stdio`、`sse` 或 `mock` 底层连接协议；
+   - 新增 `McpServerEntry` 与 `McpToolSummary` 模型，对齐 `packages/kap-server` 的 `listMcpServersResponseSchema`；
+   - `McpManager` 实现 `server_entries(&self)`：动态扫描已注册客户端与缓存工具清单，生成包含服务名称、传输模式、连接状态（`connected`）、工具计数及已发现工具摘要的结构化视图。
+2. **HTTP 服务端装配与 MCP 路由流水线（`server/mod.rs`）**：
+   - `HttpServer` 结构体内置 `mcp_manager: Arc<McpManager>` 字段，并提供 `with_mcp_manager` 与 `mcp_manager(&self)` 接口；
+   - **`GET /api/v1/mcp`**：返回全局所有已连接 MCP 服务器的列表（`{ "servers": [...] }`），支持前台 Web 控制台渲染 MCP 插件面板；
+   - **`GET /api/v1/mcp/tools`**：查询所有可用 MCP 工具定义清单；
+   - **`GET /api/v1/sessions/:id/mcp`**：会话级 MCP 连接状态查询端点，若会话不存在返回 404 Not Found。
+3. **测试覆盖（`mcp/manager.rs` & `server/mod.rs`）**：
+   - `test_mcp_manager_server_entries`：验证 `McpManager` 汇聚生成 MCP 服务状态与工具清单的准确性；
+   - `test_http_mcp_endpoints`：端到端验证 HTTP 层空服务列表、动态挂载客户端后的数据更新、工具清单路由、会话级端点关联与不存在会话 404 拦截。
+
+### 验证
+
+- cargo：lib 1108 passed / 0 failed（新增 2 项端到端测试）；`server::` 95/95 全部通过；`cargo clippy --lib --no-deps` 0 警告；
+- 引擎检查：`check:engine-zero-js-loop` 0 JS-loop 漏水；
+- 代码规范：`cargo fmt` 干净；`sherif` 0 issues。
+

@@ -52,6 +52,7 @@ pub struct HttpServer {
     server_id: String,
     started_at: String,
     web_assets_dir: Option<PathBuf>,
+    mcp_manager: Arc<crate::mcp::manager::McpManager>,
 }
 
 impl HttpServer {
@@ -77,6 +78,7 @@ impl HttpServer {
             server_id: format!("srv-{}", fastrand::u64(..)),
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             web_assets_dir: None,
+            mcp_manager: Arc::new(crate::mcp::manager::McpManager::new()),
         }
     }
 
@@ -96,6 +98,16 @@ impl HttpServer {
 
     pub fn web_assets_dir(&self) -> Option<&Path> {
         self.web_assets_dir.as_deref()
+    }
+
+    #[must_use]
+    pub fn with_mcp_manager(mut self, manager: Arc<crate::mcp::manager::McpManager>) -> Self {
+        self.mcp_manager = manager;
+        self
+    }
+
+    pub fn mcp_manager(&self) -> Arc<crate::mcp::manager::McpManager> {
+        self.mcp_manager.clone()
     }
 
     /// Require `Authorization: Bearer <token>` (and the WebSocket subprotocol
@@ -264,6 +276,27 @@ impl HttpServer {
                     "default_model": default_model,
                     "items": items
                 }))
+            }
+            // MCP endpoints
+            ("GET", "/api/v1/mcp") => {
+                let servers = self.mcp_manager.server_entries().await;
+                HttpResponse::ok(&json!({ "servers": servers }))
+            }
+            ("GET", "/api/v1/mcp/tools") => {
+                let tools = self.mcp_manager.list_tool_infos().await;
+                HttpResponse::ok(&json!({ "tools": tools }))
+            }
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/mcp") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let servers = self.mcp_manager.server_entries().await;
+                HttpResponse::ok(&json!({ "servers": servers, "sessionId": session_id }))
             }
             ("GET", "/api/v1/sessions") => match self.store.list_sessions() {
                 Ok(sessions) => HttpResponse::ok(&json!({ "sessions": sessions })),
@@ -1563,5 +1596,85 @@ mod tests {
             })
             .await;
         assert_eq!(res_exp_none.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_http_mcp_endpoints() {
+        let server = HttpServer::in_memory().unwrap();
+
+        // 1. Initial MCP servers list is empty
+        let res_mcp = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/mcp".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_mcp.status, 200);
+        let val_mcp: Value = serde_json::from_slice(&res_mcp.body).unwrap();
+        assert_eq!(val_mcp["servers"].as_array().unwrap().len(), 0);
+
+        // 2. Add an MCP client to server's manager
+        let client = crate::mcp::client::McpClient::mock("github-mcp");
+        server.mcp_manager().add_client(client).await;
+
+        let res_mcp_updated = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/mcp".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_mcp_updated.status, 200);
+        let val_mcp_updated: Value = serde_json::from_slice(&res_mcp_updated.body).unwrap();
+        let servers = val_mcp_updated["servers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["name"], "github-mcp");
+        assert_eq!(servers[0]["status"], "connected");
+        assert_eq!(servers[0]["tool_count"], 1);
+
+        // 3. Query tools
+        let res_tools = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/mcp/tools".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_tools.status, 200);
+        let val_tools: Value = serde_json::from_slice(&res_tools.body).unwrap();
+        assert_eq!(val_tools["tools"].as_array().unwrap().len(), 1);
+
+        // 4. Session MCP endpoint
+        server
+            .store_arc()
+            .create_session("sess-mcp", Some("MCP Session"))
+            .unwrap();
+        let res_sess_mcp = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-mcp/mcp".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_sess_mcp.status, 200);
+        let val_sess_mcp: Value = serde_json::from_slice(&res_sess_mcp.body).unwrap();
+        assert_eq!(val_sess_mcp["sessionId"], "sess-mcp");
+        assert_eq!(val_sess_mcp["servers"].as_array().unwrap().len(), 1);
+
+        // 5. Session not found -> 404
+        let res_sess_none = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-missing/mcp".into(),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_sess_none.status, 404);
     }
 }

@@ -108,6 +108,14 @@ impl McpClient {
         &self.server_name
     }
 
+    pub fn transport_type(&self) -> &'static str {
+        match &self.transport {
+            McpTransport::Stdio { .. } => "stdio",
+            McpTransport::Sse(_) => "sse",
+            McpTransport::Mock => "mock",
+        }
+    }
+
     async fn send_request(&self, method: &str, params: Value) -> Result<Value, String> {
         match &self.transport {
             McpTransport::Mock => Ok(serde_json::json!({})),

@@ -9,6 +9,23 @@ use crate::mcp::client::McpClient;
 use crate::mcp::types::McpTool;
 use crate::turn_loop::types::ExecutableToolResult;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct McpToolSummary {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct McpServerEntry {
+    pub name: String,
+    pub transport: String,
+    pub status: String,
+    pub tool_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub tools: Vec<McpToolSummary>,
+}
+
 pub struct McpManager {
     clients: Arc<RwLock<HashMap<String, Arc<McpClient>>>>,
     cached_tools: Arc<RwLock<HashMap<String, (String, McpTool)>>>,
@@ -71,6 +88,37 @@ impl McpManager {
             });
         }
         infos
+    }
+
+    /// Return the list of connected MCP servers, their transport types and discovered tools.
+    pub async fn server_entries(&self) -> Vec<McpServerEntry> {
+        let clients = self.clients.read().await;
+        let cached = self.cached_tools.read().await;
+
+        let mut entries = Vec::new();
+        for (name, client) in clients.iter() {
+            let mut tools = Vec::new();
+            for (qual_name, (srv, tool)) in cached.iter() {
+                if srv == name && qual_name.starts_with("mcp__") {
+                    tools.push(McpToolSummary {
+                        name: tool.name.clone(),
+                        description: tool.description.clone().unwrap_or_default(),
+                    });
+                }
+            }
+            tools.sort_by(|a, b| a.name.cmp(&b.name));
+            let tool_count = tools.len();
+            entries.push(McpServerEntry {
+                name: name.clone(),
+                transport: client.transport_type().to_string(),
+                status: "connected".into(),
+                tool_count,
+                error: None,
+                tools,
+            });
+        }
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        entries
     }
 
     /// Call an MCP tool dynamically.
@@ -175,5 +223,21 @@ mod tests {
         assert_eq!(infos[0].name, "mcp__github__github_sample_tool");
         assert!(infos[0].description.contains("Sample"));
         assert!(infos[0].input_schema.get("type").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manager_server_entries() {
+        let manager = McpManager::new();
+        let client = McpClient::mock("github");
+        manager.add_client(client).await;
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "github");
+        assert_eq!(entries[0].transport, "mock");
+        assert_eq!(entries[0].status, "connected");
+        assert_eq!(entries[0].tool_count, 1);
+        assert_eq!(entries[0].tools.len(), 1);
+        assert_eq!(entries[0].tools[0].name, "github_sample_tool");
     }
 }
