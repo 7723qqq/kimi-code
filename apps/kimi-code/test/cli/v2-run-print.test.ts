@@ -20,10 +20,12 @@ import {
   IEventBus,
   IEventDispatcher,
   IFileSystemStorageService,
+  IHostFileSystem,
   IOAuthToolkit,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
+  IWorkspaceInstanceManager,
   makeAgentScopeContext,
   resolveKimiHome,
   type BootstrapInput,
@@ -37,6 +39,15 @@ import { runV2Print } from '../../src/cli/v2/run-v2-print';
 const mocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   ensureMainAgent: vi.fn(),
+  loadMcpServersDetailed: vi.fn(async () => ({
+    servers: {},
+    origins: {},
+  })),
+  resolveMcpJsonPaths: vi.fn(async () => ({
+    user: '/tmp/kimi-code-test-home/mcp.json',
+    projectRoot: '/tmp/project/.mcp.json',
+    project: '/tmp/project/.kimi-code/mcp.json',
+  })),
   createKimiDefaultHeaders: vi.fn(() => ({})),
   resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
   createKimiDeviceId: vi.fn(() => 'device-1'),
@@ -55,6 +66,11 @@ vi.mock('@moonshot-ai/agent-core-v2', async (importOriginal) => {
     ensureMainAgent: mocks.ensureMainAgent,
   };
 });
+
+vi.mock('@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader', () => ({
+  loadMcpServersDetailed: mocks.loadMcpServersDetailed,
+  resolveMcpJsonPaths: mocks.resolveMcpJsonPaths,
+}));
 
 vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
   const actual = await vi.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
@@ -145,6 +161,7 @@ function makeFakeHarness() {
   // emits a streaming assistant delta before completing.
   const eventListeners = new Set<(event: Event2<any>) => void>();
   const profileState: { profileName: string | undefined } = { profileName: undefined };
+  const trustState = { trusted: true };
 
   const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
   const agentServices = new Map<unknown, unknown>([
@@ -272,6 +289,15 @@ function makeFakeHarness() {
     ],
     [IOAuthToolkit, { getCachedAccessToken: vi.fn(async () => undefined) }],
     [IFileSystemStorageService, {}],
+    [IHostFileSystem, {}],
+    [
+      IWorkspaceInstanceManager,
+      {
+        getOrCreate: vi.fn(async () => ({
+          program: { trust: { get: vi.fn(async () => trustState.trusted) } },
+        })),
+      },
+    ],
     [
       ITelemetryService,
       (() => {
@@ -288,7 +314,7 @@ function makeFakeHarness() {
     ],
   ]);
   const app = fakeScope('app', appServices);
-  return { app, agent, session, agentServices, sessionServices, appServices, profileState };
+  return { app, agent, session, agentServices, sessionServices, appServices, profileState, trustState };
 }
 
 describe('runV2Print', () => {
@@ -298,6 +324,11 @@ describe('runV2Print', () => {
     // Pin the telemetry kill-switch to "unset" so the host environment cannot
     // flip the default telemetry-on path these tests exercise.
     vi.stubEnv('KIMI_DISABLE_TELEMETRY', '');
+    // `vi.clearAllMocks` keeps implementations, so re-pin the default here.
+    mocks.loadMcpServersDetailed.mockImplementation(async () => ({
+      servers: {},
+      origins: {},
+    }));
   });
 
   afterEach(() => {
@@ -822,5 +853,107 @@ describe('runV2Print', () => {
     const appDisposeOrder = app.dispose.mock.invocationCallOrder[0];
     expect(lastGuardRelease).toBeGreaterThan(appDisposeOrder!);
     expect(await outcome).toBeInstanceOf(Error);
+  });
+
+  it('warns on stderr when workspace trust skips project-level MCP servers', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    mocks.loadMcpServersDetailed.mockResolvedValue({
+      servers: {
+        fs: { transport: 'stdio', command: 'node', args: ['server.js'] },
+        api: { transport: 'http', url: 'https://example.com/mcp' },
+      },
+      origins: {
+        fs: '/tmp/project/.mcp.json',
+        api: '/tmp/project/.kimi-code/mcp.json',
+      },
+    });
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(stderr.text()).toContain(
+      'Warning: this folder is not trusted; skipped 2 project-level MCP servers: ' +
+        'api (http: https://example.com/mcp), fs (stdio: node server.js).',
+    );
+    expect(stderr.text()).toContain('"Trust this folder"');
+    // The warning is advisory only — the run itself is unaffected.
+    expect(stdout.text()).toContain('hello world');
+  });
+
+  it('does not read mcp.json for the trust warning when the folder is trusted', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app } = makeFakeHarness();
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(mocks.loadMcpServersDetailed).not.toHaveBeenCalled();
+    expect(stderr.text()).not.toContain('not trusted');
+  });
+
+  it('stays silent when untrusted but no project-level MCP servers are declared', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(mocks.loadMcpServersDetailed).toHaveBeenCalled();
+    expect(stderr.text()).not.toContain('not trusted');
+  });
+
+  it('warns for a project server that overrides a same-named user server', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    mocks.loadMcpServersDetailed.mockResolvedValue({
+      servers: {
+        github: { transport: 'stdio', command: './project-github' },
+        toString: { transport: 'http', url: 'https://example.com/mcp' },
+      },
+      origins: {
+        github: '/tmp/project/.mcp.json',
+        toString: '/tmp/project/.kimi-code/mcp.json',
+      },
+    });
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(stderr.text()).toContain('github (stdio: ./project-github)');
+    expect(stderr.text()).toContain('toString (http: https://example.com/mcp)');
+  });
+
+  it('still runs when the trust-gated MCP probe fails', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, appServices, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    const workspaces = appServices.get(IWorkspaceInstanceManager) as {
+      getOrCreate: ReturnType<typeof vi.fn>;
+    };
+    workspaces.getOrCreate.mockRejectedValueOnce(new Error('trust store unavailable'));
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(stdout.text()).toContain('hello world');
   });
 });
