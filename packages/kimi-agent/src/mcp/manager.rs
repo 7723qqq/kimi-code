@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
@@ -54,6 +54,19 @@ pub enum McpServerRecipe {
     Mock,
 }
 
+impl McpServerRecipe {
+    /// The wire transport label surfaced on `McpServerEntry.transport`
+    /// (v2 `McpServerConfig['transport']`).
+    fn transport_label(&self) -> String {
+        match self {
+            McpServerRecipe::Sse { .. } => "sse".into(),
+            McpServerRecipe::Http { .. } => "http".into(),
+            McpServerRecipe::Stdio { .. } => "stdio".into(),
+            McpServerRecipe::Mock => "mock".into(),
+        }
+    }
+}
+
 struct ServerState {
     recipe: McpServerRecipe,
     /// "connected" | "failed" | "pending" | "disabled" (v2 `McpServerStatus`
@@ -103,10 +116,17 @@ const MCP_TOOL_TIMEOUT_ENV: &str = "KIMI_MCP_TOOL_TIMEOUT_MS";
 /// v2 `MAX_MCP_TIMEOUT_MS` (config-schema.ts:5).
 const MAX_MCP_TIMEOUT_MS: u64 = 2_147_483_647;
 
+/// A status-change subscription token (v2 `onStatusChange`'s unsubscribe
+/// closure, connection-manager.ts:360-378).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct McpStatusSubscription(u64);
+
+/// Listener invoked with the public entry whenever a server's status changes.
+pub type McpStatusListener = Box<dyn Fn(McpServerEntry) + Send + Sync>;
+
 /// Per-server registration options: visibility, enabled flag and timeouts.
 #[derive(Debug, Clone)]
-pub struct McpServerOptions {
-    pub enabled: bool,
+pub struct McpServerOptions {    pub enabled: bool,
     pub enabled_tools: Option<Vec<String>>,
     pub disabled_tools: Option<Vec<String>>,
     pub startup_timeout_ms: Option<u64>,
@@ -175,6 +195,9 @@ pub struct McpManager {
     in_flight: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
     /// OAuth credentials for remote servers (v2 `McpOAuthService`).
     oauth: Arc<RwLock<Option<Arc<crate::mcp::oauth::McpOAuthService>>>>,
+    /// Status-change listeners (v2 `listeners`, connection-manager.ts:360-378).
+    status_listeners: Arc<Mutex<Vec<(McpStatusSubscription, McpStatusListener)>>>,
+    next_status_id: std::sync::atomic::AtomicU64,
 }
 
 impl Default for McpManager {
@@ -194,6 +217,66 @@ impl McpManager {
             defaults: Arc::new(RwLock::new(crate::config::McpTimeoutConfig::default())),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             oauth: Arc::new(RwLock::new(None)),
+            status_listeners: Arc::new(Mutex::new(Vec::new())),
+            next_status_id: std::sync::atomic::AtomicU64::new(1),
+        }
+    }
+
+    /// Register a status-change listener (v2 `onStatusChange`,
+    /// connection-manager.ts:360-378). The listener is invoked with the public
+    /// entry whenever a server's status changes; drop the returned token to
+    /// unsubscribe.
+    pub fn on_status_change(&self, listener: McpStatusListener) -> McpStatusSubscription {
+        let id = McpStatusSubscription(
+            self.next_status_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
+        self.status_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((id, listener));
+        id
+    }
+
+    /// Remove a status-change listener by token.
+    pub fn unsubscribe_status(&self, sub: McpStatusSubscription) -> bool {
+        let mut listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pos) = listeners.iter().position(|(id, _)| *id == sub) {
+            listeners.swap_remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Fan the current public entry for `name` out to every status listener
+    /// (v2 `emit`, connection-manager.ts:360-378). No-op when the server is
+    /// unknown.
+    async fn emit_status(&self, name: &str) {
+        let entry = {
+            let servers = self.servers.read().await;
+            let Some(state) = servers.get(name) else {
+                return;
+            };
+            McpServerEntry {
+                name: name.to_string(),
+                transport: state.recipe.transport_label(),
+                status: state.status.clone(),
+                tool_count: state.raw_tools.len(),
+                error: state.error.clone(),
+                tools: state
+                    .raw_tools
+                    .iter()
+                    .map(|tool| McpToolSummary {
+                        name: tool.name.clone(),
+                        description: tool.description.clone().unwrap_or_default(),
+                    })
+                    .collect(),
+            }
+        };
+        let listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
+        for (_, listener) in listeners.iter() {
+            listener(entry.clone());
         }
     }
 
@@ -456,6 +539,7 @@ impl McpManager {
             state.error = None;
             state.raw_tools.clear();
         }
+        self.emit_status(name).await;
         true
     }
 
@@ -600,6 +684,7 @@ impl McpManager {
                 raw_tools: Vec::new(),
             },
         );
+        self.emit_status(name).await;
         if !options.enabled {
             return Ok(());
         }
@@ -617,6 +702,7 @@ impl McpManager {
                     state.status = status.into();
                     state.error = Some(e.clone());
                 }
+                self.emit_status(name).await;
                 Err(e)
             }
         }
@@ -692,6 +778,7 @@ impl McpManager {
             state.status = "connected".into();
             state.error = None;
         }
+        self.emit_status(name).await;
         Ok(())
     }
 
@@ -739,6 +826,7 @@ impl McpManager {
             state.error = None;
             state.raw_tools.clear();
         }
+        self.emit_status(name).await;
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -753,6 +841,7 @@ impl McpManager {
                     state.status = status.into();
                     state.error = Some(e.clone());
                 }
+                self.emit_status(name).await;
                 Err(e)
             }
         }
@@ -1251,6 +1340,38 @@ mod tests {
         let resolved = timeouts.get("mock").expect("timeouts recorded");
         assert_eq!(resolved.startup, Duration::from_millis(2_000));
         assert_eq!(resolved.tool, Some(Duration::from_millis(3_000)));
+    }
+
+    /// `on_status_change` fans the public entry out on every status transition
+    /// (v2 `onStatusChange` + `emit`, connection-manager.ts:360-378): a mock
+    /// server goes `pending` on configure then `connected` after discovery.
+    #[tokio::test]
+    async fn test_on_status_change_fires_on_transitions() {
+        let manager = McpManager::new();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<McpServerEntry>::new()));
+        let recorder = seen.clone();
+        let sub = manager.on_status_change(Box::new(move |entry| {
+            recorder.lock().unwrap().push(entry);
+        }));
+
+        manager
+            .configure("mock", McpServerRecipe::Mock, McpServerOptions::default())
+            .await
+            .expect("mock server connects");
+
+        let entries = seen.lock().unwrap();
+        assert_eq!(entries.len(), 2, "pending then connected");
+        assert_eq!(entries[0].name, "mock");
+        assert_eq!(entries[0].status, "pending");
+        assert_eq!(entries[1].name, "mock");
+        assert_eq!(entries[1].status, "connected");
+        assert_eq!(entries[1].tool_count, 1);
+        drop(entries);
+
+        // Unsubscribing stops further notifications.
+        assert!(manager.unsubscribe_status(sub));
+        manager.mark_removed("mock").await;
+        assert_eq!(seen.lock().unwrap().len(), 2, "no emit after unsubscribe");
     }
 
     /// The resolved tool timeout reaches the client (v2 passes
