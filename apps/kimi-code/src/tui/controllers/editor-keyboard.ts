@@ -65,6 +65,8 @@ export interface EditorKeyboardHost {
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
   toggleTodoPanelExpansion(): void;
+  /** Returns true while the experimental Updates panel has multiple pages. */
+  pageNotifyPanel(direction: -1 | 1): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -299,6 +301,13 @@ export class EditorKeyboardController {
       this.clearPendingExit();
       host.track('shortcut_todo_expand');
       host.toggleTodoPanelExpansion();
+      return true;
+    };
+
+    editor.onPageNotify = (direction): boolean => {
+      if (!host.pageNotifyPanel(direction)) return false;
+      this.clearPendingExit();
+      host.track('shortcut_notify_page', { direction: direction < 0 ? 'previous' : 'next' });
       return true;
     };
 

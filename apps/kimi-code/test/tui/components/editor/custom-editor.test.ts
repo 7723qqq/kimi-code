@@ -665,6 +665,34 @@ describe('CustomEditor shortcut telemetry hooks', () => {
 
     expect(onToggleTodoExpand).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['\u0010', -1], ['\u000E', 1], ['\u001B[112;5u', -1], ['\u001B[110;5u', 1],
+  ] as const)('pages Updates on %j without changing the draft', (key, direction) => {
+    const editor = makeEditor();
+    const onPageNotify = vi.fn().mockReturnValue(true);
+    editor.onPageNotify = onPageNotify;
+    editor.setText('draft\nsecond line');
+    const cursor = editor.getCursor();
+    editor.handleInput(key);
+    expect(onPageNotify).toHaveBeenCalledWith(direction);
+    expect(editor.getText()).toBe('draft\nsecond line');
+    expect(editor.getCursor()).toEqual(cursor);
+  });
+
+  it('keeps the original editor bindings when Updates paging is unavailable', () => {
+    const editor = makeEditor();
+    const baseline = makeEditor();
+    editor.onPageNotify = () => false;
+    for (const instance of [editor, baseline]) instance.setText('first\nsecond');
+    for (const key of ['\u0010', '\u000E']) {
+      editor.handleInput(key);
+      baseline.handleInput(key);
+      expect(editor.getCursor()).toEqual(baseline.getCursor());
+      expect(editor.getText()).toBe(baseline.getText());
+    }
+  });
+
 });
 
 describe('CustomEditor bash mode border label', () => {

@@ -123,6 +123,7 @@ interface MessageDriver {
   sessionReplay: SessionReplayRenderer;
   pluginCommandMap: Map<string, string>;
   sessionEventHandler: {
+    notifications: import('#/tui/controllers/notify').NotifyController;
     startSubscription(): void;
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
   };
@@ -1046,6 +1047,211 @@ describe('KimiTUI message flow', () => {
     ).toEqual([true, true]);
     expect(turns[2]!.entries.map((entry) => entry.kind)).toEqual(['skill_activation', 'user']);
     expect(turns[2]!.entries[1]!.content).toBe('please /commit');
+  });
+
+  it('pages Updates with Ctrl+P / Ctrl+N while keeping the editor focused', async () => {
+    const { driver } = await makeDriver(makeSession());
+    const notifications = driver.sessionEventHandler.notifications;
+    notifications.setEnabled(true);
+    notifications.handleEvent({ type: 'turn.started', agentId: 'main', sessionId: 's1', turnId: 1, origin: { kind: 'user' } });
+    notifications.handleEvent({ type: 'tool.call.started', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId: 'n1', name: 'NotifyUser', args: { message: Array.from({ length: 24 }, (_, i) => `- line ${i + 1}`).join('\n') } });
+    notifications.handleEvent({ type: 'tool.result', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId: 'n1', output: 'Update shown to the user.' });
+    driver.state.editor.setText('unsent follow-up');
+    const cursor = driver.state.editor.getCursor();
+    const setFocus = vi.spyOn(driver.state.ui, 'setFocus');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('3/3');
+    driver.state.editor.handleInput('\u0010');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('2/3');
+    driver.state.editor.handleInput('\u000E');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('3/3');
+    expect(setFocus).not.toHaveBeenCalled();
+    expect(driver.state.editor.getText()).toBe('unsent follow-up');
+    expect(driver.state.editor.getCursor()).toEqual(cursor);
+  });
+
+  it('does not restore old NotifyUser updates into the panel', async () => {
+    const session = makeSession({ id: 'ses-notify-replay' });
+    const startupInput: KimiTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(session, {}, startupInput);
+    driver.sessionEventHandler.notifications.setEnabled(true);
+    (session.getResumeState as ReturnType<typeof vi.fn>).mockReturnValue({
+      sessionMetadata: {},
+      agents: {
+        main: {
+          config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
+          plan: null,
+          permission: { mode: 'manual' },
+          swarmMode: false,
+          context: { history: [], tokenCount: 0 },
+          background: [],
+          toolStore: {},
+          replay: [
+            {
+              type: 'message',
+              time: 1,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'first question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 2,
+              message: {
+                role: 'assistant',
+                content: [],
+                toolCalls: [
+                  {
+                    type: 'function',
+                    id: 'tc-notify-1',
+                    name: 'NotifyUser',
+                    arguments: JSON.stringify({ message: 'first-turn update' }),
+                  },
+                ],
+              },
+            },
+            {
+              type: 'message',
+              time: 3,
+              message: {
+                role: 'tool',
+                toolCallId: 'tc-notify-1',
+                content: [{ type: 'text', text: 'Update shown to the user.' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 4,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'first answer' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 5,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'second question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 6,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'second answer' }],
+                toolCalls: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
+    expect(replayed).toBe(true);
+
+    expect(driver.state.notifyPanel.isEmpty()).toBe(true);
+    expect(driver.state.notifyPanelContainer.children).toHaveLength(0);
+  });
+
+  it('leaves the panel empty when replaying previous cron turns', async () => {
+    const session = makeSession({ id: 'ses-notify-cron' });
+    const startupInput: KimiTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(session, {}, startupInput);
+    driver.sessionEventHandler.notifications.setEnabled(true);
+    (session.getResumeState as ReturnType<typeof vi.fn>).mockReturnValue({
+      sessionMetadata: {},
+      agents: {
+        main: {
+          config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
+          plan: null,
+          permission: { mode: 'manual' },
+          swarmMode: false,
+          context: { history: [], tokenCount: 0 },
+          background: [],
+          toolStore: {},
+          replay: [
+            {
+              type: 'message',
+              time: 1,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'first question' }],
+                toolCalls: [],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: 2,
+              message: {
+                role: 'assistant',
+                content: [],
+                toolCalls: [
+                  {
+                    type: 'function',
+                    id: 'tc-notify-cron',
+                    name: 'NotifyUser',
+                    arguments: JSON.stringify({ message: 'update from the prompt turn' }),
+                  },
+                ],
+              },
+            },
+            {
+              type: 'message',
+              time: 3,
+              message: {
+                role: 'tool',
+                toolCallId: 'tc-notify-cron',
+                content: [{ type: 'text', text: 'Update shown to the user.' }],
+                toolCalls: [],
+              },
+            },
+            {
+              type: 'message',
+              time: 4,
+              message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'check the build' }],
+                toolCalls: [],
+                origin: { kind: 'cron_job', jobId: 'job-1', cron: '*/5 * * * *', recurring: true },
+              },
+            },
+            {
+              type: 'message',
+              time: 5,
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'build is green' }],
+                toolCalls: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
+    expect(replayed).toBe(true);
+
+    // Live, the cron fire's turn.started closes the panel; replay folds the
+    // cron turn into the previous one for grouping but must close it too.
+    expect(driver.state.notifyPanel.isEmpty()).toBe(true);
+    expect(driver.state.notifyPanelContainer.children).toHaveLength(0);
   });
 
   it('keeps hook results recorded before the oldest retained bundle within the replay limit', async () => {
