@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,6 +34,19 @@ import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorServi
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
+import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { ILogService } from '#/_base/log/log';
 import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
@@ -43,7 +56,7 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { registerLogServices } from '../../_base/log/stubs';
+import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { registerStateServices } from '../../state/stubs';
@@ -1028,6 +1041,7 @@ describe('parseToolCallArguments', () => {
 
 describe('truncation pipeline', () => {
   let homeDir: string;
+  let readConfig: IConfigService;
 
   beforeEach(async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'tool-executor-truncation-'));
@@ -1047,6 +1061,30 @@ describe('truncation pipeline', () => {
     );
     const truncation = truncationContainer.get(IAgentToolResultTruncationService);
     truncateForModel = (input) => truncation.truncateForModel(input);
+    truncationContainer.stub(ILogService, stubLog());
+    truncationContainer.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
+    truncationContainer.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    truncationContainer.set(IConfigService, new SyncDescriptor(ConfigService));
+    readConfig = truncationContainer.get(IConfigService);
+    await readConfig.ready;
+    const runtime = Object.assign(new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { capabilities: ['fs'] },
+    ), { fs: new HostFileSystem() });
+    const binding: IAgentRuntimeService = {
+      _serviceBrand: undefined,
+      onDidChange: () => ({ dispose: () => {} }),
+      isAvailable: () => true,
+      inspect: () => runtime,
+      acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+    };
+    registry.register(new ReadTool(
+      binding,
+      stubWorkspaceContext(homeDir),
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      truncation,
+      readConfig,
+    ));
   });
 
   afterEach(async () => {
@@ -1168,6 +1206,90 @@ describe('truncation pipeline', () => {
 
     expect(result?.output).toBe(output);
     expect(result?.truncated).toBeUndefined();
+  });
+
+  it('delivers a bounded Read result above 50000 characters without replacing its text', async () => {
+    const content = `${'x'.repeat(100)}\n`.repeat(650);
+    const path = join(homeDir, 'paper.md');
+    await writeFile(path, content);
+
+    const [result] = await execute([toolCall('call_read_paper', 'Read', { path })]);
+
+    expect(result?.isError).not.toBe(true);
+    expect(typeof result?.output).toBe('string');
+    if (typeof result?.output !== 'string') throw new TypeError('expected Read text');
+    expect(result.output.length).toBeGreaterThan(50_000);
+    expect(result.output.replaceAll(/^\d+\t/gm, '')).toBe(content.trimEnd());
+    expect(result.truncated).toBeUndefined();
+    expect(result.note).toContain('Requested range complete.');
+    expect(result.output).not.toContain('output_path:');
+  });
+
+  it('recovers a large line through the model-facing Read pipeline without shell tools', async () => {
+    const content = '0123456789'.repeat(110_000);
+    const path = join(homeDir, 'record.jsonl');
+    await writeFile(path, content);
+    const fragments: string[] = [];
+    let args: ReadInput | undefined = { path, n_lines: 1, max_chars: 100_000 };
+
+    for (let page = 0; args !== undefined && page < 30; page += 1) {
+      const [result] = await execute([toolCall(`read_fragment_${String(page)}`, 'Read', args)]);
+      expect(result?.isError).not.toBe(true);
+      if (typeof result?.output !== 'string') throw new TypeError('expected Read text');
+      expect(result.output.startsWith('1\t')).toBe(true);
+      const visible = renderToolResultForModel(result)
+        .map((part) => part.type === 'text' ? part.text : '').join('');
+      expect(visible.length).toBeLessThanOrEqual(100_000);
+      if (page === 0) expect(result.output.length).toBeGreaterThan(50_000);
+      fragments.push(result.output.slice(2));
+      const next = result.note?.match(/Next Read: (\{[^\n]*\})/);
+      args = next === undefined || next === null ? undefined : ReadInputSchema.parse(JSON.parse(next[1]!));
+    }
+
+    expect(args).toBeUndefined();
+    expect(fragments.length).toBeGreaterThan(10);
+    expect(fragments.join('')).toBe(content);
+  });
+
+  it('keeps valid lines readable and exposes the warning when later UTF-16 bytes are malformed', async () => {
+    const path = join(homeDir, 'malformed.txt');
+    await writeFile(path, Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('good\n', 'utf16le'),
+      Buffer.from([0x00, 0xd8]),
+    ]));
+
+    const [result] = await execute([toolCall('read_lossy', 'Read', { path, n_lines: 1, max_chars: 1200 })]);
+
+    expect(result?.isError).not.toBe(true);
+    expect(result?.output).toBe('1\tgood');
+    if (result === undefined) throw new Error('expected a Read result');
+    const visible = renderToolResultForModel(result)
+      .map((part) => part.type === 'text' ? part.text : '').join('');
+    expect(visible).toContain('Lossy UTF-16 decoding');
+    expect(visible).toContain('may differ from the original file');
+    expect(visible.length).toBeLessThanOrEqual(1200);
+  });
+
+  it('applies persisted Read defaults and caps explicit character requests', async () => {
+    await readConfig.set('read', { defaultMaxChars: 1500, maxChars: 3000 });
+    await readConfig.reload();
+    const path = join(homeDir, 'configured.md');
+    await writeFile(path, `${'x'.repeat(100)}\n`.repeat(100));
+
+    const [defaultResult] = await execute([toolCall('read_default', 'Read', { path })]);
+    const [largerResult] = await execute([toolCall('read_larger', 'Read', { path, max_chars: 10_000 })]);
+
+    expect(defaultResult?.isError).not.toBe(true);
+    expect(largerResult?.isError).not.toBe(true);
+    if (typeof defaultResult?.output !== 'string' || typeof largerResult?.output !== 'string') {
+      throw new TypeError('expected Read text');
+    }
+    expect(defaultResult.output.length + 1 + (defaultResult.note?.length ?? 0)).toBeLessThanOrEqual(1500);
+    expect(largerResult.output.length + 1 + (largerResult.note?.length ?? 0)).toBeLessThanOrEqual(3000);
+    expect(largerResult.output.length).toBeGreaterThan(defaultResult.output.length);
+    expect(largerResult.note).toContain('Requested max_chars=10000 was capped at the configured maximum 3000.');
+    expect(readFileSync(join(homeDir, 'config.toml'), 'utf8')).toContain('default_max_chars = 1500');
   });
 });
 
