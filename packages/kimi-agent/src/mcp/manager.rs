@@ -228,6 +228,16 @@ impl McpManager {
         }
         let client_arc = Arc::new(client);
         let tools = client_arc.list_tools().await?;
+        // A tool whose inputSchema is not a JSON object fails the whole
+        // server (v2 `assertMcpInputSchema`, mcpCore/types.ts:44-55).
+        for tool in &tools {
+            if !tool.input_schema.is_object() {
+                return Err(format!(
+                    "Invalid inputSchema for MCP tool \"{}\": schema must be a JSON object",
+                    tool.name
+                ));
+            }
+        }
         let filter = {
             let filters = self.filters.read().await;
             filters.get(&name).cloned().unwrap_or_else(ToolFilter::all)
@@ -384,6 +394,43 @@ impl McpManager {
         self.filters.write().await.remove(name);
         self.timeouts.write().await.remove(name);
         removed_server || removed_client
+    }
+
+    /// Close a server but keep its entry as `removed` (v2 `markRemoved`,
+    /// connection-manager.ts:221-232): the tools disappear while the name
+    /// stays visible so callers can report that the server was removed.
+    pub async fn mark_removed(&self, name: &str) -> bool {
+        let client = { self.clients.write().await.remove(name) };
+        if let Some(client) = client {
+            client.close().await;
+        } else if !self.servers.read().await.contains_key(name) {
+            return false;
+        }
+        self.cached_tools
+            .write()
+            .await
+            .retain(|_, (server, _)| server != name);
+        if let Some(state) = self.servers.write().await.get_mut(name) {
+            state.status = "removed".into();
+            state.error = None;
+            state.raw_tools.clear();
+        }
+        true
+    }
+
+    /// Close every client and forget all entries (v2 `shutdown`).
+    pub async fn shutdown(&self) {
+        let clients: Vec<Arc<McpClient>> = {
+            let mut guard = self.clients.write().await;
+            guard.drain().map(|(_, client)| client).collect()
+        };
+        for client in clients {
+            client.close().await;
+        }
+        self.cached_tools.write().await.clear();
+        self.servers.write().await.clear();
+        self.filters.write().await.clear();
+        self.timeouts.write().await.clear();
     }
 
     /// Inspect tools provided by a specific MCP server. Prefers a live
@@ -1224,5 +1271,78 @@ mod tests {
             ..Default::default()
         };
         assert!(recipe_from_config(&unknown).is_none());
+    }
+
+    /// `shutdown` closes every client and forgets all entries
+    /// (v2 `shutdown`, connection-manager.ts:303-308).
+    #[tokio::test]
+    async fn test_shutdown_closes_every_server() {
+        let manager = McpManager::new();
+        manager.add_client(McpClient::mock("alpha")).await;
+        manager.add_client(McpClient::mock("beta")).await;
+        let clients: Vec<Arc<McpClient>> = {
+            let guard = manager.clients.read().await;
+            guard.values().cloned().collect()
+        };
+        assert_eq!(clients.len(), 2);
+        assert_eq!(manager.server_entries().await.len(), 2);
+
+        manager.shutdown().await;
+
+        assert!(manager.server_entries().await.is_empty());
+        assert!(manager.list_tool_infos().await.is_empty());
+        for client in clients {
+            assert!(client.is_closed(), "shutdown must close every client");
+        }
+    }
+
+    /// `mark_removed` keeps the entry visible with status `removed` and drops
+    /// its tools (v2 `markRemoved`, connection-manager.ts:221-232).
+    #[tokio::test]
+    async fn test_mark_removed_keeps_entry_without_tools() {
+        let manager = McpManager::new();
+        manager
+            .configure("gone", McpServerRecipe::Mock, McpServerOptions::default())
+            .await
+            .expect("mock server connects");
+        assert!(manager.handles("mcp__gone__gone_sample_tool").await);
+        assert!(manager.mark_removed("gone").await);
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "removed");
+        assert_eq!(entries[0].tool_count, 0);
+        assert!(entries[0].tools.is_empty());
+        assert!(!manager.handles("mcp__gone__gone_sample_tool").await);
+        assert!(!manager.mark_removed("never-configured").await);
+    }
+
+    /// A tool whose inputSchema is not a JSON object fails the whole server
+    /// (v2 `assertMcpInputSchema`, mcpCore/types.ts:44-55).
+    #[tokio::test]
+    async fn test_invalid_input_schema_fails_the_server() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("bad-schema").await;
+        let manager = McpManager::new();
+        let err = manager
+            .configure(
+                "bad-schema",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("a non-object inputSchema must fail the server");
+        assert_eq!(
+            err,
+            "Invalid inputSchema for MCP tool \"echo\": schema must be a JSON object"
+        );
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].status, "failed");
+        assert_eq!(entries[0].error.as_deref(), Some(err.as_str()));
+        assert!(!manager.handles("mcp__bad-schema__echo").await);
     }
 }

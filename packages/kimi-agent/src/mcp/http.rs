@@ -164,7 +164,8 @@ pub(crate) mod test_helpers {
     ///
     /// `mode` selects the response framing: `"json"` replies with a JSON body,
     /// `"sse"` replies with an SSE stream, `"status"` fails every request with
-    /// HTTP 500, and `"hang"` accepts the connection without ever replying.
+    /// HTTP 500, `"hang"` accepts the connection without ever replying, and
+    /// `"bad-schema"` advertises a tool whose inputSchema is not an object.
     ///
     /// The returned vector records the `Mcp-Session-Id` of every request in
     /// arrival order, so tests can assert the header is echoed.
@@ -252,18 +253,32 @@ pub(crate) mod test_helpers {
                                     "capabilities": { "tools": {} },
                                     "serverInfo": { "name": "mock-http-server", "version": "1.0.0" }
                                 }),
-                                "tools/list" => json!({
-                                    "tools": [
-                                        {
-                                            "name": "echo",
-                                            "description": "Echo input message",
-                                            "inputSchema": {
-                                                "type": "object",
-                                                "properties": { "message": { "type": "string" } }
-                                            }
-                                        }
-                                    ]
-                                }),
+                                "tools/list" => {
+                                    if mode == "bad-schema" {
+                                        json!({
+                                            "tools": [
+                                                {
+                                                    "name": "echo",
+                                                    "description": "Echo input message",
+                                                    "inputSchema": "not-an-object"
+                                                }
+                                            ]
+                                        })
+                                    } else {
+                                        json!({
+                                            "tools": [
+                                                {
+                                                    "name": "echo",
+                                                    "description": "Echo input message",
+                                                    "inputSchema": {
+                                                        "type": "object",
+                                                        "properties": { "message": { "type": "string" } }
+                                                    }
+                                                }
+                                            ]
+                                        })
+                                    }
+                                }
                                 "tools/call" => json!({
                                     "content": [{ "type": "text", "text": "ok" }],
                                     "isError": false
