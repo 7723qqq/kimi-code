@@ -70,6 +70,60 @@ impl HookGuard {
                 .await;
         results.into_iter().find_map(|result| result)
     }
+
+    /// Notify user-configured `PostToolUse` and `PostToolUseFailure` hooks
+    /// (v2 `agentExternalHooksService` notifyPostToolUse).
+    pub async fn notify_post_tool_use(
+        &self,
+        tool_name: &str,
+        tool_call_id: &str,
+        args: &Value,
+        content: &str,
+        is_error: bool,
+    ) {
+        let event_type = if is_error {
+            "PostToolUseFailure"
+        } else {
+            "PostToolUse"
+        };
+        let mut matched: Vec<HookDef> = Vec::new();
+        let mut seen_commands = std::collections::HashSet::new();
+        for hook in &self.hooks {
+            if hook.event != event_type {
+                continue;
+            }
+            if !matcher_matches(&hook.matcher, tool_name) {
+                continue;
+            }
+            if !seen_commands.insert(hook.command.clone()) {
+                continue;
+            }
+            matched.push(hook.clone());
+        }
+        if matched.is_empty() {
+            return;
+        }
+        let output_slice = if content.len() > 2000 {
+            &content[..2000]
+        } else {
+            content
+        };
+        let payload = serde_json::json!({
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "tool_input": args,
+            "is_error": is_error,
+            "tool_output": if !is_error { Some(output_slice) } else { None },
+            "error": if is_error { Some(content) } else { None },
+        });
+        // Fire-and-forget: spawn matching hooks concurrently
+        for hook in matched {
+            let p = payload.clone();
+            tokio::spawn(async move {
+                let _ = run_hook(&hook, &p).await;
+            });
+        }
+    }
 }
 
 /// The hook matcher: a regex tested against the tool name; an empty pattern
@@ -429,5 +483,30 @@ mod tests {
             arguments: json!("just a string"),
         };
         assert_eq!(hook_payload(&req)["tool_input"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn test_post_tool_use_hook_triggers() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let marker = dir.path().join("post_marker.txt");
+        let command = format!("echo done >> {}", marker.to_string_lossy());
+        let guard = HookGuard::new(vec![hook("PostToolUse", "Write", &command)]);
+        guard
+            .notify_post_tool_use("Write", "c1", &serde_json::json!({}), "content", false)
+            .await;
+        // The hook runs fire-and-forget; poll for the marker instead of
+        // sleeping a fixed window so the test stays stable under load.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let content = loop {
+            let content = std::fs::read_to_string(&marker).unwrap_or_default();
+            if content.contains("done") || std::time::Instant::now() >= deadline {
+                break content;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+        assert!(content.contains("done"));
     }
 }

@@ -52,8 +52,10 @@ mod tests {
     #[test]
     fn workspace_key_is_stable_and_hex() {
         let key = workspace_key(Path::new("/tmp/workspaces/a"));
+        assert_eq!(key, "af0abc146552bae6");
         assert_eq!(key.len(), 16);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+        // Must be purely deterministic across multiple calls
         assert_eq!(key, workspace_key(Path::new("/tmp/workspaces/a")));
     }
 
@@ -61,6 +63,51 @@ mod tests {
     fn workspace_key_separates_workspaces() {
         let a = workspace_key(Path::new("/tmp/workspaces/a"));
         let b = workspace_key(Path::new("/tmp/workspaces/b"));
+        let c = workspace_key(Path::new("/tmp/workspaces/a/sub"));
         assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
+        assert_eq!(a.len(), 16);
+        assert_eq!(b.len(), 16);
+        assert_eq!(c.len(), 16);
+    }
+
+    #[test]
+    fn test_engine_state_dir_resolution() {
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+            .expect("USERPROFILE or HOME must be set in test environment");
+
+        let ws1 = Path::new("/test/workspace/one");
+        let ws2 = Path::new("/test/workspace/two");
+
+        let dir1 = engine_state_dir(ws1).unwrap();
+        let dir2 = engine_state_dir(ws2).unwrap();
+
+        // Must be rooted under home directory and ENGINE_STATE_ROOT
+        let expected_root = home.join(ENGINE_STATE_ROOT);
+        assert!(
+            dir1.starts_with(&expected_root),
+            "engine_state_dir must start with {expected_root:?}, got {dir1:?}"
+        );
+        assert!(
+            dir2.starts_with(&expected_root),
+            "engine_state_dir must start with {expected_root:?}, got {dir2:?}"
+        );
+
+        // Subdirectory must match the 16-hex workspace key
+        let key1 = dir1.file_name().unwrap().to_str().unwrap();
+        let key2 = dir2.file_name().unwrap().to_str().unwrap();
+        assert_eq!(key1.len(), 16);
+        assert_eq!(key2.len(), 16);
+        assert!(key1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(key2.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Different workspaces must resolve to different state directories
+        assert_ne!(dir1, dir2);
+
+        // Same workspace must resolve deterministically
+        assert_eq!(engine_state_dir(ws1).unwrap(), dir1);
     }
 }

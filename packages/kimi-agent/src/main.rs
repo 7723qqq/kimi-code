@@ -76,11 +76,84 @@ struct Cli {
     /// Directory containing built Web UI static assets to serve (default: auto-detected)
     #[arg(long, value_name = "PATH")]
     web_assets: Option<std::path::PathBuf>,
+
+    /// Run as an Agent Client Protocol (ACP) server over stdio
+    #[arg(long)]
+    acp: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    if cli.acp {
+        let db_path = std::path::Path::new(&cli.data_dir).join("sessions.db");
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let store = Arc::new(kimi_agent::session::sqlite_store::SqliteSessionStore::open(
+            db_path,
+        )?);
+
+        let (config, _) = if let Some(ref path) = cli.config {
+            let cfg = kimi_agent::config::KimiConfig::from_file(path)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            (cfg, path.clone())
+        } else {
+            kimi_agent::config::KimiConfig::discover().map_err(|e| anyhow::anyhow!("{e}"))?
+        };
+
+        let acp_server = if let Some(native) = config.extract_native_llm(cli.model.as_deref()) {
+            let workspace = std::env::current_dir()?;
+            let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default(&workspace);
+            let spec = PipelineSpec {
+                system_prompt,
+                model_name: native.model.clone(),
+                providers: Vec::new(),
+                native_llm: Some(NativeLlmConfig {
+                    protocol: native.protocol,
+                    base_url: native.base_url,
+                    api_key: native.api_key,
+                    model: native.model,
+                    max_tokens: native.max_tokens,
+                    custom_headers: Default::default(),
+                    reasoning_effort: None,
+                    thinking_budget: None,
+                    auth_provider: None,
+                }),
+                workspace_root: Some(workspace.display().to_string()),
+                native_tools: true,
+                rust_self_contained: true,
+                shell_path: None,
+                policy_snapshot: None,
+                session_id: None,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                caller_agent_id: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+            };
+            let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
+            let engine = Arc::new(kimi_agent::server::engine::ServerEngine::new(
+                spec,
+                hub,
+                store.clone(),
+            ));
+            kimi_agent::acp::AcpServer::with_engine(store, engine)
+        } else {
+            kimi_agent::acp::AcpServer::new(store)
+        };
+
+        return acp_server
+            .run_stdio()
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"));
+    }
 
     if cli.health {
         let status = HealthStatus {
@@ -172,6 +245,7 @@ async fn main() -> anyhow::Result<()> {
             let tools: Vec<&dyn ExecutableTool> = vec![];
 
             let run_input = RunTurnInput {
+                max_attempts: input.max_attempts,
                 turn_id: turn_id.clone(),
                 llm: llm.as_ref(),
                 messages,
@@ -677,6 +751,10 @@ async fn build_engine_pipeline(
         subagent_timeout_ms: params.subagent_timeout_ms,
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
+        todo_tool_veto: params.todo_tool_veto.clone(),
+        tower_worktree_root: params.tower_worktree_root.clone(),
+        sandbox_mode: params.sandbox_mode.clone(),
+        sandbox_policy: None,
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
     };
@@ -756,8 +834,9 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     })?;
 
     let workspace = std::env::current_dir()?;
+    let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default(&workspace);
     let spec = PipelineSpec {
-        system_prompt: "You are kimi-agent, running as a standalone service.".into(),
+        system_prompt,
         model_name: native.model.clone(),
         providers: Vec::new(),
         native_llm: Some(NativeLlmConfig {
@@ -784,6 +863,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         subagent_timeout_ms: None,
         agent_tool_veto: None,
         tools_veto: None,
+        todo_tool_veto: None,
+        tower_worktree_root: None,
+        sandbox_mode: None,
+        sandbox_policy: None,
         caller_agent_id: None,
         session_id: None,
     };
@@ -947,6 +1030,7 @@ async fn run_self_test() -> anyhow::Result<()> {
     }];
 
     let input = RunTurnInput {
+        max_attempts: None,
         turn_id: "test-turn-1".into(),
         llm: &mock_llm,
         messages,

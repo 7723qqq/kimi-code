@@ -91,6 +91,10 @@ pub struct PipelineSpec {
     /// `tools_veto` denies every native tool (btw side-channel contexts).
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    pub todo_tool_veto: Option<String>,
+    pub tower_worktree_root: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
 }
@@ -180,15 +184,25 @@ pub async fn build_engine_pipeline(
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
                 Some(toolset) => {
-                    let base_callbacks: Arc<dyn HostCallbacks> =
-                        match crate::storage::StateStore::for_workspace(std::path::Path::new(root))
-                        {
-                            Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
-                                inner: base_callbacks.clone(),
-                                store: Arc::new(store),
-                            }),
-                            Err(_) => base_callbacks.clone(),
-                        };
+                    let (base_callbacks, task_runner): (
+                        Arc<dyn HostCallbacks>,
+                        Option<Arc<crate::storage::TaskRunner>>,
+                    ) = match crate::storage::StateStore::for_workspace(std::path::Path::new(root))
+                    {
+                        Ok(store) => {
+                            let runner = crate::storage::TaskRunner::for_workspace(std::path::Path::new(root))
+                                .ok()
+                                .map(Arc::new);
+                            (
+                                Arc::new(crate::callbacks::StateStoreCallbacks {
+                                    inner: base_callbacks.clone(),
+                                    store: Arc::new(store),
+                                }),
+                                runner,
+                            )
+                        }
+                        Err(_) => (base_callbacks.clone(), None),
+                    };
                     // Plan-mode guard (v2 `AgentPlanService.guardToolExecution`):
                     // guarded native calls read the host's plan state through the
                     // state bridge and are denied when plan mode forbids them.
@@ -229,6 +243,19 @@ pub async fn build_engine_pipeline(
                     if let Some(manager) = mcp_manager {
                         toolset = toolset.with_mcp(manager);
                     }
+                    if let Some(ref runner) = task_runner {
+                        toolset = toolset.with_task_runner(runner.clone());
+                        subagent_manager.set_task_runner_sync(runner.clone());
+                    }
+                    let sandbox_policy = if let Some(ref policy) = spec.sandbox_policy {
+                        Some(policy.clone())
+                    } else if let Some(ref mode_str) = spec.sandbox_mode {
+                        let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
+                        let root = spec.workspace_root.clone().unwrap_or_default();
+                        Some(crate::tools::sandbox::SandboxExecutionPolicy::new(mode, root))
+                    } else {
+                        None
+                    };
                     Arc::new(NativeToolCallbacks {
                         inner: base_callbacks.clone(),
                         toolset: Arc::new(toolset),
@@ -266,6 +293,9 @@ pub async fn build_engine_pipeline(
                         hook_guard,
                         agent_tool_veto: spec.agent_tool_veto.clone(),
                         tools_veto: spec.tools_veto.clone(),
+                        todo_tool_veto: spec.todo_tool_veto.clone(),
+                        tower_worktree_root: spec.tower_worktree_root.clone(),
+                        sandbox_policy,
                     })
                 }
                 None => base_callbacks.clone(),
@@ -386,6 +416,7 @@ mod tests {
             Box::pin(async move {
                 calls.lock().unwrap().push(format!("execute_tool:{tool}"));
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: format!("{tool} ran on the host"),
                     is_error: false,
                     note: None,
@@ -422,6 +453,10 @@ mod tests {
             subagent_timeout_ms: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_mode: None,
+            sandbox_policy: None,
             caller_agent_id: None,
             session_id: None,
         }

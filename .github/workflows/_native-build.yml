@@ -69,11 +69,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Rust toolchain (napi native-tools)
+      - name: Install Rust toolchain (napi native addon)
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Build kimi-native-tools (.node for embedded assets)
-        run: cd packages/kimi-native-tools && bun run build
 
       - name: Build kimi-agent (.node for embedded assets)
         run: cd packages/kimi-agent && bun run build

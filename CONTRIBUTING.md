@@ -110,7 +110,7 @@ Copy-Item -Recurse -Force apps/kimi-code/dist-web "$env:USERPROFILE\.kimi-code\d
 2. **Copy native `.node` files** into `dist/chunks/` (the ESM bundle resolves relative requires from chunk files):
 
 ```powershell
-Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.node `
+Copy-Item -Force packages/kimi-agent/kimi_agent.win32-x64-msvc.node `
     "$env:USERPROFILE\.kimi-code\dist\chunks\"
 ```
 
@@ -143,7 +143,7 @@ node "%KIMI_CODE_HOME%\dist\main.mjs" %*
 
 ### Native build (self-contained binary)
 
-The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well. A Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
+The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well. A Rust toolchain is required because the `kimi-agent` `.node` binary is embedded.
 
 Windows (x64):
 
@@ -177,7 +177,7 @@ cp apps/kimi-code/dist-native/bin/linux-x64/kimi ~/.kimi-code/bin/kimi-new
 mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 ```
 
-> **Note**: The native build requires `@moonshot-ai/kimi-native-tools` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
+> **Note**: The native build requires `@moonshot-ai/kimi-agent` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
 
 `--profile=release` (`bun run build:native:bun:release`) generates the built-in catalog, signs with `APPLE_SIGNING_IDENTITY` on macOS, and runs the codesign self-check. CI builds all six targets in the `native-bundle-bun` job of `_native-build.yml` (packaged as `kimi-code-bun-<target>.zip` via `KIMI_CODE_NATIVE_ENGINE=bun`).
 
@@ -201,7 +201,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix build
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus cargo vendor directories for both napi packages (`kimi-native-tools`, `kimi-agent`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus the cargo vendor directory for the napi package (`kimi-agent`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
 
 - There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` and the napi CLI through `node <js-entry>` instead of their bin shims.
 - FOD outputs must not contain `/nix/store/...` strings: never let `cargo vendor` write its suggested config into the output, and never interpolate store paths into the install script.
@@ -213,8 +213,8 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 |---------|-------|-----|
 | `Cannot find module '@moonshot-ai/i18n-shared'` | Workspace link broken; `bun install` hasn't re-linked after adding packages | Run `bun install` |
 | `ERR_MODULE_NOT_FOUND` pointing to `src/index.ts` in `.kimi-code/node_modules` | Deployed package.json exports still point to source files | Edit exports to point to `dist/*.mjs` |
-| `Failed to load kimi-native-tools binding` | `.node` files missing from `dist/chunks/` (the ESM bundle resolves from chunk directory) | Copy `.node` files directly into `dist/chunks/` |
-| `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` in the packaged binary | Native module not registered in `native-deps.mjs` | Add entry to `nativeDeps` array with `collect: 'native-files'` |
+| `Failed to load kimi_agent binding` | `.node` files missing from `dist/chunks/` (the ESM bundle resolves from chunk directory) | Copy `.node` files directly into `dist/chunks/` |
+| `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-agent` in the packaged binary | Native module not registered in `native-deps.mjs` | Add entry to `nativeDeps` array with `collect: 'native-files'` |
 | `packages/i18n-shared` build fails with `UNRESOLVED_ENTRY` | Missing `src/index.ts` | Create `src/index.ts` re-exporting types, core, and detect modules |
 | `kimi.exe` from CDN shows English despite `locale=zh` | The CDN binary includes only the bundled locale; download date determines version | Build locally or wait for next CDN release |
 | Unexpected env vars appear under `bun run` | Bun auto-loads `.env` (the pnpm-era dev flow did not) | Remove or rename the file, or run `bun --no-env-file` |

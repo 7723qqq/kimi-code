@@ -134,17 +134,39 @@ impl KimiConfig {
         content.parse()
     }
 
-    /// Automatically discover `config.toml` location:
-    /// 1. `./config.toml` (current directory)
-    /// 2. `~/.kimi-code/config.toml`
-    /// 3. `~/.kimi/config.toml`
+    /// 探测 `config.toml` 路径（严格支持环境变量隔离）：
+    /// 1. `KIMI_CONFIG_PATH` 显式指定的文件路径
+    /// 2. `KIMI_CODE_HOME/config.toml` 隔离目录
+    /// 3. `./config.toml` (当前工作区本地配置)
+    /// 4. `~/.kimi-code/config.toml` 全局配置
+    /// 5. `~/.kimi/config.toml` 遗留兼容配置
     pub fn discover() -> Result<(Self, PathBuf), String> {
+        // 1. 显式指定的配置文件路径
+        if let Some(explicit) = std::env::var_os("KIMI_CONFIG_PATH") {
+            let path = PathBuf::from(explicit);
+            if path.is_file() {
+                let config = Self::from_file(&path)?;
+                return Ok((config, path));
+            }
+        }
+
+        // 2. 显式隔离的 HOME 目录
+        if let Some(code_home) = std::env::var_os("KIMI_CODE_HOME") {
+            let path = PathBuf::from(code_home).join("config.toml");
+            if path.is_file() {
+                let config = Self::from_file(&path)?;
+                return Ok((config, path));
+            }
+        }
+
+        // 3. 当前工作区本地配置
         let cwd_config = PathBuf::from("config.toml");
         if cwd_config.is_file() {
             let config = Self::from_file(&cwd_config)?;
             return Ok((config, cwd_config));
         }
 
+        // 4. 用户全局配置
         if let Some(home) = dirs_home() {
             let kimi_code_config = home.join(".kimi-code").join("config.toml");
             if kimi_code_config.is_file() {
@@ -159,7 +181,7 @@ impl KimiConfig {
             }
         }
 
-        Err("No config.toml discovered in ./config.toml or ~/.kimi-code/config.toml".into())
+        Err("No config.toml discovered in KIMI_CONFIG_PATH, KIMI_CODE_HOME, ./config.toml, or ~/.kimi-code/config.toml".into())
     }
 
     /// Extract the active Native LLM configuration for the given or default model.

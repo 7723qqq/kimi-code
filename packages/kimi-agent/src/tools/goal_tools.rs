@@ -106,8 +106,16 @@ fn render_update_goal(value: &Value, status: &str) -> ExecutableToolResult {
     };
     match status {
         "active" => ok_result("Goal resumed.".into()),
-        "complete" => ok_result(goal_completion_summary_prompt(&goal)),
-        _ => ok_result(goal_blocked_reason_prompt(&goal)),
+        // v2 updateGoalTool.ts:63-75 — markComplete/markBlocked success sets
+        // stopTurn: true so the engine ends the turn as completed.
+        "complete" => ExecutableToolResult {
+            stop_turn: true,
+            ..ok_result(goal_completion_summary_prompt(&goal))
+        },
+        _ => ExecutableToolResult {
+            stop_turn: true,
+            ..ok_result(goal_blocked_reason_prompt(&goal))
+        },
     }
 }
 
@@ -187,9 +195,14 @@ fn render_set_goal_budget(
     };
     let set_message = format!("Goal budget set: {}.", format_budget(normalized, unit));
     if goal.budget.over_budget {
-        ok_result(format!(
-            "{set_message} The goal has already reached this budget and will stop now."
-        ))
+        // v2 setGoalBudgetTool.ts:65-73 — stopTurn only when the snapshot
+        // reports overBudget after the write.
+        ExecutableToolResult {
+            stop_turn: true,
+            ..ok_result(format!(
+                "{set_message} The goal has already reached this budget and will stop now."
+            ))
+        }
     } else {
         ok_result(set_message)
     }
@@ -254,6 +267,7 @@ fn map_state_error(error: String) -> ExecutableToolResult {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: false,
         note: None,
@@ -262,6 +276,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: true,
         note: None,
@@ -470,6 +485,7 @@ mod tests {
         let result =
             execute_update_goal(&callbacks, &serde_json::json!({ "status": "active" })).await;
         assert!(!result.is_error);
+        assert!(!result.stop_turn);
         assert_eq!(result.content, "Goal resumed.");
         assert!(read_received.lock().unwrap().is_none());
         let request = write_received.lock().unwrap().clone().unwrap();
@@ -517,6 +533,7 @@ mod tests {
         let result =
             execute_update_goal(&callbacks, &serde_json::json!({ "status": "complete" })).await;
         assert!(!result.is_error);
+        assert!(result.stop_turn);
         assert_eq!(
             result.content,
             "Goal completed successfully: All tests pass.\nWorked 3 turns over 3m05s, using 1.2k tokens.\n\nWrite a concise final message for the user. State that the goal is complete, summarize the main work completed, and mention any validation you ran. Do not call more goal tools."
@@ -532,6 +549,7 @@ mod tests {
         let result =
             execute_update_goal(&callbacks, &serde_json::json!({ "status": "complete" })).await;
         assert!(!result.is_error);
+        assert!(result.stop_turn);
         assert!(result.content.starts_with("Goal completed successfully.\n"));
     }
 
@@ -544,6 +562,7 @@ mod tests {
         let result =
             execute_update_goal(&callbacks, &serde_json::json!({ "status": "blocked" })).await;
         assert!(!result.is_error);
+        assert!(result.stop_turn);
         assert_eq!(
             result.content,
             "Goal blocked.\nWorked 3 turns over 3m05s, using 1.2k tokens.\n\nWrite a concise final message for the user. State that the goal is blocked, explain the concrete blocker, and say what input or change is needed before work can continue. Do not call more goal tools."
@@ -682,6 +701,7 @@ mod tests {
         )
         .await;
         assert!(!result.is_error);
+        assert!(!result.stop_turn);
         assert_eq!(result.content, "Goal budget set: 30 seconds.");
     }
 
@@ -699,6 +719,7 @@ mod tests {
             result.content,
             "Goal budget set: 1 turn. The goal has already reached this budget and will stop now."
         );
+        assert!(result.stop_turn);
     }
 
     #[tokio::test]

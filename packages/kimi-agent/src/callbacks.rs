@@ -530,6 +530,9 @@ pub struct NativeToolCallbacks {
     /// denies them there.
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    pub todo_tool_veto: Option<String>,
+    pub tower_worktree_root: Option<String>,
+    pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
 }
 
 /// A plan-mode tool guard: `(tool_name, args) -> denial reason or None`,
@@ -563,6 +566,9 @@ impl HostCallbacks for NativeToolCallbacks {
             hook_guard: self.hook_guard.clone(),
             agent_tool_veto: self.agent_tool_veto.clone(),
             tools_veto: self.tools_veto.clone(),
+            todo_tool_veto: self.todo_tool_veto.clone(),
+            tower_worktree_root: self.tower_worktree_root.clone(),
+            sandbox_policy: self.sandbox_policy.clone(),
         };
         Box::pin(async move {
             // G-6 #7: a CreateGoal that must be reviewed (permission mode is
@@ -601,6 +607,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -615,6 +622,29 @@ impl HostCallbacks for NativeToolCallbacks {
                 && request.tool_name.eq_ignore_ascii_case("agent")
             {
                 Some(reason.clone())
+            } else if let Some(reason) = &this.todo_tool_veto
+                && (request.tool_name.eq_ignore_ascii_case("todolist")
+                    || request.tool_name.eq_ignore_ascii_case("todo_list"))
+            {
+                Some(reason.clone())
+            } else if let Some(worktree) = &this.tower_worktree_root
+                && (request.tool_name.eq_ignore_ascii_case("write")
+                    || request.tool_name.eq_ignore_ascii_case("edit"))
+            {
+                if let Some(target_path) = request.arguments.get("path").and_then(|v| v.as_str()) {
+                    let norm_target = target_path.replace('\\', "/");
+                    let norm_worktree = worktree.replace('\\', "/");
+                    if !norm_target.starts_with(&norm_worktree) {
+                        Some(format!(
+                            "tower workers may only write inside their own worktree ({}) — denied: {}. Out-of-scope changes are not yours to make: file them with TowerFinding or ask the tower via TowerSend.",
+                            worktree, target_path
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -630,6 +660,48 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
+                    content: reason,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            let sandbox_denial = if let Some(policy) = &this.sandbox_policy {
+                let tool_lower = request.tool_name.to_ascii_lowercase();
+                if tool_lower == "write" || tool_lower == "edit" {
+                    if let Some(target_path) = request.arguments.get("path").and_then(|v| v.as_str()) {
+                        policy.sandbox_write_guard(target_path)
+                    } else if policy.mode == crate::tools::sandbox::SandboxMode::ReadOnly {
+                        policy.sandbox_write_guard("")
+                    } else {
+                        None
+                    }
+                // Bash is code execution exactly like run_code: a ReadOnly
+                // sandbox must not let a shell bypass the write guard by
+                // running `echo x > file`. SandboxGuard's own contract
+                // (tools/sandbox.rs) scopes the execution guard to any tool
+                // that runs commands, not just the (dead) run_code entry.
+                } else if tool_lower == "run_code" || tool_lower == "bash" {
+                    policy.sandbox_code_execution_guard()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(reason) = sandbox_denial {
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": reason,
+                    "is_error": true,
+                    "note": null,
+                }));
+                return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -680,6 +752,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -703,6 +776,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -728,6 +802,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -753,6 +828,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
@@ -845,7 +921,19 @@ impl HostCallbacks for NativeToolCallbacks {
                         telemetry_event["error_type"] = serde_json::Value::String("error".into());
                     }
                     this.inner.telemetry(telemetry_event);
+                    if let Some(guard) = &this.hook_guard {
+                        guard
+                            .notify_post_tool_use(
+                                &request.tool_name,
+                                &request.tool_call_id,
+                                &request.arguments,
+                                &result.content,
+                                result.is_error,
+                            )
+                            .await;
+                    }
                     let raw = ToolExecuteResponse {
+                        stop_turn: result.stop_turn,
                         content: result.content,
                         is_error: result.is_error,
                         note: result.note,
@@ -866,6 +954,7 @@ impl HostCallbacks for NativeToolCallbacks {
                                 },
                             );
                             ToolExecuteResponse {
+                                stop_turn: raw.stop_turn,
                                 content: f.content,
                                 is_error: f.is_error,
                                 note: f.note,
@@ -1375,6 +1464,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
                     note: None,
@@ -1422,6 +1512,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         (dir, native, permission_calls, executed, native_count)
     }
@@ -1459,6 +1552,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
                     note: None,
@@ -1509,6 +1603,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto,
             tools_veto,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         (dir, native, permission_calls, executed, events)
     }
@@ -1595,6 +1692,178 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_todo_tool_veto_denies_todolist() {
+        let mut callbacks_tuple = veto_setup(None, None);
+        callbacks_tuple.1.todo_tool_veto = Some("TodoList is disabled in tower mode".into());
+        let native = callbacks_tuple.1;
+        let events = callbacks_tuple.4;
+
+        let denied = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t1".into(),
+                tool_call_id: "c_todo".into(),
+                tool_name: "TodoList".into(),
+                arguments: serde_json::json!({ "todos": [] }),
+            })
+            .await
+            .unwrap();
+
+        assert!(denied.is_error);
+        assert_eq!(denied.content, "TodoList is disabled in tower mode");
+
+        let recorded_events = veto_events(&events);
+        assert_eq!(
+            recorded_events[0],
+            (
+                "tool.native".to_string(),
+                "TodoList is disabled in tower mode".to_string()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tower_worktree_root_restricts_worker_writes() {
+        let mut callbacks_tuple = veto_setup(None, None);
+        callbacks_tuple.1.tower_worktree_root = Some("G:/repo/.tower/worktrees/worker-1".into());
+        let native = callbacks_tuple.1;
+
+        // 1. 写工作区外部路径 -> 拦截拒绝
+        let escape_res = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t2".into(),
+                tool_call_id: "c_esc".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({
+                    "path": "G:/repo/src/root.rs",
+                    "content": "fn bad() {}"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(escape_res.is_error);
+        assert!(escape_res.content.contains("tower workers may only write inside their own worktree"));
+
+        // 2. 写工作区合法内部路径 -> 放行至权限/执行层
+        let in_worktree_res = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t2".into(),
+                tool_call_id: "c_ok".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({
+                    "path": "G:/repo/.tower/worktrees/worker-1/src/lib.rs",
+                    "content": "fn ok() {}"
+                }),
+            })
+            .await
+            .unwrap();
+
+        // 不应触发 tower worktree 逃逸拦截
+        assert!(!escape_res.content.contains("fn ok"));
+        assert!(!in_worktree_res.content.contains("tower workers may only write inside their own worktree"));
+    }
+
+    #[tokio::test]
+    async fn test_sandbox_policy_enforcement() {
+        use crate::tools::sandbox::SandboxExecutionPolicy;
+
+        // 1. ReadOnly 模式阻断 Write 与 Edit
+        let mut callbacks_tuple = veto_setup(None, None);
+        callbacks_tuple.1.sandbox_policy = Some(SandboxExecutionPolicy::read_only("/workspace/root"));
+        let native = callbacks_tuple.1;
+
+        let ro_res = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t_ro".into(),
+                tool_call_id: "c_ro".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({
+                    "path": "/workspace/root/test.txt",
+                    "content": "hello"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(ro_res.is_error);
+        assert!(ro_res.content.contains("blocks writes to the filesystem"));
+
+        // 2. WorkspaceWrite 模式拦截工作区外部写
+        let mut callbacks_tuple = veto_setup(None, None);
+        callbacks_tuple.1.sandbox_policy = Some(SandboxExecutionPolicy::workspace_write("/workspace/root"));
+        let native_ww = callbacks_tuple.1;
+
+        let out_res = native_ww
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t_out".into(),
+                tool_call_id: "c_out".into(),
+                tool_name: "Edit".into(),
+                arguments: serde_json::json!({
+                    "path": "/etc/shadow",
+                    "old_string": "a",
+                    "new_string": "b"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(out_res.is_error);
+        assert!(out_res.content.contains("blocks writes outside the workspace root"));
+
+        // 3. WorkspaceWrite 模式放行工作区内部写（进入权限层，不会被沙箱拒否）
+        let in_res = native_ww
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t_in".into(),
+                tool_call_id: "c_in".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({
+                    "path": "/workspace/root/sub/file.txt",
+                    "content": "ok"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert!(!in_res.content.contains("blocks writes outside the workspace root"));
+
+        // 4. 只读工具（如 Glob）在只读沙箱模式下不受写沙箱影响
+        let glob_res = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t_glob".into(),
+                tool_call_id: "c_glob".into(),
+                tool_name: "Glob".into(),
+                arguments: serde_json::json!({ "pattern": "*.txt" }),
+            })
+            .await
+            .unwrap();
+
+        assert!(!glob_res.is_error);
+
+        // 5. ReadOnly 模式必须拦截 Bash：shell 是代码执行入口，不能绕过写沙箱。
+        //    拒绝必须发生在真实 shell 派生之前（否则只读沙箱形同虚设）。
+        let bash_ro_res = native
+            .execute_tool(ToolExecuteRequest {
+                turn_id: "t_bash_ro".into(),
+                tool_call_id: "c_bash_ro".into(),
+                tool_name: "Bash".into(),
+                arguments: serde_json::json!({ "command": "echo sandbox-escape" }),
+            })
+            .await
+            .unwrap();
+
+        assert!(bash_ro_res.is_error);
+        assert!(bash_ro_res.content.contains("blocks code execution"));
+        assert!(!bash_ro_res.content.contains("sandbox-escape"));
+
+        // 6. WorkspaceWrite 模式放行命令执行（纯策略断言，不派生真 shell）。
+        let ww_policy = SandboxExecutionPolicy::workspace_write("/workspace/root");
+        assert!(ww_policy.sandbox_code_execution_guard().is_none());
+        // Off 模式同样放行。
+        let off_policy = SandboxExecutionPolicy::off("/workspace/root");
+        assert!(off_policy.sandbox_code_execution_guard().is_none());
+    }
+
+    #[tokio::test]
     async fn test_native_write_checkpoints_prepare_and_record() {
         let (_dir, _native, _permission_calls, _executed, _events) = veto_setup(None, None);
         // Drill into the inner probe: the setup closure hides it, so drive
@@ -1622,6 +1891,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         let response = native
             .execute_tool(ToolExecuteRequest {
@@ -1808,6 +2080,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
                     note: None,
@@ -1882,6 +2155,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         (dir, native, executed, native_count, events, state_reads)
     }
@@ -2073,6 +2349,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
                     note: None,
@@ -2153,6 +2430,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         (
             dir,
@@ -2357,6 +2637,9 @@ mod tests {
             ))),
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         (
             dir,
@@ -2558,6 +2841,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         let mut request = sample_ask_question_request();
         request.question_id = "question_2".into();
@@ -2725,6 +3011,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
         let mut read_request = sample_state_read_request();
         read_request.turn_id = "turn-2".into();
@@ -3034,6 +3323,9 @@ mod tests {
             hook_guard: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
         };
 
         let res = callbacks.list_tools().await.unwrap();

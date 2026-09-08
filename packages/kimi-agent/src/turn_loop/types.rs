@@ -49,7 +49,7 @@ pub struct TurnResult {
 }
 
 /// Reasons a turn can stop.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LoopTurnStopReason {
     EndTurn,
     MaxTokens,
@@ -59,6 +59,13 @@ pub enum LoopTurnStopReason {
     Aborted,
     /// Goal budget exhausted (token, turn, or wall-clock).
     BudgetLimited,
+    /// Repeat breaker stopped the turn after tool deduplication streak (upstream #3459).
+    RepeatBreaker,
+    /// The step budget ran out while the model was still requesting tools —
+    /// v2 raises `MaxStepsExceededError` there (loopService.ts:841-843) and
+    /// the turn fails with interrupt_reason `max_steps` instead of ending as
+    /// a normal completion.
+    MaxSteps,
 }
 
 // ── LLM interface ──────────────────────────────────────────────────────────
@@ -93,10 +100,16 @@ pub trait LLM: Send + Sync {
 pub struct LLMChatParams {
     pub messages: Vec<LLMMessage>,
     pub tools: Vec<ToolInfo>,
+    /// Cooperative cancellation for the in-flight request — the Rust
+    /// counterpart of v2's `AbortSignal` threaded through kosong's generate
+    /// (generate.ts:107-295). Firing aborts the request send and the SSE
+    /// read; the call fails with an `"llm cancelled …"` error that the
+    /// retry layer never retries. `None` = uncancellable (test stubs).
+    pub cancel: Option<tokio_util::sync::CancellationToken>,
 }
 
 /// A message in the LLM conversation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct LLMMessage {
     pub role: String,
     pub content: String,
@@ -173,7 +186,7 @@ pub struct LLMChatResponse {
 }
 
 /// A tool call from the LLM.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -211,6 +224,7 @@ pub struct ToolExecContext {
 /// The result of a tool execution.
 #[derive(Debug, Clone)]
 pub struct ExecutableToolResult {
+    pub stop_turn: bool,
     pub content: String,
     pub is_error: bool,
     /// Host-notice annotation (e.g. Read's `<system>…</system>` summary).
@@ -795,6 +809,9 @@ pub struct RunTurnInput<'a> {
     /// LLM proxy so the JS host can include them in the actual LLM call.
     pub tool_defs: Vec<ToolInfo>,
     pub max_steps: u32,
+    /// LLM retry attempts per step (v2 `loopControl.maxAttemptsPerStep`).
+    /// `None` uses the engine default of 10 (`DEFAULT_MAX_RETRY_ATTEMPTS`).
+    pub max_attempts: Option<u32>,
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's own default budget.
     pub max_context_tokens: Option<u32>,

@@ -475,9 +475,7 @@ where
                     state.turns_since = 0;
                     plan_mode_injection_text(&val)
                 }
-                Some(PlanModeVariant::Sparse) => {
-                    plan_mode_sparse_text(&val)
-                }
+                Some(PlanModeVariant::Sparse) => plan_mode_sparse_text(&val),
                 None => String::new(),
             }
         }),
@@ -731,15 +729,13 @@ Plan file: PLAN.md"#
     #[test]
     fn test_plan_mode_reentry_inline() {
         let text = plan_mode_reentry_text(&json!({ "active": true }));
-        assert!(text.contains("No plan file path is available in this host."));
-        assert!(text.contains("Re-evaluate the user request"));
+        assert_eq!(text, PLAN_MODE_INLINE_REENTRY_REMINDER);
     }
 
     #[test]
     fn test_plan_mode_exit() {
         let text = plan_mode_exit_text();
-        assert!(text.starts_with("Plan mode is no longer active."));
-        assert!(text.contains("call TodoList now"));
+        assert_eq!(text, PLAN_MODE_EXIT_REMINDER);
     }
 
     #[test]

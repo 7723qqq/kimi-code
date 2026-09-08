@@ -15,7 +15,7 @@ const packageJson = JSON.parse(
 const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 const optionalNativeDependencies = new Set([
   'cpu-features',
-  '@moonshot-ai/kimi-native-tools',
+  '@moonshot-ai/kimi-agent',
 ]);
 
 function shouldAlwaysBundle(id: string): boolean {

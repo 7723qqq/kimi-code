@@ -29,7 +29,7 @@ export type { Locale };
 export type TranslationKey = SharedTranslationKey<typeof en>;
 export type Engine = 'rust' | 'js';
 
-// In the compiled Bun binary, @moonshot-ai/kimi-native-tools is excluded
+// In the compiled Bun binary, @moonshot-ai/kimi-agent is excluded
 // from the JS bundle and shipped as an embedded asset. When the direct
 // require() fails there, ensureNative() falls back to loading the module
 // from the native asset cache via getNativePackageRoot.
@@ -99,22 +99,22 @@ function ensureNative(): NativeModule {
   if (nativeModule) return nativeModule;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   try {
-    const mod = require('@moonshot-ai/kimi-native-tools') as NativeModule;
+    const mod = require('@moonshot-ai/kimi-agent/native') as NativeModule;
     nativeModule = mod;
     localeJsonEn = JSON.stringify(en);
     return mod;
   } catch {
     // In the compiled binary the module is an embedded asset, not a bundled JS module.
     // Load it from the extracted cache via getNativePackageRoot.
-    const pkgRoot = getNativePackageRoot('@moonshot-ai/kimi-native-tools');
+    const pkgRoot = getNativePackageRoot('@moonshot-ai/kimi-agent');
     if (pkgRoot === null)
       throw new Error(
-        'Failed to load @moonshot-ai/kimi-native-tools: not available as a bundled module or native asset.',
+        'Failed to load @moonshot-ai/kimi-agent/native: not available as a bundled module or native asset.',
       );
     const { createRequire } = require('node:module');
     const { join } = require('node:path');
     const cacheRequire = createRequire(join(pkgRoot, 'index.js'));
-    const mod = cacheRequire(pkgRoot) as NativeModule;
+    const mod = cacheRequire(join(pkgRoot, 'index.js')) as NativeModule;
     nativeModule = mod;
     localeJsonEn = JSON.stringify(en);
     return mod;

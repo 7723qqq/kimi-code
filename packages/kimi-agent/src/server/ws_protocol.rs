@@ -12,10 +12,12 @@
 //! - a refused `client_hello` credential is `code: 40112` (`AUTH_TOKEN_UNAUTHORIZED`)
 //!   followed by a close — kap-server's own `wsConnectionV1.authorize`.
 //!
-//! Not implemented yet, because the server has no per-session event authority to
-//! back them: `subscribe` / `subscribe_v2` / `unsubscribe*` / `watch_fs_*` (an
-//! unknown `type` is ignored, which is also what kap-server does) and
-//! `resync_required` (there is no `seq` to fall behind).
+//! `subscribe` / `unsubscribe` / `watch_fs_add` / `watch_fs_remove` are parsed
+//! and acked (the watch registry tracks paths per connection; actual filesystem
+//! event emission is not wired — see ROADMAP known-gaps). Top-level
+//! `resync_required` epoch-change frames have no server-side trigger yet: the
+//! epoch never changes mid-connection here, and cursor mismatches are reported
+//! through the ack's `resync_required` array per the v1 contract.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -152,12 +154,56 @@ struct Envelope<'a> {
 /// has no transcript stream to carry them.
 pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Error> {
     let mut payload = serde_json::to_value(&event.event)?;
-    if let Value::Object(map) = &mut payload {
+    let mut kind = event.event.event_type().to_string();
+
+    // Terminal frames are contract-shaped top-level controls
+    // (ws-control.ts:418-441), not wrapped Custom events: the payload narrows
+    // to the contract's `data` / `exit_code` field.
+    if let crate::events::EngineEvent::Custom(value) = &event.event {
+        let inner = value.get("type").and_then(Value::as_str).unwrap_or("");
+        match inner {
+            "terminal_output" => {
+                kind = inner.to_string();
+                payload = serde_json::json!({ "data": value.get("data") });
+            }
+            "terminal_exit" => {
+                kind = inner.to_string();
+                payload = value.get("payload").cloned().unwrap_or(serde_json::json!({}));
+            }
+            _ => {}
+        }
+    }
+
+    // Map legacy coarse-grained LlmDelta into standard frontend typewriter streaming events
+    if let crate::events::EngineEvent::LlmDelta { turn_id, part, .. } = &event.event {
+        if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+            kind = "assistant.delta".into();
+            payload = serde_json::json!({
+                "agentId": "main",
+                "turnId": turn_id.parse::<u64>().unwrap_or(1),
+                "delta": text,
+            });
+        } else if let Some(thinking) = part
+            .get("think")
+            .or_else(|| part.get("thinking"))
+            .or_else(|| part.get("reasoning"))
+            .or_else(|| part.get("reasoning_content"))
+            .and_then(|v| v.as_str())
+        {
+            kind = "thinking.delta".into();
+            payload = serde_json::json!({
+                "agentId": "main",
+                "turnId": turn_id.parse::<u64>().unwrap_or(1),
+                "delta": thinking,
+            });
+        }
+    } else if let Value::Object(map) = &mut payload {
         // `EngineEvent` carries its name as an internal tag; the envelope owns it.
         map.remove("type");
     }
+
     serde_json::to_vec(&Envelope {
-        kind: event.event.event_type(),
+        kind: &kind,
         seq: event.seq,
         epoch: &event.epoch,
         session_id: &event.session_id,
@@ -244,6 +290,55 @@ pub enum Inbound {
     },
     /// Abort/cancel an active turn in a session over WebSocket.
     Cancel { id: String, session_id: String },
+    /// Attach to a terminal in a session.
+    TerminalAttach {
+        id: String,
+        session_id: String,
+        terminal_id: String,
+        since_seq: Option<u64>,
+    },
+    /// Detach from a terminal in a session.
+    TerminalDetach {
+        id: String,
+        session_id: String,
+        terminal_id: String,
+    },
+    /// Send input to a terminal.
+    TerminalInput {
+        id: String,
+        session_id: String,
+        terminal_id: String,
+        data: String,
+    },
+    /// Resize a terminal dimensions.
+    TerminalResize {
+        id: String,
+        session_id: String,
+        terminal_id: String,
+        cols: u32,
+        rows: u32,
+    },
+    /// Close/kill a terminal.
+    TerminalClose {
+        id: String,
+        session_id: String,
+        terminal_id: String,
+    },
+    /// Register workspace paths to watch for a session (ws-control.ts:199-202).
+    /// The control layer acks with the live watch set; actual filesystem
+    /// event emission is not wired (see ROADMAP known-gaps).
+    WatchFsAdd {
+        id: String,
+        session_id: String,
+        paths: Vec<String>,
+        recursive: bool,
+    },
+    /// Drop previously watched paths for a session (ws-control.ts:212-215).
+    WatchFsRemove {
+        id: String,
+        session_id: String,
+        paths: Vec<String>,
+    },
     /// The reply to our `ping`. Liveness is already proved by any inbound frame,
     /// so there is nothing to record.
     Pong,
@@ -354,9 +449,174 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
                 .to_string();
             Inbound::Cancel { id, session_id }
         }
+        Some("terminal_attach") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let terminal_id = payload
+                .and_then(|p| p.get("terminal_id").or_else(|| p.get("terminalId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let since_seq = payload
+                .and_then(|p| p.get("since_seq").or_else(|| p.get("sinceSeq")))
+                .and_then(Value::as_u64);
+            Inbound::TerminalAttach {
+                id,
+                session_id,
+                terminal_id,
+                since_seq,
+            }
+        }
+        Some("terminal_detach") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let terminal_id = payload
+                .and_then(|p| p.get("terminal_id").or_else(|| p.get("terminalId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Inbound::TerminalDetach {
+                id,
+                session_id,
+                terminal_id,
+            }
+        }
+        Some("terminal_input") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let terminal_id = payload
+                .and_then(|p| p.get("terminal_id").or_else(|| p.get("terminalId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let data = payload
+                .and_then(|p| p.get("data"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Inbound::TerminalInput {
+                id,
+                session_id,
+                terminal_id,
+                data,
+            }
+        }
+        Some("terminal_resize") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let terminal_id = payload
+                .and_then(|p| p.get("terminal_id").or_else(|| p.get("terminalId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let cols = payload
+                .and_then(|p| p.get("cols"))
+                .and_then(Value::as_u64)
+                .unwrap_or(80) as u32;
+            let rows = payload
+                .and_then(|p| p.get("rows"))
+                .and_then(Value::as_u64)
+                .unwrap_or(24) as u32;
+            Inbound::TerminalResize {
+                id,
+                session_id,
+                terminal_id,
+                cols,
+                rows,
+            }
+        }
+        Some("terminal_close") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let terminal_id = payload
+                .and_then(|p| p.get("terminal_id").or_else(|| p.get("terminalId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Inbound::TerminalClose {
+                id,
+                session_id,
+                terminal_id,
+            }
+        }
+        Some("watch_fs_add") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let paths = parse_string_array(payload, "paths");
+            let recursive = payload
+                .and_then(|p| p.get("recursive"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Inbound::WatchFsAdd {
+                id,
+                session_id,
+                paths,
+                recursive,
+            }
+        }
+        Some("watch_fs_remove") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let paths = parse_string_array(payload, "paths");
+            Inbound::WatchFsRemove {
+                id,
+                session_id,
+                paths,
+            }
+        }
         Some(_) => Inbound::Unknown,
         None => Inbound::Unknown,
     }
+}
+
+/// Top-level `error` frame (ws-control.ts:404-412): sent for protocol-level
+/// failures that are not tied to a session event stream.
+pub fn error_frame(code: i64, msg: &str, fatal: bool, request_id: Option<&str>) -> Value {
+    serde_json::json!({
+        "type": "error",
+        "timestamp": timestamp(),
+        "payload": {
+            "code": code,
+            "msg": msg,
+            "fatal": fatal,
+            "request_id": request_id,
+        }
+    })
 }
 
 fn request_id(frame: &serde_json::Map<String, Value>) -> String {
@@ -370,6 +630,7 @@ fn request_id(frame: &serde_json::Map<String, Value>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn server_hello_carries_kap_server_field_names_and_honest_values() {
@@ -439,6 +700,61 @@ mod tests {
     }
 
     #[test]
+    fn streaming_delta_events_map_to_standard_frontend_formats() {
+        use crate::events::EngineEvent;
+
+        // 1. Native AssistantDelta
+        let event_native = SequencedEvent {
+            session_id: std::sync::Arc::from("sess-delta"),
+            epoch: std::sync::Arc::from("epoch-1"),
+            seq: 1,
+            event: EngineEvent::AssistantDelta {
+                agent_id: "main".into(),
+                turn_id: 2,
+                delta: "Hello world".into(),
+            },
+        };
+        let frame1: Value =
+            serde_json::from_slice(&event_envelope(&event_native).unwrap()).unwrap();
+        assert_eq!(frame1["type"], "assistant.delta");
+        assert_eq!(frame1["payload"]["delta"], "Hello world");
+        assert_eq!(frame1["payload"]["agent_id"], "main");
+
+        // 2. Transformed LlmDelta text
+        let event_transformed = SequencedEvent {
+            session_id: std::sync::Arc::from("sess-delta"),
+            epoch: std::sync::Arc::from("epoch-1"),
+            seq: 2,
+            event: EngineEvent::LlmDelta {
+                turn_id: "2".into(),
+                step: 1,
+                part: serde_json::json!({ "text": " Streaming chunk" }),
+            },
+        };
+        let frame2: Value =
+            serde_json::from_slice(&event_envelope(&event_transformed).unwrap()).unwrap();
+        assert_eq!(frame2["type"], "assistant.delta");
+        assert_eq!(frame2["payload"]["delta"], " Streaming chunk");
+        assert_eq!(frame2["payload"]["turnId"], 2);
+
+        // 3. Transformed ThinkingDelta
+        let event_thinking = SequencedEvent {
+            session_id: std::sync::Arc::from("sess-delta"),
+            epoch: std::sync::Arc::from("epoch-1"),
+            seq: 3,
+            event: EngineEvent::LlmDelta {
+                turn_id: "2".into(),
+                step: 1,
+                part: serde_json::json!({ "thinking": "Let me consider..." }),
+            },
+        };
+        let frame3: Value =
+            serde_json::from_slice(&event_envelope(&event_thinking).unwrap()).unwrap();
+        assert_eq!(frame3["type"], "thinking.delta");
+        assert_eq!(frame3["payload"]["delta"], "Let me consider...");
+    }
+
+    #[test]
     fn inbound_frames_are_properly_discriminated() {
         assert_eq!(parse_inbound(br#"{"type":"pong"}"#), Inbound::Pong);
         assert_eq!(
@@ -475,6 +791,50 @@ mod tests {
             Inbound::Cancel {
                 id: "c1".into(),
                 session_id: "sess-1".into(),
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"terminal_attach","id":"ta1","payload":{"session_id":"sess-1","terminal_id":"term-1","since_seq":10}}"#),
+            Inbound::TerminalAttach {
+                id: "ta1".into(),
+                session_id: "sess-1".into(),
+                terminal_id: "term-1".into(),
+                since_seq: Some(10),
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"terminal_detach","id":"td1","payload":{"session_id":"sess-1","terminal_id":"term-1"}}"#),
+            Inbound::TerminalDetach {
+                id: "td1".into(),
+                session_id: "sess-1".into(),
+                terminal_id: "term-1".into(),
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"terminal_input","id":"ti1","payload":{"session_id":"sess-1","terminal_id":"term-1","data":"echo 1\n"}}"#),
+            Inbound::TerminalInput {
+                id: "ti1".into(),
+                session_id: "sess-1".into(),
+                terminal_id: "term-1".into(),
+                data: "echo 1\n".into(),
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"terminal_resize","id":"tr1","payload":{"session_id":"sess-1","terminal_id":"term-1","cols":120,"rows":30}}"#),
+            Inbound::TerminalResize {
+                id: "tr1".into(),
+                session_id: "sess-1".into(),
+                terminal_id: "term-1".into(),
+                cols: 120,
+                rows: 30,
+            }
+        );
+        assert_eq!(
+            parse_inbound(br#"{"type":"terminal_close","id":"tc1","payload":{"session_id":"sess-1","terminal_id":"term-1"}}"#),
+            Inbound::TerminalClose {
+                id: "tc1".into(),
+                session_id: "sess-1".into(),
+                terminal_id: "term-1".into(),
             }
         );
         assert_eq!(
@@ -529,5 +889,121 @@ mod tests {
                 cursors: HashMap::new(),
             }
         );
+    }
+
+    #[test]
+    fn test_ack_payload_constructors() {
+        // 1. client_hello_ack
+        let mut cursors = HashMap::new();
+        cursors.insert("s1".into(), serde_json::json!({ "seq": 10, "epoch": "ep1" }));
+        let val_hello = client_hello_ack(
+            &["s1".into()],
+            &["s2".into()],
+            &cursors,
+        );
+        assert_eq!(val_hello["accepted_subscriptions"], json!(["s1"]));
+        assert_eq!(val_hello["resync_required"], json!(["s2"]));
+        assert_eq!(val_hello["cursors"]["s1"]["seq"], 10);
+
+        // 2. subscribe_ack
+        let val_sub = subscribe_ack(
+            &["s1".into()],
+            &["missing".into()],
+            &[],
+            &cursors,
+        );
+        assert_eq!(val_sub["accepted"], json!(["s1"]));
+        assert_eq!(val_sub["not_found"], json!(["missing"]));
+        assert_eq!(val_sub["resync_required"], json!([]));
+        assert_eq!(val_sub["cursors"]["s1"]["seq"], 10);
+
+        // 3. unsubscribe_ack
+        let val_unsub = unsubscribe_ack(
+            &["s1".into()],
+            &["s_err".into()],
+            &[],
+        );
+        assert_eq!(val_unsub["accepted"], json!(["s1"]));
+        assert_eq!(val_unsub["not_found"], json!(["s_err"]));
+        assert_eq!(val_unsub["resync_required"], json!([]));
+    }
+
+    /// `watch_fs_add` / `watch_fs_remove` parse into typed variants with the
+    /// contract's payload fields (ws-control.ts:198-215).
+    #[test]
+    fn watch_fs_frames_parse_into_typed_variants() {
+        let raw = br#"{"type":"watch_fs_add","id":"w1","payload":{"session_id":"s1","paths":["/ws/a","/ws/b"],"recursive":true}}"#;
+        match parse_inbound(raw) {
+            Inbound::WatchFsAdd {
+                id,
+                session_id,
+                paths,
+                recursive,
+            } => {
+                assert_eq!(id, "w1");
+                assert_eq!(session_id, "s1");
+                assert_eq!(paths, vec!["/ws/a", "/ws/b"]);
+                assert!(recursive);
+            }
+            other => panic!("expected WatchFsAdd, got {other:?}"),
+        }
+        let raw = br#"{"type":"watch_fs_remove","id":"w2","payload":{"session_id":"s1","paths":["/ws/a"]}}"#;
+        match parse_inbound(raw) {
+            Inbound::WatchFsRemove { id, paths, .. } => {
+                assert_eq!(id, "w2");
+                assert_eq!(paths, vec!["/ws/a"]);
+            }
+            other => panic!("expected WatchFsRemove, got {other:?}"),
+        }
+    }
+
+    /// The top-level `error` frame carries the contract payload
+    /// (ws-control.ts:404-412).
+    #[test]
+    fn error_frame_carries_code_msg_fatal() {
+        let frame = error_frame(40414, "terminal not found", false, Some("req-9"));
+        assert_eq!(frame["type"], "error");
+        assert_eq!(frame["payload"]["code"], 40414);
+        assert_eq!(frame["payload"]["msg"], "terminal not found");
+        assert_eq!(frame["payload"]["fatal"], false);
+        assert_eq!(frame["payload"]["request_id"], "req-9");
+    }
+
+    /// Terminal Custom events map onto the contract's top-level
+    /// terminal_output / terminal_exit frames (ws-control.ts:418-441).
+    #[test]
+    fn terminal_custom_events_map_to_contract_frames() {
+        let out = SequencedEvent {
+            seq: 7,
+            epoch: "e".into(),
+            session_id: "s1".into(),
+            event: crate::events::EngineEvent::Custom(json!({
+                "type": "terminal_output",
+                "session_id": "s1",
+                "terminal_id": "t1",
+                "seq": 3,
+                "data": "hello"
+            })),
+        };
+        let frame: Value = serde_json::from_slice(&event_envelope(&out).unwrap()).unwrap();
+        assert_eq!(frame["type"], "terminal_output");
+        assert_eq!(frame["seq"], 7);
+        assert_eq!(frame["payload"]["data"], "hello");
+        assert!(frame["payload"].get("type").is_none(), "payload narrows to the contract field");
+
+        let exit = SequencedEvent {
+            seq: 8,
+            epoch: "e".into(),
+            session_id: "s1".into(),
+            event: crate::events::EngineEvent::Custom(json!({
+                "type": "terminal_exit",
+                "session_id": "s1",
+                "terminal_id": "t1",
+                "payload": { "exit_code": 0 }
+            })),
+        };
+        let frame: Value = serde_json::from_slice(&event_envelope(&exit).unwrap()).unwrap();
+        assert_eq!(frame["type"], "terminal_exit");
+        assert_eq!(frame["payload"]["exit_code"], 0);
     }
 }

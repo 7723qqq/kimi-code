@@ -466,6 +466,9 @@ pub async fn start_repl(
         // REPL has no swarm/btw contexts — nothing to veto.
         agent_tool_veto: None,
         tools_veto: None,
+        todo_tool_veto: None,
+        tower_worktree_root: None,
+        sandbox_policy: None,
     });
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone())

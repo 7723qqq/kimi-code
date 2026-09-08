@@ -24,20 +24,43 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::callbacks::HostCallbacks;
+use crate::mcp::manager::McpManager;
 use crate::pipeline::{PipelineHost, PipelineSpec, build_engine_pipeline};
 use crate::rpc::types::{
-    BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
-    TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
+    PermissionCheckRequest, PermissionDecision, TokenUsage, ToolExecuteRequest,
+    ToolExecuteResponse,
 };
 use crate::server::hub::EventHub;
+use crate::server::interaction::InteractionManager;
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::subagent::SubagentManager;
 use crate::turn_loop::run_turn::run_turn;
 use crate::turn_loop::types::{LLM, LLMMessage, RunTurnInput};
 
-/// A host that is not there. Every answer is a refusal or a deny; nothing here
-/// waits.
-pub struct ServerHost;
+/// A host for standalone server execution with optional interactive interaction
+/// support (questions and approvals).
+#[derive(Clone, Default)]
+pub struct ServerHost {
+    interaction_manager: Option<Arc<InteractionManager>>,
+    session_id: Option<String>,
+}
+
+impl ServerHost {
+    pub fn standalone() -> Self {
+        Self {
+            interaction_manager: None,
+            session_id: None,
+        }
+    }
+
+    pub fn with_interaction(manager: Arc<InteractionManager>, session_id: String) -> Self {
+        Self {
+            interaction_manager: Some(manager),
+            session_id: Some(session_id),
+        }
+    }
+}
 
 impl HostCallbacks for ServerHost {
     /// The host-proxy LLM leg. Only reachable if a pipeline was built without
@@ -70,19 +93,65 @@ impl HostCallbacks for ServerHost {
         })
     }
 
-    /// No interactive approver exists here, so anything reaching this leg is
-    /// denied. The permission engine runs before it for native tools, so this
-    /// is the fallback, not the default path.
+    /// Ask the host whether a mutating tool call may execute natively.
     fn check_permission(
         &self,
-        _request: PermissionCheckRequest,
+        request: PermissionCheckRequest,
     ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
-        Box::pin(async {
-            Ok(PermissionDecision {
-                decision: "deny".into(),
-                reason: Some("no interactive approver in the standalone engine".into()),
+        if std::env::var("KIMI_AUTO_APPROVE")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+        {
+            return Box::pin(async { Ok(PermissionDecision::allow()) });
+        }
+        if let (Some(mgr), Some(sid)) = (self.interaction_manager.clone(), self.session_id.clone())
+        {
+            Box::pin(async move {
+                let (_aid, rx) = mgr.register_approval(&sid, request, "tool_execution");
+                match rx.await {
+                    Ok(decision) => Ok(decision),
+                    Err(_) => Ok(PermissionDecision::deny("Interaction channel closed")),
+                }
             })
-        })
+        } else {
+            Box::pin(async {
+                Ok(PermissionDecision {
+                    decision: "deny".into(),
+                    reason: Some("no interactive approver in the standalone engine".into()),
+                })
+            })
+        }
+    }
+
+    /// Ask the host an interactive question and wait for a human answer.
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        if let (Some(mgr), Some(sid)) = (self.interaction_manager.clone(), self.session_id.clone())
+        {
+            Box::pin(async move {
+                let rx = mgr.register_question(&sid, request);
+                match rx.await {
+                    Ok(resp) => Ok(resp),
+                    Err(_) => Ok(AskQuestionResponse {
+                        answers: HashMap::new(),
+                        method: None,
+                        note: None,
+                        cancelled: Some(true),
+                        reason: Some("interaction_cancelled".into()),
+                    }),
+                }
+            })
+        } else {
+            Box::pin(async {
+                Err(
+                    "The connected client does not support interactive questions. \
+                     Do NOT call this tool again. Ask the user directly in your text response instead."
+                        .into(),
+                )
+            })
+        }
     }
 }
 
@@ -134,6 +203,9 @@ pub struct ServerEngine {
     store: Arc<SqliteSessionStore>,
     max_steps: u32,
     active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    mcp_manager: Mutex<Option<Arc<McpManager>>>,
+    interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
+    subagent_manager: Arc<SubagentManager>,
 }
 
 impl ServerEngine {
@@ -141,10 +213,51 @@ impl ServerEngine {
         Self {
             spec,
             hub,
-            store,
+            store: store.clone(),
             max_steps: 32,
             active_turns: Mutex::new(HashMap::new()),
+            mcp_manager: Mutex::new(None),
+            interaction_manager: Mutex::new(None),
+            subagent_manager: Arc::new(SubagentManager::with_store(store)),
         }
+    }
+
+    pub fn with_mcp_manager(self, mcp_manager: Arc<McpManager>) -> Self {
+        *self.mcp_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(mcp_manager);
+        self
+    }
+
+    pub fn set_mcp_manager(&self, mcp_manager: Arc<McpManager>) {
+        *self.mcp_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(mcp_manager);
+    }
+
+    pub fn mcp_manager(&self) -> Option<Arc<McpManager>> {
+        self.mcp_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn with_interaction_manager(self, manager: Arc<InteractionManager>) -> Self {
+        *self
+            .interaction_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(manager);
+        self
+    }
+
+    pub fn set_interaction_manager(&self, manager: Arc<InteractionManager>) {
+        *self
+            .interaction_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(manager);
+    }
+
+    pub fn interaction_manager(&self) -> Option<Arc<InteractionManager>> {
+        self.interaction_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn with_max_steps(mut self, max_steps: u32) -> Self {
@@ -154,6 +267,10 @@ impl ServerEngine {
 
     pub fn store(&self) -> &Arc<SqliteSessionStore> {
         &self.store
+    }
+
+    pub fn subagent_manager(&self) -> Arc<SubagentManager> {
+        self.subagent_manager.clone()
     }
 
     pub fn model_name(&self) -> &str {
@@ -167,6 +284,9 @@ impl ServerEngine {
 
     /// Signal cancellation for the active turn in the given session, if one is running.
     pub fn cancel_turn(&self, session_id: &str) -> bool {
+        if let Some(mgr) = self.interaction_manager() {
+            mgr.cancel_session(session_id);
+        }
         let turns = self.active_turns.lock().unwrap();
         if let Some(flag) = turns.get(session_id) {
             flag.store(true, Ordering::SeqCst);
@@ -191,19 +311,74 @@ impl ServerEngine {
     ) -> Result<TurnReport, EngineError> {
         // A self-contained engine must refuse the host-proxy fallback rather
         // than reach ServerHost.llm_chat and fail mid-turn.
+        let mut policy_snapshot = self.spec.policy_snapshot.clone().unwrap_or_default();
+        if policy_snapshot.mode == crate::permission::PermissionMode::Manual {
+            if std::env::var("KIMI_AUTO_APPROVE")
+                .map(|v| v == "1" || v == "true")
+                .unwrap_or(false)
+            {
+                policy_snapshot.mode = crate::permission::PermissionMode::Auto;
+            } else if let Ok(Some(meta_val)) = self.store.get_state("metadata", session_id) {
+                if let Some(mode_str) = meta_val.get("permission_mode").and_then(|v| v.as_str()) {
+                    match mode_str.to_ascii_lowercase().as_str() {
+                        "auto" => policy_snapshot.mode = crate::permission::PermissionMode::Auto,
+                        "yolo" => policy_snapshot.mode = crate::permission::PermissionMode::Yolo,
+                        _ => {}
+                    }
+                } else if meta_val.get("yolo").and_then(|v| v.as_bool()) == Some(true) {
+                    policy_snapshot.mode = crate::permission::PermissionMode::Yolo;
+                }
+            }
+        }
+        let mut session_system_prompt = self.spec.system_prompt.clone();
+        if (session_system_prompt.is_empty()
+            || session_system_prompt == "sys"
+            || session_system_prompt.starts_with("You are kimi-agent, running as a standalone service."))
+            && let Some(ref ws) = self.spec.workspace_root
+        {
+            session_system_prompt = crate::prompt::SystemPromptBuilder::build_default(ws);
+        }
+
         let spec = PipelineSpec {
             rust_self_contained: true,
+            policy_snapshot: Some(policy_snapshot),
+            session_id: Some(session_id.to_string()),
+            system_prompt: session_system_prompt,
             ..clone_spec(&self.spec)
+        };
+        let host_callbacks: Arc<dyn HostCallbacks> = if let Some(mgr) = self.interaction_manager() {
+            Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
+        } else {
+            Arc::new(ServerHost::standalone())
+        };
+
+        let ws_root = match self.store.get_session(session_id) {
+            Ok(Some(s)) if s.workspace_id.is_some() => {
+                let wid = s.workspace_id.unwrap();
+                self.store
+                    .get_workspace(&wid)
+                    .ok()
+                    .flatten()
+                    .map(|w| std::path::PathBuf::from(w.root))
+            }
+            _ => None,
+        };
+        let ws_ref = ws_root.as_deref().unwrap_or(std::path::Path::new("."));
+        let host_callbacks: Arc<dyn HostCallbacks> = match crate::storage::StateStore::for_workspace(ws_ref) {
+            Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
+                inner: host_callbacks,
+                store: Arc::new(store),
+            }),
+            Err(_) => host_callbacks,
         };
         let pipeline = build_engine_pipeline(
             &spec,
-            Arc::new(ServerHost),
+            host_callbacks,
             PipelineHost {
-                subagent_manager: Arc::new(SubagentManager::new()),
+                subagent_manager: self.subagent_manager.clone(),
                 parent_cancel: None,
                 parent_cancel_slot: None,
-                // No external MCP servers: their configs come from the host.
-                mcp_manager: None,
+                mcp_manager: self.mcp_manager(),
                 // This session's lane, so the turn's events carry its session id
                 // and its seq. Every connection still sees every lane.
                 event_bus: Some(self.hub.bus_for(session_id)),
@@ -236,7 +411,11 @@ impl ServerEngine {
         history: Vec<LLMMessage>,
         prompt: &str,
     ) -> Result<TurnReport, EngineError> {
-        let callbacks: Arc<dyn HostCallbacks> = Arc::new(ServerHost);
+        let callbacks: Arc<dyn HostCallbacks> = if let Some(mgr) = self.interaction_manager() {
+            Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
+        } else {
+            Arc::new(ServerHost::standalone())
+        };
         self.execute(llm, &callbacks, session_id, turn_number, history, prompt)
             .await
     }
@@ -276,6 +455,7 @@ impl ServerEngine {
         let input_len = messages.len();
 
         let input = RunTurnInput {
+            max_attempts: None,
             turn_id: turn_id.clone(),
             llm,
             messages,
@@ -362,6 +542,10 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         subagent_timeout_ms: spec.subagent_timeout_ms,
         agent_tool_veto: spec.agent_tool_veto.clone(),
         tools_veto: spec.tools_veto.clone(),
+        todo_tool_veto: spec.todo_tool_veto.clone(),
+        tower_worktree_root: spec.tower_worktree_root.clone(),
+        sandbox_mode: spec.sandbox_mode.clone(),
+        sandbox_policy: spec.sandbox_policy.clone(),
         caller_agent_id: spec.caller_agent_id.clone(),
         session_id: spec.session_id.clone(),
     }
@@ -389,6 +573,10 @@ mod tests {
             subagent_timeout_ms: None,
             agent_tool_veto: None,
             tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_mode: None,
+            sandbox_policy: None,
             caller_agent_id: None,
             session_id: None,
         }
@@ -433,7 +621,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_absent_host_refuses_instead_of_waiting() {
-        let host = ServerHost;
+        let host = ServerHost::standalone();
 
         let error = host
             .llm_chat(LlmChatRequest {
@@ -582,5 +770,15 @@ mod tests {
 
         // The prompt is appended after the history, so the loop sees both.
         assert_eq!(report.steps, 1);
+    }
+
+    #[test]
+    fn engine_with_mcp_manager_wires_and_exposes_manager() {
+        let engine = engine();
+        assert!(engine.mcp_manager().is_none());
+
+        let mcp = Arc::new(McpManager::new());
+        let engine = engine.with_mcp_manager(mcp);
+        assert!(engine.mcp_manager().is_some());
     }
 }

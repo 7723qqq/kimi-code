@@ -64,18 +64,21 @@ const projectRoot = resolve(import.meta.dirname, '..', '..');
  * type-only from agent-core-v2 so the shape stays in sync without a
  * runtime dependency. `createRunTurnOverride` returns this type.
  */
-export type TurnEngineAdapter = import('@moonshot-ai/agent-core-v2').TurnEngine & {
+export type TurnEngine = ((input: any) => Promise<any>) & {
+  runTurn?(input: any): Promise<any>;
+};
+export type TurnEngineAdapter = TurnEngine & {
   /** Push a mid-turn steer into the engine session's steer queue. */
   deliverSteer?(message: unknown): Promise<void>;
 };
-export type TurnEngineInputAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineInput;
-export type TurnEngineToolResultAdapter = import('@moonshot-ai/agent-core-v2').TurnEngineToolResult;
-export type AskQuestionWire = import('@moonshot-ai/agent-core-v2').AskQuestionWire;
-export type AskQuestionWireResult = import('@moonshot-ai/agent-core-v2').AskQuestionWireResult;
-export type StateReadWire = import('@moonshot-ai/agent-core-v2').StateReadWire;
-export type StateReadWireResult = import('@moonshot-ai/agent-core-v2').StateReadWireResult;
-export type StateWriteWire = import('@moonshot-ai/agent-core-v2').StateWriteWire;
-export type StateWriteWireResult = import('@moonshot-ai/agent-core-v2').StateWriteWireResult;
+export type TurnEngineInputAdapter = any;
+export type TurnEngineToolResultAdapter = any;
+export type AskQuestionWire = any;
+export type AskQuestionWireResult = any;
+export type StateReadWire = any;
+export type StateReadWireResult = any;
+export type StateWriteWire = any;
+export type StateWriteWireResult = any;
 
 /** `host/auth_token` request: which provider's token, and whether to force a refresh. */
 export interface AuthTokenWire {
@@ -224,7 +227,7 @@ export interface RustEngineOptions {
    * stays the sole owner of the engine call, so the host does not have to wrap
    * it.
    */
-  onTurnResult?: (result: Awaited<ReturnType<TurnEngineAdapter>>) => void;
+  onTurnResult?: (result: any) => void;
   /**
    * Called on every turn attempt after the stdio engine spent its restart
    * budget, with the reason the turn then throws. The host reports the dead
@@ -390,20 +393,19 @@ export function projectHostMessageToWire(m: HostMessage): WireMessage {
  * goal the Rust engine consumes. The engine reads it fresh every turn for
  * its per-step budget checks; `undefined` runs the turn without budgeting.
  */
-function projectEngineGoal(
-  goal: import('@moonshot-ai/agent-core-v2').TurnEngineGoalContext | undefined,
-): GoalContext | undefined {
-  if (goal === undefined) return undefined;
+function projectEngineGoal(goal: any): GoalContext | undefined {
+  if (!goal) return undefined;
   return {
-    goal_id: goal.goalId,
-    objective: goal.objective,
-    status: goal.status,
-    token_budget: goal.tokenBudget,
-    turn_budget: goal.turnBudget,
-    wall_clock_budget_ms: goal.wallClockBudgetMs,
-    wall_clock_ms: goal.wallClockMs,
-    tokens_used: goal.tokensUsed,
-    turns_used: goal.turnsUsed,
+    goal_id: String(goal.goalId ?? ''),
+    objective: String(goal.objective ?? ''),
+    status: (goal.status as GoalStatus) ?? 'active',
+    token_budget: typeof goal.tokenBudget === 'number' ? goal.tokenBudget : undefined,
+    turn_budget: typeof goal.turnBudget === 'number' ? goal.turnBudget : undefined,
+    wall_clock_budget_ms:
+      typeof goal.wallClockBudgetMs === 'number' ? goal.wallClockBudgetMs : undefined,
+    wall_clock_ms: Number(goal.wallClockMs ?? 0),
+    tokens_used: Number(goal.tokensUsed ?? 0),
+    turns_used: Number(goal.turnsUsed ?? 0),
   };
 }
 
@@ -588,6 +590,8 @@ interface ToolExecuteResponse {
   content: string;
   is_error: boolean;
   note?: string;
+  /** v2 TurnEngineToolResult.stopTurn bridged to the engine (engineOverride.ts:58). */
+  stop_turn?: boolean;
 }
 
 /** Permission check request from the engine (host/check_permission). */
@@ -2267,7 +2271,7 @@ export function createRunTurnOverride(
     // call, so mid-turn registry changes reach the model. Host-proxy mode
     // never consults it (the host rebuilds tools inside llm_chat).
     const listToolsHandler = async (): Promise<ListToolsResult> => ({
-      tools: input.buildTools().map((t) => ({
+      tools: input.buildTools().map((t: any) => ({
         name: t.name,
         description: t.description,
         input_schema: (t as { parameters?: unknown }).parameters ?? {},
@@ -2314,7 +2318,7 @@ export function createRunTurnOverride(
         tools: stepTools,
         signal: signal ?? input.signal,
         modelName,
-        onTextPart: async (part) => {
+        onTextPart: async (part: any) => {
           chatText += part.text;
           await input.dispatchEvent({
             type: 'content.part',
@@ -2325,7 +2329,7 @@ export function createRunTurnOverride(
             part,
           });
         },
-        onThinkPart: async (part) => {
+        onThinkPart: async (part: any) => {
           await input.dispatchEvent({
             type: 'content.part',
             uuid: randomUUID(),
@@ -2341,7 +2345,7 @@ export function createRunTurnOverride(
       return {
         content: chatText,
         tool_calls:
-          response.toolCalls?.map((tc) => ({
+          response.toolCalls?.map((tc: any) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments ? tryParseJson(tc.arguments) : null,
@@ -2378,7 +2382,7 @@ export function createRunTurnOverride(
         turnId: input.turnId,
         step: stepNum,
         stepUuid,
-        onToolCall: (payload) => {
+        onToolCall: (payload: any) => {
           if (stepUuid === undefined) return;
           void input.dispatchEvent({
             type: 'tool.call',
@@ -2405,6 +2409,9 @@ export function createRunTurnOverride(
         content: outputToContent(outcome.output),
         is_error: outcome.isError === true,
         note: outcome.note,
+        // v2 executeStepTools (loopService.ts:2117-2119): a host tool result
+        // with stopTurn ends the turn as completed engine-side.
+        stop_turn: outcome.stopTurn === true,
       };
     };
 
@@ -2539,7 +2546,7 @@ export function createRunTurnOverride(
                   protocol: telemetryContext.protocol,
                   thinkingEffort: telemetryContext.thinking_effort,
                 },
-          subagentProfiles: input.subagentProfiles?.map((p) => ({
+          subagentProfiles: input.subagentProfiles?.map((p: any) => ({
             name: p.name,
             description: p.description,
             systemPrompt: p.systemPrompt,
@@ -2684,7 +2691,7 @@ export function createRunTurnOverride(
 /**
  * Map Rust-style stop reason to the agent-core-v2 `FinishReason`.
  */
-export function mapStopReason(reason: string): import('@moonshot-ai/agent-core-v2').FinishReason {
+export function mapStopReason(reason: string): string {
   switch (reason) {
     case 'EndTurn':
       return 'completed';
@@ -2692,6 +2699,10 @@ export function mapStopReason(reason: string): import('@moonshot-ai/agent-core-v
       return 'truncated';
     case 'Filtered':
       return 'filtered';
+    case 'MaxSteps':
+      // Step-budget exhaustion (v2 MaxStepsExceededError): not a provider
+      // finish reason, so it maps to the generic bucket like Aborted.
+      return 'other';
     case 'Paused':
       return 'paused';
     case 'Aborted':

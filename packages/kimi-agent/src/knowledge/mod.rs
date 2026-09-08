@@ -1,12 +1,9 @@
 //! Knowledge Base — SQLite + FTS5 local coding standards database.
 //!
-//! Ported from `kimi-native-tools/src/knowledge.rs` (de-napi'd): the
-//! process-global `Mutex<Option<Connection>>` singleton, the WAL-mode
-//! schema (entries table + FTS5 virtual table + triggers + indexes), and
-//! the seven storage operations are unchanged. The napi `Result<T>` error
-//! mapping became `Result<T, String>`, and the `ulid` / `chrono` crates
-//! (not dependencies of this crate) were replaced with a fastrand-based id
-//! and a hand-rolled RFC3339 UTC timestamp formatter.
+//! Process-global `Mutex<Option<Connection>>` singleton over a WAL-mode
+//! schema (entries table + FTS5 virtual table + triggers + indexes). The
+//! seven storage operations return `Result<T, String>`, use a fastrand-based
+//! id, and a hand-rolled RFC3339 UTC timestamp formatter.
 
 use once_cell::sync::Lazy;
 use rusqlite::{Connection, params};

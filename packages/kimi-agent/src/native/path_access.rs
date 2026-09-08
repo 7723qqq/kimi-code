@@ -1,0 +1,593 @@
+//! Path canonicalization and containment — pure lexical operations.
+//!
+//! Ported from `packages/agent-core-v2/src/tool/path-access.ts`.
+//! Security-critical: runs on every Read/Write/Edit/Grep/Glob call.
+
+/// Path class: POSIX or Windows (Win32).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathClass {
+    Posix,
+    Win32,
+}
+
+impl PathClass {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "posix" => Some(Self::Posix),
+            "win32" => Some(Self::Win32),
+            _ => None,
+        }
+    }
+}
+
+/// Win32/Cygwin user-path normalization.
+///
+/// - Bare root `/` stays as `/`.
+/// - `//` paths are unchanged.
+/// - `/cygdrive/X` or `/X` → `X:` (drive letter).
+pub fn normalize_user_path(path: &str, path_class: PathClass) -> String {
+    if path_class != PathClass::Win32 {
+        return path.to_string();
+    }
+    if path == "/" {
+        return "/".to_string();
+    }
+    if path.starts_with("//") {
+        return path.to_string();
+    }
+    if let Some((drive, prefix_len)) = regex_cygdrive(path) {
+        let rest = &path[prefix_len..];
+        return format!("{}:{}", drive, if rest.is_empty() { "/" } else { rest });
+    }
+    if let Some((drive, prefix_len)) = regex_drive(path) {
+        let rest = &path[prefix_len..];
+        return format!("{}:{}", drive, if rest.is_empty() { "/" } else { rest });
+    }
+    path.to_string()
+}
+
+fn regex_cygdrive(path: &str) -> Option<(String, usize)> {
+    if !path.starts_with("/cygdrive/") {
+        return None;
+    }
+    let bytes = path.as_bytes();
+    if bytes.len() < 11 {
+        return None;
+    }
+    let drive = bytes[10];
+    if drive.is_ascii_alphabetic() {
+        Some(((drive as char).to_uppercase().to_string(), 11))
+    } else {
+        None
+    }
+}
+
+fn regex_drive(path: &str) -> Option<(String, usize)> {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b'/' {
+        return Some(((bytes[1] as char).to_uppercase().to_string(), 2));
+    }
+    if bytes.len() == 2 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() {
+        return Some(((bytes[1] as char).to_uppercase().to_string(), 2));
+    }
+    None
+}
+
+/// Expand `~` → home_dir.
+pub fn expand_user_path(path: &str, home_dir: Option<&str>, path_class: PathClass) -> String {
+    let Some(home) = home_dir else {
+        return path.to_string();
+    };
+    if path == "~" {
+        return home.to_string();
+    }
+    if path.starts_with("~/") {
+        return format!("{}{}", home, &path[1..]);
+    }
+    if path_class == PathClass::Win32 && path.starts_with("~\\") {
+        return format!("{}{}", home, &path[1..]);
+    }
+    path.to_string()
+}
+
+/// Lexical canonicalization: relative → absolute against `cwd`, then normalize.
+/// No filesystem I/O.
+pub fn canonicalize_path(path: &str, cwd: &str, path_class: PathClass) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("PATH_INVALID: Path cannot be empty".to_string());
+    }
+    if path_class == PathClass::Win32 && is_win32_drive_relative(path) {
+        return Err(format!(
+            "PATH_INVALID: \"{path}\" is a drive-relative Windows path. \
+             Use an absolute path like C:\\path or a path relative to the working directory."
+        ));
+    }
+    let abs_path = if is_absolute(path, path_class) {
+        path.to_string()
+    } else {
+        if !is_absolute(cwd, path_class) {
+            return Err(format!(
+                "PATH_INVALID: Cannot resolve \"{path}\" against non-absolute cwd \"{cwd}\"."
+            ));
+        }
+        join_path(cwd, path, path_class)
+    };
+    Ok(normalize_path(&abs_path, path_class))
+}
+
+
+fn is_win32_drive_relative(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes.len() == 2 || (bytes[2] != b'\\' && bytes[2] != b'/'))
+}
+
+fn is_absolute(path: &str, path_class: PathClass) -> bool {
+    if path_class == PathClass::Win32 {
+        // C:\path, \\server\share, or /path (POSIX-style on Win32 host).
+        // Byte-based check: `path[..2]` would panic on a multi-byte first
+        // character (non-ASCII relative paths), so never slice mid-char.
+        let bytes = path.as_bytes();
+        (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+            || path.starts_with("\\\\")
+            || path.starts_with('/')
+    } else {
+        path.starts_with('/')
+    }
+}
+
+fn join_path(base: &str, rel: &str, path_class: PathClass) -> String {
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
+    if base.ends_with('/') || base.ends_with('\\') {
+        format!("{}{}", base, rel)
+    } else {
+        format!("{}{}{}", base, sep, rel)
+    }
+}
+
+fn normalize_path(path: &str, path_class: PathClass) -> String {
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
+    let slash_sep = if path_class == PathClass::Win32 {
+        '/'
+    } else {
+        '\\'
+    };
+    let normalized = path.replace(slash_sep, &sep.to_string());
+    // Win32 UNC (`\\server\share`) and verbatim (`\\?\`) roots carry TWO
+    // leading separators — a distinct root from `\server` (drive-relative).
+    // The split below skips empty segments, so both are re-added explicitly
+    // or the path would be relocated to the current drive.
+    let double_sep_prefix = normalized.starts_with(&format!("{sep}{sep}"));
+    let parts: Vec<&str> = normalized.split(sep).collect();
+    let mut result: Vec<&str> = Vec::new();
+    let is_abs = normalized.starts_with(sep);
+    for part in parts {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if let Some(last) = result.last() {
+                    if *last != ".." {
+                        result.pop();
+                    } else {
+                        result.push("..");
+                    }
+                } else if !is_abs {
+                    result.push("..");
+                }
+            }
+            _ => result.push(part),
+        }
+    }
+    let joined = result.join(&sep.to_string());
+    if is_abs {
+        if double_sep_prefix {
+            format!("{sep}{sep}{joined}")
+        } else {
+            format!("{sep}{joined}")
+        }
+    } else if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
+    }
+}
+
+/// True iff `candidate` is `base` itself or a descendant, compared on
+/// path-component boundaries. Both arguments must already be canonical.
+pub fn is_within_directory(candidate: &str, base: &str, path_class: PathClass) -> bool {
+    let nc = normalize_path(candidate, path_class);
+    let nb = normalize_path(base, path_class);
+    let (comp_c, comp_b) = if path_class == PathClass::Win32 {
+        (nc.to_lowercase(), nb.to_lowercase())
+    } else {
+        (nc, nb)
+    };
+    if comp_c == comp_b {
+        return true;
+    }
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
+    let prefix = if comp_b.ends_with('/') || comp_b.ends_with('\\') {
+        comp_b.clone()
+    } else {
+        format!("{}{}", comp_b, sep)
+    };
+    comp_c.starts_with(&prefix)
+}
+
+/// True iff `candidate` sits inside any of the workspace roots.
+pub fn is_within_workspace(candidate: &str, roots: &[String], path_class: PathClass) -> bool {
+    for root in roots {
+        if is_within_directory(candidate, root, path_class) {
+            return true;
+        }
+    }
+    false
+}
+
+const SENSITIVE_BASENAMES: &[&str] = &[
+    ".env",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "credentials",
+];
+
+const ENV_EXEMPTIONS: &[&str] = &[
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+];
+
+const PUBLIC_KEY_BASENAMES: &[&str] = &[
+    "id_rsa.pub",
+    "id_ed25519.pub",
+    "id_ecdsa.pub",
+];
+
+const SENSITIVE_BASENAME_PREFIXES: &[&str] = &[
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "credentials",
+];
+
+const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
+    ".bak", ".backup", ".copy", ".disabled", ".key",
+    ".old", ".orig", ".pem", ".save", ".tmp",
+];
+
+const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[
+    &[".aws", "credentials"],
+    &[".gcp", "credentials"],
+];
+
+/// 原生敏感文件判断算法（严格对齐 TS tool/path-access.ts isSensitiveFile）
+pub fn is_sensitive_file(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let comparable_path = normalized.to_ascii_lowercase();
+    let name = comparable_path.rsplit('/').next().unwrap_or(&comparable_path);
+
+    // 1. 豁免检查
+    if ENV_EXEMPTIONS.contains(&name) {
+        return false;
+    }
+    if PUBLIC_KEY_BASENAMES.contains(&name) {
+        return false;
+    }
+
+    // 2. 基础敏感文件名
+    if SENSITIVE_BASENAMES.contains(&name) {
+        return true;
+    }
+    if name.starts_with(".env.") {
+        return true;
+    }
+
+    // 3. 敏感前缀衍生变体
+    for prefix in SENSITIVE_BASENAME_PREFIXES {
+        if name == *prefix {
+            return true;
+        }
+        if name.len() > prefix.len() && name.starts_with(prefix) {
+            let suffix = &name[prefix.len()..];
+            let first_char = suffix.chars().next().unwrap_or('\0');
+            if first_char == '-' || first_char == '_' {
+                return true;
+            }
+            if first_char == '.' && SENSITIVE_DOT_VARIANT_SUFFIXES.contains(&suffix) {
+                return true;
+            }
+        }
+    }
+
+    // 4. 敏感路径后缀
+    for parts in SENSITIVE_PATH_SUFFIXES {
+        let suffix = parts.join("/");
+        let needle = format!("/{}", suffix);
+        if comparable_path.ends_with(&needle) || comparable_path.contains(&format!("{}/", needle)) {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_user_path_posix() {
+        assert_eq!(
+            normalize_user_path("/foo/bar", PathClass::Posix),
+            "/foo/bar"
+        );
+        assert_eq!(
+            normalize_user_path("relative", PathClass::Posix),
+            "relative"
+        );
+    }
+
+    #[test]
+    fn test_normalize_user_path_win32_cygdrive() {
+        assert_eq!(
+            normalize_user_path("/cygdrive/c/path", PathClass::Win32),
+            "C:/path"
+        );
+        assert_eq!(normalize_user_path("/cygdrive/z", PathClass::Win32), "Z:/");
+    }
+
+    #[test]
+    fn test_normalize_user_path_win32_drive() {
+        assert_eq!(normalize_user_path("/c/path", PathClass::Win32), "C:/path");
+        assert_eq!(normalize_user_path("/z", PathClass::Win32), "Z:/");
+    }
+
+    #[test]
+    fn test_normalize_user_path_win32_bare_root() {
+        assert_eq!(normalize_user_path("/", PathClass::Win32), "/");
+        assert_eq!(
+            normalize_user_path("//server", PathClass::Win32),
+            "//server"
+        );
+    }
+
+    #[test]
+    fn test_expand_user_path_posix() {
+        assert_eq!(
+            expand_user_path("~/foo", Some("/home/user"), PathClass::Posix),
+            "/home/user/foo"
+        );
+        assert_eq!(
+            expand_user_path("~", Some("/home/user"), PathClass::Posix),
+            "/home/user"
+        );
+        assert_eq!(
+            expand_user_path("/abs", Some("/home/user"), PathClass::Posix),
+            "/abs"
+        );
+    }
+
+    #[test]
+    fn test_expand_user_path_win32() {
+        assert_eq!(
+            expand_user_path("~\\foo", Some("C:\\User"), PathClass::Win32),
+            "C:\\User\\foo"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_empty() {
+        assert!(canonicalize_path("", "/cwd", PathClass::Posix).is_err());
+    }
+
+    #[test]
+    fn test_canonicalize_drive_relative_win32() {
+        assert!(canonicalize_path("C:path", "C:\\cwd", PathClass::Win32).is_err());
+    }
+
+    #[test]
+    fn test_canonicalize_relative() {
+        assert_eq!(
+            canonicalize_path("foo/bar", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/foo/bar"
+        );
+        assert_eq!(
+            canonicalize_path("./foo", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/foo"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_dotdot() {
+        assert_eq!(
+            canonicalize_path("foo/../bar", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/bar"
+        );
+        assert_eq!(
+            canonicalize_path("../bar", "/cwd/sub", PathClass::Posix).unwrap(),
+            "/cwd/bar"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_already_absolute() {
+        assert_eq!(
+            canonicalize_path("/foo/bar", "/cwd", PathClass::Posix).unwrap(),
+            "/foo/bar"
+        );
+    }
+
+    #[test]
+    fn test_is_absolute_non_ascii_win32() {
+        // Regression: `path[..2]` used to panic on a multi-byte first char
+        // (non-ASCII relative path) in the Win32 branch.
+        assert!(!is_absolute("中文路径/文件", PathClass::Win32));
+        assert!(!is_absolute("日本語", PathClass::Win32));
+        assert!(is_absolute("C:/foo", PathClass::Win32));
+        assert!(is_absolute("/foo", PathClass::Win32));
+        assert!(!is_absolute("foo", PathClass::Win32));
+    }
+
+    #[test]
+    fn test_is_within_directory_exact() {
+        assert!(is_within_directory(
+            "/workspace/file",
+            "/workspace",
+            PathClass::Posix
+        ));
+    }
+
+    #[test]
+    fn test_is_within_directory_descendant() {
+        assert!(is_within_directory(
+            "/workspace/sub/file",
+            "/workspace",
+            PathClass::Posix
+        ));
+    }
+
+    #[test]
+    fn test_is_within_directory_shared_prefix_escape() {
+        assert!(!is_within_directory(
+            "/workspace-evil",
+            "/workspace",
+            PathClass::Posix
+        ));
+        assert!(!is_within_directory(
+            "/workspace/sub/../../../etc/passwd",
+            "/workspace",
+            PathClass::Posix
+        ));
+    }
+
+    #[test]
+    fn test_is_within_directory_win32_case() {
+        assert!(is_within_directory(
+            "C:/Workspace/File",
+            "c:/workspace",
+            PathClass::Win32
+        ));
+    }
+
+    #[test]
+    fn test_canonicalize_win32_unc_preserved() {
+        // Regression: `\\server\share\file` used to be collapsed to the
+        // single-separator form `\server\share\file` (drive-relative),
+        // silently relocating UNC/NAS workspace paths to the current drive.
+        assert_eq!(
+            canonicalize_path("\\\\server\\share\\file", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server\\share\\file"
+        );
+        assert_eq!(
+            canonicalize_path("//server/share/file", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server\\share\\file"
+        );
+        // Verbatim paths keep their double-separator root too.
+        assert_eq!(
+            canonicalize_path("\\\\?\\C:\\very\\long\\path", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\?\\C:\\very\\long\\path"
+        );
+        // Drive paths still collapse to a single separator.
+        assert_eq!(
+            canonicalize_path("C:/workspace/./a/../b", "/cwd", PathClass::Win32).unwrap(),
+            "C:\\workspace\\b"
+        );
+    }
+
+    #[test]
+    fn test_is_within_directory_win32_unc() {
+        let candidate = "\\\\server\\share\\work\\file";
+        let base = "\\\\server\\share\\work";
+        assert!(is_within_directory(candidate, base, PathClass::Win32));
+        assert!(!is_within_directory(
+            "\\\\server\\shared\\file",
+            base,
+            PathClass::Win32
+        ));
+    }
+
+    #[test]
+    fn test_canonicalize_untouched_pass() {
+        assert_eq!(
+            canonicalize_path("//server", "/cwd", PathClass::Win32).unwrap(),
+            "\\\\server"
+        );
+        assert_eq!(
+            canonicalize_path("/cwd", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_for_glob_match() {
+        // Plain canonicalize (no glob chars) — behaves same for both.
+        assert_eq!(
+            canonicalize_path("./src/**", "/workspace", PathClass::Posix).unwrap(),
+            "/workspace/src/**"
+        );
+        assert_eq!(
+            canonicalize_path("/workspace/src/a.ts", "/workspace", PathClass::Posix).unwrap(),
+            "/workspace/src/a.ts"
+        );
+    }
+
+    #[test]
+    fn test_is_within_workspace_multi_root() {
+        let roots = vec!["/primary".to_string(), "/secondary".to_string()];
+        assert!(is_within_workspace(
+            "/primary/file",
+            &roots,
+            PathClass::Posix
+        ));
+        assert!(is_within_workspace(
+            "/secondary/file",
+            &roots,
+            PathClass::Posix
+        ));
+        assert!(!is_within_workspace(
+            "/other/file",
+            &roots,
+            PathClass::Posix
+        ));
+    }
+
+    #[test]
+    fn test_is_sensitive_file_rules() {
+        // 豁免白名单
+        assert!(!is_sensitive_file(".env.example"));
+        assert!(!is_sensitive_file("/project/.env.sample"));
+        assert!(!is_sensitive_file("C:\\repo\\.env.template"));
+        assert!(!is_sensitive_file("id_rsa.pub"));
+        assert!(!is_sensitive_file("/home/user/.ssh/id_ed25519.pub"));
+
+        // 基础敏感文件
+        assert!(is_sensitive_file(".env"));
+        assert!(is_sensitive_file("/app/.env.local"));
+        assert!(is_sensitive_file("C:\\keys\\id_rsa"));
+        assert!(is_sensitive_file("id_ed25519"));
+
+        // 衍生变体与备份
+        assert!(is_sensitive_file("id_rsa.bak"));
+        assert!(is_sensitive_file("id_rsa.pem"));
+        assert!(is_sensitive_file("credentials_backup"));
+
+        // 云服务凭证路径
+        assert!(is_sensitive_file("/home/user/.aws/credentials"));
+        assert!(is_sensitive_file("C:\\Users\\admin\\.gcp\\credentials"));
+    }
+}

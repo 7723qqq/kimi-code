@@ -630,14 +630,34 @@ mod tests {
         );
 
         let p = parse("*/15 9-17 * * *").unwrap();
+        assert_eq!(p.raw, "*/15 9-17 * * *");
+        assert_eq!(p.minutes, set(&[0, 15, 30, 45]));
         assert_eq!(p.hours, set(&(9..=17).collect::<Vec<_>>()));
+        assert_eq!(p.days_of_month, set(&(1..=31).collect::<Vec<_>>()));
+        assert_eq!(p.months, set(&(1..=12).collect::<Vec<_>>()));
+        assert_eq!(p.days_of_week, set(&(0..=6).collect::<Vec<_>>()));
+        assert!(p.days_of_month_wildcard);
+        assert!(p.days_of_week_wildcard);
 
         let p = parse("5,10,15 * * * *").unwrap();
         assert_eq!(p.minutes, set(&[5, 10, 15]));
 
         let p = parse("0 9 * * 1-5").unwrap();
+        assert_eq!(p.minutes, set(&[0]));
+        assert_eq!(p.hours, set(&[9]));
+        assert_eq!(p.days_of_month, set(&(1..=31).collect::<Vec<_>>()));
+        assert_eq!(p.months, set(&(1..=12).collect::<Vec<_>>()));
         assert_eq!(p.days_of_week, set(&[1, 2, 3, 4, 5]));
+        assert!(p.days_of_month_wildcard);
         assert!(!p.days_of_week_wildcard);
+
+        // Range combined with a step
+        let p = parse("10-30/5 * * * *").unwrap();
+        assert_eq!(p.minutes, set(&[10, 15, 20, 25, 30]));
+
+        // List of ranges
+        let p = parse("1-3,10-12 * * * *").unwrap();
+        assert_eq!(p.minutes, set(&[1, 2, 3, 10, 11, 12]));
     }
 
     #[test]
@@ -664,11 +684,14 @@ mod tests {
     #[test]
     fn parse_pinned_date() {
         let p = parse("30 14 28 2 *").unwrap();
+        assert_eq!(p.raw, "30 14 28 2 *");
         assert_eq!(p.minutes, set(&[30]));
         assert_eq!(p.hours, set(&[14]));
         assert_eq!(p.days_of_month, set(&[28]));
         assert_eq!(p.months, set(&[2]));
+        assert_eq!(p.days_of_week, set(&(0..=6).collect::<Vec<_>>()));
         assert!(!p.days_of_month_wildcard);
+        assert!(p.days_of_week_wildcard);
     }
 
     #[test]
@@ -682,6 +705,10 @@ mod tests {
         assert_eq!(
             parse("1 2 3 4 5 6").unwrap_err().0,
             "cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week); got 6"
+        );
+        assert_eq!(
+            parse(",1 * * * *").unwrap_err().0,
+            "cron minute field has empty term in list"
         );
         assert_eq!(
             parse("1,,2 * * * *").unwrap_err().0,
@@ -732,6 +759,10 @@ mod tests {
             "cron minute step is empty in \"*/\""
         );
         assert_eq!(
+            parse("*/abc * * * *").unwrap_err().0,
+            "cron minute step must be a non-negative integer with digits only (got \"abc\")"
+        );
+        assert_eq!(
             parse("/5 * * * *").unwrap_err().0,
             "cron minute step needs a range or \"*\" before \"/\" in \"/5\""
         );
@@ -746,6 +777,30 @@ mod tests {
         assert_eq!(
             parse("5- * * * *").unwrap_err().0,
             "cron minute range upper bound must be a non-negative integer with digits only (got \"\")"
+        );
+        assert_eq!(
+            parse("5-abc * * * *").unwrap_err().0,
+            "cron minute range upper bound must be a non-negative integer with digits only (got \"abc\")"
+        );
+        assert_eq!(
+            parse("abc-10 * * * *").unwrap_err().0,
+            "cron minute range lower bound must be a non-negative integer with digits only (got \"abc\")"
+        );
+        assert_eq!(
+            parse("* * * 0-5 *").unwrap_err().0,
+            "cron month range 0-5 out of bounds (must be 1..12, ascending)"
+        );
+        assert_eq!(
+            parse("* * * 1-13 *").unwrap_err().0,
+            "cron month range 1-13 out of bounds (must be 1..12, ascending)"
+        );
+        assert_eq!(
+            parse("* 15-10 * * *").unwrap_err().0,
+            "cron hour range 15-10 out of bounds (must be 0..23, ascending)"
+        );
+        assert_eq!(
+            parse("99999999999999999999 * * * *").unwrap_err().0,
+            "cron minute value 9223372036854775807 out of range 0..59"
         );
     }
 
@@ -840,6 +895,30 @@ mod tests {
     }
 
     #[test]
+    fn next_fire_day_of_month_and_day_of_week_union() {
+        // "0 0 15 * 5": 15th of the month OR Friday (standard cron / v2 union semantics)
+        // In June 2024 (starts on Saturday 2024-06-01):
+        // 2024-06-07 is Friday (dow=5 matches)
+        // 2024-06-14 is Friday (dow=5 matches)
+        // 2024-06-15 is Saturday (dom=15 matches)
+        // 2024-06-21 is Friday (dow=5 matches)
+        let p = parse("0 0 15 * 5").unwrap();
+        let from = ms_utc(2024, 6, 1, 0, 0);
+
+        let fire1 = next_fire(&p, from, 0).unwrap();
+        assert_eq!(fire1, ms_utc(2024, 6, 7, 0, 0));
+
+        let fire2 = next_fire(&p, fire1, 0).unwrap();
+        assert_eq!(fire2, ms_utc(2024, 6, 14, 0, 0));
+
+        let fire3 = next_fire(&p, fire2, 0).unwrap();
+        assert_eq!(fire3, ms_utc(2024, 6, 15, 0, 0));
+
+        let fire4 = next_fire(&p, fire3, 0).unwrap();
+        assert_eq!(fire4, ms_utc(2024, 6, 21, 0, 0));
+    }
+
+    #[test]
     fn has_fire_within_years_check() {
         let p = parse("0 0 29 2 *").unwrap();
         let from = ms_utc(2024, 3, 1, 0, 0);
@@ -848,6 +927,11 @@ mod tests {
 
         let p = parse("* * * * *").unwrap();
         assert!(has_fire_within_years(&p, 1, from, 0));
+        // Boundary case: years = 0 clamps to a 1-minute window
+        assert!(has_fire_within_years(&p, 0, from, 0));
+
+        let p_daily = parse("0 0 1 1 *").unwrap();
+        assert!(!has_fire_within_years(&p_daily, 0, from, 0));
 
         let p = parse("0 0 30 2 *").unwrap();
         assert!(!has_fire_within_years(&p, 5, from, 0));
@@ -909,20 +993,23 @@ mod tests {
 
     #[test]
     fn validate_prompt_bytes_boundary() {
-        assert!(validate_prompt_bytes(&"x".repeat(8192), MAX_PROMPT_BYTES).is_ok());
+        assert_eq!(validate_prompt_bytes("", MAX_PROMPT_BYTES), Ok(()));
         assert_eq!(
-            validate_prompt_bytes(&"x".repeat(8193), MAX_PROMPT_BYTES)
-                .unwrap_err()
-                .0,
-            "Prompt exceeds 8192 bytes (got 8193)."
+            validate_prompt_bytes(&"x".repeat(8192), MAX_PROMPT_BYTES),
+            Ok(())
+        );
+        assert_eq!(
+            validate_prompt_bytes(&"x".repeat(8193), MAX_PROMPT_BYTES),
+            Err(CronError("Prompt exceeds 8192 bytes (got 8193).".into()))
         );
         // Multi-byte UTF-8: "你" is 3 bytes.
-        assert!(validate_prompt_bytes(&"你".repeat(2730), MAX_PROMPT_BYTES).is_ok());
         assert_eq!(
-            validate_prompt_bytes(&"你".repeat(2731), MAX_PROMPT_BYTES)
-                .unwrap_err()
-                .0,
-            "Prompt exceeds 8192 bytes (got 8193)."
+            validate_prompt_bytes(&"你".repeat(2730), MAX_PROMPT_BYTES),
+            Ok(())
+        );
+        assert_eq!(
+            validate_prompt_bytes(&"你".repeat(2731), MAX_PROMPT_BYTES),
+            Err(CronError("Prompt exceeds 8192 bytes (got 8193).".into()))
         );
     }
 
@@ -931,11 +1018,15 @@ mod tests {
         let p = parse("0 0 1 1 *").unwrap();
         // From 2024-01-01 the next Jan 1 is 366 days out (> 350): refused.
         let err = validate_one_shot(&p, ms_utc(2024, 1, 1, 0, 0), 0).unwrap_err();
-        assert!(
-            err.0.starts_with(
-                "One-shot cron \"0 0 1 1 *\" would not fire until 2025-01-01T00:00:00.000+00:00"
-            ),
-            "unexpected message: {err}"
+        assert_eq!(
+            err.0,
+            "One-shot cron \"0 0 1 1 *\" would not fire until 2025-01-01T00:00:00.000+00:00 (more than a year out). If you meant \"today\" or a near date, the pinned day/month has already passed this year — pick a future date or use wildcards."
+        );
+        // With UTC+8 (+480 min) offset, formatted time reflects +08:00
+        let err_tz = validate_one_shot(&p, ms_utc(2024, 1, 1, 0, 0), 480).unwrap_err();
+        assert_eq!(
+            err_tz.0,
+            "One-shot cron \"0 0 1 1 *\" would not fire until 2025-01-01T00:00:00.000+08:00 (more than a year out). If you meant \"today\" or a near date, the pinned day/month has already passed this year — pick a future date or use wildcards."
         );
         // From 2024-06-01 the next Jan 1 is 214 days out: allowed.
         let first = validate_one_shot(&p, ms_utc(2024, 6, 1, 0, 0), 0).unwrap();
@@ -964,6 +1055,15 @@ mod tests {
         assert_eq!(
             format_local_iso_with_offset(ms, -300),
             "2024-06-01T01:30:45.123-05:00"
+        );
+        // Fractional-hour timezones: India (+05:30 = +330 min) and Newfoundland (-03:30 = -210 min)
+        assert_eq!(
+            format_local_iso_with_offset(ms, 330),
+            "2024-06-01T12:00:45.123+05:30"
+        );
+        assert_eq!(
+            format_local_iso_with_offset(ms, -210),
+            "2024-06-01T03:00:45.123-03:30"
         );
     }
 
@@ -1004,5 +1104,20 @@ mod tests {
             }),
             6
         );
+
+        // epoch_ms_to_civil and civil_to_epoch_ms roundtrip across timezones
+        let test_ms = ms_utc(2024, 6, 1, 14, 30);
+        for tz in [-300, 0, 330, 480] {
+            let civil = epoch_ms_to_civil(test_ms, tz);
+            assert_eq!(civil_to_epoch_ms(&civil, tz), test_ms);
+        }
+    }
+
+    #[test]
+    fn cron_error_traits() {
+        let err = CronError("test error message".into());
+        assert_eq!(format!("{err}"), "test error message");
+        assert_eq!(err.to_string(), "test error message");
+        assert!(std::error::Error::source(&err).is_none());
     }
 }

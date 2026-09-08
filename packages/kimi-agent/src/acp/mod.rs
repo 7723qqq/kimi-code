@@ -14,8 +14,8 @@
 
 pub mod types;
 
-use std::sync::Arc;
 use serde_json::json;
+use std::sync::Arc;
 
 use crate::acp::types::{
     AcpAgentInfo, AcpCapabilities, AcpInitializeResult, JsonRpcRequest, JsonRpcResponse,
@@ -25,16 +25,55 @@ use crate::turn_loop::types::LLMMessage;
 
 pub struct AcpServer {
     store: Arc<SqliteSessionStore>,
+    engine: Option<Arc<crate::server::engine::ServerEngine>>,
 }
 
 impl AcpServer {
     pub fn new(store: Arc<SqliteSessionStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            engine: None,
+        }
+    }
+
+    pub fn with_engine(
+        store: Arc<SqliteSessionStore>,
+        engine: Arc<crate::server::engine::ServerEngine>,
+    ) -> Self {
+        Self {
+            store,
+            engine: Some(engine),
+        }
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
         let store = Arc::new(SqliteSessionStore::in_memory()?);
         Ok(Self::new(store))
+    }
+
+    /// Run the ACP server reading from stdin and writing to stdout.
+    pub async fn run_stdio(&self) -> Result<(), std::io::Error> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let stdin = tokio::io::stdin();
+        let mut stdout = tokio::io::stdout();
+        let mut reader = BufReader::new(stdin).lines();
+
+        while let Some(line) = reader.next_line().await? {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(resp) = self.handle_message(trimmed).await {
+                let serialized = serde_json::to_string(&resp).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                })?;
+                stdout.write_all(serialized.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+            }
+        }
+        Ok(())
     }
 
     /// Process an incoming JSON-RPC 2.0 message and return an optional response.
@@ -87,7 +126,9 @@ impl AcpServer {
                         req.id,
                         json!({ "sessionId": session_id, "title": title }),
                     ),
-                    Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
+                    Err(e) => {
+                        JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}"))
+                    }
                 }
             }
             "session/list" => match self.store.list_sessions() {
@@ -105,21 +146,48 @@ impl AcpServer {
 
                 match (session_id, prompt) {
                     (Some(sid), Some(p)) => {
-                        let turn_id = format!("turn-{}", fastrand::u64(..));
-                        let msgs = vec![
-                            LLMMessage::user(p),
-                            LLMMessage::assistant(format!("Response to: {p}")),
-                        ];
-                        let _ = self.store.save_turn(sid, &turn_id, 1, &msgs, None);
-                        JsonRpcResponse::success(
-                            req.id,
-                            json!({
-                                "sessionId": sid,
-                                "turnId": turn_id,
-                                "stopReason": "end_turn",
-                                "content": format!("Response to: {p}"),
-                            }),
-                        )
+                        if let Some(ref engine) = self.engine {
+                            let history = self.store.load_session_history(sid).unwrap_or_default();
+                            let turn_number = self.store.next_turn_number(sid).unwrap_or(1);
+                            match engine.run_turn(sid, turn_number, history, p).await {
+                                Ok(report) => JsonRpcResponse::success(
+                                    req.id,
+                                    json!({
+                                        "sessionId": sid,
+                                        "turnId": report.turn_id,
+                                        "stopReason": report.stop_reason,
+                                        "content": report.reply,
+                                        "steps": report.steps,
+                                        "usage": {
+                                            "inputTokens": report.usage.input_tokens,
+                                            "outputTokens": report.usage.output_tokens,
+                                            "totalTokens": report.usage.total_tokens,
+                                        }
+                                    }),
+                                ),
+                                Err(err) => JsonRpcResponse::error(
+                                    req.id,
+                                    -32000,
+                                    format!("Turn execution failed: {err}"),
+                                ),
+                            }
+                        } else {
+                            let turn_id = format!("turn-{}", fastrand::u64(..));
+                            let msgs = vec![
+                                LLMMessage::user(p),
+                                LLMMessage::assistant(format!("Response to: {p}")),
+                            ];
+                            let _ = self.store.save_turn(sid, &turn_id, 1, &msgs, None);
+                            JsonRpcResponse::success(
+                                req.id,
+                                json!({
+                                    "sessionId": sid,
+                                    "turnId": turn_id,
+                                    "stopReason": "end_turn",
+                                    "content": format!("Response to: {p}"),
+                                }),
+                            )
+                        }
                     }
                     _ => JsonRpcResponse::error(
                         req.id,
@@ -128,12 +196,66 @@ impl AcpServer {
                     ),
                 }
             }
+            "session/load" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
+                    .and_then(|v| v.as_str());
+
+                match session_id {
+                    Some(sid) => match self.store.load_session_history(sid) {
+                        Ok(history) => JsonRpcResponse::success(
+                            req.id,
+                            json!({
+                                "sessionId": sid,
+                                "messages": history,
+                            }),
+                        ),
+                        Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
+                    },
+                    None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
+                }
+            }
+            "session/delete" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
+                    .and_then(|v| v.as_str());
+
+                match session_id {
+                    Some(sid) => match self.store.delete_session(sid) {
+                        Ok(deleted) => JsonRpcResponse::success(req.id, json!({ "deleted": deleted })),
+                        Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
+                    },
+                    None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
+                }
+            }
+            "session/close" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
+                    .and_then(|v| v.as_str());
+
+                match session_id {
+                    Some(sid) => JsonRpcResponse::success(req.id, json!({ "sessionId": sid, "closed": true })),
+                    None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
+                }
+            }
+            "session/cancel" => JsonRpcResponse::success(req.id, json!({ "cancelled": true })),
+            "session/set_mode" => {
+                let params = req.params.as_ref();
+                let mode = params
+                    .and_then(|p| p.get("mode"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("auto");
+                JsonRpcResponse::success(req.id, json!({ "mode": mode }))
+            }
+            "authenticate" => JsonRpcResponse::success(req.id, json!({ "authenticated": true })),
+            "logout" => JsonRpcResponse::success(req.id, json!({ "loggedOut": true })),
             "ping" => JsonRpcResponse::success(req.id, json!("pong")),
-            _ => JsonRpcResponse::error(
-                req.id,
-                -32601,
-                format!("Method not found: {}", req.method),
-            ),
+            _ => {
+                JsonRpcResponse::error(req.id, -32601, format!("Method not found: {}", req.method))
+            }
         };
 
         Some(resp)
@@ -177,7 +299,10 @@ mod tests {
             "params": { "title": "ACP Test Session" }
         });
         let resp = server.handle_message(&new_req.to_string()).await.unwrap();
-        let sid = resp.result.unwrap()["sessionId"].as_str().unwrap().to_string();
+        let sid = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 2. List sessions
         let list_req = json!({
@@ -200,9 +325,45 @@ mod tests {
                 "prompt": "Hello ACP"
             }
         });
-        let resp = server.handle_message(&prompt_req.to_string()).await.unwrap();
+        let resp = server
+            .handle_message(&prompt_req.to_string())
+            .await
+            .unwrap();
         assert!(resp.error.is_none());
         let res = resp.result.unwrap();
         assert_eq!(res["stopReason"], "end_turn");
+
+        // 4. Load session history
+        let load_req = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/load",
+            "params": { "sessionId": sid }
+        });
+        let resp = server.handle_message(&load_req.to_string()).await.unwrap();
+        assert!(resp.error.is_none());
+        let messages = resp.result.unwrap()["messages"].as_array().unwrap().clone();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"], "Hello ACP");
+
+        // 5. Set mode
+        let mode_req = json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "session/set_mode",
+            "params": { "mode": "yolo" }
+        });
+        let resp = server.handle_message(&mode_req.to_string()).await.unwrap();
+        assert_eq!(resp.result.unwrap()["mode"], "yolo");
+
+        // 6. Delete session
+        let del_req = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/delete",
+            "params": { "sessionId": sid }
+        });
+        let resp = server.handle_message(&del_req.to_string()).await.unwrap();
+        assert_eq!(resp.result.unwrap()["deleted"], true);
     }
 }

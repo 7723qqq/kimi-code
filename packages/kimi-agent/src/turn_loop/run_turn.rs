@@ -178,29 +178,36 @@ pub fn run_turn_with_telemetry<'a>(
 }
 
 /// Map the stop reason onto v2's `TurnResult.type` telemetry vocabulary
-/// (`completed` / `cancelled` / `failed`). The engine path never produces
-/// `max_tokens`-style types: `MaxTokens` / `Filtered` are finish reasons on
-/// a response the model did produce, and `Paused` / `BudgetLimited` surface
-/// as normal turn ends with a blocked marker.
+/// (`completed` / `cancelled` / `failed`). `MaxTokens` is a finish reason on
+/// a response the model did produce, so the turn completed; `Filtered` fails
+/// the turn in v2 (loopService.ts:877-882 throws `PROVIDER_FILTERED`), as
+/// does the step-budget exhaustion (`max_steps`, loopService.ts:956-962);
+/// `Paused` / `BudgetLimited` surface as normal turn ends with a blocked
+/// marker.
 fn telemetry_reason(stop: &LoopTurnStopReason) -> &'static str {
     match stop {
         LoopTurnStopReason::EndTurn
         | LoopTurnStopReason::MaxTokens
-        | LoopTurnStopReason::Filtered
         | LoopTurnStopReason::Paused
+        | LoopTurnStopReason::RepeatBreaker
         | LoopTurnStopReason::BudgetLimited => "completed",
         LoopTurnStopReason::Aborted => "cancelled",
-        LoopTurnStopReason::Unknown => "failed",
+        LoopTurnStopReason::Filtered
+        | LoopTurnStopReason::MaxSteps
+        | LoopTurnStopReason::Unknown => "failed",
     }
 }
 
 /// The engine sees only the cancellation flag, not the host's abort reason —
 /// `user_cancelled` vs `aborted` cannot be distinguished here, so every
 /// engine-side cancellation reports `aborted` until the reason travels with
-/// the cancel request.
+/// the cancel request. `max_steps` / `filtered` mirror v2's
+/// `interruptReasonFor` mapping (loopService.ts:2548-2559).
 fn telemetry_interrupt_reason(stop: &LoopTurnStopReason) -> &'static str {
     match stop {
         LoopTurnStopReason::Aborted => "aborted",
+        LoopTurnStopReason::MaxSteps => "max_steps",
+        LoopTurnStopReason::Filtered => "filtered",
         _ => "error",
     }
 }
@@ -232,8 +239,50 @@ fn telemetry_payload(
     value
 }
 
+/// Bridges the host's `AtomicBool` cancellation flag onto a
+/// [`tokio_util::sync::CancellationToken`] the LLM transport can select on
+/// while a request is in flight — the flag alone is only checked at step
+/// boundaries, so a cancel arriving mid-stream would otherwise wait for
+/// the whole provider response (v2 aborts through the same window via
+/// `AbortSignal`, generate.ts:154-202). The polling watcher exits when the
+/// flag fires or when this guard drops at any turn exit; the 25ms poll is
+/// the mid-stream cancellation latency ceiling.
+struct TurnCancellation {
+    token: tokio_util::sync::CancellationToken,
+    _shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl TurnCancellation {
+    fn from_flag(flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Self {
+        let token = tokio_util::sync::CancellationToken::new();
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        if let Some(flag) = flag {
+            let watcher = token.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = rx => {}
+                    _ = async {
+                        while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        }
+                    } => watcher.cancel(),
+                }
+            });
+        }
+        Self {
+            token,
+            _shutdown: Some(tx),
+        }
+    }
+
+    fn token(&self) -> &tokio_util::sync::CancellationToken {
+        &self.token
+    }
+}
 /// Run a single turn.
 #[tracing::instrument(name = "run_turn", skip_all, fields(turn_id = %input.turn_id, max_steps = input.max_steps, has_goal = input.goal.is_some()))]
+
+
 pub fn run_turn<'a>(
     input: RunTurnInput<'a>,
     callbacks: &'a Arc<dyn HostCallbacks>,
@@ -282,8 +331,55 @@ pub fn run_turn<'a>(
         }];
         messages.extend(user_messages);
 
-        // Default retry configuration for LLM calls within this turn.
-        let retry_config = RetryConfig::default();
+        // Retry configuration for LLM calls within this turn. The attempt
+        // count is host-configurable (v2 `loopControl.maxAttemptsPerStep`);
+        // the backoff shape stays engine-owned.
+        let retry_config = RetryConfig {
+            max_attempts: input
+                .max_attempts
+                .unwrap_or(crate::turn_loop::retry::DEFAULT_MAX_RETRY_ATTEMPTS),
+            ..RetryConfig::default()
+        };
+
+        // Bridge the host's AtomicBool cancellation onto a CancellationToken
+        // the LLM transport can select on mid-stream (v2 aborts through the same window via `AbortSignal`,
+        // kosong generate.ts:107-295). The watcher shuts down when this
+        // local drops at any turn exit.
+        let turn_cancel = TurnCancellation::from_flag(input.cancellation.clone());
+
+        // Goal deadline active wake-up & timer (v2 IGoalDeadlineScheduler mirror)
+        struct DeadlineGuard(Option<tokio::task::JoinHandle<()>>);
+        impl Drop for DeadlineGuard {
+            fn drop(&mut self) {
+                if let Some(h) = self.0.take() {
+                    h.abort();
+                }
+            }
+        }
+        let _deadline_guard = DeadlineGuard(if let Some(ref g) = goal {
+            if let Some(budget_ms) = g.wall_clock_budget_ms {
+                let total_used = g.wall_clock_ms;
+                let remaining_ms = (budget_ms - total_used).max(0) as u64;
+                let cancel_token = turn_cancel.token().clone();
+                let goal_id = g.goal_id.clone();
+                let tid = turn_id.clone();
+                let cbs = callbacks.clone();
+                Some(tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(remaining_ms)).await;
+                    cbs.emit_event(serde_json::json!({
+                        "type": "goal.budget.limit_reached",
+                        "turn_id": tid,
+                        "goal_id": goal_id,
+                        "budget_type": "wall_clock",
+                    }));
+                    cancel_token.cancel();
+                }))
+            } else {
+                None
+            }
+        } else {
+            None
+        });
 
         // Context compaction knobs. The window comes from the host's model
         // resolution; without it the budget falls back to the fixed default.
@@ -451,16 +547,46 @@ pub fn run_turn<'a>(
                 input.tools,
                 step_tool_defs.clone(),
                 &retry_config,
+                Some(turn_cancel.token()),
             )
             .await
             {
                 Ok(res) => res,
                 Err(e) => {
                     let err_str = e.to_string();
+                    // A cancellation landing mid-step (the LLM transport
+                    // aborted the in-flight request) is a clean abort or budget exhaustion, not a
+                    // failed turn — mirror the step-top and scheduler paths.
+                    if turn_cancel.token().is_cancelled()
+                        || input.cancellation.as_ref().is_some_and(|flag| {
+                            flag.load(std::sync::atomic::Ordering::Relaxed)
+                        })
+                    {
+                        let is_goal_deadline = goal.as_ref().is_some_and(|g| {
+                            g.wall_clock_budget_ms.is_some_and(|budget| {
+                                elapsed_wall_clock_ms(turn_started) >= budget
+                            })
+                        });
+                        let stop_reason = if is_goal_deadline {
+                            LoopTurnStopReason::BudgetLimited
+                        } else {
+                            LoopTurnStopReason::Aborted
+                        };
+                        return Ok(turn_result(
+                            stop_reason,
+                            steps,
+                            total_usage,
+                            0,
+                            llm_retries,
+                            messages.clone(),
+                        ));
+                    }
                     if crate::compaction::is_context_overflow_error(&err_str) {
                         let injections = crate::injection::split_injections(&mut messages);
-                        let force_compacted =
-                            crate::compaction::force_compact_messages(&messages, &compaction_config);
+                        let force_compacted = crate::compaction::force_compact_messages(
+                            &messages,
+                            &compaction_config,
+                        );
                         if force_compacted.len() < messages.len() {
                             tracing::warn!(
                                 turn_id = %turn_id,
@@ -479,12 +605,15 @@ pub fn run_turn<'a>(
                                 input.tools,
                                 step_tool_defs,
                                 &retry_config,
+                                Some(turn_cancel.token()),
                             )
                             .await
                             {
                                 Ok(res) => res,
                                 Err(retry_err) => {
-                                    return Err(Box::new(std::io::Error::other(retry_err.to_string()))
+                                    return Err(Box::new(std::io::Error::other(
+                                        retry_err.to_string(),
+                                    ))
                                         as Box<dyn std::error::Error + 'a>);
                                 }
                             }
@@ -601,6 +730,7 @@ pub fn run_turn<'a>(
                                     let shared = dedupe_cells[original]
                                         .get_or_init(|| async {
                                             ExecutableToolResult {
+                                                stop_turn: false,
                                                 content: "Tool call deduplicated but original result was lost".into(),
                                                 is_error: true,
                                                 note: None,
@@ -622,11 +752,13 @@ pub fn run_turn<'a>(
                                 let execute = async {
                                     match callbacks.execute_tool(req).await {
                                         Ok(response) => ExecutableToolResult {
+                                            stop_turn: response.stop_turn,
                                             content: response.content,
                                             is_error: response.is_error,
                                             note: response.note,
                                         },
                                         Err(e) => ExecutableToolResult {
+                                            stop_turn: false,
                                             content: format!("Tool execution error: {e}"),
                                             is_error: true,
                                             note: None,
@@ -718,11 +850,63 @@ pub fn run_turn<'a>(
                         });
                     }
 
-                    if dedupe_force_stop {
-                        // v2 `stopTurn`: the turn ends as `completed` once
-                        // the step's results are recorded.
+                    // v2 `executeStepTools` stopTurn (loopService.ts:2117-2119):
+                    // any tool result carrying `stopTurn: true` ends the turn
+                    // as `completed` — no continuation step is enqueued
+                    // (loopContinuationService.ts:14-20). Used by update-goal
+                    // (complete/blocked), set-goal-budget (over budget) and
+                    // the plan-review reject paths.
+                    if results.iter().any(|tr| tr.stop_turn) {
                         return Ok(turn_result(
                             LoopTurnStopReason::EndTurn,
+                            steps,
+                            total_usage,
+                            0,
+                            llm_retries,
+                            messages.clone(),
+                        ));
+                    }
+
+                    if dedupe_force_stop {
+                        // Upstream #3459: Handoff step after repeat breaker forced stop.
+                        // Append a text-only reminder and give the model one step to
+                        // write its final handoff reply without tool calls.
+                        messages.push(LLMMessage {
+                            role: "user".into(),
+                            content: crate::injection::wrap_system_reminder(
+                                "The repeat breaker has stopped the turn due to repeated tool calls. \
+Deliver your final response as text now. Further tool calls are refused.",
+                            ),
+                            ..Default::default()
+                        });
+
+                        steps += 1;
+                        let handoff_res = execute_loop_step_with_retry(
+                            &turn_id,
+                            steps,
+                            input.llm,
+                            messages.clone(),
+                            input.tools,
+                            Vec::new(),
+                            &retry_config,
+                            Some(turn_cancel.token()),
+                        )
+                        .await;
+
+                        if let Ok(step_res) = handoff_res
+                            && !step_res.content.is_empty()
+                        {
+                            messages.push(LLMMessage {
+                                role: "assistant".into(),
+                                content: step_res.content,
+                                blocks: Vec::new(),
+                                tool_calls: Vec::new(),
+                                tool_call_id: None,
+                            });
+                        }
+
+                        return Ok(turn_result(
+                            LoopTurnStopReason::RepeatBreaker,
                             steps,
                             total_usage,
                             0,
@@ -744,11 +928,18 @@ pub fn run_turn<'a>(
             }
         }
 
-        // Turn ended (max_steps exhausted): surface the last step's provider
-        // finish reason so truncation/filtering is not reported as a normal
-        // completion.
+        // The loop only falls through when the step budget was consumed while
+        // the model was still requesting tools — v2 raises
+        // `MaxStepsExceededError` there (loopService.ts:841-843) and the turn
+        // fails with interrupt_reason `max_steps` (loopService.ts:956-962).
+        // A provider-side `length` / `content_filter` finish on the final
+        // step still surfaces its own cause instead of the generic one.
+        let reason = match turn_stop_reason_from_finish(last_finish_reason.as_deref()) {
+            LoopTurnStopReason::EndTurn => LoopTurnStopReason::MaxSteps,
+            other => other,
+        };
         Ok(turn_result(
-            turn_stop_reason_from_finish(last_finish_reason.as_deref()),
+            reason,
             steps,
             total_usage,
             0,
@@ -1013,7 +1204,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
-            turn_id: "test-turn-1".into(),
+                        turn_id: "test-turn-1".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1023,6 +1214,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1032,6 +1224,119 @@ mod tests {
         assert!(result.is_ok());
         let turn = result.unwrap();
         assert_eq!(turn.steps, 1);
+    }
+
+    /// A model that keeps requesting tools until the step budget runs out
+    /// must end the turn as `MaxSteps` (v2 `MaxStepsExceededError`,
+    /// loopService.ts:841-843 → failed + interrupt_reason `max_steps`), not
+    /// as an indistinguishable `EndTurn` completion. Without the
+    /// exhaustion mapping this turn reported `EndTurn`.
+    #[tokio::test]
+    async fn test_max_steps_exhaustion_reports_max_steps() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-loop".into(),
+                name: "WebSearch".into(),
+                arguments: serde_json::json!({ "query": "x" }),
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    stop_turn: false,
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp)
+                    .map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            turn_id: "test-max-steps-exhaustion".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 2,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+
+        let turn = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxSteps));
+        assert_eq!(turn.steps, 2);
+    }
+
+    /// A provider `content_filter` finish on the final step must surface
+    /// `Filtered` (v2 throws `PROVIDER_FILTERED`, loopService.ts:877-882),
+    /// which the session layer reports as a failed turn with the safety
+    /// message — not as a completion.
+    #[tokio::test]
+    async fn test_filtered_finish_surfaces_filtered_reason() {
+        struct FilteredLlm;
+        impl LLM for FilteredLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "filtered"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        thinking: vec![],
+                        tool_calls: vec![],
+                        finish_reason: Some("content_filter".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            turn_id: "test-filtered".into(),
+            llm: &FilteredLlm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+
+        let turn = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(turn.stop_reason, LoopTurnStopReason::Filtered));
     }
 
     /// Callbacks wrapper recording `set_turn_goal` bindings.
@@ -1106,7 +1411,7 @@ mod tests {
             wall_clock_ms: 0,
         };
         let input = RunTurnInput {
-            turn_id: "turn-goal".into(),
+                        turn_id: "turn-goal".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1116,6 +1421,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -1146,7 +1452,7 @@ mod tests {
             bound: bound.clone(),
         });
         let input = RunTurnInput {
-            turn_id: "turn-goal-free".into(),
+                        turn_id: "turn-goal-free".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1156,6 +1462,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1183,7 +1490,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
-            turn_id: "test-turn-3".into(),
+                        turn_id: "test-turn-3".into(),
             llm: &llm,
             messages: vec![
                 LLMMessage {
@@ -1200,6 +1507,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1256,7 +1564,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-finish-length".into(),
+                        turn_id: "test-finish-length".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1266,6 +1574,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1282,7 +1591,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-finish-max-tokens".into(),
+                        turn_id: "test-finish-max-tokens".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1292,6 +1601,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1308,7 +1618,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-finish-filtered".into(),
+                        turn_id: "test-finish-filtered".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1318,6 +1628,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1374,6 +1685,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1383,7 +1695,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-exhausted-truncated".into(),
+                        turn_id: "test-exhausted-truncated".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1393,6 +1705,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1467,6 +1780,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1476,7 +1790,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-cache-usage".into(),
+                        turn_id: "test-cache-usage".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1486,6 +1800,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1560,6 +1875,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1569,7 +1885,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-history-accumulation".into(),
+                        turn_id: "test-history-accumulation".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1579,6 +1895,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1670,6 +1987,7 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1679,7 +1997,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-same-step-dedup".into(),
+                        turn_id: "test-same-step-dedup".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1689,6 +2007,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1778,6 +2097,7 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1787,7 +2107,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-host-tool-no-dedup".into(),
+                        turn_id: "test-host-tool-no-dedup".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1797,6 +2117,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -1855,6 +2176,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -1864,7 +2186,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-repeat-streak".into(),
+                        turn_id: "test-repeat-streak".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1875,14 +2197,16 @@ mod tests {
             tool_defs: vec![],
             // Generous ceiling: the force stop, not max_steps, must end it.
             max_steps: 20,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
         };
         let result = run_turn(input, &callbacks).await.unwrap();
 
-        assert_eq!(result.steps, 12, "force stop at the 12th repeat");
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+        assert_eq!(result.steps, 13, "force stop at the 12th repeat + 1 handoff step");
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::RepeatBreaker));
+        assert!(result.messages.iter().any(|m| m.content.contains("The repeat breaker has stopped the turn")));
         let tool_msgs: Vec<&LLMMessage> = result
             .messages
             .iter()
@@ -1965,7 +2289,70 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
-            turn_id: "test-retry-counter".into(),
+                        turn_id: "test-retry-counter".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+        assert_eq!(result.llm_retries, 1, "one retryable failure is one retry");
+        assert_eq!(
+            result.events_emitted, 0,
+            "event counting lives at the composition root"
+        );
+    }
+
+    /// `RunTurnInput::max_attempts` must cap the retry loop (v2
+    /// `loopControl.maxAttemptsPerStep`, stepRetryService.ts:138-146): a
+    /// permanently failing LLM is called exactly `max_attempts` times before
+    /// the turn errors out. The engine default (no host override) is 10 —
+    /// `DEFAULT_MAX_RETRY_ATTEMPTS`, pinned by the retry.rs unit test.
+    #[tokio::test]
+    async fn test_max_attempts_caps_llm_retries() {
+        struct AlwaysFailsLlm {
+            calls: AtomicU32,
+        }
+        impl LLM for AlwaysFailsLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "always-fails"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                true
+            }
+            fn chat(
+                &self,
+                _: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move { Err("transient failure".into()) })
+            }
+        }
+
+        let llm = AlwaysFailsLlm {
+            calls: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            max_attempts: Some(2),
+            turn_id: "test-max-attempts".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -1980,12 +2367,12 @@ mod tests {
             cancellation: None,
         };
 
-        let result = run_turn(input, &callbacks).await.unwrap();
-        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
-        assert_eq!(result.llm_retries, 1, "one retryable failure is one retry");
+        let result = run_turn(input, &callbacks).await;
+        assert!(result.is_err(), "an always-failing LLM must fail the turn");
         assert_eq!(
-            result.events_emitted, 0,
-            "event counting lives at the composition root"
+            llm.calls.load(Ordering::SeqCst),
+            2,
+            "the LLM must be attempted exactly max_attempts times"
         );
     }
 
@@ -2017,7 +2404,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-paused".into(),
+                        turn_id: "test-paused".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2027,6 +2414,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2063,7 +2451,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-blocked".into(),
+                        turn_id: "test-blocked".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2073,6 +2461,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2112,7 +2501,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-budget-tokens".into(),
+                        turn_id: "test-budget-tokens".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2122,6 +2511,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2170,7 +2560,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-budget-turns".into(),
+                        turn_id: "test-budget-turns".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2180,6 +2570,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2219,7 +2610,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-active-goal".into(),
+                        turn_id: "test-active-goal".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2229,6 +2620,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2237,6 +2629,101 @@ mod tests {
         let result = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
         assert_eq!(result.steps, 1);
+    }
+
+    /// When a goal has a small wall-clock budget and the step takes longer,
+    /// the active deadline timer must fire and cancel the turn with `BudgetLimited`.
+    #[tokio::test]
+    async fn test_goal_wall_clock_deadline_triggers_budget_limit() {
+        struct SlowLlm;
+        impl LLM for SlowLlm {
+            fn system_prompt(&self) -> &str {
+                "slow"
+            }
+            fn model_name(&self) -> &str {
+                "slow-model"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                Box::pin(async move {
+                    if let Some(token) = params.cancel {
+                        tokio::select! {
+                            _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
+                                Ok(LLMChatResponse {
+                                    content: "done".into(),
+                                    thinking: vec![],
+                                    tool_calls: vec![],
+                                    finish_reason: Some("stop".into()),
+                                    usage: TokenUsage::default(),
+                                })
+                            }
+                            _ = token.cancelled() => {
+                                Err(Box::new(std::io::Error::other("cancelled")) as Box<dyn std::error::Error + Send + Sync>)
+                            }
+                        }
+                    } else {
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        Ok(LLMChatResponse {
+                            content: "done".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = SlowLlm;
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let goal = GoalContext {
+            goal_id: "g-deadline".into(),
+            objective: "Fast finish".into(),
+            status: GoalStatus::Active,
+            token_budget: None,
+            turn_budget: None,
+            tokens_used: 0,
+            turns_used: 0,
+            wall_clock_budget_ms: Some(50), // 50ms budget vs 1000ms LLM
+            wall_clock_ms: 0,
+        };
+
+        let input = RunTurnInput {
+            turn_id: "test-deadline-turn".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: Some(goal),
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        let evts = events.lock().unwrap();
+        assert!(
+            evts.iter().any(|e| e["type"] == "goal.budget.limit_reached"
+                && e["budget_type"] == "wall_clock"),
+            "deadline scheduler must emit limit_reached event, got: {evts:?}"
+        );
+        drop(evts);
+        assert!(result.is_ok());
     }
 
     // ── Cancellation tests ──────────────────────────────────────────────
@@ -2257,7 +2744,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         let input = RunTurnInput {
-            turn_id: "test-cancel-before".into(),
+                        turn_id: "test-cancel-before".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2267,6 +2754,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -2338,6 +2826,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -2353,7 +2842,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
-            turn_id: "test-cancel-during-tools".into(),
+                        turn_id: "test-cancel-during-tools".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2363,6 +2852,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancellation),
@@ -2372,6 +2862,63 @@ mod tests {
             .await
             .expect("a cancel must not fail the turn");
         assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
+        assert_eq!(result.steps, 1);
+    }
+
+    /// A tool result carrying `stop_turn: true` ends the turn as `EndTurn`
+    /// (v2 `completed`, loopService.ts:2117-2119 via engineOverride.ts:58):
+    /// no continuation step runs even though the scripted LLM would keep
+    /// issuing tool calls. Without the stop-turn check this turn would burn
+    /// all 5 max_steps; the `steps == 1` assertion is the discriminator.
+    #[tokio::test]
+    async fn test_tool_result_stop_turn_ends_turn_completed() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-stop".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({ "path": "/a.txt" }),
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    stop_turn: true,
+                    content: "goal reached".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+                        turn_id: "test-stop-turn".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+        };
+
+        let result = run_turn(input, &callbacks)
+            .await
+            .expect("stop_turn must end the turn cleanly");
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
         assert_eq!(result.steps, 1);
     }
 
@@ -2390,7 +2937,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let input = RunTurnInput {
-            turn_id: "test-cancel-clear".into(),
+                        turn_id: "test-cancel-clear".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2400,6 +2947,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -2482,7 +3030,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
-            turn_id: "test-steering".into(),
+                        turn_id: "test-steering".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2492,6 +3040,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: Some(goal),
             cancellation: None,
@@ -2542,6 +3091,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
                     note: None,
@@ -2552,7 +3102,7 @@ mod tests {
 
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-max-steps".into(),
+                        turn_id: "test-max-steps".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2562,6 +3112,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 3,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -2731,7 +3282,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-compaction".into(),
+                        turn_id: "test-compaction".into(),
             llm: &llm,
             messages: vec![
                 LLMMessage {
@@ -2753,6 +3304,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -2762,21 +3314,21 @@ mod tests {
         assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
 
         let captured = captured.lock().unwrap();
-        assert!(
-            captured.len() >= 4,
+        assert_eq!(
+            captured.len(),
+            4,
             "system + placeholder + recent user + injections"
         );
         assert_eq!(captured[0].role, "system");
         assert_eq!(captured[1].role, "user");
-        assert!(
-            captured[1].content.contains("compacted"),
-            "placeholder must mention compaction"
+        assert_eq!(
+            captured[1].content,
+            crate::compaction::summary_placeholder(2),
+            "placeholder must carry exact summary format with omitted count"
         );
         assert_eq!(captured[2].content, big, "most recent message preserved");
         assert!(
-            captured[2..]
-                .iter()
-                .any(|m| m.content.starts_with("<system-reminder>\n")),
+            captured[3].content.starts_with("<system-reminder>\n"),
             "injection appended after compaction"
         );
     }
@@ -2834,7 +3386,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
-            turn_id: "test-injection".into(),
+                        turn_id: "test-injection".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2844,6 +3396,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -2887,7 +3440,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
-            turn_id: "test-telemetry-ok".into(),
+                        turn_id: "test-telemetry-ok".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2897,6 +3450,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -2943,7 +3497,7 @@ mod tests {
 
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let input = RunTurnInput {
-            turn_id: "test-telemetry-cancel".into(),
+                        turn_id: "test-telemetry-cancel".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -2953,6 +3507,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -3057,6 +3612,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
                     note: None,
@@ -3082,7 +3638,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
-            turn_id: "test-list-tools-refresh".into(),
+                        turn_id: "test-list-tools-refresh".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -3098,6 +3654,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -3170,7 +3727,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
-            turn_id: "test-list-tools-fallback".into(),
+                        turn_id: "test-list-tools-fallback".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -3184,6 +3741,7 @@ mod tests {
                 input_schema: serde_json::json!({}),
             }],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -3256,7 +3814,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
-            turn_id: "test-list-tools-host-proxy".into(),
+                        turn_id: "test-list-tools-host-proxy".into(),
             llm: &llm,
             messages: vec![LLMMessage {
                 role: "user".into(),
@@ -3266,6 +3824,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             goal: None,
             cancellation: None,
@@ -3308,15 +3867,28 @@ mod tests {
                         // First call fails with a context overflow error.
                         Err(Box::new(std::io::Error::other(
                             "llm http status 400 Bad Request: context_length_exceeded",
-                        )) as Box<dyn std::error::Error + Send + Sync>)
+                        ))
+                            as Box<dyn std::error::Error + Send + Sync>)
                     } else {
                         // Second call succeeds after compaction.
+                        assert_eq!(
+                            params.messages.len(),
+                            6,
+                            "expected exact 6 messages: system + placeholder + u2 + a2 + u3 + date reminder"
+                        );
+                        assert_eq!(params.messages[0].role, "system");
+                        assert_eq!(params.messages[1].role, "user");
+                        assert_eq!(
+                            params.messages[1].content,
+                            crate::compaction::summary_placeholder(2),
+                            "placeholder must match exact summary format with 2 omitted messages"
+                        );
+                        assert_eq!(params.messages[2].content, "u2");
+                        assert_eq!(params.messages[3].content, "a2");
+                        assert_eq!(params.messages[4].content, "u3");
                         assert!(
-                            params
-                                .messages
-                                .iter()
-                                .any(|m| m.content.contains("compacted")),
-                            "the compacted messages must be passed to the retry call"
+                            params.messages[5].content.starts_with("<system-reminder>\n"),
+                            "date reminder appended after emergency compaction"
                         );
                         Ok(LLMChatResponse {
                             content: "Recovered successfully".into(),
@@ -3337,7 +3909,7 @@ mod tests {
         let callbacks = rpc_callbacks(server);
 
         let input = RunTurnInput {
-            turn_id: "test-overflow-recovery".into(),
+                        turn_id: "test-overflow-recovery".into(),
             llm: &llm,
             messages: vec![
                 LLMMessage {
@@ -3369,6 +3941,7 @@ mod tests {
             tools: &[],
             tool_defs: vec![],
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: Some(100_000),
             goal: None,
             cancellation: None,
@@ -3376,6 +3949,10 @@ mod tests {
 
         let result = run_turn(input, &callbacks).await.unwrap();
         assert_eq!(llm.call_count.load(Ordering::SeqCst), 2);
-        assert_eq!(result.messages.last().unwrap().content, "Recovered successfully");
+        assert_eq!(result.stop_reason, LoopTurnStopReason::EndTurn);
+        assert_eq!(
+            result.messages.last().unwrap().content,
+            "Recovered successfully"
+        );
     }
 }

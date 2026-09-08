@@ -17,20 +17,23 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
+default = ["napi"]
+napi = ["dep:napi", "dep:napi-derive"]
 cli = []
 
 [dependencies]
-napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"] }
-napi-derive = { version = "2", features = ["type-def"] }
+napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"], optional = true }
+napi-derive = { version = "2", features = ["type-def"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fastrand = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "sync", "io-util", "io-std", "process", "time"] }
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
 eventsource-stream = "0.2"
 httparse = "1.10"
 base64 = "0.22"
@@ -45,6 +48,19 @@ chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 toml = "0.8"
+
+ulid = "1"
+thiserror = "1.0"
+encoding_rs = "0.8"
+memchr = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+ureq = { version = "2", features = ["json"] }
+parking_lot = "0.12"
+async-trait = "0.1"
+dialoguer = "0.11"
+which = "6.0"
+tower-lsp = "0.20"
+lsp-types = "0.95"
 
 [build-dependencies]
 napi-build = "2"

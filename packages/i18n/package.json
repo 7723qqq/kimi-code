@@ -41,6 +41,6 @@
   },
   "dependencies": {
     "@moonshot-ai/i18n-shared": "workspace:^",
-    "@moonshot-ai/kimi-native-tools": "workspace:^"
+    "@moonshot-ai/kimi-agent": "workspace:^"
   }
 }

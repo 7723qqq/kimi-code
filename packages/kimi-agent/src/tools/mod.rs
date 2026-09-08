@@ -93,8 +93,11 @@ pub mod goal_tools;
 pub mod kaos;
 pub mod knowledge_tool;
 pub mod list_directory;
+pub mod lsp_tool;
 pub mod memory_paths;
 pub mod plan_mode;
+pub mod sandbox;
+pub mod select_tools;
 pub mod skill;
 pub mod stale_guard;
 pub mod subagent_tools;
@@ -229,6 +232,9 @@ tokio::task_local! {
     /// toolset call, e.g. in a test), [`NativeToolset::effective_caller_agent_id`]
     /// falls back to the construction-time `caller_agent_id`.
     pub static CALLER_AGENT_ID: String;
+    /// Live snapshot of the current conversation history for the running turn,
+    /// used by `Agent(fork: true)` and `AgentSwarm(fork: true)` to inherit context.
+    pub static CURRENT_CONVERSATION_HISTORY: std::sync::Arc<std::sync::Mutex<Vec<crate::turn_loop::types::LLMMessage>>>;
 }
 
 /// Sandboxed native executor, rooted at the workspace.
@@ -261,6 +267,7 @@ pub struct NativeToolset {
     github_credentials: Option<github::GitHubCredentials>,
     caller_agent_id: Option<String>,
     session_id: Option<String>,
+    task_runner: Option<std::sync::Arc<crate::storage::TaskRunner>>,
 }
 
 impl NativeToolset {
@@ -300,7 +307,14 @@ impl NativeToolset {
             github_credentials: None,
             caller_agent_id: None,
             session_id: None,
+            task_runner: None,
         })
+    }
+
+    /// Attach a TaskRunner for native background tasks and inspection.
+    pub fn with_task_runner(mut self, runner: std::sync::Arc<crate::storage::TaskRunner>) -> Self {
+        self.task_runner = Some(runner);
+        self
     }
 
     pub fn with_caller_agent_id(mut self, agent_id: impl Into<String>) -> Self {
@@ -467,6 +481,13 @@ impl NativeToolset {
         args: &Value,
         on_update: Option<OutputUpdate<'_>>,
     ) -> Option<ExecutableToolResult> {
+        // BTW side-channel veto (v2 `onBeforeExecuteTool` in `SessionBtwService`):
+        // all tool calls from a side-channel agent are denied with TOOL_CALL_DISABLED_MESSAGE.
+        let caller = self.effective_caller_agent_id();
+        if let Some(denial) = crate::subagent::check_btw_tool_denial(Some(caller.as_str())) {
+            return Some(denial);
+        }
+
         match tool_name.to_ascii_lowercase().as_str() {
             "read" => {
                 self.run_readonly_file_tool_on_blocking_pool(args, Self::read)
@@ -485,6 +506,7 @@ impl NativeToolset {
             }
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args).await,
             "websearch" | "web_search" => web_search::execute_web_search(args).await,
+            "lsp" => lsp_tool::execute_lsp_tool(&self.root, args).await,
             "invokesubagent" | "invoke_subagent" => {
                 let mgr = self.subagent_manager.as_ref()?;
                 Some(subagent_tools::execute_invoke_subagent(mgr, args).await)
@@ -561,9 +583,19 @@ impl NativeToolset {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(skill::execute_skill(callbacks, self.session_id.as_deref(), args).await)
             }
+            "select_tools" | "selecttools" => {
+                let callbacks = self.callbacks.as_deref()?;
+                let available: std::collections::HashSet<String> = match callbacks.list_tools().await {
+                    Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
+                    Err(_) => std::collections::HashSet::new(),
+                };
+                let mut loaded = std::collections::HashSet::new();
+                Some(select_tools::execute_select_tools(args, &available, &mut loaded))
+            }
             "team" => {
                 let mgr = self.subagent_manager.as_ref()?;
-                Some(team_tool::execute_team(mgr, args).await)
+                let cancel = self.effective_parent_cancel();
+                Some(team_tool::execute_team(mgr, args, cancel.as_ref()).await)
             }
             "agent" => {
                 let mgr = self.subagent_manager.as_ref()?;
@@ -1379,11 +1411,6 @@ impl NativeToolset {
         on_update: Option<OutputUpdate<'_>>,
     ) -> Option<ExecutableToolResult> {
         let command = args.get("command")?.as_str()?;
-        // Background tasks (output persistence, task panel, notifications)
-        // are host-owned — hand the call back untouched.
-        if args.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) {
-            return None;
-        }
         // Working directory defaults to the sandbox root; explicit cwd must
         // stay inside it. Returns `None` (host fallback) on escape — the
         // host applies its own cwd policy there.
@@ -1391,6 +1418,57 @@ impl NativeToolset {
             Some(cwd) => Self::resolve(&self.root, cwd)?,
             None => self.root.clone(),
         };
+
+        // Background tasks: if TaskRunner is present, spawn natively and return task info;
+        // otherwise hand back to host fallback.
+        if args.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) {
+            if let Some(runner) = &self.task_runner {
+                let task_id = format!("task_{}", fastrand::u64(..));
+                let desc = args
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(command)
+                    .to_string();
+                let shell_cmd = self.shell.as_ref()?.clone();
+                let cmd_str = command.to_string();
+                let work_dir = working_dir.clone();
+
+                let bg_fut = async move {
+                    let output = tokio::process::Command::new(&shell_cmd)
+                        .arg("-c")
+                        .arg(&cmd_str)
+                        .current_dir(&work_dir)
+                        .env("NO_COLOR", "1")
+                        .env("TERM", "dumb")
+                        .env("GIT_TERMINAL_PROMPT", "0")
+                        .env("SHELL", &shell_cmd)
+                        .stdin(std::process::Stdio::null())
+                        .output()
+                        .await;
+                    match output {
+                        Ok(out) => {
+                            let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
+                            let err = String::from_utf8_lossy(&out.stderr);
+                            if !err.trim().is_empty() {
+                                if !s.is_empty() && !s.ends_with('\n') {
+                                    s.push('\n');
+                                }
+                                s.push_str(err.trim_end());
+                            }
+                            s
+                        }
+                        Err(e) => format!("Command execution failed: {e}"),
+                    }
+                };
+
+                if runner.spawn_task(task_id.clone(), desc.clone(), bg_fut).is_ok() {
+                    return Some(ok_result(format!(
+                        "Background task started (task_id: {task_id}).\ncommand: {command}\ndescription: {desc}\nUse TaskList or TaskOutput to inspect progress."
+                    )));
+                }
+            }
+            return None;
+        }
         // Timeout semantics mirror the host Bash tool: seconds, default 60,
         // capped at 300 for foreground commands.
         let timeout_s = args
@@ -1485,8 +1563,21 @@ impl NativeToolset {
         .await;
         let (stdout_bytes, stderr_bytes, exit_code) = match waited {
             Ok((out, err, Ok(status))) => (out, err, status.code().unwrap_or(-1)),
-            // timeout or wait failure: kill and report
+            // timeout or wait failure: if TaskRunner is available, migrate to background task!
             _ => {
+                if let Some(runner) = &self.task_runner {
+                    let task_id = format!("task_{}", fastrand::u64(..));
+                    let desc = format!("Timed out: {command}");
+                    let bg_fut = async move {
+                        let _ = child.wait().await;
+                        "Background command execution finished".to_string()
+                    };
+                    let _ = runner.spawn_task(task_id.clone(), desc, bg_fut);
+                    return Some(ok_result(format!(
+                        "Command timed out after {}s and was moved to the background (task_id: {task_id}).\nUse TaskList to check status or TaskOutput to view output.",
+                        timeout_s
+                    )));
+                }
                 let _ = child.kill().await;
                 // Reap it. Killing leaves the child a zombie until it is
                 // waited on, and this loop can hit the timeout repeatedly
@@ -2228,6 +2319,7 @@ fn blocking_pool_failure(mutating: bool, message: String) -> Option<ExecutableTo
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: false,
         note: None,
@@ -2236,6 +2328,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: true,
         note: None,
@@ -4304,5 +4397,33 @@ m2
         let res = NativeToolset::glob(root, &json!({ "pattern": "**/*" })).unwrap();
         assert!(res.content.contains("hello.txt"));
         assert!(res.content.contains("Filtered 1 sensitive file(s)."));
+    }
+
+    #[tokio::test]
+    async fn test_native_bash_background_task_runner() {
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let (_dir, ts) = setup_with_shell(Some(&bash));
+        let runner = std::sync::Arc::new(crate::storage::TaskRunner::new(None));
+        let ts = ts.with_task_runner(runner.clone());
+
+        let res = ts
+            .bash_with(
+                &json!({ "command": "echo 'bg hello'", "run_in_background": true, "description": "echo task" }),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(!res.is_error);
+        assert!(res.content.contains("Background task started"));
+        assert!(res.content.contains("task_id:"));
+
+        let line = res.content.lines().find(|l| l.contains("task_id:")).unwrap();
+        let task_id = line.split("task_id: ").nth(1).unwrap().trim().trim_end_matches(['.', ')']);
+
+        let wait_res = runner.wait(task_id, 2000).await;
+        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
     }
 }

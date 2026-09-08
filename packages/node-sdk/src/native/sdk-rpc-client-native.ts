@@ -11,26 +11,33 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
-import { EngineSessionHandle, type SessionCallbacks, type SessionPrompt, type SessionTurnOutcome } from '@moonshot-ai/kimi-agent/session-handle';
+import type { AgentContextData } from '#/types';
+import {
+  EngineSessionHandle,
+  type SessionCallbacks,
+  type SessionPrompt,
+  type SessionTurnOutcome,
+} from '@moonshot-ai/kimi-agent/session-handle';
+import type { OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { TurnEndReason } from '@moonshot-ai/protocol';
-import type { QuestionItem, ToolInputDisplay } from '#/events';
+import { ZipFile } from 'yazl';
+
+import { KimiAuthFacade } from '#/auth';
 import {
-  resolveNativeLlm,
-  probeShellPath,
-  buildPolicySnapshot,
-  resolveGithubCredentials,
-  type JsNativeLlmConfig,
-} from './native-llm-resolver';
-import { ImageLimits } from '#/image-limits';
-import { KimiHarness } from '#/kimi-harness';
-import {
+  cloneRecord,
   loadRuntimeConfig,
+  readConfigFile,
   validateConfig,
   writeConfigFile,
   type KimiConfig,
   type KimiConfigPatch,
 } from '#/config-local';
+import { resolveConfigPath, resolveKimiHome } from '#/config-local/path';
+import type { QuestionItem, ToolInputDisplay } from '#/events';
+import { ImageLimits } from '#/image-limits';
+import { KimiHarness } from '#/kimi-harness';
+import { ErrorCodes, KimiError } from '#/error-protocol';
+import { flushDiagnosticLogs, getRootLogger, resolveLoggingConfig } from '#/logging';
 import {
   SDKRpcClientBase,
   type ActivateSkillRpcInput,
@@ -100,11 +107,13 @@ import type {
   WorkspaceTrustInfo,
 } from '#/types';
 
-import { KimiAuthFacade } from '#/auth';
-import { ErrorCodes, KimiError } from '#/legacy';
-import { resolveConfigPath, resolveKimiHome } from '#/config-local/path';
-import type { OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import { ZipFile } from 'yazl';
+import {
+  resolveNativeLlm,
+  probeShellPath,
+  buildPolicySnapshot,
+  resolveGithubCredentials,
+  type JsNativeLlmConfig,
+} from './native-llm-resolver';
 
 /**
  * Map the Rust engine's turn stop reason onto the protocol's closed
@@ -194,14 +203,13 @@ function toGoalSnapshot(goal: NativeGoalState): GoalSnapshot {
 function initialRuntimeState(config: KimiConfig, model: string) {
   return {
     model,
-    thinkingEffort: config.thinking?.effort ?? 'off',
-    permissionMode: (
-      config.yolo === true
-        ? 'yolo'
-        : config.defaultPermissionMode === 'auto'
-          ? 'auto'
-          : 'manual'
-    ) as PermissionMode,
+    thinkingEffort:
+      config.thinking?.enabled === false ? 'off' : (config.thinking?.effort ?? 'medium'),
+    permissionMode: (config.yolo === true
+      ? 'yolo'
+      : config.defaultPermissionMode === 'auto'
+        ? 'auto'
+        : 'manual') as PermissionMode,
     planMode: (config.defaultPermissionMode as string | undefined) === 'plan',
     swarmMode: false,
     towerMode: false,
@@ -347,6 +355,69 @@ interface PersistedSessionMeta {
   additionalDirs: string[];
 }
 
+const DEFAULT_INIT_PROMPT = `You are a software engineering expert with many years of programming experience. Please explore the current project directory to understand the project's architecture and main details.
+
+Task requirements:
+1. Analyze the project structure and identify key configuration files (such as pyproject.toml, package.json, Cargo.toml, etc.).
+2. Understand the project's technology stack, build process and runtime architecture.
+3. Identify how the code is organized and main module divisions.
+4. Discover project-specific development conventions, testing strategies, and deployment processes.
+
+After the exploration, do a thorough summary of your findings and write it to the \`AGENTS.md\` file in the project root, replacing the file's previous content. If the file already exists, read it first and carry forward whatever is still accurate — the result should be one coherent, up-to-date file, not an append.
+
+For your information, \`AGENTS.md\` is a file intended to be read by AI coding agents. Expect the reader of this file to know nothing about the project.
+
+You should compose this file according to the actual project content. Do not make any assumptions or generalizations. Ensure the information is accurate and useful. You must use the natural language that is mainly used in the project's comments and documentation.
+
+Popular sections that people usually write in \`AGENTS.md\` are:
+
+- Project overview
+- Build and test commands
+- Code style guidelines
+- Testing instructions
+- Security considerations`;
+
+function resolveMcpServersForEngine(servers: Record<string, McpServerConfig>): Array<{
+  name: string;
+  transport: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}> {
+  const result: Array<{
+    name: string;
+    transport: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+  }> = [];
+
+  for (const [name, srv] of Object.entries(servers)) {
+    if ((srv as { enabled?: boolean }).enabled === false) continue;
+    if (srv.transport === 'stdio' && srv.command) {
+      result.push({
+        name,
+        transport: 'stdio',
+        command: srv.command,
+        ...(srv.args ? { args: srv.args } : {}),
+        ...(srv.env ? { env: srv.env } : {}),
+      });
+    } else if ((srv.transport === 'http' || srv.transport === 'sse') && srv.url) {
+      result.push({
+        name,
+        transport: 'sse',
+        url: srv.url,
+        ...(srv.headers ? { headers: srv.headers } : {}),
+      });
+    }
+  }
+  return result;
+}
+
 export class SDKRpcClientNative extends SDKRpcClientBase {
   readonly homeDir: string;
   readonly configPath: string;
@@ -378,6 +449,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (!existsSync(this.sessionBaseDir)) {
       mkdirSync(this.sessionBaseDir, { recursive: true });
     }
+    void getRootLogger().configure(
+      resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }),
+    );
   }
 
   // oxlint-disable-next-line typescript/no-explicit-any
@@ -515,13 +589,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               turnId: meta.currentTurnId,
               delta: parsed.part.text,
             });
-          } else if (parsed.part?.type === 'think' && typeof parsed.part.think === 'string') {
+          } else if (
+            (parsed.part?.type === 'think' || parsed.part?.type === 'thinking') &&
+            typeof (parsed.part.think ?? parsed.part.thinking ?? parsed.part.text) === 'string'
+          ) {
             this.receiveEvent({
               sessionId,
               agentId: 'main',
               type: 'thinking.delta',
               turnId: meta.currentTurnId,
-              delta: parsed.part.think,
+              delta: String(parsed.part.think ?? parsed.part.thinking ?? parsed.part.text),
             });
           }
         } else if (parsed.type === 'tool.native') {
@@ -676,6 +753,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // (or the plan guard's stateRead) must reflect the current mode.
     policySnapshot.mode = meta.planMode ? 'plan' : meta.permissionMode;
     const githubCreds = resolveGithubCredentials(config);
+    const mcpConfig = this.loadGlobalMcpConfig();
+    const mcpServers = resolveMcpServersForEngine(mcpConfig);
     const authToken =
       nativeLlm?.authProvider === undefined
         ? undefined
@@ -701,6 +780,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       ...(githubCreds.githubToken ? { githubToken: githubCreds.githubToken } : {}),
       ...(githubCreds.githubBaseUrl ? { githubBaseUrl: githubCreds.githubBaseUrl } : {}),
       ...(nativeLlm ? { nativeLlm } : {}),
+      ...(mcpServers.length > 0 ? { mcpServers } : {}),
     };
 
     return EngineSessionHandle.create(params, { ...callbacks, authToken });
@@ -786,7 +866,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     };
   }
 
-  override async listSessions(_input: ListSessionsOptions = {}): Promise<readonly SessionSummary[]> {
+  override async listSessions(
+    _input: ListSessionsOptions = {},
+  ): Promise<readonly SessionSummary[]> {
     const sessionsMap = new Map<string, SessionSummary>();
     if (existsSync(this.sessionBaseDir)) {
       try {
@@ -919,8 +1001,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const meta = this.requireSession(input.sessionId);
     // Deliberately unclamped, same as v2: >100% is the documented overflow
     // signal on this path.
-    const contextUsage =
-      meta.maxContextTokens > 0 ? meta.contextTokens / meta.maxContextTokens : 0;
+    const contextUsage = meta.maxContextTokens > 0 ? meta.contextTokens / meta.maxContextTokens : 0;
     return {
       model: meta.model,
       thinkingEffort: meta.thinkingEffort,
@@ -1185,13 +1266,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async setConfig(patch: KimiConfigPatch): Promise<KimiConfig> {
-    const current = loadRuntimeConfig(this.configPath);
+    const current = readConfigFile(this.configPath);
     // Deep-merge per domain (v2 semantics): the previous top-level shallow
     // spread clobbered whole sections — a `{ models: { oneAlias } }` patch wiped
     // every other alias, `{ thinking: { enabled } }` dropped effort/budget, a
     // single provider edit lost its baseUrl/customHeaders, and any key present
     // but undefined in the patch cleared the stored value.
-    const merged: Record<string, unknown> = { ...(current as Record<string, unknown>) };
+    const merged: Record<string, unknown> = {
+      ...(current as Record<string, unknown>),
+      raw: current.raw ? cloneRecord(current.raw) : undefined,
+    };
     for (const [domain, domainPatch] of Object.entries(patch)) {
       if (domainPatch === undefined) continue;
       merged[domain] = deepMergeConfigValue(
@@ -1404,7 +1488,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     return this.prompt({
       sessionId: meta.id,
-      input: [{ type: 'text', text: 'Generate AGENTS.md for this workspace.' }],
+      input: [{ type: 'text', text: DEFAULT_INIT_PROMPT }],
     });
   }
 
@@ -1432,16 +1516,41 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     commandId?: string;
   }): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
     const meta = this.requireSession(input.sessionId);
-    return new Promise((res) => {
-      exec(input.command, { cwd: meta.workDir }, (error, stdout, stderr) => {
-        res({
-          stdout: stdout ?? '',
-          stderr: stderr ?? '',
-          isError: !!error,
-          backgrounded: false,
+    try {
+      const { nativeBashSpawn, nativeBashWait } = await import('@moonshot-ai/kimi-agent/native');
+      const shell = probeShellPath() ?? 'bash';
+      let stdout = '';
+      let stderr = '';
+      const { id } = nativeBashSpawn(
+        {
+          argv: [shell, '-c', input.command],
+          cwd: meta.workDir,
+        },
+        (_err, ev) => {
+          if (!ev) return;
+          if (ev.kind === 'stdout' && ev.data) stdout += ev.data;
+          if (ev.kind === 'stderr' && ev.data) stderr += ev.data;
+        },
+      );
+      const exit = await nativeBashWait(id);
+      return {
+        stdout,
+        stderr,
+        isError: exit.exitCode !== 0 || Boolean(exit.error),
+        backgrounded: false,
+      };
+    } catch {
+      return new Promise((res) => {
+        exec(input.command, { cwd: meta.workDir }, (error, stdout, stderr) => {
+          res({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            isError: !!error,
+            backgrounded: false,
+          });
         });
       });
-    });
+    }
   }
 
   override async getContext(input: SessionIdRpcInput): Promise<AgentContextData> {
@@ -1695,6 +1804,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const id = `plugin_${randomUUID()}`;
     return {
       id,
+      name: source,
       displayName: source,
       version: '1.0.0',
       enabled: true,
@@ -1722,6 +1832,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async getPluginInfo(id: string): Promise<PluginInfo> {
     return {
       id,
+      name: id,
       displayName: id,
       version: '1.0.0',
       enabled: true,
@@ -1932,6 +2043,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       }
     }
     this.liveSessions.clear();
+    await flushDiagnosticLogs();
   }
 }
 

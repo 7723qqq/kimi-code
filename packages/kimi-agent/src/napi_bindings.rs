@@ -729,6 +729,9 @@ pub struct JsRunTurnParams {
     pub tools: Vec<JsToolDef>,
     /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
+    /// LLM retry attempts per step (v2 `loopControl.maxAttemptsPerStep`).
+    /// `None` = engine default (10).
+    pub max_attempts: Option<u32>,
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's default compaction budget.
     pub max_context_tokens: Option<u32>,
@@ -786,6 +789,9 @@ pub struct JsRunTurnParams {
     /// `RunTurnParams`).
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
+    pub todo_tool_veto: Option<String>,
+    pub tower_worktree_root: Option<String>,
+    pub sandbox_mode: Option<String>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
     /// Native MCP servers configuration (P73).
@@ -1310,6 +1316,14 @@ async fn build_engine_pipeline(
             .map(|timeout| timeout as u64),
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
+        todo_tool_veto: params.todo_tool_veto.clone(),
+        tower_worktree_root: params.tower_worktree_root.clone(),
+        sandbox_mode: params.sandbox_mode.clone(),
+        sandbox_policy: params.sandbox_mode.as_deref().map(|mode_str| {
+            let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
+            let root = params.workspace_root.clone().unwrap_or_default();
+            crate::tools::sandbox::SandboxExecutionPolicy::new(mode, root)
+        }),
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
     };
@@ -1453,6 +1467,7 @@ async fn run_turn_rust_impl(
     });
 
     let input = RunTurnInput {
+        max_attempts: params.max_attempts,
         turn_id: turn_id.clone(),
         llm: llm.as_ref(),
         messages,

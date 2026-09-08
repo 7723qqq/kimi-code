@@ -75,6 +75,7 @@ pub fn execute_loop_step<'a>(
     messages: Vec<LLMMessage>,
     tools: &'a [&'a dyn ExecutableTool],
     tool_defs: Vec<ToolInfo>,
+    cancel: Option<&'a tokio_util::sync::CancellationToken>,
 ) -> BoxFuture<'a, Result<StepResult, Box<dyn std::error::Error + Send + Sync>>> {
     execute_loop_step_with_retry(
         turn_id,
@@ -84,6 +85,7 @@ pub fn execute_loop_step<'a>(
         tools,
         tool_defs,
         &RetryConfig::default(),
+        cancel,
     )
 }
 
@@ -95,23 +97,28 @@ pub fn execute_loop_step<'a>(
 /// to `retry_config.max_attempts` times. Each attempt is 1-based: the
 /// first call is attempt 1, the first retry is attempt 2, etc.
 ///
+/// `cancel` rides into every attempt's `LLMChatParams` so the provider
+/// transport can abort the in-flight request mid-stream (v2's AbortSignal).
+///
 /// Takes owned `messages` and `tool_defs` so the future doesn't borrow
 /// from the caller's local scope — this avoids lifetime propagation
 /// issues when awaited inside an outer async block.
 pub fn execute_loop_step_with_retry<'a>(
-    _turn_id: &'a str,
-    _step: u32,
+    turn_id: &'a str,
+    step: u32,
     llm: &'a dyn LLM,
     messages: Vec<LLMMessage>,
     _tools: &'a [&'a dyn ExecutableTool],
     tool_defs: Vec<ToolInfo>,
     retry_config: &RetryConfig,
+    cancel: Option<&'a tokio_util::sync::CancellationToken>,
 ) -> BoxFuture<'a, Result<StepResult, Box<dyn std::error::Error + Send + Sync>>> {
     let retry_config = retry_config.clone();
     Box::pin(async move {
         let params = LLMChatParams {
             messages,
             tools: tool_defs,
+            cancel: cancel.cloned(),
         };
 
         let mut attempt: u32 = 0;
@@ -133,6 +140,16 @@ pub fn execute_loop_step_with_retry<'a>(
                 return Err(e);
             }
             let delay = step_delay(retry_delay(attempt, &retry_config), wait_hint);
+            // v2 TurnStepRetrying telemetry event parity (stepRetryService.ts:151-163)
+            tracing::warn!(
+                turn_id = turn_id,
+                step = step,
+                failed_attempt = attempt,
+                next_attempt = attempt + 1,
+                max_attempts = retry_config.max_attempts,
+                delay_ms = delay.as_millis() as u64,
+                "TurnStepRetrying"
+            );
             tokio::time::sleep(delay).await;
         };
 
@@ -246,7 +263,7 @@ mod tests {
             max_delay_ms: 10,
         };
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(
             result.is_ok(),
             "should succeed after retries: {:?}",
@@ -265,7 +282,7 @@ mod tests {
             max_delay_ms: 10,
         };
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 2);
     }
@@ -280,7 +297,7 @@ mod tests {
             max_delay_ms: 10,
         };
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -291,7 +308,7 @@ mod tests {
         let llm = FlakyLlm::new(0, true);
         let config = RetryConfig::default();
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(result.is_ok());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -348,6 +365,7 @@ mod tests {
             &[],
             vec![],
             &RetryConfig::default(),
+            None,
         )
         .await
         .unwrap();
@@ -419,6 +437,7 @@ mod tests {
             &[],
             vec![],
             &RetryConfig::default(),
+            None,
         )
         .await;
         assert!(result.is_ok());
@@ -438,7 +457,7 @@ mod tests {
             max_delay_ms: 10,
         };
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
     }
@@ -452,7 +471,7 @@ mod tests {
             max_delay_ms: 10,
         };
         let result =
-            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config).await;
+            execute_loop_step_with_retry("t1", 1, &llm, vec![], &[], vec![], &config, None).await;
         assert!(result.is_ok());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 2);
     }
@@ -460,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_loop_step_no_retry_config() {
         let llm = FlakyLlm::new(0, true);
-        let result = execute_loop_step("t1", 1, &llm, vec![], &[], vec![]).await;
+        let result = execute_loop_step("t1", 1, &llm, vec![], &[], vec![], None).await;
         assert!(result.is_ok());
     }
 

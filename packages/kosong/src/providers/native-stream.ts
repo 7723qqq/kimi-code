@@ -73,7 +73,7 @@ function getNativeModule(): Record<string, unknown> | undefined {
   if (nativeModule !== undefined) return nativeModule;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nativeModule = require('@moonshot-ai/kimi-native-tools');
+    nativeModule = require('@moonshot-ai/kimi-agent/native');
     return nativeModule ?? undefined;
   } catch {
     nativeModule = null;

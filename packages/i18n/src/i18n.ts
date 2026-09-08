@@ -37,7 +37,7 @@ const flatMessages: Record<Locale, Map<string, string>> = {
 };
 
 // ── Optional native Rust engine ─────────────────────────────────────────────
-// The Rust engine (`@moonshot-ai/kimi-native-tools`) provides a faster path
+// The Rust engine (`@moonshot-ai/kimi-agent/native`) provides a faster path
 // via napi-rs. When unavailable (e.g. in a browser or packaged single-file
 // binary), we fall back to the pure-JS implementation transparently.
 
@@ -66,7 +66,7 @@ function loadNativeImpl(): NativeModule | null {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@moonshot-ai/kimi-native-tools') as NativeModule;
+    const mod = require('@moonshot-ai/kimi-agent/native') as NativeModule;
     if (
       typeof mod.nativeTranslateCached !== 'function' &&
       typeof mod.nativeTranslate !== 'function'
@@ -117,7 +117,7 @@ export type Engine = 'rust' | 'js';
 /**
  * Returns whether the native Rust engine is active, or the pure-JS fallback.
  *
- * - `'rust'` — `@moonshot-ai/kimi-native-tools` napi module loaded successfully
+ * - `'rust'` — `@moonshot-ai/kimi-agent/native` napi module loaded successfully
  * - `'js'`   — napi module unavailable, using pure-JS translation
  */
 export function getEngine(): Engine {

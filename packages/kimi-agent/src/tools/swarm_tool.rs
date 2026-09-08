@@ -56,9 +56,6 @@ pub struct SwarmTaskSpec {
 
 /// Whether this invocation carries arguments that require host-side handling.
 fn requires_host(args: &Value) -> bool {
-    if args.get("fork").and_then(|v| v.as_bool()) == Some(true) {
-        return true;
-    }
     if args
         .get("model")
         .and_then(|v| v.as_str())
@@ -81,6 +78,7 @@ fn is_rate_limit_error(err: &str) -> bool {
 struct SubagentSwarmLauncher {
     manager: Arc<SubagentManager>,
     parent_cancel: Option<ParentCancel>,
+    inherited_history: Option<Vec<crate::turn_loop::types::LLMMessage>>,
 }
 
 impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
@@ -90,6 +88,11 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
     ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
         let manager = self.manager.clone();
         let parent_cancel = self.parent_cancel.clone();
+        let fork_history = if options.plan.fork {
+            self.inherited_history.clone()
+        } else {
+            None
+        };
         Box::pin(async move {
             let role = format!("Swarm worker for {}", options.run.description);
             let agent_id = manager.spawn(&options.profile_name, &role).await?;
@@ -100,8 +103,12 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
 
             let completion: BoxFuture<'static, Result<AgentRunCompletion, AgentRunError>> =
                 Box::pin(async move {
-                    let run_fut =
-                        manager.run_foreground_turn(&target_id, &prompt, parent_cancel.as_ref());
+                    let run_fut = manager.run_foreground_turn_with_history(
+                        &target_id,
+                        &prompt,
+                        fork_history,
+                        parent_cancel.as_ref(),
+                    );
                     tokio::select! {
                         res = run_fut => {
                             match res {
@@ -238,6 +245,7 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
 
 fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content: msg.into(),
         is_error: true,
         note: None,
@@ -246,6 +254,7 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
 
 fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content: msg.into(),
         is_error: false,
         note: None,
@@ -493,6 +502,21 @@ pub async fn execute_agent_swarm(
         });
     }
 
+    let is_fork = input.fork.unwrap_or(false);
+    let inherited_history = if is_fork {
+        crate::tools::CURRENT_CONVERSATION_HISTORY
+            .try_with(|slot| slot.lock().unwrap().clone())
+            .ok()
+            .or_else(|| {
+                crate::tools::CALLER_AGENT_ID
+                    .try_with(|id| manager.get_foreground_history(id))
+                    .ok()
+                    .flatten()
+            })
+    } else {
+        None
+    };
+
     if let Some(template) = prompt_template {
         for (idx_offset, item) in items.into_iter().enumerate() {
             let prompt = template.replace(PROMPT_TEMPLATE_PLACEHOLDER, &item);
@@ -526,7 +550,7 @@ pub async fn execute_agent_swarm(
                     profile_name: subagent_type.to_string(),
                     model: String::new(),
                     thinking: None,
-                    fork: false,
+                    fork: is_fork,
                 }),
             });
         }
@@ -535,6 +559,7 @@ pub async fn execute_agent_swarm(
     let launcher = Arc::new(SubagentSwarmLauncher {
         manager: manager.clone(),
         parent_cancel: parent_cancel.cloned(),
+        inherited_history,
     });
 
     let env_map: HashMap<String, String> = std::env::vars().collect();
@@ -729,6 +754,7 @@ mod tests {
         ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
                     note: None,

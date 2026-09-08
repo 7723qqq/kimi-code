@@ -20,8 +20,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, Bun executing `src/main.ts` directly); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
-- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update remains engine-aware for legacy SEA installs.
+- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (supports `--web` to launch the Web UI powered by native Rust server); `start-web-native.bat` provides one-click launch for the native Web UI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update is fully native Bun binary based.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -49,7 +49,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (kimi-web, vis-web, vscode webview) |
-| **Cargo** | Rust build for `kimi-native-tools` and `kimi-agent` (napi-rs) |
+| **Cargo** | Rust build for `kimi-agent` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
 ### Quality Tooling
@@ -83,7 +83,7 @@ apps/
 
 #### `apps/kimi-code` — CLI / TUI Application
 
-The main application. Consumes core capabilities through `@moonshot-ai/kimi-code-sdk` and must **not** depend directly on `@moonshot-ai/agent-core-v2` outside the `cli/v2` runner. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
+The main application. Consumes core capabilities through `@moonshot-ai/kimi-code-sdk`. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
 
 **Source layout:**
 
@@ -154,17 +154,12 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
-  acp-server/          — Agent Client Protocol (ACP) host over the v2 engine
-  agent-core-v2/       — Agent engine v2 (DI × Scope architecture)
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
-  kimi-agent/          — Rust agent engine (experimental)
-  kimi-native-tools/   — Rust native Node addon (napi-rs)
-  klient/              — Client SDK (contract-driven facade over agent-core-v2)
+  kimi-agent/          — Rust agent engine + native Node addon (napi-rs)
   kosong/              — LLM / provider abstraction layer
-  migration-legacy/    — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
   minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   oauth/               — Kimi OAuth and managed auth utilities
@@ -177,20 +172,13 @@ packages/
 
 #### Key Package Details
 
-**`agent-core-v2`** (v0.4.1) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`kimi-agent`** — Next-generation Rust agent engine that drives the entire agent execution. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, ACP stdio protocol, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). The former `kimi-native-tools` addon (bash, grep, glob, read, write, edit, token counting, output truncation, web fetching, image processing, SSE streaming, SQLite, ULID, i18n translation) was merged into this crate under `src/native/` — one crate, one `.node` binary, one npm package. See `packages/kimi-agent/ROADMAP.md`.
 
-**`kosong`** (v0.5.5) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). `agent-core-v2`'s `src/kosong/` keeps the DI/trait composition machinery and imports the shared layers from here (its `contract/` directory is a thin re-export). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
+**`kosong`** (v0.5.5) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
-**`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
-
-**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
+**`kap-server`** — The Kimi Code local server. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
-
-**`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
-
-**`kimi-agent`** — Next-generation Rust agent engine designed to progressively replace `agent-core-v2`. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). See `packages/kimi-agent/ROADMAP.md`.
-
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
@@ -211,7 +199,7 @@ scripts/
   check-locale-keys.mjs         — Check locale key coverage
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
-  check-no-comments.mjs         — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
+  check-no-comments.mjs         — Enforce no-comment policy (kap-server, transcript)
   check-service-naming.mjs      — Check service naming conventions
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
@@ -224,7 +212,7 @@ scripts/
 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
 - **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
-- **Published package engines**: 发布包与 native 包的 `engines` 一律是 `bun >= 1.4`（`apps/kimi-code`、`packages/kimi-native-tools`、`packages/pi-tui`），全仓没有任何 Node 下限。合并上游时**不要把 Node 侧工具链内容拉回来** —— `pnpm-lock.yaml`、`engines.node`、Node-only 脚本、SEA 构建步骤、装 Node 的 CI job 一律拒绝，相关需求在 Bun 上重新表达。两个例外：self-update 仍要能识别*已装好的* legacy SEA 安装（只读兼容，不再产出 SEA 产物）；`packages/node-sdk` 是产品 SDK 的包名，不属于工具链。
+- **Published package engines**: 发布包与 native 包的 `engines` 一律是 `bun >= 1.4`（`apps/kimi-code`、`packages/kimi-agent`、`packages/pi-tui`），全仓没有任何 Node 下限。合并上游时**不要把 Node 侧工具链内容拉回来** —— `pnpm-lock.yaml`、`engines.node`、Node-only 脚本、SEA 构建步骤、装 Node 的 CI job 一律拒绝，相关需求在 Bun 上重新表达。唯一例外：`packages/node-sdk` 是产品 SDK 的包名，不属于工具链。
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -277,8 +265,8 @@ cd apps/kimi-code && bun run test
 cd apps/kimi-code && bun run e2e     # E2E tests (sets KIMI_E2E=1)
 
 # Native tools (Rust)
-cd packages/kimi-native-tools && cargo test --lib  # cdylib crate: doc tests unsupported
-cd packages/kimi-native-tools && cargo build --release
+cd packages/kimi-agent && cargo test --features cli  # lib + stdio-RPC integration tests
+cd packages/kimi-agent && cargo build --release --features cli
 bun run build:native:bun:release  # Full release build (from apps/kimi-code)
 
 # VS Code extension
@@ -299,9 +287,9 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
 3. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
-4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff), and the G-5 engine-override coverage gate (`cd packages/agent-core-v2 && bun run check:engine-zero-js-loop` — proves no v2 JS-loop code executes under a TurnEngine override; see `packages/kimi-agent/ROADMAP.md` P36)
+4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
+6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
@@ -354,7 +342,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 ### General Coding Rules
 
-- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
+- `packages/kap-server` and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`
@@ -384,7 +372,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 - **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
 - **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; this suite still runs under Node)
-- **cargo test** for Rust packages (`kimi-native-tools`)
+- **cargo test** for the Rust package (`kimi-agent`)
 - **Coverage**: v8 provider, reports in text + HTML
 
 ### Vitest Configuration
@@ -460,7 +448,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is the source of truth for product behavior; the fork keeps only four kinds of delta: i18n, the Rust engine / native-tools gate, `packages/kimi-agent`, and the Bun toolchain. Anything else in the fork's `HEAD` side of a conflict is legacy and should lose.
 
-- **Upstream `agent-core` (v1) / `agent-core-v2` engine behavior lands in Rust, not in TS.** Resolve the TS conflict by taking `theirs` so the TS build and tests stay faithful to upstream's shape, then register the behavior delta as a work item in `packages/kimi-agent/ROADMAP.md`. Do not re-implement new upstream engine behavior in TS — that builds the thing being retired. Gate proving it: `(cd packages/agent-core-v2 && bun run check:engine-zero-js-loop)` must stay green after every engine batch.
+- **Upstream engine behavior lands in Rust, not in TS.** Resolve the TS conflict by taking `theirs` so the TS build and tests stay faithful to upstream's shape, then register the behavior delta as a work item in `packages/kimi-agent/ROADMAP.md`. Do not re-implement new upstream engine behavior in TS — that builds the thing being retired.
 - **Node-side toolchain content is never pulled back** — see Environment Requirements above. Audit the **auto-merged index**, not just conflicted files: git merges `package.json`, `flake.nix`, `vitest.config.ts`, and `.github/workflows` without asking, so a Node floor or a pnpm job can land silently.
 - **Fork-only files upstream deletes stay deleted only when the fork's coupling is migrated.** A modify/delete conflict is not resolved by `git rm` alone — grep the removed module for importers first; fork-only importers (absent from both base and upstream) mean the fork built on top of it and needs a new home.
 - `packages/node-sdk` is `@moonshot-ai/kimi-code-sdk`, the internal SDK seam used by `apps/kimi-code` and `apps/vscode`. Its directory name refers to its Node runtime target; it is product surface, not toolchain.
@@ -470,7 +458,7 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 ## Version Management (Changesets)
 
 - **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
-- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`, `@moonshot-ai/kimi-native-tools`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
+- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
 - Changesets are maintained **as a changelog source only**: keep writing them for user-facing changes so release notes stay available, but they are not consumed by a local release flow. Before merging upstream, prune accumulated non-user-facing entries (see the `gen-changesets` skill).
 - Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `bun run changeset`.
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).
@@ -481,8 +469,7 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 
 ## Experimental Features
 
-- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand; see `packages/agent-core-v2/docs/flag.md`), then check it with `flags.enabled('my-feature')` (or `IFlagService.enabled(id)` inside services).
-- Flags are env-driven; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`). Precedence is per-flag env > `[experimental]` config > master env > the flag's `default` — an explicit `[experimental]` entry in `config.toml` overrides the `KIMI_CODE_EXPERIMENTAL_FLAG` master switch:
+- Gate a not-yet-public feature behind an experimental flag. Precedence is per-flag env > `[experimental]` config > master env > the flag's `default` — an explicit `[experimental]` entry in `config.toml` overrides the `KIMI_CODE_EXPERIMENTAL_FLAG` master switch:
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
 - Release by flipping the flag's `default` to `true`.

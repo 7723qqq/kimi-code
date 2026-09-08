@@ -27,6 +27,7 @@ pub fn build_request_full(
 ) -> Value {
     let mut system = String::new();
     let mut contents: Vec<Value> = Vec::new();
+    let mut tool_name_by_id = std::collections::HashMap::new();
 
     for m in messages {
         match m.role.as_str() {
@@ -42,6 +43,7 @@ pub fn build_request_full(
                     parts.push(json!({ "text": m.content }));
                 }
                 for tc in &m.tool_calls {
+                    tool_name_by_id.insert(tc.id.clone(), tc.name.clone());
                     parts.push(json!({
                         "functionCall": {
                             "name": tc.name,
@@ -52,18 +54,28 @@ pub fn build_request_full(
                 contents.push(json!({ "role": "model", "parts": parts }));
             }
             "tool" => {
-                let tool_name = m.tool_call_id.as_deref().unwrap_or("tool");
-                let parsed_response: Value = serde_json::from_str(&m.content)
-                    .unwrap_or_else(|_| json!({ "output": m.content }));
+                let call_id = m.tool_call_id.as_deref().unwrap_or_default();
+                let tool_name = tool_name_by_id.get(call_id).cloned().unwrap_or_else(|| {
+                    fallback_tool_name_from_id(call_id)
+                });
+
+                // Gemini 强制要求 functionResponse.response 必须为 JSON Object
+                let response_obj = if let Ok(Value::Object(map)) = serde_json::from_str(&m.content) {
+                    Value::Object(map)
+                } else {
+                    json!({ "output": m.content })
+                };
+
                 let part = json!({
                     "functionResponse": {
                         "name": tool_name,
-                        "response": parsed_response,
+                        "response": response_obj,
                     }
                 });
                 if let Some(last_msg) = contents.last_mut()
                     && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
-                    && let Some(parts_arr) = last_msg.get_mut("parts").and_then(|p| p.as_array_mut())
+                    && let Some(parts_arr) =
+                        last_msg.get_mut("parts").and_then(|p| p.as_array_mut())
                 {
                     parts_arr.push(part);
                 } else {
@@ -94,7 +106,8 @@ pub fn build_request_full(
                 }
                 if let Some(last_msg) = contents.last_mut()
                     && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
-                    && let Some(parts_arr) = last_msg.get_mut("parts").and_then(|p| p.as_array_mut())
+                    && let Some(parts_arr) =
+                        last_msg.get_mut("parts").and_then(|p| p.as_array_mut())
                 {
                     parts_arr.extend(parts);
                 } else {
@@ -347,6 +360,19 @@ impl StreamAccumulator {
     }
 }
 
+fn fallback_tool_name_from_id(call_id: &str) -> String {
+    if call_id.is_empty() {
+        return "tool".to_string();
+    }
+    if let Some(pos) = call_id.rfind('_') {
+        let prefix = &call_id[..pos];
+        if !prefix.is_empty() {
+            return prefix.to_string();
+        }
+    }
+    call_id.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,7 +400,10 @@ mod tests {
         }];
 
         let req = build_request_full(&messages, &tools, Some(2048));
-        assert_eq!(req["systemInstruction"]["parts"][0]["text"], "You are a bot");
+        assert_eq!(
+            req["systemInstruction"]["parts"][0]["text"],
+            "You are a bot"
+        );
 
         let contents = req["contents"].as_array().unwrap();
         assert_eq!(contents.len(), 3);
@@ -391,7 +420,10 @@ mod tests {
         let decls = req["tools"][0]["functionDeclarations"].as_array().unwrap();
         assert_eq!(decls[0]["name"], "Grep");
 
-        assert_eq!(req["generationConfig"]["thinkingConfig"]["thinkingBudget"], 2048);
+        assert_eq!(
+            req["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            2048
+        );
     }
 
     #[test]
@@ -466,5 +498,42 @@ mod tests {
         });
         let parsed_no_id = parse_response(&resp_no_id).unwrap();
         assert_eq!(parsed_no_id.tool_calls[0].id, "Read_0");
+    }
+
+    #[test]
+    fn test_build_request_maps_function_response_name_correctly() {
+        let msgs = vec![
+            WireMessage::text("user", "read this"),
+            WireMessage {
+                role: "assistant".into(),
+                content: "".into(),
+                blocks: vec![],
+                tool_calls: vec![ToolCall {
+                    id: "call_abc_123".into(),
+                    name: "read_file".into(),
+                    arguments: json!({ "path": "test.txt" }),
+                }],
+                tool_call_id: None,
+            },
+            WireMessage {
+                role: "tool".into(),
+                content: "file content here".into(),
+                blocks: vec![],
+                tool_calls: vec![],
+                tool_call_id: Some("call_abc_123".into()),
+            },
+        ];
+
+        let req = build_request(&msgs, &[], None);
+        let contents = req["contents"].as_array().unwrap();
+        assert_eq!(contents.len(), 3);
+
+        // 关键断言：第 3 条消息 (tool) 被映射为 user 角色，且 functionResponse.name 必须是工具名 read_file，而不是 call_abc_123！
+        assert_eq!(contents[2]["role"], "user");
+        let resp_part = &contents[2]["parts"][0]["functionResponse"];
+        assert_eq!(resp_part["name"], "read_file");
+        // 关键断言：response 必须为 JSON Object
+        assert!(resp_part["response"].is_object());
+        assert_eq!(resp_part["response"]["output"], "file content here");
     }
 }

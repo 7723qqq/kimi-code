@@ -228,31 +228,48 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 }
 
 fn parse_usage(usage: Option<&Value>) -> TokenUsage {
-    let raw_input = usage
-        .and_then(|u| u.get("prompt_tokens"))
+    let Some(u) = usage else {
+        return TokenUsage::default();
+    };
+
+    let prompt_tokens = u
+        .get("prompt_tokens")
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
-    let output_tokens = usage
-        .and_then(|u| u.get("completion_tokens"))
+    let output_tokens = u
+        .get("completion_tokens")
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
-    // OpenAI reports cache hits under `prompt_tokens_details.cached_tokens`,
-    // which are already part of `prompt_tokens`. The wire's `input_tokens`
-    // means the uncached remainder — the host reads it straight into
-    // `inputOther`, and the host-proxy leg fills that same field from
-    // kosong's already-subtracted `inputOther` (`rust-loop.ts:2262`) — so the
-    // subtraction belongs here for the two legs to agree.
-    let input_cache_read = usage
-        .and_then(|u| u.get("prompt_tokens_details"))
-        .and_then(|d| d.get("cached_tokens"))
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
-    let input_tokens = raw_input.saturating_sub(input_cache_read);
+
+    let mut cached = 0u32;
+    let mut miss: Option<u32> = None;
+
+    // 1. DeepSeek 专有字段：顶层 prompt_cache_hit_tokens / prompt_cache_miss_tokens
+    if let Some(hit) = u.get("prompt_cache_hit_tokens").and_then(|x| x.as_u64()) {
+        cached = hit as u32;
+        if let Some(m) = u.get("prompt_cache_miss_tokens").and_then(|x| x.as_u64()) {
+            miss = Some(m as u32);
+        }
+    } else if let Some(top_cached) = u.get("cached_tokens").and_then(|x| x.as_u64()) {
+        // 2. Moonshot AI (Kimi) 专有字段：顶层 cached_tokens
+        cached = top_cached as u32;
+    } else if let Some(details) = u.get("prompt_tokens_details") {
+        // 3. OpenAI 官方规范字段：prompt_tokens_details.cached_tokens
+        if let Some(detail_cached) = details.get("cached_tokens").and_then(|x| x.as_u64()) {
+            cached = detail_cached as u32;
+        }
+    }
+
+    let input_tokens = match miss {
+        Some(m) => m,
+        None => prompt_tokens.saturating_sub(cached),
+    };
+
     TokenUsage {
         input_tokens,
         output_tokens,
         total_tokens: input_tokens + output_tokens,
-        input_cache_read,
+        input_cache_read: cached,
         input_cache_creation: 0,
     }
 }
@@ -351,6 +368,8 @@ impl StreamAccumulator {
             .get("reasoning_content")
             .and_then(|c| c.as_str())
             .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
+            .or_else(|| delta.get("reasoning_text").and_then(|c| c.as_str()))
+            .or_else(|| delta.get("thought").and_then(|c| c.as_str()))
             && !think.is_empty()
         {
             self.thinking.push_str(think);
@@ -802,5 +821,45 @@ mod tests {
 
         let req_none = build_request_full("gpt-4o", &msgs, &[], true, None);
         assert!(req_none.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_parse_usage_cache_variants() {
+        // 1. DeepSeek 专有格式 (prompt_cache_hit_tokens)
+        let ds_usage = json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "prompt_cache_hit_tokens": 80,
+            "prompt_cache_miss_tokens": 20
+        });
+        let ds_res = parse_usage(Some(&ds_usage));
+        assert_eq!(ds_res.input_cache_read, 80);
+        assert_eq!(ds_res.input_tokens, 20);
+        assert_eq!(ds_res.output_tokens, 20);
+        assert_eq!(ds_res.total_tokens, 40);
+
+        // 2. Moonshot AI (Kimi) 专有格式 (cached_tokens)
+        let moonshot_usage = json!({
+            "prompt_tokens": 1000,
+            "completion_tokens": 50,
+            "cached_tokens": 900
+        });
+        let ms_res = parse_usage(Some(&moonshot_usage));
+        assert_eq!(ms_res.input_cache_read, 900);
+        assert_eq!(ms_res.input_tokens, 100);
+        assert_eq!(ms_res.output_tokens, 50);
+
+        // 3. OpenAI 官方嵌套格式 (prompt_tokens_details.cached_tokens)
+        let openai_usage = json!({
+            "prompt_tokens": 500,
+            "completion_tokens": 30,
+            "prompt_tokens_details": {
+                "cached_tokens": 350
+            }
+        });
+        let oai_res = parse_usage(Some(&openai_usage));
+        assert_eq!(oai_res.input_cache_read, 350);
+        assert_eq!(oai_res.input_tokens, 150);
+        assert_eq!(oai_res.output_tokens, 30);
     }
 }

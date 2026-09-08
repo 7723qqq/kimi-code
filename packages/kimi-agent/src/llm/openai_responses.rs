@@ -8,6 +8,12 @@ use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
+/// 判断模型是否在 Responses API 中要求使用 developer 角色替代 system 角色 (o1/o3/o4 系列)
+pub fn uses_developer_role(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.contains("o1") || lower.contains("o3") || lower.contains("o4")
+}
+
 /// Build an OpenAI `/v1/responses` request payload.
 pub fn build_request_full(
     model: &str,
@@ -17,18 +23,22 @@ pub fn build_request_full(
     reasoning_effort: Option<&str>,
 ) -> Value {
     let mut input: Vec<Value> = Vec::new();
+    let dev_role = uses_developer_role(model);
 
     for m in messages {
         match m.role.as_str() {
             "system" => {
+                let role = if dev_role { "developer" } else { "system" };
                 input.push(json!({
-                    "role": "system",
+                    "type": "message",
+                    "role": role,
                     "content": m.content,
                 }));
             }
             "assistant" => {
                 if !m.content.is_empty() {
                     input.push(json!({
+                        "type": "message",
                         "role": "assistant",
                         "content": m.content,
                     }));
@@ -68,11 +78,13 @@ pub fn build_request_full(
                         }
                     }
                     input.push(json!({
+                        "type": "message",
                         "role": "user",
                         "content": parts,
                     }));
                 } else {
                     input.push(json!({
+                        "type": "message",
                         "role": "user",
                         "content": m.content,
                     }));
@@ -145,7 +157,11 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                         .and_then(|a| a.as_str())
                         .and_then(|s| serde_json::from_str(s).ok())
                         .unwrap_or(json!({}));
-                    tool_calls.push(ToolCall { id, name, arguments });
+                    tool_calls.push(ToolCall {
+                        id,
+                        name,
+                        arguments,
+                    });
                 }
                 "reasoning" => {
                     let encrypted = item
@@ -185,25 +201,32 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 }
 
 fn parse_usage(usage: Option<&Value>) -> TokenUsage {
-    let input_tokens = usage
-        .and_then(|u| u.get("input_tokens"))
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
-    let output_tokens = usage
-        .and_then(|u| u.get("output_tokens"))
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
-    let total_tokens = usage
-        .and_then(|u| u.get("total_tokens"))
-        .and_then(|x| x.as_u64())
-        .map(|t| t as u32)
-        .unwrap_or(input_tokens + output_tokens);
+    let Some(u) = usage else {
+        return TokenUsage::default();
+    };
 
-    let input_cache_read = usage
-        .and_then(|u| u.get("input_tokens_details"))
+    let raw_input = u
+        .get("input_tokens")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let output_tokens = u
+        .get("output_tokens")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+
+    let input_cache_read = u
+        .get("input_tokens_details")
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|x| x.as_u64())
         .unwrap_or(0) as u32;
+
+    let input_tokens = raw_input.saturating_sub(input_cache_read);
+
+    let total_tokens = u
+        .get("total_tokens")
+        .and_then(|x| x.as_u64())
+        .map(|t| t as u32)
+        .unwrap_or(input_tokens + output_tokens);
 
     TokenUsage {
         input_tokens,
@@ -313,9 +336,13 @@ impl StreamAccumulator {
                 .current_call_id
                 .take()
                 .unwrap_or_else(|| format!("call_{}", self.tool_calls.len()));
-            let arguments: Value = serde_json::from_str(&self.current_call_args)
-                .unwrap_or_else(|_| json!({}));
-            self.tool_calls.push(ToolCall { id, name, arguments });
+            let arguments: Value =
+                serde_json::from_str(&self.current_call_args).unwrap_or_else(|_| json!({}));
+            self.tool_calls.push(ToolCall {
+                id,
+                name,
+                arguments,
+            });
             self.current_call_args.clear();
         }
     }
@@ -390,7 +417,10 @@ mod tests {
             "type": "response.reasoning_summary_text.delta",
             "delta": "Thinking about it..."
         }));
-        assert_eq!(delta1, Some(StreamDelta::Think("Thinking about it...".into())));
+        assert_eq!(
+            delta1,
+            Some(StreamDelta::Think("Thinking about it...".into()))
+        );
 
         let delta2 = acc.feed(&json!({
             "type": "response.output_text.delta",
@@ -462,6 +492,47 @@ mod tests {
         }));
 
         let resp = acc.finish();
-        assert_eq!(resp.finish_reason.as_deref(), Some("failed: Rate limit exceeded"));
+        assert_eq!(
+            resp.finish_reason.as_deref(),
+            Some("failed: Rate limit exceeded")
+        );
+    }
+
+    #[test]
+    fn test_responses_developer_role_for_o1_o3() {
+        let msgs = vec![
+            WireMessage::text("system", "You are an expert coder."),
+            WireMessage::text("user", "Hello o3"),
+        ];
+        let req_o3 = build_request_full("o3-mini", &msgs, &[], true, None);
+        let input_o3 = req_o3["input"].as_array().unwrap();
+        // o1/o3 模型断言：system 角色必须映射为 developer 且携带 type: message
+        assert_eq!(input_o3[0]["type"], "message");
+        assert_eq!(input_o3[0]["role"], "developer");
+        assert_eq!(input_o3[0]["content"], "You are an expert coder.");
+        assert_eq!(input_o3[1]["type"], "message");
+        assert_eq!(input_o3[1]["role"], "user");
+
+        // 普通模型保持 role: system
+        let req_4o = build_request_full("gpt-4o", &msgs, &[], true, None);
+        let input_4o = req_4o["input"].as_array().unwrap();
+        assert_eq!(input_4o[0]["type"], "message");
+        assert_eq!(input_4o[0]["role"], "system");
+    }
+
+    #[test]
+    fn test_responses_usage_subtracts_cached_tokens() {
+        let usage = json!({
+            "input_tokens": 1000,
+            "output_tokens": 50,
+            "input_tokens_details": {
+                "cached_tokens": 800
+            }
+        });
+        let parsed = parse_usage(Some(&usage));
+        assert_eq!(parsed.input_cache_read, 800);
+        // 关键断言：未缓存输入 Token 必须正确扣减已缓存部分 (1000 - 800 = 200)
+        assert_eq!(parsed.input_tokens, 200);
+        assert_eq!(parsed.output_tokens, 50);
     }
 }

@@ -6,6 +6,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
+use serde::{Deserialize, Serialize};
+
+use crate::session::sqlite_store::SqliteSessionStore;
 use crate::subagent::types::*;
 
 type InstanceEntry = (SubagentInstance, Arc<AtomicBool>);
@@ -197,6 +200,10 @@ pub struct SubagentManager {
     /// `resume` call continues the same subagent natively (v2 persistent
     /// scopes). Written on foreground completion; read by `resume` calls.
     foreground_histories: Arc<Mutex<HashMap<String, ForegroundResume>>>,
+    /// Optional SQLite store for cold resume across restarts (#3478).
+    session_store: RwLock<Option<Arc<SqliteSessionStore>>>,
+    /// Optional TaskRunner for background subagent task management and inspection.
+    task_runner: RwLock<Option<Arc<crate::storage::TaskRunner>>>,
 }
 
 /// A foreground subagent's resume record (P55).
@@ -205,6 +212,16 @@ struct ForegroundResume {
     profile_name: String,
     role: String,
     messages: Vec<crate::turn_loop::types::LLMMessage>,
+}
+
+/// Persisted state for subagent cold resume (#3478).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentPersistedState {
+    pub id: String,
+    pub profile_name: String,
+    pub role: String,
+    pub messages: Vec<crate::turn_loop::types::LLMMessage>,
+    pub updated_at: i64,
 }
 
 impl Default for SubagentManager {
@@ -296,6 +313,7 @@ async fn run_one(
     parent_cancel: Option<&crate::subagent::types::ParentCancel>,
 ) -> Result<crate::turn_loop::types::TurnResult, RunExit> {
     let run_input = crate::turn_loop::types::RunTurnInput {
+        max_attempts: None,
         turn_id: format!("subturn-{}", fastrand::u64(..)),
         llm: runtime.llm.as_ref(),
         messages,
@@ -356,6 +374,60 @@ impl SubagentManager {
             persistent: Arc::new(RwLock::new(HashMap::new())),
             runtime: RwLock::new(None),
             foreground_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_store: RwLock::new(None),
+            task_runner: RwLock::new(None),
+        }
+    }
+
+    /// Construct with a persistent TaskRunner for background subagents.
+    pub fn with_task_runner(self, runner: Arc<crate::storage::TaskRunner>) -> Self {
+        *self.task_runner.try_write().unwrap() = Some(runner);
+        self
+    }
+
+    /// Inject or update TaskRunner asynchronously.
+    pub async fn set_task_runner(&self, runner: Arc<crate::storage::TaskRunner>) {
+        *self.task_runner.write().await = Some(runner);
+    }
+
+    /// Inject or update TaskRunner synchronously if possible.
+    pub fn set_task_runner_sync(&self, runner: Arc<crate::storage::TaskRunner>) {
+        if let Ok(mut guard) = self.task_runner.try_write() {
+            *guard = Some(runner);
+        }
+    }
+
+    /// Construct with a persistent SQLite store for cold recovery (#3478).
+    pub fn with_store(store: Arc<SqliteSessionStore>) -> Self {
+        let manager = Self::new();
+        *manager.session_store.try_write().unwrap() = Some(store);
+        manager
+    }
+
+    /// Inject or update SQLite store.
+    pub async fn set_session_store(&self, store: Arc<SqliteSessionStore>) {
+        *self.session_store.write().await = Some(store);
+    }
+
+    /// Register standard builtin profiles from ProfileCatalog (agent, coder, explore, plan).
+    pub async fn register_builtin_profiles(&self) {
+        let catalog = crate::prompt::ProfileCatalog::with_builtins();
+        for p in catalog.list() {
+            self.register_definition(SubagentDefinition {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                system_prompt: if p.role_additional.is_empty() {
+                    format!("You are {}. Complete the user's task accurately.", p.name)
+                } else {
+                    p.role_additional.clone()
+                },
+                tools: p.tools.iter().map(|t| t.to_lowercase()).collect(),
+                disallowed_tools: Vec::new(),
+                prompt_prefix: None,
+                summary_policy: None,
+                model: None,
+            })
+            .await;
         }
     }
 
@@ -411,12 +483,17 @@ impl SubagentManager {
 
     /// Spawn a new subagent instance.
     pub async fn spawn(&self, type_name: &str, role: &str) -> Result<String, String> {
+        let id = format!("subagent-{}", fastrand::u64(..));
+        self.spawn_with_id(&id, type_name, role).await
+    }
+
+    /// Spawn a new subagent instance with an explicit identifier.
+    pub async fn spawn_with_id(&self, id: &str, type_name: &str, role: &str) -> Result<String, String> {
         let defs = self.definitions.read().await;
         if !defs.contains_key(type_name) && type_name != "self" {
             return Err(format!("Unknown subagent type: '{type_name}'"));
         }
 
-        let id = format!("subagent-{}", fastrand::u64(..));
         let cancellation = Arc::new(AtomicBool::new(false));
 
         let now_ms = std::time::SystemTime::now()
@@ -425,7 +502,7 @@ impl SubagentManager {
             .as_millis() as u64;
 
         let instance = SubagentInstance {
-            id: id.clone(),
+            id: id.to_string(),
             type_name: type_name.to_string(),
             role: role.to_string(),
             state: SubagentState::Running,
@@ -434,9 +511,9 @@ impl SubagentManager {
         };
 
         let mut instances = self.instances.write().await;
-        instances.insert(id.clone(), (instance, cancellation));
+        instances.insert(id.to_string(), (instance, cancellation));
 
-        Ok(id)
+        Ok(id.to_string())
     }
 
     /// Spawn a new subagent and launch an autonomous background execution loop.
@@ -480,7 +557,11 @@ impl SubagentManager {
             instances.get(&subagent_id).map(|(_, c)| c.clone())
         };
 
-        tokio::spawn(async move {
+        let runner = {
+            self.task_runner.read().await.clone()
+        };
+
+        let subagent_run = async move {
             let turn_id = format!("subturn-{}", fastrand::u64(..));
             let messages = vec![crate::turn_loop::types::LLMMessage {
                 role: "user".into(),
@@ -491,6 +572,7 @@ impl SubagentManager {
             }];
 
             let run_input = crate::turn_loop::types::RunTurnInput {
+                max_attempts: None,
                 turn_id,
                 llm: llm.as_ref(),
                 messages,
@@ -516,19 +598,29 @@ impl SubagentManager {
                         "Subagent '{}' finished in {} steps (Tokens: {}).",
                         subagent_role, turn_res.steps, turn_res.usage.total_tokens
                     );
-                    mgr.update_state(&subagent_id, SubagentState::Completed, Some(result_text))
+                    mgr.update_state(&subagent_id, SubagentState::Completed, Some(result_text.clone()))
                         .await;
+                    result_text
                 }
                 Err(err_msg) => {
+                    let err_text = format!("Error: {err_msg}");
                     mgr.update_state(
                         &subagent_id,
                         SubagentState::Failed,
-                        Some(format!("Error: {err_msg}")),
+                        Some(err_text.clone()),
                     )
                     .await;
+                    err_text
                 }
             }
-        });
+        };
+
+        if let Some(task_runner) = runner {
+            let description = format!("Subagent {}: {}", role, prompt);
+            let _ = task_runner.spawn_task(id.clone(), description, subagent_run);
+        } else {
+            tokio::spawn(subagent_run);
+        }
 
         Ok(id)
     }
@@ -542,6 +634,21 @@ impl SubagentManager {
         &self,
         id: &str,
         prompt: &str,
+        parent_cancel: Option<&crate::subagent::types::ParentCancel>,
+    ) -> Result<ForegroundTurnOutcome, String> {
+        self.run_foreground_turn_with_history(id, prompt, None, parent_cancel)
+            .await
+    }
+
+    /// Run one foreground subagent turn with an optional inherited conversation
+    /// history (v2 `fork: true` semantics). If `inherited_history` is present,
+    /// any unclosed trailing tool calls are reconciled via `close_trailing_open_tool_exchange`
+    /// before prepending to the new task prompt.
+    pub async fn run_foreground_turn_with_history(
+        &self,
+        id: &str,
+        prompt: &str,
+        inherited_history: Option<Vec<crate::turn_loop::types::LLMMessage>>,
         parent_cancel: Option<&crate::subagent::types::ParentCancel>,
     ) -> Result<ForegroundTurnOutcome, String> {
         let (cancel_flag, type_name, role) = {
@@ -590,13 +697,25 @@ impl SubagentManager {
             _ => prompt.to_string(),
         };
 
-        let messages = vec![crate::turn_loop::types::LLMMessage {
-            role: "user".into(),
-            content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
-            blocks: Vec::new(),
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        }];
+        let messages = if let Some(history) = inherited_history {
+            let mut msgs = crate::subagent::fork::close_trailing_open_tool_exchange(&history);
+            msgs.push(crate::turn_loop::types::LLMMessage {
+                role: "user".into(),
+                content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
+                blocks: Vec::new(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+            });
+            msgs
+        } else {
+            vec![crate::turn_loop::types::LLMMessage {
+                role: "user".into(),
+                content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
+                blocks: Vec::new(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+            }]
+        };
 
         // Attribute this turn's native tool calls to the subagent, not to the
         // main agent: the tower tools read CALLER_AGENT_ID to enforce the
@@ -656,6 +775,19 @@ impl SubagentManager {
                             messages: turn_res.messages.clone(),
                         },
                     );
+                // Persist to sqlite store if available (#3478)
+                if let Some(store) = self.session_store.read().await.as_ref() {
+                    let state = SubagentPersistedState {
+                        id: id.to_string(),
+                        profile_name: type_name.clone(),
+                        role: role.clone(),
+                        messages: turn_res.messages.clone(),
+                        updated_at: chrono::Utc::now().timestamp_millis(),
+                    };
+                    if let Ok(val) = serde_json::to_value(&state) {
+                        let _ = store.put_state("subagent_resume", id, &val);
+                    }
+                }
                 Ok(ForegroundTurnOutcome::Completed(turn_res))
             }
             Err(RunExit::ParentCancelled) => {
@@ -681,12 +813,51 @@ impl SubagentManager {
         prompt: &str,
         parent_cancel: Option<&crate::subagent::types::ParentCancel>,
     ) -> Option<Result<ForegroundTurnOutcome, String>> {
-        let record = {
+        let fg_record = {
             let histories = self
                 .foreground_histories
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            histories.get(id).cloned()?
+            histories.get(id).cloned()
+        };
+        let record = match fg_record {
+            Some(rec) => rec,
+            None => {
+                if let Some(p) = self.persistent.read().await.get(id) {
+                    let instances = self.instances.read().await;
+                    let (profile_name, role) = instances
+                        .get(id)
+                        .map(|(inst, _)| (inst.type_name.clone(), inst.role.clone()))
+                        .unwrap_or_else(|| ("coder".to_string(), "coder".to_string()));
+                    ForegroundResume {
+                        profile_name,
+                        role,
+                        messages: p.messages.clone(),
+                    }
+                } else if let Some(store) = self.session_store.read().await.as_ref() {
+                    // Cold recovery: restore from SQLite store (#3478)
+                    if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
+                        if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
+                            let rec = ForegroundResume {
+                                profile_name: state.profile_name,
+                                role: state.role,
+                                messages: state.messages,
+                            };
+                            self.foreground_histories
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(id.to_string(), rec.clone());
+                            rec
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
         };
         let runtime = self.runtime().await?;
         let def = self
@@ -782,17 +953,125 @@ impl SubagentManager {
                     messages: turn_res.messages.clone(),
                 },
             );
+        if let Some(store) = self.session_store.read().await.as_ref() {
+            let state = SubagentPersistedState {
+                id: id.to_string(),
+                profile_name: record.profile_name.clone(),
+                role: record.role.clone(),
+                messages: turn_res.messages.clone(),
+                updated_at: chrono::Utc::now().timestamp_millis(),
+            };
+            if let Ok(val) = serde_json::to_value(&state) {
+                let _ = store.put_state("subagent_resume", id, &val);
+            }
+        }
+        {
+            let mut persistent = self.persistent.write().await;
+            if let Some(p) = persistent.get_mut(id) {
+                p.messages = turn_res.messages.clone();
+                p.usage = turn_res.usage.clone();
+            }
+        }
         Some(Ok(ForegroundTurnOutcome::Completed(turn_res)))
     }
 
     /// The profile a native resume record was spawned under (for the v2
     /// `actual_subagent_type` line in the resume result).
     pub async fn resume_profile(&self, id: &str) -> Option<String> {
-        self.foreground_histories
+        if let Some(name) = self
+            .foreground_histories
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
             .map(|record| record.profile_name.clone())
+        {
+            return Some(name);
+        }
+        let instances = self.instances.read().await;
+        if let Some((inst, _)) = instances.get(id) {
+            return Some(inst.type_name.clone());
+        }
+        // Cold recovery check (#3478)
+        if let Some(store) = self.session_store.read().await.as_ref() {
+            if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
+                if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
+                    let profile_name = state.profile_name.clone();
+                    self.foreground_histories
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(
+                            id.to_string(),
+                            ForegroundResume {
+                                profile_name: state.profile_name,
+                                role: state.role,
+                                messages: state.messages,
+                            },
+                        );
+                    return Some(profile_name);
+                }
+            }
+        }
+        None
+    }
+
+    /// Retrieve stored message history of a completed foreground subagent (for forking or resuming).
+    pub fn get_foreground_history(&self, id: &str) -> Option<Vec<crate::turn_loop::types::LLMMessage>> {
+        if let Some(msgs) = self
+            .foreground_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .map(|record| record.messages.clone())
+        {
+            return Some(msgs);
+        }
+        // Cold recovery check (#3478)
+        if let Ok(guard) = self.session_store.try_read() {
+            if let Some(store) = guard.as_ref() {
+                if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
+                    if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
+                        return Some(state.messages);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Explicitly record or seed the message history for a foreground subagent.
+    pub fn set_foreground_history(
+        &self,
+        id: &str,
+        profile_name: &str,
+        role: &str,
+        messages: Vec<crate::turn_loop::types::LLMMessage>,
+    ) {
+        self.foreground_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                id.to_string(),
+                ForegroundResume {
+                    profile_name: profile_name.to_string(),
+                    role: role.to_string(),
+                    messages: messages.clone(),
+                },
+            );
+        // Persist to store if available (#3478)
+        if let Ok(guard) = self.session_store.try_read() {
+            if let Some(store) = guard.as_ref() {
+                let state = SubagentPersistedState {
+                    id: id.to_string(),
+                    profile_name: profile_name.to_string(),
+                    role: role.to_string(),
+                    messages,
+                    updated_at: chrono::Utc::now().timestamp_millis(),
+                };
+                if let Ok(val) = serde_json::to_value(&state) {
+                    let _ = store.put_state("subagent_resume", id, &val);
+                }
+            }
+        }
     }
 
     /// Spawn a persistent subagent instance that keeps its message history
@@ -909,6 +1188,7 @@ impl SubagentManager {
         let recording = RecordingLlm::new(llm);
         let turn_id = format!("subturn-{}", fastrand::u64(..));
         let run_input = crate::turn_loop::types::RunTurnInput {
+            max_attempts: None,
             turn_id,
             llm: &recording,
             messages,
@@ -1508,6 +1788,7 @@ mod tests {
         > {
             Box::pin(async {
                 Ok(crate::rpc::types::ToolExecuteResponse {
+                    stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
                     note: None,
@@ -1700,5 +1981,91 @@ mod tests {
 
         let inst = manager.get_instance(&id).await.unwrap();
         assert_eq!(inst.state, SubagentState::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_resume_from_persistent_instance() {
+        let manager = Arc::new(SubagentManager::new());
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(MockCallbacks);
+        manager.set_runtime(llm.clone(), callbacks.clone()).await;
+
+        let id = manager
+            .spawn_persistent("research", "Researcher", llm.clone(), callbacks.clone())
+            .await
+            .unwrap();
+
+        // Check resume_profile resolves it
+        let profile = manager.resume_profile(&id).await;
+        assert_eq!(profile.as_deref(), Some("research"));
+
+        // Resume foreground turn continues successfully
+        let outcome = manager
+            .resume_foreground_turn(&id, "continue research", None)
+            .await;
+        assert!(outcome.is_some());
+        let res = outcome.unwrap().unwrap();
+        assert!(matches!(res, ForegroundTurnOutcome::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn test_cold_resume_from_sqlite_store() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let manager1 = Arc::new(SubagentManager::with_store(store.clone()));
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(MockCallbacks);
+        manager1.set_runtime(llm.clone(), callbacks.clone()).await;
+
+        let agent_id = "subagent-cold-1";
+        let initial_msgs = vec![
+            crate::turn_loop::types::LLMMessage::new("user", "first question"),
+            crate::turn_loop::types::LLMMessage::new("assistant", "first answer"),
+        ];
+        manager1.set_foreground_history(agent_id, "research", "Researcher", initial_msgs.clone());
+
+        // Verify history is retrievable
+        assert_eq!(manager1.get_foreground_history(agent_id).unwrap().len(), 2);
+        assert_eq!(manager1.resume_profile(agent_id).await.as_deref(), Some("research"));
+
+        // Now simulate a full restart: create a new SubagentManager with no in-memory state
+        let manager2 = Arc::new(SubagentManager::with_store(store.clone()));
+        manager2.set_runtime(llm.clone(), callbacks.clone()).await;
+
+        // In-memory histories are empty in manager2
+        assert_eq!(manager2.resume_profile(agent_id).await.as_deref(), Some("research"));
+        let history = manager2.get_foreground_history(agent_id);
+        assert!(history.is_some());
+        assert_eq!(history.unwrap().len(), 2);
+
+        // Resume should work seamlessly from persisted state
+        let outcome = manager2
+            .resume_foreground_turn(agent_id, "second question", None)
+            .await;
+        assert!(outcome.is_some());
+        let res = outcome.unwrap().unwrap();
+        assert!(matches!(res, ForegroundTurnOutcome::Completed(_)));
+
+        // The updated history should now have 4 messages (user, assistant, user, assistant)
+        let updated_history = manager2.get_foreground_history(agent_id).unwrap();
+        assert_eq!(updated_history.len(), 6);
+        assert_eq!(updated_history.last().unwrap().role, "assistant");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_and_run_registers_in_task_runner() {
+        let manager = Arc::new(SubagentManager::new());
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        manager.set_task_runner(runner.clone()).await;
+
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(OkToolCallbacks);
+
+        let id = manager
+            .spawn_and_run("research", "Researcher", "investigate", llm, callbacks)
+            .await
+            .unwrap();
+
+        let wait_res = runner.wait(&id, 2000).await;
+        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
     }
 }

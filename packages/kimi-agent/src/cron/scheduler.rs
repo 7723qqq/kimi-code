@@ -188,24 +188,40 @@ mod tests {
             ],
             0,
         );
-        // 09:00 is earlier than 14:30 on 2024-06-01.
+        // 09:00 is earlier than 14:30 on 2024-06-01 (at(540) vs at(870)).
         assert_eq!(sched.next_fire_at(T0), Some(at(540)));
+        // After 09:00 passes, earliest fire becomes 14:30.
+        assert_eq!(sched.next_fire_at(at(540)), Some(at(870)));
+        // After 14:30 passes, earliest fire wraps to next day at 09:00 (at(540 + 1440)).
+        assert_eq!(sched.next_fire_at(at(870)), Some(at(1980)));
+
+        // Both entries remain accurately retained.
+        assert_eq!(
+            sched.list_entries(),
+            vec![
+                entry("a", "30 14 * * *", "afternoon", true),
+                entry("b", "0 9 * * *", "morning", true),
+            ]
+        );
+
         // Empty scheduler: nothing to fire.
         assert_eq!(CronScheduler::new(vec![], 0).next_fire_at(T0), None);
     }
 
     #[test]
     fn next_fire_at_respects_tz_offset() {
-        let sched = CronScheduler::new(
-            vec![
-                entry("a", "30 14 * * *", "afternoon", true),
-                entry("b", "0 9 * * *", "morning", true),
-            ],
-            480,
-        );
-        // UTC+8: 09:00 local = 01:00Z (60 min after T0), 14:30 local =
-        // 06:30Z (390 min after T0); the earliest fire is 09:00 local.
-        assert_eq!(sched.next_fire_at(T0), Some(at(60)));
+        let entries = vec![
+            entry("a", "30 14 * * *", "afternoon", true),
+            entry("b", "0 9 * * *", "morning", true),
+        ];
+
+        // UTC+8 (+480 min): 09:00 local = 01:00Z (60 min after T0), 14:30 local = 06:30Z (390 min after T0).
+        let sched_east = CronScheduler::new(entries.clone(), 480);
+        assert_eq!(sched_east.next_fire_at(T0), Some(at(60)));
+
+        // UTC-5 (-300 min): 09:00 local = 14:00Z (840 min after T0), 14:30 local = 19:30Z (1170 min after T0).
+        let sched_west = CronScheduler::new(entries, -300);
+        assert_eq!(sched_west.next_fire_at(T0), Some(at(840)));
     }
 
     #[test]
@@ -219,11 +235,24 @@ mod tests {
             0,
         );
         let fired = sched.tick(T0, at(20));
+        // Must return full CronEntry structs in strict fire-time order (5 min, 10 min, 20 min).
         assert_eq!(
-            fired.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
-            ["b", "a", "c"]
+            fired,
+            vec![
+                entry("b", "5 * * * *", "five", true),
+                entry("a", "10 * * * *", "ten", true),
+                entry("c", "20 * * * *", "twenty", true),
+            ]
         );
-        // All recurring: every entry stays armed for its next fire.
+        // All entries are recurring: all 3 entries remain armed in the scheduler.
+        assert_eq!(
+            sched.list_entries(),
+            vec![
+                entry("a", "10 * * * *", "ten", true),
+                entry("b", "5 * * * *", "five", true),
+                entry("c", "20 * * * *", "twenty", true),
+            ]
+        );
         assert_eq!(sched.next_fire_at(at(20)), Some(at(65)));
     }
 
@@ -237,93 +266,272 @@ mod tests {
             0,
         );
         let fired = sched.tick(T0, at(5));
+        assert_eq!(fired, vec![entry("one", "5 * * * *", "once", false)]);
+        // The one-shot is removed from entries; the recurring entry is still present and armed.
         assert_eq!(
-            fired.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
-            ["one"]
+            sched.list_entries(),
+            vec![entry("rec", "10 * * * *", "repeat", true)]
         );
-        // The one-shot is gone; the recurring entry is still armed.
         assert_eq!(sched.next_fire_at(at(5)), Some(at(10)));
+
         let fired = sched.tick(at(5), at(10));
+        assert_eq!(fired, vec![entry("rec", "10 * * * *", "repeat", true)]);
+        // Recurring entry remains present in entries after firing.
         assert_eq!(
-            fired.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
-            ["rec"]
+            sched.list_entries(),
+            vec![entry("rec", "10 * * * *", "repeat", true)]
         );
-        // The recurring entry keeps firing hourly.
         assert_eq!(sched.next_fire_at(at(10)), Some(at(70)));
+
+        // An isolated one-shot entry leaves the scheduler empty after firing.
+        let mut solo = CronScheduler::new(vec![entry("lone", "5 * * * *", "solo", false)], 0);
+        let fired_solo = solo.tick(T0, at(5));
+        assert_eq!(fired_solo, vec![entry("lone", "5 * * * *", "solo", false)]);
+        assert!(solo.list_entries().is_empty());
+        assert_eq!(solo.next_fire_at(at(5)), None);
     }
 
     #[test]
     fn tick_recurring_keeps_firing() {
-        let mut sched = CronScheduler::new(vec![entry("r", "*/5 * * * *", "tick", true)], 0);
+        let expected_task = entry("r", "*/5 * * * *", "tick", true);
+        let mut sched = CronScheduler::new(vec![expected_task.clone()], 0);
         for minute in [5, 10, 15] {
             let fired = sched.tick(at(minute - 5), at(minute));
-            assert_eq!(fired.len(), 1, "fire at +{minute} min");
-            assert_eq!(fired[0].id, "r");
+            assert_eq!(
+                fired,
+                vec![expected_task.clone()],
+                "fire at +{minute} min must return full entry"
+            );
+            assert_eq!(sched.list_entries(), vec![expected_task.clone()]);
         }
         assert_eq!(sched.next_fire_at(at(15)), Some(at(20)));
     }
 
     #[test]
     fn tick_skips_entries_not_yet_due() {
-        let mut sched = CronScheduler::new(vec![entry("d", "30 14 * * *", "daily", true)], 0);
-        assert!(sched.tick(T0, at(10)).is_empty());
+        let expected_task = entry("d", "30 14 * * *", "daily", true);
+        let mut sched = CronScheduler::new(vec![expected_task.clone()], 0);
+
+        // Before 14:30 (at(10)): does not fire, list remains unchanged.
+        assert_eq!(sched.tick(T0, at(10)), vec![]);
+        assert_eq!(sched.list_entries(), vec![expected_task.clone()]);
         assert_eq!(sched.next_fire_at(at(10)), Some(at(870)));
+
+        // Exactly at 14:30 (at(870)): fires.
         let fired = sched.tick(at(10), at(870));
-        assert_eq!(fired.len(), 1);
-        assert_eq!(fired[0].id, "d");
+        assert_eq!(fired, vec![expected_task.clone()]);
+        // Recurring task stays in entries and advances to next day.
+        assert_eq!(sched.list_entries(), vec![expected_task]);
+        assert_eq!(sched.next_fire_at(at(870)), Some(at(870 + 1440)));
+    }
+
+    #[test]
+    fn tick_late_wake_coalesces_multiple_fires_to_single_fire() {
+        // Business requirement: Each entry fires at most once per tick.
+        // A late wake spanning multiple scheduled intervals catches up with a single fire, not a burst.
+        let task = entry("r", "*/5 * * * *", "tick", true);
+        let mut sched = CronScheduler::new(vec![task.clone()], 0);
+
+        // 60 minutes elapsed: spans 12 theoretical intervals (5, 10, 15, ..., 60).
+        let fired = sched.tick(T0, at(60));
+        assert_eq!(
+            fired,
+            vec![task.clone()],
+            "must coalesce to a single fire, never burst"
+        );
+        // Remains armed for the next fire strictly after at(60) -> at(65).
+        assert_eq!(sched.next_fire_at(at(60)), Some(at(65)));
+        assert_eq!(sched.list_entries(), vec![task]);
+    }
+
+    #[test]
+    fn tick_interval_boundary_conditions() {
+        // Interval is (from_ms, now_ms] — strictly after from_ms, up to and including now_ms.
+        let task = entry("t", "5 * * * *", "test", true);
+        let mut sched = CronScheduler::new(vec![task.clone()], 0);
+
+        // 1. now_ms is 1ms before due time: does not fire
+        assert_eq!(sched.tick(T0, at(5) - 1), vec![]);
+        assert_eq!(sched.next_fire_at(at(5) - 1), Some(at(5)));
+
+        // 2. now_ms is exactly due time: fires
+        assert_eq!(sched.tick(T0, at(5)), vec![task]);
+
+        // 3. from_ms == now_ms: interval (from_ms, now_ms] is empty, does not fire
+        assert_eq!(sched.tick(at(5), at(5)), vec![]);
+
+        // 4. from_ms > now_ms: inverted interval, does not fire
+        assert_eq!(sched.tick(at(10), at(5)), vec![]);
+    }
+
+    #[test]
+    fn tick_multiple_entries_same_fire_time() {
+        let entry1 = entry("e1", "0 9 * * *", "first", true);
+        let entry2 = entry("e2", "0 9 * * *", "second", false);
+        let mut sched = CronScheduler::new(vec![entry1.clone(), entry2.clone()], 0);
+
+        // Both due at 09:00 (at(540)): both must fire in registered order.
+        let fired = sched.tick(T0, at(540));
+        assert_eq!(fired, vec![entry1.clone(), entry2]);
+        // e2 was one-shot so it was removed; e1 was recurring so it was kept.
+        assert_eq!(sched.list_entries(), vec![entry1]);
     }
 
     #[test]
     fn invalid_or_never_firing_entries_are_skipped() {
-        // Unparseable expressions are dropped at construction.
+        // Unparseable expressions are dropped at construction: list_entries MUST be empty.
         let sched = CronScheduler::new(vec![entry("bad", "not a cron", "x", true)], 0);
+        assert!(
+            sched.list_entries().is_empty(),
+            "unparseable entries must be dropped at construction"
+        );
         assert_eq!(sched.next_fire_at(T0), None);
-        // Feb 30 never exists: kept but never fires.
-        let sched = CronScheduler::new(vec![entry("never", "0 0 30 2 *", "x", true)], 0);
+
+        // Feb 30 never exists: parsed successfully so it IS kept in list_entries, but never fires.
+        let never_entry = entry("never", "0 0 30 2 *", "x", true);
+        let mut sched = CronScheduler::new(vec![never_entry.clone()], 0);
+        assert_eq!(
+            sched.list_entries(),
+            vec![never_entry],
+            "syntactically valid never-firing entries must be retained"
+        );
         assert_eq!(sched.next_fire_at(T0), None);
+        // Ticking past any duration yields no fires and keeps the entry.
+        assert_eq!(sched.tick(T0, at(100_000)), vec![]);
+        assert_eq!(sched.list_entries().len(), 1);
     }
 
     #[tokio::test]
     async fn start_ends_when_nothing_is_schedulable() {
-        // No entries: the background task exits immediately.
-        let handle = CronScheduler::start(vec![], 0, |_| {});
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        // No entries: background task exits promptly without calling on_fire.
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_clone = fired.clone();
+        let handle = CronScheduler::start(vec![], 0, move |_| {
+            fired_clone.store(true, Ordering::SeqCst);
+        });
         tokio::time::timeout(Duration::from_secs(5), handle)
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
-        // Only never-firing entries: same.
-        let handle = CronScheduler::start(vec![entry("never", "0 0 30 2 *", "x", true)], 0, |_| {});
+        assert!(!fired.load(Ordering::SeqCst), "callback must not be called when empty");
+
+        // Only never-firing entries: background task exits promptly without calling on_fire.
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_clone = fired.clone();
+        let handle = CronScheduler::start(
+            vec![entry("never", "0 0 30 2 *", "x", true)],
+            0,
+            move |_| {
+                fired_clone.store(true, Ordering::SeqCst);
+            },
+        );
         tokio::time::timeout(Duration::from_secs(5), handle)
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
+        assert!(!fired.load(Ordering::SeqCst), "callback must not be called for never-firing");
+
+        // Unparseable entries dropped at start: exits promptly without calling on_fire.
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_clone = fired.clone();
+        let handle = CronScheduler::start(
+            vec![entry("bad", "not a cron", "x", true)],
+            0,
+            move |_| {
+                fired_clone.store(true, Ordering::SeqCst);
+            },
+        );
+        tokio::time::timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("task should end promptly")
+            .expect("task should not panic");
+        assert!(!fired.load(Ordering::SeqCst), "callback must not be called for unparseable");
     }
 
     #[test]
     fn test_dynamic_add_remove_and_list_entries() {
-        let mut sched = CronScheduler::new(vec![entry("a", "0 9 * * *", "job a", true)], 0);
-        assert_eq!(sched.list_entries().len(), 1);
+        let entry_a = entry("a", "0 9 * * *", "job a", true);
+        let mut sched = CronScheduler::new(vec![entry_a.clone()], 0);
+        assert_eq!(sched.list_entries(), vec![entry_a.clone()]);
+        assert_eq!(sched.next_fire_at(T0), Some(at(540)));
 
         // Add valid entry
-        assert!(sched.add_entry(entry("b", "30 14 * * *", "job b", true)));
-        assert_eq!(sched.list_entries().len(), 2);
+        let entry_b = entry("b", "30 14 * * *", "job b", true);
+        assert!(sched.add_entry(entry_b.clone()));
+        assert_eq!(sched.list_entries(), vec![entry_a.clone(), entry_b.clone()]);
+        assert_eq!(sched.next_fire_at(T0), Some(at(540)));
 
-        // Add invalid entry fails
+        // Add invalid entry fails and does not mutate list
         assert!(!sched.add_entry(entry("c", "invalid cron", "job c", true)));
+        assert_eq!(sched.list_entries(), vec![entry_a.clone(), entry_b.clone()]);
+
+        // Attempt to update existing entry with invalid cron fails and leaves entry intact
+        assert!(!sched.add_entry(entry("a", "bad cron", "job a corrupt", true)));
+        assert_eq!(sched.list_entries(), vec![entry_a, entry_b.clone()]);
+
+        // Update existing entry with valid cron and changed settings
+        let entry_a_updated = entry("a", "0 10 * * *", "job a updated", false);
+        assert!(sched.add_entry(entry_a_updated.clone()));
+        assert_eq!(sched.list_entries(), vec![entry_a_updated, entry_b.clone()]);
+        // Earliest fire reflects updated entry: 10:00 (at(600)) vs 14:30 (at(870))
+        assert_eq!(sched.next_fire_at(T0), Some(at(600)));
+
+        // Remove non-existent entry returns false
+        assert!(!sched.remove_entry("nonexistent"));
         assert_eq!(sched.list_entries().len(), 2);
 
-        // Update existing entry
-        assert!(sched.add_entry(entry("a", "0 10 * * *", "job a updated", false)));
-        assert_eq!(sched.list_entries().len(), 2);
-        let list = sched.list_entries();
-        let a_entry = list.iter().find(|e| e.id == "a").unwrap();
-        assert_eq!(a_entry.cron, "0 10 * * *");
-        assert_eq!(a_entry.prompt, "job a updated");
-        assert!(!a_entry.recurring);
-
-        // Remove entry
+        // Remove entry 'a'
         assert!(sched.remove_entry("a"));
-        assert_eq!(sched.list_entries().len(), 1);
-        assert!(!sched.remove_entry("a")); // Already removed
+        assert_eq!(sched.list_entries(), vec![entry_b.clone()]);
+        assert_eq!(sched.next_fire_at(T0), Some(at(870)));
+
+        // Removing already removed entry returns false
+        assert!(!sched.remove_entry("a"));
+
+        // Remove entry 'b'
+        assert!(sched.remove_entry("b"));
+        assert!(sched.list_entries().is_empty());
+        assert_eq!(sched.next_fire_at(T0), None);
+    }
+
+    #[test]
+    fn cron_entry_serde() {
+        let e = entry("task-1", "0 9 * * *", "hello world", true);
+        let json = serde_json::to_string(&e).unwrap();
+        let deserialized: CronEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, e);
+
+        // Wire shape with extra fields ignored (createdAt, nextFireAt, stale, humanSchedule)
+        let wire_json = r#"{
+            "id": "task-2",
+            "cron": "*/5 * * * *",
+            "prompt": "run check",
+            "createdAt": 1717200000000,
+            "nextFireAt": "2024-06-01T00:05:00.000Z",
+            "stale": false,
+            "humanSchedule": "every 5 minutes"
+        }"#;
+        let from_wire: CronEntry = serde_json::from_str(wire_json).unwrap();
+        assert_eq!(
+            from_wire,
+            CronEntry {
+                id: "task-2".into(),
+                cron: "*/5 * * * *".into(),
+                prompt: "run check".into(),
+                recurring: true, // defaults to true when omitted
+            }
+        );
+
+        // Explicit recurring: false
+        let one_shot_json =
+            r#"{"id":"task-3","cron":"0 0 1 1 *","prompt":"yearly","recurring":false}"#;
+        let one_shot: CronEntry = serde_json::from_str(one_shot_json).unwrap();
+        assert!(!one_shot.recurring);
+        assert_eq!(one_shot.id, "task-3");
+        assert_eq!(one_shot.cron, "0 0 1 1 *");
+        assert_eq!(one_shot.prompt, "yearly");
     }
 }

@@ -23,6 +23,7 @@
 //! telemetry is served by the `host/telemetry` callback (M1c, emitted from
 //! `run_turn`), `host/list_tools` is M1d.
 
+pub mod patch;
 pub mod sqlite_store;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -779,7 +780,7 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             ctx.callbacks.turn_event(TurnEvent::Ended {
                 turn_id,
                 reason: end_reason_of(&result.stop_reason),
-                error: None,
+                error: turn_end_error_payload(&result.stop_reason, result.steps),
                 duration_ms: Some(started.elapsed().as_millis() as u64),
             });
         } else if let Err(e) = &outcome {
@@ -800,17 +801,38 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
 }
 
 /// Map the engine's step-level stop reason onto v2's four-value turn end
-/// reason. `MaxTokens` / `Filtered` are finish reasons on a response the model
-/// did produce, so the turn completed; `Paused` / `BudgetLimited` stop because
-/// the goal cannot progress right now, which v2 reports as blocked; `Aborted`
-/// is the cancellation flag (also how a blocked goal stops).
+/// reason. `MaxTokens` is a finish reason on a response the model did
+/// produce, so the turn completed; `Filtered` and the step-budget
+/// exhaustion (`max_steps`) fail the turn in v2 (loopService.ts:877-882 and
+/// :956-962); `Paused` / `BudgetLimited` stop because the goal cannot
+/// progress right now, which v2 reports as blocked; `Aborted` is the
+/// cancellation flag (also how a blocked goal stops).
 fn end_reason_of(stop: &crate::turn_loop::types::LoopTurnStopReason) -> TurnEndReason {
     use crate::turn_loop::types::LoopTurnStopReason as Stop;
     match stop {
-        Stop::EndTurn | Stop::MaxTokens | Stop::Filtered => TurnEndReason::Completed,
+        Stop::EndTurn | Stop::MaxTokens | Stop::RepeatBreaker => TurnEndReason::Completed,
         Stop::Paused | Stop::BudgetLimited => TurnEndReason::Blocked,
         Stop::Aborted => TurnEndReason::Cancelled,
-        Stop::Unknown => TurnEndReason::Failed,
+        Stop::Filtered | Stop::MaxSteps | Stop::Unknown => TurnEndReason::Failed,
+    }
+}
+
+/// The `error` payload v2 puts on `turn.ended` for failing reasons
+/// (loop.ts:20-27 `createMaxStepsExceededError`, loopService.ts:877-882
+/// `PROVIDER_FILTERED`). `None` for reasons that end the turn cleanly.
+fn turn_end_error_payload(
+    stop: &crate::turn_loop::types::LoopTurnStopReason,
+    steps: u32,
+) -> Option<serde_json::Value> {
+    use crate::turn_loop::types::LoopTurnStopReason as Stop;
+    match stop {
+        Stop::MaxSteps => Some(serde_json::Value::String(format!(
+            "Turn exceeded maxSteps={steps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\"."
+        ))),
+        Stop::Filtered => Some(serde_json::Value::String(
+            "Provider safety policy blocked the response.".into(),
+        )),
+        _ => None,
     }
 }
 
@@ -832,6 +854,7 @@ async fn run_session_turn(
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {
+        max_attempts: None,
         turn_id: format!("turn-{turn_id}"),
         llm: ctx.llm.as_ref(),
         messages,
@@ -1526,15 +1549,30 @@ mod tests {
         let cases = [
             (Stop::EndTurn, TurnEndReason::Completed),
             (Stop::MaxTokens, TurnEndReason::Completed),
-            (Stop::Filtered, TurnEndReason::Completed),
             (Stop::Paused, TurnEndReason::Blocked),
             (Stop::BudgetLimited, TurnEndReason::Blocked),
             (Stop::Aborted, TurnEndReason::Cancelled),
+            // v2 fails the turn on a filtered response (loopService.ts:877-882)
+            // and on step-budget exhaustion (loopService.ts:956-962).
+            (Stop::Filtered, TurnEndReason::Failed),
+            (Stop::MaxSteps, TurnEndReason::Failed),
             (Stop::Unknown, TurnEndReason::Failed),
         ];
         for (stop, expected) in cases {
             assert_eq!(end_reason_of(&stop), expected, "{stop:?}");
         }
+        assert_eq!(
+            turn_end_error_payload(&Stop::MaxSteps, 7),
+            Some(serde_json::json!(
+                "Turn exceeded maxSteps=7. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\"."
+            )),
+            "the max_steps payload mirrors createMaxStepsExceededError (loop.ts:20-27)"
+        );
+        assert_eq!(
+            turn_end_error_payload(&Stop::Filtered, 3),
+            Some(serde_json::json!("Provider safety policy blocked the response."))
+        );
+        assert_eq!(turn_end_error_payload(&Stop::EndTurn, 3), None);
     }
 
     struct FailingLlm;

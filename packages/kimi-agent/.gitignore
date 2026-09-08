@@ -8,3 +8,6 @@
 *.swo
 # napi build artifacts
 *.node
+# napi-rs atomic-replace transaction artifacts (retired old binaries + swap dirs)
+*.retired.tmp.*
+.napi-rs-filesystem-transaction.swp/

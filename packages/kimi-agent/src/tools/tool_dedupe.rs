@@ -210,6 +210,7 @@ mod tests {
 
     fn result(content: &str) -> ExecutableToolResult {
         ExecutableToolResult {
+            stop_turn: false,
             content: content.into(),
             is_error: false,
             note: None,
@@ -396,6 +397,7 @@ mod tests {
         }
         let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
         let mut results = vec![ExecutableToolResult {
+            stop_turn: false,
             content: "boom".into(),
             is_error: true,
             note: None,

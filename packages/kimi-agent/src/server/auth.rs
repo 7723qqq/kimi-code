@@ -285,6 +285,11 @@ mod tests {
         // Trailing whitespace is tolerated on the value, the way a hand-typed
         // header deserves to be.
         assert!(server.check_bearer(Some("Bearer tok3n  ")).is_allowed());
+
+        // Bare check_token (used in WebSocket client_hello)
+        assert_eq!(server.check_token(Some("tok3n")), Decision::Allowed);
+        assert_eq!(server.check_token(None), Decision::Missing);
+        assert_eq!(server.check_token(Some("nope")), Decision::Invalid);
     }
 
     #[test]
@@ -402,8 +407,24 @@ mod tests {
         std::fs::write(&path, "   \n").unwrap();
 
         let loaded = ServerAuth::load_or_create(&path).unwrap();
-        assert!(!loaded.token().unwrap_or_default().is_empty());
+        let token = loaded.token().expect("token must be generated");
+        assert_eq!(token.len(), 43, "generated replacement token must be 43-char base64url");
+        assert!(
+            token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            "token must be url-safe"
+        );
+        assert_ne!(token, "   ", "must not adopt the whitespace string");
+        // Verify token was persisted to disk replacing the blank content
+        let persisted = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(persisted.trim(), token);
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_default_token_path_resolution() {
+        let path = ServerAuth::default_token_path().expect("default token path must resolve");
+        assert!(path.ends_with("server.token"));
+        assert!(path.to_string_lossy().contains(".kimi-code"));
     }
 }

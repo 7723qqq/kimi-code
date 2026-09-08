@@ -1,6 +1,7 @@
 pub mod frontmatter;
 pub mod git;
 pub mod paths;
+pub mod rate_limit;
 pub mod store;
 pub mod types;
 
@@ -12,6 +13,7 @@ use crate::subagent::SubagentManager;
 use crate::tools::tower::paths::{
     MISSIONS_DIR, WORKTREES_DIR, mission_file_name, resolve_tower_repo_root,
 };
+use crate::tools::tower::rate_limit::TowerRateLimit;
 use crate::tools::tower::store::TowerStore;
 use crate::tools::tower::types::{
     TowerFindingInput, TowerMissionPatch, TowerPlanInput, TowerReviewInput, TowerRosterEntry,
@@ -24,6 +26,7 @@ pub const TOWER_MAIN_AGENT_ONLY: &str =
 
 fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content: msg.into(),
         is_error: true,
         note: None,
@@ -32,6 +35,7 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
 
 fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content: msg.into(),
         is_error: false,
         note: None,
@@ -56,11 +60,14 @@ fn spawn_detached_run(
         // a terminal event for *every* outcome so the worker's card never sticks
         // in "running" — the previous `let _ = …map(…)` swallowed the error and
         // cancelled arms and only ever reported a clean completion.
-        match manager
+        let outcome = manager
             .run_foreground_turn(&agent, &prompt, parent_cancel.as_ref())
-            .await
-        {
+            .await;
+        let rate_limit = TowerRateLimit::global();
+        rate_limit.release();
+        match outcome {
             Ok(crate::subagent::manager::ForegroundTurnOutcome::Completed(turn)) => {
+                rate_limit.report_success();
                 if matches!(
                     turn.stop_reason,
                     crate::turn_loop::types::LoopTurnStopReason::Aborted
@@ -88,6 +95,9 @@ fn spawn_detached_run(
                 }));
             }
             Err(err) => {
+                if err.contains("rate limit") || err.contains("429") {
+                    rate_limit.report_rate_limited();
+                }
                 callbacks.emit_event(serde_json::json!({
                     "type": "subagent.failed",
                     "subagent_id": agent,
@@ -274,6 +284,30 @@ pub async fn execute_tower_spawn(
         )));
     }
 
+    struct TowerSlotGuard {
+        held: bool,
+    }
+    impl TowerSlotGuard {
+        fn acquire() -> Result<Self, String> {
+            TowerRateLimit::global().acquire().map(|()| Self { held: true })
+        }
+        fn disarm(mut self) {
+            self.held = false;
+        }
+    }
+    impl Drop for TowerSlotGuard {
+        fn drop(&mut self) {
+            if self.held {
+                TowerRateLimit::global().release();
+            }
+        }
+    }
+
+    let slot = match TowerSlotGuard::acquire() {
+        Ok(s) => s,
+        Err(reason) => return Some(err_result(reason)),
+    };
+
     let spawned_at = chrono::Utc::now().to_rfc3339();
 
     match args.kind.as_str() {
@@ -343,6 +377,7 @@ pub async fn execute_tower_spawn(
                 Some(&args.name),
                 true,
             );
+            slot.disarm();
             spawn_detached_run(
                 manager.clone(),
                 runtime.callbacks.clone(),
@@ -419,6 +454,7 @@ pub async fn execute_tower_spawn(
                 Some(&args.name),
                 true,
             );
+            slot.disarm();
             spawn_detached_run(
                 manager.clone(),
                 runtime.callbacks.clone(),
@@ -1005,7 +1041,7 @@ pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> Executab
     sections.push(String::new());
     sections.push("## Concurrency (adaptive)".to_string());
     sections.push(String::new());
-    sections.push("active: 0 · max: 4 · limit: adaptive (free slots: 4)".to_string());
+    sections.push(TowerRateLimit::global().render_concurrency());
 
     sections.push(String::new());
     sections.push("## Recent activity".to_string());

@@ -114,6 +114,7 @@ pub async fn execute_invoke_subagent(
             }
             Err(e) => {
                 return ExecutableToolResult {
+                    stop_turn: false,
                     content: format!("Failed to invoke subagent: {e}"),
                     is_error: true,
                     note: None,
@@ -123,6 +124,7 @@ pub async fn execute_invoke_subagent(
     }
 
     ExecutableToolResult {
+        stop_turn: false,
         content: serde_json::to_string_pretty(&serde_json::json!({
             "spawned": spawned_records,
             "status": "success",
@@ -149,6 +151,7 @@ pub async fn execute_manage_subagents(
         "list" => {
             let list = manager.list().await;
             ExecutableToolResult {
+                stop_turn: false,
                 content: serde_json::to_string_pretty(&list).unwrap_or_default(),
                 is_error: false,
                 note: Some("native_subagent".into()),
@@ -172,12 +175,14 @@ pub async fn execute_manage_subagents(
             }
 
             ExecutableToolResult {
+                stop_turn: false,
                 content: serde_json::json!({ "killed": killed }).to_string(),
                 is_error: false,
                 note: Some("native_subagent".into()),
             }
         }
         _ => ExecutableToolResult {
+            stop_turn: false,
             content: format!("Unsupported manage_subagents action: '{action}'"),
             is_error: true,
             note: None,
@@ -198,6 +203,7 @@ pub async fn execute_define_subagent(
         Some(n) => n.to_string(),
         None => {
             return ExecutableToolResult {
+                stop_turn: false,
                 content: "Missing required 'name' argument".into(),
                 is_error: true,
                 note: None,
@@ -244,6 +250,7 @@ pub async fn execute_define_subagent(
         .await;
 
     ExecutableToolResult {
+        stop_turn: false,
         content: format!("Subagent '{name}' registered successfully."),
         is_error: false,
         note: Some("native_subagent".into()),

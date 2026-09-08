@@ -5,18 +5,14 @@
 //! gets the same shape the host path produces: per-line truncation, a
 //! spill-to-disk backup, and a pointer block the model reads.
 //!
-//! Strategy (same shape as the TS service, with three real divergences):
-//!   1. If `is_error` is true or `content` is empty → return unchanged.
-//!      The TS service has no such early return; it shapes and spills an
-//!      error result like any other.
-//!   2. If raw text ≤ `DEFAULT_TOOL_RESULT_MAX_CHARS` (50_000) → return
-//!      unchanged. TS additionally returns untouched when `spillExempt` is
-//!      set — that field has no counterpart here.
+//! Strategy (same shape as the TS service):
+//!   1. Empty results are returned unchanged. Both success and error results
+//!      that exceed the character cap are shaped and spilled to prevent context blowup.
+//!   2. If raw text <= `DEFAULT_TOOL_RESULT_MAX_CHARS` (50_000) -> return
+//!      unchanged with original error flag preserved.
 //!   3. Else: shape per-line (2_000 char cap), save the retained prefix
 //!      to a file under `spill_dir`, replace the model-facing content
-//!      with a pointer block carrying a `Read`-able `output_path`. Where
-//!      TS reuses an existing spill's `totalChars`/`suffix`, this path
-//!      recomputes from the text in hand.
+//!      with a pointer block carrying a `Read`-able `output_path`, while preserving `is_error`.
 //!
 //! The defaults are the same constants the TS service uses; changing
 //! them here without the TS side will make the two paths diverge.
@@ -75,8 +71,8 @@ impl ToolResultTruncator {
 
     /// Apply the truncation policy. See module docs for the rules.
     pub fn truncate(&self, req: TruncationRequest<'_>) -> FinalizedToolResult {
-        // Errors and empty results are never truncated.
-        if req.is_error || req.content.is_empty() {
+        // Empty results are never truncated.
+        if req.content.is_empty() {
             return FinalizedToolResult {
                 content: req.content.to_string(),
                 is_error: req.is_error,
@@ -90,7 +86,7 @@ impl ToolResultTruncator {
         if raw_chars <= DEFAULT_TOOL_RESULT_MAX_CHARS {
             return FinalizedToolResult {
                 content: req.content.to_string(),
-                is_error: false,
+                is_error: req.is_error,
                 note: req.note.map(String::from),
                 spill_path: None,
                 truncated: false,
@@ -146,7 +142,7 @@ impl ToolResultTruncator {
 
         FinalizedToolResult {
             content: final_content,
-            is_error: false,
+            is_error: req.is_error,
             note: req.note.map(String::from),
             spill_path: spill,
             truncated,
@@ -407,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn error_result_returns_unchanged() {
+    fn error_result_is_spilled_and_preserves_error_flag() {
         let t = small();
         let long = "x".repeat(100_000);
         let r = t.truncate(TruncationRequest {
@@ -417,8 +413,11 @@ mod tests {
             is_error: true,
             note: Some("boom"),
         });
-        assert_eq!(r.content, long);
-        assert!(!r.truncated);
+        // 关键断言：超长错误输出绝不无脑放行进上下文，同样进行截断与磁盘溢出
+        assert!(r.truncated);
+        assert!(r.spill_path.is_some());
+        // 关键断言：原版的 is_error 与 note 属性被完整保真透传
+        assert!(r.is_error);
         assert_eq!(r.note.as_deref(), Some("boom"));
     }
 

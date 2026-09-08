@@ -5,7 +5,7 @@
  * The logic is identical: `resolve` walks dot-separated keys, `interpolate`
  * replaces `{{param}}` tokens, and `translate` chains both with fallback.
  *
- * Keeping this in sync with `packages/kimi-native-tools/src/translation.rs`
+ * Keeping this in sync with `packages/kimi-agent/src/native/translation.rs`
  * ensures that all apps produce identical translations regardless of engine.
  */
 

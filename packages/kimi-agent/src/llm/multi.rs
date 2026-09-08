@@ -94,10 +94,16 @@ impl MultiLLM {
         // Spawn each provider as a tokio task. Every racer carries its own
         // request id so the losers can be cancelled at the host — aborting the
         // task only drops the receiver and leaves the provider call running.
+        // Each racer also gets a child of the turn's cancellation token (when
+        // one is wired): cancelling a loser's child stops a native HTTP
+        // participant mid-stream, and firing the parent cancels every racer.
         let mut handles = Vec::with_capacity(self.providers.len());
         let mut cancellers: HashMap<String, Arc<dyn HostCallbacks>> = HashMap::new();
         for provider in &self.providers {
-            let params = params.clone();
+            let mut params = params.clone();
+            if let Some(parent) = params.cancel.as_ref() {
+                params.cancel = Some(parent.child_token());
+            }
             let request_id = format!(
                 "llm-{}-{}",
                 provider.name,
@@ -312,6 +318,7 @@ mod tests {
     async fn test_mock_llm_ok() {
         let mock = MockTestLlm::new("fast", 5, false);
         let params = LLMChatParams {
+            cancel: None,
             messages: vec![],
             tools: vec![],
         };
@@ -324,6 +331,7 @@ mod tests {
     async fn test_mock_llm_fail() {
         let mock = MockTestLlm::new("failing", 5, true);
         let params = LLMChatParams {
+            cancel: None,
             messages: vec![],
             tools: vec![],
         };
@@ -501,6 +509,7 @@ mod tests {
 
         let winner = multi
             .first_past_the_post(LLMChatParams {
+                cancel: None,
                 messages: vec![],
                 tools: vec![],
             })
@@ -564,6 +573,7 @@ mod tests {
         let p2 = MockTestLlm::new("p2", 10, false);
 
         let params = LLMChatParams {
+            cancel: None,
             messages: vec![],
             tools: vec![],
         };
@@ -574,20 +584,33 @@ mod tests {
     }
 
     #[test]
-    fn test_label_logic() {
-        let label = if 2 <= 1 {
-            "single".to_string()
-        } else {
-            format!("{} + {} others", "a", 2 - 1)
+    fn test_multi_llm_label_construction() {
+        let callbacks = recording_callbacks();
+        let p1 = LlmProvider {
+            name: "p1".into(),
+            model: "kimi-k2".into(),
+            system_prompt: "sys".into(),
+            callbacks: callbacks.clone(),
         };
-        assert_eq!(label, "a + 1 others");
+        let m1 = MultiLLM::new(vec![p1]);
+        assert_eq!(m1.label, "kimi-k2");
+        assert_eq!(m1.provider_count(), 1);
 
-        let label = if 1 <= 1 {
-            "single".to_string()
-        } else {
-            String::new()
+        let p1_again = LlmProvider {
+            name: "p1".into(),
+            model: "kimi-k2".into(),
+            system_prompt: "sys".into(),
+            callbacks: callbacks.clone(),
         };
-        assert_eq!(label, "single");
+        let p2 = LlmProvider {
+            name: "p2".into(),
+            model: "claude-3-5".into(),
+            system_prompt: "sys".into(),
+            callbacks,
+        };
+        let m2 = MultiLLM::new(vec![p1_again, p2]);
+        assert_eq!(m2.label, "kimi-k2 + 1 others");
+        assert_eq!(m2.provider_count(), 2);
     }
 
     // ── MultiLLM constructor + accessors ───────────────────────────────
@@ -622,6 +645,7 @@ mod tests {
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
                 Box::pin(async {
                     Ok(ToolExecuteResponse {
+                        stop_turn: false,
                         content: String::new(),
                         is_error: false,
                         note: None,
@@ -659,6 +683,7 @@ mod tests {
 
     fn empty_params() -> LLMChatParams {
         LLMChatParams {
+            cancel: None,
             messages: vec![],
             tools: vec![],
         }
@@ -808,6 +833,7 @@ mod tests {
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
                 Box::pin(async {
                     Ok(ToolExecuteResponse {
+                        stop_turn: false,
                         content: String::new(),
                         is_error: false,
                         note: None,

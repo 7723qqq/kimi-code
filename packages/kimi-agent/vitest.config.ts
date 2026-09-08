@@ -10,6 +10,7 @@ export default defineConfig({
       'bench-tool-path.test.ts',
       'multi-llm-real-key.test.ts',
       'long-session-memory.test.ts',
+      'test/**/*.test.ts',
     ],
     // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
     server: {

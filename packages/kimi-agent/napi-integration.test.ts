@@ -397,9 +397,10 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () =
       makeCallback(mod, (_req) => JSON.stringify({ content: 'ok', is_error: false })),
     );
 
-    // When maxSteps is exhausted, the loop exits with EndTurn (not MaxTokens).
-    // MaxTokens is reserved for when the LLM itself returns a max_tokens finish reason.
-    expect(result.stopReason).toBe('EndTurn');
+    // When maxSteps is exhausted the turn fails with MaxSteps (v2
+    // MaxStepsExceededError, loopService.ts:841-843). MaxTokens is reserved
+    // for when the LLM itself returns a max_tokens finish reason.
+    expect(result.stopReason).toBe('MaxSteps');
     expect(result.steps).toBe(2);
   });
 
@@ -764,7 +765,10 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () =
       makeCallback(mod, () => JSON.stringify({ decision: 'deny', reason: 'user declined' })),
     );
 
-    expect(result.stopReason).toBe('EndTurn');
+    // The scripted LLM keeps calling Write until the step budget runs out,
+    // so the turn ends MaxSteps (v2 MaxStepsExceededError) — the deny
+    // verdict assertions below are the point of this test.
+    expect(result.stopReason).toBe('MaxSteps');
     const { existsSync, rmSync } = await import('node:fs');
     expect(existsSync(resolve(process.cwd(), 'napi-denied-test.txt'))).toBe(false);
     rmSync(resolve(process.cwd(), 'napi-denied-test.txt'), { force: true });

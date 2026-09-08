@@ -6,6 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./rust-loop.ts",
+    "./native": {
+      "types": "./index.native.d.ts",
+      "default": "./index.native.js"
+    },
     "./rust-loop": {
       "types": "./rust-loop.ts",
       "default": "./rust-loop.ts"
@@ -18,14 +22,24 @@
   },
   "scripts": {
     "build": "napi build --platform --release --dts target/napi-generated.d.ts && bun scripts/fix-napi-dts.mjs",
-    "test": "cargo test --features cli"
+    "test": "cargo test --features cli",
+  "test:js": "vitest run"
   },
   "napi": {
-    "binaryName": "kimi_agent"
+    "binaryName": "kimi_agent",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu"
+    ]
   },
   "devDependencies": {
-    "@moonshot-ai/agent-core-v2": "workspace:*",
     "@napi-rs/cli": "^3.0.0",
     "zod": "^4.3.6"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
   }
 }

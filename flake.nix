@@ -100,17 +100,12 @@
       # the Nix build's src fileset. `scripts/check-nix-workspace.mjs`
       # validates this list against package.json.
       workspacePaths = [
-        ./packages/acp-server
-        ./packages/agent-core-v2
         ./packages/i18n
         ./packages/i18n-shared
         ./packages/kaos
         ./packages/kap-server
-        ./packages/kimi-native-tools
         ./packages/kimi-agent
-        ./packages/klient
         ./packages/kosong
-        ./packages/migration-legacy
         ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
@@ -168,7 +163,7 @@
 
           # Fixed-output derivation: materialize the project's node_modules
           # from the npm registry and the Rust crate vendor directory for
-          # kimi-native-tools from crates.io (the FOD is the only place
+          # kimi-agent from crates.io (the FOD is the only place
           # network access is allowed).
           #
           # Bun's internal cache directory is NOT usable as a FOD output —
@@ -213,16 +208,14 @@
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
               install -d $out && mv node_modules $out/node_modules
-              # Vendor the Rust crates for both napi packages so the main
+              # Vendor the Rust crates for the napi package so the main
               # derivation can compile offline (CARGO_NET_OFFLINE=true).
               # NOTE: do NOT let cargo write its suggested config here —
               # with an absolute $out target it would embed this store
               # path, which FOD outputs must never reference. The main
               # derivation generates the config itself.
-              cd packages/kimi-native-tools
+              cd packages/kimi-agent
               cargo vendor --locked $out/vendor > /dev/null
-              cd ../kimi-agent
-              cargo vendor --locked $out/vendor-agent > /dev/null
               cd -
               runHook postInstall
             '';
@@ -231,7 +224,7 @@
             # paste the "got:" hash reported by Nix.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-MHsoYo1Mmu7jaSsFwa+5V+7NLc2JcSMF1J0+I1PTs94=";
+            outputHash = lib.fakeSha256;
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
@@ -246,7 +239,7 @@
               pkgs.makeWrapper
               pkgs.python3
               pkgs.gnumake
-              # kimi-native-tools' .node addon is compiled from source in
+              # kimi-agent's .node addon is compiled from source in
               # the sandbox (napi-rs → cargo); the Bun build's asset
               # collector refuses to proceed without it.
               pkgs.cargo
@@ -267,21 +260,13 @@
               # Wire the vendored crates for the offline napi build: the
               # main derivation may reference store paths, so point cargo
               # at the FOD's vendor dir with an absolute path.
-              mkdir -p packages/kimi-native-tools/.cargo
-              cat > packages/kimi-native-tools/.cargo/config.toml <<EOF
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "${bunDeps}/vendor"
-EOF
               mkdir -p packages/kimi-agent/.cargo
               cat > packages/kimi-agent/.cargo/config.toml <<EOF
 [source.crates-io]
 replace-with = "vendored-sources"
 
 [source.vendored-sources]
-directory = "${bunDeps}/vendor-agent"
+directory = "${bunDeps}/vendor"
 EOF
               export CARGO_NET_OFFLINE=true
               runHook postConfigure
@@ -304,8 +289,10 @@ EOF
               # asset embedded in the Bun binary (collected by assets.mjs
               # below). Invoke napi's JS entry directly — its bin shim uses
               # `#!/usr/bin/env`, absent in the sandbox.
-              (cd packages/kimi-native-tools && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
-              # kimi-agent is the second napi addon embedded as an asset.
+              # Build the Rust native addon from source: its .node is an
+              # asset embedded in the Bun binary (collected by assets.mjs
+              # below). Invoke napi's JS entry directly — its bin shim uses
+              # `#!/usr/bin/env`, absent in the sandbox.
               (cd packages/kimi-agent && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # The Bun build step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is

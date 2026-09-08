@@ -188,7 +188,9 @@ impl NativeHttpLlm {
         };
 
         let mut token = self.credential().await?;
-        let mut response = self.send_request(&body, token.as_str()).await?;
+        let mut response = self
+            .send_request(&body, token.as_str(), params.cancel.as_ref())
+            .await?;
         let mut status = response.status();
         // A 401/403 on an OAuth-managed transport means the cached token went
         // stale (expired early, revoked, rotated); force a host-side refresh
@@ -196,7 +198,9 @@ impl NativeHttpLlm {
         // have nothing to refresh — a bad key never becomes good by retrying.
         if !status.is_success() && matches!(status.as_u16(), 401 | 403) && self.auth.is_some() {
             token = self.refresh_credential().await?;
-            response = self.send_request(&body, token.as_str()).await?;
+            response = self
+                .send_request(&body, token.as_str(), params.cancel.as_ref())
+                .await?;
             status = response.status();
         }
         if !status.is_success() {
@@ -224,9 +228,21 @@ impl NativeHttpLlm {
         };
 
         let mut stream = response.bytes_stream().eventsource();
-        while let Some(event) = stream.next().await {
+        while let Some(event) = tokio::select! {
+            // Mid-stream cancellation (generate.ts:154-202): abort the read
+            // instead of draining the rest of the response. Already-emitted
+            // deltas stay in the transcript, mirroring v2's behavior of
+            // keeping consumed content after an abort.
+            _ = cancelled_or_pending(params.cancel.as_ref()) => {
+                return Err(CANCELLED_MESSAGE.into());
+            }
+            event = stream.next() => event,
+        } {
             let event = event.map_err(|e| format!("llm sse decode error: {e}"))?;
-            if event.data == "[DONE]" {
+            if event.data == "[DONE]"
+                || event.event == "message_stop"
+                || event.event == "response.done"
+            {
                 break;
             }
             let value: serde_json::Value = match serde_json::from_str(&event.data) {
@@ -234,6 +250,11 @@ impl NativeHttpLlm {
                 // Tolerate non-JSON keep-alive payloads.
                 Err(_) => continue,
             };
+            if let Some(event_type) = value.get("type").and_then(|t| t.as_str())
+                && (event_type == "message_stop" || event_type == "response.done")
+            {
+                break;
+            }
             if let Some(delta) = acc.feed(&value) {
                 self.emit_delta(&delta);
             }
@@ -270,6 +291,7 @@ impl NativeHttpLlm {
         &self,
         body: &serde_json::Value,
         token: &str,
+        cancel: Option<&tokio_util::sync::CancellationToken>,
     ) -> Result<reqwest::Response, String> {
         let is_google = matches!(
             self.config.protocol.as_str(),
@@ -293,9 +315,18 @@ impl NativeHttpLlm {
         for (k, v) in &self.config.custom_headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        req.send()
-            .await
-            .map_err(|e| format!("{}: {e}", transport_error_message(&e)))
+        // v2 aborts preflight sends through the same signal
+        // (generate.ts:107-109): a cancel landing before the response
+        // headers arrives must not pay for the request.
+        let send = req.send();
+        let response = match cancel {
+            Some(cancel) => tokio::select! {
+                _ = cancel.cancelled() => return Err(CANCELLED_MESSAGE.into()),
+                sent = send => sent,
+            },
+            None => send.await,
+        };
+        response.map_err(|e| format!("{}: {e}", transport_error_message(&e)))
     }
 
     /// The credential for this request: the cached OAuth token (fetched once,
@@ -361,6 +392,20 @@ const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
 /// `Display` hides the actual cause (timeout / refused / DNS ...) behind
 /// `.source()`, so classify it here while the `reqwest::Error` is in hand —
 /// the retry layer matches this prefix instead of grepping free text.
+/// Stable prefix for cancellation failures. `is_retryable_error` treats it
+/// as deterministic (the caller asked to stop), mirroring v2 where an
+/// `AbortError` is never classified as a retryable provider error.
+const CANCELLED_MESSAGE: &str = "llm cancelled: request aborted";
+
+/// Resolve immediately when no cancel handle is wired (test stubs) so the
+/// select arm stays inert.
+async fn cancelled_or_pending(cancel: Option<&tokio_util::sync::CancellationToken>) {
+    match cancel {
+        Some(cancel) => cancel.cancelled().await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 fn transport_error_message(e: &reqwest::Error) -> String {
     let kind = if e.is_builder() {
         "invalid_request"
@@ -390,6 +435,28 @@ async fn read_brief_body(response: reqwest::Response) -> String {
     String::from_utf8_lossy(&buf).chars().take(500).collect()
 }
 
+/// Quota/arrears detection mirroring v2 `classifyKimiQuotaError`
+/// (providers/kimi-errors.ts:6-22) and `isOpenAIInsufficientQuotaError`
+/// (openai-common.ts:90): the structured Kimi code, the OpenAI
+/// `insufficient_quota` code, and the balance/billing message patterns.
+/// A hit means the request can never succeed without human action, so the
+/// retry loop must stand down even though the wire status looks transient.
+fn is_quota_exhaustion_error(error: &str) -> bool {
+    const QUOTA_MARKERS: &[&str] = &[
+        "exceeded_current_quota_error",
+        "insufficient_quota",
+        "exceeded your current quota",
+        "check your account balance",
+        "insufficient balance",
+        "recharge your account",
+        "please recharge",
+        "account is in arrears",
+        "account in arrears",
+    ];
+    let lower = error.to_lowercase();
+    QUOTA_MARKERS.iter().any(|m| lower.contains(m))
+}
+
 impl LLM for NativeHttpLlm {
     fn system_prompt(&self) -> &str {
         &self.system_prompt
@@ -408,11 +475,26 @@ impl LLM for NativeHttpLlm {
         // the body for keywords would retry a 400 whose text happens to
         // contain "connection", or a 401 that mentions a session timeout —
         // requests that can never succeed no matter how often they repeat.
+        if error.starts_with(CANCELLED_MESSAGE) {
+            return false;
+        }
         if let Some(rest) = error.strip_prefix("llm http status ") {
             let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
             let code: u16 = digits.parse().unwrap_or(0);
-            return matches!(code, 408 | 425 | 429 | 500..=599);
+            // The code set mirrors v2 `isRetryableGenerateError`
+            // (kosong/contract/errors.ts:234-251): [408, 409, 429, 500..=599]
+            // plus the 425 Rust adds for retry-later transports. The quota
+            // exemption mirrors v2 `classifyKimiQuotaError` +
+            // `APIProviderQuotaExhaustedError` (kimi-errors.ts:7-22): a 429
+            // that is really "your account is out of quota / balance" is
+            // deterministic — retrying burns attempts for nothing.
+            if code == 429 && is_quota_exhaustion_error(error) {
+                return false;
+            }
+            return matches!(code, 408 | 409 | 425 | 429 | 500..=599);
         }
+        // 402 "Payment Required" (DeepSeek arrears, some Kimi plans) is
+        // never in the retryable set, so no explicit exemption is needed.
         // Transport-level failures are classified at the error site too:
         // reqwest 0.12's Display only renders "error sending request for
         // url (...)" — the underlying cause (dns timeout, connection
@@ -433,6 +515,9 @@ impl LLM for NativeHttpLlm {
             "sse decode error",
         ];
         let lower = error.to_lowercase();
+        if is_quota_exhaustion_error(&lower) {
+            return false;
+        }
         RETRYABLE.iter().any(|s| lower.contains(s))
     }
 
@@ -495,12 +580,49 @@ mod tests {
             String::new(),
         );
         assert!(llm.is_retryable_error("llm http status 429 Too Many Requests: slow down"));
+        assert!(llm.is_retryable_error("llm http status 409 Conflict: concurrent edit"));
         assert!(llm.is_retryable_error("llm http status 503 Service Unavailable: busy"));
         assert!(llm.is_retryable_error("llm transport error connect: connection refused"));
         assert!(llm.is_retryable_error("llm transport error timeout: operation timed out"));
         assert!(llm.is_retryable_error("llm sse decode error: expected value at line 1"));
         assert!(!llm.is_retryable_error("llm http status 401 Unauthorized: bad key"));
         assert!(!llm.is_retryable_error("llm http status 400 Bad Request: invalid schema"));
+        assert!(!llm.is_retryable_error("llm http status 402 Payment Required: Insufficient Balance"));
+    }
+
+    #[test]
+    fn quota_exhaustion_is_not_retryable() {
+        // Mirrors the v2 quota-exemption cases (kimi-errors.ts:7-22,
+        // openai-common.ts:90): a 429 carrying quota/balance wording is a
+        // deterministic failure — retrying burns attempts without any
+        // chance of success.
+        let llm = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1"),
+            String::new(),
+        );
+        let quota_bodies = [
+            r#"{"error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details."}}"#,
+            r#"{"error":{"code":"exceeded_current_quota_error","type":"quota","message":"quota reached"}}"#,
+            r#"{"error":{"message":"Insufficient Balance in your account"}}"#,
+            r#"{"error":{"message":"Please recharge your account to continue"}}"#,
+            r#"{"error":{"message":"Your account is in arrears. Settle the balance to resume."}}"#,
+            "Check your account balance before retrying",
+        ];
+        for body in quota_bodies {
+            assert!(
+                !llm.is_retryable_error(&format!("llm http status 429 Too Many Requests: {body}")),
+                "quota body must be non-retryable: {body}"
+            );
+        }
+        // A rate-limit 429 without quota wording stays retryable.
+        assert!(llm.is_retryable_error(
+            "llm http status 429 Too Many Requests: rate limit exceeded, slow down"
+        ));
+        // The exemption also covers the keyword-fallback path (SSE decode
+        // failures that quote quota wording).
+        assert!(!llm.is_retryable_error(
+            "llm sse decode error: exceeded_current_quota_error while decoding"
+        ));
     }
 
     #[test]
@@ -562,6 +684,7 @@ mod tests {
         let llm = NativeHttpLlm::new(cfg, String::new());
         let result = llm
             .chat(LLMChatParams {
+                cancel: None,
                 messages: vec![],
                 tools: vec![],
             })
@@ -572,6 +695,69 @@ mod tests {
             msg.contains("llm transport error"),
             "unexpected error: {msg}"
         );
+    }
+
+    /// A cancel firing while the provider is still streaming must abort the
+    /// read with the stable cancellation error (v2 AbortSignal,
+    /// generate.ts:154-202) — and that error must never be retried, the way
+    /// v2's `AbortError` short-circuits `isRetryableGenerateError`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn chat_cancels_mid_stream_and_never_retries() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = sock.read(&mut buf).await;
+            // One streamed delta, then hold the connection open: the model
+            // never finishes, so only the cancel handle can end the call.
+            let body = "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n";
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{body}"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.flush().await;
+            // Park the socket so the stream stays open until the test ends.
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+
+        let cfg = config("openai", &format!("http://{addr}/v1"));
+        let llm = std::sync::Arc::new(NativeHttpLlm::new(cfg, String::new()));
+        let token = tokio_util::sync::CancellationToken::new();
+
+        let chat_llm = llm.clone();
+        let chat_token = token.clone();
+        let chat = tokio::spawn(async move {
+            chat_llm.chat(LLMChatParams {
+                cancel: Some(chat_token),
+                messages: vec![crate::turn_loop::types::LLMMessage {
+                    role: "user".into(),
+                    content: "hi".into(),
+                    ..Default::default()
+                }],
+                tools: vec![],
+            })
+            .await
+        });
+
+        // Let the first delta arrive, then cancel mid-stream.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        token.cancel();
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), chat)
+            .await
+            .expect("a cancelled chat must return promptly, not drain the stream")
+            .unwrap();
+        assert!(result.is_err(), "a cancelled chat must fail");
+        let msg = result.err().unwrap().to_string();
+        assert!(msg.starts_with("llm cancelled"), "unexpected error: {msg}");
+        assert!(
+            !llm.is_retryable_error(&msg),
+            "cancellation must never be classified as retryable"
+        );
+
+        server.abort();
     }
 
     /// One-shot local HTTP server: the first request draws a 401, every later
@@ -619,6 +805,7 @@ mod tests {
 
         let result = llm
             .chat(LLMChatParams {
+                cancel: None,
                 messages: vec![],
                 tools: vec![],
             })
@@ -674,6 +861,7 @@ mod tests {
         let llm = NativeHttpLlm::new(cfg, String::new());
         let result = llm
             .chat(LLMChatParams {
+                cancel: None,
                 messages: vec![],
                 tools: vec![],
             })

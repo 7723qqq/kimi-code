@@ -87,18 +87,12 @@ export const nativeDeps = Object.freeze([
     nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],
   },
   {
-    id: 'kimi-native-tools',
-    name: () => '@moonshot-ai/kimi-native-tools',
-    // Rust NAPI module — translations, compaction, fs search, goal accounting.
-    // JS is bundled; only the .node binary needs to ship as a native asset.
-    collect: 'native-files',
-    parent: null,
-  },
-  {
     id: 'kimi-agent',
     name: () => '@moonshot-ai/kimi-agent',
-    // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch).
-    // tsdown leaves `@moonshot-ai/kimi-agent/rust-loop` as an external require;
+    // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch)
+    // plus the former kimi-native-tools surface (translations, compaction, fs
+    // search, goal accounting). tsdown leaves `@moonshot-ai/kimi-agent/rust-loop`
+    // as an external require;
     // `bun build --compile` resolves it from the workspace node_modules and
     // inlines the adapter into the executable. Only the `.node` binary is
     // embedded here as a native asset, which the adapter locates at runtime

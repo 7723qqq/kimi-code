@@ -4,6 +4,11 @@
 
 use std::time::Duration;
 
+/// v2 `DEFAULT_MAX_RETRY_ATTEMPTS` (_base/utils/retry.ts:3): the loop retries
+/// a retryable step error up to 10 times unless the host overrides
+/// `RunTurnInput::max_attempts` (`loopControl.maxAttemptsPerStep`).
+pub const DEFAULT_MAX_RETRY_ATTEMPTS: u32 = 10;
+
 /// Configuration for retry behavior.
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -18,7 +23,7 @@ pub struct RetryConfig {
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
-            max_attempts: 3,
+            max_attempts: DEFAULT_MAX_RETRY_ATTEMPTS,
             base_delay_ms: 1000,
             max_delay_ms: 30000,
         }
@@ -41,7 +46,7 @@ mod tests {
     #[test]
     fn test_retry_config_defaults() {
         let config = RetryConfig::default();
-        assert_eq!(config.max_attempts, 3);
+        assert_eq!(config.max_attempts, 10);
         assert_eq!(config.base_delay_ms, 1000);
         assert_eq!(config.max_delay_ms, 30000);
     }
@@ -51,8 +56,10 @@ mod tests {
         let config = RetryConfig::default();
         let delay = retry_delay(1, &config);
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 1250, "delay too large: {ms}");
+        assert!(
+            (750..=1250).contains(&ms),
+            "attempt 1: delay must be in [750, 1250], got {ms}"
+        );
     }
 
     #[test]
@@ -60,8 +67,10 @@ mod tests {
         let config = RetryConfig::default();
         let delay = retry_delay(2, &config);
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 2500, "delay too large: {ms}");
+        assert!(
+            (1500..=2500).contains(&ms),
+            "attempt 2: delay must be in [1500, 2500], got {ms}"
+        );
     }
 
     #[test]
@@ -69,8 +78,10 @@ mod tests {
         let config = RetryConfig::default();
         let delay = retry_delay(3, &config);
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 5000, "delay too large: {ms}");
+        assert!(
+            (3000..=5000).contains(&ms),
+            "attempt 3: delay must be in [3000, 5000], got {ms}"
+        );
     }
 
     #[test]
@@ -82,8 +93,10 @@ mod tests {
         };
         let delay = retry_delay(5, &config);
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 6250, "delay exceeded max: {ms}");
+        assert!(
+            (3750..=6250).contains(&ms),
+            "capped delay must be in [3750, 6250], got {ms}"
+        );
     }
 
     #[test]
@@ -135,8 +148,8 @@ mod tests {
         for attempt in 1..=10 {
             let delay = retry_delay(attempt, &config);
             assert!(
-                delay.as_millis() > 0,
-                "attempt {attempt}: delay must be positive"
+                delay.as_millis() >= 100,
+                "attempt {attempt}: delay must respect minimum 100ms floor"
             );
         }
     }
@@ -150,8 +163,10 @@ mod tests {
         };
         let delay = retry_delay(3, &config);
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 2500, "delay too large: {ms}");
+        assert!(
+            (1500..=2500).contains(&ms),
+            "custom config attempt 3: delay must be in [1500, 2500], got {ms}"
+        );
     }
 
     #[test]
@@ -160,8 +175,10 @@ mod tests {
         let delay = retry_delay(0, &config);
         // attempt 0 → saturating_sub(1) = 0 → 1000 * 1 = 1000, jitter ±250
         let ms = delay.as_millis() as u64;
-        assert!(ms >= 100, "delay too small: {ms}");
-        assert!(ms <= 1250, "delay too large: {ms}");
+        assert!(
+            (750..=1250).contains(&ms),
+            "attempt 0: delay must be in [750, 1250], got {ms}"
+        );
     }
 
     #[test]
@@ -180,19 +197,26 @@ mod tests {
     fn test_retry_delay_exponential_growth() {
         let config = RetryConfig {
             max_attempts: 10,
-            base_delay_ms: 100,
+            base_delay_ms: 200,
             max_delay_ms: 100000,
         };
-        let prev = retry_delay(1, &config).as_millis();
-        // Each subsequent attempt should be >= previous (within jitter range)
-        for attempt in 2..=5 {
-            let curr = retry_delay(attempt, &config).as_millis();
-            // The base grows exponentially, jitter is ±25%, so curr should be
-            // >= prev * 0.5 (allowing for jitter on both sides)
+        let mut prev_max = 0;
+        for attempt in 1..=5 {
+            let delay = retry_delay(attempt, &config).as_millis() as u64;
+            let nominal = config.base_delay_ms * 2u64.pow(attempt - 1);
+            let min_expected = (nominal * 3) / 4;
+            let max_expected = (nominal * 5) / 4;
             assert!(
-                (curr as i64) >= (prev as i64 / 2),
-                "attempt {attempt}: delay {curr} should not drop too much from {prev}"
+                delay >= min_expected && delay <= max_expected,
+                "attempt {attempt}: delay {delay} outside [{min_expected}, {max_expected}]"
             );
+            if attempt > 1 {
+                assert!(
+                    min_expected > prev_max,
+                    "attempt {attempt} minimum {min_expected} must strictly exceed previous max {prev_max}"
+                );
+            }
+            prev_max = max_expected;
         }
     }
 
@@ -217,13 +241,18 @@ mod tests {
 
     #[test]
     fn test_retry_delay_consistent_type() {
-        let config = RetryConfig::default();
-        for attempt in 1..=5 {
+        let config = RetryConfig {
+            max_attempts: 10,
+            base_delay_ms: 1000,
+            max_delay_ms: 8000,
+        };
+        for attempt in 1..=10 {
             let delay = retry_delay(attempt, &config);
-            // Duration should be a valid finite value
+            let ms = delay.as_millis() as u64;
+            assert!(ms >= 100, "attempt {attempt}: delay must respect 100ms floor");
             assert!(
-                delay.as_nanos() > 0,
-                "attempt {attempt}: delay should be positive"
+                ms <= 10000,
+                "attempt {attempt}: delay {ms} must not exceed max_delay + 25% jitter"
             );
         }
     }

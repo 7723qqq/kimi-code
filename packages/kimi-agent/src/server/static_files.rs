@@ -91,6 +91,10 @@ mod tests {
             "text/html; charset=utf-8"
         );
         assert_eq!(
+            mime_for_path(Path::new("about.htm")),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
             mime_for_path(Path::new("app.js")),
             "application/javascript; charset=utf-8"
         );
@@ -102,12 +106,26 @@ mod tests {
             mime_for_path(Path::new("style.css")),
             "text/css; charset=utf-8"
         );
+        assert_eq!(mime_for_path(Path::new("data.json")), "application/json");
+        assert_eq!(mime_for_path(Path::new("app.js.map")), "application/json");
         assert_eq!(mime_for_path(Path::new("logo.svg")), "image/svg+xml");
+        assert_eq!(mime_for_path(Path::new("image.png")), "image/png");
+        assert_eq!(mime_for_path(Path::new("photo.jpg")), "image/jpeg");
+        assert_eq!(mime_for_path(Path::new("photo.jpeg")), "image/jpeg");
+        assert_eq!(mime_for_path(Path::new("anim.gif")), "image/gif");
         assert_eq!(mime_for_path(Path::new("icon.ico")), "image/x-icon");
+        assert_eq!(mime_for_path(Path::new("photo.webp")), "image/webp");
         assert_eq!(mime_for_path(Path::new("module.wasm")), "application/wasm");
+        assert_eq!(mime_for_path(Path::new("font.woff")), "font/woff");
         assert_eq!(mime_for_path(Path::new("font.woff2")), "font/woff2");
+        assert_eq!(mime_for_path(Path::new("font.ttf")), "font/ttf");
+        assert_eq!(mime_for_path(Path::new("license.txt")), "text/plain; charset=utf-8");
         assert_eq!(
             mime_for_path(Path::new("data.bin")),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            mime_for_path(Path::new("no_extension")),
             "application/octet-stream"
         );
     }
@@ -125,7 +143,7 @@ mod tests {
         let mut f2 = File::create(&js_path).unwrap();
         f2.write_all(b"console.log('hello');").unwrap();
 
-        // 1. Root serves index.html
+        // 1. Root and empty path serve index.html
         let res_root = serve_static_file(dir.path(), "/");
         assert_eq!(res_root.status, 200);
         assert_eq!(
@@ -133,6 +151,10 @@ mod tests {
             Some("text/html; charset=utf-8")
         );
         assert_eq!(res_root.body, b"<html><body>Kimi Web</body></html>");
+
+        let res_empty = serve_static_file(dir.path(), "");
+        assert_eq!(res_empty.status, 200);
+        assert_eq!(res_empty.body, b"<html><body>Kimi Web</body></html>");
 
         // 2. Specific existing asset
         let res_js = serve_static_file(dir.path(), "/assets/main.js");
@@ -152,12 +174,20 @@ mod tests {
         );
         assert_eq!(res_spa.body, b"<html><body>Kimi Web</body></html>");
 
-        // 4. Traversal attack returns 404
-        let res_traversal = serve_static_file(dir.path(), "/../secret.txt");
-        assert_eq!(res_traversal.status, 404);
+        // 4. Traversal attack variations return 404
+        assert_eq!(serve_static_file(dir.path(), "/../secret.txt").status, 404);
+        assert_eq!(serve_static_file(dir.path(), "/assets/../../secret.txt").status, 404);
+        assert_eq!(serve_static_file(dir.path(), "/..").status, 404);
 
         // 5. Missing asset under /api does NOT fallback to index.html
         let res_api = serve_static_file(dir.path(), "/api/v1/missing");
         assert_eq!(res_api.status, 404);
+
+        // 6. Directory without index.html falls back or returns 404
+        let empty_dir = tempdir().unwrap();
+        let res_missing_index = serve_static_file(empty_dir.path(), "/");
+        assert_eq!(res_missing_index.status, 404);
+        let res_missing_spa = serve_static_file(empty_dir.path(), "/some/route");
+        assert_eq!(res_missing_spa.status, 404);
     }
 }

@@ -1,5 +1,5 @@
 /**
- * Lazy-loaded bindings to the Rust native tools (`@moonshot-ai/kimi-native-tools`)
+ * Lazy-loaded bindings to the Rust native tools (`@moonshot-ai/kimi-agent/native`)
  * for token estimation only.
  *
  * Mirrors the pattern in agent-core-v2's `_base/native-tools.ts` but scoped to
@@ -20,7 +20,7 @@ function getNativeModule(): Record<string, unknown> | undefined {
   if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
   try {
-    nativeModule = requireNative('@moonshot-ai/kimi-native-tools') as Record<string, unknown>;
+    nativeModule = requireNative('@moonshot-ai/kimi-agent/native') as Record<string, unknown>;
     return nativeModule ?? undefined;
   } catch {
     nativeModule = null;

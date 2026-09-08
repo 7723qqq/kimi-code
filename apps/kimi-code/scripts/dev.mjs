@@ -50,7 +50,7 @@ const child = spawn(
   process.execPath,
   [
     '--import',
-    pathToFileURL(resolve(REPO_ROOT, 'build/register-raw-text-loader.mjs')).href,
+    resolve(REPO_ROOT, 'build/register-raw-text-loader.mjs'),
     resolve(APP_ROOT, 'src/main.ts'),
     ...cliArgs,
   ],

@@ -170,6 +170,7 @@ pub struct WsOptions<'a> {
     pub selected_protocol: Option<String>,
     pub store: Option<Arc<crate::session::sqlite_store::SqliteSessionStore>>,
     pub engine: Option<Arc<crate::server::engine::ServerEngine>>,
+    pub terminal_manager: Option<Arc<crate::server::terminal::TerminalManager>>,
 }
 
 /// Serve the upgraded connection as an event stream until the peer closes it or
@@ -196,6 +197,7 @@ pub async fn serve_ws(
         selected_protocol,
         store,
         engine,
+        terminal_manager,
     } = options;
     let key = request
         .headers
@@ -225,6 +227,10 @@ pub async fn serve_ws(
     // Highest sequence number delivered per session to this connection,
     // ensuring monotonic delivery and preventing replay/live duplicate events.
     let mut delivered_seq: HashMap<String, u64> = HashMap::new();
+    // Per-connection watch_fs registry (session_id -> watched paths). The
+    // control layer acks registrations; filesystem event emission is not
+    // wired yet (ROADMAP known-gaps).
+    let mut watched_paths: HashMap<String, HashSet<String>> = HashMap::new();
 
     // Frame decoding lives in its own task so the main loop can await events and
     // inbound frames without cancelling a half-read frame — `read_frame` is not
@@ -308,10 +314,12 @@ pub async fn serve_ws(
                                 &hub,
                                 store.as_deref(),
                                 engine.as_ref(),
+                                terminal_manager.as_ref(),
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
                                 &mut delivered_seq,
+                                &mut watched_paths,
                             )
                             .await?
                             {
@@ -342,10 +350,12 @@ pub async fn serve_ws(
                                 &hub,
                                 store.as_deref(),
                                 engine.as_ref(),
+                                terminal_manager.as_ref(),
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
                                 &mut delivered_seq,
+                                &mut watched_paths,
                             )
                             .await?
                             {
@@ -421,10 +431,12 @@ async fn handle_inbound(
     hub: &EventHub,
     store: Option<&crate::session::sqlite_store::SqliteSessionStore>,
     engine: Option<&Arc<crate::server::engine::ServerEngine>>,
+    terminal_manager: Option<&Arc<crate::server::terminal::TerminalManager>>,
     async_frame_tx: &mpsc::Sender<Vec<u8>>,
     writer: &mut WriteHalf<TcpStream>,
     subscriptions: &mut Option<HashSet<String>>,
     delivered_seq: &mut HashMap<String, u64>,
+    watched_paths: &mut HashMap<String, HashSet<String>>,
 ) -> Result<bool, WsError> {
     // kap-server parses every inbound message as JSON, so a binary frame that
     // will not parse is dropped without a word.
@@ -679,6 +691,293 @@ async fn handle_inbound(
                 ws_protocol::ACK_OK,
                 "success",
                 json!({ "cancelled": cancelled, "sessionId": session_id }),
+            )?;
+            write_frame(writer, OP_TEXT, &ack).await?;
+            Ok(false)
+        }
+        Inbound::TerminalAttach {
+            id,
+            session_id,
+            terminal_id,
+            since_seq,
+        } => {
+            let Some(tm) = terminal_manager else {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminals not supported",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            };
+
+            if tm.get(&session_id, &terminal_id).await.is_none() {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminal not found",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            }
+
+            let (frames, _total) = tm
+                .output(
+                    &session_id,
+                    &terminal_id,
+                    since_seq.unwrap_or(0) as usize,
+                )
+                .await
+                .unwrap_or_default();
+            let replayed = frames.len();
+            let start_seq = since_seq.unwrap_or(0);
+            for (idx, line) in frames.into_iter().enumerate() {
+                let evt_json = json!({
+                    "type": "terminal_output",
+                    "session_id": session_id,
+                    "terminal_id": terminal_id,
+                    "seq": start_seq + (idx as u64) + 1,
+                    "timestamp": ws_protocol::timestamp(),
+                    "payload": { "data": line },
+                });
+                let payload = serde_json::to_vec(&evt_json)?;
+                write_frame(writer, OP_TEXT, &payload).await?;
+            }
+
+            let ack = ws_protocol::ack(
+                &id,
+                ws_protocol::ACK_OK,
+                "success",
+                json!({ "attached": true, "replayed": replayed }),
+            )?;
+            write_frame(writer, OP_TEXT, &ack).await?;
+            Ok(false)
+        }
+        Inbound::TerminalDetach {
+            id,
+            session_id,
+            terminal_id,
+        } => {
+            let Some(tm) = terminal_manager else {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminals not supported",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            };
+
+            if tm.get(&session_id, &terminal_id).await.is_none() {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminal not found",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            }
+
+            let ack = ws_protocol::ack(
+                &id,
+                ws_protocol::ACK_OK,
+                "success",
+                json!({ "detached": true }),
+            )?;
+            write_frame(writer, OP_TEXT, &ack).await?;
+            Ok(false)
+        }
+        Inbound::TerminalInput {
+            id,
+            session_id,
+            terminal_id,
+            data,
+        } => {
+            let Some(tm) = terminal_manager else {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminals not supported",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            };
+
+            if tm.get(&session_id, &terminal_id).await.is_none() {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminal not found",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            }
+
+            match tm.write(&session_id, &terminal_id, data.as_bytes()).await {
+                Ok(()) => {
+                    let ack = ws_protocol::ack(
+                        &id,
+                        ws_protocol::ACK_OK,
+                        "success",
+                        json!({ "accepted": true }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &ack).await?;
+                }
+                Err(err) => {
+                    let refusal = ws_protocol::ack(
+                        &id,
+                        500,
+                        &err.to_string(),
+                        json!({ "terminal_id": terminal_id }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &refusal).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::TerminalResize {
+            id,
+            session_id,
+            terminal_id,
+            cols,
+            rows,
+        } => {
+            let Some(tm) = terminal_manager else {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminals not supported",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            };
+
+            if tm.get(&session_id, &terminal_id).await.is_none() {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminal not found",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            }
+
+            match tm.resize(&session_id, &terminal_id, cols, rows).await {
+                Ok(()) => {
+                    let ack = ws_protocol::ack(
+                        &id,
+                        ws_protocol::ACK_OK,
+                        "success",
+                        json!({ "resized": true }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &ack).await?;
+                }
+                Err(err) => {
+                    let refusal = ws_protocol::ack(
+                        &id,
+                        500,
+                        &err.to_string(),
+                        json!({ "terminal_id": terminal_id }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &refusal).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::TerminalClose {
+            id,
+            session_id,
+            terminal_id,
+        } => {
+            let Some(tm) = terminal_manager else {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminals not supported",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            };
+
+            if tm.get(&session_id, &terminal_id).await.is_none() {
+                let refusal = ws_protocol::ack(
+                    &id,
+                    40414,
+                    "terminal not found",
+                    json!({ "terminal_id": terminal_id }),
+                )?;
+                write_frame(writer, OP_TEXT, &refusal).await?;
+                return Ok(false);
+            }
+
+            match tm.close(&session_id, &terminal_id).await {
+                Ok(()) => {
+                    let ack = ws_protocol::ack(
+                        &id,
+                        ws_protocol::ACK_OK,
+                        "success",
+                        json!({ "closed": true }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &ack).await?;
+                }
+                Err(err) => {
+                    let refusal = ws_protocol::ack(
+                        &id,
+                        500,
+                        &err.to_string(),
+                        json!({ "terminal_id": terminal_id }),
+                    )?;
+                    write_frame(writer, OP_TEXT, &refusal).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::WatchFsAdd {
+            id,
+            session_id,
+            paths,
+            ..
+        } => {
+            let entry = watched_paths.entry(session_id.clone()).or_default();
+            for p in &paths {
+                entry.insert(p.clone());
+            }
+            let current: Vec<String> = entry.iter().cloned().collect();
+            let ack = ws_protocol::ack(
+                &id,
+                ws_protocol::ACK_OK,
+                "success",
+                json!({ "watched_paths": current, "current_count": current.len() }),
+            )?;
+            write_frame(writer, OP_TEXT, &ack).await?;
+            Ok(false)
+        }
+        Inbound::WatchFsRemove {
+            id,
+            session_id,
+            paths,
+        } => {
+            let mut current: Vec<String> = Vec::new();
+            if let Some(entry) = watched_paths.get_mut(&session_id) {
+                for p in &paths {
+                    entry.remove(p);
+                }
+                current = entry.iter().cloned().collect();
+            }
+            let ack = ws_protocol::ack(
+                &id,
+                ws_protocol::ACK_OK,
+                "success",
+                json!({ "watched_paths": current, "current_count": current.len() }),
             )?;
             write_frame(writer, OP_TEXT, &ack).await?;
             Ok(false)
@@ -947,6 +1246,7 @@ mod tests {
         HttpRequest {
             method: "GET".into(),
             path: "/api/v1/ws".into(),
+            query: None,
             headers,
             body: Vec::new(),
         }
@@ -1201,7 +1501,9 @@ mod tests {
         let id = hello["payload"]["ws_connection_id"]
             .as_str()
             .expect("an id to correlate logs by");
-        assert!(!id.is_empty(), "{hello}");
+        assert!(id.starts_with("ws-"), "ws_connection_id must start with ws- prefix: {id}");
+        assert_eq!(id.len(), 19, "ws_connection_id must be 19 chars (ws- + 16 hex): {id}");
+        assert!(id[3..].chars().all(|c| c.is_ascii_hexdigit()), "ws_connection_id suffix must be hex: {id}");
         assert_eq!(
             hello["payload"]["heartbeat_ms"], 10_000,
             "kap-server's default period is what a client is told"
@@ -1510,6 +1812,113 @@ mod tests {
         handle.shutdown();
     }
 
+    #[tokio::test]
+    async fn test_ws_terminal_control_frames() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let term = server
+            .terminal_manager()
+            .create("sess-term", ".", None, None, None)
+            .await
+            .unwrap();
+        let tid = term.id;
+
+        let (mut client, _, handle) = connect_upgraded(&server, "key-term").await;
+        read_server_hello(&mut client).await;
+
+        // Helper to read until ack
+        async fn read_ack(client: &mut TcpStream) -> serde_json::Value {
+            loop {
+                let frame_text = read_text_frame(client).await;
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&frame_text)
+                    && v.get("type").and_then(|t| t.as_str()) == Some("ack")
+                {
+                    return v;
+                }
+            }
+        }
+
+        // 1. Attach to terminal
+        let attach_req = format!(
+            r#"{{"type":"terminal_attach","id":"ta-1","payload":{{"session_id":"sess-term","terminal_id":"{tid}"}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, attach_req.as_bytes()))
+            .await
+            .unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "ta-1");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["attached"], true);
+
+        // 2. Resize terminal
+        let resize_req = format!(
+            r#"{{"type":"terminal_resize","id":"tr-1","payload":{{"session_id":"sess-term","terminal_id":"{tid}","cols":100,"rows":30}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, resize_req.as_bytes()))
+            .await
+            .unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "tr-1");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["resized"], true);
+
+        // 3. Write input to terminal
+        let input_req = format!(
+            r#"{{"type":"terminal_input","id":"ti-1","payload":{{"session_id":"sess-term","terminal_id":"{tid}","data":"echo test\n"}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, input_req.as_bytes()))
+            .await
+            .unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "ti-1");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["accepted"], true);
+
+        // 4. Detach terminal
+        let detach_req = format!(
+            r#"{{"type":"terminal_detach","id":"td-1","payload":{{"session_id":"sess-term","terminal_id":"{tid}"}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, detach_req.as_bytes()))
+            .await
+            .unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "td-1");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["detached"], true);
+
+        // 5. Close terminal
+        let close_req = format!(
+            r#"{{"type":"terminal_close","id":"tc-1","payload":{{"session_id":"sess-term","terminal_id":"{tid}"}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, close_req.as_bytes()))
+            .await
+            .unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "tc-1");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["closed"], true);
+
+        // 6. Missing terminal returns 40414 error ack
+        let missing_req =
+            br#"{"type":"terminal_attach","id":"ta-err","payload":{"session_id":"sess-term","terminal_id":"no-such-term"}}"#;
+        client.write_all(&masked_frame(OP_TEXT, missing_req)).await.unwrap();
+        let ack = read_ack(&mut client).await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "ta-err");
+        assert_eq!(ack["code"], 40414);
+
+        handle.shutdown();
+    }
+
     #[test]
     fn close_codes_a_peer_must_not_send_are_rejected() {
         assert!(is_sendable_close(1000) && is_sendable_close(1001) && is_sendable_close(4000));
@@ -1523,7 +1932,17 @@ mod tests {
     /// Build a masked client frame (the mask key is all zeros so the payload
     /// survives unchanged and the test stays readable).
     fn masked_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
-        let mut out = vec![0x80 | opcode, 0x80 | payload.len() as u8];
+        let mut out = Vec::new();
+        out.push(0x80 | opcode);
+        if payload.len() < 126 {
+            out.push(0x80 | (payload.len() as u8));
+        } else if payload.len() <= 65535 {
+            out.push(0x80 | 126);
+            out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        } else {
+            out.push(0x80 | 127);
+            out.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+        }
         out.extend_from_slice(&[0, 0, 0, 0]);
         out.extend_from_slice(payload);
         out

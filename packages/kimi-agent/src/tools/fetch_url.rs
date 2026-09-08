@@ -23,6 +23,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let url_str = args.get("url")?.as_str()?;
     if url_str.trim().is_empty() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: "URL parameter cannot be empty".to_string(),
             is_error: true,
             note: None,
@@ -37,6 +38,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             Ok(p) => p,
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    stop_turn: false,
                     content: format!("Failed to fetch URL: Invalid URL: {e}"),
                     is_error: true,
                     note: None,
@@ -48,6 +50,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             Ok(a) => a,
             Err(err) => {
                 return Some(ExecutableToolResult {
+                    stop_turn: false,
                     content: format!("Failed to fetch URL: {err}"),
                     is_error: true,
                     note: None,
@@ -59,6 +62,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             Some(h) => h,
             None => {
                 return Some(ExecutableToolResult {
+                    stop_turn: false,
                     content: "Failed to fetch URL: URL has no host".to_string(),
                     is_error: true,
                     note: None,
@@ -81,6 +85,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             Ok(c) => c,
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    stop_turn: false,
                     content: format!("Failed to initialize HTTP client: {e}"),
                     is_error: true,
                     note: None,
@@ -92,7 +97,10 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             Ok(r) => r,
             Err(e) => {
                 return Some(ExecutableToolResult {
-                    content: format!("Failed to fetch URL due to network error: {current_url}. {e}"),
+                    stop_turn: false,
+                    content: format!(
+                        "Failed to fetch URL due to network error: {current_url}. {e}"
+                    ),
                     is_error: true,
                     note: None,
                 });
@@ -103,7 +111,10 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
         if status.is_redirection() {
             if redirects >= MAX_REDIRECT_HOPS {
                 return Some(ExecutableToolResult {
-                    content: format!("Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"),
+                    stop_turn: false,
+                    content: format!(
+                        "Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"
+                    ),
                     is_error: true,
                     note: None,
                 });
@@ -117,7 +128,9 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
                 Some(loc) => loc,
                 None => {
                     return Some(ExecutableToolResult {
-                        content: "Failed to fetch URL: Redirect without Location header".to_string(),
+                        stop_turn: false,
+                        content: "Failed to fetch URL: Redirect without Location header"
+                            .to_string(),
                         is_error: true,
                         note: None,
                     });
@@ -130,6 +143,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
                 }
                 Err(e) => {
                     return Some(ExecutableToolResult {
+                        stop_turn: false,
                         content: format!("Failed to fetch URL: Invalid redirect URL: {e}"),
                         is_error: true,
                         note: None,
@@ -144,6 +158,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let status = response.status();
     if !status.is_success() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: format!("Failed to fetch URL. Status: {status}."),
             is_error: true,
             note: None,
@@ -161,6 +176,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
         Ok(b) => b,
         Err(e) => {
             return Some(ExecutableToolResult {
+                stop_turn: false,
                 content: format!("Failed to read response body: {e}"),
                 is_error: true,
                 note: None,
@@ -170,6 +186,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
 
     if bytes.is_empty() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: "The response body is empty.".to_string(),
             is_error: false,
             note: None,
@@ -178,6 +195,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
 
     if bytes.len() > DEFAULT_MAX_BYTES {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: format!("Response body too large: exceeds limit ({DEFAULT_MAX_BYTES} bytes)."),
             is_error: true,
             note: None,
@@ -211,6 +229,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let formatted = format!("{note} {cite_reminder}\n\n{content}");
 
     Some(ExecutableToolResult {
+        stop_turn: false,
         content: formatted,
         is_error: false,
         note: None,
@@ -219,7 +238,10 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
 
 // ── SSRF Validation ──────────────────────────────────────────────────────────
 
-pub fn resolve_and_validate_url(parsed: &Url, allow_private: bool) -> Result<Vec<SocketAddr>, String> {
+pub fn resolve_and_validate_url(
+    parsed: &Url,
+    allow_private: bool,
+) -> Result<Vec<SocketAddr>, String> {
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
@@ -421,8 +443,15 @@ mod tests {
     fn test_validate_url_schemes() {
         assert!(validate_url("https://example.com", false).is_ok());
         assert!(validate_url("http://example.com/foo", false).is_ok());
-        assert!(validate_url("ftp://example.com", false).is_err());
-        assert!(validate_url("file:///etc/passwd", false).is_err());
+
+        let ftp_err = validate_url("ftp://example.com", false).unwrap_err();
+        assert_eq!(ftp_err, "Unsupported scheme \"ftp\" — only http(s) allowed.");
+
+        let file_err = validate_url("file:///etc/passwd", false).unwrap_err();
+        assert_eq!(file_err, "Unsupported scheme \"file\" — only http(s) allowed.");
+
+        let relative_err = validate_url("/local/path", false).unwrap_err();
+        assert!(relative_err.starts_with("Invalid URL:"));
     }
 
     #[test]

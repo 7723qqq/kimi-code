@@ -28,6 +28,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
     let query = args.get("query")?.as_str()?;
     if query.trim().is_empty() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: "Query parameter cannot be empty".to_string(),
             is_error: true,
             note: None,
@@ -42,6 +43,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
         Ok(c) => c,
         Err(e) => {
             return Some(ExecutableToolResult {
+                stop_turn: false,
                 content: format!("Search failed: Failed to initialize HTTP client: {e}"),
                 is_error: true,
                 note: None,
@@ -67,6 +69,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
                 format!("Search failed (network): {e}")
             };
             return Some(ExecutableToolResult {
+                stop_turn: false,
                 content: msg,
                 is_error: true,
                 note: None,
@@ -77,6 +80,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
     let status = response.status();
     if !status.is_success() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: format!("Search failed: DuckDuckGo search returned HTTP {status}"),
             is_error: true,
             note: None,
@@ -87,6 +91,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
         Ok(t) => t,
         Err(e) => {
             return Some(ExecutableToolResult {
+                stop_turn: false,
                 content: format!("Search failed: Failed to read response body: {e}"),
                 is_error: true,
                 note: None,
@@ -98,6 +103,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
         Ok(res) => res,
         Err(e) => {
             return Some(ExecutableToolResult {
+                stop_turn: false,
                 content: format!("Search failed: {e}"),
                 is_error: true,
                 note: None,
@@ -107,6 +113,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
 
     if results.is_empty() {
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content: "No search results found.".to_string(),
             is_error: false,
             note: None,
@@ -133,6 +140,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
     output.push_str("When you rely on a result in your answer, cite it inline as a markdown link, e.g. [title](url).");
 
     Some(ExecutableToolResult {
+        stop_turn: false,
         content: output,
         is_error: false,
         note: None,

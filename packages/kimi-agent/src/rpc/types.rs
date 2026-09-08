@@ -425,7 +425,7 @@ pub struct AuthTokenResponse {
 /// A single content block within a message. Text-only messages keep using
 /// the plain `content` string; multimodal messages carry ordered blocks in
 /// addition (blocks win over `content` when non-empty).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     /// Plain text.
@@ -523,6 +523,10 @@ pub struct RunTurnParams {
     pub tools: Vec<ToolDef>,
     /// Step cap for the turn loop. `None` = unbounded (JS-loop semantics).
     pub max_steps: Option<u32>,
+    /// LLM retry attempts per step (v2 `loopControl.maxAttemptsPerStep`).
+    /// `None` = engine default (10).
+    #[serde(default)]
+    pub max_attempts: Option<u32>,
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's default compaction budget.
     pub max_context_tokens: Option<u32>,
@@ -589,6 +593,12 @@ pub struct RunTurnParams {
     pub agent_tool_veto: Option<String>,
     #[serde(default)]
     pub tools_veto: Option<String>,
+    #[serde(default)]
+    pub todo_tool_veto: Option<String>,
+    #[serde(default)]
+    pub tower_worktree_root: Option<String>,
+    #[serde(default)]
+    pub sandbox_mode: Option<String>,
     #[serde(default)]
     pub caller_agent_id: Option<String>,
     #[serde(default)]
@@ -822,6 +832,12 @@ pub struct ToolExecuteResponse {
     /// (e.g. Read's `<system>…</system>` summary).
     #[serde(default)]
     pub note: Option<String>,
+    /// v2 `TurnEngineToolResult.stopTurn` (engineOverride.ts:58): the host
+    /// asks the engine to end the turn as `completed` after this result
+    /// lands in the history. `#[serde(default)]` keeps older hosts that
+    /// omit the field wire-compatible.
+    #[serde(default)]
+    pub stop_turn: bool,
 }
 
 /// Token usage tracking.
@@ -1088,6 +1104,7 @@ mod tests {
             })
         );
         let exec_resp = ToolExecuteResponse {
+            stop_turn: false,
             content: "out".into(),
             is_error: false,
             note: None,
@@ -1320,6 +1337,7 @@ mod tests {
     #[test]
     fn test_tool_execute_response_roundtrip() {
         let resp = ToolExecuteResponse {
+            stop_turn: false,
             content: "file content here".to_string(),
             is_error: false,
             note: Some("<system>1 line read.</system>".to_string()),
@@ -1341,6 +1359,7 @@ mod tests {
     #[test]
     fn test_tool_execute_response_error() {
         let resp = ToolExecuteResponse {
+            stop_turn: false,
             content: "File not found".to_string(),
             is_error: true,
             note: None,

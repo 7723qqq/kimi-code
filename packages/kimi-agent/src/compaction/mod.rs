@@ -19,7 +19,7 @@ pub const DEFAULT_MAX_CONTEXT_TOKENS: u32 = 128 * 1024;
 
 /// Knobs for the compaction algorithm, mirroring `DEFAULT_COMPACTION_CONFIG`
 /// in `packages/agent-core-v2/src/agent/fullCompaction/strategy.ts`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompactionConfig {
     /// Context window in tokens; compaction triggers once the estimated
     /// history reaches `trigger_ratio * max_context_tokens` or leaves less
@@ -186,7 +186,7 @@ pub fn is_context_overflow_error(error: &str) -> bool {
 /// generates a real LLM summary (`createCompactionSummaryMessage` in
 /// `compactionHandoff.ts`); the Rust engine has no summarizer, so it
 /// inserts a fixed marker instead.
-fn summary_placeholder(omitted: usize) -> String {
+pub(crate) fn summary_placeholder(omitted: usize) -> String {
     format!(
         "[Earlier conversation compacted: {omitted} messages were summarized away \
          to fit the context window. Continue from the most recent context.]"
@@ -331,7 +331,7 @@ fn prefix_ends_with_open_tool_exchange(messages: &[LLMMessage], index: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::turn_loop::types::ToolCall;
+    use crate::turn_loop::types::{ContentBlock, ToolCall};
 
     fn msg(role: &str, content: &str) -> LLMMessage {
         LLMMessage {
@@ -341,45 +341,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn config_for_window_uses_the_host_window_and_keeps_other_knobs() {
-        let host_window = 262_144;
-        let config = config_for_window(Some(host_window));
-        let default = CompactionConfig::default();
-        assert_eq!(
-            config.max_context_tokens, host_window,
-            "P63: compaction must budget against the window the host resolved, not the engine default"
-        );
-        assert_eq!(
-            config.trigger_ratio, default.trigger_ratio,
-            "P63: only the window is host-owned; the ratio moves with the compaction batch (2e)"
-        );
-        assert_eq!(
-            config.reserved_context_size, default.reserved_context_size,
-            "P63: reserved headroom is host-owned from 2e, not before"
-        );
-    }
-
-    #[test]
-    fn config_for_window_falls_back_without_a_usable_window() {
-        let default = CompactionConfig::default();
-        assert_eq!(
-            config_for_window(None).max_context_tokens,
-            default.max_context_tokens,
-            "P63: a host that resolves no window must keep the engine default budget"
-        );
-        assert_eq!(
-            config_for_window(Some(0)).max_context_tokens,
-            default.max_context_tokens,
-            "P63: the model catalog spells unknown capability as 0; honouring it would leave no room at all"
-        );
-    }
-
-    fn tool_call(id: &str) -> ToolCall {
+    fn tool_call(id: &str, name: &str, args: serde_json::Value) -> ToolCall {
         ToolCall {
             id: id.into(),
-            name: "read".into(),
-            arguments: serde_json::json!({ "path": "/a.txt" }),
+            name: name.into(),
+            arguments: args,
         }
     }
 
@@ -390,220 +356,715 @@ mod tests {
         }
     }
 
-    /// Assert `tail` equals the trailing messages of `history` (compared
-    /// by role + content; `LLMMessage` has no `PartialEq`).
-    fn assert_suffix(history: &[LLMMessage], tail: &[LLMMessage]) {
-        assert!(history.len() >= tail.len());
-        let offset = history.len() - tail.len();
-        for (i, m) in tail.iter().enumerate() {
-            let orig = &history[offset + i];
-            assert_eq!(m.role, orig.role, "role mismatch at tail index {i}");
-            assert_eq!(
-                m.content, orig.content,
-                "content mismatch at tail index {i}"
+    fn assert_messages_eq(actual: &[LLMMessage], expected: &[LLMMessage]) {
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "message count mismatch: actual {} vs expected {}",
+            actual.len(),
+            expected.len()
+        );
+        for (i, (act, exp)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(act.role, exp.role, "role mismatch at index {i}");
+            assert_eq!(act.content, exp.content, "content mismatch at index {i}");
+            assert_eq!(act.blocks, exp.blocks, "blocks mismatch at index {i}");
+            assert_eq!(act.tool_calls.len(), exp.tool_calls.len(), "tool_calls count mismatch at index {i}");
+            for (tc_idx, (tc_act, tc_exp)) in act.tool_calls.iter().zip(exp.tool_calls.iter()).enumerate() {
+                assert_eq!(tc_act.id, tc_exp.id, "tool_call id mismatch at msg {i} tc {tc_idx}");
+                assert_eq!(tc_act.name, tc_exp.name, "tool_call name mismatch at msg {i} tc {tc_idx}");
+                assert_eq!(tc_act.arguments, tc_exp.arguments, "tool_call args mismatch at msg {i} tc {tc_idx}");
+            }
+            assert_eq!(act.tool_call_id, exp.tool_call_id, "tool_call_id mismatch at index {i}");
+        }
+    }
+
+    #[test]
+    fn config_for_window_uses_the_host_window_and_keeps_other_knobs() {
+        let host_window = 262_144;
+        let config = config_for_window(Some(host_window));
+        let default = CompactionConfig::default();
+        assert_eq!(
+            config,
+            CompactionConfig {
+                max_context_tokens: host_window,
+                ..default
+            },
+            "P63: host window must be used and all other knobs preserved"
+        );
+        assert_eq!(config.max_context_tokens, 262_144);
+        assert_eq!(config.trigger_ratio, 0.85);
+        assert_eq!(config.reserved_context_size, 50_000);
+        assert_eq!(config.max_recent_messages, 4);
+        assert_eq!(config.max_recent_user_messages, u32::MAX);
+        assert_eq!(config.max_recent_size_ratio, 0.2);
+
+        // Boundary windows
+        assert_eq!(config_for_window(Some(1)).max_context_tokens, 1);
+        assert_eq!(config_for_window(Some(u32::MAX)).max_context_tokens, u32::MAX);
+    }
+
+    #[test]
+    fn config_for_window_falls_back_without_a_usable_window() {
+        let default = CompactionConfig::default();
+        assert_eq!(
+            config_for_window(None),
+            default,
+            "P63: None window must fall back to CompactionConfig::default()"
+        );
+        assert_eq!(
+            config_for_window(Some(0)),
+            default,
+            "P63: zero window must fall back to CompactionConfig::default()"
+        );
+    }
+
+    #[test]
+    fn test_estimate_tokens_ascii_boundaries_and_unicode() {
+        assert_eq!(estimate_tokens(""), 0);
+        // ASCII stepping: div_ceil(len, 4)
+        assert_eq!(estimate_tokens("a"), 1);
+        assert_eq!(estimate_tokens("ab"), 1);
+        assert_eq!(estimate_tokens("abc"), 1);
+        assert_eq!(estimate_tokens("abcd"), 1);
+        assert_eq!(estimate_tokens("abcde"), 2);
+        assert_eq!(estimate_tokens("abcdefg"), 2);
+        assert_eq!(estimate_tokens("abcdefgh"), 2);
+        assert_eq!(estimate_tokens("abcdefghi"), 3);
+        assert_eq!(estimate_tokens("123456789012"), 3);
+
+        // Unicode and CJK: 1 token per code point > 127
+        assert_eq!(estimate_tokens("你好"), 2);
+        assert_eq!(estimate_tokens("你好世界"), 4);
+        assert_eq!(estimate_tokens("ab你"), 2); // 2 ASCII -> 1 token + 1 CJK -> 2 tokens
+        assert_eq!(estimate_tokens("Hello, 世界!"), 4); // 8 ASCII -> 2 tokens + 2 CJK -> 4 tokens
+        assert_eq!(estimate_tokens("café"), 2); // 3 ASCII -> 1 token + 1 accented char -> 2 tokens
+        assert_eq!(estimate_tokens("🦀🚀"), 2); // 2 emojis -> 2 tokens
+        assert_eq!(estimate_tokens("AI 助手 🤖: 您好！"), 8); // 5 ASCII (2) + 6 non-ASCII (6) = 8 tokens
+    }
+
+    #[test]
+    fn test_estimate_tokens_for_json() {
+        assert_eq!(estimate_tokens_for_json(""), 0);
+        // 1 token base -> ceil(1 * 1.3) = 2
+        assert_eq!(estimate_tokens_for_json("abcd"), 2);
+        // 2 tokens base -> ceil(2 * 1.3) = 3
+        assert_eq!(estimate_tokens_for_json("abcdefgh"), 3);
+        // 3 tokens base -> ceil(3 * 1.3) = 4
+        assert_eq!(estimate_tokens_for_json("abcdefghi"), 4);
+        // 4 tokens base (15-16 ASCII chars) -> ceil(4 * 1.3) = 6
+        assert_eq!(estimate_tokens_for_json("{\"key\":\"value\"}"), 6);
+        // 5 tokens base (17 ASCII chars) -> ceil(5 * 1.3) = 7
+        assert_eq!(estimate_tokens_for_json("{\"path\":\"/a.txt\"}"), 7);
+        // JSON with CJK: 10 ASCII (3 tokens) + 2 CJK (2 tokens) = 5 tokens -> ceil(5 * 1.3) = 7
+        assert_eq!(estimate_tokens_for_json("{\"name\":\"张三\"}"), 7);
+    }
+
+    #[test]
+    fn test_estimate_message_tokens_multimodal_content_blocks() {
+        let text_msg = msg("user", "12345678"); // 8 chars -> 2 tokens
+        assert_eq!(estimate_message_tokens(&text_msg), 2);
+
+        // ContentBlock::Text
+        let mut m_text = msg("user", "");
+        m_text.blocks.push(ContentBlock::Text {
+            text: "123456789012".into(), // 12 chars -> 3 tokens
+        });
+        assert_eq!(estimate_message_tokens(&m_text), 3);
+
+        // ContentBlock::Think
+        let mut m_think = msg("assistant", "");
+        m_think.blocks.push(ContentBlock::Think {
+            think: "reasoning step".into(), // 14 chars -> 4 tokens
+            encrypted: None,
+        });
+        assert_eq!(estimate_message_tokens(&m_think), 4);
+
+        // Multimodal media blocks: all count MEDIA_TOKEN_ESTIMATE (2000)
+        let mut m_img = msg("user", "");
+        m_img.blocks.push(ContentBlock::Image {
+            media_type: "image/png".into(),
+            data: "base64data".into(),
+        });
+        assert_eq!(estimate_message_tokens(&m_img), MEDIA_TOKEN_ESTIMATE);
+
+        let mut m_img_url = msg("user", "");
+        m_img_url.blocks.push(ContentBlock::ImageUrl {
+            url: "http://example.com/pic.png".into(),
+        });
+        assert_eq!(estimate_message_tokens(&m_img_url), MEDIA_TOKEN_ESTIMATE);
+
+        let mut m_audio = msg("user", "");
+        m_audio.blocks.push(ContentBlock::AudioUrl {
+            url: "http://example.com/audio.mp3".into(),
+            id: Some("a1".into()),
+        });
+        assert_eq!(estimate_message_tokens(&m_audio), MEDIA_TOKEN_ESTIMATE);
+
+        let mut m_video = msg("user", "");
+        m_video.blocks.push(ContentBlock::VideoUrl {
+            url: "http://example.com/video.mp4".into(),
+            id: None,
+        });
+        assert_eq!(estimate_message_tokens(&m_video), MEDIA_TOKEN_ESTIMATE);
+
+        // Additive combination: content + text block + think block + image block
+        let mut m_combo = msg("user", "abcd"); // 1 token
+        m_combo.blocks.push(ContentBlock::Text { text: "efgh".into() }); // 1 token
+        m_combo.blocks.push(ContentBlock::Think {
+            think: "ijkl".into(), // 1 token
+            encrypted: None,
+        });
+        m_combo.blocks.push(ContentBlock::ImageUrl {
+            url: "http://example.com/img.jpg".into(), // 2000 tokens
+        });
+        assert_eq!(estimate_message_tokens(&m_combo), 1 + 1 + 1 + 2000);
+    }
+
+    #[test]
+    fn test_estimate_message_tokens_tool_calls_and_results_exact() {
+        let mut m = msg("assistant", "hello world!"); // 12 chars -> 3 tokens
+        // tool_call 1: name "read" (4 chars -> 1 token), args {"path":"/a.txt"} (17 chars -> 5 tokens -> ceil(5*1.3) = 7 tokens)
+        // Subtotal = 1 + 7 = 8 tokens.
+        m.tool_calls.push(tool_call("tc1", "read", serde_json::json!({ "path": "/a.txt" })));
+        assert_eq!(estimate_message_tokens(&m), 3 + 8);
+
+        // tool_call 2: name "bash" (4 chars -> 1 token), args {"cmd":"ls"} (10 chars -> 3 tokens -> ceil(3*1.3) = 4 tokens)
+        // Subtotal = 1 + 4 = 5 tokens.
+        m.tool_calls.push(tool_call("tc2", "bash", serde_json::json!({ "cmd": "ls" })));
+        assert_eq!(estimate_message_tokens(&m), 3 + 8 + 5);
+
+        // Tool result message with tool_call_id
+        let mut tool_msg = msg("tool", "file content"); // 12 chars -> 3 tokens
+        tool_msg.tool_call_id = Some("tc1_unique_id".into()); // 13 chars -> 4 tokens
+        assert_eq!(estimate_message_tokens(&tool_msg), 3 + 4);
+    }
+
+    #[test]
+    fn test_estimate_messages_tokens_empty_and_accumulated() {
+        assert_eq!(estimate_messages_tokens(&[]), 0);
+
+        let m1 = msg("user", "1234"); // 1 token
+        let m2 = msg("assistant", "12345678"); // 2 tokens
+        let m3 = msg("user", "123456789012"); // 3 tokens
+        assert_eq!(estimate_messages_tokens(&[m1, m2, m3]), 6);
+    }
+
+    #[test]
+    fn test_empty_and_single_system_messages_invariance() {
+        let config = CompactionConfig::default();
+        // Empty message slice
+        assert_eq!(estimate_messages_tokens(&[]), 0);
+        assert_eq!(compute_compact_count(&[], &config), 0);
+        assert!(compact_messages(&[], &config).is_empty());
+        assert!(force_compact_messages(&[], &config).is_empty());
+        assert!(!should_compact(0, &config));
+        assert!(!can_split_after(&[], 0));
+
+        // System message alone: never compacted under normal or forced compaction
+        let system_only = vec![msg("system", "You are an assistant.")];
+        assert_eq!(compute_compact_count(&system_only, &config), 0);
+        assert_messages_eq(&compact_messages(&system_only, &config), &system_only);
+        assert_messages_eq(&force_compact_messages(&system_only, &config), &system_only);
+
+        // System message + single user message (2 messages total): cannot split without removing system
+        let two_msgs = vec![msg("system", "sys"), msg("user", "hi")];
+        assert_eq!(compute_compact_count(&two_msgs, &config), 0);
+        assert_messages_eq(&compact_messages(&two_msgs, &config), &two_msgs);
+        assert_messages_eq(&force_compact_messages(&two_msgs, &config), &two_msgs);
+    }
+
+    #[test]
+    fn test_should_compact_all_threshold_and_boundary_conditions() {
+        // Zero context window: never compacts
+        let mut zero_cfg = CompactionConfig::default();
+        zero_cfg.max_context_tokens = 0;
+        assert!(!should_compact(0, &zero_cfg));
+        assert!(!should_compact(100_000, &zero_cfg));
+
+        // trigger_ratio boundary (isolated by setting reserved_context_size = 0)
+        let ratio_cfg = CompactionConfig {
+            max_context_tokens: 10_000,
+            trigger_ratio: 0.85,
+            reserved_context_size: 0,
+            ..Default::default()
+        };
+        assert!(!should_compact(8499, &ratio_cfg), "8499 < 8500 threshold");
+        assert!(should_compact(8500, &ratio_cfg), "8500 >= 8500 threshold");
+        assert!(should_compact(8501, &ratio_cfg), "8501 >= 8500 threshold");
+
+        // reserved_context_size boundary (triggers before trigger_ratio)
+        let reserved_cfg = CompactionConfig {
+            max_context_tokens: 100_000,
+            trigger_ratio: 0.90, // 90,000 threshold
+            reserved_context_size: 20_000, // triggers at 80,000 (100k - 20k)
+            ..Default::default()
+        };
+        assert!(!should_compact(79_999, &reserved_cfg));
+        assert!(should_compact(80_000, &reserved_cfg));
+        assert!(should_compact(80_001, &reserved_cfg));
+        assert!(should_compact(90_000, &reserved_cfg));
+
+        // reserved_context_size >= max_context_tokens disabled guard
+        let disabled_reserved_cfg = CompactionConfig {
+            max_context_tokens: 1_000,
+            trigger_ratio: 0.85,
+            reserved_context_size: 50_000, // 50k >= 1k, disabled
+            ..Default::default()
+        };
+        assert!(!should_compact(849, &disabled_reserved_cfg));
+        assert!(should_compact(850, &disabled_reserved_cfg));
+
+        // Saturating addition does not overflow u32
+        let sat_cfg = CompactionConfig {
+            max_context_tokens: 100_000,
+            trigger_ratio: 0.85,
+            reserved_context_size: 50_000,
+            ..Default::default()
+        };
+        assert!(should_compact(u32::MAX, &sat_cfg));
+    }
+
+    #[test]
+    fn test_summary_placeholder_format_exact() {
+        assert_eq!(
+            summary_placeholder(0),
+            "[Earlier conversation compacted: 0 messages were summarized away to fit the context window. Continue from the most recent context.]"
+        );
+        assert_eq!(
+            summary_placeholder(1),
+            "[Earlier conversation compacted: 1 messages were summarized away to fit the context window. Continue from the most recent context.]"
+        );
+        assert_eq!(
+            summary_placeholder(42),
+            "[Earlier conversation compacted: 42 messages were summarized away to fit the context window. Continue from the most recent context.]"
+        );
+    }
+
+    #[test]
+    fn test_compact_preserves_system_replaces_middle_with_exact_placeholder_and_tail() {
+        let messages = vec![
+            msg("system", "system-prompt"),
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+            msg("assistant", "assistant-2"),
+            msg("user", "user-3"),
+            msg("assistant", "assistant-3"),
+            msg("user", "user-4"),
+        ];
+
+        let config = CompactionConfig {
+            max_context_tokens: 1000,
+            trigger_ratio: 0.01, // Force trigger
+            reserved_context_size: 0,
+            max_recent_messages: 4,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+        };
+
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(count, 5, "compacts messages 0..5 (system + 4 conversation messages)");
+
+        let compacted = compact_messages(&messages, &config);
+        let expected = vec![
+            msg("system", "system-prompt"),
+            msg("user", &summary_placeholder(4)),
+            msg("user", "user-3"),
+            msg("assistant", "assistant-3"),
+            msg("user", "user-4"),
+        ];
+        assert_messages_eq(&compacted, &expected);
+    }
+
+    #[test]
+    fn test_budget_boundary_exact() {
+        let config = small_config(1_000);
+        // Each message is 16 chars = 4 tokens.
+        // 211 messages * 4 tokens = 844 tokens < 850 threshold -> no compaction.
+        let mut messages = vec![msg("system", "sys-16chars-pad!")];
+        for i in 0..210 {
+            let role = if i % 2 == 0 { "user" } else { "assistant" };
+            messages.push(msg(role, &format!("msg-{:012}", i)));
+        }
+        assert_eq!(estimate_messages_tokens(&messages), 844);
+        assert!(!should_compact(estimate_messages_tokens(&messages), &config));
+        assert_messages_eq(&compact_messages(&messages, &config), &messages);
+
+        // Add 2 more messages: 213 messages * 4 tokens = 852 tokens >= 850 threshold -> triggers compaction.
+        messages.push(msg("user", "msg-000000000210"));
+        messages.push(msg("assistant", "msg-000000000211"));
+        assert_eq!(estimate_messages_tokens(&messages), 852);
+        assert!(should_compact(estimate_messages_tokens(&messages), &config));
+
+        let count = compute_compact_count(&messages, &config);
+        assert!(count >= 2, "must compact at least system + 1 message");
+        let compacted = compact_messages(&messages, &config);
+        assert_eq!(compacted.len(), messages.len() - count as usize + 2);
+        assert_messages_eq(&compacted[0..1], &messages[0..1]);
+        assert_eq!(compacted[1].role, "user");
+        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+        assert_messages_eq(&compacted[2..], &messages[count as usize..]);
+    }
+
+    #[test]
+    fn test_does_not_split_inside_tool_exchange_keeps_or_drops_intact() {
+        let messages = vec![
+            msg("system", "sys"),
+            msg("user", "u1"),
+            msg("assistant", "a1"),
+            msg("user", "u2"),
+            {
+                let mut a = msg("assistant", "a2");
+                a.tool_calls = vec![
+                    tool_call("t1", "read", serde_json::json!({})),
+                    tool_call("t2", "write", serde_json::json!({})),
+                ];
+                a
+            },
+            msg("tool", "r1"),
+            msg("tool", "r2"),
+            msg("assistant", "a3"),
+            msg("user", "u3"),
+        ];
+
+        // Case A: Recent tail cutoff (max_recent_messages = 3) lands at a3 / r2.
+        // It cannot split after r1 (open exchange) or a2 (pending tool calls),
+        // so it compacts the ENTIRE tool exchange into the prefix.
+        let config_a = CompactionConfig {
+            max_context_tokens: 1000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 3,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+        };
+        let count_a = compute_compact_count(&messages, &config_a);
+        assert_eq!(count_a, 7, "compacts up to index 7 (sys + u1 + a1 + u2 + a2 + r1 + r2)");
+        let compacted_a = compact_messages(&messages, &config_a);
+        let expected_a = vec![
+            msg("system", "sys"),
+            msg("user", &summary_placeholder(6)),
+            msg("assistant", "a3"),
+            msg("user", "u3"),
+        ];
+        assert_messages_eq(&compacted_a, &expected_a);
+
+        // Case B: Longer recent tail requirement (max_recent_messages = 6) forces
+        // the split BEFORE the tool exchange (after a1 at index 2).
+        // The ENTIRE tool exchange is kept in the tail intact.
+        let config_b = CompactionConfig {
+            max_context_tokens: 1000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 6,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+        };
+        let count_b = compute_compact_count(&messages, &config_b);
+        assert_eq!(count_b, 3, "compacts up to index 3 (sys + u1 + a1)");
+        let compacted_b = compact_messages(&messages, &config_b);
+        assert_eq!(compacted_b.len(), 8);
+        assert_messages_eq(&compacted_b[0..1], &messages[0..1]);
+        assert_eq!(compacted_b[1].content, summary_placeholder(2));
+        assert_messages_eq(&compacted_b[2..], &messages[3..]);
+    }
+
+    #[test]
+    fn test_can_split_after_all_safety_rules() {
+        // 1. Out of bounds
+        assert!(!can_split_after(&[], 0));
+        let msgs = vec![msg("assistant", "a")];
+        assert!(!can_split_after(&msgs, 1));
+        assert!(!can_split_after(&msgs, 5));
+
+        // 2. Never split after a user message
+        let msgs = vec![msg("user", "u"), msg("assistant", "a")];
+        assert!(!can_split_after(&msgs, 0));
+
+        // 3. Never split after assistant with pending tool calls
+        let mut a = msg("assistant", "a");
+        a.tool_calls.push(tool_call("t1", "read", serde_json::json!({})));
+        let msgs = vec![a, msg("user", "u")];
+        assert!(!can_split_after(&msgs, 0));
+
+        // 4. Never split immediately before a tool message (would orphan the tool)
+        let msgs = vec![msg("assistant", "a"), msg("tool", "r"), msg("user", "u")];
+        assert!(!can_split_after(&msgs, 0));
+
+        // 5. Open tool exchange in prefix: assistant issued 2 calls, only 1 result in prefix
+        let mut a = msg("assistant", "a");
+        a.tool_calls = vec![
+            tool_call("t1", "read", serde_json::json!({})),
+            tool_call("t2", "write", serde_json::json!({})),
+        ];
+        let msgs = vec![a, msg("tool", "r1"), msg("user", "u")];
+        assert!(!can_split_after(&msgs, 1), "cannot split after partial tool exchange");
+
+        // 6. Resolved tool exchange in prefix: 2 calls and 2 results
+        let mut a = msg("assistant", "a");
+        a.tool_calls = vec![
+            tool_call("t1", "read", serde_json::json!({})),
+            tool_call("t2", "write", serde_json::json!({})),
+        ];
+        let msgs = vec![a, msg("tool", "r1"), msg("tool", "r2"), msg("user", "u")];
+        assert!(can_split_after(&msgs, 2), "safe to split after fully satisfied tool exchange");
+
+        // 7. Clean assistant -> user boundary
+        let msgs = vec![msg("assistant", "a"), msg("user", "u")];
+        assert!(can_split_after(&msgs, 0));
+
+        // 8. Clean assistant at end of messages
+        let msgs = vec![msg("user", "u"), msg("assistant", "a")];
+        assert!(can_split_after(&msgs, 1));
+
+        // 9. System message followed by user
+        let msgs = vec![msg("system", "sys"), msg("user", "u")];
+        assert!(can_split_after(&msgs, 0));
+
+        // 10. System message followed by tool (malformed, but must be rejected)
+        let msgs = vec![msg("system", "sys"), msg("tool", "r")];
+        assert!(!can_split_after(&msgs, 0));
+    }
+
+    #[test]
+    fn test_prefix_ends_with_open_tool_exchange_direct() {
+        // Non-tool message returns false immediately
+        assert!(!prefix_ends_with_open_tool_exchange(&[msg("assistant", "a")], 0));
+        assert!(!prefix_ends_with_open_tool_exchange(&[], 0));
+
+        // 2 calls, 1 result -> open (true)
+        let mut a2 = msg("assistant", "a");
+        a2.tool_calls = vec![
+            tool_call("1", "read", serde_json::json!({})),
+            tool_call("2", "write", serde_json::json!({})),
+        ];
+        let msgs = vec![a2.clone(), msg("tool", "r1")];
+        assert!(prefix_ends_with_open_tool_exchange(&msgs, 1));
+
+        // 2 calls, 2 results -> closed (false)
+        let msgs = vec![a2.clone(), msg("tool", "r1"), msg("tool", "r2")];
+        assert!(!prefix_ends_with_open_tool_exchange(&msgs, 2));
+
+        // 1 call, 2 results -> closed (false)
+        let mut a1 = msg("assistant", "a");
+        a1.tool_calls = vec![tool_call("1", "read", serde_json::json!({}))];
+        let msgs = vec![a1, msg("tool", "r1"), msg("tool", "r2")];
+        assert!(!prefix_ends_with_open_tool_exchange(&msgs, 2));
+
+        // Multiple assistants in history: backwards walk checks the immediately preceding assistant
+        let mut a_first = msg("assistant", "first");
+        a_first.tool_calls = vec![tool_call("1", "read", serde_json::json!({}))];
+        let mut a_second = msg("assistant", "second");
+        a_second.tool_calls = vec![
+            tool_call("2", "read", serde_json::json!({})),
+            tool_call("3", "read", serde_json::json!({})),
+        ];
+        let msgs = vec![
+            a_first,
+            msg("tool", "r1"),
+            a_second,
+            msg("tool", "r2"),
+        ];
+        assert!(prefix_ends_with_open_tool_exchange(&msgs, 3));
+
+        // Tool preceded by user (no assistant) -> returns false
+        let msgs = vec![msg("user", "u"), msg("tool", "r")];
+        assert!(!prefix_ends_with_open_tool_exchange(&msgs, 1));
+    }
+
+    #[test]
+    fn test_fit_compact_count_to_window_shrinks_safely() {
+        let config = CompactionConfig {
+            max_context_tokens: 5,
+            ..Default::default()
+        };
+        // Zero window or zero count returns unchanged
+        assert_eq!(fit_compact_count_to_window(&[], 0, &config), 0);
+        let mut zero_cfg = config;
+        zero_cfg.max_context_tokens = 0;
+        assert_eq!(fit_compact_count_to_window(&[], 5, &zero_cfg), 5);
+
+        // 8 messages, each 4 chars = 1 token
+        let messages = vec![
+            msg("system", "s000"), // 1 token
+            msg("user", "u001"),   // 1 token
+            msg("assistant", "a002"), // 1 token (can split after index 2)
+            msg("user", "u003"),   // 1 token
+            msg("assistant", "a004"), // 1 token (can split after index 4)
+            msg("user", "u005"),   // 1 token
+            msg("assistant", "a006"), // 1 token (can split after index 6)
+            msg("user", "u007"),   // 1 token
+        ];
+
+        // Candidate count 7 has 7 tokens > max_context_tokens 5.
+        // It must shrink backwards:
+        // n = 6: tokens = 6 > 5.
+        // n = 5: tokens = 5 <= 5. Can split after index 4 (assistant a004)? Yes!
+        // Returns 5.
+        assert_eq!(fit_compact_count_to_window(&messages, 7, &config), 5);
+    }
+
+    #[test]
+    fn test_compaction_config_knobs_control_tail_boundary() {
+        let messages = vec![
+            msg("system", "system-prompt"),
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+            msg("assistant", "assistant-2"),
+            msg("user", "user-3"),
+            msg("assistant", "assistant-3"),
+            msg("user", "user-4"),
+        ];
+
+        // Knob: max_recent_messages = 2
+        let cfg_recent = CompactionConfig {
+            max_context_tokens: 10_000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 2,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+        };
+        assert_eq!(compute_compact_count(&messages, &cfg_recent), 7);
+
+        // Knob: max_recent_user_messages = 1
+        // As soon as 1 user message is included in recent tail (user-4),
+        // and a safe split point exists (assistant-3), search halts.
+        let cfg_user = CompactionConfig {
+            max_context_tokens: 10_000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 10,
+            max_recent_user_messages: 1,
+            max_recent_size_ratio: 0.5,
+        };
+        assert_eq!(compute_compact_count(&messages, &cfg_user), 7);
+
+        // Knob: max_recent_size_ratio halts tail growth when size budget reached
+        let cfg_ratio = CompactionConfig {
+            max_context_tokens: 100,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 10,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.02, // 2 tokens max for recent tail
+        };
+        // Each message is >= 3 tokens, so first message already hits 2-token budget
+        assert_eq!(compute_compact_count(&messages, &cfg_ratio), 7);
+    }
+
+    #[test]
+    fn test_unsplittable_history_remains_untouched() {
+        let config = small_config(100);
+
+        // All user messages: cannot split after any user message
+        let all_users = vec![
+            msg("system", "sys"),
+            msg("user", "u1"),
+            msg("user", "u2"),
+            msg("user", "u3"),
+        ];
+        assert_eq!(compute_compact_count(&all_users, &config), 0);
+        assert_messages_eq(&compact_messages(&all_users, &config), &all_users);
+        assert_messages_eq(&force_compact_messages(&all_users, &config), &all_users);
+
+        // Open tool exchange with no safe prior split point
+        let mut a = msg("assistant", "a");
+        a.tool_calls = vec![
+            tool_call("t1", "f", serde_json::json!({})),
+            tool_call("t2", "f", serde_json::json!({})),
+        ];
+        let open_tool = vec![
+            msg("system", "sys"),
+            msg("user", "u1"),
+            a,
+            msg("tool", "r1"),
+        ];
+        assert_eq!(compute_compact_count(&open_tool, &config), 0);
+        assert_messages_eq(&compact_messages(&open_tool, &config), &open_tool);
+        assert_messages_eq(&force_compact_messages(&open_tool, &config), &open_tool);
+    }
+
+    #[test]
+    fn test_is_context_overflow_error_all_patterns_and_negatives() {
+        // All 11 recognized patterns from CONTEXT_OVERFLOW_MESSAGE_PATTERNS
+        let positive_cases = [
+            "llm http status 400: context_length_exceeded",
+            "model error: context_length reached",
+            "request error: context length exceeded",
+            "exceeded context window limit of 128k",
+            "reached maximum context for this model",
+            "max_tokens limit was exceeded",
+            "request exceeds model token limit",
+            "too many tokens in prompt",
+            "prompt is too long for selected model",
+            "input token count exceeds allowed maximum",
+            "request payload exceeds the maximum size allowed",
+        ];
+        for err in positive_cases {
+            assert!(
+                is_context_overflow_error(err),
+                "pattern in '{}' must be detected as context overflow",
+                err
+            );
+        }
+
+        // Case insensitivity
+        assert!(is_context_overflow_error("CONTEXT_LENGTH_EXCEEDED"));
+        assert!(is_context_overflow_error("Prompt Is Too Long"));
+        assert!(is_context_overflow_error("INPUT TOKEN COUNT EXCEEDED"));
+        assert!(is_context_overflow_error("MAX_TOKENS"));
+        assert!(is_context_overflow_error("EXCEEDS THE MAXIMUM SIZE"));
+
+        // Negative cases that must NOT trigger
+        let negative_cases = [
+            "",
+            "llm http status 401: unauthorized",
+            "llm http status 429: rate limit exceeded",
+            "llm http status 500: internal server error",
+            "connection reset by peer",
+            "context is important for good answers",
+            "tokens remaining: 50",
+            "maximum speed achieved",
+            "prompt submitted successfully",
+        ];
+        for err in negative_cases {
+            assert!(
+                !is_context_overflow_error(err),
+                "non-overflow error '{}' must not trigger overflow detection",
+                err
             );
         }
     }
 
     #[test]
-    fn test_estimate_tokens() {
-        assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("a"), 1);
-        assert_eq!(estimate_tokens("abcd"), 1);
-        assert_eq!(estimate_tokens("abcdefgh"), 2);
-        // CJK / Unicode parity with kosong tsEstimateTokens
-        assert_eq!(estimate_tokens("你好"), 2);
-        assert_eq!(estimate_tokens("ab你"), 2);
-        // JSON multiplier
-        assert_eq!(estimate_tokens_for_json("abcd"), 2); // ceil(1 * 1.3) = 2
-    }
-
-    #[test]
-    fn test_estimate_message_tokens_media_and_json() {
-        let text_msg = msg("user", "abcd");
-        assert_eq!(estimate_message_tokens(&text_msg), 1);
-
-        let mut img_msg = msg("user", "");
-        img_msg.blocks.push(ContentBlock::ImageUrl {
-            url: "http://example.com/pic.png".into(),
-        });
-        assert_eq!(estimate_message_tokens(&img_msg), MEDIA_TOKEN_ESTIMATE);
-    }
-
-    #[test]
-    fn test_estimate_message_tokens_includes_tool_calls() {
-        let mut m = msg("assistant", "hello");
-        m.tool_calls.push(tool_call("tc1"));
-        assert!(estimate_message_tokens(&m) > estimate_message_tokens(&msg("assistant", "hello")));
-    }
-
-    #[test]
-    fn test_empty_messages() {
-        let config = CompactionConfig::default();
-        assert_eq!(estimate_messages_tokens(&[]), 0);
-        assert_eq!(compute_compact_count(&[], &config), 0);
-        assert!(compact_messages(&[], &config).is_empty());
-        assert!(!should_compact(0, &config));
-    }
-
-    #[test]
-    fn test_system_only_unchanged() {
-        let config = CompactionConfig::default();
-        let messages = vec![msg("system", "You are helpful.")];
-        assert_eq!(compute_compact_count(&messages, &config), 0);
-        assert_eq!(compact_messages(&messages, &config).len(), 1);
-    }
-
-    #[test]
-    fn test_keeps_system_prompt_trims_middle_keeps_recent_tail() {
-        // 1000-token window: trigger at 850 tokens (the reserved-context
-        // rule is disabled because 50k > window). 300 messages of 4 tokens
-        // each cross the threshold.
-        let config = small_config(1_000);
-        let system = msg("system", "You are helpful.");
-        let mut messages = vec![system.clone()];
-        for i in 0..300 {
-            let role = if i % 2 == 0 { "user" } else { "assistant" };
-            messages.push(msg(role, &"x".repeat(16)));
-        }
-        assert!(should_compact(estimate_messages_tokens(&messages), &config));
-
-        let compacted = compact_messages(&messages, &config);
-        assert!(compacted.len() < messages.len(), "history must shrink");
-        assert_eq!(
-            compacted[0].content, system.content,
-            "system prompt preserved"
-        );
-        assert_eq!(
-            compacted[1].role, "user",
-            "summary placeholder is a user message"
-        );
-        assert!(
-            compacted[1].content.contains("compacted"),
-            "placeholder mentions compaction"
-        );
-        assert_eq!(
-            compacted.last().unwrap().content,
-            messages.last().unwrap().content
-        );
-        assert_suffix(&messages, &compacted[2..]);
-    }
-
-    #[test]
-    fn test_budget_boundary() {
-        let config = small_config(1_000);
-        // 200 messages of 4 tokens = 800 tokens < 850 → no compaction.
-        let mut messages = vec![msg("system", "s")];
-        for i in 0..200 {
-            let role = if i % 2 == 0 { "user" } else { "assistant" };
-            messages.push(msg(role, &"x".repeat(16)));
-        }
-        assert!(!should_compact(
-            estimate_messages_tokens(&messages),
-            &config
-        ));
-        assert_eq!(compact_messages(&messages, &config).len(), messages.len());
-
-        // 225 messages of 4 tokens = 900 tokens >= 850 → compaction.
-        let mut messages = vec![msg("system", "s")];
-        for i in 0..225 {
-            let role = if i % 2 == 0 { "user" } else { "assistant" };
-            messages.push(msg(role, &"x".repeat(16)));
-        }
-        assert!(should_compact(estimate_messages_tokens(&messages), &config));
-        let compacted = compact_messages(&messages, &config);
-        assert!(compacted.len() < messages.len());
-        assert_eq!(compacted[0].content, "s");
-        assert!(compacted[1].content.contains("compacted"));
-    }
-
-    #[test]
-    fn test_does_not_split_inside_tool_exchange() {
-        // The tool exchange (assistant with 2 calls + 2 results) must be
-        // compacted as a unit or kept as a unit — never split. 600-token
-        // window: trigger at 510, total history is 529.
-        let config = small_config(600);
-        let mut messages = vec![msg("system", "s")];
-        messages.push(msg("user", &"x".repeat(300)));
-        let mut a = msg("assistant", &"x".repeat(300));
-        a.tool_calls = vec![tool_call("t1"), tool_call("t2")];
-        messages.push(a);
-        messages.push(msg("tool", &"x".repeat(300)));
-        messages.push(msg("tool", &"x".repeat(300)));
-        messages.push(msg("user", &"x".repeat(300)));
-        messages.push(msg("assistant", &"x".repeat(300)));
-        messages.push(msg("user", &"x".repeat(300)));
-
-        let compacted = compact_messages(&messages, &config);
-        assert!(compacted.len() < messages.len(), "history must shrink");
-        // The tail after the placeholder must not contain orphaned tool
-        // results, and must be a suffix of the original history.
-        let tail = &compacted[2..];
-        assert!(
-            !tail.iter().any(|m| m.role == "tool"),
-            "no orphaned tool results in the preserved tail"
-        );
-        assert_suffix(&messages, tail);
-    }
-
-    #[test]
-    fn test_can_split_after_safety_rules() {
-        // Never split after a user message.
-        let messages = vec![msg("user", "a"), msg("assistant", "b")];
-        assert!(!can_split_after(&messages, 0));
-        // Never split after an assistant message with pending tool calls.
-        let mut a = msg("assistant", "a");
-        a.tool_calls.push(tool_call("t1"));
-        let messages = vec![a, msg("user", "b")];
-        assert!(!can_split_after(&messages, 0));
-        // Never split before a tool result (would orphan it).
-        let messages = vec![msg("assistant", "a"), msg("tool", "r"), msg("user", "b")];
-        assert!(!can_split_after(&messages, 0));
-        // Never split when the prefix ends with an open tool exchange
-        // (assistant issued 2 calls but only 1 result is in the prefix).
-        let mut a = msg("assistant", "a");
-        a.tool_calls = vec![tool_call("t1"), tool_call("t2")];
-        let messages = vec![a, msg("tool", "r1"), msg("user", "b")];
-        assert!(!can_split_after(&messages, 1));
-        // A completed exchange (results match calls) is safe to split after.
-        let mut a = msg("assistant", "a");
-        a.tool_calls = vec![tool_call("t1"), tool_call("t2")];
-        let messages = vec![a, msg("tool", "r1"), msg("tool", "r2"), msg("user", "b")];
-        assert!(can_split_after(&messages, 2));
-        // A clean assistant → user boundary is safe.
-        let messages = vec![msg("assistant", "a"), msg("user", "b")];
-        assert!(can_split_after(&messages, 0));
-        // Out of bounds is never safe.
-        assert!(!can_split_after(&messages, 5));
-    }
-
-    #[test]
-    fn test_is_context_overflow_error() {
-        assert!(is_context_overflow_error("llm http status 400: context_length_exceeded"));
-        assert!(is_context_overflow_error("Error: maximum context length exceeded"));
-        assert!(is_context_overflow_error("prompt is too long for model"));
-        assert!(is_context_overflow_error("request exceeds the model token limit"));
-        assert!(!is_context_overflow_error("llm http status 401: unauthorized"));
-        assert!(!is_context_overflow_error("llm http status 429: rate limit"));
-    }
-
-    #[test]
     fn test_force_compact_bypasses_should_compact_threshold() {
         let config = small_config(100_000);
-        let mut messages = vec![msg("system", "sys")];
-        messages.push(msg("user", "u1"));
-        messages.push(msg("assistant", "a1"));
-        messages.push(msg("user", "u2"));
-        messages.push(msg("assistant", "a2"));
-        messages.push(msg("user", "u3"));
+        let messages = vec![
+            msg("system", "sys"),
+            msg("user", "u1"),
+            msg("assistant", "a1"),
+            msg("user", "u2"),
+            msg("assistant", "a2"),
+            msg("user", "u3"),
+        ];
 
-        // Normal compact_messages does not trigger because 100k window is far away:
-        assert_eq!(compact_messages(&messages, &config).len(), messages.len());
+        // Normal compact_messages does not trigger because 100k window is far away
+        assert_messages_eq(&compact_messages(&messages, &config), &messages);
 
-        // force_compact_messages triggers and summarizes older turns:
+        // force_compact_messages triggers emergency compaction
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(count, 3, "splits after assistant a1 at index 2");
+
         let forced = force_compact_messages(&messages, &config);
-        assert!(forced.len() < messages.len());
-        assert_eq!(forced[0].content, "sys");
-        assert!(forced[1].content.contains("compacted"));
+        let expected = vec![
+            msg("system", "sys"),
+            msg("user", &summary_placeholder(2)),
+            msg("user", "u2"),
+            msg("assistant", "a2"),
+            msg("user", "u3"),
+        ];
+        assert_messages_eq(&forced, &expected);
     }
 }

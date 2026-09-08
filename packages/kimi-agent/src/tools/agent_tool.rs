@@ -70,12 +70,11 @@ fn string_arg(args: &serde_json::Value, name: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Whether the call must run on the host: a feature the engine scope does
-/// not absorb. `fork` and the call-level `model` override stay host-owned;
-/// `resume` is resolved per-id at execution time (native when we hold the
-/// conversation history); `run_in_background` runs natively since P58.
+/// Whether the call must run on the host: an explicit `model` override
+/// that the engine scope does not absorb. `fork`, `resume` and `run_in_background`
+/// run natively.
 pub fn requires_host(args: &serde_json::Value) -> bool {
-    args.get("fork").and_then(|v| v.as_bool()) == Some(true) || string_arg(args, "model").is_some()
+    string_arg(args, "model").is_some()
 }
 
 /// The v2 success shape (`formatForegroundAgentSuccess`).
@@ -277,6 +276,7 @@ async fn execute_resume(
         }
     };
     Some(ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error,
         note: None,
@@ -309,8 +309,30 @@ pub async fn execute_agent(
         )
         .await;
     }
+    let is_fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
     let profile_name =
         string_arg(args, "subagent_type").unwrap_or_else(|| DEFAULT_PROFILE_NAME.into());
+
+    if is_fork {
+        let resume = string_arg(args, "resume");
+        let subagent_type = string_arg(args, "subagent_type");
+        let model = string_arg(args, "model");
+        if let Some(err) = crate::subagent::fork_incompatibility(
+            resume.as_deref(),
+            subagent_type.as_deref(),
+            model.as_deref(),
+            &profile_name,
+            None,
+        ) {
+            return Some(ExecutableToolResult {
+                stop_turn: false,
+                content: err.to_string(),
+                is_error: true,
+                note: None,
+            });
+        }
+    }
+
     // Unknown profiles stay host-owned: plugin sources and external
     // backends never reach the pushed snapshot.
     manager.get_definition(&profile_name).await?;
@@ -319,6 +341,20 @@ pub async fn execute_agent(
 
     let prompt = string_arg(args, "prompt").unwrap_or_default();
     let description = string_arg(args, "description").unwrap_or_default();
+
+    let inherited_history = if is_fork {
+        crate::tools::CURRENT_CONVERSATION_HISTORY
+            .try_with(|slot| slot.lock().unwrap().clone())
+            .ok()
+            .or_else(|| {
+                crate::tools::CALLER_AGENT_ID
+                    .try_with(|id| manager.get_foreground_history(id))
+                    .ok()
+                    .flatten()
+            })
+    } else {
+        None
+    };
 
     // P58: background execution — spawn, launch detached, return the v2
     // running shape immediately. Completion flows back through the
@@ -337,9 +373,10 @@ pub async fn execute_agent(
         let mgr = manager.clone();
         let cb = runtime.callbacks.clone();
         let agent = agent_id.clone();
+        let bg_history = inherited_history.clone();
         tokio::spawn(async move {
             let _ = mgr
-                .run_foreground_turn(&agent, &prompt, None)
+                .run_foreground_turn_with_history(&agent, &prompt, bg_history, None)
                 .await
                 .map(|outcome| {
                     if let ForegroundTurnOutcome::Completed(turn) = outcome {
@@ -375,6 +412,7 @@ pub async fn execute_agent(
         ]
         .join("\n");
         return Some(ExecutableToolResult {
+            stop_turn: false,
             content,
             is_error: false,
             note: None,
@@ -403,7 +441,7 @@ pub async fn execute_agent(
 
     let run = tokio::time::timeout(
         std::time::Duration::from_millis(timeout),
-        manager.run_foreground_turn(&agent_id, &prompt, parent_cancel),
+        manager.run_foreground_turn_with_history(&agent_id, &prompt, inherited_history, parent_cancel),
     )
     .await;
 
@@ -468,6 +506,7 @@ pub async fn execute_agent(
         }
     };
     Some(ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error,
         note: None,
@@ -567,6 +606,7 @@ mod tests {
         ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
                     note: None,
@@ -627,7 +667,8 @@ mod tests {
     fn requires_host_routes_extended_features() {
         // P55: resume is resolved per-id at execution time, not routed here.
         assert!(!requires_host(&serde_json::json!({ "resume": "agent-1" })));
-        assert!(requires_host(&serde_json::json!({ "fork": true })));
+        // Native fork: fork is supported natively.
+        assert!(!requires_host(&serde_json::json!({ "fork": true })));
         // P58: run_in_background runs natively (detached spawn + completion
         // events); the host task system bridges the notification.
         assert!(!requires_host(
@@ -1007,6 +1048,7 @@ mod tests {
     /// assert the prompt prefix and the continuation turn reached the model.
     struct RecordingPromptLlm {
         prompts: Mutex<Vec<String>>,
+        messages_sent: Mutex<Vec<Vec<crate::turn_loop::types::LLMMessage>>>,
         /// Content returned per call (cycled on the last entry).
         responses: Vec<String>,
         calls: Mutex<usize>,
@@ -1016,6 +1058,7 @@ mod tests {
         fn new(responses: Vec<String>) -> Self {
             Self {
                 prompts: Mutex::new(Vec::new()),
+                messages_sent: Mutex::new(Vec::new()),
                 responses,
                 calls: Mutex::new(0),
             }
@@ -1046,6 +1089,7 @@ mod tests {
         ) -> BoxFuture<'_, Result<TurnChatResponse, Box<dyn std::error::Error + Send + Sync>>>
         {
             let mut prompts = self.prompts.lock().unwrap();
+            self.messages_sent.lock().unwrap().push(params.messages.clone());
             if let Some(last_user) = params
                 .messages
                 .iter()
@@ -1294,5 +1338,67 @@ mod tests {
         assert_eq!(events[1]["subagent_id"], spawned["subagent_id"]);
         assert_eq!(events[2]["result_summary"], "findings: all done");
         assert!(events[2]["usage"]["total_tokens"].is_number());
+    }
+
+    #[tokio::test]
+    async fn fork_inherits_conversation_history_and_runs_natively() {
+        let recorder = Arc::new(EventRecorder::new());
+        let llm = Arc::new(RecordingPromptLlm::new(vec![
+            "forked agent response".into(),
+        ]));
+        let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+        manager.register_builtin_profiles().await;
+
+        let parent_history = Arc::new(std::sync::Mutex::new(vec![
+            crate::turn_loop::types::LLMMessage::new("user", "parent prompt"),
+            crate::turn_loop::types::LLMMessage {
+                role: "assistant".into(),
+                content: "I will call a tool".into(),
+                blocks: Vec::new(),
+                tool_calls: vec![crate::turn_loop::types::ToolCall {
+                    id: "call-1".into(),
+                    name: "Agent".into(),
+                    arguments: serde_json::json!({ "prompt": "child task", "fork": true }),
+                }],
+                tool_call_id: None,
+            },
+        ]));
+
+        let result = crate::tools::CURRENT_CONVERSATION_HISTORY
+            .scope(parent_history, async {
+                execute_agent(
+                    &manager,
+                    &serde_json::json!({
+                        "prompt": "continue from fork",
+                        "description": "forked child",
+                        "fork": true,
+                    }),
+                    None,
+                    None,
+                    Some("call-1"),
+                )
+                .await
+            })
+            .await;
+
+        assert!(result.is_some(), "fork must execute natively, not fall back to host");
+        let res = result.unwrap();
+        assert!(!res.is_error, "fork execution must succeed: {}", res.content);
+        assert!(res.content.contains("status: completed"));
+        assert!(res.content.contains("forked agent response"));
+
+        let messages_sent = llm.messages_sent.lock().unwrap();
+        assert_eq!(messages_sent.len(), 1);
+        let sent_messages = &messages_sent[0];
+        // sent_messages has: system message (from run_turn), then the 4 forked messages
+        let user_idx = sent_messages.iter().position(|m| m.content == "parent prompt").expect("parent prompt must be present");
+        assert_eq!(sent_messages[user_idx].role, "user");
+        assert_eq!(sent_messages[user_idx + 1].role, "assistant");
+        assert_eq!(sent_messages[user_idx + 1].content, "I will call a tool");
+        assert_eq!(sent_messages[user_idx + 2].role, "tool");
+        assert_eq!(sent_messages[user_idx + 2].tool_call_id.as_deref(), Some("call-1"));
+        assert_eq!(sent_messages[user_idx + 2].content, crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT);
+        assert_eq!(sent_messages[user_idx + 3].role, "user");
+        assert!(sent_messages[user_idx + 3].content.contains("continue from fork"));
     }
 }

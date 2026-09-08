@@ -174,7 +174,13 @@ async fn confirm_and_exit(
             )
             .await
         }
-        Answer::Rejected => err_result(PLAN_REJECTED_MESSAGE.into()),
+        // v2 exitPlanModeReview.ts:132-140 — a plain reject (no feedback)
+        // carries `isError: true, stopTurn: true` so the turn ends as
+        // completed with plan mode still active.
+        Answer::Rejected => ExecutableToolResult {
+            stop_turn: true,
+            ..err_result(PLAN_REJECTED_MESSAGE.into())
+        },
         Answer::Revise => ok_result(PLAN_REVISE_MESSAGE.into()),
         Answer::Dismissed => ok_result(PLAN_APPROVAL_DISMISSED_MESSAGE.into()),
     }
@@ -400,6 +406,7 @@ pub fn exit_plan_mode_tool_def() -> crate::turn_loop::types::ToolInfo {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: false,
         note: None,
@@ -408,6 +415,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: true,
         note: None,
@@ -670,6 +678,7 @@ mod tests {
         )
         .await;
         assert!(result.is_error);
+        assert!(result.stop_turn);
         assert_eq!(result.content, PLAN_REJECTED_MESSAGE);
         assert!(write_received.lock().unwrap().is_none());
     }
@@ -691,6 +700,7 @@ mod tests {
         )
         .await;
         assert!(!result.is_error);
+        assert!(!result.stop_turn);
         assert_eq!(result.content, PLAN_REVISE_MESSAGE);
         assert!(write_received.lock().unwrap().is_none());
     }
@@ -825,6 +835,7 @@ mod tests {
         )
         .await;
         assert!(result.is_error);
+        assert!(result.stop_turn);
         assert_eq!(result.content, PLAN_REJECTED_MESSAGE);
         assert!(write_received.lock().unwrap().is_none());
     }

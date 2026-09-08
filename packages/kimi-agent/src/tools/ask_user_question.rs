@@ -218,6 +218,7 @@ pub fn ask_user_question_tool_def() -> crate::turn_loop::types::ToolInfo {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: false,
         note: None,
@@ -226,6 +227,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: true,
         note: None,
@@ -504,7 +506,9 @@ mod tests {
         let (callbacks, _) = scripted(Err("connection reset".into()));
         let result = execute_ask_user_question(&callbacks, &sample_args()).await;
         assert!(!result.is_error);
-        assert!(result.content.contains("dismissed"));
+        let parsed: Value = serde_json::from_str(&result.content).expect("content must be valid JSON");
+        assert_eq!(parsed["answers"], serde_json::json!({}));
+        assert_eq!(parsed["note"], QUESTION_DISMISSED_MESSAGE);
     }
 
     #[test]

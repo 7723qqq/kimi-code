@@ -504,6 +504,58 @@ pub fn core_tool_defs() -> Vec<ToolInfo> {
     ]
 }
 
+const LSP_DESCRIPTION: &str = r#"Query a Language Server (LSP) for code intelligence, such as definition locations, references, hover documentation, and document symbols.
+
+Supported actions:
+- 'definition': Find where a symbol at line and character position is defined.
+- 'references': Find all reference locations for a symbol at line and character position.
+- 'hover': Get documentation and type information for a symbol at line and character position.
+- 'symbols': Get a hierarchical symbol tree (functions, classes, traits) for the target file.
+"#;
+
+/// Tool definition for the native LSP tool.
+pub fn lsp_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "Lsp".into(),
+        description: LSP_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "LSP action to perform: 'definition', 'references', 'hover', or 'symbols'."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Path to the target file."
+                },
+                "line": {
+                    "type": "integer",
+                    "description": "0-based line number (for definition, references, hover)."
+                },
+                "character": {
+                    "type": "integer",
+                    "description": "0-based character column (for definition, references, hover)."
+                },
+                "include_declaration": {
+                    "type": "boolean",
+                    "description": "Optional: whether to include declaration in references (defaults to true)."
+                }
+            },
+            "required": ["action", "path"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// All native tool definitions including LSP.
+pub fn all_native_tool_defs() -> Vec<ToolInfo> {
+    let mut defs = core_tool_defs();
+    defs.push(lsp_tool_def());
+    defs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,5 +705,17 @@ mod tests {
         assert_eq!(region["type"], "object");
         assert_eq!(region["required"], json!(["x", "y", "width", "height"]));
         assert_eq!(region["additionalProperties"], false);
+    }
+
+    #[test]
+    fn test_lsp_tool_def_schema() {
+        let lsp = lsp_tool_def();
+        assert_eq!(lsp.name, "Lsp");
+        assert_eq!(lsp.input_schema["required"], json!(["action", "path"]));
+        assert_eq!(lsp.input_schema["additionalProperties"], false);
+
+        let all = all_native_tool_defs();
+        assert_eq!(all.len(), 9);
+        assert!(all.iter().any(|d| d.name == "Lsp"));
     }
 }

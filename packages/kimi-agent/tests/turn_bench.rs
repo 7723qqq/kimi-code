@@ -100,6 +100,7 @@ impl HostCallbacks for InstantHost {
                 content: "x".repeat(64),
                 is_error: false,
                 note: None,
+                stop_turn: false,
             })
         })
     }
@@ -150,6 +151,7 @@ async fn run_turn_sync(
         tools: &[],
         tool_defs: vec![],
         max_steps: steps,
+        max_attempts: Some(1),
         max_context_tokens: None,
         goal: None,
         cancellation: None,
@@ -228,6 +230,9 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
         hook_guard: None,
         agent_tool_veto: None,
         tools_veto: None,
+        todo_tool_veto: None,
+        tower_worktree_root: None,
+        sandbox_policy: None,
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;
     let started = Instant::now();

@@ -645,6 +645,7 @@ Guidelines:
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: false,
         note: None,
@@ -653,6 +654,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        stop_turn: false,
         content,
         is_error: true,
         note: None,

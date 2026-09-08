@@ -394,6 +394,155 @@ fn run_turn_with_host_callbacks() {
     let _ = child.wait();
 }
 
+/// A host `execute_tool` response carrying `stop_turn: true` ends the turn
+/// after the current step (v2 `executeStepTools` stopTurn,
+/// loopService.ts:2117-2119): the scripted LLM would keep issuing tool
+/// calls forever, so `steps == 1` proves the stop-turn shortcut fired and
+/// `max_steps` was never reached. The reverse compatibility direction —
+/// a response WITHOUT the field — is exercised by
+/// `run_turn_with_host_callbacks` above.
+#[test]
+fn stop_turn_from_host_ends_turn_after_one_step() {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => {
+            eprintln!("Skipping test: kimi-agent binary not built.");
+            return;
+        }
+    };
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+    let llm_step = std::sync::Arc::new(AtomicU32::new(0));
+
+    let run_turn_id: u32 = 1;
+    let run_turn_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": run_turn_id,
+        "method": "agent/run_turn",
+        "params": {
+            "turn_id": "stop-turn-integration",
+            "system_prompt": "You are a test assistant.",
+            "model_name": "test-model",
+            "messages": [{"role": "user", "content": "finish the goal"}],
+            "tools": [{"name": "read", "description": "Read a file", "input_schema": {"type": "object"}}],
+            "max_steps": 5
+        }
+    });
+
+    writeln!(stdin, "{}", run_turn_req).unwrap();
+    stdin.flush().unwrap();
+
+    let llm_step_for_thread = llm_step.clone();
+    let run_turn_id_for_thread = run_turn_id;
+
+    let handler = std::thread::spawn(move || -> Result<serde_json::Value, String> {
+        let mut buf = String::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if Instant::now() > deadline {
+                return Err("timeout waiting for run_turn response".into());
+            }
+            buf.clear();
+            let n = stdout
+                .read_line(&mut buf)
+                .map_err(|e| e.to_string())?;
+            if n == 0 {
+                return Err("engine stdout closed early".into());
+            }
+            let trimmed = buf.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let msg: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if msg.get("method").is_none()
+                && msg.get("id") == Some(&serde_json::json!(run_turn_id_for_thread))
+            {
+                return Ok(msg);
+            }
+            let method = match msg.get("method").and_then(|m| m.as_str()) {
+                Some(m) => m,
+                None => continue,
+            };
+            let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+
+            let response = if method == "host/llm_chat" {
+                let _step = llm_step_for_thread.fetch_add(1, Ordering::SeqCst);
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "tool_calls": [{
+                            "id": "call-stop",
+                            "name": "read",
+                            "arguments": {"path": "/tmp/test.txt"}
+                        }],
+                        "finish_reason": "tool_calls",
+                        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+                    }
+                })
+            } else if method == "host/execute_tool" {
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": "goal reached",
+                        "is_error": false,
+                        "stop_turn": true
+                    }
+                })
+            } else {
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32601, "message": format!("unknown method: {method}")}
+                })
+            };
+
+            writeln!(stdin, "{}", response).map_err(|e| e.to_string())?;
+            stdin.flush().map_err(|e| e.to_string())?;
+        }
+    });
+
+    let result = handler.join().expect("handler thread panicked");
+    let resp = result.expect("agent/run_turn response");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert!(
+        resp.get("error").is_none(),
+        "agent/run_turn returned error: {resp}"
+    );
+    let result_obj = &resp["result"];
+    assert_eq!(
+        result_obj["steps"].as_u64(),
+        Some(1),
+        "stop_turn must end the turn after the tool step, got: {result_obj}"
+    );
+    let stop_reason = result_obj["stop_reason"].as_str().unwrap_or("");
+    assert!(
+        stop_reason.contains("EndTurn"),
+        "expected EndTurn stop reason, got: {stop_reason}"
+    );
+    assert_eq!(
+        llm_step.load(Ordering::SeqCst),
+        1,
+        "no continuation LLM call may run after a stop_turn result"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Verify that a malformed JSON line on stdin produces a parse error
 /// response, not a crash.
 #[test]

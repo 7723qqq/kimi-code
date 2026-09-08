@@ -80,7 +80,8 @@ pub fn build_request_full(
                 });
                 if let Some(last_msg) = msgs.last_mut()
                     && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
-                    && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
+                    && let Some(content_arr) =
+                        last_msg.get_mut("content").and_then(|c| c.as_array_mut())
                 {
                     content_arr.push(block);
                 } else {
@@ -97,7 +98,8 @@ pub fn build_request_full(
                 };
                 if let Some(last_msg) = msgs.last_mut()
                     && last_msg.get("role").and_then(|r| r.as_str()) == Some("user")
-                    && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
+                    && let Some(content_arr) =
+                        last_msg.get_mut("content").and_then(|c| c.as_array_mut())
                 {
                     content_arr.extend(content);
                 } else {
@@ -107,11 +109,13 @@ pub fn build_request_full(
         }
     }
 
-    if let Some(last_user_msg) = msgs
-        .iter_mut()
-        .rev()
-        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
-        && let Some(content_arr) = last_user_msg.get_mut("content").and_then(|c| c.as_array_mut())
+    // Tail breakpoint: the last block of the absolute last message (messages.at(-1)),
+    // strictly aligning with TS `anthropic-cache-breakpoints.ts`.
+    // Supports both user text/media and assistant tool_use blocks.
+    if let Some(last_msg) = msgs.last_mut()
+        && let Some(content_arr) = last_msg
+            .get_mut("content")
+            .and_then(|c| c.as_array_mut())
         && let Some(last_block) = content_arr.last_mut()
     {
         last_block["cache_control"] = json!({ "type": "ephemeral" });
@@ -436,8 +440,9 @@ impl StreamAccumulator {
                         .get("cache_creation_input_tokens")
                         .and_then(|x| x.as_u64())
                         .unwrap_or(0) as u32;
-                    self.usage.input_tokens = raw_input
-                        .saturating_sub(self.usage.input_cache_read + self.usage.input_cache_creation);
+                    self.usage.input_tokens = raw_input.saturating_sub(
+                        self.usage.input_cache_read + self.usage.input_cache_creation,
+                    );
                 }
                 None
             }
@@ -921,7 +926,9 @@ mod tests {
     fn stream_accumulator_collects_thinking_blocks_and_deltas() {
         let mut acc = StreamAccumulator::new();
 
-        acc.feed(&json!({ "type": "message_start", "message": { "usage": { "input_tokens": 10 } } }));
+        acc.feed(
+            &json!({ "type": "message_start", "message": { "usage": { "input_tokens": 10 } } }),
+        );
         acc.feed(&json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking" } }));
         let d1 = acc.feed(&json!({
             "type": "content_block_delta",
@@ -1082,13 +1089,21 @@ mod tests {
             tool_calls: vec![],
             tool_call_id: None,
         }];
-        let req_thinking = build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, Some(4096));
+        let req_thinking = build_request_full(
+            "claude-3-7-sonnet-20250219",
+            4096,
+            &msgs,
+            &[],
+            true,
+            Some(4096),
+        );
         assert_eq!(req_thinking["thinking"]["type"], "enabled");
         assert_eq!(req_thinking["thinking"]["budget_tokens"], 4096);
         // max_tokens should be bumped if <= budget
         assert!(req_thinking["max_tokens"].as_u64().unwrap() > 4096);
 
-        let req_no_thinking = build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, None);
+        let req_no_thinking =
+            build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, None);
         assert!(req_no_thinking.get("thinking").is_none());
         assert_eq!(req_no_thinking["max_tokens"], 4096);
     }
@@ -1102,7 +1117,10 @@ mod tests {
         assert_eq!(default_max_tokens_for_model("claude-opus-4-7"), 128_000);
         assert_eq!(default_max_tokens_for_model("claude-haiku-4-5"), 64_000);
         // Documented Claude 3.x ceilings.
-        assert_eq!(default_max_tokens_for_model("claude-3-7-sonnet-20250219"), 8192);
+        assert_eq!(
+            default_max_tokens_for_model("claude-3-7-sonnet-20250219"),
+            8192
+        );
         assert_eq!(default_max_tokens_for_model("claude-3-5-haiku"), 8192);
         assert_eq!(default_max_tokens_for_model("claude-3-opus"), 4096);
         // Unknown model falls back to the generous TS ceiling, not a low guess.
@@ -1145,5 +1163,32 @@ mod tests {
         // intermediate message: index 1 ("answer 1") does NOT have cache_control
         let mid_content = req_msgs[1]["content"].as_array().unwrap();
         assert!(mid_content[0].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn test_anthropic_prompt_caching_tail_on_assistant_tool_use() {
+        let msgs = vec![
+            WireMessage::text("user", "list files"),
+            WireMessage {
+                role: "assistant".into(),
+                content: "Sure, let me check:".into(),
+                blocks: vec![],
+                tool_calls: vec![ToolCall {
+                    id: "call_ls".into(),
+                    name: "glob".into(),
+                    arguments: json!({ "pattern": "*.rs" }),
+                }],
+                tool_call_id: None,
+            },
+        ];
+        let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+        let req_msgs = req["messages"].as_array().unwrap();
+        assert_eq!(req_msgs.len(), 2);
+
+        // 关键断言：当末尾是 Assistant 时，尾部断点必须打在 Assistant 的 tool_use 块上，对齐 TS
+        let asst_content = req_msgs[1]["content"].as_array().unwrap();
+        assert_eq!(asst_content.len(), 2);
+        assert_eq!(asst_content[1]["type"], "tool_use");
+        assert_eq!(asst_content[1]["cache_control"]["type"], "ephemeral");
     }
 }

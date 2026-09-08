@@ -161,6 +161,7 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
                 selected_protocol,
                 store: Some(server.store_arc()),
                 engine: server.engine(),
+                terminal_manager: Some(server.terminal_manager()),
             },
         )
         .await
@@ -279,9 +280,9 @@ fn parse_head(head: &[u8]) -> Result<HttpRequest, RejectReason> {
     let target = parsed
         .path
         .ok_or(RejectReason::Malformed("missing request target"))?;
-    let path = match target.split_once(['?', '#']) {
-        Some((path, _)) => path,
-        None => target,
+    let (path, query) = match target.split_once(['?', '#']) {
+        Some((path, q)) => (path, Some(q.to_string())),
+        None => (target, None),
     };
     if !path.starts_with('/') {
         return Err(RejectReason::OriginFormRequired);
@@ -299,6 +300,7 @@ fn parse_head(head: &[u8]) -> Result<HttpRequest, RejectReason> {
     Ok(HttpRequest {
         method,
         path: path.to_string(),
+        query,
         headers,
         body: Vec::new(),
     })

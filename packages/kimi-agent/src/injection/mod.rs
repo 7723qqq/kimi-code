@@ -307,31 +307,61 @@ mod tests {
 
     #[test]
     fn test_wrap_system_reminder_format() {
+        // Basic whitespace trimming
         let wrapped = wrap_system_reminder("  hello world  ");
         assert_eq!(
             wrapped,
             "<system-reminder>\nhello world\n</system-reminder>"
         );
+
+        // Multiline content preservation
+        let multiline = wrap_system_reminder(" \n line 1 \n  line 2\n ");
+        assert_eq!(
+            multiline,
+            "<system-reminder>\nline 1 \n  line 2\n</system-reminder>"
+        );
+
+        // Empty and whitespace-only strings
+        assert_eq!(
+            wrap_system_reminder(""),
+            "<system-reminder>\n\n</system-reminder>"
+        );
+        assert_eq!(
+            wrap_system_reminder("   \t\r\n   "),
+            "<system-reminder>\n\n</system-reminder>"
+        );
+
+        // Structural invariant with prefix and suffix
+        assert!(wrapped.starts_with(SYSTEM_REMINDER_PREFIX));
+        assert!(wrapped.ends_with(SYSTEM_REMINDER_SUFFIX));
     }
 
     #[test]
     fn test_is_system_reminder_detection() {
-        assert!(is_system_reminder(
-            "<system-reminder>\nhello\n</system-reminder>"
-        ));
+        // Valid reminders
+        assert!(is_system_reminder("<system-reminder>\nhello\n</system-reminder>"));
+        assert!(is_system_reminder("<system-reminder>\nline1\nline2\n</system-reminder>"));
+        assert!(is_system_reminder("<system-reminder>\n\n</system-reminder>"));
+
+        // Invalid: missing tags or malformed delimiters
         assert!(!is_system_reminder("hello"));
+        assert!(!is_system_reminder(""));
         assert!(!is_system_reminder("<system-reminder>\nhello"));
         assert!(!is_system_reminder("hello\n</system-reminder>"));
+        assert!(!is_system_reminder("<system-reminder>hello\n</system-reminder>"));
+        assert!(!is_system_reminder("<system-reminder>\nhello</system-reminder>"));
+        assert!(!is_system_reminder(" <system-reminder>\nhello\n</system-reminder>"));
+        assert!(!is_system_reminder("<system-reminder>\nhello\n</system-reminder> "));
     }
 
     #[test]
     fn test_injection_message_shape() {
-        let message = injection_message("<system-reminder>\nhello\n</system-reminder>".into());
+        let content = wrap_system_reminder("system instruction payload");
+        let message = injection_message(content.clone());
         assert_eq!(message.role, "user");
-        assert_eq!(
-            message.content,
-            "<system-reminder>\nhello\n</system-reminder>"
-        );
+        assert_eq!(message.content, content);
+        assert!(is_system_reminder(&message.content));
+        assert!(message.blocks.is_empty());
         assert!(message.tool_calls.is_empty());
         assert!(message.tool_call_id.is_none());
     }
@@ -341,32 +371,84 @@ mod tests {
         let mut messages = vec![
             LLMMessage {
                 role: "user".into(),
-                content: "plain".into(),
+                content: "plain user message".into(),
                 ..Default::default()
             },
             LLMMessage {
                 role: "user".into(),
-                content: wrap_system_reminder("reminder"),
+                content: wrap_system_reminder("reminder 1"),
+                ..Default::default()
+            },
+            LLMMessage {
+                role: "user".into(),
+                content: wrap_system_reminder("reminder 2"),
                 ..Default::default()
             },
             LLMMessage {
                 role: "assistant".into(),
-                content: "reply".into(),
+                content: "assistant reply".into(),
                 ..Default::default()
             },
             LLMMessage {
                 role: "user".into(),
-                content: wrap_system_reminder("second"),
+                content: wrap_system_reminder("reminder 3"),
                 ..Default::default()
             },
         ];
+
         let injections = split_injections(&mut messages);
+
+        // Injections separated with exact count and content in original order
+        assert_eq!(injections.len(), 3);
+        assert_eq!(injections[0].role, "user");
+        assert_eq!(injections[0].content, wrap_system_reminder("reminder 1"));
+        assert_eq!(injections[1].role, "user");
+        assert_eq!(injections[1].content, wrap_system_reminder("reminder 2"));
+        assert_eq!(injections[2].role, "user");
+        assert_eq!(injections[2].content, wrap_system_reminder("reminder 3"));
+
+        // Remaining non-injection messages preserved exactly in order
         assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].content, "plain");
-        assert_eq!(messages[1].content, "reply");
-        assert_eq!(injections.len(), 2);
-        assert!(injections[0].content.contains("reminder"));
-        assert!(injections[1].content.contains("second"));
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "plain user message");
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[1].content, "assistant reply");
+
+        // Edge case: all injections
+        let mut all_inj = vec![
+            LLMMessage {
+                role: "user".into(),
+                content: wrap_system_reminder("a"),
+                ..Default::default()
+            },
+            LLMMessage {
+                role: "user".into(),
+                content: wrap_system_reminder("b"),
+                ..Default::default()
+            },
+        ];
+        let split_all = split_injections(&mut all_inj);
+        assert!(all_inj.is_empty());
+        assert_eq!(split_all.len(), 2);
+        assert_eq!(split_all[0].content, wrap_system_reminder("a"));
+        assert_eq!(split_all[1].content, wrap_system_reminder("b"));
+
+        // Edge case: no injections
+        let mut no_inj = vec![LLMMessage {
+            role: "user".into(),
+            content: "regular".into(),
+            ..Default::default()
+        }];
+        let split_none = split_injections(&mut no_inj);
+        assert!(split_none.is_empty());
+        assert_eq!(no_inj.len(), 1);
+        assert_eq!(no_inj[0].content, "regular");
+
+        // Edge case: empty input
+        let mut empty: Vec<LLMMessage> = Vec::new();
+        let split_empty = split_injections(&mut empty);
+        assert!(split_empty.is_empty());
+        assert!(empty.is_empty());
     }
 
     #[test]
@@ -375,39 +457,80 @@ mod tests {
         registry.register("a", Box::new(|_| Some("first".into())));
         registry.register("b", Box::new(|_| None));
         registry.register("c", Box::new(|_| Some("   ".into())));
+        registry.register("d", Box::new(|_| Some("fourth\nline2".into())));
+
+        assert_eq!(registry.names(), vec!["a", "b", "c", "d"]);
+
         let texts = registry.build_injections();
         assert_eq!(
             texts.len(),
-            1,
-            "None and blank providers contribute nothing"
+            2,
+            "None and whitespace-only providers contribute nothing"
         );
-        assert_eq!(texts[0], "<system-reminder>\nfirst\n</system-reminder>");
-        assert_eq!(registry.names(), vec!["a", "b", "c"]);
+        assert_eq!(texts[0], wrap_system_reminder("first"));
+        assert_eq!(texts[1], wrap_system_reminder("fourth\nline2"));
     }
 
     #[test]
     fn test_registry_context_exposes_injected_names() {
         let mut registry = InjectionRegistry::new();
-        registry.register("first", Box::new(|_| Some("one".into())));
+        registry.register(
+            "first",
+            Box::new(|ctx| {
+                assert!(ctx.injected.is_empty(), "first provider sees empty injected slice");
+                Some("one".into())
+            }),
+        );
+        registry.register(
+            "skipped",
+            Box::new(|ctx| {
+                assert_eq!(ctx.injected, &["first"]);
+                None
+            }),
+        );
+        registry.register(
+            "blank",
+            Box::new(|ctx| {
+                assert_eq!(ctx.injected, &["first"]);
+                Some("   ".into())
+            }),
+        );
         registry.register(
             "second",
             Box::new(|ctx| {
-                if ctx.injected.iter().any(|name| name == "first") {
-                    Some("two".into())
-                } else {
-                    None
-                }
+                assert_eq!(ctx.injected, &["first"]);
+                Some("two".into())
+            }),
+        );
+        registry.register(
+            "third",
+            Box::new(|ctx| {
+                assert_eq!(ctx.injected, &["first", "second"]);
+                Some("three".into())
             }),
         );
         let texts = registry.build_injections();
-        assert_eq!(texts.len(), 2);
-        assert!(texts[1].contains("two"));
+        assert_eq!(texts.len(), 3);
+        assert_eq!(texts[0], wrap_system_reminder("one"));
+        assert_eq!(texts[1], wrap_system_reminder("two"));
+        assert_eq!(texts[2], wrap_system_reminder("three"));
     }
 
     #[test]
-    fn test_with_defaults_registers_builtins() {
-        let registry = InjectionRegistry::with_defaults();
+    fn test_with_defaults_registers_builtins_and_builds() {
+        let mut registry = InjectionRegistry::with_defaults();
         assert_eq!(registry.names(), vec!["date_change", "agents_md"]);
+
+        let texts = registry.build_injections();
+        assert!(
+            !texts.is_empty(),
+            "with_defaults must produce at least the date_change reminder"
+        );
+        assert!(is_system_reminder(&texts[0]));
+        assert!(texts[0].starts_with("<system-reminder>\nToday's date is "));
+
+        let empty_reg = InjectionRegistry::default();
+        assert!(empty_reg.names().is_empty());
     }
 
     #[test]
@@ -416,17 +539,28 @@ mod tests {
         let text = tracker
             .step("2026-09-02")
             .expect("first pass injects the baseline");
-        assert!(text.contains("Today's date is 2026-09-02"));
-        assert!(text.contains("DO NOT mention this to the user explicitly"));
+        assert_eq!(
+            text,
+            "Today's date is 2026-09-02. The current date is restated in a reminder whenever it \
+             changes; rely on the latest such reminder for the current date. DO NOT mention this \
+             to the user explicitly."
+        );
     }
 
     #[test]
     fn test_date_change_tracker_unchanged_is_silent() {
-        let mut tracker = DateChangeTracker::new();
-        tracker.step("2026-09-02");
-        assert!(
-            tracker.step("2026-09-02").is_none(),
+        let mut tracker = DateChangeTracker::default();
+        let first = tracker.step("2026-09-02");
+        assert!(first.is_some());
+        assert_eq!(
+            tracker.step("2026-09-02"),
+            None,
             "same date must not re-inject"
+        );
+        assert_eq!(
+            tracker.step("2026-09-02"),
+            None,
+            "repeated calls with same date must remain silent"
         );
     }
 
@@ -434,61 +568,136 @@ mod tests {
     fn test_date_change_tracker_crosses_day() {
         let mut tracker = DateChangeTracker::new();
         tracker.step("2026-09-02");
+
         let text = tracker.step("2026-09-03").expect("day change injects");
-        assert!(text.contains("The date has changed. Today's date is now 2026-09-03"));
-        assert!(
-            tracker.step("2026-09-03").is_none(),
+        assert_eq!(
+            text,
+            "The date has changed. Today's date is now 2026-09-03. Rely on this reminder over \
+             any earlier date statement for the current date. DO NOT mention this to the user \
+             explicitly."
+        );
+
+        assert_eq!(
+            tracker.step("2026-09-03"),
+            None,
             "no repeat after the change"
+        );
+
+        let text2 = tracker.step("2026-09-04").expect("next day change injects");
+        assert_eq!(
+            text2,
+            "The date has changed. Today's date is now 2026-09-04. Rely on this reminder over \
+             any earlier date statement for the current date. DO NOT mention this to the user \
+             explicitly."
         );
     }
 
     #[test]
-    fn test_today_utc_format() {
+    fn test_today_utc_and_civil_from_days() {
         let today = today_utc();
-        assert_eq!(today.len(), 10);
-        assert_eq!(&today[4..5], "-");
-        assert_eq!(&today[7..8], "-");
+        let parts: Vec<&str> = today.split('-').collect();
+        assert_eq!(parts.len(), 3, "today_utc must format as YYYY-MM-DD");
+        let year: i64 = parts[0].parse().expect("valid year");
+        let month: u32 = parts[1].parse().expect("valid month");
+        let day: u32 = parts[2].parse().expect("valid day");
+
+        assert!(year >= 2024, "year must be realistic modern date");
+        assert!((1..=12).contains(&month), "month must be in 1..=12");
+        assert!((1..=31).contains(&day), "day must be in 1..=31");
+
         assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
+        assert_eq!(civil_from_days(-365), (1969, 1, 1));
+        assert_eq!(civil_from_days(11016), (2000, 2, 29));
+        assert_eq!(civil_from_days(11017), (2000, 3, 1));
+        assert_eq!(civil_from_days(19782), (2024, 2, 29));
+        assert_eq!(civil_from_days(19783), (2024, 3, 1));
     }
 
     #[test]
-    fn test_find_agents_md_detects_plain_name() {
+    fn test_find_agents_md_cases() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("AGENTS.md"), "# Instructions").unwrap();
+
+        assert_eq!(find_agents_md(dir.path()), None);
+
+        let uppercase = dir.path().join("AGENTS.md");
+        std::fs::write(&uppercase, "# Instructions").unwrap();
         let found = find_agents_md(dir.path()).expect("AGENTS.md found");
+        assert_eq!(found, uppercase);
         assert_eq!(found.file_name().unwrap(), "AGENTS.md");
+
+        let dir2 = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir2.path().join("AGENTS.md")).unwrap();
+        assert_eq!(
+            find_agents_md(dir2.path()),
+            None,
+            "directory named AGENTS.md must not match"
+        );
+
+        let dir3 = tempfile::tempdir().unwrap();
+        let lowercase = dir3.path().join("agents.md");
+        std::fs::write(&lowercase, "# Instructions").unwrap();
+        let found_lower = find_agents_md(dir3.path()).expect("agents.md found");
+        assert!(found_lower.is_file());
+        assert_eq!(
+            std::fs::read_to_string(&found_lower).unwrap(),
+            "# Instructions"
+        );
+        assert_eq!(found_lower.parent().unwrap(), dir3.path());
+        assert!(found_lower
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("agents.md"));
+        #[cfg(not(windows))]
+        assert_eq!(found_lower, lowercase);
+
+        let dir4 = tempfile::tempdir().unwrap();
+        let path_upper = dir4.path().join("AGENTS.md");
+        std::fs::write(&path_upper, "# Upper").unwrap();
+        let found_prec = find_agents_md(dir4.path()).expect("found");
+        assert_eq!(found_prec.file_name().unwrap(), "AGENTS.md");
     }
 
     #[test]
-    fn test_find_agents_md_detects_lowercase() {
+    fn test_agents_md_provider_lifecycle() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("agents.md"), "# Instructions").unwrap();
-        assert!(find_agents_md(dir.path()).is_some());
-    }
+        let agents_path = dir.path().join("AGENTS.md");
+        std::fs::write(&agents_path, "# Instructions").unwrap();
 
-    #[test]
-    fn test_find_agents_md_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(find_agents_md(dir.path()).is_none());
-    }
-
-    #[test]
-    fn test_agents_md_provider_injects_once() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("AGENTS.md"), "# Instructions").unwrap();
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()));
         let ctx = InjectionContext { injected: &[] };
+
         let text = provider(&ctx).expect("first pass injects");
-        assert!(text.contains("AGENTS.md"));
-        assert!(text.contains(&dir.path().display().to_string()));
-        assert!(provider(&ctx).is_none(), "at most once per turn");
+        let expected = format!(
+            "The workspace root is covered by an AGENTS.md instruction file that was not \
+             part of the injected instructions:\n- {}\nRead it before making changes in \
+             that directory. Each file is suggested at most once per agent.",
+            agents_path.display()
+        );
+        assert_eq!(text, expected);
+
+        assert_eq!(provider(&ctx), None, "at most once per turn");
+
+        let mut none_provider = agents_md_provider(None);
+        assert_eq!(none_provider(&ctx), None);
+
+        let empty_dir = tempfile::tempdir().unwrap();
+        let mut missing_provider = agents_md_provider(Some(empty_dir.path().to_path_buf()));
+        assert_eq!(missing_provider(&ctx), None);
     }
 
     #[test]
-    fn test_agents_md_provider_without_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut provider = agents_md_provider(Some(dir.path().to_path_buf()));
-        let ctx = InjectionContext { injected: &[] };
-        assert!(provider(&ctx).is_none());
+    fn test_injection_registry_adapter_for_goal_plan() {
+        use crate::injection::goal_plan::InjectionRegistry as GoalPlanRegistry;
+
+        let mut registry = InjectionRegistry::new();
+        GoalPlanRegistry::register(&mut registry, "gp_active", Box::new(|| "goal content".into()));
+        GoalPlanRegistry::register(&mut registry, "gp_empty", Box::new(|| "".into()));
+        GoalPlanRegistry::register(&mut registry, "gp_whitespace", Box::new(|| "   \n\t ".into()));
+
+        let texts = registry.build_injections();
+        assert_eq!(texts.len(), 1);
+        assert_eq!(texts[0], wrap_system_reminder("goal content"));
     }
 }

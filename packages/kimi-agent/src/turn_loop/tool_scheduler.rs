@@ -80,6 +80,10 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
     batches
 }
 
+/// Output message for tools skipped after a previous tool stops the turn or batch (v2 toolExecutorService.ts:450).
+pub const SKIPPED_TOOL_OUTPUT: &str =
+    "Tool skipped because a previous tool call stopped the turn.";
+
 /// Cap on tool calls running concurrently within one batch.
 const MAX_PARALLEL_TOOLS: usize = 16;
 
@@ -108,14 +112,27 @@ where
     }
     let execute_fn = Arc::new(execute_fn);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_PARALLEL_TOOLS));
-    let mut all_results = Vec::new();
-    for batch in &batches {
+    let mut all_results = Vec::with_capacity(batches.iter().map(Vec::len).sum());
+    let mut batch_stopped = false;
+    for batch in batches {
         if is_cancelled(cancellation) {
             return Err("turn cancelled".into());
         }
+        if batch_stopped {
+            for _ in batch {
+                all_results.push(ExecutableToolResult {
+                    stop_turn: false,
+                    content: SKIPPED_TOOL_OUTPUT.to_string(),
+                    is_error: true,
+                    note: None,
+                });
+            }
+            continue;
+        }
+
         let mut handles = Vec::with_capacity(batch.len());
         for scheduled in batch {
-            let tc = scheduled.tool_call.clone();
+            let tc = scheduled.tool_call;
             let execute_fn = execute_fn.clone();
             let semaphore = semaphore.clone();
             handles.push(tokio::spawn(async move {
@@ -136,6 +153,9 @@ where
                         failure = Some("turn cancelled".to_string());
                         break;
                     }
+                    if result.stop_turn {
+                        batch_stopped = true;
+                    }
                     all_results.push(result);
                 }
                 Ok(Err(e)) => {
@@ -148,6 +168,7 @@ where
                         break;
                     }
                     all_results.push(ExecutableToolResult {
+                        stop_turn: false,
                         content: e,
                         is_error: true,
                         note: None,
@@ -159,6 +180,7 @@ where
                         break;
                     }
                     all_results.push(ExecutableToolResult {
+                        stop_turn: false,
                         content: format!("Tool task join error: {e}"),
                         is_error: true,
                         note: None,
@@ -186,13 +208,16 @@ fn is_cancelled(cancellation: Option<&Arc<AtomicBool>>) -> bool {
 
 /// Infer the resource accesses of a tool call from its name and arguments.
 ///
-/// Mirrors the accesses declared by the matching v2 tool implementations
-/// (`read` → readFile, `write` → writeFile, `edit` → readWriteFile,
-/// `grep` / `glob` → search tree). Unknown tools or calls without a
-/// parseable `path` get no accesses (parallel-safe), matching the v2 host's
-/// scheduler semantics for undeclared accesses. The host applies its own
-/// full permission + conflict layer on execution anyway; this inference
-/// only serializes the file-ops whose declared accesses we can reproduce.
+/// Mirrors the v2 executor rule `execution.accesses ?? ToolAccesses.all()`
+/// (toolExecutorService.ts:435-443): a tool that declares accesses gets
+/// exactly those (`read` → readFile, `write` → writeFile, `edit` →
+/// readWriteFile, `grep` / `glob` / list → search tree, fetch_url /
+/// web_search / github / agent → none), and every tool WITHOUT a
+/// declaration — bash included — conflicts with everything, running in a
+/// batch of its own. `ToolAccesses::all` conflicts with any access set
+/// (toolContract.ts:206-210), so an undeclared tool never runs concurrently.
+/// The host applies its own full permission + conflict layer on execution
+/// anyway; this inference serializes the same pairs the v2 scheduler would.
 pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAccesses {
     let name = tool_name.to_ascii_lowercase();
     let path = args.get("path").and_then(|p| p.as_str());
@@ -212,18 +237,26 @@ pub fn infer_tool_accesses(tool_name: &str, args: &serde_json::Value) -> ToolAcc
         "grep" | "glob" | "listdirectory" | "list_directory" => {
             path.map(read_tree_access).into_iter().collect()
         }
-        "fetchurl" | "fetch_url" | "websearch" | "web_search" => vec![],
-        // A shell command mutates arbitrarily — serialize it against the
-        // whole workspace so it never runs concurrently with any other
-        // tool that touches the sandbox.
-        "bash" => vec![write_tree_access("/")],
+        // v2 declares `ToolAccesses.none()` on these (fetchUrlTool.ts:36,
+        // webSearchTool.ts:33, github-tools.ts:56, agentTool.ts:241) —
+        // parallel-safe against every other tool.
+        "fetchurl" | "fetch_url" | "websearch" | "web_search" | "agent" => vec![],
+        _ if crate::tools::github::is_github_tool(tool_name) => vec![],
+        // A shell command mutates arbitrarily and v2 leaves its accesses
+        // undeclared (bashTool.ts:139-157), so it falls into the `all`
+        // bucket below and runs as the sole tool call of its step.
+        "bash" => vec![all_access()],
         // AgentSwarm runs batch subagents concurrently across the workspace,
         // and per v2 spec must be the sole tool call in the response.
         "agentswarm" | "agent_swarm" => vec![all_access()],
         "towermerge" | "tower_merge" | "towerteardown" | "tower_teardown" => {
             vec![write_tree_access("/")]
         }
-        _ => vec![],
+        // v2 fallback for undeclared accesses (toolExecutorService.ts:437):
+        // MCP tools, ask-user-question, task/todo/goal/plan/cron/skill,
+        // knowledge, team, lsp, select_tools, subagent tools — everything
+        // without a declaration conflicts with everything.
+        _ => vec![all_access()],
     }
 }
 
@@ -756,21 +789,57 @@ mod tests {
     }
 
     #[test]
-    fn test_infer_bash_is_workspace_wide_write() {
-        // A shell command mutates arbitrarily, so it must serialize against
-        // every other sandbox-touching tool.
+    fn test_infer_bash_conflicts_with_everything() {
+        // v2 bash declares no accesses (bashTool.ts:139-157), so the
+        // executor fallback makes it conflict with everything — including
+        // read-only tools it could safely run beside.
         let accesses = infer_tool_accesses("Bash", &serde_json::json!({"command": "echo hi"}));
-        assert_eq!(accesses, vec![write_tree_access("/")]);
+        assert_eq!(accesses, vec![all_access()]);
         assert!(tool_accesses_conflict(
             &accesses,
             &vec![write_file_access("/any/file.txt")],
         ));
+        assert!(tool_accesses_conflict(
+            &accesses,
+            &vec![read_file_access("/any/file.txt")],
+        ));
     }
 
     #[test]
-    fn test_infer_unknown_tool_has_no_accesses() {
-        let accesses = infer_tool_accesses("web_search", &serde_json::json!({"query": "x"}));
-        assert!(accesses.is_empty());
+    fn test_infer_undeclared_tool_conflicts_with_everything() {
+        // The v2 fallback `execution.accesses ?? ToolAccesses.all()`
+        // (toolExecutorService.ts:437): a tool with no declaration — here an
+        // MCP-style name — conflicts with any other tool, even read-only.
+        let accesses =
+            infer_tool_accesses("mcp__server__tool", &serde_json::json!({"x": 1}));
+        assert_eq!(accesses, vec![all_access()]);
+        assert!(tool_accesses_conflict(
+            &accesses,
+            &vec![read_file_access("/any/file.txt")],
+        ));
+        assert!(tool_accesses_conflict(
+            &accesses,
+            &infer_tool_accesses("mcp__other__tool", &serde_json::json!({})),
+        ));
+    }
+
+    #[test]
+    fn test_infer_declared_none_tools_stay_parallel_safe() {
+        // v2 declares ToolAccesses.none() on these (fetchUrlTool.ts:36,
+        // webSearchTool.ts:33, github-tools.ts:56, agentTool.ts:241): empty
+        // accesses conflict with nothing — a github call must still run
+        // beside a Write after the undeclared-tool fallback inversion.
+        for name in ["FetchURL", "WebSearch", "GitHubGetRepo", "Agent"] {
+            let accesses = infer_tool_accesses(name, &serde_json::json!({}));
+            assert!(
+                accesses.is_empty(),
+                "{name} declares none() and must stay parallel-safe"
+            );
+        }
+        assert!(!tool_accesses_conflict(
+            &infer_tool_accesses("GitHubGetRepo", &serde_json::json!({})),
+            &vec![write_file_access("/any/file.txt")],
+        ));
     }
 
     #[test]
@@ -820,6 +889,7 @@ mod tests {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
                     Ok(ExecutableToolResult {
+                        stop_turn: false,
                         content: "ok".into(),
                         is_error: false,
                         note: None,
@@ -872,6 +942,7 @@ mod tests {
         ];
         let executor = move |tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                stop_turn: false,
                 content: tc.id.clone(),
                 is_error: false,
                 note: None,
@@ -901,6 +972,7 @@ mod tests {
         }];
         let executor = move |_tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                stop_turn: false,
                 content: "ok".into(),
                 is_error: false,
                 note: None,
@@ -942,6 +1014,7 @@ mod tests {
                 Err("transport failed".to_string())
             } else {
                 Ok(ExecutableToolResult {
+                    stop_turn: false,
                     content: "ok-2".into(),
                     is_error: false,
                     note: None,
@@ -1002,6 +1075,7 @@ mod tests {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
                     Ok(ExecutableToolResult {
+                        stop_turn: false,
                         content: "ok".into(),
                         is_error: false,
                         note: None,
@@ -1022,6 +1096,7 @@ mod tests {
     async fn test_execute_scheduled_empty() {
         let results = execute_scheduled(None, vec![], |_tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                stop_turn: false,
                 content: "x".into(),
                 is_error: false,
                 note: None,
@@ -1063,6 +1138,7 @@ mod tests {
         ];
         let results = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                stop_turn: false,
                 content: tc.id,
                 is_error: false,
                 note: None,
@@ -1072,5 +1148,56 @@ mod tests {
         .unwrap();
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(ids, vec!["1", "2", "3"]);
+    }
+
+    /// Stop turn/batch on an earlier conflicting batch must skip later batches with v2 message.
+    #[tokio::test]
+    async fn test_execute_scheduled_stop_batch_skips_later_batches() {
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "exit_plan_mode".into(),
+                    arguments: serde_json::json!({}),
+                },
+                accesses: vec![write_file_access("/plan.md")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                },
+                accesses: vec![write_file_access("/plan.md")],
+            },
+        ];
+        let results = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
+            if tc.id == "1" {
+                Ok(ExecutableToolResult {
+                    stop_turn: true,
+                    content: "plan exited".into(),
+                    is_error: false,
+                    note: None,
+                })
+            } else {
+                Ok(ExecutableToolResult {
+                    stop_turn: false,
+                    content: "written".into(),
+                    is_error: false,
+                    note: None,
+                })
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].content, "plan exited");
+        assert!(results[0].stop_turn);
+        assert!(!results[0].is_error);
+
+        // Tool 2 was skipped because tool 1 in earlier batch stopped the turn/batch
+        assert_eq!(results[1].content, SKIPPED_TOOL_OUTPUT);
+        assert!(results[1].is_error);
     }
 }
