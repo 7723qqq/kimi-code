@@ -44,6 +44,11 @@ handover.md
 *-demo.html
 *-demos.html
 .qoder/
+.arts/
+.zcode/
+
+# Stray Cargo build dirs created outside their package (e.g. /target/prompt_test)
+/target/
 
 # Vendored reference copies (not part of this repo)
 参考目录/
