@@ -180,6 +180,28 @@ impl AcpServer {
         Ok(())
     }
 
+    /// ACP `SessionInfo.cwd`: the session's workspace root, else its recorded
+    /// cwd, else the empty string (v2 `sessionSummaryToSessionInfo`).
+    fn session_cwd(&self, session_id: &str) -> String {
+        if let Ok(Some(session)) = self.store.get_session(session_id)
+            && let Some(workspace_id) = session.workspace_id.as_deref()
+            && let Ok(Some(workspace)) = self.store.get_workspace(workspace_id)
+        {
+            return workspace.root;
+        }
+        self.store
+            .get_state("metadata", session_id)
+            .ok()
+            .flatten()
+            .and_then(|metadata| {
+                metadata
+                    .get("cwd")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default()
+    }
+
     /// Apply an ACP session mode (v2 `setSessionMode` + `setMode` +
     /// `acpModeToToggles`): validate the session and mode id, persist the
     /// permission mode the engine reads at turn start, and notify the client
@@ -339,7 +361,44 @@ impl AcpServer {
                 }
             }
             "session/list" => match self.store.list_sessions() {
-                Ok(list) => JsonRpcResponse::success(req.id, json!({ "sessions": list })),
+                Ok(list) => {
+                    let requested_cwd = req
+                        .params
+                        .as_ref()
+                        .and_then(|params| params.get("cwd"))
+                        .and_then(|value| value.as_str());
+                    let sessions: Vec<serde_json::Value> = list
+                        .iter()
+                        .filter_map(|summary| {
+                            let cwd = self.session_cwd(&summary.session_id);
+                            // v2 `filterSessionSummariesByCwd`: a session
+                            // without a recorded cwd is always kept.
+                            if let Some(requested) = requested_cwd
+                                && !cwd.is_empty()
+                                && cwd != requested
+                            {
+                                return None;
+                            }
+                            let title = summary
+                                .title
+                                .as_deref()
+                                .filter(|title| !title.is_empty());
+                            let updated_at = chrono::DateTime::from_timestamp_millis(
+                                summary.updated_at,
+                            )
+                            .map(|at| {
+                                at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+                            });
+                            Some(json!({
+                                "sessionId": summary.session_id,
+                                "cwd": cwd,
+                                "title": title,
+                                "updatedAt": updated_at,
+                            }))
+                        })
+                        .collect();
+                    JsonRpcResponse::success(req.id, json!({ "sessions": sessions }))
+                }
                 Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
             },
             "session/prompt" => {
@@ -536,10 +595,26 @@ impl AcpServer {
                     .and_then(|v| v.as_str());
 
                 match session_id {
-                    Some(sid) => match self.store.delete_session(sid) {
-                        Ok(deleted) => JsonRpcResponse::success(req.id, json!({ "deleted": deleted })),
-                        Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
-                    },
+                    Some(sid) => {
+                        // v2 rejects an unknown id with invalid params instead
+                        // of answering `{deleted:false}` (server.ts:350-377).
+                        if self.store.get_session(sid).ok().flatten().is_none() {
+                            JsonRpcResponse::error(
+                                req.id,
+                                -32602,
+                                format!("Unknown sessionId: {sid}"),
+                            )
+                        } else {
+                            match self.store.delete_session(sid) {
+                                Ok(_) => JsonRpcResponse::success(req.id, json!({})),
+                                Err(e) => JsonRpcResponse::error(
+                                    req.id,
+                                    -32000,
+                                    format!("Database error: {e}"),
+                                ),
+                            }
+                        }
+                    }
                     None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
                 }
             }
@@ -1086,7 +1161,10 @@ mod tests {
         let resp = server.handle_message(&list_req.to_string()).await.unwrap();
         let sessions = resp.result.unwrap()["sessions"].as_array().unwrap().clone();
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0]["session_id"], sid);
+        assert_eq!(sessions[0]["sessionId"], sid);
+        assert_eq!(sessions[0]["cwd"], "");
+        assert_eq!(sessions[0]["title"], "ACP Test Session");
+        assert!(sessions[0]["updatedAt"].is_string());
 
         // 3. Prompt session
         let prompt_req = json!({
@@ -1151,7 +1229,71 @@ mod tests {
             "params": { "sessionId": sid }
         });
         let resp = server.handle_message(&del_req.to_string()).await.unwrap();
-        assert_eq!(resp.result.unwrap()["deleted"], true);
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap(), json!({}));
+
+        // 7. Deleting an unknown session is invalid params, not a false answer.
+        let del_missing = json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "session/delete",
+            "params": { "sessionId": "sess-nope" }
+        });
+        let resp = server
+            .handle_message(&del_missing.to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.error.unwrap().message,
+            "Unknown sessionId: sess-nope"
+        );
+    }
+
+    /// `session/list` projects storage rows into the ACP `SessionInfo` shape,
+    /// resolves `cwd` from the session metadata, and keeps cwd-less sessions
+    /// when the request filters by cwd (v2 `sessionSummaryToSessionInfo` +
+    /// `filterSessionSummariesByCwd`).
+    #[tokio::test]
+    async fn test_acp_session_list_shape_and_cwd_filter() {
+        let server = AcpServer::in_memory().unwrap();
+        server.store.create_session("sess-a", Some("A")).unwrap();
+        server.store.create_session("sess-b", Some("B")).unwrap();
+        server
+            .store
+            .put_state("metadata", "sess-b", &json!({ "cwd": "/tmp/ws" }))
+            .unwrap();
+
+        let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "session/list", "params": {} });
+        let resp = server.handle_message(&list.to_string()).await.unwrap();
+        let sessions = resp.result.unwrap()["sessions"].as_array().unwrap().clone();
+        assert_eq!(sessions.len(), 2);
+        let session_b = sessions
+            .iter()
+            .find(|session| session["sessionId"] == "sess-b")
+            .expect("sess-b listed");
+        assert_eq!(session_b["cwd"], "/tmp/ws");
+        assert_eq!(session_b["title"], "B");
+        assert!(session_b["updatedAt"].is_string());
+
+        let matching = json!({
+            "jsonrpc": "2.0", "id": 2, "method": "session/list",
+            "params": { "cwd": "/tmp/ws" }
+        });
+        let resp = server
+            .handle_message(&matching.to_string())
+            .await
+            .unwrap();
+        let sessions = resp.result.unwrap()["sessions"].as_array().unwrap().clone();
+        assert_eq!(sessions.len(), 2, "a cwd-less session is always kept");
+
+        let other = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "session/list",
+            "params": { "cwd": "/tmp/other" }
+        });
+        let resp = server.handle_message(&other.to_string()).await.unwrap();
+        let sessions = resp.result.unwrap()["sessions"].as_array().unwrap().clone();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["sessionId"], "sess-a");
     }
 
     /// `session/resume` re-attaches without replay; `session/fork` copies the
