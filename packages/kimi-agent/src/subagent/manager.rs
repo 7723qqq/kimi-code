@@ -1744,6 +1744,7 @@ mod tests {
                             id: "tc1".into(),
                             name: "read".into(),
                             arguments: serde_json::json!({ "path": "/a.txt" }),
+                            extras: None,
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: crate::rpc::types::TokenUsage {
@@ -1764,6 +1765,7 @@ mod tests {
                             id: "tc2".into(),
                             name: "read".into(),
                             arguments: serde_json::json!({ "path": "/b.txt" }),
+                            extras: None,
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: crate::rpc::types::TokenUsage {

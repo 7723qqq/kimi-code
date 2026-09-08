@@ -344,11 +344,13 @@ mod tests {
                                 id: String::new(),
                                 name: "read".into(),
                                 arguments: serde_json::json!({}),
+                                extras: None,
                             },
                             ToolCall {
                                 id: "  ".into(),
                                 name: "glob".into(),
                                 arguments: serde_json::json!({}),
+                                extras: None,
                             },
                         ],
                         finish_reason: Some("tool_calls".into()),
@@ -410,6 +412,7 @@ mod tests {
                                 id: "c1".into(),
                                 name: "read".into(),
                                 arguments: serde_json::json!({}),
+                                extras: None,
                             }]
                         } else {
                             vec![]

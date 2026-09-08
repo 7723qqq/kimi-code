@@ -201,6 +201,7 @@ mod tests {
             id: id.into(),
             name: name.into(),
             arguments: args,
+            extras: None,
         }
     }
 

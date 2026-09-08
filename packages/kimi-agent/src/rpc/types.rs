@@ -809,6 +809,10 @@ pub struct LlmToolCall {
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
+    /// Provider-specific extras that must round-trip with the provider (e.g.
+    /// Gemini `thoughtSignature`; mirrors `turn_loop::types::ToolCall.extras`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extras: Option<serde_json::Value>,
 }
 
 // ── Tool execution proxy types (Rust → JS host) ────────────────────────────
@@ -1284,6 +1288,7 @@ mod tests {
                 id: "call_1".to_string(),
                 name: "read".to_string(),
                 arguments: serde_json::json!({"path": "/tmp/test.txt"}),
+                extras: None,
             }],
             finish_reason: Some("stop".to_string()),
             usage: TokenUsage {
@@ -1578,6 +1583,7 @@ mod tests {
             id: "call_abc".to_string(),
             name: "read_file".to_string(),
             arguments: serde_json::json!({"path": "/tmp/x.txt"}),
+            extras: None,
         };
         let json = serde_json::to_value(&tc).unwrap();
         let deserialized: LlmToolCall = serde_json::from_value(json).unwrap();

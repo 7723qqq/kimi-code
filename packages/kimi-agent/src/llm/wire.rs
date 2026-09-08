@@ -132,6 +132,7 @@ mod tests {
                     id: "c1".into(),
                     name: "Read".into(),
                     arguments: json!({ "path": "a" }),
+                    extras: None,
                 }],
                 tool_call_id: None,
             },

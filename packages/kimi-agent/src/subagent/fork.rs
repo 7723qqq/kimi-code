@@ -131,6 +131,7 @@ mod tests {
             id: "call_read".into(),
             name: "Read".into(),
             arguments: "{}".into(),
+            extras: None,
         };
         let history = vec![
             LLMMessage::new("user", "hi"),
@@ -158,6 +159,7 @@ mod tests {
             id: "call_agent".into(),
             name: "Agent".into(),
             arguments: "{}".into(),
+            extras: None,
         };
         let history = vec![
             LLMMessage::new("user", "hi"),
@@ -184,11 +186,13 @@ mod tests {
             id: "call_read".into(),
             name: "Read".into(),
             arguments: "{}".into(),
+            extras: None,
         };
         let agent_call = ToolCall {
             id: "call_agent".into(),
             name: "Agent".into(),
             arguments: "{}".into(),
+            extras: None,
         };
         let history = vec![
             LLMMessage::new("user", "hi"),

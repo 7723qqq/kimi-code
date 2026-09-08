@@ -161,6 +161,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                         id,
                         name,
                         arguments,
+                        extras: None,
                     });
                 }
                 "reasoning" => {
@@ -342,6 +343,7 @@ impl StreamAccumulator {
                 id,
                 name,
                 arguments,
+                extras: None,
             });
             self.current_call_args.clear();
         }

@@ -44,12 +44,23 @@ pub fn build_request_full(
                 }
                 for tc in &m.tool_calls {
                     tool_name_by_id.insert(tc.id.clone(), tc.name.clone());
-                    parts.push(json!({
+                    let mut fc = json!({
                         "functionCall": {
                             "name": tc.name,
                             "args": tc.arguments,
                         }
-                    }));
+                    });
+                    // Restore the Gemini attestation signature so the API
+                    // accepts the echoed function call (v2
+                    // google-genai.ts:274-276).
+                    if let Some(extras) = &tc.extras
+                        && let Some(sig) = extras
+                            .get("thought_signature_b64")
+                            .and_then(|s| s.as_str())
+                    {
+                        fc["functionCall"]["thought_signature"] = json!(sig);
+                    }
+                    parts.push(fc);
                 }
                 contents.push(json!({ "role": "model", "parts": parts }));
             }
@@ -98,7 +109,16 @@ pub fn build_request_full(
                                 }
                             }));
                         }
-                        _ => {}
+                        ContentBlock::ImageUrl { url } => {
+                            parts.push(convert_media_url(url, "image/png"));
+                        }
+                        ContentBlock::AudioUrl { url, .. } => {
+                            parts.push(convert_media_url(url, "audio/mpeg"));
+                        }
+                        ContentBlock::VideoUrl { url, .. } => {
+                            parts.push(convert_media_url(url, "video/mp4"));
+                        }
+                        ContentBlock::Think { .. } => {}
                     }
                 }
                 if parts.is_empty() {
@@ -154,6 +174,51 @@ pub fn build_request_full(
     req
 }
 
+/// Convert a data URL or HTTP URL to a Google GenAI inline/file data part
+/// (v2 `convertMediaUrl`, google-genai.ts:153-191):
+/// - `data:` URLs are parsed into `{ inlineData: { mimeType, data } }`
+/// - `http(s):` URLs use `{ fileData: { fileUri, mimeType } }`, with the
+///   mime type guessed from the path extension when possible.
+fn convert_media_url(url: &str, fallback_mime_type: &str) -> Value {
+    if let Some(rest) = url.strip_prefix("data:") {
+        let (meta, data) = match rest.find(',') {
+            Some(idx) => (&rest[..idx], &rest[idx + 1..]),
+            None => (rest, ""),
+        };
+        let mime_type = meta.split(';').next().unwrap_or(fallback_mime_type);
+        return json!({ "inlineData": { "mimeType": mime_type, "data": data } });
+    }
+    let mime_type = guess_mime_from_url(url).unwrap_or(fallback_mime_type);
+    json!({ "fileData": { "fileUri": url, "mimeType": mime_type } })
+}
+
+/// Guess a media mime type from a URL's path extension (v2
+/// `convertMediaUrl` extension table, google-genai.ts:180-190).
+fn guess_mime_from_url(url: &str) -> Option<&'static str> {
+    let path = url::Url::parse(url).ok()?.path().to_ascii_lowercase();
+    if path.ends_with(".png") {
+        Some("image/png")
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        Some("image/jpeg")
+    } else if path.ends_with(".gif") {
+        Some("image/gif")
+    } else if path.ends_with(".webp") {
+        Some("image/webp")
+    } else if path.ends_with(".mp3") || path.ends_with(".mpeg") {
+        Some("audio/mpeg")
+    } else if path.ends_with(".wav") {
+        Some("audio/wav")
+    } else if path.ends_with(".ogg") {
+        Some("audio/ogg")
+    } else if path.ends_with(".mp4") {
+        Some("video/mp4")
+    } else if path.ends_with(".webm") {
+        Some("video/webm")
+    } else {
+        None
+    }
+}
+
 /// Parse a Google GenAI `generateContent` JSON response.
 pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
     let candidate = v
@@ -206,10 +271,19 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                     .and_then(|id| id.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| format!("{}_{}", name, i));
+                // Carry the Gemini attestation signature so the echoed
+                // function call is accepted on the next request (v2
+                // google-genai.ts:540-546).
+                let extras = part
+                    .get("thoughtSignature")
+                    .or_else(|| part.get("thought_signature"))
+                    .and_then(|s| s.as_str())
+                    .map(|sig| json!({ "thought_signature_b64": sig }));
                 tool_calls.push(ToolCall {
                     id,
                     name: name.to_string(),
                     arguments,
+                    extras,
                 });
             }
         }
@@ -333,6 +407,7 @@ impl StreamAccumulator {
                     id,
                     name: name.to_string(),
                     arguments,
+                    extras: None,
                 });
             }
         }
@@ -388,6 +463,7 @@ mod tests {
                     id: "call_1".into(),
                     name: "Grep".into(),
                     arguments: json!({ "query": "abc" }),
+                    extras: None,
                 }],
             ),
             WireMessage::tool_result("Grep", "results: none"),
@@ -512,6 +588,7 @@ mod tests {
                     id: "call_abc_123".into(),
                     name: "read_file".into(),
                     arguments: json!({ "path": "test.txt" }),
+                    extras: None,
                 }],
                 tool_call_id: None,
             },
@@ -535,5 +612,87 @@ mod tests {
         // 关键断言：response 必须为 JSON Object
         assert!(resp_part["response"].is_object());
         assert_eq!(resp_part["response"]["output"], "file content here");
+    }
+
+    /// URL media blocks project to `fileData` (http) / `inlineData` (data
+    /// URL), with the mime type guessed from the path extension (v2
+    /// `convertMediaUrl`, google-genai.ts:153-191).
+    #[test]
+    fn test_build_request_media_urls() {
+        let messages = vec![WireMessage::with_blocks(
+            "user",
+            vec![
+                ContentBlock::ImageUrl {
+                    url: "https://example.com/photo.png".into(),
+                },
+                ContentBlock::AudioUrl {
+                    url: "https://example.com/sound.mp3".into(),
+                    id: None,
+                },
+                ContentBlock::VideoUrl {
+                    url: "data:video/mp4;base64,AAAA".into(),
+                    id: None,
+                },
+                ContentBlock::ImageUrl {
+                    url: "https://example.com/unknown.bin".into(),
+                },
+            ],
+        )];
+
+        let req = build_request_full(&messages, &[], None);
+        let parts = req["contents"][0]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 4);
+
+        // http URL → fileData with extension-guessed mime.
+        assert_eq!(
+            parts[0]["fileData"]["fileUri"],
+            "https://example.com/photo.png"
+        );
+        assert_eq!(parts[0]["fileData"]["mimeType"], "image/png");
+        assert_eq!(parts[1]["fileData"]["mimeType"], "audio/mpeg");
+        // data URL → inlineData with the declared mime.
+        assert_eq!(parts[2]["inlineData"]["mimeType"], "video/mp4");
+        assert_eq!(parts[2]["inlineData"]["data"], "AAAA");
+        // Unknown extension falls back to the block's default mime.
+        assert_eq!(parts[3]["fileData"]["mimeType"], "image/png");
+    }
+
+    /// Gemini `thoughtSignature` round-trips: `parse_response` captures it
+    /// into `ToolCall.extras`, and `build_request` restores it on the echoed
+    /// function call (v2 google-genai.ts:274-276, 540-546).
+    #[test]
+    fn test_thought_signature_roundtrip() {
+        let resp = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "Grep",
+                            "args": { "query": "x" },
+                            "id": "fc_1"
+                        },
+                        "thoughtSignature": "sig-b64"
+                    }]
+                }
+            }]
+        });
+        let parsed = parse_response(&resp).unwrap();
+        assert_eq!(parsed.tool_calls.len(), 1);
+        let extras = parsed.tool_calls[0].extras.as_ref().expect("extras captured");
+        assert_eq!(extras["thought_signature_b64"], "sig-b64");
+
+        let messages = vec![WireMessage::assistant_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "fc_1".into(),
+                name: "Grep".into(),
+                arguments: json!({ "query": "x" }),
+                extras: Some(json!({ "thought_signature_b64": "sig-b64" })),
+            }],
+        )];
+        let req = build_request_full(&messages, &[], None);
+        let fc = &req["contents"][0]["parts"][0]["functionCall"];
+        assert_eq!(fc["name"], "Grep");
+        assert_eq!(fc["thought_signature"], "sig-b64");
     }
 }

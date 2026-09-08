@@ -1161,7 +1161,10 @@ impl SqliteSessionStore {
     ) -> Result<Option<Value>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT data FROM checkpoints WHERE session_id = ?1 AND name = ?2 ORDER BY created_at DESC LIMIT 1",
+            // `created_at` is millisecond-precision; two checkpoints saved in
+            // the same millisecond tie on it, so break the tie with rowid
+            // (insertion order) or "latest" resolves to an arbitrary row.
+            "SELECT data FROM checkpoints WHERE session_id = ?1 AND name = ?2 ORDER BY created_at DESC, rowid DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(params![session_id, name])?;
         if let Some(row) = rows.next()? {
@@ -1824,11 +1827,13 @@ mod tests {
                         id: "call_read_1".into(),
                         name: "Read".into(),
                         arguments: serde_json::json!({ "path": "file.txt" }),
+                        extras: None,
                     },
                     ToolCall {
                         id: "call_read_2".into(),
                         name: "Grep".into(),
                         arguments: serde_json::json!({ "pattern": "TODO" }),
+                        extras: None,
                     },
                 ],
                 tool_call_id: None,

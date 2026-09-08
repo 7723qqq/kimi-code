@@ -1241,6 +1241,7 @@ mod tests {
                 id: "tc-loop".into(),
                 name: "WebSearch".into(),
                 arguments: serde_json::json!({ "query": "x" }),
+                extras: None,
             }],
         };
 
@@ -1666,6 +1667,7 @@ mod tests {
                             id: "tc1".into(),
                             name: "read".into(),
                             arguments: serde_json::json!({"path": "/a.txt"}),
+                            extras: None,
                         }],
                         finish_reason: Some("length".into()),
                         usage: TokenUsage {
@@ -1745,6 +1747,7 @@ mod tests {
                                 id: "tc1".into(),
                                 name: "read".into(),
                                 arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage {
@@ -1851,6 +1854,7 @@ mod tests {
                                 id: "tc1".into(),
                                 name: "read".into(),
                                 arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
@@ -1954,12 +1958,14 @@ mod tests {
                                     id: "tc1".into(),
                                     name: "read".into(),
                                     arguments: serde_json::json!({"path": "/a.txt"}),
+                                    extras: None,
                                 },
                                 // Same key, different call id — the repeat.
                                 ToolCall {
                                     id: "tc2".into(),
                                     name: "read".into(),
                                     arguments: serde_json::json!({"path": "/a.txt"}),
+                                    extras: None,
                                 },
                             ],
                             finish_reason: Some("tool_calls".into()),
@@ -2065,11 +2071,13 @@ mod tests {
                                     id: "tc1".into(),
                                     name: "echo".into(),
                                     arguments: serde_json::json!({"text": "hello"}),
+                                    extras: None,
                                 },
                                 ToolCall {
                                     id: "tc2".into(),
                                     name: "echo".into(),
                                     arguments: serde_json::json!({"text": "hello"}),
+                                    extras: None,
                                 },
                             ],
                             finish_reason: Some("tool_calls".into()),
@@ -2162,6 +2170,7 @@ mod tests {
                             id: format!("tc{call}"),
                             name: "read".into(),
                             arguments: serde_json::json!({"path": "/a.txt"}),
+                            extras: None,
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: TokenUsage::default(),
@@ -2819,6 +2828,7 @@ mod tests {
                 id: "tc-cancel".into(),
                 name: "read".into(),
                 arguments: serde_json::json!({ "path": "/a.txt" }),
+                extras: None,
             }],
         };
 
@@ -2880,6 +2890,7 @@ mod tests {
                 id: "tc-stop".into(),
                 name: "read".into(),
                 arguments: serde_json::json!({ "path": "/a.txt" }),
+                extras: None,
             }],
         };
 
@@ -3084,6 +3095,7 @@ mod tests {
                 id: "loop".into(),
                 name: "read".into(),
                 arguments: serde_json::json!({"path": "/x"}),
+                extras: None,
             }],
         };
 
@@ -3586,6 +3598,7 @@ mod tests {
                                 id: "tc1".into(),
                                 name: "read".into(),
                                 arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),

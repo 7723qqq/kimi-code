@@ -147,6 +147,7 @@ impl LLM for HostLlmProxy {
                     id: tc.id,
                     name: tc.name,
                     arguments: tc.arguments,
+                    extras: None,
                 })
                 .collect();
 

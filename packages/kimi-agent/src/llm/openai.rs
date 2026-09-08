@@ -200,6 +200,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 id,
                 name,
                 arguments,
+                extras: None,
             });
         }
     }
@@ -402,6 +403,7 @@ impl StreamAccumulator {
                         id: tc.id,
                         name: tc.name,
                         arguments,
+                        extras: None,
                     })
             })
             .collect();
@@ -440,6 +442,7 @@ mod tests {
                     id: "call_1".into(),
                     name: "Read".into(),
                     arguments: json!({ "path": "a.txt" }),
+                    extras: None,
                 }],
             ),
             WireMessage::tool_result("call_1", "file body"),

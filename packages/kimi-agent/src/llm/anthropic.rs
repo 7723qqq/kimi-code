@@ -268,6 +268,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                     id,
                     name,
                     arguments,
+                    extras: None,
                 });
             }
             _ => {}
@@ -585,6 +586,7 @@ impl StreamAccumulator {
                             id,
                             name,
                             arguments,
+                            extras: None,
                         });
                     }
                 }
@@ -618,6 +620,7 @@ mod tests {
                     id: "tu_1".into(),
                     name: "Read".into(),
                     arguments: json!({ "path": "a.txt" }),
+                    extras: None,
                 }],
             ),
             WireMessage::tool_result("tu_1", "file body"),
@@ -677,11 +680,13 @@ mod tests {
                         id: "call_1".into(),
                         name: "Read".into(),
                         arguments: json!({ "path": "a.txt" }),
+                        extras: None,
                     },
                     ToolCall {
                         id: "call_2".into(),
                         name: "Read".into(),
                         arguments: json!({ "path": "b.txt" }),
+                        extras: None,
                     },
                 ],
             ),
@@ -1177,6 +1182,7 @@ mod tests {
                     id: "call_ls".into(),
                     name: "glob".into(),
                     arguments: json!({ "pattern": "*.rs" }),
+                    extras: None,
                 }],
                 tool_call_id: None,
             },

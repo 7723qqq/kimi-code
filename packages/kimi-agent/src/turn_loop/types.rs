@@ -191,6 +191,10 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
+    /// Provider-specific extras that must round-trip with the provider (e.g.
+    /// Gemini `thoughtSignature` attestation, v2 `ToolCall.extras`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extras: Option<serde_json::Value>,
 }
 
 // ── ExecutableTool trait ───────────────────────────────────────────────────

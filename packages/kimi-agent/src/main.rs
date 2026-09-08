@@ -942,6 +942,7 @@ fn wire_message_to_llm(m: Message) -> LLMMessage {
                 id: tc.id,
                 name: tc.name,
                 arguments: tc.arguments,
+                extras: tc.extras,
             })
             .collect(),
         tool_call_id: m.tool_call_id,
@@ -960,6 +961,7 @@ fn llm_message_to_wire(m: LLMMessage) -> Message {
                 id: tc.id,
                 name: tc.name,
                 arguments: tc.arguments,
+                extras: tc.extras,
             })
             .collect(),
         tool_call_id: m.tool_call_id,

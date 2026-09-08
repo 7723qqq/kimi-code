@@ -124,6 +124,7 @@ mod tests {
             id: "call-read-pending".into(),
             name: "Read".into(),
             arguments: serde_json::json!({ "path": "test.txt" }),
+            extras: None,
         };
         let history = vec![
             LLMMessage::new("user", "check the config"),
