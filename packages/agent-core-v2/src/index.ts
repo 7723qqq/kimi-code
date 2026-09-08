@@ -510,23 +510,17 @@ export * from '#/app/sessionExport/wire-scan';
 export * from '#/app/sessionExport/zip';
 export * from '#/app/sessionLegacy/sessionLegacy';
 export * from '#/app/sessionLegacy/sessionLegacyService';
-export * from '#/features/interaction/interaction';
-export * from '#/features/interaction/interactionOps';
-export * from '#/features/interaction/interactionService';
-export * from '#/features/interaction/sessionInteractions';
-import '#/features/interaction/interactionFeature';
+export * from '#/human/interaction/interaction';
+export * from '#/human/interaction/facade';
+export * from '#/agent/interaction/interactionOps';
 export * from '#/session/sessionContext/sessionContext';
 
-import '#/session/approval/approval';
-import '#/session/approval/approvalService';
+export * from '#/agent/interaction/question';
 export {
-  ISessionApprovalService,
   type ApprovalDecision,
   type ApprovalRequest as SessionApprovalRequest,
   type ApprovalResponse as SessionApprovalResponse,
-} from '#/session/approval/approval';
-export * from '#/session/question/question';
-export * from '#/session/question/questionService';
+} from '#/agent/interaction/approval';
 export * from '#/agent/tools/ask-user-question/ask-user-question';
 import '#/agent/tools/ask-user-question/askUserQuestionTool';
 export * from '#/app/gateway/gateway';
