@@ -179,6 +179,32 @@ impl StateStore {
         Ok(())
     }
 
+    /// Apply an RFC 6902 JSON patch to a domain's state.
+    /// Returns the updated domain value and the inverse patch for undo.
+    pub fn patch_domain(
+        &self,
+        domain: &str,
+        patch: &crate::session::patch::JsonPatchSet,
+    ) -> Result<(Value, crate::session::patch::JsonPatchSet), String> {
+        let mut val = self
+            .read_domain(domain)
+            .or_else(|| Self::default_value(domain))
+            .unwrap_or(Value::Null);
+        let inverse = crate::session::patch::apply_patch(&mut val, patch)
+            .map_err(|e| format!("failed to apply patch to domain '{domain}': {e}"))?;
+        self.write_domain(domain, &val)?;
+        Ok((val, inverse))
+    }
+
+    /// Compute RFC 6902 JSON diff between current domain state and a new value.
+    pub fn diff_domain(&self, domain: &str, new_value: &Value) -> crate::session::patch::JsonPatchSet {
+        let current = self
+            .read_domain(domain)
+            .or_else(|| Self::default_value(domain))
+            .unwrap_or(Value::Null);
+        crate::session::patch::diff_values(&current, new_value)
+    }
+
     /// The v2-aligned default wire value for a domain with no stored state.
     pub fn default_value(domain: &str) -> Option<Value> {
         match domain {
@@ -1498,5 +1524,26 @@ mod tests {
         );
         let err = store.apply_write("turn", &json!({})).unwrap_err();
         assert!(err.contains("-32003"), "{err}");
+    }
+
+    #[test]
+    fn test_state_store_patch_and_diff_domain() {
+        let (_tmp, store) = store();
+        store
+            .write_domain("plan", &json!({ "active": true, "id": "p-1", "path": "/path/p-1.md" }))
+            .unwrap();
+
+        let diff = store.diff_domain(
+            "plan",
+            &json!({ "active": false, "id": "p-1", "path": "/path/p-1.md" }),
+        );
+        assert!(!diff.is_empty());
+
+        let (patched, inverse) = store.patch_domain("plan", &diff).unwrap();
+        assert_eq!(patched["active"], false);
+
+        // Undo using inverse patch
+        let (reverted, _) = store.patch_domain("plan", &inverse).unwrap();
+        assert_eq!(reverted["active"], true);
     }
 }

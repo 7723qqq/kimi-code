@@ -356,10 +356,10 @@ pub async fn execute_agent(
         None
     };
 
-    // P58: background execution — spawn, launch detached, return the v2
-    // running shape immediately. Completion flows back through the
-    // `subagent.completed` / `subagent.failed` lifecycle events, which the
-    // host turns into the usual synthetic notification turn.
+    // P58: background execution — spawn, register in TaskRunner if present,
+    // launch detached, return the v2 running shape immediately. Completion flows
+    // back through the `subagent.completed` / `subagent.failed` lifecycle events,
+    // which the host turns into the usual synthetic notification turn.
     if args.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) {
         let agent_id = manager.spawn(&profile_name, &description).await.ok()?;
         emit_spawned_started(
@@ -374,12 +374,28 @@ pub async fn execute_agent(
         let cb = runtime.callbacks.clone();
         let agent = agent_id.clone();
         let bg_history = inherited_history.clone();
-        tokio::spawn(async move {
-            let _ = mgr
-                .run_foreground_turn_with_history(&agent, &prompt, bg_history, None)
-                .await
-                .map(|outcome| {
-                    if let ForegroundTurnOutcome::Completed(turn) = outcome {
+        let prompt_clone = prompt.clone();
+        let task_desc = if description.is_empty() {
+            format!("Subagent {profile_name}: {prompt_clone}")
+        } else {
+            description.clone()
+        };
+        let task_runner = manager.get_task_runner().await;
+
+        let bg_future = async move {
+            let outcome = mgr
+                .run_foreground_turn_with_history(&agent, &prompt_clone, bg_history, None)
+                .await;
+            match outcome {
+                Ok(ForegroundTurnOutcome::Completed(turn)) => {
+                    if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
+                        cb.emit_event(serde_json::json!({
+                            "type": "subagent.failed",
+                            "subagent_id": agent,
+                            "error": SUBAGENT_STOPPED_MESSAGE,
+                        }));
+                        SUBAGENT_STOPPED_MESSAGE.to_string()
+                    } else {
                         let summary =
                             crate::subagent::manager::final_assistant_summary(&turn.messages);
                         cb.emit_event(serde_json::json!({
@@ -388,9 +404,35 @@ pub async fn execute_agent(
                             "result_summary": summary,
                             "usage": usage_json(&turn.usage),
                         }));
+                        summary
                     }
-                });
-        });
+                }
+                Ok(ForegroundTurnOutcome::ParentCancelled) => {
+                    cb.emit_event(serde_json::json!({
+                        "type": "subagent.failed",
+                        "subagent_id": agent,
+                        "error": USER_INTERRUPTED_SUBAGENT_MESSAGE,
+                    }));
+                    USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string()
+                }
+                Err(err_msg) => {
+                    cb.emit_event(serde_json::json!({
+                        "type": "subagent.failed",
+                        "subagent_id": agent,
+                        "error": err_msg.clone(),
+                    }));
+                    format!("Error: {err_msg}")
+                }
+            }
+        };
+
+        if let Some(runner) = task_runner {
+            let _ = runner.spawn_task(agent_id.clone(), task_desc, bg_future);
+        } else {
+            tokio::spawn(async move {
+                let _ = bg_future.await;
+            });
+        }
         let content = [
             format!("task_id: {agent_id}"),
             "status: running".into(),
@@ -1400,5 +1442,91 @@ mod tests {
         assert_eq!(sent_messages[user_idx + 2].content, crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT);
         assert_eq!(sent_messages[user_idx + 3].role, "user");
         assert!(sent_messages[user_idx + 3].content.contains("continue from fork"));
+    }
+
+    #[tokio::test]
+    async fn run_in_background_registers_in_task_runner() {
+        let recorder = Arc::new(EventRecorder::new());
+        let llm = Arc::new(SummaryLlm);
+        let manager = manager_with_callbacks(llm, recorder.clone()).await;
+        manager.register_builtin_profiles().await;
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        manager.set_task_runner(runner.clone()).await;
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "run_in_background": true,
+                "prompt": "background work",
+                "description": "Scout background",
+                "subagent_type": "coder",
+            }),
+            None,
+            None,
+            Some("call-bg-1"),
+        )
+        .await
+        .expect("must execute natively");
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("status: running"));
+        assert!(result.content.contains("task_id: subagent-"));
+
+        let agent_id = result
+            .content
+            .lines()
+            .find(|l| l.starts_with("task_id: "))
+            .unwrap()
+            .strip_prefix("task_id: ")
+            .unwrap();
+
+        let wait_res = runner.wait(agent_id, 3000).await;
+        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
+
+        let output = runner.get_output(agent_id);
+        assert_eq!(output.as_deref(), Some("findings: the loop is in run_turn.rs"));
+
+        let entry = runner.entry(agent_id).expect("entry must exist");
+        assert_eq!(entry["status"], "completed");
+        assert_eq!(entry["description"], "Scout background");
+    }
+
+    #[tokio::test]
+    async fn run_in_background_cooperative_stop_via_task_runner() {
+        let recorder = Arc::new(EventRecorder::new());
+        let llm = Arc::new(ToolForeverLlm);
+        let manager = manager_with_callbacks(llm, recorder.clone()).await;
+        register_looper(&manager).await;
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        manager.set_task_runner(runner.clone()).await;
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "run_in_background": true,
+                "prompt": "loop in background",
+                "description": "Background looper",
+                "subagent_type": "looper",
+            }),
+            None,
+            None,
+            Some("call-bg-2"),
+        )
+        .await
+        .expect("must execute natively");
+
+        let agent_id = result
+            .content
+            .lines()
+            .find(|l| l.starts_with("task_id: "))
+            .unwrap()
+            .strip_prefix("task_id: ")
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let stop_res = runner.stop(agent_id).await.expect("stop should succeed");
+        assert_eq!(stop_res["status"], "killed");
+        assert_eq!(stop_res["stopReason"], "Stopped by TaskStop");
     }
 }

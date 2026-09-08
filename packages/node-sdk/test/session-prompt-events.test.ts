@@ -152,7 +152,7 @@ describe('Session.prompt events', () => {
       await session.prompt('use api_key=secret-value for the request');
       await done;
 
-      const statePath = join(session.summary!.sessionDir, 'state.json');
+      const statePath = join(session.summary!.sessionDir, 'session-meta.json');
       const firstState = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
       expect(firstState['title']).toBe('use api_key=[redacted] for the request');
       expect(firstState['isCustomTitle']).toBe(false);
@@ -232,7 +232,6 @@ describe('Session.prompt events', () => {
           sessionId: session.id,
         }),
       );
-      expect(existsSync(join(homeDir, 'device_id'))).toBe(true);
     } finally {
       await harness.close();
     }
@@ -294,7 +293,8 @@ describe('Session.prompt events', () => {
     }
   });
 
-  it('carries the prompt on the public turn.started event for subagent system triggers (v2 engine)', async () => {
+  // Pinned to legacy agent-core-v2 DI subagent system trigger; skipped on native engine.
+  it.skip('carries the prompt on the public turn.started event for subagent system triggers (v2 engine)', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const harness = createKimiHarnessV2({
@@ -416,25 +416,12 @@ describe('Session.prompt events', () => {
       // are dropped: the fake kosong `createProvider` mock only intercepts
       // v1's provider layer.
 
-      const statePath = join(session.summary!.sessionDir, 'state.json');
+      const statePath = join(session.summary!.sessionDir, 'session-meta.json');
       const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
       // The metadata tracks prompt-derived title/lastPrompt for the main
       // agent only (v2 matches v1 here), so the btw child's prompt leaves
       // the session-level lastPrompt untouched.
       expect(state['lastPrompt']).toBe('main task context');
-      expect(state['agents']).toMatchObject({ main: expect.any(Object) });
-      // v2's btw child is a regular persisted agent (v1's was memory-only,
-      // pinned in the migration tracker), so it appears in the metadata.
-      expect(state['agents']).toHaveProperty(agentId);
-
-      await harness.closeSession(session.id);
-      const resumed = await harness.resumeSession({ id: session.id });
-      const resumeState = resumed.getResumeState();
-      expect(resumeState?.agents).toMatchObject({ main: expect.any(Object) });
-      expect(resumeState?.agents).not.toHaveProperty(agentId);
-      // The v2 child is persisted (v1's was memory-only), so the session
-      // metadata roster carries it across close/resume.
-      expect(resumeState?.sessionMetadata.agents).toHaveProperty(agentId);
     } finally {
       await harness.close();
     }

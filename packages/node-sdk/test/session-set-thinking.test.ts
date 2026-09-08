@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
-import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 describe('Session.setThinking', () => {
-  it('sends config.update with the new thinking effort', async () => {
+  it('publishes the runtime status with the new thinking effort', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-thinking-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-thinking-work-');
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
@@ -20,19 +20,19 @@ describe('Session.setThinking', () => {
     try {
       const session = await harness.createSession({ id: 'ses_thinking_wire', workDir });
 
+      const statusUpdated = waitForSDKEvent(
+        session,
+        (event) => event.type === 'agent.status.updated',
+      );
       await session.setThinking('low');
 
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'config.update',
-          (event) => event['thinkingEffort'] === 'low',
-        ),
-      ).resolves.toMatchObject({
-        type: 'config.update',
+      // v2 recorded the effort change as a `config.update` wire record; the
+      // native harness publishes the runtime status event instead.
+      await expect(statusUpdated).resolves.toMatchObject({
+        type: 'agent.status.updated',
         thinkingEffort: 'low',
       });
+      await expect(session.getStatus()).resolves.toMatchObject({ thinkingEffort: 'low' });
     } finally {
       await harness.close();
     }

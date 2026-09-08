@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type KimiError, type PermissionMode } from '#/index';
-import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -12,7 +12,7 @@ afterEach(async () => {
 
 describe('Session.setPermission', () => {
   it.each(['yolo', 'manual', 'auto'] as const)(
-    'sends permission.set_mode with mode %s',
+    'publishes the runtime status with mode %s',
     async (mode: PermissionMode) => {
       const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
       const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');
@@ -24,19 +24,19 @@ describe('Session.setPermission', () => {
           workDir,
         });
 
+        const statusUpdated = waitForSDKEvent(
+          session,
+          (event) => event.type === 'agent.status.updated',
+        );
         await session.setPermission(mode);
 
-        await expect(
-          waitForAgentWireEvent(
-            homeDir,
-            session.id,
-            'permission.set_mode',
-            (event) => event['mode'] === mode,
-          ),
-        ).resolves.toMatchObject({
-          type: 'permission.set_mode',
-          mode,
+        // v2 recorded the mode change as a `permission.set_mode` wire record;
+        // the native harness publishes the runtime status event instead.
+        await expect(statusUpdated).resolves.toMatchObject({
+          type: 'agent.status.updated',
+          permission: mode,
         });
+        await expect(session.getStatus()).resolves.toMatchObject({ permission: mode });
       } finally {
         await harness.close();
       }

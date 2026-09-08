@@ -77,8 +77,8 @@ describe('KimiHarness.exportSession', () => {
     });
 
     expect(result.zipPath).toBe(toPosix(outputPath));
-    expect(result.entries).toContain('manifest.json');
-    expect(result.entries).toContain('state.json');
+    expect(result.entries).toContain('export-manifest.json');
+    expect(result.entries).toContain('session-meta.json');
     expect(result.entries).toContain('wire.jsonl');
     expect(result.entries).toContain('subagents/demo.txt');
     expect(result.manifest.sessionId).toBe(session.id);

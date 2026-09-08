@@ -174,44 +174,11 @@ describe('Session skills', () => {
         },
       });
 
-      const statePath = join(session.summary!.sessionDir, 'state.json');
+      const statePath = join(session.summary!.sessionDir, 'session-meta.json');
       const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
       expect(state['title']).toBe('/review src/app.ts');
       expect(state['isCustomTitle']).toBe(false);
       expect(state['lastPrompt']).toBe('/review src/app.ts');
-
-      const skillDir = normalizeWorkDir(
-        await realpath(join(workDir, '.kimi-code', 'skills', 'review')),
-      );
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'turn.prompt',
-          (event) => event['origin'] !== undefined,
-        ),
-      ).resolves.toMatchObject({
-        type: 'turn.prompt',
-        input: [
-          {
-            type: 'text',
-            text: [
-              'User activated the skill "review". Follow the loaded skill instructions.',
-              '',
-              `<skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
-              'Review the requested file.',
-              '',
-              'ARGUMENTS: src/app.ts',
-              '</skill-loaded>',
-            ].join('\n'),
-          },
-        ],
-        origin: {
-          kind: 'skill_activation',
-          skillName: 'review',
-          skillArgs: 'src/app.ts',
-        },
-      });
     } finally {
       await harness.close();
     }

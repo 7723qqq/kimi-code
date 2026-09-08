@@ -105,11 +105,15 @@ struct Slot {
 
 type Slots = Arc<RwLock<Vec<Arc<Slot>>>>;
 
+/// Callback for persisting sequenced wire events onto durable storage.
+pub type EventPersister = Arc<dyn Fn(&SequencedEvent) + Send + Sync>;
+
 /// The server's event lanes and its live connections.
 pub struct EventHub {
     lanes: RwLock<HashMap<String, Arc<Lane>>>,
     slots: Slots,
     next_slot_id: AtomicU64,
+    persister: Arc<RwLock<Option<EventPersister>>>,
 }
 
 impl Default for EventHub {
@@ -124,7 +128,13 @@ impl EventHub {
             lanes: RwLock::new(HashMap::new()),
             slots: Arc::new(RwLock::new(Vec::new())),
             next_slot_id: AtomicU64::new(1),
+            persister: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set a persister callback to record every sequenced wire event to persistent storage.
+    pub fn set_persister(&self, persister: EventPersister) {
+        *self.persister.write().unwrap() = Some(persister);
     }
 
     /// The bus a session's turns publish onto, creating the lane on first use.
@@ -161,6 +171,7 @@ impl EventHub {
         });
         let forward = Arc::clone(&lane);
         let slots = Arc::clone(&self.slots);
+        let persister = Arc::clone(&self.persister);
         lane.bus.subscribe(move |event| {
             let _ordered = forward.order.lock().unwrap();
             let seq = forward.next_seq.fetch_add(1, Ordering::Relaxed) + 1;
@@ -176,10 +187,25 @@ impl EventHub {
                 history.pop_front();
             }
             drop(history);
+            if let Some(ref p) = *persister.read().unwrap() {
+                p(&sequenced);
+            }
             deliver(&slots, sequenced);
         });
         lanes.insert(session_id.to_string(), lane.clone());
         lane.bus.clone()
+    }
+
+    /// Ensure a lane exists and ensure its sequence number is at least `initial_seq`.
+    pub fn ensure_lane_with_initial_seq(&self, session_id: &str, initial_seq: u64) -> (u64, Arc<str>) {
+        let _bus = self.bus_for(session_id);
+        let lanes = self.lanes.read().unwrap();
+        let lane = lanes.get(session_id).expect("lane was just ensured");
+        let _ = lane.next_seq.fetch_max(initial_seq, Ordering::Relaxed);
+        (
+            lane.next_seq.load(Ordering::Relaxed),
+            Arc::clone(&lane.epoch),
+        )
     }
 
     /// Which sessions have a lane. Lanes are never evicted: dropping one would

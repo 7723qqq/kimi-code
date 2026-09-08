@@ -27,6 +27,7 @@ export const ErrorCodes = {
   SESSION_THINKING_EMPTY: 'session.thinking_empty',
   SESSION_MODEL_EMPTY: 'session.model_empty',
   SESSION_PLAN_MODE_INVALID: 'session.plan_mode_invalid',
+  SESSION_TOWER_MODE_INVALID: 'session.tower_mode_invalid',
   SESSION_APPROVAL_HANDLER_ERROR: 'session.approval_handler_error',
   SESSION_QUESTION_HANDLER_ERROR: 'session.question_handler_error',
   SESSION_INIT_FAILED: 'session.init_failed',
@@ -198,6 +199,12 @@ export const KIMI_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Provide a boolean plan mode.',
+  },
+  'session.tower_mode_invalid': {
+    title: 'Tower mode unavailable',
+    retryable: false,
+    public: true,
+    action: 'The tower feature is not available on this engine; start a tower from a supported host.',
   },
   'session.approval_handler_error': {
     title: 'Approval handler threw',

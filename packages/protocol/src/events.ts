@@ -264,6 +264,7 @@ export type KimiErrorCode =
   | 'session.thinking_empty'
   | 'session.model_empty'
   | 'session.plan_mode_invalid'
+  | 'session.tower_mode_invalid'
   | 'session.approval_handler_error'
   | 'session.question_handler_error'
   | 'session.init_failed'

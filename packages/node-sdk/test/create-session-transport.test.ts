@@ -21,7 +21,6 @@ import type { KimiError } from '#/index';
 import { SDKRpcClientBase } from '#/rpc';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 
-import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
 
@@ -488,25 +487,15 @@ describe('KimiHarness.createSession transport link', () => {
       expect(session.workDir).toBe(toPosix(workDir));
       await expect(session.getStatus()).resolves.toMatchObject({ model: 'kimi-test-model' });
       expect(harness.sessions.get(session.id)).toBe(session);
-      // v2 persists the main-agent binding as `profile.bind` (v1 wrote
-      // `config.update` — pinned in the parity KNOWN_DIFFS).
-      const bindEvent = await waitForAgentWireEvent(
-        homeDir,
-        session.id,
-        'profile.bind',
-        (event) => event['modelAlias'] === 'kimi-test-model',
-      );
-      expect(bindEvent).toMatchObject({
-        type: 'profile.bind',
-        modelAlias: 'kimi-test-model',
-      });
-      expect(bindEvent).not.toHaveProperty('provider');
+      // v2 persisted the main-agent binding as a `profile.bind` wire record;
+      // the native harness binds at creation and serves it through the
+      // runtime status instead.
+      await expect(session.getStatus()).resolves.toMatchObject({ model: 'kimi-test-model' });
 
       const summaries = await harness.listSessions({ workDir });
       const summary = summaries.find((item) => item.id === session.id);
-      expect(summary?.sessionDir).not.toBe(join(homeDir, 'sessions', session.id));
-      expect(summary?.sessionDir).toContain(join(homeDir, 'sessions'));
-      expect(existsSync(join(summary!.sessionDir, 'state.json'))).toBe(true);
+      expect(summary?.sessionDir).toBe(join(homeDir, 'sessions', session.id));
+      expect(existsSync(join(summary!.sessionDir, 'session-meta.json'))).toBe(true);
 
       const summariesById = await harness.listSessions({ sessionId: session.id });
       expect(summariesById).toHaveLength(1);
@@ -551,19 +540,10 @@ effort = "medium"
     try {
       const session = await harness.createSession({ id: 'ses_alias_model', workDir });
       expect(session.id).toBe('ses_alias_model');
+      // The session binds the configured default-model alias verbatim (the
+      // alias → real-model resolution happens engine-side at turn time).
       await expect(session.getStatus()).resolves.toMatchObject({ model: 'alias-model' });
       expect(harness.sessions.get(session.id)).toBe(session);
-      const configEvent = await waitForAgentWireEvent(
-        homeDir,
-        session.id,
-        'profile.bind',
-        (event) => event['modelAlias'] === 'alias-model',
-      );
-      expect(configEvent).toMatchObject({
-        type: 'profile.bind',
-        modelAlias: 'alias-model',
-      });
-      expect(configEvent).not.toHaveProperty('provider');
     } finally {
       await harness.close();
     }
@@ -805,31 +785,13 @@ effort = "medium"
         permission: 'auto',
       });
 
-      // v2 persists the binding as `profile.bind` (v1 wrote config.update).
-      // The requested 'low' effort resolves through the model's capability
-      // profile (the fixture model declares none), so only the record's
-      // presence and the bound model are asserted.
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'profile.bind',
-          (event) => typeof event['modelAlias'] === 'string',
-        ),
-      ).resolves.toMatchObject({
-        type: 'profile.bind',
-        modelAlias: 'kimi-test-model',
-      });
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'permission.set_mode',
-          (event) => event['mode'] === 'auto',
-        ),
-      ).resolves.toMatchObject({
-        type: 'permission.set_mode',
-        mode: 'auto',
+      // v2 persisted the binding as `profile.bind` / `permission.set_mode`
+      // wire records; the native harness applies the requested options to the
+      // runtime state at creation and serves them through getStatus.
+      await expect(session.getStatus()).resolves.toMatchObject({
+        model: 'kimi-test-model',
+        thinkingEffort: 'low',
+        permission: 'auto',
       });
     } finally {
       await harness.close();
@@ -869,17 +831,6 @@ max_context_size = 1000
       });
 
       await expect(session.getStatus()).resolves.toMatchObject({ permission: 'auto' });
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'permission.set_mode',
-          (event) => event['mode'] === 'auto',
-        ),
-      ).resolves.toMatchObject({
-        type: 'permission.set_mode',
-        mode: 'auto',
-      });
 
       const explicit = await harness.createSession({
         id: 'ses_default_permission_explicit_override',

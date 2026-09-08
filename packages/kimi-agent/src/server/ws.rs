@@ -28,6 +28,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
+use crate::server::hub::SequencedEvent;
 use std::time::Duration;
 
 use crate::server::auth::ServerAuth;
@@ -157,6 +158,45 @@ pub fn handshake_response(client_key: &str, protocol: Option<&str>) -> Vec<u8> {
 }
 
 /// How an upgraded connection should treat its peer.
+fn gather_replay_events(
+    hub: &EventHub,
+    store: Option<&crate::session::sqlite_store::SqliteSessionStore>,
+    sid: &str,
+    since_seq: u64,
+    epoch: &Arc<str>,
+) -> Vec<SequencedEvent> {
+    let mut replay_events = hub.replay_for(sid, since_seq);
+    if let Some(st) = store {
+        let min_hub_seq = replay_events.first().map(|e| e.seq).unwrap_or(u64::MAX);
+        if min_hub_seq > since_seq + 1 {
+            if let Ok(records) = st.get_wire_events(sid, since_seq, 500) {
+                let stored_events: Vec<SequencedEvent> = records
+                    .into_iter()
+                    .map(|rec| SequencedEvent {
+                        session_id: Arc::from(rec.session_id.as_str()),
+                        epoch: Arc::clone(epoch),
+                        seq: rec.seq,
+                        event: crate::events::EngineEvent::Custom(rec.payload),
+                    })
+                    .collect();
+                if replay_events.is_empty() {
+                    replay_events = stored_events;
+                } else {
+                    let mut combined = Vec::new();
+                    for se in stored_events {
+                        if se.seq < min_hub_seq {
+                            combined.push(se);
+                        }
+                    }
+                    combined.extend(replay_events);
+                    replay_events = combined;
+                }
+            }
+        }
+    }
+    replay_events
+}
+
 pub struct WsOptions<'a> {
     pub hub: Arc<EventHub>,
     /// The credential a `client_hello` payload token is checked against. The
@@ -475,7 +515,7 @@ async fn handle_inbound(
 
             let set = subscriptions.get_or_insert_with(HashSet::new);
             for sid in req_subs {
-                let exists = if let Some(st) = store {
+                let exists = if let Some(st) = &store {
                     st.get_session(&sid).ok().flatten().is_some()
                         || hub.lane_session_ids().contains(&sid)
                 } else {
@@ -484,7 +524,12 @@ async fn handle_inbound(
                 if exists {
                     set.insert(sid.clone());
                     accepted.push(sid.clone());
-                    let (cur_seq, epoch) = hub.ensure_lane_cursor(&sid);
+                    let (cur_seq, epoch) = if let Some(st) = &store {
+                        let latest_store_seq = st.latest_wire_event_seq(&sid).unwrap_or(0);
+                        hub.ensure_lane_with_initial_seq(&sid, latest_store_seq)
+                    } else {
+                        hub.ensure_lane_cursor(&sid)
+                    };
                     server_cursors.insert(sid.clone(), json!({ "seq": cur_seq, "epoch": *epoch }));
 
                     if let Some(c) = cursors.get(&sid) {
@@ -498,7 +543,7 @@ async fn handle_inbound(
                     }
 
                     let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
-                    all_replay_events.extend(hub.replay_for(&sid, since_seq));
+                    all_replay_events.extend(gather_replay_events(&hub, store, &sid, since_seq, &epoch));
                 }
             }
 
@@ -530,7 +575,7 @@ async fn handle_inbound(
 
             let set = subscriptions.get_or_insert_with(HashSet::new);
             for sid in session_ids {
-                let exists = if let Some(st) = store {
+                let exists = if let Some(st) = &store {
                     st.get_session(&sid).ok().flatten().is_some()
                         || hub.lane_session_ids().contains(&sid)
                 } else {
@@ -539,7 +584,12 @@ async fn handle_inbound(
                 if exists {
                     set.insert(sid.clone());
                     accepted.push(sid.clone());
-                    let (cur_seq, epoch) = hub.ensure_lane_cursor(&sid);
+                    let (cur_seq, epoch) = if let Some(st) = &store {
+                        let latest_store_seq = st.latest_wire_event_seq(&sid).unwrap_or(0);
+                        hub.ensure_lane_with_initial_seq(&sid, latest_store_seq)
+                    } else {
+                        hub.ensure_lane_cursor(&sid)
+                    };
                     server_cursors.insert(sid.clone(), json!({ "seq": cur_seq, "epoch": *epoch }));
 
                     if let Some(c) = cursors.get(&sid) {
@@ -553,7 +603,7 @@ async fn handle_inbound(
                     }
 
                     let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
-                    all_replay_events.extend(hub.replay_for(&sid, since_seq));
+                    all_replay_events.extend(gather_replay_events(&hub, store, &sid, since_seq, &epoch));
                 } else {
                     not_found.push(sid);
                 }
@@ -600,7 +650,7 @@ async fn handle_inbound(
             session_id,
             prompt,
         } => {
-            if let Some(st) = store
+            if let Some(st) = &store
                 && st.get_session(&session_id).ok().flatten().is_none()
             {
                 let refusal = ws_protocol::ack(
@@ -1915,6 +1965,62 @@ mod tests {
         assert_eq!(ack["type"], "ack");
         assert_eq!(ack["id"], "ta-err");
         assert_eq!(ack["code"], 40414);
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn subscribe_replays_history_from_persistent_wire_events() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let sid = "sess-replay-cold";
+        server.store_arc().create_session(sid, Some("Cold Replay")).unwrap();
+
+        // Pre-populate SQLite wire_events directly (simulating persistent state before connection)
+        server.store_arc().append_wire_event(&crate::native::event_store::RawWireEvent {
+            id: "cold-evt-1".into(),
+            session_id: sid.into(),
+            event_type: "turn.started".into(),
+            payload: json!({ "type": "turn.started", "turn_id": "turn-100", "step": 1 }),
+            is_checkpoint: false,
+            is_compaction: false,
+            created_at: 1000,
+        }).unwrap();
+
+        server.store_arc().append_wire_event(&crate::native::event_store::RawWireEvent {
+            id: "cold-evt-2".into(),
+            session_id: sid.into(),
+            event_type: "turn.ended".into(),
+            payload: json!({ "type": "turn.ended", "turn_id": "turn-100", "step": 2 }),
+            is_checkpoint: true,
+            is_compaction: false,
+            created_at: 2000,
+        }).unwrap();
+
+        let (mut client, _, handle) = connect_upgraded(&server, "key-cold-replay").await;
+        read_server_hello(&mut client).await;
+
+        // Send subscribe with seq 0 requesting full history
+        let sub_frame = format!(
+            r#"{{"type":"subscribe","id":"sub-cold","payload":{{"session_ids":["{sid}"],"cursors":{{"{sid}":{{"seq":0}}}}}}}}"#
+        );
+        client.write_all(&masked_frame(OP_TEXT, sub_frame.as_bytes())).await.unwrap();
+
+        let ack: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "sub-cold");
+        assert_eq!(ack["code"], 0);
+        assert_eq!(ack["payload"]["cursors"][sid]["seq"], 2);
+
+        // Client must receive the 2 replayed events from persistent wire_events
+        let ev1: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ev1["session_id"], sid);
+        assert_eq!(ev1["seq"], 1);
+        assert_eq!(ev1["type"], "turn.started");
+
+        let ev2: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ev2["session_id"], sid);
+        assert_eq!(ev2["seq"], 2);
+        assert_eq!(ev2["type"], "turn.ended");
 
         handle.shutdown();
     }

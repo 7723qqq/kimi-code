@@ -7,6 +7,8 @@ import { findKimiAgentAddon } from '@moonshot-ai/kimi-agent/session-handle';
 
 import { createKimiHarnessNative, type KimiHarness } from '../src/index';
 
+import { TEST_IDENTITY } from './test-identity';
+
 // The native harness drives the Rust engine through the compiled napi addon, a
 // gitignored build artifact. Skip the suite when it is absent rather than fail
 // on `EngineSessionHandle.create` — a missing/stale addon must not masquerade as
@@ -19,8 +21,11 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
 
   beforeEach(() => {
     homeDir = mkdtempSync(join(tmpdir(), 'kimi-sdk-native-test-'));
+    // The harness asserts the host identity at construction (it seeds the
+    // engine's client identity / request headers), like the v2 client did.
     harness = createKimiHarnessNative({
       homeDir,
+      identity: TEST_IDENTITY,
     });
   });
 
@@ -35,7 +40,7 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
     });
 
     expect(session.id).toBeDefined();
-    expect(session.workDir).toBe(homeDir);
+    expect(session.workDir).toBe(homeDir.replaceAll('\\', '/'));
 
     const summaries = await harness.listSessions();
     expect(summaries.some((s) => s.id === session.id)).toBe(true);
@@ -66,10 +71,13 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
 
     // This throwaway home has no [providers.*] and no [agent] nativeLlmProvider,
     // so the self-contained Rust engine has no model to call. The turn must
-    // surface that loudly (the host llm_chat proxy throws) rather than resolve
-    // with the canned "Hello! I am Kimi Code." the old stub returned, which ended
-    // the turn looking like a real answer.
-    await expect(session.prompt('Test prompt')).rejects.toThrow(/no host LLM proxy/);
+    // surface that loudly (the host llm_chat proxy throws) rather than end with
+    // the canned "Hello! I am Kimi Code." the old stub returned, which looked
+    // like a real answer. The submission resolves like v1/v2's; the failure
+    // surfaces through the turn.ended event stream.
+    const ended = waitForTurnEnded(session);
+    await expect(session.prompt('Test prompt')).resolves.toBeUndefined();
+    await expect(ended).resolves.toMatchObject({ reason: 'failed' });
 
     await session.close();
   });
@@ -89,8 +97,24 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
     });
 
     // steer on an idle session starts a turn, which hits the same missing-model
-    // path as prompt and must reject rather than silently succeed.
-    await expect(session.steer('Steer instruction')).rejects.toThrow(/no host LLM proxy/);
+    // path as prompt: the submission resolves and the turn fails loudly through
+    // the event stream rather than silently succeeding.
+    const ended = waitForTurnEnded(session);
+    await expect(session.steer('Steer instruction')).resolves.toBeUndefined();
+    await expect(ended).resolves.toMatchObject({ reason: 'failed' });
     await session.close();
-  });
+  }, 15_000);
 });
+
+function waitForTurnEnded(session: {
+  onEvent(listener: (event: { readonly type: string; readonly reason?: string }) => void): () => void;
+}): Promise<{ readonly reason?: string }> {
+  return new Promise((resolve) => {
+    const unsubscribe = session.onEvent((event) => {
+      if (event.type === 'turn.ended') {
+        unsubscribe();
+        resolve(event);
+      }
+    });
+  });
+}

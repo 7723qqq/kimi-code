@@ -397,6 +397,16 @@ impl SubagentManager {
         }
     }
 
+    /// Get the attached TaskRunner if present.
+    pub async fn get_task_runner(&self) -> Option<Arc<crate::storage::TaskRunner>> {
+        self.task_runner.read().await.clone()
+    }
+
+    /// Synchronously get the attached TaskRunner if the lock is immediately available.
+    pub fn get_task_runner_sync(&self) -> Option<Arc<crate::storage::TaskRunner>> {
+        self.task_runner.try_read().ok().and_then(|g| g.clone())
+    }
+
     /// Construct with a persistent SQLite store for cold recovery (#3478).
     pub fn with_store(store: Arc<SqliteSessionStore>) -> Self {
         let manager = Self::new();
@@ -1326,8 +1336,12 @@ impl SubagentManager {
         }
     }
 
-    /// Terminate a running subagent by setting its cancellation flag.
+    /// Terminate a running subagent by setting its cancellation flag and stopping its background task if registered.
     pub async fn kill(&self, id: &str) -> Result<bool, String> {
+        let runner = self.task_runner.read().await.clone();
+        if let Some(r) = runner {
+            let _ = r.stop(id).await;
+        }
         let mut instances = self.instances.write().await;
         if let Some((inst, cancel_flag)) = instances.get_mut(id) {
             cancel_flag.store(true, Ordering::SeqCst);

@@ -255,6 +255,213 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     cleaned_leading
 }
 
+/// 将原始 wire 事件序列折叠投影为大模型所需的上下文消息列表，具备严格自愈与协议校正能力。
+pub fn fold_wire_events<'a, I>(events: I) -> Result<Vec<Message>, EventStoreError>
+where
+    I: IntoIterator<Item = (&'a str, &'a serde_json::Value, bool)>,
+{
+    let mut messages: Vec<Message> = Vec::new();
+    let mut pending_tool_calls: Vec<String> = Vec::new();
+    let mut deferred_messages: Vec<Message> = Vec::new();
+
+    let flush_hanging_tools = |msgs: &mut Vec<Message>, pending: &mut Vec<String>, deferred: &mut Vec<Message>| {
+        if !pending.is_empty() {
+            for call_id in pending.drain(..) {
+                msgs.push(Message {
+                    role: MessageRole::Tool,
+                    content: "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.".to_string(),
+                    blocks: serde_json::json!([]),
+                    tool_calls: None,
+                    tool_call_id: Some(call_id),
+                });
+            }
+        }
+        if !deferred.is_empty() {
+            msgs.append(deferred);
+        }
+    };
+
+    for (event_type, payload, is_compaction) in events {
+        // 1. 压缩边界：重置会话折叠机状态
+        if is_compaction {
+            messages.clear();
+            pending_tool_calls.clear();
+            deferred_messages.clear();
+            if let Some(summary) = payload.get("summary").and_then(|s| s.as_str()) {
+                messages.push(Message {
+                    role: MessageRole::System,
+                    content: summary.to_string(),
+                    blocks: serde_json::json!([]),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+            continue;
+        }
+
+        // 2. 状态机折叠投影
+        match event_type {
+            "message.system" => {
+                if let Some(text) = extract_content_text(payload, "content") {
+                    messages.push(Message {
+                        role: MessageRole::System,
+                        content: text,
+                        blocks: extract_blocks(payload),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+            }
+            "message.user" => {
+                if let Some(text) = extract_content_text(payload, "content") {
+                    let user_msg = Message {
+                        role: MessageRole::User,
+                        content: text,
+                        blocks: extract_blocks(payload),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    };
+                    // 协议约束：当前有等待返回的工具调用时，暂存消息以保持 Tool 消息紧随 Assistant
+                    if !pending_tool_calls.is_empty() {
+                        deferred_messages.push(user_msg);
+                    } else {
+                        messages.push(user_msg);
+                    }
+                }
+            }
+            "message.assistant" => {
+                // 若上一轮仍有未决悬挂工具，先强制合成修复
+                if !pending_tool_calls.is_empty() {
+                    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+                }
+
+                let raw_text = extract_content_text(payload, "content").unwrap_or_default();
+                let text = strip_think_blocks(&raw_text);
+                let tool_calls = payload.get("tool_calls").cloned();
+                let is_partial = payload.get("partial").and_then(|p| p.as_bool()).unwrap_or(false);
+
+                if is_partial {
+                    if let Some(last) = messages.last_mut() {
+                        if last.role == MessageRole::Assistant && last.tool_calls.is_none() {
+                            last.content.push_str(&text);
+                            continue;
+                        }
+                    }
+                }
+
+                if !text.is_empty() || tool_calls.is_some() {
+                    // 提取本条 Assistant 发起的工具调用 ID 列表
+                    if let Some(ref calls) = tool_calls {
+                        if let Some(calls_arr) = calls.as_array() {
+                            for c in calls_arr {
+                                if let Some(call_id) = c.get("id").and_then(|id| id.as_str()) {
+                                    pending_tool_calls.push(call_id.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    messages.push(Message {
+                        role: MessageRole::Assistant,
+                        content: text,
+                        blocks: extract_blocks(payload),
+                        tool_calls,
+                        tool_call_id: None,
+                    });
+                }
+            }
+            "tool.result" => {
+                let mut tool_call_id = payload.get("tool_call_id").and_then(|id| id.as_str()).map(String::from);
+                let content = extract_content_text(payload, "output").unwrap_or_default();
+
+                // FIFO 核销：若未传 tool_call_id，从 pending_tool_calls 队首弹出核销
+                if tool_call_id.is_none() && !pending_tool_calls.is_empty() {
+                    tool_call_id = Some(pending_tool_calls.remove(0));
+                } else if let Some(ref id) = tool_call_id {
+                    if let Some(pos) = pending_tool_calls.iter().position(|x| x == id) {
+                        pending_tool_calls.remove(pos);
+                    }
+                }
+
+                messages.push(Message {
+                    role: MessageRole::Tool,
+                    content,
+                    blocks: serde_json::json!([]),
+                    tool_calls: None,
+                    tool_call_id,
+                });
+
+                // 若所有未决工具全部返回，释放 deferred 队列消息
+                if pending_tool_calls.is_empty() && !deferred_messages.is_empty() {
+                    messages.append(&mut deferred_messages);
+                }
+            }
+            "step.begin" => {
+                if !pending_tool_calls.is_empty() {
+                    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+                }
+                messages.push(Message {
+                    role: MessageRole::Assistant,
+                    content: String::new(),
+                    blocks: serde_json::json!([]),
+                    tool_calls: Some(serde_json::json!([])),
+                    tool_call_id: None,
+                });
+            }
+            "content.part" => {
+                if let Some(text) = payload.get("text").and_then(|t| t.as_str()) {
+                    if let Some(last) = messages.last_mut() {
+                        if last.role == MessageRole::Assistant {
+                            last.content.push_str(text);
+                        }
+                    }
+                }
+            }
+            "tool.call" => {
+                let call_id = payload.get("tool_call_id").and_then(|i| i.as_str()).unwrap_or("call").to_string();
+                let name = payload.get("name").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
+                let args = payload.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+                pending_tool_calls.push(call_id.clone());
+                if let Some(last) = messages.last_mut() {
+                    if last.role == MessageRole::Assistant {
+                        let call_obj = serde_json::json!({
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": args,
+                            }
+                        });
+                        if let Some(ref mut arr) = last.tool_calls.as_mut().and_then(|v| v.as_array_mut()) {
+                            arr.push(call_obj);
+                        }
+                    }
+                }
+            }
+            "step.end" => {
+                let finish_reason = payload.get("finish_reason").and_then(|r| r.as_str());
+                if finish_reason != Some("interrupted") && finish_reason != Some("error") {
+                    if let Some(last) = messages.last_mut() {
+                        if last.role == MessageRole::Assistant {
+                            if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array()) {
+                                if arr.is_empty() {
+                                    last.tool_calls = None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // 3. 循环结束：若末尾存在未决悬挂工具（如进程崩溃或取消），自动合成修复
+    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+
+    Ok(sanitize_and_repair_projection(messages))
+}
+
 impl EventStore for SqliteEventStore {
     fn append_event(&self, event: &RawWireEvent) -> Result<u64, EventStoreError> {
         let conn = self.conn.lock();
@@ -281,213 +488,20 @@ impl EventStore for SqliteEventStore {
             "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 ORDER BY seq ASC"
         )?;
 
-        let mut messages: Vec<Message> = Vec::new();
-        let mut pending_tool_calls: Vec<String> = Vec::new();
-        let mut deferred_messages: Vec<Message> = Vec::new();
-
-        let flush_hanging_tools = |msgs: &mut Vec<Message>, pending: &mut Vec<String>, deferred: &mut Vec<Message>| {
-            if !pending.is_empty() {
-                for call_id in pending.drain(..) {
-                    msgs.push(Message {
-                        role: MessageRole::Tool,
-                        content: "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.".to_string(),
-                        blocks: serde_json::json!([]),
-                        tool_calls: None,
-                        tool_call_id: Some(call_id),
-                    });
-                }
-            }
-            if !deferred.is_empty() {
-                msgs.append(deferred);
-            }
-        };
-
+        let mut raw_rows = Vec::new();
         let mut rows = stmt.query(params![session_id])?;
-
         while let Some(row) = rows.next()? {
             let event_type: String = row.get(0)?;
             let payload_str: String = row.get(1)?;
             let is_compaction: bool = row.get(2)?;
             let payload: serde_json::Value = serde_json::from_str(&payload_str)?;
-
-            // 1. 压缩边界：重置会话折叠机状态
-            if is_compaction {
-                messages.clear();
-                pending_tool_calls.clear();
-                deferred_messages.clear();
-                if let Some(summary) = payload.get("summary").and_then(|s| s.as_str()) {
-                    messages.push(Message {
-                        role: MessageRole::System,
-                        content: summary.to_string(),
-                        blocks: serde_json::json!([]),
-                        tool_calls: None,
-                        tool_call_id: None,
-                    });
-                }
-                continue;
-            }
-
-            // 2. 状态机折叠投影
-            match event_type.as_str() {
-                "message.system" => {
-                    if let Some(text) = extract_content_text(&payload, "content") {
-                        messages.push(Message {
-                            role: MessageRole::System,
-                            content: text,
-                            blocks: extract_blocks(&payload),
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
-                    }
-                }
-                "message.user" => {
-                    if let Some(text) = extract_content_text(&payload, "content") {
-                        let user_msg = Message {
-                            role: MessageRole::User,
-                            content: text,
-                            blocks: extract_blocks(&payload),
-                            tool_calls: None,
-                            tool_call_id: None,
-                        };
-                        // 协议约束：当前有等待返回的工具调用时，暂存消息以保持 Tool 消息紧随 Assistant
-                        if !pending_tool_calls.is_empty() {
-                            deferred_messages.push(user_msg);
-                        } else {
-                            messages.push(user_msg);
-                        }
-                    }
-                }
-                "message.assistant" => {
-                    // 若上一轮仍有未决悬挂工具，先强制合成修复
-                    if !pending_tool_calls.is_empty() {
-                        flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
-                    }
-
-                    let raw_text = extract_content_text(&payload, "content").unwrap_or_default();
-                    let text = strip_think_blocks(&raw_text);
-                    let tool_calls = payload.get("tool_calls").cloned();
-                    let is_partial = payload.get("partial").and_then(|p| p.as_bool()).unwrap_or(false);
-
-                    if is_partial {
-                        if let Some(last) = messages.last_mut() {
-                            if last.role == MessageRole::Assistant && last.tool_calls.is_none() {
-                                last.content.push_str(&text);
-                                continue;
-                            }
-                        }
-                    }
-
-                    if !text.is_empty() || tool_calls.is_some() {
-                        // 提取本条 Assistant 发起的工具调用 ID 列表
-                        if let Some(ref calls) = tool_calls {
-                            if let Some(calls_arr) = calls.as_array() {
-                                for c in calls_arr {
-                                    if let Some(call_id) = c.get("id").and_then(|id| id.as_str()) {
-                                        pending_tool_calls.push(call_id.to_string());
-                                    }
-                                }
-                            }
-                        }
-
-                        messages.push(Message {
-                            role: MessageRole::Assistant,
-                            content: text,
-                            blocks: extract_blocks(&payload),
-                            tool_calls,
-                            tool_call_id: None,
-                        });
-                    }
-                }
-                "tool.result" => {
-                    let mut tool_call_id = payload.get("tool_call_id").and_then(|id| id.as_str()).map(String::from);
-                    let content = extract_content_text(&payload, "output").unwrap_or_default();
-
-                    // FIFO 核销：若未传 tool_call_id，从 pending_tool_calls 队首弹出核销
-                    if tool_call_id.is_none() && !pending_tool_calls.is_empty() {
-                        tool_call_id = Some(pending_tool_calls.remove(0));
-                    } else if let Some(ref id) = tool_call_id {
-                        if let Some(pos) = pending_tool_calls.iter().position(|x| x == id) {
-                            pending_tool_calls.remove(pos);
-                        }
-                    }
-
-                    messages.push(Message {
-                        role: MessageRole::Tool,
-                        content,
-                        blocks: serde_json::json!([]),
-                        tool_calls: None,
-                        tool_call_id,
-                    });
-
-                    // 若所有未决工具全部返回，释放 deferred 队列消息
-                    if pending_tool_calls.is_empty() && !deferred_messages.is_empty() {
-                        messages.append(&mut deferred_messages);
-                    }
-                }
-                "step.begin" => {
-                    if !pending_tool_calls.is_empty() {
-                        flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
-                    }
-                    messages.push(Message {
-                        role: MessageRole::Assistant,
-                        content: String::new(),
-                        blocks: serde_json::json!([]),
-                        tool_calls: Some(serde_json::json!([])),
-                        tool_call_id: None,
-                    });
-                }
-                "content.part" => {
-                    if let Some(text) = payload.get("text").and_then(|t| t.as_str()) {
-                        if let Some(last) = messages.last_mut() {
-                            if last.role == MessageRole::Assistant {
-                                last.content.push_str(text);
-                            }
-                        }
-                    }
-                }
-                "tool.call" => {
-                    let call_id = payload.get("tool_call_id").and_then(|i| i.as_str()).unwrap_or("call").to_string();
-                    let name = payload.get("name").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
-                    let args = payload.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
-                    pending_tool_calls.push(call_id.clone());
-                    if let Some(last) = messages.last_mut() {
-                        if last.role == MessageRole::Assistant {
-                            let call_obj = serde_json::json!({
-                                "id": call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": name,
-                                    "arguments": args,
-                                }
-                            });
-                            if let Some(ref mut arr) = last.tool_calls.as_mut().and_then(|v| v.as_array_mut()) {
-                                arr.push(call_obj);
-                            }
-                        }
-                    }
-                }
-                "step.end" => {
-                    let finish_reason = payload.get("finish_reason").and_then(|r| r.as_str());
-                    if finish_reason != Some("interrupted") && finish_reason != Some("error") {
-                        if let Some(last) = messages.last_mut() {
-                            if last.role == MessageRole::Assistant {
-                                if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array()) {
-                                    if arr.is_empty() {
-                                        last.tool_calls = None;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
+            raw_rows.push((event_type, payload, is_compaction));
         }
+        drop(rows);
+        drop(stmt);
+        drop(conn);
 
-        // 3. 循环结束：若末尾存在未决悬挂工具（如进程崩溃或取消），自动合成修复
-        flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
-
-        Ok(sanitize_and_repair_projection(messages))
+        fold_wire_events(raw_rows.iter().map(|(t, p, c)| (t.as_str(), p, *c)))
     }
 
     fn checkpoint_compress(&self, session_id: &str, summary: &str) -> Result<(), EventStoreError> {

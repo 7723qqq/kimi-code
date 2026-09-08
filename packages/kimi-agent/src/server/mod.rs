@@ -81,6 +81,26 @@ impl HttpServer {
     /// only product entry (`--serve`) replaces this with a real token, and
     /// [`http::serve`] refuses a non-loopback bind while it is in effect.
     pub fn with_hub(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> Self {
+        let task_runner = Arc::new(TaskRunner::new(None));
+        let store_persister = store.clone();
+        hub.set_persister(Arc::new(move |seq_ev: &crate::server::hub::SequencedEvent| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let event_type = seq_ev.event.event_type().to_string();
+            let is_checkpoint = event_type == "turn.ended" || event_type == "checkpoint";
+            let is_compaction = event_type == "context.compaction";
+            let payload = serde_json::to_value(&seq_ev.event).unwrap_or(serde_json::Value::Null);
+            let raw = crate::native::event_store::RawWireEvent {
+                id: format!("wevt-{}", fastrand::u64(..)),
+                session_id: seq_ev.session_id.to_string(),
+                event_type,
+                payload,
+                is_checkpoint,
+                is_compaction,
+                created_at: now,
+            };
+            let _ = store_persister.append_wire_event(&raw);
+        }));
+
         Self {
             store: store.clone(),
             hub: hub.clone(),
@@ -88,7 +108,7 @@ impl HttpServer {
             auth: ServerAuth::disabled(),
             heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
             cron_scheduler: Arc::new(Mutex::new(CronScheduler::new(Vec::new(), 0))),
-            task_runner: Arc::new(TaskRunner::new(None)),
+            task_runner: task_runner.clone(),
             server_id: format!("srv-{}", fastrand::u64(..)),
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             web_assets_dir: None,
@@ -100,7 +120,7 @@ impl HttpServer {
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
             config_override: Arc::new(Mutex::new(None)),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
-            subagent_manager: Arc::new(crate::subagent::SubagentManager::new()),
+            subagent_manager: Arc::new(crate::subagent::SubagentManager::new().with_task_runner(task_runner)),
         }
     }
 
@@ -214,6 +234,7 @@ impl HttpServer {
             engine.set_interaction_manager(self.interaction_manager.clone());
         }
         self.subagent_manager = engine.subagent_manager();
+        self.subagent_manager.set_task_runner_sync(self.task_runner.clone());
         self.engine = Some(Arc::new(engine));
         self
     }
@@ -234,6 +255,10 @@ impl HttpServer {
 
     #[must_use]
     pub fn with_task_runner(mut self, task_runner: Arc<TaskRunner>) -> Self {
+        self.subagent_manager.set_task_runner_sync(task_runner.clone());
+        if let Some(engine) = &self.engine {
+            engine.subagent_manager().set_task_runner_sync(task_runner.clone());
+        }
         self.task_runner = task_runner;
         self
     }
@@ -282,12 +307,14 @@ fn extract_session_action<'a>(path: &'a str, action: &str) -> Option<&'a str> {
     if let Some(id) = rest.strip_suffix(&suffix_slash)
         && !id.is_empty()
         && !id.contains('/')
+        && !id.contains(':')
     {
         return Some(id);
     }
     if let Some(id) = rest.strip_suffix(&suffix_colon)
         && !id.is_empty()
         && !id.contains('/')
+        && !id.contains(':')
     {
         return Some(id);
     }
@@ -394,16 +421,42 @@ fn format_wire_session(
         .or_else(|| engine.map(|e| e.model_name().to_string()))
         .unwrap_or_else(|| "kimi-latest".to_string());
 
-    let cwd = store
+    let mut metadata_obj = store
         .get_state("metadata", session_id)
         .ok()
         .flatten()
-        .and_then(|m| m.get("cwd").and_then(|c| c.as_str()).map(|s| s.to_string()))
+        .and_then(|m| m.as_object().cloned())
+        .unwrap_or_default();
+
+    let cwd = metadata_obj
+        .get("cwd")
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string())
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default()
         });
+
+    metadata_obj
+        .entry("cwd".to_string())
+        .or_insert_with(|| json!(cwd));
+    metadata_obj
+        .entry("session_id".to_string())
+        .or_insert_with(|| json!(session_id));
+
+    let mut config_obj = store
+        .get_state("agent_config", session_id)
+        .ok()
+        .flatten()
+        .and_then(|c| c.as_object().cloned())
+        .unwrap_or_default();
+    config_obj
+        .entry("model".to_string())
+        .or_insert_with(|| json!(model));
+    config_obj
+        .entry("thinking".to_string())
+        .or_insert_with(|| json!("medium"));
 
     let ws_id = session
         .workspace_id
@@ -429,14 +482,8 @@ fn format_wire_session(
         "main_turn_active": busy,
         "pending_interaction": "none",
         "archived": false,
-        "metadata": {
-            "cwd": cwd,
-            "session_id": session_id
-        },
-        "agent_config": {
-            "model": model,
-            "thinking": "medium"
-        },
+        "metadata": Value::Object(metadata_obj),
+        "agent_config": Value::Object(config_obj),
         "usage": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -2044,6 +2091,19 @@ impl HttpServer {
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
+                // Never rewrite history under a running turn (v2 raises
+                // SESSION_BUSY before beginning a compaction).
+                if let Some(engine) = self.engine.as_ref()
+                    && engine.is_busy(session_id)
+                {
+                    return HttpResponse::json(
+                        409,
+                        &json!({
+                            "code": "SESSION_BUSY",
+                            "error": "compaction refused: a turn is in flight",
+                        }),
+                    );
+                }
                 match self.store.compact_session(session_id) {
                     Ok(removed) => HttpResponse::ok(&json!({
                         "compacted": true,
@@ -2065,17 +2125,55 @@ impl HttpServer {
                 };
                 let count = body.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
                 let revert_files = body.get("revert_files").and_then(|v| v.as_bool()).unwrap_or(false);
-                if revert_files {
-                    if let Some(workdir) = fs_routes::resolve_session_workdir(&self.store, session_id) {
-                        // Revert file history for undone turns before deleting records
-                        let _ = self.store.revert_turn_file_changes(session_id, count, &workdir);
+                // Never delete rows under a running turn (v2 raises
+                // SESSION_BUSY before undoing).
+                if let Some(engine) = self.engine.as_ref()
+                    && engine.is_busy(session_id)
+                {
+                    return HttpResponse::json(
+                        409,
+                        &json!({
+                            "code": "SESSION_BUSY",
+                            "error": "undo refused: a turn is in flight",
+                        }),
+                    );
+                }
+                // Resolve the turns first: a compaction-boundary refusal must
+                // happen before any workspace file is touched, and file
+                // history is keyed by turn *number*, not by the undo count.
+                let turn_numbers = match self.store.plan_undo_turns(session_id, count) {
+                    Ok(numbers) => numbers,
+                    Err(e) if e.contains("undo refused") => return HttpResponse::bad_request(e),
+                    Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
+                };
+                if revert_files
+                    && let Some(workdir) = fs_routes::resolve_session_workdir(&self.store, session_id)
+                {
+                    for turn_number in &turn_numbers {
+                        let _ = self.store.revert_turn_file_changes(
+                            session_id,
+                            *turn_number as usize,
+                            &workdir,
+                        );
                     }
                 }
                 match self.store.undo_turns(session_id, count) {
-                    Ok(undone) => HttpResponse::ok(&json!({
-                        "undone": undone,
-                        "sessionId": session_id
-                    })),
+                    Ok(undone) => {
+                        // Online transcripts must learn about the cut, exactly
+                        // like delete/patch publish their own events.
+                        self.hub
+                            .bus_for(session_id)
+                            .publish(&crate::events::EngineEvent::Custom(json!({
+                                "type": "context.undone",
+                                "sessionId": session_id,
+                                "undone": undone,
+                                "turnNumbers": turn_numbers,
+                            })));
+                        HttpResponse::ok(&json!({
+                            "undone": undone,
+                            "sessionId": session_id
+                        }))
+                    }
                     // Crossing the compaction boundary is a client error, not
                     // a database failure — surface the refusal verbatim.
                     Err(e) if e.contains("undo refused") => HttpResponse::bad_request(e),
@@ -2755,6 +2853,52 @@ impl HttpServer {
                 }
                 HttpResponse::not_found()
             }
+            ("GET", p) if extract_session_action(p, "events").is_some() => {
+                let session_id = extract_session_action(p, "events").unwrap();
+                let exists = self.store.get_session(session_id).ok().flatten().is_some()
+                    || self.hub.lane_session_ids().iter().any(|s| s == session_id);
+                if !exists {
+                    return HttpResponse::not_found();
+                }
+                let since = req
+                    .query_param("since")
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let limit = req
+                    .query_param("limit")
+                    .and_then(|l| l.parse::<usize>().ok())
+                    .unwrap_or(100)
+                    .min(1000);
+
+                match self.store.get_wire_events(session_id, since, limit) {
+                    Ok(events) => {
+                        let total = self.store.count_wire_events(session_id).unwrap_or(events.len());
+                        let latest_seq = self.store.latest_wire_event_seq(session_id).unwrap_or(0);
+                        HttpResponse::ok(&json!({
+                            "sessionId": session_id,
+                            "events": events,
+                            "total": total,
+                            "latestSeq": latest_seq,
+                        }))
+                    }
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("GET", p) if extract_session_action(p, "projection").is_some() => {
+                let session_id = extract_session_action(p, "projection").unwrap();
+                let exists = self.store.get_session(session_id).ok().flatten().is_some()
+                    || self.hub.lane_session_ids().iter().any(|s| s == session_id);
+                if !exists {
+                    return HttpResponse::not_found();
+                }
+                match self.store.fold_projection(session_id) {
+                    Ok(messages) => HttpResponse::ok(&json!({
+                        "sessionId": session_id,
+                        "messages": messages,
+                    })),
+                    Err(e) => HttpResponse::internal_error(format!("Projection error: {e}")),
+                }
+            }
 
             ("GET", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
                 let session_id = p.strip_prefix("/api/v1/sessions/").unwrap_or_default();
@@ -2798,6 +2942,75 @@ impl HttpServer {
                     Ok(false) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
+            }
+            ("POST", p)
+                if extract_session_action(p, "events:compact").is_some()
+                    || extract_session_action(p, "events/compact").is_some() =>
+            {
+                let session_id = extract_session_action(p, "events:compact")
+                    .or_else(|| extract_session_action(p, "events/compact"))
+                    .unwrap();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let body: Value = serde_json::from_slice(&req.body).unwrap_or_else(|_| json!({}));
+                let summary = body
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("Context compaction boundary");
+                match self.store.checkpoint_compress(session_id, summary) {
+                    Ok(()) => HttpResponse::ok(&json!({
+                        "sessionId": session_id,
+                        "compacted": true,
+                        "summary": summary
+                    })),
+                    Err(e) => HttpResponse::internal_error(format!("Compaction error: {e}")),
+                }
+            }
+            ("POST", p)
+                if extract_session_action(p, "events:undo").is_some()
+                    || extract_session_action(p, "events/undo").is_some() =>
+            {
+                let session_id = extract_session_action(p, "events:undo")
+                    .or_else(|| extract_session_action(p, "events/undo"))
+                    .unwrap();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                match self.store.undo_to_last_checkpoint(session_id) {
+                    Ok(count) => HttpResponse::ok(&json!({
+                        "sessionId": session_id,
+                        "undone": true,
+                        "deletedEvents": count
+                    })),
+                    Err(crate::native::event_store::EventStoreError::UndoCompactionBoundary) => {
+                        HttpResponse::bad_request("Cannot undo across compaction boundary")
+                    }
+                    Err(crate::native::event_store::EventStoreError::CheckpointNotFound) => {
+                        HttpResponse::bad_request("No checkpoint found to undo to")
+                    }
+                    Err(e) => HttpResponse::internal_error(format!("Undo error: {e}")),
+                }
+            }
+            ("PATCH", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
+                let session_id = p.strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                if session_id.is_empty() || session_id.contains('/') || session_id.contains(':') {
+                    return HttpResponse::not_found();
+                }
+                self.handle_session_patch(session_id, &req.body)
+            }
+            ("POST", p) if extract_session_action(p, "patch").is_some() => {
+                let session_id = extract_session_action(p, "patch").unwrap();
+                self.handle_session_patch(session_id, &req.body)
+            }
+            ("POST", p)
+                if extract_session_action(p, "patch:undo").is_some()
+                    || extract_session_action(p, "undo_patch").is_some() =>
+            {
+                let session_id = extract_session_action(p, "patch:undo")
+                    .or_else(|| extract_session_action(p, "undo_patch"))
+                    .unwrap();
+                self.handle_session_patch_undo(session_id)
             }
             ("POST", "/api/v1/sessions") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -2932,6 +3145,173 @@ impl HttpServer {
         }
 
         resp
+    }
+
+    fn handle_session_patch(&self, session_id: &str, body_bytes: &[u8]) -> HttpResponse {
+        let Some(session) = self.store.get_session(session_id).ok().flatten() else {
+            return HttpResponse::not_found();
+        };
+        let body: Value = match serde_json::from_slice(body_bytes) {
+            Ok(v) => v,
+            Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+        };
+
+        let mut current_wire = format_wire_session(&session, &self.store, self.engine.as_ref());
+
+        let patch_set = if let Ok(ps) =
+            serde_json::from_value::<crate::session::patch::JsonPatchSet>(body.clone())
+        {
+            ps
+        } else if let Some(arr) = body.as_array() {
+            match serde_json::from_value::<Vec<crate::session::patch::PatchOp>>(Value::Array(
+                arr.clone(),
+            )) {
+                Ok(ops) => crate::session::patch::JsonPatchSet::new(ops),
+                Err(e) => {
+                    return HttpResponse::bad_request(format!(
+                        "Invalid RFC 6902 patch operations: {e}"
+                    ));
+                }
+            }
+        } else if let Some(ops_val) = body.get("ops").or_else(|| body.get("patch")) {
+            match serde_json::from_value::<Vec<crate::session::patch::PatchOp>>(ops_val.clone()) {
+                Ok(ops) => crate::session::patch::JsonPatchSet::new(ops),
+                Err(e) => {
+                    return HttpResponse::bad_request(format!(
+                        "Invalid patch operations in ops field: {e}"
+                    ));
+                }
+            }
+        } else if body.is_object() {
+            let mut target = current_wire.clone();
+            if let Some(target_obj) = target.as_object_mut() {
+                for (k, v) in body.as_object().unwrap() {
+                    if k == "metadata" && v.is_object() {
+                        if let Some(meta_obj) = target_obj
+                            .get_mut("metadata")
+                            .and_then(|m| m.as_object_mut())
+                        {
+                            for (mk, mv) in v.as_object().unwrap() {
+                                meta_obj.insert(mk.clone(), mv.clone());
+                            }
+                        } else {
+                            target_obj.insert(k.clone(), v.clone());
+                        }
+                    } else {
+                        target_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            crate::session::patch::diff_values(&current_wire, &target)
+        } else {
+            return HttpResponse::bad_request(
+                "Invalid patch payload: expected RFC 6902 array or object",
+            );
+        };
+
+        let inverse_patch =
+            match crate::session::patch::apply_patch(&mut current_wire, &patch_set) {
+                Ok(inv) => inv,
+                Err(e) => return HttpResponse::bad_request(format!("Failed to apply patch: {e}")),
+            };
+
+        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str()) {
+            if session.title.as_deref() != Some(new_title) {
+                let _ = self.store.update_session_title(session_id, Some(new_title));
+            }
+        }
+        if let Some(new_meta) = current_wire.get("metadata") {
+            let _ = self.store.put_state("metadata", session_id, new_meta);
+        }
+        if let Some(new_cfg) = current_wire.get("agent_config") {
+            let _ = self.store.put_state("agent_config", session_id, new_cfg);
+        }
+
+        let checkpoint_id = format!("patch-{}", fastrand::u64(..));
+        let _ = self.store.save_checkpoint(
+            session_id,
+            &checkpoint_id,
+            "session_patch",
+            &json!({
+                "patch": patch_set,
+                "inverse": inverse_patch,
+            }),
+        );
+
+        let updated_event = json!({
+            "type": "event.session.updated",
+            "sessionId": session_id,
+            "patch": patch_set,
+            "inverse": inverse_patch,
+        });
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::Custom(updated_event));
+
+        HttpResponse::ok(&json!({
+            "session": current_wire,
+            "applied_patch": patch_set,
+            "undo_patch": inverse_patch,
+        }))
+    }
+
+    fn handle_session_patch_undo(&self, session_id: &str) -> HttpResponse {
+        let Some(session) = self.store.get_session(session_id).ok().flatten() else {
+            return HttpResponse::not_found();
+        };
+        let Some(checkpoint_data) = self
+            .store
+            .get_latest_checkpoint(session_id, "session_patch")
+            .ok()
+            .flatten()
+        else {
+            return HttpResponse::bad_request("No patch checkpoint available to undo");
+        };
+        let Some(inverse_val) = checkpoint_data.get("inverse") else {
+            return HttpResponse::bad_request("Invalid checkpoint: missing inverse patch");
+        };
+        let inverse_set: crate::session::patch::JsonPatchSet =
+            match serde_json::from_value(inverse_val.clone()) {
+                Ok(s) => s,
+                Err(e) => {
+                    return HttpResponse::internal_error(format!(
+                        "Failed to parse inverse patch: {e}"
+                    ));
+                }
+            };
+
+        let mut current_wire = format_wire_session(&session, &self.store, self.engine.as_ref());
+        let redo_patch = match crate::session::patch::apply_patch(&mut current_wire, &inverse_set)
+        {
+            Ok(p) => p,
+            Err(e) => return HttpResponse::bad_request(format!("Failed to revert patch: {e}")),
+        };
+
+        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str()) {
+            let _ = self.store.update_session_title(session_id, Some(new_title));
+        }
+        if let Some(new_meta) = current_wire.get("metadata") {
+            let _ = self.store.put_state("metadata", session_id, new_meta);
+        }
+        if let Some(new_cfg) = current_wire.get("agent_config") {
+            let _ = self.store.put_state("agent_config", session_id, new_cfg);
+        }
+
+        let updated_event = json!({
+            "type": "event.session.updated",
+            "sessionId": session_id,
+            "patch": inverse_set,
+            "inverse": redo_patch,
+        });
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::Custom(updated_event));
+
+        HttpResponse::ok(&json!({
+            "session": current_wire,
+            "applied_patch": inverse_set,
+            "redo_patch": redo_patch,
+        }))
     }
 }
 
@@ -5792,5 +6172,231 @@ mod tests {
         let cap_val: Value = serde_json::from_slice(&cap_res.body).unwrap();
         let caps = cap_val["capabilities"].as_array().unwrap();
         assert!(caps.iter().any(|c| c == "subagents"));
+    }
+
+    #[tokio::test]
+    async fn test_http_session_patch_and_undo() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+
+        // 1. Create a session
+        let create_res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "title": "Initial Title" })).unwrap(),
+            })
+            .await;
+        assert_eq!(create_res.status, 201);
+        let create_val: Value = serde_json::from_slice(&create_res.body).unwrap();
+        let sid = create_val["sessionId"].as_str().unwrap();
+
+        // 2. Patch session title and custom metadata using RFC 6902 JSON patch
+        let patch_ops = json!([
+            { "op": "replace", "path": "/title", "value": "Updated Title" },
+            { "op": "add", "path": "/metadata/custom_tag", "value": "production" }
+        ]);
+
+        let patch_res = server
+            .handle_request(&HttpRequest {
+                method: "PATCH".into(),
+                path: format!("/api/v1/sessions/{sid}"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&patch_ops).unwrap(),
+            })
+            .await;
+        assert_eq!(patch_res.status, 200);
+        let patch_val: Value = serde_json::from_slice(&patch_res.body).unwrap();
+        assert_eq!(patch_val["session"]["title"], "Updated Title");
+        assert_eq!(patch_val["session"]["metadata"]["custom_tag"], "production");
+        assert!(patch_val["applied_patch"].is_object() || patch_val["applied_patch"].is_array());
+        assert!(patch_val["undo_patch"].is_object() || patch_val["undo_patch"].is_array());
+
+        // 3. Partial object patch via POST :patch
+        let partial_update = json!({
+            "title": "Object Patched Title",
+            "metadata": { "client_version": "1.2.3" }
+        });
+        let post_patch_res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:patch"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&partial_update).unwrap(),
+            })
+            .await;
+        assert_eq!(post_patch_res.status, 200);
+        let post_patch_val: Value = serde_json::from_slice(&post_patch_res.body).unwrap();
+        assert_eq!(post_patch_val["session"]["title"], "Object Patched Title");
+        assert_eq!(post_patch_val["session"]["metadata"]["client_version"], "1.2.3");
+        assert_eq!(post_patch_val["session"]["metadata"]["custom_tag"], "production");
+
+        // 4. Undo the last patch
+        let undo_res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:undo_patch"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(undo_res.status, 200);
+        let undo_val: Value = serde_json::from_slice(&undo_res.body).unwrap();
+        assert_eq!(undo_val["session"]["title"], "Updated Title");
+    }
+
+    /// `POST :undo` with `revert_files` reverts the workspace files of the
+    /// turns it actually removed — the file history is keyed by turn *number*,
+    /// so passing the undo *count* used to restore the wrong turn.
+    #[tokio::test]
+    async fn test_http_undo_reverts_files_of_the_undone_turn() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let mut server = HttpServer::new(store.clone());
+        let sid = "sess-undo-files";
+        store.create_session(sid, None).unwrap();
+        store
+            .put_state(
+                "metadata",
+                sid,
+                &json!({ "cwd": temp.path().display().to_string() }),
+            )
+            .unwrap();
+
+        let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
+        store.save_turn(sid, "t1", 1, &msgs, None).unwrap();
+        store.save_turn(sid, "t2", 2, &msgs, None).unwrap();
+        std::fs::write(temp.path().join("a.txt"), "after-1").unwrap();
+        std::fs::write(temp.path().join("b.txt"), "after-2").unwrap();
+        store
+            .record_file_change(sid, 1, "a.txt", Some("before-1"), Some("after-1"))
+            .unwrap();
+        store
+            .record_file_change(sid, 2, "b.txt", Some("before-2"), Some("after-2"))
+            .unwrap();
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:undo"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "count": 1, "revert_files": true })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["undone"], 1);
+
+        // Only the removed turn's file is restored.
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("b.txt")).unwrap(),
+            "before-2"
+        );
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("a.txt")).unwrap(),
+            "after-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_http_session_events_and_projection() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let hub = Arc::new(EventHub::new());
+        let server = HttpServer::with_hub(store.clone(), hub.clone());
+
+        let sid = "sess-event-http";
+        store.create_session(sid, Some("Event Stream Test")).unwrap();
+
+        // 1. Publish events onto hub lane -> automatically captured by persister into wire_events
+        let bus = hub.bus_for(sid);
+        bus.publish(&crate::events::EngineEvent::Custom(json!({
+            "type": "message.user",
+            "content": "What is the capital of France?"
+        })));
+        bus.publish(&crate::events::EngineEvent::Custom(json!({
+            "type": "message.assistant",
+            "content": "The capital of France is Paris."
+        })));
+
+        // 2. GET /api/v1/sessions/:id/events (both /events and :events)
+        let res_events_slash = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/events"),
+                query: Some("since=0&limit=10".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_events_slash.status, 200);
+        let val_slash: Value = serde_json::from_slice(&res_events_slash.body).unwrap();
+        assert_eq!(val_slash["sessionId"], sid);
+        assert_eq!(val_slash["events"].as_array().unwrap().len(), 2);
+        assert_eq!(val_slash["total"], 2);
+
+        let res_events_colon = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}:events"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_events_colon.status, 200);
+
+        // 3. GET /api/v1/sessions/:id/projection
+        let res_proj = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/projection"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_proj.status, 200);
+        let val_proj: Value = serde_json::from_slice(&res_proj.body).unwrap();
+        let msgs = val_proj["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["role"], "user");
+        assert_eq!(msgs[0]["content"], "What is the capital of France?");
+        assert_eq!(msgs[1]["role"], "assistant");
+        assert_eq!(msgs[1]["content"], "The capital of France is Paris.");
+
+        // 4. POST /api/v1/sessions/:id/events:compact
+        let res_compact = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:events:compact"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "summary": "Paris geography summary" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res_compact.status, 200);
+
+        // Projection after compaction must reflect summary
+        let res_proj_after = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}:projection"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_proj_after.status, 200);
+        let val_proj_after: Value = serde_json::from_slice(&res_proj_after.body).unwrap();
+        let msgs_after = val_proj_after["messages"].as_array().unwrap();
+        assert_eq!(msgs_after.len(), 1);
+        assert_eq!(msgs_after[0]["role"], "system");
+        assert_eq!(msgs_after[0]["content"], "Paris geography summary");
     }
 }

@@ -6,12 +6,13 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import type { AgentContextData } from '#/types';
+import type { AgentContextData, JsonObject } from '#/types';
 import {
   EngineSessionHandle,
   type SessionCallbacks,
@@ -19,19 +20,24 @@ import {
   type SessionTurnOutcome,
 } from '@moonshot-ai/kimi-agent/session-handle';
 import type { OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
+import { assertKimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
 import type { TurnEndReason } from '@moonshot-ai/protocol';
+import { mcpOAuthStoreKey } from '@moonshot-ai/protocol';
 import { ZipFile } from 'yazl';
 
 import { KimiAuthFacade } from '#/auth';
 import {
   cloneRecord,
   loadRuntimeConfig,
+  loadRuntimeConfigLenient,
   readConfigFile,
   validateConfig,
   writeConfigFile,
   type KimiConfig,
   type KimiConfigPatch,
 } from '#/config-local';
+import { ensureConfigFile as ensureConfigFileScaffold } from '#/config-helpers';
 import { resolveConfigPath, resolveKimiHome } from '#/config-local/path';
 import type { QuestionItem, ToolInputDisplay } from '#/events';
 import { ImageLimits } from '#/image-limits';
@@ -90,6 +96,7 @@ import type {
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
+  PromptPart,
   ReloadSummary,
   RenameSessionInput,
   ResumeSessionInput,
@@ -106,6 +113,7 @@ import type {
   UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
+import type { ExperimentalFlagSource } from '#/types';
 
 import {
   resolveNativeLlm,
@@ -200,7 +208,7 @@ function toGoalSnapshot(goal: NativeGoalState): GoalSnapshot {
  * createSession), so they land with the persistence work; until then the
  * getters read these config-derived defaults.
  */
-function initialRuntimeState(config: KimiConfig, model: string) {
+function initialRuntimeState(config: KimiConfig, model: string | undefined) {
   return {
     model,
     thinkingEffort:
@@ -230,9 +238,9 @@ function initialRuntimeState(config: KimiConfig, model: string) {
  */
 function applySessionLlmOverrides(
   llm: JsNativeLlmConfig,
-  meta: { model: string; thinkingEffort: string },
+  meta: { model: string | undefined; thinkingEffort: string },
 ): JsNativeLlmConfig {
-  const out: JsNativeLlmConfig = { ...llm, model: meta.model };
+  const out: JsNativeLlmConfig = { ...llm, model: meta.model ?? llm.model };
   const effort = meta.thinkingEffort;
   const thinkingOn = effort !== '' && effort !== 'off' && effort !== 'none';
   if (out.protocol === 'anthropic') {
@@ -275,6 +283,22 @@ function truncateHistoryByTurns(history: readonly SessionPrompt[], count: number
 }
 
 /**
+ * The history cut that retains user turns 0..turnIndex: the (index+1)-th user
+ * message from the start ends the retained window, so everything from it
+ * onward is dropped.
+ */
+function retainThroughTurn(history: readonly SessionPrompt[], turnIndex: number): number {
+  let seen = 0;
+  for (let i = 0; i < history.length; i++) {
+    if (history[i]?.role === 'user') {
+      if (seen === turnIndex) return i + 1;
+      seen += 1;
+    }
+  }
+  return history.length;
+}
+
+/**
  * v2 `config.set` merge semantics for one domain: plain objects merge
  * recursively, arrays and scalars replace. An explicit `undefined` inside the
  * patch leaves the stored value untouched (mirrors the per-domain undefined
@@ -290,6 +314,224 @@ function deepMergeConfigValue(current: unknown, patch: unknown): unknown {
     return out;
   }
   return patch;
+}
+
+/** The SDK normalizes returned paths to forward slashes (pathe semantics). */
+function posixPath(path: string): string {
+  return path.replaceAll('\\', '/');
+}
+
+/** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
+function normalizeRequiredWorkDir(operation: string, workDir: unknown): string {
+  if (typeof workDir !== 'string' || workDir.trim() === '') {
+    throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
+  }
+  return posixPath(resolve(workDir));
+}
+
+const MAX_TITLE_LENGTH = 200;
+const MAX_LAST_PROMPT_LENGTH = 4000;
+
+/**
+ * The prompt-derived title/lastPrompt sanitizer, ported byte-identically from
+ * the retired engine's `promptMetadataText` so prompt metadata redacts the
+ * same credential shapes the engine used to.
+ */
+function promptMetadataTextFromText(text: string): string | undefined {
+  const sanitized = text
+    .replaceAll(
+      /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gi,
+      '[redacted]',
+    )
+    .replaceAll(/\b(authorization)\s*:\s*bearer\s+\S+/gi, '$1: Bearer [redacted]')
+    .replaceAll(
+      /\b(api[_-]?key|token|secret|password|passwd|pwd)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
+      '$1=[redacted]',
+    )
+    .replaceAll(/\bsk-[A-Za-z0-9_-]{12,}\b/g, '[redacted]')
+    .replaceAll(/\b[A-Za-z0-9][A-Za-z0-9+/=_-]{39,}\b/g, '[redacted]')
+    .replaceAll(/\p{Cc}+/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+
+  if (sanitized.length === 0) return undefined;
+  return sanitized.slice(0, MAX_LAST_PROMPT_LENGTH);
+}
+
+function promptMetadataTextFromPrompt(input: SessionPromptRpcInput['input']): string | undefined {
+  const texts: string[] = [];
+  for (const part of input) {
+    if (part.type === 'text') texts.push(part.text);
+    else if (part.type === 'image_url') texts.push('[image]');
+    else texts.push('[video]');
+  }
+  return promptMetadataTextFromText(texts.join('\n'));
+}
+
+function isUntitledTitle(title: string): boolean {
+  return title.trim().length === 0 || title === 'New Session';
+}
+
+/** Byte-identical with the v1 import-context guidance text. */
+const IMPORT_CONTEXT_GUIDANCE =
+  'This is a prior conversation history that may be relevant to the current session. ' +
+  'Please review this context and use it to inform your responses.';
+
+/** Byte-identical with v1's `escapeXml` (& < > "). */
+function escapeXml(input: string): string {
+  return input
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+/** Byte-identical with v1's `escapeXmlAttr` (& " only). */
+function escapeXmlAttr(input: string): string {
+  return input.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+}
+
+/**
+ * The exact user message v1's importContext appended, including its
+ * rejections: blank content (`import_content_empty`) and blank source
+ * (`import_source_empty`) fail with v1's `request.invalid` shapes before any
+ * token math runs.
+ */
+function buildImportContextParts(content: string, source: string): PromptPart[] {
+  if (content.trim().length === 0) {
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Imported context cannot be empty', {
+      details: { reason: 'import_content_empty' },
+    });
+  }
+  const normalizedSource = source.trim();
+  if (normalizedSource.length === 0) {
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Imported context source cannot be empty', {
+      details: { reason: 'import_source_empty' },
+    });
+  }
+  return [
+    {
+      type: 'text',
+      text:
+        `<system>The user has imported context from ${escapeXml(normalizedSource)}. ` +
+        `${IMPORT_CONTEXT_GUIDANCE}</system>`,
+    },
+    {
+      type: 'text',
+      text:
+        `<imported_context source="${escapeXmlAttr(normalizedSource)}">\n` +
+        `${content}\n</imported_context>`,
+    },
+  ];
+}
+
+/** v1's overflow gate: the import estimate plus the current context must fit the model window. */
+function assertImportFits(
+  messageTokens: number,
+  currentTokenCount: number,
+  maxContextTokens: number,
+): void {
+  const totalTokenCount = currentTokenCount + messageTokens;
+  if (maxContextTokens > 0 && totalTokenCount > maxContextTokens) {
+    throw new KimiError(
+      ErrorCodes.CONTEXT_OVERFLOW,
+      'Imported content is too large for the current model context ' +
+        `(~${String(messageTokens)} import tokens + ~${String(currentTokenCount)} existing ` +
+        `= ~${String(totalTokenCount)} total > ${String(maxContextTokens)} token limit). ` +
+        'Please import a smaller file or session.',
+      {
+        details: {
+          reason: 'import_context_overflow',
+          importTokenCount: messageTokens,
+          currentTokenCount,
+          totalTokenCount,
+          maxContextTokens,
+        },
+      },
+    );
+  }
+}
+
+/**
+ * The experimental flag registry the engine used to own. The native harness
+ * serves the same metadata over `getExperimentalFeatures`; precedence per
+ * flag is env > `[experimental]` config > master env > the flag's default.
+ */
+interface NativeExperimentalFlag {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly env: string;
+  readonly defaultEnabled: boolean;
+  readonly surface: string;
+}
+
+const NATIVE_EXPERIMENTAL_FLAGS: readonly NativeExperimentalFlag[] = [
+  {
+    id: 'tool_select',
+    title: 'Tool select (progressive tool disclosure)',
+    description:
+      'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+    env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
+    defaultEnabled: true,
+    surface: 'core',
+  },
+  {
+    id: 'secondary-model',
+    title: 'Secondary model for subagents',
+    description:
+      'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+    env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
+    defaultEnabled: false,
+    surface: 'core',
+  },
+];
+
+function resolveExperimentalFeatures(config: KimiConfig): readonly ExperimentalFeatureState[] {
+  const masterEnv = process.env['KIMI_CODE_EXPERIMENTAL_FLAG'];
+  return NATIVE_EXPERIMENTAL_FLAGS.map((flag) => {
+    const envValue = process.env[flag.env];
+    const configValue = config.experimental?.[flag.id];
+    let enabled = flag.defaultEnabled;
+    let source: ExperimentalFlagSource = 'default';
+    if (envValue !== undefined) {
+      enabled = envValue !== '0' && envValue.toLowerCase() !== 'false';
+      source = 'env';
+    } else if (typeof configValue === 'boolean') {
+      enabled = configValue;
+      source = 'config';
+    } else if (masterEnv !== undefined && masterEnv !== '0' && masterEnv.toLowerCase() !== 'false') {
+      // A master switch of 0/false means "no force-enable"; flags keep their
+      // own defaults rather than being disabled wholesale.
+      enabled = true;
+      source = 'master-env';
+    }
+    return {
+      id: flag.id,
+      title: flag.title,
+      description: flag.description,
+      env: flag.env,
+      defaultEnabled: flag.defaultEnabled,
+      enabled,
+      source,
+      surface: flag.surface,
+      ...(configValue !== undefined ? { configValue } : {}),
+    };
+  });
+}
+
+/** A stored mcp.json entry as read from disk (the transport tag is optional). */
+interface StoredMcpServerConfig {
+  transport?: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  auth?: 'oauth';
+  bearerTokenEnvVar?: string;
+  enabled?: boolean;
+  name?: string;
 }
 
 export interface SDKRpcClientNativeOptions {
@@ -314,6 +556,9 @@ interface NativeSessionMeta {
   updatedAt: number;
   title: string;
   isCustomTitle: boolean;
+  /** Prompt-derived easy title marker (v2 `titleKind: 'replaceable'`). */
+  titleKind: 'default' | 'replaceable' | 'custom' | 'generated';
+  lastPrompt: string | undefined;
   busy: boolean;
   messageCount: number;
   /** Last turn id seen from the engine; kept on meta so it survives a rebuild. */
@@ -325,7 +570,7 @@ interface NativeSessionMeta {
   // Runtime agent state (re-derived from config on resume, not persisted): the
   // getters (getStatus / getUsage) read these; the setters that would change
   // them mid-session need an engine-handle rebuild and land with persistence.
-  model: string;
+  model: string | undefined;
   thinkingEffort: string;
   permissionMode: PermissionMode;
   planMode: boolean;
@@ -335,6 +580,11 @@ interface NativeSessionMeta {
   contextTokens: number;
   usage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
   goal: NativeGoalState | null;
+  /** The active plan document handle (plan mode); content lives in the plan file. */
+  plan: { id: string; content: string; path: string } | undefined;
+  /** Source session id when this session was forked. */
+  forkedFrom: string | undefined;
+  activeAgentId?: string;
   handle?: EngineSessionHandle;
 }
 
@@ -351,8 +601,17 @@ interface PersistedSessionMeta {
   updatedAt: number;
   title: string;
   isCustomTitle: boolean;
+  lastPrompt?: string | undefined;
   custom: Record<string, unknown>;
   additionalDirs: string[];
+  model?: string | undefined;
+  thinkingEffort?: string | undefined;
+  permissionMode?: PermissionMode | undefined;
+  planMode?: boolean | undefined;
+  plan?: { id: string; content: string; path: string } | undefined;
+  goal?: NativeGoalState | null | undefined;
+  forkedFrom?: string | undefined;
+  contextTokens?: number | undefined;
 }
 
 const DEFAULT_INIT_PROMPT = `You are a software engineering expert with many years of programming experience. Please explore the current project directory to understand the project's architecture and main details.
@@ -377,7 +636,7 @@ Popular sections that people usually write in \`AGENTS.md\` are:
 - Testing instructions
 - Security considerations`;
 
-function resolveMcpServersForEngine(servers: Record<string, McpServerConfig>): Array<{
+function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfig>): Array<{
   name: string;
   transport: string;
   command?: string;
@@ -432,9 +691,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   constructor(options: SDKRpcClientNativeOptions = {}) {
     super();
+    // The engine seeds its client identity / request headers from the host
+    // identity, so a harness without one fails at construction like the v2
+    // client did (the v1 client tolerated its absence).
+    this.identity = assertKimiHostIdentity(options.identity);
     this.homeDir = resolveKimiHome(options.homeDir);
     this.configPath = resolveConfigPath({ homeDir: this.homeDir, configPath: options.configPath });
-    this.identity = options.identity;
     this.telemetry = options.telemetry ?? { track: () => {} };
     this.skillDirs = options.skillDirs ?? [];
     this.auth =
@@ -445,7 +707,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         identity: this.identity,
         onRefresh: options.onOAuthRefresh,
       });
-    this.sessionBaseDir = join(this.homeDir, 'sessions');
+    this.sessionBaseDir = posixPath(join(this.homeDir, 'sessions'));
     if (!existsSync(this.sessionBaseDir)) {
       mkdirSync(this.sessionBaseDir, { recursive: true });
     }
@@ -479,13 +741,22 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
+    const workDir = normalizeRequiredWorkDir('createSession', input.workDir);
     const sessionId = input.id ? input.id : `session_${randomUUID()}`;
-    const workDir = input.workDir ?? process.cwd();
-    const sessionDir = join(this.sessionBaseDir, sessionId);
+    const sessionDir = posixPath(join(this.sessionBaseDir, sessionId));
     const now = Date.now();
 
-    const config = loadRuntimeConfig(this.configPath);
-    const nativeLlm = resolveNativeLlm(config);
+    if (
+      this.liveSessions.has(sessionId) ||
+      this.loadMeta(join(this.sessionBaseDir, sessionId)) !== undefined
+    ) {
+      throw new KimiError(
+        ErrorCodes.SESSION_ALREADY_EXISTS,
+        `Session "${sessionId}" already exists`,
+      );
+    }
+
+    const config = loadRuntimeConfigLenient(this.configPath);
 
     const meta: NativeSessionMeta = {
       id: sessionId,
@@ -495,12 +766,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       updatedAt: now,
       title: 'New Session',
       isCustomTitle: false,
+      titleKind: 'default',
+      lastPrompt: undefined,
       busy: false,
       messageCount: 0,
-      custom: {},
+      custom: input.metadata !== undefined ? { ...input.metadata } : {},
       additionalDirs: [],
-      ...initialRuntimeState(config, nativeLlm?.model ?? config.defaultModel ?? 'default'),
+      ...initialRuntimeState(config, input.model ?? config.defaultModel),
+      plan: undefined,
+      forkedFrom: undefined,
     };
+    if (input.thinking !== undefined) meta.thinkingEffort = input.thinking;
+    if (input.permission !== undefined) meta.permissionMode = input.permission;
     this.liveSessions.set(sessionId, meta);
 
     try {
@@ -519,6 +796,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       title: meta.title,
       createdAt: now,
       updatedAt: now,
+      // v1 returns the caller's metadata verbatim on create (not the merged
+      // custom map a later listing would report).
+      metadata: input.metadata,
     };
   }
 
@@ -532,7 +812,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   private async buildHandle(meta: NativeSessionMeta): Promise<EngineSessionHandle> {
     const sessionId = meta.id;
     const workDir = meta.workDir;
-    const config = loadRuntimeConfig(this.configPath);
+    const config = loadRuntimeConfigLenient(this.configPath);
     const shellPath = probeShellPath();
     const resolvedLlm = resolveNativeLlm(config);
     const nativeLlm = resolvedLlm ? applySessionLlmOverrides(resolvedLlm, meta) : resolvedLlm;
@@ -720,12 +1000,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         } catch {
           return;
         }
+        const eventAgentId = meta.activeAgentId ?? 'main';
         if (parsed.type === 'turn.started') {
           meta.currentTurnId =
             typeof parsed.turn_id === 'number' ? parsed.turn_id : Number(parsed.turn_id) || 0;
           this.receiveEvent({
             sessionId,
-            agentId: 'main',
+            agentId: eventAgentId,
             type: 'turn.started',
             turnId: meta.currentTurnId,
             // origin is required on TurnStartedEvent; native turns are always
@@ -737,11 +1018,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         } else if (parsed.type === 'turn.ended') {
           this.receiveEvent({
             sessionId,
-            agentId: 'main',
+            agentId: eventAgentId,
             type: 'turn.ended',
             turnId: meta.currentTurnId,
             reason: toTurnEndReason(parsed.reason ?? parsed.status),
           });
+          meta.activeAgentId = undefined;
         }
         // Unknown turn events are dropped (see emitEvent).
       },
@@ -770,7 +1052,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       callerAgentId: 'main',
       rustSelfContained: config.agent?.rustSelfContained === true,
       systemPrompt: 'You are Kimi Code, an intelligent AI coding assistant.',
-      modelName: nativeLlm?.model ?? meta.model,
+      // The engine requires a modelName string even for a model-less session;
+      // the SDK surface keeps `undefined` for the unbound state.
+      modelName: nativeLlm?.model ?? meta.model ?? 'default',
       messages: [],
       tools: [],
       workspaceRoot: workDir,
@@ -791,56 +1075,148 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     let meta = this.liveSessions.get(sessionId);
     if (meta === undefined) {
       const now = Date.now();
-      const sessionDir = join(this.sessionBaseDir, sessionId);
+      const sessionDir = posixPath(join(this.sessionBaseDir, sessionId));
       // Rehydrate the session's own bookkeeping from disk so a rename / metadata
-      // update / add-dir made earlier in this home survives the resume. The live
-      // engine handle is not rebuilt here (transcript replay across a resume is
-      // the persistence work); requireSession-gated turns surface a clean
-      // SESSION_NOT_FOUND until then rather than driving a freed handle.
+      // update / add-dir made earlier in this home survives the resume, then
+      // rebuild the engine handle and replay the persisted history so turns
+      // continue with their context.
       const persisted = this.loadMeta(sessionDir);
-      const config = loadRuntimeConfig(this.configPath);
-      const nativeLlm = resolveNativeLlm(config);
-      meta = {
+      const config = loadRuntimeConfigLenient(this.configPath);
+      const defaults = initialRuntimeState(config, persisted?.model ?? config.defaultModel);
+      const created: NativeSessionMeta = {
         id: sessionId,
-        workDir: persisted?.workDir ?? process.cwd(),
+        workDir: persisted?.workDir ?? normalizeRequiredWorkDir('resumeSession', process.cwd()),
         sessionDir,
         createdAt: persisted?.createdAt ?? now,
         updatedAt: persisted?.updatedAt ?? now,
         title: persisted?.title ?? 'Resumed Session',
         isCustomTitle: persisted?.isCustomTitle ?? false,
+        titleKind: persisted?.isCustomTitle === true ? 'custom' : 'default',
+        lastPrompt: persisted?.lastPrompt,
         busy: false,
         messageCount: 0,
+        currentTurnId: 0,
         custom: persisted?.custom ?? {},
         additionalDirs: persisted?.additionalDirs ?? [],
-        ...initialRuntimeState(config, nativeLlm?.model ?? config.defaultModel ?? 'default'),
+        model: persisted?.model ?? config.defaultModel,
+        thinkingEffort: persisted?.thinkingEffort ?? defaults.thinkingEffort,
+        permissionMode: persisted?.permissionMode ?? defaults.permissionMode,
+        planMode: persisted?.planMode ?? false,
+        swarmMode: false,
+        towerMode: false,
+        maxContextTokens:
+          (config.defaultModel ? config.models?.[config.defaultModel]?.maxContextSize : undefined) ??
+          0,
+        contextTokens: persisted?.contextTokens ?? 0,
+        usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+        goal: persisted?.goal ?? null,
+        plan: persisted?.plan,
+        forkedFrom: persisted?.forkedFrom,
       };
-      this.liveSessions.set(sessionId, meta);
+      meta = created;
+      this.liveSessions.set(sessionId, created);
+      created.handle = await this.buildHandle(created);
+      const history = this.readPersistedHistory(created);
+      if (history.length > 0) {
+        await created.handle.setHistory(history);
+        created.messageCount = history.length;
+      }
     }
+    return this.resumedSessionSummary(meta);
+  }
+
+  /** The `ResumedSessionSummary` of a session, including the per-agent main snapshot. */
+  private async resumedSessionSummary(meta: NativeSessionMeta): Promise<ResumedSessionSummary> {
+    const history = meta.handle
+      ? await meta.handle.getHistory().catch(() => [])
+      : this.readPersistedHistory(meta);
+    const context = this.contextFromHistory(meta, history);
     return {
-      id: sessionId,
+      id: meta.id,
       workDir: meta.workDir,
       sessionDir: meta.sessionDir,
       title: meta.title,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
+      metadata: { ...meta.custom } as JsonObject,
+      additionalDirs: [...meta.additionalDirs],
+      lastPrompt: meta.lastPrompt,
       sessionMetadata: {
         createdAt: new Date(meta.createdAt).toISOString(),
         updatedAt: new Date(meta.updatedAt).toISOString(),
         title: meta.title,
         isCustomTitle: meta.isCustomTitle,
         agents: {},
-        custom: meta.custom,
+        custom: { ...meta.custom } as JsonObject,
       },
-      agents: {},
+      agents: {
+        main: {
+          type: 'main',
+          config: {
+            cwd: meta.workDir,
+            modelAlias: meta.model,
+            modelCapabilities: {
+              image_in: false,
+              video_in: false,
+              audio_in: false,
+              thinking: false,
+              tool_use: true,
+              max_context_tokens: meta.maxContextTokens,
+            },
+            thinkingEffort: meta.thinkingEffort,
+            systemPrompt: '',
+          },
+          context,
+          replay: history.map((message, index) => ({
+            type: 'message' as const,
+            time: meta.createdAt + index,
+            message: context.history[index]!,
+          })),
+          permission: { mode: meta.permissionMode },
+          plan: meta.plan
+            ? { id: meta.plan.id, content: meta.plan.content, path: meta.plan.path }
+            : null,
+          swarmMode: meta.swarmMode,
+          usage: {
+            inputOther: meta.usage.inputOther,
+            output: meta.usage.output,
+            inputCacheRead: meta.usage.inputCacheRead,
+            inputCacheCreation: meta.usage.inputCacheCreation,
+          },
+          tools: [],
+          background: [],
+        },
+      },
     };
   }
 
   override async renameSession(input: RenameSessionInput): Promise<void> {
-    const meta = this.requireSession(input.id);
-    meta.title = input.title;
-    meta.isCustomTitle = true;
-    meta.updatedAt = Date.now();
-    this.persistMeta(meta);
+    const title = input.title.trim();
+    if (title.length === 0) {
+      throw new KimiError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
+    }
+    const meta = this.liveSessions.get(input.id);
+    if (meta !== undefined) {
+      meta.title = title;
+      meta.isCustomTitle = true;
+      meta.titleKind = 'custom';
+      meta.updatedAt = Date.now();
+      this.persistMeta(meta);
+      return;
+    }
+    // A closed session is renamed at the store level: load its persisted
+    // bookkeeping, update the title, and write it back.
+    const sessionDir = join(this.sessionBaseDir, input.id);
+    const persisted = this.loadMeta(sessionDir);
+    if (persisted === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${input.id}"`, {
+        details: { sessionId: input.id },
+      });
+    }
+    persisted.title = title;
+    persisted.isCustomTitle = true;
+    persisted.updatedAt = Date.now();
+    this.writePersistedMeta(sessionDir, persisted);
   }
 
   override async updateSessionMetadata(input: UpdateSessionMetadataRpcInput): Promise<void> {
@@ -867,8 +1243,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async listSessions(
-    _input: ListSessionsOptions = {},
+    input: ListSessionsOptions = {},
   ): Promise<readonly SessionSummary[]> {
+    const workDir =
+      input.workDir === undefined ? undefined : normalizeRequiredWorkDir('listSessions', input.workDir);
     const sessionsMap = new Map<string, SessionSummary>();
     if (existsSync(this.sessionBaseDir)) {
       try {
@@ -880,10 +1258,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               sessionsMap.set(meta.id, {
                 id: meta.id,
                 workDir: meta.workDir,
-                sessionDir: join(this.sessionBaseDir, meta.id),
+                sessionDir: posixPath(join(this.sessionBaseDir, meta.id)),
                 title: meta.title,
                 createdAt: meta.createdAt,
                 updatedAt: meta.updatedAt,
+                lastPrompt: meta.lastPrompt,
+                metadata: { ...meta.custom } as JsonObject,
+                additionalDirs: [...meta.additionalDirs],
               });
             }
           }
@@ -900,24 +1281,61 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         title: meta.title,
         createdAt: meta.createdAt,
         updatedAt: meta.updatedAt,
+        lastPrompt: meta.lastPrompt,
+        metadata: { ...meta.custom } as JsonObject,
+        additionalDirs: [...meta.additionalDirs],
       });
     }
-    return Array.from(sessionsMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+    const all = Array.from(sessionsMap.values()).sort(
+      (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1),
+    );
+    return all.filter((session) => {
+      if (input.sessionId !== undefined && session.id !== input.sessionId) return false;
+      if (workDir !== undefined && session.workDir !== workDir) return false;
+      return true;
+    });
   }
 
-  override async listSessionsPage(_input?: ListSessionsOptions): Promise<SessionSummaryPage> {
-    const items = await this.listSessions();
+  override async listSessionsPage(
+    input: ListSessionsOptions = {},
+  ): Promise<SessionSummaryPage> {
+    // Keyset pagination over the same ordering `listSessions` serves: `before`
+    // is the last id of the previous page and the next page holds the entries
+    // strictly older than it. An unknown cursor answers an empty terminal page.
+    const items = await this.listSessions(input);
+    const limit = input.limit;
+    if (limit === undefined && input.before === undefined) {
+      return { items };
+    }
+    const startIndex =
+      input.before === undefined ? 0 : items.findIndex((item) => item.id === input.before) + 1;
+    if (startIndex <= 0 && input.before !== undefined) {
+      return { items: [] };
+    }
+    const window = limit === undefined ? items.slice(startIndex) : items.slice(startIndex, startIndex + limit);
+    const exhausted = startIndex + window.length >= items.length;
     return {
-      items,
+      items: window,
+      ...(exhausted || window.length === 0 ? {} : { nextCursor: window.at(-1)?.id }),
     };
   }
 
   override async deleteSession(input: SessionIdRpcInput): Promise<void> {
     const meta = this.liveSessions.get(input.sessionId);
+    if (meta === undefined && this.loadMeta(join(this.sessionBaseDir, input.sessionId)) === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${input.sessionId}"`, {
+        details: { sessionId: input.sessionId },
+      });
+    }
     if (meta?.handle) {
       await meta.handle.dispose().catch(() => {});
     }
     this.liveSessions.delete(input.sessionId);
+    try {
+      rmSync(join(this.sessionBaseDir, input.sessionId), { recursive: true, force: true });
+    } catch {
+      // best-effort: the live session is already gone
+    }
   }
 
   override async closeSession(input: SessionIdRpcInput): Promise<void> {
@@ -932,8 +1350,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
-    const meta = this.liveSessions.get(input.sessionId);
-    if (!meta?.handle) {
+    const meta = this.requireSession(input.sessionId);
+    if (!meta.handle) {
       // Never silently drop user input: an unknown/closed session is an error,
       // not a no-op that resolves while the TUI shows nothing.
       throw new KimiError(
@@ -944,17 +1362,27 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.busy = true;
     meta.updatedAt = Date.now();
 
-    const prompt: SessionPrompt = {
-      role: 'user',
-      content: typeof input.input === 'string' ? input.input : JSON.stringify(input.input),
-    };
+    const prompt = this.toSessionPrompt(input.input);
+    const agentId = this.interactiveAgentId;
+    meta.activeAgentId = agentId;
+    // v1/v2 updated the prompt-derived title/lastPrompt before the turn
+    // launched; the turn itself fails asynchronously (a model-less turn
+    // rejects the turn, not the submission). Subagents (like btw) leave the
+    // session-level metadata alone.
+    if (!input.skipPromptMetadata && agentId === 'main') {
+      this.applyPromptMetadata(meta, promptMetadataTextFromPrompt(input.input));
+    }
     try {
       const turnId = await meta.handle.enqueueTurn(prompt, 'newTurn');
-      const outcome = await meta.handle.turnOutcome(turnId);
-      this.recordTurnOutcome(meta, outcome);
-    } finally {
+      void meta.handle
+        .turnOutcome(turnId)
+        .then(
+          (outcome) => this.settleTurn(meta, outcome),
+          () => this.settleTurn(meta, undefined),
+        );
+    } catch (error) {
       meta.busy = false;
-      meta.updatedAt = Date.now();
+      throw error;
     }
   }
 
@@ -965,8 +1393,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async steer(input: SessionPromptRpcInput): Promise<void> {
-    const meta = this.liveSessions.get(input.sessionId);
-    if (!meta?.handle) {
+    const meta = this.requireSession(input.sessionId);
+    if (!meta.handle) {
       throw new KimiError(
         ErrorCodes.SESSION_NOT_FOUND,
         `cannot steer unknown or closed session "${input.sessionId}"`,
@@ -974,26 +1402,42 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     meta.updatedAt = Date.now();
 
-    const prompt: SessionPrompt = {
-      role: 'user',
-      content: typeof input.input === 'string' ? input.input : JSON.stringify(input.input),
-    };
+    const prompt = this.toSessionPrompt(input.input);
+    this.applyPromptMetadata(meta, promptMetadataTextFromPrompt(input.input));
     const turnId = await meta.handle.enqueueTurn(prompt, 'activeOrNewTurn');
     if (!meta.busy) {
       meta.busy = true;
-      try {
-        const outcome = await meta.handle.turnOutcome(turnId);
-        this.recordTurnOutcome(meta, outcome);
-      } finally {
-        meta.busy = false;
-        meta.updatedAt = Date.now();
-      }
+      void meta.handle
+        .turnOutcome(turnId)
+        .then(
+          (outcome) => this.settleTurn(meta, outcome),
+          () => this.settleTurn(meta, undefined),
+        );
     }
+  }
+
+  /**
+   * Settle a submitted turn asynchronously: clear the busy flag, fold the
+   * outcome into the usage counters, and persist the post-turn history. Turn
+   * failures surface through the `turn.ended` event stream, not the
+   * submission promise (v1/v2 semantics).
+   */
+  private settleTurn(meta: NativeSessionMeta, outcome: SessionTurnOutcome | undefined): void {
+    meta.busy = false;
+    meta.updatedAt = Date.now();
+    if (outcome?.result) {
+      this.recordTurnOutcome(meta, outcome);
+    }
+    void this.persistHistory(meta);
   }
 
   override async getUsage(input: SessionIdRpcInput): Promise<SessionUsage> {
     const meta = this.requireSession(input.sessionId);
     const { inputOther, output, inputCacheRead, inputCacheCreation } = meta.usage;
+    // v2's usage view is empty until the first turn records tokens.
+    if (inputOther === 0 && output === 0 && inputCacheRead === 0 && inputCacheCreation === 0) {
+      return {};
+    }
     return { total: { inputOther, output, inputCacheRead, inputCacheCreation } };
   }
 
@@ -1024,6 +1468,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.contextTokens = 0;
     meta.messageCount = 0;
     meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    await this.persistHistory(meta);
   }
 
   override async setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void> {
@@ -1031,21 +1477,61 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // The engine's plan guard reads this live through the stateRead bridge, so
     // flipping it here takes effect on the next guarded tool call — no handle
     // rebuild, and an in-flight turn sees the new mode at its next guard check.
+    const wasPlanMode = meta.planMode;
     meta.planMode = input.enabled;
+    if (input.enabled && (!wasPlanMode || meta.plan === undefined)) {
+      // Entering plan mode materializes a fresh plan document handle and
+      // prepares the plans directory; the plan file itself is only written
+      // when content is set (repeated toggles never leave plan files behind).
+      const id = `plan_${Date.now()}_${randomUUID().slice(0, 8)}`;
+      const plansDir = join(meta.sessionDir, 'agents', 'main', 'plans');
+      try {
+        mkdirSync(plansDir, { recursive: true });
+      } catch {
+        // best-effort: the document handle still reports the prepared path
+      }
+      meta.plan = {
+        id,
+        content: '',
+        path: posixPath(join(plansDir, `${id}.md`)),
+      };
+    }
     meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    this.emitStatusUpdated(meta);
   }
 
   override async getPlan(_input: SessionIdRpcInput): Promise<SessionPlan> {
-    // The native harness tracks plan *mode* (surfaced via getStatus.planMode),
-    // not a plan document; there is no PlanInfo to return until plan documents
-    // are wired, so report none rather than fabricate one.
-    return null;
+    const meta = this.requireSession(_input.sessionId);
+    if (meta.plan === undefined) return null;
+    // The plan document's content lives in the plan file; read it so a
+    // host-written plan (or a fork copy) reports its actual content.
+    let content = meta.plan.content;
+    try {
+      content = readFileSync(meta.plan.path, 'utf-8');
+    } catch {
+      // no plan file yet — keep the in-memory content
+    }
+    return { id: meta.plan.id, content, path: meta.plan.path };
   }
 
   override async clearPlan(input: SessionIdRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
     meta.planMode = false;
+    // Clearing keeps the document handle but resets its content (v1's
+    // `clearPlan` emptied the active plan file).
+    if (meta.plan !== undefined) {
+      meta.plan = { ...meta.plan, content: '' };
+      try {
+        mkdirSync(dirname(meta.plan.path), { recursive: true });
+        writeFileSync(meta.plan.path, '', 'utf8');
+      } catch {
+        // best-effort: the document handle still reports empty content
+      }
+    }
     meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    this.emitStatusUpdated(meta);
   }
 
   override async importContext(input: ImportContextRpcInput): Promise<void> {
@@ -1056,14 +1542,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot import context into session "${input.sessionId}" without a live engine handle`,
       );
     }
-    await meta.handle.extendHistory([
-      {
-        role: 'user',
-        content: `<imported_context source="${input.source}">\n${input.content}\n</imported_context>`,
-      },
+    const parts = buildImportContextParts(input.content, input.source);
+    // v1's overflow gate: the import estimate plus the current context must
+    // fit the model window (unknown window = 0 skips the check).
+    const importTokens = estimateTokensForMessages([
+      { role: 'user', content: [...parts], toolCalls: [] },
     ]);
+    assertImportFits(importTokens, meta.contextTokens, meta.maxContextTokens);
+    await meta.handle.extendHistory([this.toSessionPromptFromParts(parts)]);
+    // v1 adopted the post-import estimate as its reported token count.
+    meta.contextTokens += importTokens;
     meta.messageCount += 1;
     meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    await this.persistHistory(meta);
   }
 
   override async createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot> {
@@ -1126,6 +1618,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // The native LLM (model / thinking budget) is baked into the engine handle
     // at build time, so a model change rebuilds it, carrying the history over.
     await this.rebuildHandle(meta);
+    this.emitStatusUpdated(meta);
     return { model: meta.model };
   }
 
@@ -1133,6 +1626,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const meta = this.requireSession(input.sessionId);
     meta.thinkingEffort = input.effort;
     await this.rebuildHandle(meta);
+    this.emitStatusUpdated(meta);
   }
 
   override async setPermission(input: SetSessionPermissionRpcInput): Promise<void> {
@@ -1141,18 +1635,29 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // The permission mode lives in the policy snapshot the engine's
     // PermissionEngine was built from, so changing it rebuilds the handle.
     await this.rebuildHandle(meta);
+    this.emitStatusUpdated(meta);
   }
 
   override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    meta.towerMode = input.enabled;
-    await this.rebuildHandle(meta);
+    if (input.enabled) {
+      // The tower feature (workspace mission board) is not assembled on the
+      // native harness, so entering fails like the engine's flag gate did.
+      throw new KimiError(
+        ErrorCodes.SESSION_TOWER_MODE_INVALID,
+        'tower mode could not be enabled — the tower feature is not available on this engine',
+      );
+    }
+    meta.towerMode = false;
+    meta.updatedAt = Date.now();
+    this.emitStatusUpdated(meta);
   }
 
   override async setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
     meta.swarmMode = input.enabled;
     await this.rebuildHandle(meta);
+    this.emitStatusUpdated(meta);
   }
 
   override async undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void> {
@@ -1176,27 +1681,75 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.messageCount = Math.max(0, meta.messageCount - (history.length - cut));
     meta.contextTokens = 0;
     meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    await this.persistHistory(meta);
   }
 
   override async forkSession(input: ForkSessionInput): Promise<SessionSummary> {
     const source = this.requireSession(input.id);
+    if (source.busy) {
+      throw new KimiError(
+        ErrorCodes.SESSION_FORK_ACTIVE_TURN,
+        `cannot fork session "${input.id}" while a turn is active`,
+      );
+    }
     const history = source.handle ? await source.handle.getHistory().catch(() => []) : [];
+    if (input.turnIndex !== undefined) {
+      // v1's fork rules: an index beyond the recorded user turns rejects with
+      // request.invalid and leaves no fork behind.
+      const availableTurns = history.filter((message) => message.role === 'user').length;
+      if (input.turnIndex >= availableTurns) {
+        throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Fork turn index is out of range', {
+          details: { turnIndex: input.turnIndex, availableTurns },
+        });
+      }
+    }
     const forkId = input.forkId ?? `session_${randomUUID()}`;
     await this.createSession({ id: forkId, workDir: source.workDir });
     const forkMeta = this.requireSession(forkId);
     if (forkMeta.handle && history.length > 0) {
-      await forkMeta.handle.setHistory(history);
-      forkMeta.messageCount = history.length;
+      const retained =
+        input.turnIndex === undefined ? history : history.slice(0, retainThroughTurn(history, input.turnIndex));
+      await forkMeta.handle.setHistory(retained);
+      forkMeta.messageCount = retained.length;
     }
     if (input.title) {
       forkMeta.title = input.title;
       forkMeta.isCustomTitle = true;
+      forkMeta.titleKind = 'custom';
     }
-    if (input.metadata) {
-      forkMeta.custom = { ...forkMeta.custom, ...input.metadata };
+    const inheritedCustom = { ...source.custom };
+    delete inheritedCustom['goal'];
+    forkMeta.custom = { ...inheritedCustom, ...input.metadata };
+    delete forkMeta.custom['goal'];
+    // The fork inherits the source's runtime binding and plan document but
+    // never its goal state (v1 dropped goal state at fork).
+    forkMeta.model = source.model;
+    forkMeta.thinkingEffort = source.thinkingEffort;
+    forkMeta.permissionMode = source.permissionMode;
+    forkMeta.planMode = source.planMode;
+    if (source.plan !== undefined) {
+      const forkPlanPath = posixPath(
+        join(forkMeta.sessionDir, 'agents', 'main', 'plans', `${source.plan.id}.md`),
+      );
+      let content = source.plan.content;
+      try {
+        content = readFileSync(source.plan.path, 'utf-8');
+      } catch {
+        // no source plan file — carry the in-memory content
+      }
+      try {
+        mkdirSync(dirname(forkPlanPath), { recursive: true });
+        writeFileSync(forkPlanPath, content, 'utf8');
+      } catch {
+        // best-effort: the fork still reports the copied document
+      }
+      forkMeta.plan = { id: source.plan.id, content, path: forkPlanPath };
     }
+    forkMeta.forkedFrom = source.id;
     forkMeta.updatedAt = Date.now();
     this.persistMeta(forkMeta);
+    await this.persistHistory(forkMeta);
     return {
       id: forkId,
       workDir: forkMeta.workDir,
@@ -1204,15 +1757,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       title: forkMeta.title,
       createdAt: forkMeta.createdAt,
       updatedAt: forkMeta.updatedAt,
+      metadata: input.metadata,
     };
   }
 
   override async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {
     const meta = this.requireSession(input.id);
     const sessionDir = meta.sessionDir;
-    const zipPath = input.outputPath
-      ? resolve(input.outputPath)
-      : join(this.sessionBaseDir, `${input.id}.zip`);
+    const zipPath = posixPath(
+      input.outputPath ? resolve(input.outputPath) : join(this.sessionBaseDir, `${input.id}.zip`),
+    );
     mkdirSync(dirname(zipPath), { recursive: true });
 
     const manifest = {
@@ -1232,17 +1786,26 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     );
 
     if (existsSync(sessionDir)) {
-      try {
-        const files = readdirSync(sessionDir, { withFileTypes: true });
+      // Walk the session tree so nested artifacts (agents/, subagents/, …)
+      // export under their relative posix paths like the engine's exporter.
+      const walk = (dir: string, prefix: string): void => {
+        let files;
+        try {
+          files = readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
         for (const file of files) {
-          if (file.isFile() && file.name !== 'export-manifest.json') {
-            zipFile.addFile(join(sessionDir, file.name), file.name);
-            entries.push(file.name);
+          const relative = prefix === '' ? file.name : `${prefix}/${file.name}`;
+          if (file.isDirectory()) {
+            walk(join(dir, file.name), relative);
+          } else if (file.isFile() && relative !== 'export-manifest.json') {
+            zipFile.addFile(join(dir, file.name), relative);
+            entries.push(relative);
           }
         }
-      } catch {
-        // ignore
-      }
+      };
+      walk(sessionDir, '');
     }
 
     await new Promise<void>((res, rej) => {
@@ -1262,7 +1825,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async getConfig(_input?: GetConfigOptions): Promise<KimiConfig> {
-    return loadRuntimeConfig(this.configPath);
+    // The runtime view is a lenient load: schema-invalid entries stay in the
+    // document (validation defers to model resolution), so a broken alias
+    // degrades the harness instead of blocking startup. `reload` re-reads the
+    // file, which this loader already does on every call. Like v2, the
+    // effective view has no v1-style `raw` passthrough — the raw document
+    // lives in the file itself.
+    const { raw: _raw, ...config } = loadRuntimeConfigLenient(this.configPath);
+    void _raw;
+    return config;
   }
 
   override async setConfig(patch: KimiConfigPatch): Promise<KimiConfig> {
@@ -1466,6 +2037,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       await handle.setHistory([summaryMsg, ...lastMessages]);
       meta.messageCount = 1 + lastMessages.length;
       this.persistMeta(meta);
+      await this.persistHistory(meta);
     } finally {
       this.activeCompactionControllers.delete(meta.id);
       await handle.releaseQuiescence();
@@ -1486,23 +2058,36 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (!meta.model) {
       throw new KimiError(ErrorCodes.SESSION_INIT_FAILED, 'Main agent has no model bound');
     }
-    return this.prompt({
-      sessionId: meta.id,
-      input: [{ type: 'text', text: DEFAULT_INIT_PROMPT }],
-    });
+    if (!meta.handle) {
+      throw new KimiError(ErrorCodes.SESSION_INIT_FAILED, 'Main agent has no live engine handle');
+    }
+    // The /init run is a session-level operation pinned to the main agent: it
+    // launches its own turn (a subagent system trigger on the engine), does
+    // not touch the prompt-derived metadata, and awaits the run so a failed
+    // launch surfaces as session.init_failed.
+    const turnId = await meta.handle.enqueueTurn(
+      { role: 'user', content: DEFAULT_INIT_PROMPT },
+      'newTurn',
+    );
+    try {
+      await meta.handle.turnOutcome(turnId);
+    } catch (error) {
+      throw new KimiError(ErrorCodes.SESSION_INIT_FAILED, 'Session init failed', {
+        cause: error,
+      });
+    } finally {
+      meta.busy = false;
+      await this.persistHistory(meta);
+    }
   }
 
   override async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    let skillText = '';
+    const parts = [...input.input];
     for (const skill of input.skills) {
-      skillText += `\n[Activate skill: ${skill.name}${skill.args ? ` with args: ${skill.args}` : ''}]`;
-    }
-    const parts = Array.isArray(input.input)
-      ? [...input.input]
-      : [{ type: 'text' as const, text: typeof input.input === 'string' ? input.input : '' }];
-    if (skillText) {
-      parts.push({ type: 'text' as const, text: skillText });
+      const rendered = this.renderSkillPrompt(meta, skill.name, skill.args);
+      if (rendered === undefined) continue;
+      parts.push({ type: 'text', text: rendered });
     }
     return this.prompt({
       sessionId: meta.id,
@@ -1555,18 +2140,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async getContext(input: SessionIdRpcInput): Promise<AgentContextData> {
     const meta = this.requireSession(input.sessionId);
-    const handle = meta.handle;
-    const history = handle ? await handle.getHistory() : [];
-    return {
-      history: history.map((m, idx) => ({
-        id: `msg_${idx}`,
-        // oxlint-disable-next-line typescript/no-explicit-any
-        role: m.role as any,
-        content: [{ type: 'text', text: m.content }],
-        toolCalls: [],
-      })),
-      tokenCount: meta.contextTokens ?? 0,
-    };
+    const history = meta.handle ? await meta.handle.getHistory() : [];
+    return this.contextFromHistory(meta, history);
   }
 
   override async startBtw(input: SessionIdRpcInput): Promise<string> {
@@ -1580,36 +2155,30 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
+    const root = normalizeRequiredWorkDir('listWorkspaceSkills', workDir);
     const skills: SkillSummary[] = [];
     const seen = new Set<string>();
     const dirsToScan = [
-      join(workDir, '.agents', 'skills'),
-      join(workDir, '.kimi-code', 'skills'),
+      join(root, '.agents', 'skills'),
+      join(root, '.kimi-code', 'skills'),
       join(this.homeDir, 'skills'),
       ...this.skillDirs,
     ];
-    for (const root of dirsToScan) {
-      if (!existsSync(root)) continue;
+    for (const dir of dirsToScan) {
+      const scanRoot = posixPath(dir);
+      if (!existsSync(scanRoot)) continue;
       try {
-        const entries = readdirSync(root, { withFileTypes: true });
+        const entries = readdirSync(scanRoot, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) {
-            const skillMd = join(root, entry.name, 'SKILL.md');
+            const skillMd = posixPath(join(scanRoot, entry.name, 'SKILL.md'));
             if (existsSync(skillMd) && !seen.has(entry.name)) {
               seen.add(entry.name);
-              let description = `Skill: ${entry.name}`;
-              try {
-                const content = readFileSync(skillMd, 'utf8');
-                const match = content.match(/description:\s*(.+)/i);
-                if (match?.[1]) description = match[1].trim();
-              } catch {
-                // ignore
-              }
               skills.push({
                 name: entry.name,
-                description,
+                ...this.readSkillSummary(skillMd),
                 path: skillMd,
-                source: root.startsWith(workDir) ? 'project' : 'user',
+                source: scanRoot.startsWith(root) ? 'project' : 'user',
               });
             }
           }
@@ -1621,51 +2190,171 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     return skills;
   }
 
+  /** The frontmatter-derived skill summary fields (description, invocation gate). */
+  private readSkillSummary(skillMd: string): { description: string; disableModelInvocation?: boolean } {
+    try {
+      const content = readFileSync(skillMd, 'utf8');
+      const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
+      const meta = frontmatter?.[1] ?? '';
+      const descriptionMatch = meta.match(/description:\s*(.+)/i);
+      const disableMatch = meta.match(/disable_model_invocation:\s*(.+)/i);
+      const disableModelInvocation =
+        disableMatch?.[1] !== undefined ? disableMatch[1].trim() === 'true' : undefined;
+      return {
+        description:
+          descriptionMatch?.[1]?.trim() || `Skill: ${posixPath(skillMd).split('/').at(-2)}`,
+        ...(disableModelInvocation !== undefined ? { disableModelInvocation } : {}),
+      };
+    } catch {
+      return { description: 'Skill: ' + posixPath(skillMd).split('/').at(-2) };
+    }
+  }
+
   override async listSkills(input: SessionIdRpcInput): Promise<readonly SkillSummary[]> {
     const meta = this.requireSession(input.sessionId);
     return this.listWorkspaceSkills(meta.workDir);
   }
 
   override async activateSkill(input: ActivateSkillRpcInput): Promise<void> {
-    return this.promptWithSkills({
-      sessionId: input.sessionId,
-      input: [],
-      skills: [{ name: input.name, args: input.args }],
+    const meta = this.requireSession(input.sessionId);
+    const name = input.name.trim();
+    if (name.length === 0) {
+      throw new KimiError(ErrorCodes.SKILL_NAME_EMPTY, 'Skill name cannot be empty');
+    }
+    const args = input.args?.trim();
+    const rendered = this.renderSkillPrompt(meta, name, args);
+    if (rendered === undefined) {
+      throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${name}" was not found`);
+    }
+    const skillDir = posixPath(join(meta.workDir, '.kimi-code', 'skills', name));
+    const skillSource = existsSync(skillDir) ? 'project' : 'user';
+    // v1/v2 published the activation event before the turn launched, so the
+    // event stream orders it ahead of turn.started.
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId: 'main',
+      type: 'skill.activated',
+      activationId: `skill_${randomUUID()}`,
+      skillName: name,
+      ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
+      trigger: 'user-slash',
+      skillSource,
+    });
+    // The activation updates the prompt-derived metadata like a prompt whose
+    // text is the slash command itself.
+    this.applyPromptMetadata(meta, promptMetadataTextFromText(`/${name}${args ? ` ${args}` : ''}`));
+    return this.prompt({
+      sessionId: meta.id,
+      input: [{ type: 'text', text: rendered }],
+      skipPromptMetadata: true,
     });
   }
 
-  private loadGlobalMcpConfig(): Record<string, McpServerConfig> {
+  /**
+   * Render the skill-activation prompt the engine served for a user-slash
+   * activation: the instruction line plus the byte-identical `<skill-loaded>`
+   * wrapper over the skill body, with the ARGUMENTS trailer when args exist.
+   */
+  private renderSkillPrompt(
+    meta: NativeSessionMeta,
+    name: string,
+    args: string | undefined,
+  ): string | undefined {
+    const skillDir = join(meta.workDir, '.kimi-code', 'skills', name);
+    const skillMd = join(skillDir, 'SKILL.md');
+    if (!existsSync(skillMd)) return undefined;
+    let body: string;
+    try {
+      const raw = readFileSync(skillMd, 'utf8');
+      // Strip the frontmatter: the model sees the body, the host the metadata.
+      const withoutFrontmatter = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
+      body = withoutFrontmatter.trimEnd();
+    } catch {
+      return undefined;
+    }
+    const trimmedArgs = args?.trim();
+    const lines = [
+      `User activated the skill "${name}". Follow the loaded skill instructions.`,
+      '',
+      `<skill-loaded name="${name}" trigger="user-slash" source="project" dir="${posixPath(skillDir)}"${trimmedArgs ? ` args="${trimmedArgs}"` : ''}>`,
+      body,
+      '',
+      ...(trimmedArgs ? ['ARGUMENTS: ' + trimmedArgs] : []),
+      '</skill-loaded>',
+    ];
+    return lines.join('\n');
+  }
+
+  /** Tolerant read for the engine pipeline: a malformed file contributes no servers. */
+  private loadGlobalMcpConfig(): Record<string, StoredMcpServerConfig> {
     const mcpPath = join(this.homeDir, 'mcp.json');
     if (!existsSync(mcpPath)) return {};
     try {
       const raw = JSON.parse(readFileSync(mcpPath, 'utf8'));
       return (
         raw && typeof raw === 'object' && 'mcpServers' in raw ? raw.mcpServers : raw
-      ) as Record<string, McpServerConfig>;
+      ) as Record<string, StoredMcpServerConfig>;
     } catch {
       return {};
     }
   }
 
-  private saveGlobalMcpConfig(servers: Record<string, McpServerConfig>): void {
+  /**
+   * Strict read for the CRUD paths: a malformed mcp.json must reject the
+   * mutation instead of being silently overwritten (the file's bytes stay
+   * untouched so the user can fix it).
+   */
+  private readGlobalMcpDocument(): { mcpServers: Record<string, StoredMcpServerConfig> } & Record<
+    string,
+    unknown
+  > {
     const mcpPath = join(this.homeDir, 'mcp.json');
-    writeFileSync(mcpPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf8');
+    if (!existsSync(mcpPath)) return { mcpServers: {} };
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(mcpPath, 'utf8'));
+    } catch (error) {
+      throw new KimiError(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid mcp.json in ${this.homeDir}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    if (!isPlainObject(raw)) {
+      throw new KimiError(ErrorCodes.CONFIG_INVALID, `Invalid mcp.json in ${this.homeDir}`);
+    }
+    const servers = raw['mcpServers'];
+    return {
+      ...raw,
+      mcpServers: isPlainObject(servers) ? (servers as Record<string, StoredMcpServerConfig>) : {},
+    };
+  }
+
+  private saveGlobalMcpDocument(
+    document: { mcpServers: Record<string, StoredMcpServerConfig> } & Record<string, unknown>,
+  ): void {
+    const mcpPath = join(this.homeDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify(document, null, 2), 'utf8');
+  }
+
+  /** Flatten one stored entry into the managed view (transport derived). */
+  private toManagedServerInfo(name: string, config: StoredMcpServerConfig): McpManagedServerInfo {
+    const transport = config.transport ?? (config.command !== undefined ? 'stdio' : 'http');
+    return {
+      ...config,
+      transport,
+      name,
+      source: 'global' as const,
+      origin: posixPath(join(this.homeDir, 'mcp.json')),
+      mutable: true,
+    } as McpManagedServerInfo;
   }
 
   override async listGlobalMcpServers(
     _options: { readonly cwd?: string } = {},
   ): Promise<readonly McpManagedServerInfo[]> {
     const servers = this.loadGlobalMcpConfig();
-    return Object.entries(servers).map(
-      ([name, config]) =>
-        ({
-          ...config,
-          name,
-          source: 'global' as const,
-          origin: join(this.homeDir, 'mcp.json'),
-          mutable: true,
-        }) as McpManagedServerInfo,
-    );
+    return Object.entries(servers).map(([name, config]) => this.toManagedServerInfo(name, config));
   }
 
   override async getGlobalMcpServer(
@@ -1677,23 +2366,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (!config) {
       throw new KimiError(ErrorCodes.MCP_SERVER_NOT_FOUND, `MCP server "${name}" not found`);
     }
-    return {
-      ...config,
-      name,
-      source: 'global' as const,
-      origin: join(this.homeDir, 'mcp.json'),
-      mutable: true,
-    } as McpManagedServerInfo;
+    return this.toManagedServerInfo(name, config);
   }
 
   override async addGlobalMcpServer(
     server: McpServerConfig,
     options: { readonly cwd?: string } = {},
   ): Promise<readonly McpManagedServerInfo[]> {
-    const servers = this.loadGlobalMcpConfig();
+    const document = this.readGlobalMcpDocument();
     const name = server.name ?? `server_${randomUUID()}`;
-    servers[name] = server;
-    this.saveGlobalMcpConfig(servers);
+    // The name is the entry key; the stored config never repeats it.
+    const { name: _stripped, ...stored } = server as McpServerConfig & { name?: string };
+    void _stripped;
+    document.mcpServers[name] = stored;
+    this.saveGlobalMcpDocument(document);
     return this.listGlobalMcpServers(options);
   }
 
@@ -1708,16 +2394,98 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     name: string,
     options: { readonly cwd?: string } = {},
   ): Promise<readonly McpManagedServerInfo[]> {
-    const servers = this.loadGlobalMcpConfig();
-    delete servers[name];
-    this.saveGlobalMcpConfig(servers);
+    const document = this.readGlobalMcpDocument();
+    delete document.mcpServers[name];
+    this.saveGlobalMcpDocument(document);
     return this.listGlobalMcpServers(options);
   }
 
   override async listGlobalMcpServerAuthStatuses(
-    _options: { readonly cwd?: string; readonly verify?: boolean } = {},
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
   ): Promise<readonly GlobalMcpServerAuthStatus[]> {
-    return [];
+    const servers = this.loadGlobalMcpConfig();
+    const statuses: GlobalMcpServerAuthStatus[] = [];
+    for (const [name, config] of Object.entries(servers)) {
+      statuses.push({
+        name,
+        authStatus: await this.resolveMcpServerAuthStatus(name, config, options.verify),
+      });
+    }
+    return statuses;
+  }
+
+  /**
+   * The engine's auth-posture classification for one user-global server:
+   * stdio/bearer/header entries are statically classified, OAuth-candidate
+   * entries consult the stored token state and (when verifying) probe the
+   * endpoint with a real connection.
+   */
+  private async resolveMcpServerAuthStatus(
+    name: string,
+    server: StoredMcpServerConfig,
+    verify: boolean | undefined,
+  ): Promise<GlobalMcpServerAuthStatus['authStatus']> {
+    if (server.enabled === false) return 'not-applicable';
+    if (server.transport === 'stdio' || (server.transport === undefined && server.command)) {
+      return 'not-applicable';
+    }
+    if (server.bearerTokenEnvVar !== undefined) return 'bearer-token';
+    if (server.headers !== undefined && server.auth !== 'oauth') return 'not-applicable';
+    if (server.transport !== 'http' && server.auth !== 'oauth') return 'not-applicable';
+    const tokens = this.readMcpOAuthTokens(name, server.url ?? '');
+    const offline = (): GlobalMcpServerAuthStatus['authStatus'] => {
+      if (tokens.hasTokens) {
+        return !tokens.expired || tokens.hasRefreshToken
+          ? 'oauth-authorized'
+          : 'oauth-expired';
+      }
+      return server.auth === 'oauth' ? 'oauth-required' : 'not-applicable';
+    };
+    if (verify !== true) {
+      if (verify === false || tokens.hasTokens || server.auth === 'oauth') return offline();
+    }
+    const probe = await this.probeRemoteMcpServer(server, tokens.accessToken ?? undefined);
+    if (probe.status === 'connected') {
+      return tokens.hasTokens ? 'oauth-authorized' : 'not-applicable';
+    }
+    if (probe.status === 'needs-auth') {
+      return tokens.hasTokens ? 'oauth-expired' : 'oauth-required';
+    }
+    return offline();
+  }
+
+  /** The stored MCP OAuth token state for one server (`<home>/credentials/mcp`). */
+  private readMcpOAuthTokens(
+    name: string,
+    url: string,
+  ): {
+    hasTokens: boolean;
+    expired: boolean;
+    hasRefreshToken: boolean;
+    accessToken: string | undefined;
+  } {
+    try {
+      const key = mcpOAuthStoreKey(name, url);
+      const raw = readFileSync(
+        join(this.homeDir, 'credentials', 'mcp', `${key}-tokens.json`),
+        'utf8',
+      );
+      const parsed = JSON.parse(raw) as {
+        access_token?: string;
+        refresh_token?: string;
+        expires_at?: string;
+      };
+      const hasTokens = typeof parsed.access_token === 'string' && parsed.access_token.length > 0;
+      const expiresAt = parsed.expires_at !== undefined ? Date.parse(parsed.expires_at) : NaN;
+      return {
+        hasTokens,
+        expired: Number.isFinite(expiresAt) && expiresAt <= Date.now(),
+        hasRefreshToken: typeof parsed.refresh_token === 'string' && parsed.refresh_token.length > 0,
+        accessToken: hasTokens ? parsed.access_token : undefined,
+      };
+    } catch {
+      return { hasTokens: false, expired: false, hasRefreshToken: false, accessToken: undefined };
+    }
   }
 
   override async inspectAppMcpServers(
@@ -1756,23 +2524,123 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async reconnectMcpServer(_input: ReconnectMcpServerRpcInput): Promise<void> {}
 
   override async testGlobalMcpServer(
-    _name: string,
+    name: string,
     _options: { readonly cwd?: string } = {},
   ): Promise<McpTestResult> {
-    return { success: true, output: 'MCP server ok' };
+    const servers = this.loadGlobalMcpConfig();
+    const config = servers[name];
+    if (!config) {
+      throw new KimiError(ErrorCodes.MCP_SERVER_NOT_FOUND, `MCP server "${name}" not found`);
+    }
+    return this.testGlobalMcpServerConfig(config as McpServerConfig);
   }
 
   override async testGlobalMcpServerConfig(
-    _server: McpServerConfig,
+    server: McpServerConfig,
     _options: { readonly cwd?: string } = {},
   ): Promise<McpTestResult> {
-    return { success: true, output: 'MCP server ok' };
+    const stored = server as StoredMcpServerConfig;
+    if (stored.transport === 'http' || stored.transport === 'sse') {
+      return this.probeRemoteMcpServer(stored);
+    }
+    return this.probeStdioMcpServer(stored);
+  }
+
+  /** Connect to a stdio MCP server and list its tools (the standalone check). */
+  private async probeStdioMcpServer(server: StoredMcpServerConfig): Promise<McpTestResult> {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+    const transport = new StdioClientTransport({
+      command: server.command ?? '',
+      ...(server.args ? { args: server.args } : {}),
+      ...(server.env ? { env: server.env } : {}),
+    });
+    const client = new Client({ name: 'kimi-code-mcp-check', version: '0.0.0' });
+    try {
+      await client.connect(transport);
+      const tools = await client.listTools();
+      const lines = [
+        'Connected to MCP server.',
+        `Available tools: ${String(tools.tools.length)}`,
+        ...tools.tools.map((tool) => `- ${tool.name}${tool.description ? `: ${tool.description}` : ''}`),
+      ];
+      return { success: true, output: lines.join('\n') };
+    } catch (error) {
+      return {
+        success: false,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Probe a remote MCP endpoint far enough to classify its auth posture: a
+   * 200 initialize answer connects, a 401 challenge means needs-auth, and
+   * anything else is an unreachable server.
+   */
+  private async probeRemoteMcpServer(
+    server: StoredMcpServerConfig,
+    bearerToken?: string,
+  ): Promise<McpTestResult & { status: 'connected' | 'needs-auth' | 'unreachable' }> {
+    const url = server.url ?? '';
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          ...(bearerToken !== undefined ? { authorization: `Bearer ${bearerToken}` } : {}),
+          ...server.headers,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            clientInfo: { name: 'kimi-code-mcp-check', version: '0.0.0' },
+          },
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.status === 401 || response.status === 403) {
+        return { success: false, output: 'authorization required', status: 'needs-auth' };
+      }
+      if (!response.ok) {
+        return {
+          success: false,
+          output: `MCP server responded with HTTP ${String(response.status)}`,
+          status: 'unreachable',
+        };
+      }
+      return { success: true, output: 'Connected to MCP server.', status: 'connected' };
+    } catch (error) {
+      return {
+        success: false,
+        output: error instanceof Error ? error.message : String(error),
+        status: 'unreachable',
+      };
+    }
   }
 
   override async beginGlobalMcpServerAuth(
-    _name: string,
+    name: string,
     _options: { readonly cwd?: string } = {},
   ): Promise<BeginGlobalMcpServerAuthResult> {
+    const servers = this.loadGlobalMcpConfig();
+    const config = servers[name];
+    if (
+      config &&
+      (config.transport === 'stdio' || (config.transport === undefined && config.command))
+    ) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `MCP server "${name}" uses stdio transport and does not support OAuth authorization`,
+      );
+    }
     return { status: 'already-authorized' };
   }
 
@@ -1905,7 +2773,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {
-    return [];
+    return resolveExperimentalFeatures(loadRuntimeConfigLenient(this.configPath));
   }
 
   override async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
@@ -1949,7 +2817,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   private requireSession(sessionId: string): NativeSessionMeta {
     const meta = this.liveSessions.get(sessionId);
     if (meta === undefined) {
-      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${sessionId}"`);
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${sessionId}"`, {
+        details: { sessionId },
+      });
     }
     return meta;
   }
@@ -1994,23 +2864,37 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     meta.handle = handle;
     meta.updatedAt = Date.now();
+    await this.persistHistory(meta);
   }
 
   private persistMeta(meta: NativeSessionMeta): void {
+    const persisted: PersistedSessionMeta = {
+      id: meta.id,
+      workDir: meta.workDir,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+      title: meta.title,
+      isCustomTitle: meta.isCustomTitle,
+      ...(meta.lastPrompt !== undefined ? { lastPrompt: meta.lastPrompt } : {}),
+      custom: meta.custom,
+      additionalDirs: meta.additionalDirs,
+      model: meta.model,
+      thinkingEffort: meta.thinkingEffort,
+      permissionMode: meta.permissionMode,
+      planMode: meta.planMode,
+      plan: meta.plan,
+      goal: meta.goal,
+      forkedFrom: meta.forkedFrom,
+      contextTokens: meta.contextTokens,
+    };
+    this.writePersistedMeta(meta.sessionDir, persisted);
+  }
+
+  private writePersistedMeta(sessionDir: string, persisted: PersistedSessionMeta): void {
     try {
-      mkdirSync(meta.sessionDir, { recursive: true });
-      const persisted: PersistedSessionMeta = {
-        id: meta.id,
-        workDir: meta.workDir,
-        createdAt: meta.createdAt,
-        updatedAt: meta.updatedAt,
-        title: meta.title,
-        isCustomTitle: meta.isCustomTitle,
-        custom: meta.custom,
-        additionalDirs: meta.additionalDirs,
-      };
+      mkdirSync(sessionDir, { recursive: true });
       writeFileSync(
-        join(meta.sessionDir, 'session-meta.json'),
+        join(sessionDir, 'session-meta.json'),
         JSON.stringify(persisted, null, 2),
         'utf8',
       );
@@ -2030,10 +2914,170 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
   }
 
-  async ensureConfigFile(): Promise<void> {
-    if (!existsSync(this.configPath)) {
-      writeFileSync(this.configPath, '', 'utf8');
+  /** Map a prompt submission onto the engine's serialized LLM message. */
+  private toSessionPrompt(input: SessionPromptRpcInput['input']): SessionPrompt {
+    if (typeof input === 'string') {
+      return { role: 'user', content: input };
     }
+    return this.toSessionPromptFromParts(input);
+  }
+
+  private toSessionPromptFromParts(parts: readonly PromptPart[]): SessionPrompt {
+    const text = parts
+      .filter((part): part is Extract<PromptPart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n');
+    const blocks = parts.map((part) => {
+      if (part.type === 'text') {
+        return { type: 'text', text: part.text };
+      }
+      if (part.type === 'image_url') {
+        return { type: 'image_url', url: part.imageUrl.url };
+      }
+      if (part.type === 'video_url') {
+        return { type: 'video_url', url: part.videoUrl.url };
+      }
+      return part;
+    });
+    return {
+      role: 'user',
+      content: text,
+      blocks,
+      // Multi-part messages carry their parts structurally so the context
+      // projection (and the model) see them as separate blocks.
+      ...(parts.length > 1 ? { blocksJson: JSON.stringify(parts) } : {}),
+    } as SessionPrompt;
+  }
+
+  /**
+   * Apply the prompt-derived metadata update (v2 `applyPromptMetadataUpdate`):
+   * lastPrompt always, and the title only while it is still the untitled
+   * default and not host-customized. Emits `session.meta.updated`.
+   */
+  private applyPromptMetadata(meta: NativeSessionMeta, text: string | undefined): void {
+    if (text === undefined) return;
+    const patch: { lastPrompt: string; title?: string } = { lastPrompt: text };
+    if (!meta.isCustomTitle && isUntitledTitle(meta.title)) {
+      patch.title = text.slice(0, MAX_TITLE_LENGTH);
+      meta.title = patch.title;
+      meta.titleKind = 'replaceable';
+    }
+    meta.lastPrompt = text;
+    meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId: 'main',
+      type: 'session.meta.updated',
+      title: patch.title,
+      patch: {
+        title: patch.title,
+        ...(patch.title !== undefined ? { isCustomTitle: false } : {}),
+        lastPrompt: text,
+      },
+    });
+  }
+
+  /** The `agent.status.updated` snapshot emitted after a runtime-state change. */
+  private emitStatusUpdated(meta: NativeSessionMeta): void {
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId: 'main',
+      type: 'agent.status.updated',
+      model: meta.model,
+      thinkingEffort: meta.thinkingEffort,
+      permission: meta.permissionMode,
+      planMode: meta.planMode,
+      swarmMode: meta.swarmMode,
+      towerMode: meta.towerMode,
+      contextTokens: meta.contextTokens,
+      maxContextTokens: meta.maxContextTokens,
+      contextUsage:
+        meta.maxContextTokens > 0 ? meta.contextTokens / meta.maxContextTokens : 0,
+    });
+  }
+
+  /** Map the engine history onto the SDK context shape (origins included). */
+  private contextFromHistory(
+    meta: NativeSessionMeta,
+    history: readonly SessionPrompt[],
+  ): AgentContextData {
+    return {
+      history: history.map((message, index) => ({
+        id: `msg_${index}`,
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: this.contextMessageContent(message),
+        toolCalls: [],
+        origin: { kind: 'user' },
+      })),
+      tokenCount: meta.contextTokens ?? 0,
+    };
+  }
+
+  private contextMessageContent(
+    message: SessionPrompt,
+  ): ReadonlyArray<{ type: 'text'; text: string }> {
+    const directBlocks = (message as { blocks?: unknown }).blocks;
+    if (Array.isArray(directBlocks) && directBlocks.length > 0) {
+      return directBlocks
+        .filter(
+          (block): block is { type: 'text'; text: string } =>
+            isPlainObject(block) && block['type'] === 'text' && typeof block['text'] === 'string',
+        )
+        .map((block) => ({ type: 'text' as const, text: block.text }));
+    }
+    if (message.blocksJson !== undefined) {
+      try {
+        const blocks = JSON.parse(message.blocksJson) as unknown;
+        if (Array.isArray(blocks) && blocks.length > 0) {
+          return blocks
+            .filter(
+              (block): block is { type: 'text'; text: string } =>
+                isPlainObject(block) && block['type'] === 'text' && typeof block['text'] === 'string',
+            )
+            .map((block) => ({ type: 'text' as const, text: block.text }));
+        }
+      } catch {
+        // fall through to the plain content
+      }
+    }
+    return [{ type: 'text', text: message.content }];
+  }
+
+  /**
+   * Persist the live engine history to `<sessionDir>/history.jsonl` so a
+   * resume can replay it into a fresh handle (the transcript persistence the
+   * native harness owns).
+   */
+  private async persistHistory(meta: NativeSessionMeta): Promise<void> {
+    if (!meta.handle) return;
+    try {
+      const history = await meta.handle.getHistory();
+      mkdirSync(meta.sessionDir, { recursive: true });
+      writeFileSync(
+        join(meta.sessionDir, 'history.jsonl'),
+        history.map((message) => JSON.stringify(message)).join('\n') + (history.length > 0 ? '\n' : ''),
+        'utf8',
+      );
+    } catch {
+      // best-effort durability: a history write failure must not break the turn
+    }
+  }
+
+  private readPersistedHistory(meta: NativeSessionMeta): SessionPrompt[] {
+    try {
+      const raw = readFileSync(join(meta.sessionDir, 'history.jsonl'), 'utf-8');
+      return raw
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as SessionPrompt);
+    } catch {
+      return [];
+    }
+  }
+
+  async ensureConfigFile(): Promise<void> {
+    await ensureConfigFileScaffold(this.configPath);
   }
 
   async close(): Promise<void> {
@@ -2058,7 +3102,14 @@ export function createKimiHarnessNative(options: SDKRpcClientNativeOptions): Kim
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    imageLimits: options.imageLimits ?? new ImageLimits(process.env),
+    // The in-process core resolves its owner-scoped [image] limits from its
+    // own config file (env var > config > built-in default).
+    imageLimits:
+      options.imageLimits ??
+      new ImageLimits(process.env, {
+        maxEdgePx: loadRuntimeConfigLenient(rpc.configPath).image?.maxEdgePx,
+        readByteBudget: loadRuntimeConfigLenient(rpc.configPath).image?.readByteBudget,
+      }),
     sessionStartedProperties: options.sessionStartedProperties,
   });
 }

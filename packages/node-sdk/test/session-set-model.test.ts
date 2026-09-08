@@ -4,7 +4,7 @@ import { FileTokenStorage, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type KimiError, type KimiHarness } from '#/index';
-import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -38,20 +38,19 @@ describe('Session.setModel', () => {
         model: 'initial-model',
       });
 
+      const statusUpdated = waitForSDKEvent(
+        session,
+        (event) => event.type === 'agent.status.updated',
+      );
       await session.setModel('next-model');
 
       await expect(session.getStatus()).resolves.toMatchObject({ model: 'next-model' });
-      const configEvent = await waitForAgentWireEvent(
-        homeDir,
-        session.id,
-        'config.update',
-        (event) => event['modelAlias'] === 'next-model',
-      );
-      expect(configEvent).toMatchObject({
-        type: 'config.update',
-        modelAlias: 'next-model',
+      // v2 recorded the rebinding as a `config.update` wire record; the native
+      // harness publishes the runtime status event instead.
+      await expect(statusUpdated).resolves.toMatchObject({
+        type: 'agent.status.updated',
+        model: 'next-model',
       });
-      expect(configEvent).not.toHaveProperty('provider');
     } finally {
       await harness.close();
     }
@@ -93,22 +92,21 @@ describe('Session.setModel', () => {
         model: 'kimi-code/initial',
       });
 
+      const statusUpdated = waitForSDKEvent(
+        session,
+        (event) => event.type === 'agent.status.updated',
+      );
       await session.setModel('kimi-code/kimi-for-coding');
 
       await expect(session.getStatus()).resolves.toMatchObject({
         model: 'kimi-code/kimi-for-coding',
       });
-      const configEvent = await waitForAgentWireEvent(
-        homeDir,
-        session.id,
-        'config.update',
-        (event) => event['modelAlias'] === 'kimi-code/kimi-for-coding',
-      );
-      expect(configEvent).toMatchObject({
-        type: 'config.update',
-        modelAlias: 'kimi-code/kimi-for-coding',
+      // v2 recorded the rebinding as a `config.update` wire record; the native
+      // harness publishes the runtime status event instead.
+      await expect(statusUpdated).resolves.toMatchObject({
+        type: 'agent.status.updated',
+        model: 'kimi-code/kimi-for-coding',
       });
-      expect(configEvent).not.toHaveProperty('provider');
     } finally {
       await harness.close();
     }

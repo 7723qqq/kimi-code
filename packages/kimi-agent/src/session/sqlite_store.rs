@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::native::event_store::{
+    EventStore, EventStoreError, Message, RawWireEvent, fold_wire_events,
+};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::LLMMessage;
 
@@ -53,6 +56,18 @@ pub fn encode_workdir_key(work_dir: &str) -> String {
     let hash12 = &hash[..12];
 
     format!("wd_{final_slug}_{hash12}")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WireEventRecord {
+    pub seq: u64,
+    pub id: String,
+    pub session_id: String,
+    pub event_type: String,
+    pub payload: Value,
+    pub is_checkpoint: bool,
+    pub is_compaction: bool,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -743,40 +758,67 @@ impl SqliteSessionStore {
     /// messages no longer exist as rows, so deleting the summary turn would
     /// corrupt the projection — the same guarantee the TS event ledger
     /// enforces as `UndoCompactionBoundary` (event_store/mod.rs:43-47).
-    pub fn undo_turns(&self, session_id: &str, count: usize) -> Result<usize, String> {
-        let conn = self.conn.lock().unwrap();
+    /// Turns selected by an undo of `count` turns, newest first, as
+    /// `(turn_id, turn_number)`. Refuses to cross the compaction boundary —
+    /// both [`Self::undo_turns`] and [`Self::plan_undo_turns`] go through this
+    /// so the refusal can never drift between planning and deleting.
+    fn select_undo_turns(
+        conn: &rusqlite::Connection,
+        session_id: &str,
+        count: usize,
+    ) -> Result<Vec<(String, i64)>, String> {
         let mut stmt = conn
             .prepare(
-                "SELECT turn_id FROM turns WHERE session_id = ?1 ORDER BY turn_number DESC LIMIT ?2",
+                "SELECT turn_id, turn_number FROM turns WHERE session_id = ?1
+                 ORDER BY turn_number DESC LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
-        let turn_ids: Vec<String> = stmt
-            .query_map(params![session_id, count as i64], |r| r.get(0))
+        let selected: Vec<(String, i64)> = stmt
+            .query_map(params![session_id, count as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
             .collect();
 
-        if turn_ids.iter().any(|tid| tid == COMPACT_TURN_ID) {
+        if selected.iter().any(|(tid, _)| tid == COMPACT_TURN_ID) {
             return Err(format!(
                 "undo refused: crossing the compaction boundary turn '{COMPACT_TURN_ID}' would corrupt the session projection"
             ));
         }
+        Ok(selected)
+    }
 
-        for tid in &turn_ids {
-            let _ = conn.execute(
-                "DELETE FROM session_file_history WHERE session_id = ?1 AND turn_id IN (
-                    SELECT turn_number FROM turns WHERE session_id = ?1 AND turn_id = ?2
-                )",
-                params![session_id, tid],
-            );
+    /// Plan an undo without deleting anything: the `turn_number`s that would
+    /// be reverted, newest first. Errors exactly like [`Self::undo_turns`]
+    /// when the selection would cross the compaction boundary, so callers can
+    /// refuse *before* touching workspace files.
+    pub fn plan_undo_turns(&self, session_id: &str, count: usize) -> Result<Vec<i64>, String> {
+        let conn = self.conn.lock().unwrap();
+        Ok(Self::select_undo_turns(&conn, session_id, count)?
+            .into_iter()
+            .map(|(_, turn_number)| turn_number)
+            .collect())
+    }
+
+    pub fn undo_turns(&self, session_id: &str, count: usize) -> Result<usize, String> {
+        let conn = self.conn.lock().unwrap();
+        let selected = Self::select_undo_turns(&conn, session_id, count)?;
+
+        for (turn_id, turn_number) in &selected {
+            conn.execute(
+                "DELETE FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2",
+                params![session_id, turn_number],
+            )
+            .map_err(|e| e.to_string())?;
             conn.execute(
                 "DELETE FROM messages WHERE session_id = ?1 AND turn_id = ?2",
-                params![session_id, tid],
+                params![session_id, turn_id],
             )
             .map_err(|e| e.to_string())?;
             conn.execute(
                 "DELETE FROM turns WHERE turn_id = ?1 AND session_id = ?2",
-                params![tid, session_id],
+                params![turn_id, session_id],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -788,7 +830,7 @@ impl SqliteSessionStore {
         )
         .map_err(|e| e.to_string())?;
 
-        Ok(turn_ids.len())
+        Ok(selected.len())
     }
 
     /// Revert file modifications recorded in a specific turn of a session,
@@ -1027,6 +1069,58 @@ impl SqliteSessionStore {
         if let Some(row) = rows.next()? {
             let s: String = row.get(0)?;
             let val: Value = serde_json::from_str(&s).unwrap_or(Value::Null);
+            Ok(Some(val))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Apply an RFC 6902 JSON patch to a state entry.
+    /// Returns the updated value and the inverse patch for undo.
+    pub fn patch_state(
+        &self,
+        domain: &str,
+        key: &str,
+        patch: &crate::session::patch::JsonPatchSet,
+    ) -> Result<(Value, crate::session::patch::JsonPatchSet), String> {
+        let mut val = self
+            .get_state(domain, key)
+            .map_err(|e| e.to_string())?
+            .unwrap_or(Value::Null);
+        let inverse = crate::session::patch::apply_patch(&mut val, patch)
+            .map_err(|e| format!("failed to apply patch to {domain}/{key}: {e}"))?;
+        self.put_state(domain, key, &val).map_err(|e| e.to_string())?;
+        Ok((val, inverse))
+    }
+
+    /// Compute RFC 6902 JSON diff between current state and a new value.
+    pub fn diff_state(
+        &self,
+        domain: &str,
+        key: &str,
+        new_value: &Value,
+    ) -> Result<crate::session::patch::JsonPatchSet, String> {
+        let current = self
+            .get_state(domain, key)
+            .map_err(|e| e.to_string())?
+            .unwrap_or(Value::Null);
+        Ok(crate::session::patch::diff_values(&current, new_value))
+    }
+
+    /// Get the latest checkpoint for a session by name.
+    pub fn get_latest_checkpoint(
+        &self,
+        session_id: &str,
+        name: &str,
+    ) -> Result<Option<Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT data FROM checkpoints WHERE session_id = ?1 AND name = ?2 ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id, name])?;
+        if let Some(row) = rows.next()? {
+            let data_str: String = row.get(0)?;
+            let val: Value = serde_json::from_str(&data_str).unwrap_or(Value::Null);
             Ok(Some(val))
         } else {
             Ok(None)
@@ -1321,6 +1415,171 @@ impl SqliteSessionStore {
         } else {
             Ok(None)
         }
+    }
+
+    /// Append a raw wire event to the `wire_events` table and return its auto-increment sequence number.
+    pub fn append_wire_event(&self, event: &RawWireEvent) -> Result<u64, EventStoreError> {
+        let conn = self.conn.lock().unwrap();
+        let payload_str = serde_json::to_string(&event.payload)?;
+        conn.execute(
+            "INSERT INTO wire_events (id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                event.id,
+                event.session_id,
+                event.event_type,
+                payload_str,
+                event.is_checkpoint,
+                event.is_compaction,
+                event.created_at
+            ],
+        )?;
+        Ok(conn.last_insert_rowid() as u64)
+    }
+
+    /// Query recorded wire events for a session strictly after `since_seq` up to `limit`.
+    pub fn get_wire_events(
+        &self,
+        session_id: &str,
+        since_seq: u64,
+        limit: usize,
+    ) -> Result<Vec<WireEventRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT seq, id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at
+             FROM wire_events
+             WHERE session_id = ?1 AND seq > ?2
+             ORDER BY seq ASC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![session_id, since_seq, limit as i64], |row| {
+            let payload_str: String = row.get(4)?;
+            let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
+            Ok(WireEventRecord {
+                seq: row.get(0)?,
+                id: row.get(1)?,
+                session_id: row.get(2)?,
+                event_type: row.get(3)?,
+                payload,
+                is_checkpoint: row.get(5)?,
+                is_compaction: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Count total wire events recorded for a session.
+    pub fn count_wire_events(&self, session_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM wire_events WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+    }
+
+    /// Query the maximum sequence number recorded for a session, or 0 if none exist.
+    pub fn latest_wire_event_seq(&self, session_id: &str) -> Result<u64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let max_seq: Option<u64> = conn
+            .query_row(
+                "SELECT MAX(seq) FROM wire_events WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(max_seq.unwrap_or(0))
+    }
+
+    /// Fold stored wire events for `session_id` into a sanitized context message projection.
+    pub fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 ORDER BY seq ASC",
+        )?;
+        let mut raw_rows = Vec::new();
+        let mut rows = stmt.query(params![session_id])?;
+        while let Some(row) = rows.next()? {
+            let event_type: String = row.get(0)?;
+            let payload_str: String = row.get(1)?;
+            let is_compaction: bool = row.get(2)?;
+            let payload: Value = serde_json::from_str(&payload_str)?;
+            raw_rows.push((event_type, payload, is_compaction));
+        }
+        drop(rows);
+        drop(stmt);
+        drop(conn);
+
+        fold_wire_events(raw_rows.iter().map(|(t, p, c)| (t.as_str(), p, *c)))
+    }
+
+    /// Compress conversation context by inserting a compaction checkpoint boundary event.
+    pub fn checkpoint_compress(&self, session_id: &str, summary: &str) -> Result<(), EventStoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let event = RawWireEvent {
+            id: ulid::Ulid::new().to_string(),
+            session_id: session_id.to_string(),
+            event_type: "context.compaction".to_string(),
+            payload: serde_json::json!({ "summary": summary }),
+            is_checkpoint: true,
+            is_compaction: true,
+            created_at: now,
+        };
+        self.append_wire_event(&event)?;
+        Ok(())
+    }
+
+    /// Undo events backward to the most recent checkpoint. Refuses across compaction boundaries.
+    pub fn undo_to_last_checkpoint(&self, session_id: &str) -> Result<usize, EventStoreError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        let last_checkpoint: Option<(i64, bool)> = tx
+            .query_row(
+                "SELECT seq, is_compaction FROM wire_events 
+                 WHERE session_id = ?1 AND is_checkpoint = 1 
+                 ORDER BY seq DESC LIMIT 1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let (target_seq, is_compaction) =
+            last_checkpoint.ok_or(EventStoreError::CheckpointNotFound)?;
+
+        if is_compaction {
+            return Err(EventStoreError::UndoCompactionBoundary);
+        }
+
+        let deleted_count = tx.execute(
+            "DELETE FROM wire_events WHERE session_id = ?1 AND seq >= ?2",
+            params![session_id, target_seq],
+        )?;
+
+        tx.commit()?;
+        Ok(deleted_count)
+    }
+}
+
+impl EventStore for SqliteSessionStore {
+    fn append_event(&self, event: &RawWireEvent) -> Result<u64, EventStoreError> {
+        self.append_wire_event(event)
+    }
+
+    fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
+        SqliteSessionStore::fold_projection(self, session_id)
+    }
+
+    fn checkpoint_compress(&self, session_id: &str, summary: &str) -> Result<(), EventStoreError> {
+        SqliteSessionStore::checkpoint_compress(self, session_id, summary)
+    }
+
+    fn undo_to_last_checkpoint(&self, session_id: &str) -> Result<usize, EventStoreError> {
+        SqliteSessionStore::undo_to_last_checkpoint(self, session_id)
     }
 }
 
@@ -2078,6 +2337,29 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "original code");
     }
 
+    /// `plan_undo_turns` reports the newest turn numbers first and refuses a
+    /// selection that would cross the compaction boundary — before anything
+    /// is deleted, so callers can bail out ahead of reverting files.
+    #[test]
+    fn test_plan_undo_turns_newest_first_and_boundary_refusal() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-plan", None).unwrap();
+        let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
+        store.save_turn("sess-plan", "t1", 1, &msgs, None).unwrap();
+        store.save_turn("sess-plan", "t2", 2, &msgs, None).unwrap();
+
+        assert_eq!(store.plan_undo_turns("sess-plan", 1).unwrap(), vec![2]);
+        assert_eq!(store.plan_undo_turns("sess-plan", 5).unwrap(), vec![2, 1]);
+
+        store
+            .save_turn("sess-plan", COMPACT_TURN_ID, 3, &msgs, None)
+            .unwrap();
+        let err = store.plan_undo_turns("sess-plan", 1).unwrap_err();
+        assert!(err.contains("undo refused"), "unexpected error: {err}");
+        // The refusal left the history intact.
+        assert_eq!(store.load_session_history("sess-plan").unwrap().len(), 3);
+    }
+
     #[test]
     fn test_next_turn_number() {
         let store = SqliteSessionStore::in_memory().unwrap();
@@ -2332,5 +2614,137 @@ mod tests {
         let history_empty = store.load_session_history("sess-undo").unwrap();
         assert_eq!(history_empty.len(), 0);
         assert_eq!(store.next_turn_number("sess-undo").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_sqlite_patch_and_diff_state() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .put_state(
+                "metadata",
+                "sess-patch-1",
+                &json!({ "theme": "dark", "fontSize": 14 }),
+            )
+            .unwrap();
+
+        let diff = store
+            .diff_state(
+                "metadata",
+                "sess-patch-1",
+                &json!({ "theme": "light", "fontSize": 16 }),
+            )
+            .unwrap();
+        assert!(!diff.is_empty());
+
+        let (patched, inverse) = store.patch_state("metadata", "sess-patch-1", &diff).unwrap();
+        assert_eq!(patched["theme"], "light");
+        assert_eq!(patched["fontSize"], 16);
+
+        // Revert using inverse patch
+        let (reverted, _) = store.patch_state("metadata", "sess-patch-1", &inverse).unwrap();
+        assert_eq!(reverted["theme"], "dark");
+        assert_eq!(reverted["fontSize"], 14);
+    }
+
+    #[test]
+    fn test_sqlite_event_store_append_query_fold_undo() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-evt-test", Some("Event Test")).unwrap();
+
+        // 1. Append user message event
+        let seq1 = store.append_wire_event(&RawWireEvent {
+            id: "evt-1".into(),
+            session_id: "sess-evt-test".into(),
+            event_type: "message.user".into(),
+            payload: json!({ "content": "Calculate 2+2" }),
+            is_checkpoint: false,
+            is_compaction: false,
+            created_at: 1000,
+        }).unwrap();
+        assert_eq!(seq1, 1);
+
+        // 2. Append assistant tool call event
+        let seq2 = store.append_wire_event(&RawWireEvent {
+            id: "evt-2".into(),
+            session_id: "sess-evt-test".into(),
+            event_type: "message.assistant".into(),
+            payload: json!({
+                "content": "Let me calculate that.",
+                "tool_calls": [{
+                    "id": "call_calc_1",
+                    "type": "function",
+                    "function": { "name": "calc", "arguments": "{\"expr\": \"2+2\"}" }
+                }]
+            }),
+            is_checkpoint: true,
+            is_compaction: false,
+            created_at: 2000,
+        }).unwrap();
+        assert_eq!(seq2, 2);
+
+        // 3. Append tool result event
+        let seq3 = store.append_wire_event(&RawWireEvent {
+            id: "evt-3".into(),
+            session_id: "sess-evt-test".into(),
+            event_type: "tool.result".into(),
+            payload: json!({
+                "tool_call_id": "call_calc_1",
+                "output": "4"
+            }),
+            is_checkpoint: false,
+            is_compaction: false,
+            created_at: 3000,
+        }).unwrap();
+        assert_eq!(seq3, 3);
+
+        // Verify count and latest sequence
+        assert_eq!(store.count_wire_events("sess-evt-test").unwrap(), 3);
+        assert_eq!(store.latest_wire_event_seq("sess-evt-test").unwrap(), 3);
+
+        // Verify pagination
+        let page1 = store.get_wire_events("sess-evt-test", 0, 2).unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].seq, 1);
+        assert_eq!(page1[1].seq, 2);
+
+        let page2 = store.get_wire_events("sess-evt-test", 2, 10).unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].seq, 3);
+        assert_eq!(page2[0].event_type, "tool.result");
+
+        // Verify projection folding
+        let msgs = store.fold_projection("sess-evt-test").unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].role, crate::native::event_store::MessageRole::User);
+        assert_eq!(msgs[0].content, "Calculate 2+2");
+        assert_eq!(msgs[1].role, crate::native::event_store::MessageRole::Assistant);
+        assert_eq!(msgs[1].content, "Let me calculate that.");
+        assert!(msgs[1].tool_calls.is_some());
+        assert_eq!(msgs[2].role, crate::native::event_store::MessageRole::Tool);
+        assert_eq!(msgs[2].content, "4");
+        assert_eq!(msgs[2].tool_call_id.as_deref(), Some("call_calc_1"));
+
+        // Verify undo to last checkpoint (evt-2 was is_checkpoint = true)
+        let undone_count = store.undo_to_last_checkpoint("sess-evt-test").unwrap();
+        assert_eq!(undone_count, 2); // Deleted seq 2 and 3
+        assert_eq!(store.count_wire_events("sess-evt-test").unwrap(), 1);
+
+        let msgs_after_undo = store.fold_projection("sess-evt-test").unwrap();
+        assert_eq!(msgs_after_undo.len(), 1);
+        assert_eq!(msgs_after_undo[0].role, crate::native::event_store::MessageRole::User);
+
+        // Verify compaction boundary
+        store.checkpoint_compress("sess-evt-test", "Historical math summary").unwrap();
+        let msgs_compacted = store.fold_projection("sess-evt-test").unwrap();
+        assert_eq!(msgs_compacted.len(), 1);
+        assert_eq!(msgs_compacted[0].role, crate::native::event_store::MessageRole::System);
+        assert_eq!(msgs_compacted[0].content, "Historical math summary");
+
+        // Undoing across compaction boundary must return UndoCompactionBoundary error
+        let undo_err = store.undo_to_last_checkpoint("sess-evt-test").unwrap_err();
+        match undo_err {
+            EventStoreError::UndoCompactionBoundary => {}
+            other => panic!("Expected UndoCompactionBoundary, got {:?}", other),
+        }
     }
 }

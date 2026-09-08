@@ -92,6 +92,8 @@ export interface SessionPromptRpcInput {
    * the v2 RPC client only.
    */
   readonly promptId?: string;
+  /** When true, skip overwriting prompt-derived session metadata (used by skill activation). */
+  readonly skipPromptMetadata?: boolean;
 }
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {

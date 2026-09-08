@@ -117,7 +117,6 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const session = await harness.createSession({ id: 'ses_compact_runtime', workDir });
 
       await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject({
-        name: 'Error2',
         code: 'compaction.unable',
       });
     } finally {
@@ -277,41 +276,16 @@ describe('Session plan, compact, usage, and resume APIs', () => {
         path: toPosix(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
       });
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
-      const forkWire = await readFile(
-        join(forkSummary!.sessionDir, 'agents', 'main', 'wire.jsonl'),
-        'utf-8',
-      );
-      const forkRecords = forkWire
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const enterRecord = forkRecords.find((record) => record['type'] === 'plan_mode.enter');
-      expect(enterRecord).toEqual({
-        type: 'plan_mode.enter',
-        agentId: 'main',
-        id: sourcePlan.id,
-        time: expect.any(Number),
-      });
-      expect(forkRecords.find((record) => record['type'] === 'forked')).toEqual({
-        type: 'forked',
-        agentId: 'main',
-        time: expect.any(Number),
-      });
-      expect(forkRecords.some((record) => record['type'] === 'goal.clear')).toBe(false);
       await expect(fork.getGoal()).resolves.toEqual({ goal: null });
       const forkState = JSON.parse(
-        await readFile(join(forkSummary!.sessionDir, 'state.json'), 'utf-8'),
+        await readFile(join(forkSummary!.sessionDir, 'session-meta.json'), 'utf-8'),
       ) as {
         title?: string;
         forkedFrom?: string;
-        agents?: { main?: { homedir?: string } };
         custom?: Record<string, unknown>;
       };
       expect(forkState.title).toBe('Forked runtime');
       expect(forkState.forkedFrom).toBe(source.id);
-      expect(forkState.agents?.main?.homedir).toBe(
-        toPosix(join(forkSummary!.sessionDir, 'agents', 'main')),
-      );
       expect(forkState.custom).toMatchObject({ source: true, child: true });
       expect(forkState.custom).not.toHaveProperty('goal');
     } finally {

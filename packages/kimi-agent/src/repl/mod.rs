@@ -326,6 +326,7 @@ pub async fn start_repl(
     let task_runner = Arc::new(crate::storage::task_runner::TaskRunner::for_workspace(
         &workspace,
     )?);
+    subagent_manager.set_task_runner_sync(task_runner.clone());
 
     // Cron scheduler: fire entries from the local cron state. Fired prompts
     // land in a pending queue consumed at the next prompt (press Enter on an

@@ -17,6 +17,7 @@ import { authTokenRequestSchema, authTokenResponseSchema } from './wire-schema';
 export interface SessionPrompt {
   role: string;
   content: string;
+  blocks?: unknown[];
   blocksJson?: string;
   toolCallsJson?: string;
   toolCallId?: string;

@@ -106,6 +106,42 @@ export function loadRuntimeConfig(
   return applySecondaryModelConfig(applyEnvModelConfig(readConfigFile(filePath), env), env);
 }
 
+/**
+ * Lenient runtime load that keeps schema-invalid entries in the document
+ * instead of dropping or throwing: v2's config service kept such entries in
+ * the loaded view and deferred the failure to model resolution time, so a
+ * broken `[models]` entry degrades the harness instead of blocking startup.
+ * The strict readers stay on every write path so a broken file is never
+ * silently rewritten.
+ */
+export function loadRuntimeConfigLenient(
+  filePath: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): KimiConfig {
+  try {
+    return loadRuntimeConfig(filePath, env);
+  } catch (error) {
+    if (!(error instanceof KimiError) || error.code !== ErrorCodes.CONFIG_INVALID) {
+      throw error;
+    }
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = parseToml(readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return applySecondaryModelConfig(applyEnvModelConfig(getDefaultConfig(), env), env);
+  }
+  const transformed = transformTomlData(data);
+  transformed['raw'] = cloneRecord(data);
+  let config = transformed as unknown as KimiConfig;
+  try {
+    config = applyEnvModelConfig(config, env);
+  } catch {
+    // keep the file view when the env overlay cannot apply
+  }
+  return applySecondaryModelConfig(config, env);
+}
+
 export interface RuntimeConfigLoadResult {
   readonly config: KimiConfig;
   /** Problems in config.toml itself; non-empty means parts (or all) of the file were ignored. */
@@ -598,7 +634,6 @@ function setSection<T>(
 function providerToToml(provider: ProviderConfig, rawProvider: unknown): Record<string, unknown> {
   const out = cloneRecord(rawProvider);
   for (const [key, value] of Object.entries(provider)) {
-    if (key === 'apiKey') continue;
     if (key === 'oauth' && value !== undefined) {
       out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
     } else if ((key === 'env' || key === 'customHeaders') && value !== undefined) {

@@ -16,15 +16,12 @@ import { ErrorCodes, KimiError } from '#/error-protocol';
 
 import { parsePattern } from './matches-rule';
 
-export const ProviderTypeSchema = z.enum([
-  'anthropic',
-  'openai',
-  'kimi',
-  'google-genai',
-  'openai_responses',
-  'vertexai',
-  'astron',
-]);
+/**
+ * The provider wire type. v2 deferred provider-type validation to model
+ * resolution time (an unknown type simply resolves to no native LLM), so the
+ * document schema accepts any string here instead of v1's closed enum.
+ */
+export const ProviderTypeSchema = z.string();
 
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
 
@@ -495,8 +492,11 @@ export const KimiConfigPatchSchema = z
 export type KimiConfigPatch = z.infer<typeof KimiConfigPatchSchema>;
 
 export function getDefaultConfig(): KimiConfig {
+  // v2's effective view materializes the registered section defaults on top
+  // of the empty document; `models` is the one consumers index into.
   return {
     providers: {},
+    models: {},
   };
 }
 

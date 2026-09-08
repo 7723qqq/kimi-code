@@ -38,11 +38,22 @@ async function writeSessionState(
   sessionDir: string,
   state: Record<string, unknown>,
 ): Promise<void> {
-  await writeFile(join(sessionDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(join(sessionDir, 'session-meta.json'), 'utf-8');
+    existing = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    // start fresh if absent
+  }
+  await writeFile(
+    join(sessionDir, 'session-meta.json'),
+    `${JSON.stringify({ ...existing, ...state }, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 async function readSessionState(sessionDir: string): Promise<Record<string, unknown>> {
-  const raw = await readFile(join(sessionDir, 'state.json'), 'utf-8');
+  const raw = await readFile(join(sessionDir, 'session-meta.json'), 'utf-8');
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
@@ -74,7 +85,7 @@ describe('KimiHarness.renameSession', () => {
         (item) => item.id === session.id,
       )!;
       await writeSessionState(summary.sessionDir, {
-        session_id: session.id,
+        id: session.id,
         title: 'Base Title',
       });
       const events: Event[] = [];
@@ -118,7 +129,7 @@ describe('KimiHarness.renameSession', () => {
         (item) => item.id === session.id,
       )!;
       await writeSessionState(summary.sessionDir, {
-        session_id: session.id,
+        id: session.id,
         title: 'Inactive Base',
       });
       const events: Event[] = [];
