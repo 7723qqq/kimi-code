@@ -14,7 +14,7 @@ import {
   fromKimiErrorPayload,
   toKimiErrorPayload,
   type KimiErrorPayload,
-} from '#/legacy';
+} from '#/error-protocol';
 
 export type KimiConfigValidationPathSegment = string | number;
 

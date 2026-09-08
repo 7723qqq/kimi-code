@@ -4,7 +4,7 @@ import {
   RetryableRefreshError,
 } from '@moonshot-ai/kimi-code-oauth';
 
-import { ErrorCodes, KimiError } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 /**
  * Classify an OAuth token-fetch failure into the public {@link KimiError}

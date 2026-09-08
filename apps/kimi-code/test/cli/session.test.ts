@@ -5,15 +5,11 @@
  * pass-through, --limit, --json, and the empty state.
  */
 
+import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 
-import {
-  handleSessionList,
-  registerSessionCommand,
-  type SessionListDeps,
-} from '#/cli/sub/session';
-import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
+import { handleSessionList, registerSessionCommand, type SessionListDeps } from '#/cli/sub/session';
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {

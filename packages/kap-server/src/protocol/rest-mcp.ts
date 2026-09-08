@@ -31,7 +31,6 @@ export const mcpToolSchema = z.object({
 });
 export type McpTool = z.infer<typeof mcpToolSchema>;
 
-/** Detail view of one server: entry fields + the resolved tool list. */
 export const mcpServerDetailSchema = mcpServerEntrySchema.extend({
   tools: z.array(mcpToolSchema),
 });

@@ -17,8 +17,8 @@ import { APIStatusError, UNKNOWN_CAPABILITY, type ModelCapability } from '@moons
 
 import type { ModelAlias, ProviderType } from '#/config-local';
 import { resolveKimiHome } from '#/config-local';
-import { ErrorCodes, KimiError } from '#/legacy';
-import type { Logger } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
+import type { Logger } from '#/logging';
 import { mapOAuthTokenError } from '#/oauth-error';
 
 /**
@@ -26,7 +26,7 @@ import { mapOAuthTokenError } from '#/oauth-error';
  * (`agent-core/src/session/provider-manager.ts`): the `ModelProvider` /
  * `ResolvedRuntimeProvider` shapes this provider class implements. Kept so
  * the SDK does not import `agent-core`; the `Logger` type is the SDK's own
- * localized logging contract (`#/legacy`).
+ * localized logging contract (`#/logging`).
  */
 export type AuthorizedRequest = <T>(
   request: (auth: ProviderRequestAuth) => Promise<T>,

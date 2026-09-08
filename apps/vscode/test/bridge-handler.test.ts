@@ -4,15 +4,15 @@
  * Wiring: the real BridgeHandler and handlers; VS Code and the public Node SDK harness boundary are replaced.
  * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/bridge-handler.test.ts
  */
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type * as vscode from "vscode";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import type * as vscode from 'vscode';
 
-import { Methods } from "../shared/bridge";
-import { BridgeHandler } from "../src/bridge-handler";
+import { Methods } from '../shared/bridge';
+import { BridgeHandler } from '../src/bridge-handler';
 
 const host = vi.hoisted(() => {
   const watcher = {
@@ -22,7 +22,7 @@ const host = vi.hoisted(() => {
     dispose: vi.fn(),
   };
   const harness = {
-    homeDir: "/tmp/kimi-code-test-home",
+    homeDir: '/tmp/kimi-code-test-home',
     close: vi.fn(async () => undefined),
     getConfig: vi.fn(),
     setConfig: vi.fn(async () => undefined),
@@ -34,8 +34,8 @@ const host = vi.hoisted(() => {
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
 
   class Uri {
-    readonly scheme = "file";
-    readonly authority = "";
+    readonly scheme = 'file';
+    readonly authority = '';
     readonly path: string;
 
     constructor(readonly fsPath: string) {
@@ -57,12 +57,13 @@ const host = vi.hoisted(() => {
     harness,
     createKimiHarness: vi.fn(() => harness),
     createKimiHarnessV2: vi.fn(() => harness),
+    createKimiHarnessNative: vi.fn(() => harness),
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
 });
 
-vi.mock("vscode", () => ({
+vi.mock('vscode', () => ({
   Uri: host.Uri,
   workspace: {
     get workspaceFolders() {
@@ -75,12 +76,13 @@ vi.mock("vscode", () => ({
   window: { showWarningMessage: host.showWarningMessage },
 }));
 
-vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
+vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   return {
     ...original,
     createKimiHarness: () => host.createKimiHarness(),
     createKimiHarnessV2: () => host.createKimiHarnessV2(),
+    createKimiHarnessNative: () => host.createKimiHarnessNative(),
   };
 });
 
@@ -91,7 +93,7 @@ let writeLog: Mock<(message: string) => void>;
 let workspaceState: { get: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "kimi-vscode-bridge-"));
+  root = await mkdtemp(join(tmpdir(), 'kimi-vscode-bridge-'));
   host.workspaceFolders.splice(0, host.workspaceFolders.length, { uri: new host.Uri(root) });
   showLogs = vi.fn();
   writeLog = vi.fn();
@@ -100,13 +102,14 @@ beforeEach(async () => {
   host.harness.getConfig.mockResolvedValue({ models: {} });
   host.createKimiHarness.mockImplementation(() => host.harness);
   host.createKimiHarnessV2.mockImplementation(() => host.harness);
+  host.createKimiHarnessNative.mockImplementation(() => host.harness);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
   bridge = new BridgeHandler(
     vi.fn(),
     workspaceState as unknown as vscode.Memento,
-    join(root, "global-storage"),
+    join(root, 'global-storage'),
     vi.fn(),
     showLogs,
     writeLog,
@@ -120,23 +123,23 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("Engine startup", () => {
+describe('Engine startup', () => {
   function constructBridge(): void {
     new BridgeHandler(
       vi.fn(),
       workspaceState as unknown as vscode.Memento,
-      join(root, "global-storage-2"),
+      join(root, 'global-storage-2'),
       vi.fn(),
       showLogs,
       writeLog,
     );
   }
 
-  it("reports the rollback setting when the default engine cannot start", () => {
-    // Keep v2 the default even when the suite itself runs under the legacy flag.
-    vi.stubEnv("KIMI_CODE_LEGACY_FLAG", "");
-    host.createKimiHarnessV2.mockImplementationOnce(() => {
-      throw new Error("engine boom");
+  it('reports the rollback setting when the default engine cannot start', () => {
+    // Keep native the default even when the suite itself runs under the legacy flag.
+    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
+    host.createKimiHarnessNative.mockImplementationOnce(() => {
+      throw new Error('engine boom');
     });
 
     expect(constructBridge).toThrow(
@@ -144,219 +147,220 @@ describe("Engine startup", () => {
     );
   });
 
-  it("reports no rollback hint when the legacy engine itself cannot start", () => {
-    vi.stubEnv("KIMI_CODE_LEGACY_FLAG", "1");
-    host.createKimiHarness.mockImplementationOnce(() => {
-      throw new Error("legacy boom");
+  it('reports no rollback hint when the legacy engine itself cannot start', () => {
+    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
+    host.createKimiHarnessV2.mockImplementationOnce(() => {
+      throw new Error('legacy boom');
     });
 
     expect(constructBridge).toThrow(/^Failed to start the Kimi engine: legacy boom\.$/);
   });
 });
 
-describe("Webview RPC boundary (validates requests before host dispatch)", () => {
-  it("returns a readable error when the envelope is not a plain object", async () => {
-    const result = await bridge.handle([], "view-1");
+describe('Webview RPC boundary (validates requests before host dispatch)', () => {
+  it('returns a readable error when the envelope is not a plain object', async () => {
+    const result = await bridge.handle([], 'view-1');
 
     expect(result).toEqual({
-      id: "",
-      error: "Invalid bridge request: expected a plain object.",
+      id: '',
+      error: 'Invalid bridge request: expected a plain object.',
     });
   });
 
-  it("does not execute a known handler when the request id is blank", async () => {
-    const result = await bridge.handle({ id: " ", method: Methods.ShowLogs }, "view-1");
+  it('does not execute a known handler when the request id is blank', async () => {
+    const result = await bridge.handle({ id: ' ', method: Methods.ShowLogs }, 'view-1');
 
     expect(result).toEqual({
-      id: "",
-      error: "Invalid bridge request: id must be a non-empty string.",
+      id: '',
+      error: 'Invalid bridge request: id must be a non-empty string.',
     });
     expect(showLogs).not.toHaveBeenCalled();
   });
 
-  it("reports aborted: false when the view has no runtime to cancel", async () => {
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.AbortChat }, "view-1");
+  it('reports aborted: false when the view has no runtime to cancel', async () => {
+    const result = await bridge.handle({ id: 'rpc-1', method: Methods.AbortChat }, 'view-1');
 
-    expect(result).toEqual({ id: "rpc-1", result: { aborted: false } });
+    expect(result).toEqual({ id: 'rpc-1', result: { aborted: false } });
   });
 
   it("cancels the view's runtime when aborting a chat", async () => {
     const cancel = vi.fn(async () => undefined);
-    vi.spyOn(bridge.runtime, "getSessionForView").mockReturnValue({ cancel } as never);
+    vi.spyOn(bridge.runtime, 'getSessionForView').mockReturnValue({ cancel } as never);
 
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.AbortChat }, "view-1");
+    const result = await bridge.handle({ id: 'rpc-1', method: Methods.AbortChat }, 'view-1');
 
-    expect(result).toEqual({ id: "rpc-1", result: { aborted: true } });
+    expect(result).toEqual({ id: 'rpc-1', result: { aborted: true } });
     expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it.each(["missingMethod", "toString", "constructor", "__proto__"])(
-    "does not dispatch the unknown or prototype method %s",
+  it.each(['missingMethod', 'toString', 'constructor', '__proto__'])(
+    'does not dispatch the unknown or prototype method %s',
     async (method) => {
-      const result = await bridge.handle({ id: "rpc-1", method }, "view-1");
+      const result = await bridge.handle({ id: 'rpc-1', method }, 'view-1');
 
-      expect(result).toEqual({ id: "rpc-1", error: `Unknown bridge method: ${method}` });
+      expect(result).toEqual({ id: 'rpc-1', error: `Unknown bridge method: ${method}` });
       expect(showLogs).not.toHaveBeenCalled();
     },
   );
 
-  it("does not execute a no-params handler when a payload is supplied", async () => {
+  it('does not execute a no-params handler when a payload is supplied', async () => {
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.ShowLogs, params: {} },
-      "view-1",
+      { id: 'rpc-1', method: Methods.ShowLogs, params: {} },
+      'view-1',
     );
 
     expect(result).toEqual({
-      id: "rpc-1",
-      error: "Invalid bridge params for method: showLogs",
+      id: 'rpc-1',
+      error: 'Invalid bridge params for method: showLogs',
     });
     expect(showLogs).not.toHaveBeenCalled();
   });
 
-  it("does not execute an object-payload handler when a required field has the wrong type", async () => {
+  it('does not execute an object-payload handler when a required field has the wrong type', async () => {
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.AddInputHistory, params: { text: 42 } },
-      "view-1",
+      { id: 'rpc-1', method: Methods.AddInputHistory, params: { text: 42 } },
+      'view-1',
     );
 
     expect(result).toEqual({
-      id: "rpc-1",
-      error: "Invalid bridge params for method: addInputHistory",
+      id: 'rpc-1',
+      error: 'Invalid bridge params for method: addInputHistory',
     });
     expect(workspaceState.update).not.toHaveBeenCalled();
   });
 
-  it("dispatches a valid request through the existing bridge surface", async () => {
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.ShowLogs }, "view-1");
+  it('dispatches a valid request through the existing bridge surface', async () => {
+    const result = await bridge.handle({ id: 'rpc-1', method: Methods.ShowLogs }, 'view-1');
 
-    expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
+    expect(result).toEqual({ id: 'rpc-1', result: { ok: true } });
     expect(showLogs).toHaveBeenCalledOnce();
   });
 
-  it("keeps provider identity when configured models share a display name", async () => {
+  it('keeps provider identity when configured models share a display name', async () => {
     host.harness.getConfig.mockResolvedValueOnce({
-      defaultModel: "openai/shared",
+      defaultModel: 'openai/shared',
       models: {
-        "openai/shared": {
-          provider: "openai",
-          model: "shared",
-          displayName: "Shared",
+        'openai/shared': {
+          provider: 'openai',
+          model: 'shared',
+          displayName: 'Shared',
           maxContextSize: 128_000,
         },
-        "proxy/shared": {
-          provider: "company-proxy",
-          model: "shared",
-          displayName: "Shared",
+        'proxy/shared': {
+          provider: 'company-proxy',
+          model: 'shared',
+          displayName: 'Shared',
           maxContextSize: 128_000,
         },
       },
     });
 
-    const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
+    const result = await bridge.handle({ id: 'rpc-models', method: Methods.GetModels }, 'view-1');
 
     expect(result).toMatchObject({
-      id: "rpc-models",
+      id: 'rpc-models',
       result: {
-        defaultModel: "openai/shared",
+        defaultModel: 'openai/shared',
         models: [
-          { id: "openai/shared", name: "Shared", provider: "openai" },
-          { id: "proxy/shared", name: "Shared", provider: "company-proxy" },
+          { id: 'openai/shared', name: 'Shared', provider: 'openai' },
+          { id: 'proxy/shared', name: 'Shared', provider: 'company-proxy' },
         ],
       },
     });
   });
 
-  it("preserves adaptive thinking metadata in the Webview model list", async () => {
+  it('preserves adaptive thinking metadata in the Webview model list', async () => {
     host.harness.getConfig.mockResolvedValueOnce({
-      defaultModel: "anthropic/claude",
+      defaultModel: 'anthropic/claude',
       models: {
-        "anthropic/claude": {
-          provider: "anthropic",
-          model: "claude-sonnet",
+        'anthropic/claude': {
+          provider: 'anthropic',
+          model: 'claude-sonnet',
           maxContextSize: 200_000,
           adaptiveThinking: true,
         },
       },
     });
 
-    const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
+    const result = await bridge.handle({ id: 'rpc-models', method: Methods.GetModels }, 'view-1');
 
     expect(result).toMatchObject({
       result: {
-        models: [{
-          id: "anthropic/claude",
-          name: "claude-sonnet",
-          provider: "anthropic",
-          adaptive_thinking: true,
-        }],
+        models: [
+          {
+            id: 'anthropic/claude',
+            name: 'claude-sonnet',
+            provider: 'anthropic',
+            adaptive_thinking: true,
+          },
+        ],
       },
     });
   });
 
-  it("resolves the fallback-profile default effort with the provider type", async () => {
+  it('resolves the fallback-profile default effort with the provider type', async () => {
     // claude-latest declares efforts but no default; the Anthropic fallback
     // profile only matches when the provider type joins the resolution.
     host.harness.getConfig.mockResolvedValueOnce({
-      defaultModel: "custom/claude",
+      defaultModel: 'custom/claude',
       providers: {
-        custom: { type: "anthropic", apiKey: "test-key" },
+        custom: { type: 'anthropic', apiKey: 'test-key' },
       },
       models: {
-        "custom/claude": {
-          provider: "custom",
-          model: "claude-latest",
-          supportEfforts: ["low", "medium", "high", "xhigh", "max"],
+        'custom/claude': {
+          provider: 'custom',
+          model: 'claude-latest',
+          supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
       },
     });
 
-    const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
+    const result = await bridge.handle({ id: 'rpc-models', method: Methods.GetModels }, 'view-1');
 
     expect(result).toMatchObject({
       result: {
-        models: [{
-          id: "custom/claude",
-          support_efforts: ["low", "medium", "high", "xhigh", "max"],
-          default_effort: "high",
-        }],
+        models: [
+          {
+            id: 'custom/claude',
+            support_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            default_effort: 'high',
+          },
+        ],
       },
     });
   });
 
-  it("does not expose the session storage path when listing sessions", async () => {
+  it('does not expose the session storage path when listing sessions', async () => {
     host.harness.listSessions.mockResolvedValueOnce([
       {
-        id: "session-1",
+        id: 'session-1',
         workDir: root,
-        sessionDir: "/private/kimi/sessions/session-1",
+        sessionDir: '/private/kimi/sessions/session-1',
         updatedAt: 123,
-        title: "Visible title",
+        title: 'Visible title',
       },
     ] as never);
 
-    const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.GetKimiSessions },
-      "view-1",
-    );
+    const result = await bridge.handle({ id: 'rpc-1', method: Methods.GetKimiSessions }, 'view-1');
 
     expect(result).toEqual({
-      id: "rpc-1",
-      result: [{ id: "session-1", workDir: root, updatedAt: 123, brief: "Visible title" }],
+      id: 'rpc-1',
+      result: [{ id: 'session-1', workDir: root, updatedAt: 123, brief: 'Visible title' }],
     });
-    expect(JSON.stringify(result)).not.toContain("/private/kimi/sessions");
+    expect(JSON.stringify(result)).not.toContain('/private/kimi/sessions');
   });
 
-  it("does not expose the session storage path when forking a session", async () => {
+  it('does not expose the session storage path when forking a session', async () => {
     const source = {
-      id: "session-1",
+      id: 'session-1',
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-1",
+      sessionDir: '/private/kimi/sessions/session-1',
       updatedAt: 123,
     };
     const target = {
-      id: "session-2",
+      id: 'session-2',
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-2",
+      sessionDir: '/private/kimi/sessions/session-2',
       updatedAt: 124,
     };
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
@@ -364,32 +368,32 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
 
     const result = await bridge.handle(
       {
-        id: "rpc-1",
+        id: 'rpc-1',
         method: Methods.ForkKimiSession,
-        params: { sessionId: "session-1", turnIndex: 0 },
+        params: { sessionId: 'session-1', turnIndex: 0 },
       },
-      "view-1",
+      'view-1',
     );
 
-    expect(result).toEqual({ id: "rpc-1", result: { sessionId: "session-2" } });
-    expect(JSON.stringify(result)).not.toContain("/private/kimi/sessions");
+    expect(result).toEqual({ id: 'rpc-1', result: { sessionId: 'session-2' } });
+    expect(JSON.stringify(result)).not.toContain('/private/kimi/sessions');
   });
 
-  it("runs a fork through the active session cancellation boundary", async () => {
+  it('runs a fork through the active session cancellation boundary', async () => {
     const source = {
-      id: "session-1",
+      id: 'session-1',
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-1",
+      sessionDir: '/private/kimi/sessions/session-1',
       updatedAt: 123,
     };
     const target = {
-      id: "session-2",
+      id: 'session-2',
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-2",
+      sessionDir: '/private/kimi/sessions/session-2',
       updatedAt: 124,
     };
     const runExclusiveAfterCancelling = vi.fn(async <T>(action: () => Promise<T>) => action());
-    vi.spyOn(bridge.runtime, "getSession").mockReturnValue({
+    vi.spyOn(bridge.runtime, 'getSession').mockReturnValue({
       runExclusiveAfterCancelling,
     } as never);
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
@@ -397,173 +401,186 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
 
     const result = await bridge.handle(
       {
-        id: "rpc-1",
+        id: 'rpc-1',
         method: Methods.ForkKimiSession,
-        params: { sessionId: "session-1", turnIndex: 0 },
+        params: { sessionId: 'session-1', turnIndex: 0 },
       },
-      "view-1",
+      'view-1',
     );
 
-    expect(result).toEqual({ id: "rpc-1", result: { sessionId: "session-2" } });
+    expect(result).toEqual({ id: 'rpc-1', result: { sessionId: 'session-2' } });
     expect(runExclusiveAfterCancelling).toHaveBeenCalledOnce();
     expect(host.harness.forkSession).toHaveBeenCalledOnce();
   });
 
-  it("closes and removes a fork when its baseline cannot be materialized", async () => {
-    const source = { id: "session-1", workDir: root, updatedAt: 123 };
-    const target = { id: "session-2", workDir: root, updatedAt: 124 };
+  it('closes and removes a fork when its baseline cannot be materialized', async () => {
+    const source = { id: 'session-1', workDir: root, updatedAt: 123 };
+    const target = { id: 'session-2', workDir: root, updatedAt: 124 };
     const close = vi.fn(async () => undefined);
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
     host.harness.forkSession.mockResolvedValueOnce({ summary: target, close });
-    vi.spyOn(bridge.baselineManager, "materializeToFork").mockRejectedValueOnce(
-      new Error("baseline unavailable"),
+    vi.spyOn(bridge.baselineManager, 'materializeToFork').mockRejectedValueOnce(
+      new Error('baseline unavailable'),
     );
-    const deleteBaseline = vi.spyOn(bridge.baselineManager, "deleteSession");
+    const deleteBaseline = vi.spyOn(bridge.baselineManager, 'deleteSession');
 
     const result = await bridge.handle(
       {
-        id: "rpc-1",
+        id: 'rpc-1',
         method: Methods.ForkKimiSession,
-        params: { sessionId: "session-1", turnIndex: 0 },
+        params: { sessionId: 'session-1', turnIndex: 0 },
       },
-      "view-1",
+      'view-1',
     );
 
-    expect(result).toEqual({ id: "rpc-1", error: "baseline unavailable" });
+    expect(result).toEqual({ id: 'rpc-1', error: 'baseline unavailable' });
     expect(close).toHaveBeenCalledOnce();
-    expect(host.harness.deleteSession).toHaveBeenCalledWith("session-2");
-    expect(deleteBaseline).toHaveBeenCalledWith("session-2");
+    expect(host.harness.deleteSession).toHaveBeenCalledWith('session-2');
+    expect(deleteBaseline).toHaveBeenCalledWith('session-2');
   });
 
-  it("keeps conversation history available when its baseline snapshot disappears", async () => {
-    const session = createResumedSession("session-1", root);
+  it('keeps conversation history available when its baseline snapshot disappears', async () => {
+    const session = createResumedSession('session-1', root);
     host.harness.resumeSession.mockResolvedValueOnce(session as never);
-    host.showWarningMessage.mockResolvedValueOnce("Show Logs");
-    const sourcePath = join(root, "app.ts");
-    await writeFile(sourcePath, "original\n", "utf-8");
+    host.showWarningMessage.mockResolvedValueOnce('Show Logs');
+    const sourcePath = join(root, 'app.ts');
+    await writeFile(sourcePath, 'original\n', 'utf-8');
     await bridge.baselineManager.capture(session.summary, sourcePath);
-    const baselinesRoot = join(root, "global-storage", "baselines");
+    const baselinesRoot = join(root, 'global-storage', 'baselines');
     const [homeDirectory] = await readdir(baselinesRoot);
     const [sessionDirectory] = await readdir(join(baselinesRoot, homeDirectory!));
-    const snapshotsDirectory = join(
-      baselinesRoot,
-      homeDirectory!,
-      sessionDirectory!,
-      "snapshots",
-    );
+    const snapshotsDirectory = join(baselinesRoot, homeDirectory!, sessionDirectory!, 'snapshots');
     const [snapshot] = await readdir(snapshotsDirectory);
     await rm(join(snapshotsDirectory, snapshot!));
 
     const result = await bridge.handle(
       {
-        id: "rpc-1",
+        id: 'rpc-1',
         method: Methods.LoadKimiSessionHistory,
-        params: { kimiSessionId: "session-1" },
+        params: { kimiSessionId: 'session-1' },
       },
-      "view-1",
+      'view-1',
     );
 
     expect(result).toEqual({
-      id: "rpc-1",
+      id: 'rpc-1',
       result: expect.arrayContaining([
-        expect.objectContaining({ type: "StatusUpdate", _sessionId: "session-1" }),
+        expect.objectContaining({ type: 'StatusUpdate', _sessionId: 'session-1' }),
       ]),
     });
     expect(writeLog).toHaveBeenCalledWith(
-      expect.stringMatching(/Unable to restore session file changes.*Unable to read baseline snapshot/),
+      expect.stringMatching(
+        /Unable to restore session file changes.*Unable to read baseline snapshot/,
+      ),
     );
     await vi.waitFor(() => expect(showLogs).toHaveBeenCalledOnce());
   });
 
-  it("returns a readable error when persisted session state is corrupt without wedging the bridge", async () => {
+  it('returns a readable error when persisted session state is corrupt without wedging the bridge', async () => {
     host.harness.resumeSession.mockRejectedValueOnce(
-      new Error("Session state is invalid JSON at line 4"),
+      new Error('Session state is invalid JSON at line 4'),
     );
 
     const failed = await bridge.handle(
       {
-        id: "rpc-1",
+        id: 'rpc-1',
         method: Methods.LoadKimiSessionHistory,
-        params: { kimiSessionId: "session-1" },
+        params: { kimiSessionId: 'session-1' },
       },
-      "view-1",
+      'view-1',
     );
-    const next = await bridge.handle({ id: "rpc-2", method: Methods.ShowLogs }, "view-1");
+    const next = await bridge.handle({ id: 'rpc-2', method: Methods.ShowLogs }, 'view-1');
 
     expect(failed).toEqual({
-      id: "rpc-1",
-      error: "Session state is invalid JSON at line 4",
+      id: 'rpc-1',
+      error: 'Session state is invalid JSON at line 4',
     });
     expect(writeLog).toHaveBeenCalledWith(
-      expect.stringContaining("Session state is invalid JSON at line 4"),
+      expect.stringContaining('Session state is invalid JSON at line 4'),
     );
-    expect(next).toEqual({ id: "rpc-2", result: { ok: true } });
+    expect(next).toEqual({ id: 'rpc-2', result: { ok: true } });
   });
 });
 
-describe("Registered working directories", () => {
-  it("lists the workspace root when there is no session history", async () => {
+describe('Registered working directories', () => {
+  it('lists the workspace root when there is no session history', async () => {
     host.harness.listSessions.mockResolvedValueOnce([] as never);
 
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.GetRegisteredWorkDirs }, "view-1");
+    const result = await bridge.handle(
+      { id: 'rpc-1', method: Methods.GetRegisteredWorkDirs },
+      'view-1',
+    );
 
-    expect(result).toEqual({ id: "rpc-1", result: [root] });
+    expect(result).toEqual({ id: 'rpc-1', result: [root] });
   });
 
-  it("keeps the selected working directory visible without session history", async () => {
-    const sub = join(root, "packages", "demo");
+  it('keeps the selected working directory visible without session history', async () => {
+    const sub = join(root, 'packages', 'demo');
     await mkdir(sub, { recursive: true });
     host.harness.listSessions.mockResolvedValue([] as never);
 
-    await bridge.handle({ id: "rpc-1", method: Methods.SetWorkDir, params: { workDir: sub } }, "view-1");
-    const result = await bridge.handle({ id: "rpc-2", method: Methods.GetRegisteredWorkDirs }, "view-1");
+    await bridge.handle(
+      { id: 'rpc-1', method: Methods.SetWorkDir, params: { workDir: sub } },
+      'view-1',
+    );
+    const result = await bridge.handle(
+      { id: 'rpc-2', method: Methods.GetRegisteredWorkDirs },
+      'view-1',
+    );
 
-    expect(result).toEqual({ id: "rpc-2", result: [root, sub].toSorted() });
+    expect(result).toEqual({ id: 'rpc-2', result: [root, sub].toSorted() });
   });
 
-  it("merges session-history directories and hides directories outside the workspace", async () => {
-    const inside = join(root, "nested");
+  it('merges session-history directories and hides directories outside the workspace', async () => {
+    const inside = join(root, 'nested');
     host.harness.listSessions.mockResolvedValueOnce([
-      { id: "s-1", workDir: inside },
-      { id: "s-2", workDir: "/private/outside" },
-      { id: "s-3", workDir: root },
+      { id: 's-1', workDir: inside },
+      { id: 's-2', workDir: '/private/outside' },
+      { id: 's-3', workDir: root },
     ] as never);
 
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.GetRegisteredWorkDirs }, "view-1");
+    const result = await bridge.handle(
+      { id: 'rpc-1', method: Methods.GetRegisteredWorkDirs },
+      'view-1',
+    );
 
-    expect(result).toEqual({ id: "rpc-1", result: [inside, root].toSorted() });
-    expect(JSON.stringify(result)).not.toContain("/private/outside");
+    expect(result).toEqual({ id: 'rpc-1', result: [inside, root].toSorted() });
+    expect(JSON.stringify(result)).not.toContain('/private/outside');
   });
 });
 
-describe("Webview config saves (thinking effort persistence parity with the TUI)", () => {
+describe('Webview config saves (thinking effort persistence parity with the TUI)', () => {
   const effortModel = {
-    provider: "managed:kimi-code",
-    model: "reasoning",
-    supportEfforts: ["low", "high", "max"],
-    defaultEffort: "high",
+    provider: 'managed:kimi-code',
+    model: 'reasoning',
+    supportEfforts: ['low', 'high', 'max'],
+    defaultEffort: 'high',
   };
 
   function mockConfig(thinking?: { enabled: boolean; effort?: string }) {
     host.harness.getConfig.mockResolvedValue({
-      defaultModel: "kimi/reasoning",
+      defaultModel: 'kimi/reasoning',
       thinking,
-      models: { "kimi/reasoning": effortModel },
+      models: { 'kimi/reasoning': effortModel },
     } as never);
   }
 
-  it("persists a non-top effort as the global default", async () => {
+  it('persists a non-top effort as the global default', async () => {
     mockConfig();
 
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'kimi/reasoning', thinking: true, effort: 'high' },
+      },
+      'view-1',
     );
 
-    expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
+    expect(result).toEqual({ id: 'rpc-1', result: { ok: true } });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
-      thinking: { enabled: true, effort: "high" },
+      defaultModel: 'kimi/reasoning',
+      thinking: { enabled: true, effort: 'high' },
     });
   });
 
@@ -571,86 +588,110 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig();
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "max" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'kimi/reasoning', thinking: true, effort: 'max' },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: 'kimi/reasoning',
       thinking: { enabled: true },
     });
   });
 
   it("persists the top tier when the model's delivered default is the top tier", async () => {
     host.harness.getConfig.mockResolvedValue({
-      defaultModel: "kimi/reasoning",
-      models: { "kimi/reasoning": { ...effortModel, defaultEffort: "max" } },
+      defaultModel: 'kimi/reasoning',
+      models: { 'kimi/reasoning': { ...effortModel, defaultEffort: 'max' } },
     } as never);
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "max" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'kimi/reasoning', thinking: true, effort: 'max' },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
-      thinking: { enabled: true, effort: "max" },
+      defaultModel: 'kimi/reasoning',
+      thinking: { enabled: true, effort: 'max' },
     });
   });
 
-  it("keeps an xhigh pick session-only when the default comes from the Anthropic profile inference", async () => {
+  it('keeps an xhigh pick session-only when the default comes from the Anthropic profile inference', async () => {
     // claude-opus-4-7 declares no efforts; the profile inference supplies
     // [low, medium, high, xhigh, max] and resolves the default to "high".
     host.harness.getConfig.mockResolvedValue({
-      defaultModel: "custom/claude",
-      models: { "custom/claude": { provider: "custom", model: "claude-opus-4-7" } },
+      defaultModel: 'custom/claude',
+      models: { 'custom/claude': { provider: 'custom', model: 'claude-opus-4-7' } },
     } as never);
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "custom/claude", thinking: true, effort: "xhigh" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'custom/claude', thinking: true, effort: 'xhigh' },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "custom/claude",
+      defaultModel: 'custom/claude',
       thinking: { enabled: true },
     });
   });
 
   it("persists the concrete effort when the model's levels are unknown", async () => {
-    host.harness.getConfig.mockResolvedValue({ defaultModel: "other/model", models: {} });
+    host.harness.getConfig.mockResolvedValue({ defaultModel: 'other/model', models: {} });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "custom/model", thinking: true, effort: "max" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'custom/model', thinking: true, effort: 'max' },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "custom/model",
-      thinking: { enabled: true, effort: "max" },
+      defaultModel: 'custom/model',
+      thinking: { enabled: true, effort: 'max' },
     });
   });
 
-  it("leaves the stored effort alone when the pick re-confirms the active effort", async () => {
-    mockConfig({ enabled: false, effort: "low" });
+  it('leaves the stored effort alone when the pick re-confirms the active effort', async () => {
+    mockConfig({ enabled: false, effort: 'low' });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high", effortChanged: false } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'kimi/reasoning', thinking: true, effort: 'high', effortChanged: false },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: 'kimi/reasoning',
       thinking: { enabled: true },
     });
   });
 
-  it("skips the config write entirely when nothing changed", async () => {
-    mockConfig({ enabled: true, effort: "high" });
+  it('skips the config write entirely when nothing changed', async () => {
+    mockConfig({ enabled: true, effort: 'high' });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
-      "view-1",
+      {
+        id: 'rpc-1',
+        method: Methods.SaveConfig,
+        params: { model: 'kimi/reasoning', thinking: true, effort: 'high' },
+      },
+      'view-1',
     );
 
     expect(host.harness.setConfig).not.toHaveBeenCalled();
@@ -662,7 +703,7 @@ function createResumedSession(id: string, workDir: string) {
   const summary = {
     id,
     workDir,
-    sessionDir: join("/private/kimi/sessions", id),
+    sessionDir: join('/private/kimi/sessions', id),
     createdAt: 1,
     updatedAt: 2,
     metadata: { vscode_legacy_approval: { yolo: false, afk: false } },
@@ -676,10 +717,10 @@ function createResumedSession(id: string, workDir: string) {
       sessionMetadata: { agents: {} },
       agents: {
         main: {
-          type: "main",
+          type: 'main',
           config: {
             cwd: workDir,
-            modelAlias: "test-model",
+            modelAlias: 'test-model',
             modelCapabilities: {
               image_in: false,
               video_in: false,
@@ -688,12 +729,12 @@ function createResumedSession(id: string, workDir: string) {
               tool_use: true,
               max_context_tokens: 128_000,
             },
-            thinkingEffort: "off",
-            systemPrompt: "",
+            thinkingEffort: 'off',
+            systemPrompt: '',
           },
           context: { history: [], tokenCount: 0 },
           replay: [],
-          permission: { mode: "manual", rules: [] },
+          permission: { mode: 'manual', rules: [] },
           plan: null,
           usage: {},
           tools: [],
@@ -701,7 +742,7 @@ function createResumedSession(id: string, workDir: string) {
         },
       },
     }),
-    getStatus: async () => ({ permission: "manual" }),
+    getStatus: async () => ({ permission: 'manual' }),
     setPermission: async () => undefined,
     updateMetadata: async () => undefined,
     setApprovalHandler: () => undefined,

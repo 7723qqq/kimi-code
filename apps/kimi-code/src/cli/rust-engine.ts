@@ -13,13 +13,14 @@
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
 import {
   KimiAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolveKimiHome,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { TurnEngine } from '@moonshot-ai/agent-core-v2';
+import type { TurnEngineAdapter } from '@moonshot-ai/kimi-agent/rust-loop';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { patchEngineExecution, setEngineExecution } from '#/utils/engine-execution';
@@ -94,7 +95,7 @@ interface RustEngineConfig {
   };
 }
 
-let rustTurnEngine: TurnEngine | undefined;
+let rustTurnEngine: TurnEngineAdapter | undefined;
 
 /**
  * Extract MultiLLM provider definitions from the kimi config.
@@ -257,17 +258,14 @@ function tryResolveNativeLlm(
   let thinkingBudget: number | undefined;
 
   const thinkingConfig = config.thinking;
+  const isThinkingDisabled = thinkingConfig?.enabled === false;
   const modelEffort =
     modelAliasConfig?.defaultEffort ??
     modelAliasConfig?.reasoningEffort ??
-    thinkingConfig?.effort;
+    thinkingConfig?.effort ??
+    (isThinkingDisabled ? undefined : 'medium');
 
-  if (
-    thinkingConfig?.enabled !== false &&
-    modelEffort &&
-    modelEffort !== 'off' &&
-    modelEffort !== 'none'
-  ) {
+  if (!isThinkingDisabled && modelEffort && modelEffort !== 'off' && modelEffort !== 'none') {
     if (protocol === 'anthropic') {
       if (modelEffort === 'low') thinkingBudget = 1024;
       else if (modelEffort === 'medium') thinkingBudget = 4096;
@@ -376,14 +374,14 @@ function isEngineLoadable(): boolean {
 export async function maybeLoadRustEngine(
   homeDir?: string,
   configPath?: string,
-): Promise<TurnEngine | undefined> {
+): Promise<TurnEngineAdapter | undefined> {
   return resolveRustEngine(homeDir, configPath);
 }
 
 async function resolveRustEngine(
   homeDir?: string,
   configPath?: string,
-): Promise<TurnEngine | undefined> {
+): Promise<TurnEngineAdapter | undefined> {
   // Lazy-init: once loaded, cache the result
   if (rustTurnEngine !== undefined) return rustTurnEngine;
 
@@ -432,32 +430,45 @@ async function resolveRustEngine(
   // (bash everywhere, Git Bash on Windows) — probe it once for the engine.
   let shellPath: string | undefined;
   try {
-    const os = await import('node:os');
-    const fsPromises = await import('node:fs/promises');
-    const { probeHostEnvironment } = await import('@moonshot-ai/agent-core-v2');
-    const env = await probeHostEnvironment({
-      platform: process.platform,
-      arch: process.arch,
-      release: os.release(),
-      homeDir: os.homedir(),
-      env: process.env,
-      isFile: async (p) => {
-        try {
-          return (await fsPromises.stat(p)).isFile();
-        } catch {
-          return false;
+    const envShell = process.env['KIMI_SHELL_PATH'];
+    if (envShell !== undefined && envShell.length > 0) {
+      shellPath = envShell;
+    } else {
+      const fsPromises = await import('node:fs/promises');
+      if (process.platform === 'win32') {
+        const candidates = [
+          'C:\\msys64\\usr\\bin\\bash.exe',
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+          'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+          'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+        ];
+        for (const c of candidates) {
+          try {
+            if ((await fsPromises.stat(c)).isFile()) {
+              shellPath = c;
+              break;
+            }
+          } catch {
+            // try next candidate
+          }
         }
-      },
-      execFileText: async (file, args, timeoutMs) => {
-        const { execFile } = await import('node:child_process');
-        return new Promise((resolve) => {
-          execFile(file, [...args], { timeout: timeoutMs }, (error, stdout) => {
-            resolve(error === undefined || error === null ? String(stdout) : undefined);
-          });
-        });
-      },
-    });
-    shellPath = env.shellPath;
+      } else {
+        const candidates = ['/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash'];
+        for (const c of candidates) {
+          try {
+            if ((await fsPromises.stat(c)).isFile()) {
+              shellPath = c;
+              break;
+            }
+          } catch {
+            // try next candidate
+          }
+        }
+        if (shellPath === undefined && process.env['SHELL']) {
+          shellPath = process.env['SHELL'];
+        }
+      }
+    }
   } catch {
     // Without a probed shell the engine keeps native Bash on the host.
     shellPath = undefined;
@@ -481,7 +492,8 @@ async function resolveRustEngine(
   // Dynamic import of the Rust adapter via the workspace package. The gate
   // above already established the bundle is loadable, so a failure here is a
   // broken install — surfaced, never silently traded for the TS loop.
-  const { createRunTurnOverride, activeEngineMode } = await import('@moonshot-ai/kimi-agent/rust-loop');
+  const { createRunTurnOverride, activeEngineMode } =
+    await import('@moonshot-ai/kimi-agent/rust-loop');
   if (typeof createRunTurnOverride !== 'function') {
     throw new Error(
       '[kimi-agent] rust adapter module has no createRunTurnOverride — broken install; the TS agent engine is disabled.',
@@ -538,13 +550,14 @@ async function resolveRustEngine(
       const cfg = reloaded.config as Record<string, unknown>;
       const perm = cfg['permission'] as Record<string, unknown> | undefined;
       const agent = cfg['agent'] as Record<string, unknown> | undefined;
-      const mode = (agent?.['yolo'] === true
-        ? 'yolo'
-        : (perm?.['mode'] as string) ?? 'manual') as 'manual' | 'auto' | 'yolo';
+      const mode = (
+        agent?.['yolo'] === true ? 'yolo' : ((perm?.['mode'] as string) ?? 'manual')
+      ) as 'manual' | 'auto' | 'yolo';
       const rules = (perm?.['rules'] as Array<{ decision?: string; pattern?: string }>) ?? [];
-      const hooks = (cfg['hooks'] as
-        | Array<{ event?: string; matcher?: string; command?: string; timeout?: number }>
-        | undefined) ?? [];
+      const hooks =
+        (cfg['hooks'] as
+          | Array<{ event?: string; matcher?: string; command?: string; timeout?: number }>
+          | undefined) ?? [];
       return {
         mode,
         deny_rules: rules

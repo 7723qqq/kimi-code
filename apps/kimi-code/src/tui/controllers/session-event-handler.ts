@@ -1146,7 +1146,7 @@ export class SessionEventHandler {
       case 'connected': {
         const message = t('tui.statusMessages.mcpServerConnected', {
           name: server.name,
-          count: server.toolCount,
+          count: server.toolCount ?? 0,
           transport: server.transport,
         });
         this.finalizeMcpServerStatusRow(server.name, message, 'success');
@@ -1154,7 +1154,7 @@ export class SessionEventHandler {
       }
       case 'failed': {
         const message =
-          server.error !== undefined
+          server.error !== null && server.error !== undefined
             ? t('tui.statusMessages.mcpServerFailedWithError', {
                 name: server.name,
                 error: server.error,

@@ -6,9 +6,9 @@
  * config RPC, host-side helpers) without importing `agent-core`; keep it
  * byte-identical to the v1 original.
  *
- * Import adaptations: `#/errors` → `#/legacy`, `#/utils/fs` → the local
+ * Import adaptations: `#/errors`, `#/utils/fs` → the local
  * `./fs` atomic-write port, `pathe` → `node:path`. `ensureConfigFile` lives
- * in the SDK's `#/legacy/config-helpers` and is not duplicated here.
+ * in `#/config-helpers` and is not duplicated here.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -16,7 +16,7 @@ import { dirname } from 'node:path';
 
 import { parse as parseToml, stringify as stringifyToml, TomlError } from 'smol-toml';
 
-import { ErrorCodes, KimiError } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
 import { atomicWrite } from './fs';
@@ -473,11 +473,34 @@ function transformLoopControlData(data: Record<string, unknown>): Record<string,
 /* ------------------------------------------------------------------ */
 
 export async function writeConfigFile(filePath: string, config: KimiConfig): Promise<void> {
+  if (existsSync(filePath)) {
+    try {
+      const existingText = readFileSync(filePath, 'utf-8');
+      if (existingText.trim().length > 0) {
+        await atomicWrite(`${filePath}.bak`, existingText);
+      }
+    } catch {
+      // ignore backup error
+    }
+  }
+
   // Final guard: never persist the env-synthesized model/provider or the
   // secondary-model runtime view to disk, even if a caller passes back the
   // runtime config as a patch (see stripEnvModelConfig /
   // stripSecondaryModelConfig / the getConfig -> setConfig round-trip).
   const validated = validateConfig(stripSecondaryModelConfig(stripEnvModelConfig(config)));
+
+  // If raw is empty but file exists on disk, recover original raw to avoid stripping custom fields
+  if ((!validated.raw || Object.keys(validated.raw).length === 0) && existsSync(filePath)) {
+    try {
+      const diskContent = readFileSync(filePath, 'utf-8');
+      const diskParsed = parseToml(diskContent) as Record<string, unknown>;
+      validated.raw = cloneRecord(diskParsed);
+    } catch {
+      // ignore parse fallback
+    }
+  }
+
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   await atomicWrite(filePath, `${stringifyToml(configToTomlData(validated))}\n`);
 }
@@ -824,7 +847,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function cloneRecord(value: unknown): Record<string, unknown> {
+export function cloneRecord(value: unknown): Record<string, unknown> {
   if (!isPlainObject(value)) return {};
   return cloneUnknown(value);
 }

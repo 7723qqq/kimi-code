@@ -582,14 +582,20 @@ describe('CLI options parsing', () => {
     it('registers the visible sub-commands', () => {
       vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
       vi.stubEnv('KIMI_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
-      onTestFinished(() => { vi.unstubAllEnvs(); });
+      onTestFinished(() => {
+        vi.unstubAllEnvs();
+      });
       const program = createProgram(
         '0.0.0',
         () => {},
         () => {},
       );
       const commandNames: string[] = program.commands
-        .filter((command) => !command.name().startsWith('__') && !(command as unknown as { _hidden?: boolean })._hidden)
+        .filter(
+          (command) =>
+            !command.name().startsWith('__') &&
+            !(command as unknown as { _hidden?: boolean })._hidden,
+        )
         .map((command) => command.name());
       expect(commandNames).toEqual([
         'export',
@@ -602,7 +608,6 @@ describe('CLI options parsing', () => {
         'login',
         'doctor',
         'vis',
-        'migrate',
         'upgrade',
       ]);
     });

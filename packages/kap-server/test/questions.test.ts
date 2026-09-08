@@ -8,7 +8,7 @@ import {
   getLiveSessionById,
   type QuestionRequest,
   type QuestionResult,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

@@ -1,7 +1,9 @@
 import type { Kaos } from '@moonshot-ai/kaos';
-import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import type { ExperimentalFeatureState } from '#/types';
 
-import { ErrorCodes, KimiError, log, withTelemetryContext } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
+import { log } from '#/logging';
+import { withTelemetryContext } from '#/telemetry';
 import { ImageLimits } from '#/image-limits';
 
 import { capabilityRpc, Session } from '#/session';

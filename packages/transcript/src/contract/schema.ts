@@ -333,7 +333,6 @@ export const transcriptMetaSchema = z.object({
   agent: agentStatusMetaSchema.optional(),
 });
 
-/** `goal` set to `null` in a merge clears the goal (same convention as mode keys). */
 export const transcriptMetaMergeSchema = transcriptMetaSchema.extend({
   goal: goalMetaSchema.nullable().optional(),
   modes: modesMetaMergeSchema.optional(),

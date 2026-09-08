@@ -2,7 +2,6 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 
 import { CLI_COMMAND_NAME } from '#/constant/app';
 import { t } from '#/i18n';
-import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
 
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
@@ -16,7 +15,7 @@ import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
-export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
+export type MigrateCommandHandler = (options?: unknown) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = () => void | Promise<void>;
 export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
@@ -24,7 +23,7 @@ export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
 export function createProgram(
   version: string,
   onMain: MainCommandHandler,
-  onMigrate: MigrateCommandHandler,
+  _onMigrate?: MigrateCommandHandler,
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},
@@ -108,7 +107,6 @@ export function createProgram(
   registerLoginCommand(program);
   registerDoctorCommand(program);
   registerVisCommand(program);
-  registerMigrateCommand(program, onMigrate);
   program
     .command('upgrade')
     .alias('update')

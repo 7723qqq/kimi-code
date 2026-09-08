@@ -41,7 +41,8 @@ function shorten(text: string, width: number): string {
   return `${text.slice(0, width)}…`;
 }
 
-export function formatContentPartMd(part: ContentPart): string {
+export function formatContentPartMd(part: ContentPart | string): string {
+  if (typeof part === 'string') return part;
   switch (part.type) {
     case 'text':
       return part.text;
@@ -57,6 +58,11 @@ export function formatContentPartMd(part: ContentPart): string {
     default:
       return `[${(part as ContentPart).type}]`;
   }
+}
+
+function getContentParts(content: string | readonly ContentPart[]): readonly (ContentPart | string)[] {
+  if (typeof content === 'string') return [content];
+  return content;
 }
 
 export function formatToolCallMd(tc: ToolCall): string {
@@ -80,7 +86,7 @@ export function formatToolCallMd(tc: ToolCall): string {
 function formatToolResultMd(msg: ContextMessage, toolName: string, hint: string): string {
   const callId = msg.toolCallId ?? 'unknown';
   const parts: string[] = [];
-  for (const part of msg.content) {
+  for (const part of getContentParts(msg.content)) {
     const text = formatContentPartMd(part);
     if (text.trim()) parts.push(text);
   }
@@ -144,7 +150,7 @@ function formatTurnMd(messages: readonly ContextMessage[], turnNumber: number): 
 
     if (msg.role === 'user') {
       lines.push('### User', '');
-      for (const part of msg.content) {
+      for (const part of getContentParts(msg.content)) {
         const text = formatContentPartMd(part);
         if (text.trim()) {
           lines.push(text, '');
@@ -156,14 +162,14 @@ function formatTurnMd(messages: readonly ContextMessage[], turnNumber: number): 
         assistantHeaderWritten = true;
       }
 
-      for (const part of msg.content) {
+      for (const part of getContentParts(msg.content)) {
         const text = formatContentPartMd(part);
         if (text.trim()) {
           lines.push(text, '');
         }
       }
 
-      for (const tc of msg.toolCalls) {
+      for (const tc of msg.toolCalls ?? []) {
         const hint = extractToolCallHint(tc.arguments ?? '{}');
         toolCallInfo.set(tc.id, { name: tc.name, hint });
         lines.push(formatToolCallMd(tc), '');
@@ -174,7 +180,7 @@ function formatTurnMd(messages: readonly ContextMessage[], turnNumber: number): 
       lines.push(formatToolResultMd(msg, info.name, info.hint), '');
     } else if (msg.role === 'system') {
       lines.push(`### ${msg.role.charAt(0).toUpperCase()}${msg.role.slice(1)}`, '');
-      for (const part of msg.content) {
+      for (const part of getContentParts(msg.content)) {
         const text = formatContentPartMd(part);
         if (text.trim()) {
           lines.push(text, '');
@@ -193,15 +199,19 @@ function buildOverview(
   let topic = '';
   for (const msg of history) {
     if (msg.role === 'user' && !isInternalMessage(msg)) {
-      const textParts = msg.content
-        .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-        .map((p) => p.text);
-      topic = shorten(textParts.join(' '), 80);
+      if (typeof msg.content === 'string') {
+        topic = shorten(msg.content, 80);
+      } else {
+        const textParts = msg.content
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text);
+        topic = shorten(textParts.join(' '), 80);
+      }
       break;
     }
   }
 
-  const toolCallCount = history.reduce((sum, msg) => sum + msg.toolCalls.length, 0);
+  const toolCallCount = history.reduce((sum, msg) => sum + (msg.toolCalls?.length ?? 0), 0);
 
   return [
     '## Overview',

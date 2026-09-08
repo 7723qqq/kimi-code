@@ -1,4 +1,4 @@
-import { IOAuthService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { IOAuthService, type Scope } from '#/compat/core.js';
 import {
   managedUserInfoResultSchema,
   managedUsageResultSchema,
@@ -9,7 +9,7 @@ import {
   oauthRegionResultSchema,
   type ManagedUsageResult,
   type UsageRow,
-} from '@moonshot-ai/agent-core-v2/app/auth/oauthProtocol';
+} from '#/compat/core.js';
 import { z } from 'zod';
 
 import { okEnvelope } from '../envelope';

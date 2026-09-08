@@ -1,14 +1,15 @@
+import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
+
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   COMPACTION_ELISION_VARIANT,
   buildCompactionElisionText,
   collectCompactableUserMessages,
   isRealUserInput,
+  renderToolResultForModel,
   selectCompactionUserMessages,
   selectRecentUserMessages,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
-import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/contract/tokens';
-import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
+} from './v1-compat';
 import type {
   ContentPart,
   ContextMessage,

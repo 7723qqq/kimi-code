@@ -16,26 +16,26 @@
  * every Service.
  */
 
-import { IAgentActivityView } from '@moonshot-ai/agent-core-v2/agent/activityView/activityView';
-import { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
-import { IAgentPermissionModeService } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionMode';
-import { IAgentPermissionRulesService } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRules';
-import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
-import { IAgentToolRegistryService } from '@moonshot-ai/agent-core-v2/agent/toolRegistry/toolRegistry';
-import { IAuthSummaryService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
-import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
-import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
-import { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
-import { ISessionInitService } from '@moonshot-ai/agent-core-v2/features/sessionInit/sessionInit';
-import { IAgentSwarmService } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
-import { IProviderService } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
-import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
-import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
-import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { ISessionWorkspaceContext } from '@moonshot-ai/agent-core-v2/session/workspaceContext/workspaceContext';
+import { IAgentActivityView } from './compat/v2';
+import { IAgentMcpService } from './compat/v2';
+import { IAgentPermissionModeService } from './compat/v2';
+import { IAgentPermissionRulesService } from './compat/v2';
+import { IAgentProfileService } from './compat/v2';
+import { IAgentTaskService } from './compat/v2';
+import { IAgentToolRegistryService } from './compat/v2';
+import { IAuthSummaryService } from './compat/v2';
+import { IConfigService } from './compat/v2';
+import { IFlagService } from './compat/v2';
+import { IAgentPlanService } from './compat/v2';
+import { ISessionInitService } from './compat/v2';
+import { IAgentSwarmService } from './compat/v2';
+import { IProviderService } from './compat/v2';
+import { ISessionApprovalService } from './compat/v2';
+import { ISessionQuestionService } from './compat/v2';
+import { ISessionMetadata } from './compat/v2';
+import { ISessionWorkspaceContext } from './compat/v2';
 
-import { t } from '../i18n';
+import { t } from './i18n';
 
 /** Loosely-typed view of a scoped service proxy (every member is a remote call). */
 export type AnyService = Record<string, (...args: unknown[]) => Promise<unknown>>;

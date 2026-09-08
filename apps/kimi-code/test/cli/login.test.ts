@@ -6,10 +6,9 @@
  * stderr, and exits with the right code on success / failure.
  */
 
+import { OAuthAccessDeniedError } from '@moonshot-ai/kimi-code-oauth';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { OAuthAccessDeniedError } from '@moonshot-ai/kimi-code-oauth';
 
 const mockLogin = vi.fn();
 
@@ -200,28 +199,33 @@ describe('kimi login', () => {
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
     expect(
       writtenChunks.some((chunk: string) =>
-        chunk.includes('Login cancelled: Authorization denied: The resource owner denied the request'),
+        chunk.includes(
+          'Login cancelled: Authorization denied: The resource owner denied the request',
+        ),
       ),
     ).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('drives Google login flow when --provider google is passed', async () => {
-    const mockStartLoginFlow = vi.fn().mockImplementation(async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
-      options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
-      return { providerName: 'google-gemini', ok: true };
-    });
+    const mockStartLoginFlow = vi
+      .fn()
+      .mockImplementation(async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
+        options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
+        return { providerName: 'google-gemini', ok: true };
+      });
 
     const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
-    vi.spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({ available: false });
-    vi.spyOn(
-      oauthModule,
-      'GoogleOAuthManager',
-    ).mockImplementation(function (this: unknown) {
+    vi.spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: false,
+    });
+    vi.spyOn(oauthModule, 'GoogleOAuthManager').mockImplementation(function (this: unknown) {
       return {
         startLoginFlow: mockStartLoginFlow,
         importAntigravityCredentials: vi.fn(),
-      } as unknown as InstanceType<typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager>;
+      } as unknown as InstanceType<
+        typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager
+      >;
     });
 
     const program = new Command('kimi').exitOverride();
@@ -244,13 +248,12 @@ describe('kimi login', () => {
       credsPath: '/mock/creds.json',
     });
     const mockImport = vi.fn().mockResolvedValue({ accessToken: 'test-token' });
-    vi.spyOn(
-      oauthModule,
-      'GoogleOAuthManager',
-    ).mockImplementation(function (this: unknown) {
+    vi.spyOn(oauthModule, 'GoogleOAuthManager').mockImplementation(function (this: unknown) {
       return {
         importAntigravityCredentials: mockImport,
-      } as unknown as InstanceType<typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager>;
+      } as unknown as InstanceType<
+        typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager
+      >;
     });
 
     const program = new Command('kimi').exitOverride();
@@ -264,5 +267,3 @@ describe('kimi login', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });
-
-

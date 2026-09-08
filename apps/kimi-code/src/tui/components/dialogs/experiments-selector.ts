@@ -219,10 +219,11 @@ function sourceLabel(feature: ExperimentalFeatureState): string {
     case 'master-env':
       return t('tui.dialogs.experimentsSelector.lockedByMasterEnv');
     case 'env':
-      return t('tui.dialogs.experimentsSelector.lockedBy', { env: feature.env });
+      return t('tui.dialogs.experimentsSelector.lockedBy', { env: feature.env ?? '' });
     case 'config':
       return t('tui.dialogs.experimentsSelector.sourceConfig');
     case 'default':
+    default:
       return t('tui.dialogs.experimentsSelector.sourceDefault');
   }
 }
@@ -230,11 +231,11 @@ function sourceLabel(feature: ExperimentalFeatureState): string {
 function featureTitle(feature: ExperimentalFeatureState): string {
   const key = `tui.dialogs.experimentsSelector.features.${feature.id}.title` as const;
   const translated = t(key);
-  return translated === key ? feature.title : translated;
+  return translated === key ? (feature.title ?? feature.id) : translated;
 }
 
 function featureDescription(feature: ExperimentalFeatureState): string {
   const key = `tui.dialogs.experimentsSelector.features.${feature.id}.description` as const;
   const translated = t(key);
-  return translated === key ? feature.description : translated;
+  return translated === key ? (feature.description ?? '') : translated;
 }

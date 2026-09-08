@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/kap-server",
   "version": "0.2.3",
   "private": true,
-  "description": "Kimi Code server backed by the DI × Scope agent engine (agent-core-v2). M3-marked v2 library consumer — see packages/agent-core-v2/AGENTS.md §Library surface. New embedders default to the Rust engine in packages/kimi-agent; this package stays on v2 until M5.",
+  "description": "Kimi Code server (REST + WebSocket). The v2 engine dependency is retired: engine services are stubbed behind src/compat and the real serving surface is the native Rust server in packages/kimi-agent.",
   "type": "module",
   "exports": {
     ".": {
@@ -24,10 +24,15 @@
     "test": "vitest run",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
+  "imports": {
+    "#/compat/*.js": "./src/compat/*.ts",
+    "#/compat/*": "./src/compat/*.ts",
+    "#/*.js": "./src/*.ts",
+    "#/*": "./src/*.ts"
+  },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
     "@fastify/swagger": "^9.7.0",
-    "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/minidb": "workspace:*",

@@ -14,12 +14,12 @@
 import {
   IHostFolderBrowser,
   type FsBrowseEntry,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+} from '../compat/v2';
 import {
   IWorkspaceService,
   type Workspace,
-} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-import { IWorkspaceTrust } from '@moonshot-ai/agent-core-v2/workspace/workspaceTrust/workspaceTrust';
+} from '../compat/v2';
+import { IWorkspaceTrust } from '../compat/v2';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 

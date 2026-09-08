@@ -25,6 +25,7 @@ export interface DoctorDeps {
   readonly fileExists?: (path: string) => boolean;
   readonly readTextFile?: (path: string) => Promise<string>;
   readonly validateConfigToml?: (text: string, path: string) => MaybePromise<string | void>;
+  readonly detectV2Warning?: () => MaybePromise<string | undefined>;
 }
 
 export interface DoctorOptions {
@@ -57,6 +58,7 @@ interface ResolvedDoctorDeps {
   readonly fileExists: (path: string) => boolean;
   readonly readTextFile: (path: string) => Promise<string>;
   readonly validateConfigToml: (text: string, path: string) => MaybePromise<string | void>;
+  readonly detectV2Warning: () => MaybePromise<string | undefined>;
 }
 
 export async function handleDoctor(deps: DoctorDeps, options: DoctorOptions): Promise<number> {
@@ -64,6 +66,13 @@ export async function handleDoctor(deps: DoctorDeps, options: DoctorOptions): Pr
   const cwd = resolved.cwd();
   const specs = await buildCheckSpecs(resolved, options, cwd);
   const results = await Promise.all(specs.map((spec) => checkTomlFile(resolved, spec)));
+
+  if (options.target === undefined) {
+    const v2Warning = await resolved.detectV2Warning();
+    if (v2Warning !== undefined) {
+      resolved.stderr.write(`Warning: ${v2Warning}\n\n`);
+    }
+  }
 
   const issueCount = results.filter((result) => result.status === 'ERROR').length;
   const text = issueCount === 0 ? formatSuccess(results) : formatFailure(results, issueCount);
@@ -125,6 +134,7 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
         const { validateConfigTomlV2 } = await import('../v2/validate-config');
         return validateConfigTomlV2(text, filePath);
       }),
+    detectV2Warning: deps?.detectV2Warning ?? (() => undefined),
   };
 }
 

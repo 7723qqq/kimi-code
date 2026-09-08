@@ -11,7 +11,7 @@ import {
   type McpServerInspection,
   type McpServerLocator,
   type McpServerTestTarget,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -70,7 +70,7 @@ function makeMcpStub(): McpStub {
       calls.push('listServers');
       return list();
     },
-    getServer: async (name) => {
+    getServer: async (name: any) => {
       calls.push(`getServer:${name}`);
       const server = servers.get(name);
       if (server === undefined) {
@@ -78,13 +78,13 @@ function makeMcpStub(): McpStub {
       }
       return list().find((entry) => entry.name === name)!;
     },
-    addServer: async (server, query) => {
+    addServer: async (server: any, query: any) => {
       calls.push(`addServer:${server.name}`);
       state.mutationCwds.push(query?.cwd);
       servers.set(server.name, server);
       return list();
     },
-    updateServer: async (server, query) => {
+    updateServer: async (server: any, query: any) => {
       calls.push(`updateServer:${server.name}`);
       state.mutationCwds.push(query?.cwd);
       state.lastUpdate = server;
@@ -97,13 +97,13 @@ function makeMcpStub(): McpStub {
       servers.set(server.name, server);
       return list();
     },
-    removeServer: async (name, query) => {
+    removeServer: async (name: any, query: any) => {
       calls.push(`removeServer:${name}`);
       state.mutationCwds.push(query?.cwd);
       servers.delete(name);
       return list();
     },
-    testServer: async (target) => {
+    testServer: async (target: any) => {
       calls.push('testServer');
       state.lastTestTarget = target;
       if (target.name === undefined && target.server === undefined) {
@@ -114,7 +114,7 @@ function makeMcpStub(): McpStub {
       }
       return { success: true, output: 'probe ok' };
     },
-    listAuthStatuses: async (query) => {
+    listAuthStatuses: async (query: any) => {
       calls.push('listAuthStatuses');
       state.verifySeen = query?.verify;
       return [...servers.keys()].map((name) => ({
@@ -122,13 +122,13 @@ function makeMcpStub(): McpStub {
         authStatus: 'not-applicable' as const,
       }));
     },
-    inspectServers: async (targets, query) => {
+    inspectServers: async (targets: any, query: any) => {
       calls.push('inspectServers');
       state.lastInspectCwd = query?.cwd;
       const selected = [...servers.values()].filter(
         (server) =>
           targets === undefined ||
-          targets.some((target) => target.source === 'global' && target.name === server.name),
+          targets.some((target: any) => target.source === 'global' && target.name === server.name),
       );
       return selected.map((server): McpServerInspection => {
         const { name, ...config } = server;
@@ -145,8 +145,8 @@ function makeMcpStub(): McpStub {
         };
       });
     },
-    resolveServerByName: async (name) => ({ source: 'global', name }),
-    beginServerAuth: async (_locator, query) => {
+    resolveServerByName: async (name: any) => ({ source: 'global', name }),
+    beginServerAuth: async (_locator: any, query: any) => {
       state.lastBeginCwd = query?.cwd;
       return {
         status: 'authorization-required',
@@ -154,13 +154,13 @@ function makeMcpStub(): McpStub {
         authorizationUrl: 'https://example.com/oauth/authorize?client=x',
       };
     },
-    completeServerAuth: async (handle) => {
+    completeServerAuth: async (handle: any) => {
       if (handle.flowId !== 'flow-1') {
         throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${handle.flowId}`);
       }
     },
     cancelServerAuth: async () => {},
-    resetServerAuth: async (locator, query) => {
+    resetServerAuth: async (locator: any, query: any) => {
       state.lastResetLocator = locator;
       state.lastResetCwd = query?.cwd;
     },
@@ -342,7 +342,7 @@ describe('server /api/v2/mcp', () => {
 
     it('maps a delete rejected with mcp.server_not_found to 40408', async () => {
       const stub = makeMcpStub();
-      stub.service.removeServer = async (name) => {
+      stub.service.removeServer = async (name: any) => {
         throw new Error2(ErrorCodes.MCP_SERVER_NOT_FOUND, `MCP server "${name}" was not found`);
       };
       await boot(stub);
@@ -485,7 +485,7 @@ describe('server /api/v2/mcp', () => {
       const stub = makeMcpStub();
       let seenSignal: AbortSignal | undefined;
       let reached = false;
-      stub.service.completeServerAuth = async (_handle, options) => {
+      stub.service.completeServerAuth = async (_handle: any, options: any) => {
         seenSignal = options?.signal;
         reached = true;
         await new Promise<void>((resolve) => {

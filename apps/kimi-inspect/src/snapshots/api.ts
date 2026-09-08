@@ -3,7 +3,7 @@ import type {
   SessionWorkspaceAssociationSnapshot,
   WorkspaceInstanceSnapshot,
   WorkspaceInstancesSnapshot,
-} from '@moonshot-ai/agent-core-v2';
+} from '../compat/v2';
 
 import { DEBUG_RPC_BASE, type InspectClient } from '../channel';
 import { RPCError } from '../channel/errors';

@@ -1,4 +1,4 @@
-import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+import { ErrorCodes, isKimiError, type PermissionMode, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
@@ -510,7 +510,8 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
 }
 
 async function showGoalStatus(host: SlashCommandHost): Promise<void> {
-  const { goal } = await host.requireSession().getGoal();
+  const res = await host.requireSession().getGoal();
+  const goal = (res as { goal?: GoalSnapshot | null }).goal ?? null;
   host.track('goal_status', { status: goal?.status ?? 'none' });
   if (goal === null) {
     host.showStatus(t('tui.statusMessages.noGoalSet'));

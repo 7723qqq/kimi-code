@@ -16,7 +16,7 @@ import type {
   DebugEventBusSnapshot,
   DebugEventSubscription,
   DebugEventSubscriptions,
-} from '@moonshot-ai/agent-core-v2/features/debugEvents/debugEvents';
+} from '../../compat/v2';
 
 import { Badge } from '../../ui';
 

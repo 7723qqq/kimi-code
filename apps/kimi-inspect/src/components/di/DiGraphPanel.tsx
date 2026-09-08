@@ -27,8 +27,8 @@
  *
  * Pure React + Tailwind, no graph or layout library.
  */
-import type { UnitState } from '@moonshot-ai/agent-core-v2/_base/di/cascadeEngine';
-import type { DebugGraph, DebugGraphNode } from '@moonshot-ai/agent-core-v2/debug/debugGraph';
+import type { UnitState } from '../../compat/v2';
+import type { DebugGraph, DebugGraphNode } from '../../compat/v2';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const STATE_COLORS: Record<UnitState | 'none', string> = {

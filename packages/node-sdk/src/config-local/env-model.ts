@@ -1,7 +1,7 @@
 /**
  * Localized port of v1's env-model overlay (`agent-core/src/config/env-model.ts`).
  */
-import { ErrorCodes, KimiError } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 import { parseBooleanEnv } from './resolve';
 import {

@@ -170,11 +170,11 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
     );
   }
   lines.push(
-    row(t('tui.messages.goalPanel.runningLabel'), value(formatGoalElapsed(goal.wallClockMs))),
+    row(t('tui.messages.goalPanel.runningLabel'), value(formatGoalElapsed(goal.wallClockMs ?? 0))),
   );
-  lines.push(row(t('tui.messages.goalPanel.turnsLabel'), value(`${goal.turnsUsed}`)));
+  lines.push(row(t('tui.messages.goalPanel.turnsLabel'), value(`${goal.turnsUsed ?? 0}`)));
   lines.push(
-    row(t('tui.messages.goalPanel.tokensLabel'), value(formatTokenCount(goal.tokensUsed))),
+    row(t('tui.messages.goalPanel.tokensLabel'), value(formatTokenCount(goal.tokensUsed ?? 0))),
   );
   if (!isComplete) {
     const stop = formatStopRow(goal);
@@ -195,7 +195,7 @@ function formatStopRow(goal: GoalSnapshot): string | null {
     parts.push(
       t('tui.messages.goalPanel.stopTurns', {
         turnBudget: budget.turnBudget,
-        turnsUsed: goal.turnsUsed,
+        turnsUsed: goal.turnsUsed ?? 0,
       }),
     );
   }
@@ -227,6 +227,7 @@ function statusToken(status: GoalStatus): ColorToken {
     case 'usage_limited':
       return 'warning';
     case 'paused':
+    default:
       return 'textDim';
   }
 }
@@ -245,6 +246,8 @@ function statusLabel(status: GoalStatus): string {
       return t('tui.messages.goalPanel.statusBudgetLimited');
     case 'usage_limited':
       return t('tui.messages.goalPanel.statusUsageLimited');
+    default:
+      return String(status);
   }
 }
 

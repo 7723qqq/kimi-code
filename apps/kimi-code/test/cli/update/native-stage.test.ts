@@ -17,7 +17,11 @@ import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 
 const fsMocks = vi.hoisted(() => ({
   /** Records chmod/rename calls (path-based) so tests can assert ordering. */
-  calls: [] as Array<{ readonly op: 'chmod' | 'rename'; readonly path: string; readonly dst?: string }>,
+  calls: [] as Array<{
+    readonly op: 'chmod' | 'rename';
+    readonly path: string;
+    readonly dst?: string;
+  }>,
   /** When > 0, the next open() wraps its handle so the first write is short. */
   shortWriteBudget: 0,
 }));
@@ -413,9 +417,7 @@ describe('stageNativeUpdate', () => {
     }
     // The chmod lands on the very .part file that gets published, before it.
     expect(publishCall.path).toBe(chmodCall.path);
-    expect(fsMocks.calls.indexOf(chmodCall)).toBeLessThan(
-      fsMocks.calls.indexOf(publishCall),
-    );
+    expect(fsMocks.calls.indexOf(chmodCall)).toBeLessThan(fsMocks.calls.indexOf(publishCall));
   });
 
   it('reports download progress with the Content-Length total', async () => {
@@ -452,9 +454,13 @@ describe('stageNativeUpdate', () => {
           yield Buffer.from('first-chunk');
           // Stall forever — only the idle timeout's abort can end this.
           await new Promise((_, reject) => {
-            signal?.addEventListener('abort', () => {
-              reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
-            }, { once: true });
+            signal?.addEventListener(
+              'abort',
+              () => {
+                reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+              },
+              { once: true },
+            );
           });
         })();
         return {
@@ -486,7 +492,13 @@ describe('stageNativeUpdate', () => {
 
   it('short-circuits when the same version is already staged', async () => {
     const firstFetch = mockCdnFetch({ payload: PAYLOAD });
-    await stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl: firstFetch });
+    await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl: firstFetch,
+    });
 
     const secondFetch = mockCdnFetch({ payload: PAYLOAD });
     const result = await stageNativeUpdate({
@@ -877,10 +889,7 @@ describe('stageNativeUpdate', () => {
         const { mkdir } = await import('node:fs/promises');
         await mkdir(stagingDir, { recursive: true });
         await writeFile(join(stagingDir, exeFileName), PAYLOAD);
-        await writeFile(
-          join(stagingDir, 'staged.json.swap-4321'),
-          JSON.stringify({ exeFileName }),
-        );
+        await writeFile(join(stagingDir, 'staged.json.swap-4321'), JSON.stringify({ exeFileName }));
         // …then this attempt's download fails.
         return { ok: false, status: 503, text: async () => '', body: null };
       }

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { isoDateTimeSchema } from '#/compat/core.js';
+import type { TurnEndReason } from '#/compat/core.js';
 import type {
   BundledSkillActivation,
   CompactionSummaryOrigin,
@@ -17,15 +17,15 @@ import type {
   SystemTriggerOrigin,
   TaskOrigin,
   UserPromptOrigin,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+} from '#/compat/core.js';
 import { messageContentSchema } from './message';
-import type { HookResultPayload } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type { HookResultPayload } from '#/compat/core.js';
 import type {
   CompactionBlockedPayload,
   CompactionCompletedPayload,
   CompactionStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
-import type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
+} from '#/compat/core.js';
+import type { CompactionResult } from '#/compat/core.js';
 import type {
   GoalActor,
   GoalBudgetLimits,
@@ -36,7 +36,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import type {
   AssistantDeltaPayload,
   ThinkingDeltaPayload,
@@ -44,41 +44,41 @@ import type {
   TurnStepCompletedPayload,
   TurnStepInterruptedPayload,
   TurnStepStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+} from '#/compat/core.js';
 import type {
   McpServerStatusEventPayload,
   McpServerStatusPayload,
   ToolListUpdatedPayload,
   ToolListUpdatedReason,
-} from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
-import type { McpOAuthAuthorizationUrlUpdateData } from '@moonshot-ai/agent-core-v2/agent/mcp/tools/auth';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
-import type { PluginCommandActivatedPayload } from '@moonshot-ai/agent-core-v2/agent/pluginCommand/pluginCommand';
+} from '#/compat/core.js';
+import type { McpOAuthAuthorizationUrlUpdateData } from '#/compat/core.js';
+import type { PermissionMode } from '#/compat/core.js';
+import type { WarningEvent } from '#/compat/core.js';
+import type { PluginCommandActivatedPayload } from '#/compat/core.js';
 import type {
   ShellCompletedPayload,
   ShellOutputPayload,
   ShellStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommandService';
+} from '#/compat/core.js';
 
-import type { TurnStepRetryingPayload } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
-import type { AgentTaskStatus } from '@moonshot-ai/agent-core-v2/agent/task/types';
+import type { TurnStepRetryingPayload } from '#/compat/core.js';
+import type { AgentTaskStatus } from '#/compat/core.js';
 import type {
   ToolCallStartedPayload,
   ToolProgressPayload,
   ToolResultEventPayload,
-} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
-import type { FinishReason } from '@moonshot-ai/agent-core-v2/kosong/contract/provider';
-import type { TokenUsage } from '@moonshot-ai/agent-core-v2/kosong/contract/usage';
+} from '#/compat/core.js';
+import type { UsageStatus } from '#/compat/core.js';
+import type { FinishReason } from '#/compat/core.js';
+import type { TokenUsage } from '#/compat/core.js';
 import type {
   SubagentCompletedPayload,
   SubagentFailedPayload,
   SubagentSpawnedPayload,
   SubagentStartedPayload,
-} from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
-import type { SubagentSuspendedPayload } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
-import type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
+} from '#/compat/core.js';
+import type { SubagentSuspendedPayload } from '#/compat/core.js';
+import type { ToolUpdate } from '#/compat/core.js';
 
 import { ToolInputDisplaySchema } from './display';
 import { configResponseSchema } from './rest-config';

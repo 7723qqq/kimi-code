@@ -16,9 +16,7 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
-import { IEngineOverrideService } from '@moonshot-ai/agent-core-v2';
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
-import { maybeLoadRustEngine } from '#/cli/rust-engine';
 import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -45,6 +43,7 @@ import {
   type RemoteControlOptions,
   type RemoteControlStatus,
 } from './remote-control';
+import { findRustAgentBinary, startRustServerForeground } from './rust-server-runner';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
   DEFAULT_LAN_HOST,
@@ -73,6 +72,8 @@ interface RoutedServer {
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
   remoteControl?: boolean;
+  rustServer?: boolean;
+  legacyServer?: boolean;
 }
 
 export interface StartForegroundHooks {
@@ -89,6 +90,7 @@ export interface WebCommandDeps {
   ) => Promise<never>;
   startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   openUrl(url: string): void;
+  findBinary?: () => string | undefined;
   /**
    * Best-effort read of the server's persistent bearer token. When it returns
    * a token, the ready banner prints it and the opened Web UI URL carries it in
@@ -104,6 +106,53 @@ export interface WebCommandDeps {
   networkAddresses?: NetworkAddress[];
   stdout: Pick<NodeJS.WriteStream, 'write'>;
   stderr: Pick<NodeJS.WriteStream, 'write'>;
+}
+
+export interface ServerRunnerResolution {
+  runner: (options: ParsedServerOptions, hooks?: StartForegroundHooks) => Promise<never>;
+  isRust: boolean;
+  isLegacyFallback: boolean;
+  deprecationNotice?: string;
+}
+
+/**
+ * Resolve the appropriate server runner (native Rust server vs legacy kap-server).
+ * Prefers the native Rust server by default whenever the binary is discoverable.
+ */
+export function resolveServerRunner(
+  opts: WebCliOptions,
+  findBin: () => string | undefined = findRustAgentBinary,
+): ServerRunnerResolution {
+  const forceLegacy = opts.legacyServer === true || process.env['KIMI_LEGACY_SERVER'] === '1';
+  if (forceLegacy) {
+    return {
+      runner: startServerForeground,
+      isRust: false,
+      isLegacyFallback: true,
+      deprecationNotice:
+        '[DEPRECATION] kap-server (agent-core-v2) is deprecated and will be removed in a future release. Native kimi-agent server is recommended.',
+    };
+  }
+
+  const forceRust = opts.rustServer === true || process.env['KIMI_USE_RUST_SERVER'] === '1';
+  const hasRustBinary = findBin() !== undefined;
+
+  if (forceRust || hasRustBinary) {
+    return {
+      runner: startRustServerForeground,
+      isRust: true,
+      isLegacyFallback: false,
+    };
+  }
+
+  // Fallback to legacy kap-server when rust binary cannot be found
+  return {
+    runner: startServerForeground,
+    isRust: false,
+    isLegacyFallback: true,
+    deprecationNotice:
+      '[DEPRECATION] Native kimi-agent binary was not found; falling back to legacy kap-server (agent-core-v2). kap-server is deprecated and will be removed.',
+  };
 }
 
 /**
@@ -160,6 +209,16 @@ export function buildWebCommand(
     .option(
       '--web-title <title>',
       'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Kimi Code").',
+    )
+    .option(
+      '--rust-server',
+      'Run the native Rust HTTP/WS server (kimi-agent --serve). Active by default when binary is available.',
+      process.env['KIMI_USE_RUST_SERVER'] === '1',
+    )
+    .option(
+      '--legacy-server',
+      'Force fallback to the legacy kap-server runtime (deprecated).',
+      process.env['KIMI_LEGACY_SERVER'] === '1',
     );
   if (!forceRemoteControl) {
     withServerOptions.addOption(
@@ -199,7 +258,12 @@ export async function handleWebCommand(
   if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
     throw new Error('--remote-control requires a loopback host.');
   }
-  const run = deps.startServerForeground ?? startServerForeground;
+  const resolution = resolveServerRunner(opts, deps.findBinary ?? findRustAgentBinary);
+  if (resolution.deprecationNotice && deps.stderr) {
+    deps.stderr.write(`${chalk.hex(darkColors.warning)(resolution.deprecationNotice)}\n`);
+  }
+  const defaultRunner = resolution.runner;
+  const run = deps.startServerForeground ?? defaultRunner;
   let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
     onReady: async (origin) => {
@@ -249,6 +313,7 @@ export async function handleWebCommand(
               token,
               networkAddresses: deps.networkAddresses,
               dangerousBypassAuth: parsed.dangerousBypassAuth,
+              backend: resolution.isRust ? 'rust' : 'legacy',
             })
           : formatReadyLine(origin, token, parsed.dangerousBypassAuth),
       );
@@ -374,19 +439,8 @@ async function runServerInProcess(
     // only covers host-level events.
     telemetry: true,
     webAssetsDir,
-    seeds: await (async () => {
-      const engine = await maybeLoadRustEngine().catch(() => undefined);
-      if (engine === undefined) return [];
-      return [
-        [
-          IEngineOverrideService,
-          {
-            getEngine: () => engine,
-            ownsTurnLifecycle: true,
-          },
-        ] as const,
-      ];
-    })(),
+    engineBridge: true,
+    seeds: [],
   });
   logger.info('serving the REST/WS API and the bundled web UI');
   running = {
@@ -455,6 +509,8 @@ interface FormatReadyBannerOptions {
   networkAddresses?: NetworkAddress[];
   /** When true, render a red danger notice (auth is disabled). */
   dangerousBypassAuth?: boolean;
+  /** Runtime engine backend powering the server. */
+  backend?: 'rust' | 'legacy';
 }
 
 export function formatReadyBanner(
@@ -468,6 +524,7 @@ export function formatReadyBanner(
   const muted = (text: string): string => chalk.hex(darkColors.textMuted)(text);
   const label = (text: string): string => chalk.bold.hex(darkColors.textDim)(text);
   const url = (text: string): string => chalk.hex(darkColors.accent)(text);
+  const successBadge = (text: string): string => chalk.bold.hex(darkColors.success)(text);
   // Render the `#token=…` fragment in a de-emphasized gray so the host/port
   // stands out while the full URL stays selectable for copying.
   const urlWithDimToken = (href: string): string => {
@@ -479,9 +536,10 @@ export function formatReadyBanner(
   // Borderless header: the Kimi sprite (the little mascot with eyes) sits next
   // to the title, keeping the brand without the enclosing box.
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
+  const backendBadge = opts.backend === 'rust' ? `  ${successBadge('[native-rust]')}` : '';
   const lines: string[] = [
     '',
-    `  ${primary(logo[0])}  ${title(t('tui.statusMessages.serverReadyBanner'))}  ${dim(getVersion())}`,
+    `  ${primary(logo[0])}  ${title(t('tui.statusMessages.serverReadyBanner'))}  ${dim(getVersion())}${backendBadge}`,
     `  ${primary(logo[1])}  ${dim(t('tui.statusMessages.serverReadyLocalUi'))}`,
     '',
   ];

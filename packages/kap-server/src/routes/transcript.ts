@@ -1,4 +1,4 @@
-import { MAIN_AGENT_ID, type Scope } from '@moonshot-ai/agent-core-v2';
+import { MAIN_AGENT_ID, type Scope } from '#/compat/core.js';
 import {
   isPlainAgentId,
   paginateTurns,

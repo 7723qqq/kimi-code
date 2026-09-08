@@ -1,5 +1,5 @@
 @echo off
-REM Kimi Code Desktop launcher — builds the native binary (bun) and runs a vendored Electron shell.
+REM Kimi Code Desktop launcher -- builds the native binary (bun) and runs a vendored Electron shell.
 REM Usage: double-click or run from cmd/powershell.
 
 setlocal

@@ -9,9 +9,9 @@ import {
   overrideScopedService,
   type TerminalProcess,
   type TerminalSpawnOptions,
-} from '@moonshot-ai/agent-core-v2';
+  type Terminal,
+} from '#/compat/core.js';
 import { ErrorCode } from '../src/protocol/error-codes';
-import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

@@ -27,10 +27,10 @@ import {
   resumeSessionById,
   sessionDirOf,
   type ScopeSeed,
-} from '@moonshot-ai/agent-core-v2';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+  TurnStarted,
+  encodeWorkDirKey,
+  sessionWarningsResponseSchema,
+} from '#/compat/core.js';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -288,7 +288,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const eventBus = agent.accessor.get(IEventBus);
     const events: Event2<any>[] = [];
-    const subscription = eventBus.subscribe((event) => events.push(event));
+    const subscription = eventBus.subscribe((event: any) => events.push(event));
 
     const goal = agent.accessor.get(IAgentGoalService);
     const snapshot =
@@ -1055,7 +1055,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
     const forkedCron = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentCronService);
-    expect(forkedCron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
+    expect(forkedCron.list().map((t: any) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'fork me' },
     ]);
   });
@@ -1092,7 +1092,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
     const forkedCron = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentCronService);
-    expect(forkedCron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
+    expect(forkedCron.list().map((t: any) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'survives corruption' },
     ]);
   });
@@ -1265,7 +1265,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(resumed).toBeDefined();
     const resumedManager = resumed!.accessor.get(IAgentLifecycleService);
     const cron = resumedManager.handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentCronService);
-    expect(cron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
+    expect(cron.list().map((t: any) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'restart me' },
     ]);
   });
@@ -1624,7 +1624,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const events: { type: string; payload: unknown }[] = [];
     const sub = (server as RunningServer).core.accessor
       .get(IEventService)
-      .subscribe((event) => events.push(event as unknown as { type: string; payload: unknown }));
+      .subscribe((event: any) => events.push(event as unknown as { type: string; payload: unknown }));
 
     const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
       title: 'renamed-via-profile',
@@ -1658,7 +1658,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const events: { type: string; payload: unknown }[] = [];
     const sub = (server as RunningServer).core.accessor
       .get(IEventService)
-      .subscribe((event) => events.push(event as unknown as { type: string; payload: unknown }));
+      .subscribe((event: any) => events.push(event as unknown as { type: string; payload: unknown }));
 
     const submitted = await postJson<{ prompt_id: string; status: string }>(
       `/api/v1/sessions/${id}/prompts`,

@@ -1,48 +1,47 @@
-import * as vscode from "vscode";
-import * as path from "node:path";
-import { BaselineManager, type BaselineSession } from "./baseline.manager";
-import { Events } from "../../shared/bridge";
-import type { ProjectFile } from "../../shared/types";
-import { buildCaseInsensitiveGlobLiteral } from "../utils/string";
-import {
-  isWorkspacePathContained,
-  relativeWorkspacePath,
-} from "../utils/workspace-path";
+import * as path from 'node:path';
+
+import * as vscode from 'vscode';
+
+import { Events } from '../../shared/bridge';
+import type { ProjectFile } from '../../shared/types';
+import { buildCaseInsensitiveGlobLiteral } from '../utils/string';
+import { isWorkspacePathContained, relativeWorkspacePath } from '../utils/workspace-path';
+import { BaselineManager, type BaselineSession } from './baseline.manager';
 
 export type BroadcastFn = (event: string, data: unknown, webviewId?: string) => void;
 
 const IGNORE_DIRS = new Set([
-  "node_modules",
-  ".git",
-  ".svn",
-  ".hg",
-  "dist",
-  "build",
-  "out",
-  ".next",
-  ".nuxt",
-  "__pycache__",
-  ".cache",
-  ".venv",
-  "venv",
-  ".gradle",
-  ".idea",
-  ".DS_Store",
-  "Thumbs.db",
-  "coverage",
-  ".nyc_output",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".tox",
-  ".eggs",
-  ".sass-cache",
-  ".parcel-cache",
-  "bower_components",
-  "jspm_packages",
-  ".turbo",
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  '.nuxt',
+  '__pycache__',
+  '.cache',
+  '.venv',
+  'venv',
+  '.gradle',
+  '.idea',
+  '.DS_Store',
+  'Thumbs.db',
+  'coverage',
+  '.nyc_output',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.tox',
+  '.eggs',
+  '.sass-cache',
+  '.parcel-cache',
+  'bower_components',
+  'jspm_packages',
+  '.turbo',
 ]);
 
-const SEARCH_EXCLUDE = `{${[...IGNORE_DIRS].map((d) => `**/${d}`).join(",")}}`;
+const SEARCH_EXCLUDE = `{${[...IGNORE_DIRS].map((d) => `**/${d}`).join(',')}}`;
 
 interface ViewState {
   session: BaselineSession | null;
@@ -58,11 +57,11 @@ export class FileManager {
     private broadcast: BroadcastFn,
   ) {
     // Watch for file changes
-    const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*');
 
     const refresh = (uri: vscode.Uri) => {
       void this.onFileChange(uri).catch((error) => {
-        console.error("[kimi-vscode] Unable to refresh file changes", error);
+        console.error('[kimi-vscode] Unable to refresh file changes', error);
       });
     };
     watcher.onDidChange(refresh);
@@ -138,8 +137,8 @@ export class FileManager {
   }
 
   async searchFiles(workDirUri: vscode.Uri, query?: string): Promise<ProjectFile[]> {
-    query = query ? buildCaseInsensitiveGlobLiteral(query) : "";
-    const pattern = query ? `**/*${query}*` : "**/*";
+    query = query ? buildCaseInsensitiveGlobLiteral(query) : '';
+    const pattern = query ? `**/*${query}*` : '**/*';
     const files = await vscode.workspace.findFiles(
       new vscode.RelativePattern(workDirUri, pattern),
       new vscode.RelativePattern(workDirUri, SEARCH_EXCLUDE),
@@ -148,7 +147,8 @@ export class FileManager {
     const results = await Promise.all(
       files.map(async (uri): Promise<ProjectFile | undefined> => {
         const relativePath = relativeWorkspacePath(workDirUri, uri);
-        if (relativePath === undefined || !(await isWorkspacePathContained(workDirUri, uri))) return undefined;
+        if (relativePath === undefined || !(await isWorkspacePathContained(workDirUri, uri)))
+          return undefined;
         return {
           path: relativePath,
           name: path.posix.basename(relativePath),

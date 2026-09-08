@@ -14,7 +14,7 @@ import {
   type SessionWorkspaceAssociationSnapshot,
   type WorkspaceInstanceSnapshot,
   type WorkspaceInstancesSnapshot,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import { MAIN_AGENT_ID, ensureMainAgent } from './mainAgent';
 

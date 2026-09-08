@@ -1,4 +1,4 @@
-import { PRINT_WAIT_CEILING_S_DEFAULT } from '@moonshot-ai/agent-core-v2';
+export const PRINT_WAIT_CEILING_S_DEFAULT = 60;
 import { describe, expect, it, vi } from 'vitest';
 
 import {

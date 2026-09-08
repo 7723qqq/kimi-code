@@ -9,7 +9,7 @@ import {
   type ConfigSectionChangedEvent,
   type Event2,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
 import { ErrorCode } from '../src/protocol/error-codes';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -299,7 +299,7 @@ describe('server-v2 config changed WS notifications', () => {
     await boot();
     const published: string[] = [];
     const events = (server as RunningServer).core.accessor.get(IEventService);
-    const subscription = events.subscribe((event) => {
+    const subscription = events.subscribe((event: any) => {
       if (event.type === 'event.config.changed') published.push(event.type);
     });
 

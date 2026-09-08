@@ -1,4 +1,4 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { isoDateTimeSchema } from '#/compat/core.js';
 import { transcriptGradeSpecSchema, transcriptSeqSchema } from '@moonshot-ai/transcript';
 import { z } from 'zod';
 

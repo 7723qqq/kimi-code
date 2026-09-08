@@ -4,7 +4,7 @@ import {
   getLiveSessionById,
   type AgentTaskInfo,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   cancelTaskResultSchema,
@@ -78,12 +78,12 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
+      const all = (resolved.tasks?.list(false) ?? []).map((info: AgentTaskInfo) =>
         toWireTask(session_id, info),
       );
       const query = req.query as { status?: TaskStatus };
       const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+        query.status !== undefined ? all.filter((t: Task) => t.status === query.status) : all;
       reply.send(okEnvelope({ items }, req.id));
     },
   );
@@ -231,7 +231,7 @@ async function resolveSessionTasks(core: Scope, sid: string): Promise<ResolvedTa
   return { kind: 'resolved', tasks };
 }
 
-function mapKind(k: AgentTaskInfo['kind']): TaskKind {
+function mapKind(k: 'process' | 'agent' | 'question'): TaskKind {
   switch (k) {
     case 'process':
       return 'bash';
@@ -242,7 +242,9 @@ function mapKind(k: AgentTaskInfo['kind']): TaskKind {
   }
 }
 
-function mapStatus(s: AgentTaskInfo['status']): TaskStatus {
+function mapStatus(
+  s: 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost',
+): TaskStatus {
   switch (s) {
     case 'running':
       return 'running';

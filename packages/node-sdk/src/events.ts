@@ -1,23 +1,15 @@
-import type { Event2 } from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { Event as ProtocolEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
 
 export type { ToolInputDisplay } from '@moonshot-ai/protocol';
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/protocol';
 
-// The SDK event stream carries the v1-protocol event shapes: the protocol
-// package's `AgentEvent` discriminated union stamped with the owning
-// session/agent ids (`Event`). The v2 engine's per-agent bus does not stamp
-// events (the bus is per-agent, so the consumer knows both), so the v2 client
-// re-adds that stamping on top when it forwards engine events into the SDK
-// stream — consumers rely on `event.sessionId` / `event.agentId` for session
-// filtering and subagent routing.
 export type Event = ProtocolEvent;
 
-// Engine-side event shape (agent-core-v2's `Event2` instances as forwarded by
-// the v2 client). Kept separate from the SDK `Event` stream: engine events are
-// class instances whose payload fields are only known at runtime.
-export type DomainEvent = Event2<Record<string, unknown>>;
+export interface DomainEvent {
+  readonly type: string;
+  readonly [key: string]: unknown;
+}
 
 export type { SessionMetaUpdatedEvent } from '@moonshot-ai/protocol';
 

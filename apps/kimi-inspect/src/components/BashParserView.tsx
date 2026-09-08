@@ -20,7 +20,7 @@ import {
   IBashParserService,
   type BashParseResult,
   type BashSyntaxNode,
-} from '@moonshot-ai/agent-core-v2/app/bashParser/bashParser';
+} from '../compat/v2';
 import { useEffect, useState } from 'react';
 
 import { useConnection } from '../connection';

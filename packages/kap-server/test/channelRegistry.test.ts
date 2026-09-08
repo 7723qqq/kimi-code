@@ -5,7 +5,7 @@ import {
   LifecycleScope,
   Service,
   createAppScope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { describe, expect, it } from 'vitest';
 
 import { describeAllChannels, resolveAnyScopedServiceId } from '../src/transport/channelRegistry';

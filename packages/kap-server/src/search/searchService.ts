@@ -15,7 +15,7 @@ import {
   sessionDirOf,
   workspacePersistenceScope,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { normalizeLiteral, tokenize } from '@moonshot-ai/minidb';
 import type { TranscriptStore } from '@moonshot-ai/transcript';
 

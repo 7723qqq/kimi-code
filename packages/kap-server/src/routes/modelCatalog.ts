@@ -12,15 +12,15 @@ import {
   type ProviderConfig,
   type ProvidersSection,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { setDefaultModelResponseSchema } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
-import { refreshProviderModelsResponseSchema } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
+} from '#/compat/core.js';
+import { setDefaultModelResponseSchema } from '#/compat/core.js';
+import { refreshProviderModelsResponseSchema } from '#/compat/core.js';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
-} from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
+} from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

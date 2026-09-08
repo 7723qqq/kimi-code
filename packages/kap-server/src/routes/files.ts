@@ -1,6 +1,6 @@
 
 import multipart from '@fastify/multipart';
-import { ErrorCodes, IFileService, Error2, type Scope } from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes, IFileService, Error2, type Scope } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { requestLog } from '../lib/requestLog';

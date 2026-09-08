@@ -5,14 +5,17 @@ import {
   ISessionMetadata,
   resumeSessionById,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import type { SessionWireFields } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionLegacy';
-import type { UpdateSessionProfileRequest } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '#/compat/core.js';
+import type { SessionWireFields } from '#/compat/core.js';
 
 export async function updateSessionProfile(
   core: Scope,
   sessionId: string,
-  body: Pick<UpdateSessionProfileRequest, 'title' | 'metadata'>,
+  body: {
+    title?: string;
+    metadata?: Record<string, unknown>;
+    permission_rules?: unknown;
+  },
 ): Promise<SessionWireFields> {
   const session = await resumeSessionById(core.accessor, sessionId);
   if (session === undefined) {

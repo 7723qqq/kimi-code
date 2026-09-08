@@ -13,14 +13,14 @@
  * status badge. Session creation still goes through the v1 REST endpoint.
  */
 
-import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
+import { IAgentProfileService } from '../compat/v2';
+import { IConfigService } from '../compat/v2';
+import { ISessionManager } from '../compat/v2';
 import {
   IWorkspaceService,
   type Workspace,
-} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-import { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+} from '../compat/v2';
+import { IModelCatalog } from '../compat/v2';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 

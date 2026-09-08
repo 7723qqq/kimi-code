@@ -1,6 +1,6 @@
 import { afterEach } from 'vitest';
 
-import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/agent-core-v2';
+import { drainQueryStoreDisposals, drainSessionIndexMirror } from '#/compat/core.js';
 
 delete process.env['KIMI_CODE_EXPERIMENTAL_FLAG'];
 for (const key of Object.keys(process.env)) {

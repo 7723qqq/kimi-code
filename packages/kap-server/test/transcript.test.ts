@@ -17,7 +17,7 @@ import {
   type ContextMessage,
   type Event2,
   type ScopeSeed,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

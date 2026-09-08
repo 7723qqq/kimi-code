@@ -25,7 +25,8 @@ import {
   type ConfigDiagnostic,
   type Scope,
   type ScopeSeed,
-} from '@moonshot-ai/agent-core-v2';
+} from './compat/core.js';
+import { createEngineSeeds } from './compat/engine-bridge.js';
 import {
   createKimiDefaultHeaders,
   kimiRegionProfile,
@@ -118,6 +119,7 @@ export interface ServerStartOptions {
   readonly authTokenService?: IAuthTokenService;
   readonly disableAuth?: boolean;
   readonly webTitle?: string;
+  readonly engineBridge?: boolean;
   readonly rpcToken?: string;
   readonly seeds?: ScopeSeed;
   readonly hostIdentity: ServerHostIdentity;
@@ -198,6 +200,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
   const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
+  const engineBridge = opts.engineBridge === true
+    ? createEngineSeeds({ homeDir })
+    : { seeds: [] as readonly ScopeSeed[], dispose: () => {} };
   const { app: core } = bootstrap(
     {
       homeDir,
@@ -211,7 +216,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         replyStyleGuide: opts.hostIdentity.replyStyleGuide,
       },
     },
-    [...logSeed(logging), ...(opts.seeds ?? [])],
+    [...logSeed(logging), ...engineBridge.seeds, ...(opts.seeds ?? [])],
   );
 
   let telemetry: ServerTelemetry = {};
@@ -324,6 +329,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await drainQueryStoreDisposals();
       await drainSessionMetadataWrites();
       await drainLogCloses();
+      engineBridge.dispose();
     } finally {
       try {
         await registration.release();
@@ -364,7 +370,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     core.accessor.get(IEventService).publish(new PluginChanged({ payload: {} }));
   });
   const capabilityService = core.accessor.get(ICapabilityService);
-  const capabilityInstallSubscription = capabilityService.onDidChangeInstall((change) => {
+  const capabilityInstallSubscription = capabilityService.onDidChangeInstall((change: { id: string; install: unknown }) => {
     core.accessor.get(IEventService).publish(
       new CapabilityChanged({
         payload: { capability_id: change.id, install: change.install },

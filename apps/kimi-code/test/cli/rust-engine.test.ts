@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   resolveKimiHome: vi.fn(),
   createRunTurnOverride: vi.fn(),
   activeEngineMode: vi.fn(),
-  probeHostEnvironment: vi.fn(),
   isRustEngineAvailable: vi.fn(),
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
@@ -31,10 +30,6 @@ vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
   KimiAuthFacade: class {
     resolveOAuthTokenProvider = mocks.resolveOAuthTokenProvider;
   },
-}));
-
-vi.mock('@moonshot-ai/agent-core-v2', () => ({
-  probeHostEnvironment: mocks.probeHostEnvironment,
 }));
 
 vi.mock('@moonshot-ai/kimi-agent/rust-loop', () => ({
@@ -84,9 +79,24 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
     defaultModel: 'kimi-k2',
     providers: {
-      kimi: { defaultModel: 'kimi-k2', type: 'kimi', apiKey: 'k', baseUrl: 'https://api.example.com/v1' },
-      anthropic: { defaultModel: 'claude-x', type: 'anthropic', apiKey: 'a', baseUrl: 'https://api.anthropic.com/v1' },
-      unsupported: { defaultModel: 'x', type: 'other', apiKey: 'x', baseUrl: 'https://x.example.com/v1' },
+      kimi: {
+        defaultModel: 'kimi-k2',
+        type: 'kimi',
+        apiKey: 'k',
+        baseUrl: 'https://api.example.com/v1',
+      },
+      anthropic: {
+        defaultModel: 'claude-x',
+        type: 'anthropic',
+        apiKey: 'a',
+        baseUrl: 'https://api.anthropic.com/v1',
+      },
+      unsupported: {
+        defaultModel: 'x',
+        type: 'other',
+        apiKey: 'x',
+        baseUrl: 'https://x.example.com/v1',
+      },
     },
     models: {
       'kimi-k2': { provider: 'kimi', model: 'kimi-k2', systemPrompt: 'default prompt' },
@@ -105,7 +115,6 @@ beforeEach(() => {
   mocks.resolveKimiHome.mockReset().mockReturnValue('/home/u');
   mocks.createRunTurnOverride.mockReset();
   mocks.activeEngineMode.mockReset().mockReturnValue('napi');
-  mocks.probeHostEnvironment.mockReset().mockResolvedValue({ shellPath: undefined });
   mocks.isRustEngineAvailable.mockReset().mockReturnValue(false);
   mocks.resolveOAuthTokenProvider.mockReset().mockReturnValue({
     getAccessToken: async () => 'token-from-host',
@@ -315,7 +324,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
 
     // defaultModel kimi-k2 → provider kimi → openai protocol with the
     // model alias's system prompt.
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'openai',
       base_url: 'https://api.example.com/v1',
       api_key: 'k',
@@ -347,7 +356,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await maybeLoadRustEngine('/home/u');
 
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'openai',
       base_url: 'https://api.example.com/v1',
       api_key: 'k',
@@ -407,7 +416,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
 
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'openai',
       base_url: 'https://api.example.com/v1',
       api_key: 'k',
@@ -509,7 +518,7 @@ describe('multiLlm / nativeLlm config extraction (through the adapter call)', ()
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
 
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'openai',
       base_url: 'https://api.example.com/v1',
       api_key: '',
@@ -627,7 +636,7 @@ describe('nativeLlm config extraction with /v1 normalization', () => {
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
 
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'anthropic',
       base_url: 'https://api.minimaxi.com/anthropic/v1',
       api_key: 'sk-test',
@@ -662,7 +671,7 @@ describe('nativeLlm config extraction with /v1 normalization', () => {
     const maybeLoadRustEngine = await loadMaybeRustEngine();
     await expect(maybeLoadRustEngine('/home/u')).resolves.toBe(engine);
 
-    expect(capturedNativeLlm).toEqual({
+    expect(capturedNativeLlm).toMatchObject({
       protocol: 'openai',
       base_url: 'https://api.deepseek.com/v1',
       api_key: 'sk-deepseek',

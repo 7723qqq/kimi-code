@@ -1,6 +1,6 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path';
 
-import type { IWorkspaceTrust } from '@moonshot-ai/agent-core-v2';
+import type { IWorkspaceTrust } from '#/compat/core.js';
 import {
   IBootstrapService,
   IHostFileSystem,
@@ -9,7 +9,7 @@ import {
   IWorkspaceSessions,
   type Scope,
   type Workspace,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -78,7 +78,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
     },
     async (req, reply) => {
       const items = await core.accessor.get(IWorkspaceService).list();
-      const projected = await Promise.all(items.map((ws) => toWireWorkspace(core, ws)));
+      const projected = await Promise.all(items.map((ws: Workspace) => toWireWorkspace(core, ws)));
       reply.send(okEnvelope({ items: projected }, req.id));
     },
   );

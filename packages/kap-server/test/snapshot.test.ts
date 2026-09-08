@@ -25,7 +25,7 @@ import {
   agentContextOf,
   getLiveSessionById,
   resumeSessionById,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
 import { emptySessionUsage } from '../src/protocol/session';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

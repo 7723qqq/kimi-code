@@ -3,7 +3,7 @@ import {
   type IProviderDiscoveryService,
   type ModelCatalogConfig,
   MODEL_CATALOG_SECTION,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import type { ServerLogger } from '../pinoLoggerService';
 

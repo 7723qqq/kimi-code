@@ -14,9 +14,9 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { shutdownRustEngine } from '@moonshot-ai/kimi-agent/rust-loop';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const kimiAgentDir = resolve(import.meta.dirname, '../../../../packages/kimi-agent');
 
@@ -94,95 +94,91 @@ describe.skipIf(!optedIn || !hasNativeAddon || !hosted)(
       }
     });
 
-    it(
-      'drives one turn through the real CLI wiring',
-      { timeout: 60_000 },
-      async () => {
-        const homeDir = mkdtempSync(join(tmpdir(), 'kimi-cli-e2e-'));
-        cleanups.push(homeDir);
-        writeFileSync(
-          join(homeDir, 'config.toml'),
-          [
-            `default_model = "${host.alias}"`,
-            '',
-            `[providers."${host.provider}"]`,
-            `type = "${host.type}"`,
-            `api_key = "${host.apiKey}"`,
-            `base_url = "${host.baseUrl}"`,
-            '',
-            `[models."${host.alias}"]`,
-            `provider = "${host.provider}"`,
-            `model = "${host.model}"`,
-            'max_context_size = 200000',
-            '',
-            '[agent]',
-            'engine = "rust"',
-          ].join('\n'),
-        );
+    it('drives one turn through the real CLI wiring', { timeout: 60_000 }, async () => {
+      const homeDir = mkdtempSync(join(tmpdir(), 'kimi-cli-e2e-'));
+      cleanups.push(homeDir);
+      writeFileSync(
+        join(homeDir, 'config.toml'),
+        [
+          `default_model = "${host.alias}"`,
+          '',
+          `[providers."${host.provider}"]`,
+          `type = "${host.type}"`,
+          `api_key = "${host.apiKey}"`,
+          `base_url = "${host.baseUrl}"`,
+          '',
+          `[models."${host.alias}"]`,
+          `provider = "${host.provider}"`,
+          `model = "${host.model}"`,
+          'max_context_size = 200000',
+          '',
+          '[agent]',
+          'engine = "rust"',
+        ].join('\n'),
+      );
 
-        const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
-        const engine = await maybeLoadRustEngine(homeDir);
-        expect(engine).toBeDefined();
-        expect(typeof engine).toBe('function');
+      const { maybeLoadRustEngine } = await import('../../src/cli/rust-engine');
+      const engine = await maybeLoadRustEngine(homeDir);
+      expect(engine).toBeDefined();
+      expect(typeof engine).toBe('function');
 
-        const events: string[] = [];
-        const input = {
-          turnId: 1,
-          signal: new AbortController().signal,
-          llm: {
-            modelAlias: host.alias,
-            modelId: host.model,
-            systemPrompt: 'Answer with exactly the word ok.',
-            // Only consulted when the engine proxies the LLM through the host;
-            // a native-LLM turn calls the provider itself.
-            async chat() {
-              return {
-                toolCalls: [],
-                providerFinishReason: 'stop',
-                content: 'ok',
-                usage: { inputOther: 8, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
-              };
+      const events: string[] = [];
+      const input = {
+        turnId: 1,
+        signal: new AbortController().signal,
+        llm: {
+          modelAlias: host.alias,
+          modelId: host.model,
+          systemPrompt: 'Answer with exactly the word ok.',
+          // Only consulted when the engine proxies the LLM through the host;
+          // a native-LLM turn calls the provider itself.
+          async chat() {
+            return {
+              toolCalls: [],
+              providerFinishReason: 'stop',
+              content: 'ok',
+              usage: { inputOther: 8, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          },
+        },
+        async buildMessages() {
+          return [
+            {
+              role: 'user' as const,
+              content: [{ type: 'text' as const, text: 'Reply with exactly: ok' }],
             },
-          },
-          async buildMessages() {
-            return [
-              {
-                role: 'user' as const,
-                content: [{ type: 'text' as const, text: 'Reply with exactly: ok' }],
-              },
-            ];
-          },
-          buildTools() {
-            return [];
-          },
-          async dispatchEvent(e: { type: string }) {
-            events.push(e.type);
-          },
-          // Only reached when the engine routes a tool call back to the host;
-          // a native-LLM turn with no tool calls never invokes it.
-          async executeTool() {
-            return { output: JSON.stringify({}), isError: false };
-          },
-        };
+          ];
+        },
+        buildTools() {
+          return [];
+        },
+        async dispatchEvent(e: { type: string }) {
+          events.push(e.type);
+        },
+        // Only reached when the engine routes a tool call back to the host;
+        // a native-LLM turn with no tool calls never invokes it.
+        async executeTool() {
+          return { output: JSON.stringify({}), isError: false };
+        },
+      };
 
-        // The test input is a minimal stand-in for the v2 TurnEngineInput
-        // contract; assert the engine only through the call shape we need.
-        const result = await (
-          engine as (i: unknown) => Promise<{
-            stopReason: string;
-            steps: number;
-            usage: { inputOther: number; output: number };
-            telemetry?: { eventsEmitted: number; llmRetries: number };
-          }>
-        )(input);
+      // The test input is a minimal stand-in for the v2 TurnEngineInput
+      // contract; assert the engine only through the call shape we need.
+      const result = await (
+        engine as (i: unknown) => Promise<{
+          stopReason: string;
+          steps: number;
+          usage: { inputOther: number; output: number };
+          telemetry?: { eventsEmitted: number; llmRetries: number };
+        }>
+      )(input);
 
-        expect(result.stopReason).toBe('completed');
-        expect(result.steps).toBeGreaterThanOrEqual(1);
-        expect(result.usage.output).toBeGreaterThan(0);
-        expect(events.length).toBeGreaterThan(0);
-        expect(result.telemetry?.eventsEmitted ?? 0).toBeGreaterThan(0);
-      },
-    );
+      expect(result.stopReason).toBe('completed');
+      expect(result.steps).toBeGreaterThanOrEqual(1);
+      expect(result.usage.output).toBeGreaterThan(0);
+      expect(events.length).toBeGreaterThan(0);
+      expect(result.telemetry?.eventsEmitted ?? 0).toBeGreaterThan(0);
+    });
   },
 );
 

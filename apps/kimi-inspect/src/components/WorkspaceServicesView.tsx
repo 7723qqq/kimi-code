@@ -11,7 +11,7 @@
  * manual join needed.
  */
 
-import { IWorkspaceService } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+import { IWorkspaceService } from '../compat/v2';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 

@@ -15,5 +15,5 @@ export function setExperimentalFeatures(
 
 /** An `undefined` flag means "not gated" → always enabled, so callers can pass an optional flag id. */
 export function isExperimentalFlagEnabled(flag: string | undefined): boolean {
-  return flag === undefined || snapshot[flag] === true;
+  return flag === undefined || snapshot[flag]?.enabled === true;
 }

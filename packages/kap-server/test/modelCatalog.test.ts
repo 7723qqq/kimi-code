@@ -12,7 +12,7 @@ import {
   type IProviderDiscoveryService as IProviderDiscoveryServiceType,
   type ModelCatalogConfig,
   type ScopeSeed,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

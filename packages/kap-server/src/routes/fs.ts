@@ -16,9 +16,9 @@ import {
   isError2,
   Error2,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { RuntimeError } from '@moonshot-ai/agent-core-v2/runtime/runtimeRegistry';
+} from '#/compat/core.js';
+import { encodeWorkDirKey } from '#/compat/core.js';
+import { RuntimeError } from '#/compat/core.js';
 import {
   fsDiffRequestSchema,
   fsGitStatusRequestSchema,
@@ -33,14 +33,14 @@ import {
   fsStatRequestSchema,
   fsSuggestRequestSchema,
   fsSuggestResponseSchema,
-} from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
-import { GitService } from '@moonshot-ai/agent-core-v2/app/git/gitService';
-import type { IHostFileSystem } from '@moonshot-ai/agent-core-v2/os/interface/hostFileSystem';
-import type { RuntimeCapability, RuntimeLease } from '@moonshot-ai/agent-core-v2/runtime/runtime';
-import { WorkspaceFsService } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fsService';
-import { WorkspaceGitService } from '@moonshot-ai/agent-core-v2/workspace/workspaceGit/workspaceGitService';
-import type { IWorkspaceContext } from '@moonshot-ai/agent-core-v2/workspace/workspaceContext/workspaceContext';
-import type { IWorkspaceDirs } from '@moonshot-ai/agent-core-v2/workspace/workspaceDirs/workspaceDirs';
+} from '#/compat/core.js';
+import { GitService } from '#/compat/core.js';
+import type { IHostFileSystem } from '#/compat/core.js';
+import type { RuntimeCapability, RuntimeLease } from '#/compat/core.js';
+import { WorkspaceFsService } from '#/compat/core.js';
+import { WorkspaceGitService } from '#/compat/core.js';
+import type { IWorkspaceContext } from '#/compat/core.js';
+import type { IWorkspaceDirs } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -164,7 +164,7 @@ function createLocalRuntimeFs(
   const runtime = core.accessor.get(IStandaloneRuntimeFactory).createLocalRuntime(workspaceId);
   const lease: RuntimeLease = {
     runtime,
-    track: (resource) => resource,
+    track: (resource: unknown) => resource,
     dispose: () => {
       void runtime.dispose();
     },
@@ -211,12 +211,12 @@ function buildRuntimeFsScope(
   const resolver: IRuntimeResolver = {
     _serviceBrand: undefined,
     inspect: () => lease.runtime,
-    acquire: (_binding, capabilities = []) => {
+    acquire: (_binding: unknown, capabilities: readonly string[] = []) => {
       const missing = capabilities.filter((capability) => !lease.runtime.capabilities.has(capability));
       if (missing.length > 0) throw new Error(`runtime ${runtimeId} missing capabilities: ${missing.join(', ')}`);
       return {
         runtime: lease.runtime,
-        track: (resource) => lease.track(resource),
+        track: (resource: unknown) => lease.track(resource),
         dispose: () => {},
       };
     },

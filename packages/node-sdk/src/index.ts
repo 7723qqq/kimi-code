@@ -20,6 +20,7 @@ export { ImageLimits } from '#/image-limits';
 export { KimiForCodingProvider } from '#/kimi-code-model-provider';
 export type { KimiForCodingProviderOptions } from '#/kimi-code-model-provider';
 export { removeProviderFromConfig } from '#/v2/config-mapper';
+export { validateConfig } from '#/config-local';
 
 export {
   applyCatalogProvider,
@@ -47,8 +48,7 @@ export type {
 export { setLocale, getLocale } from '@moonshot-ai/kimi-i18n';
 export type { Locale } from '@moonshot-ai/kimi-i18n';
 
-// Error primitives — localized legacy copies (see #/legacy) so the SDK keeps
-// its public `KimiError` / `ErrorCodes` contract without importing agent-core.
+// Error primitives.
 export {
   ErrorCodes,
   KimiError,
@@ -61,26 +61,24 @@ export {
   isKimiError,
   resolveErrorTitle,
   toKimiErrorPayload,
-} from '#/legacy';
+} from '#/error-protocol';
 
-// Diagnostic logging — public surface only. The implementation is a localized
-// port (see #/legacy/logging); `resolveGlobalLogPath` / `resolveLoggingConfig`
-// come from the v2 engine's log config (identical shape and values).
+// Diagnostic logging — public surface only.
 export {
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
   log,
   levelEnabled,
   LOG_LEVEL_RANK,
-} from '#/legacy';
-export type { LogContext, LogLevel, LogPayload, Logger } from '#/legacy';
-export { resolveGlobalLogPath, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
+} from '#/logging';
+export type { LogContext, LogLevel, LogPayload, Logger } from '#/logging';
+export { resolveGlobalLogPath, resolveLoggingConfig } from '#/logging';
 export {
   buildDaemonFileUrl,
   buildMediaPathTag,
   isDaemonFileUrl,
   parseDaemonFileUrl,
-} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
+} from '#/media/mediaRef';
 export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
 // Host-side config helpers — the localized v1 config-document layer (see
@@ -93,20 +91,17 @@ export {
   writeConfigFile,
   type RuntimeConfigLoadResult,
 } from '#/config-local';
-export { effectiveModelAlias, effectiveModelAliases } from '#/legacy';
-export { limitAgentReplayByTurns } from '#/legacy';
-export { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/agent-core-v2';
+export { effectiveModelAlias, effectiveModelAliases } from '#/model-alias';
+export { limitAgentReplayByTurns } from '#/config-helpers';
+export { parseAgentFileText, resolveAgentPath, type AgentFileDefinition } from '#/agent-file';
 // The synthesized `[models]` alias a `[secondary_model]` recipe with patch
 // fields materializes at runtime — hosts filter it out of model pickers.
 export { SECONDARY_DERIVED_MODEL_ALIAS } from '#/config-local';
-// Reserved key of the v2 engine's subagent model pool: it always binds the
-// caller's own model, so hosts must not offer a user alias named `primary`
-// as the subagent default model.
-export { PRIMARY_SUBAGENT_MODEL_CHOICE } from '@moonshot-ai/agent-core-v2/session/subagent/configSection';
+export const PRIMARY_SUBAGENT_MODEL_CHOICE = 'primary';
 
 // Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
 // outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
-export { installGlobalProxyDispatcher } from '@moonshot-ai/agent-core-v2/_base/utils/proxy';
+export { installGlobalProxyDispatcher } from '#/proxy';
 
 // Image compression — ingestion sites (e.g. the CLI's clipboard paste, the ACP
 // adapter) shrink oversized images while constructing the content part, before
@@ -127,21 +122,16 @@ export {
   sessionMediaOriginalsDir,
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/media';
 export type {
   ImageCompressionTelemetry,
   StrictPropertyCheck,
   TelemetryEventName,
   TelemetryEventPayload,
-} from '@moonshot-ai/agent-core-v2';
-
-// Experimental feature flags — types only. Resolved values come from
-// `KimiHarness.getExperimentalFeatures()` over RPC, not from a re-exported runtime value.
-export type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/types';
 
 export type {
   KimiAuthCompleteFeedbackUploadInput,
@@ -156,4 +146,5 @@ export type {
 } from '#/auth';
 
 export * from '#/events';
+export * from '#/marketplace';
 export type * from '#/types';

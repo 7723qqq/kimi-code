@@ -14,12 +14,10 @@ import {
   sessionDirOf,
   type Event2,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
-import {
   type FsGitStatusResponse,
   type FsPullRequest,
   IGitService,
-} from '@moonshot-ai/agent-core-v2/app/git/git';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -110,7 +108,7 @@ function stubSessionIndex(summaries: SessionSummary[]): ISessionIndex {
     _serviceBrand: undefined,
     prepare: async () => ({ state: 'ready', generation: 1, degradedCount: 0 }),
     status: () => ({ state: 'ready', generation: 1, degradedCount: 0 }),
-    listRecent: async (query) => {
+    listRecent: async (query: any) => {
       let items = summaries;
       if (query.workspaceIds !== undefined) {
         const ids = new Set(query.workspaceIds);
@@ -121,7 +119,7 @@ function stubSessionIndex(summaries: SessionSummary[]): ISessionIndex {
       }
       return { items, nextCursor: undefined };
     },
-    get: async (id) => summaries.find((summary) => summary.id === id),
+    get: async (id: any) => summaries.find((summary) => summary.id === id),
     count: async () => summaries.length,
     remove: async () => {},
   };
@@ -736,7 +734,7 @@ describe('server /api/v2/sessions', () => {
     ];
     const aliasStub: IWorkspaceAliases = {
       _serviceBrand: undefined,
-      resolveAliasIds: async (id) =>
+      resolveAliasIds: async (id: any) =>
         id === WS_A || id === 'ws_aaa_legacy' ? [WS_A, 'ws_aaa_legacy'] : [id],
     };
     server = await startServer({
@@ -817,7 +815,7 @@ describe('server /api/v2/sessions batch archive/restore', () => {
 
   function collectEvents(): { events: Event2[]; dispose(): void } {
     const events: Event2[] = [];
-    const sub = core().get(IEventService).subscribe((event) => events.push(event));
+    const sub = core().get(IEventService).subscribe((event: any) => events.push(event));
     return {
       events,
       dispose: () => {

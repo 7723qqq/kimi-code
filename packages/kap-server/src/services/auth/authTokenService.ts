@@ -1,4 +1,4 @@
-import { createDecorator } from '@moonshot-ai/agent-core-v2';
+import { createDecorator } from '#/compat/core.js';
 
 import { verifyPassword } from './password';
 import type { TokenStore } from './tokenStore';

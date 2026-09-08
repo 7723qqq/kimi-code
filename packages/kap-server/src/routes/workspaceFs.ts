@@ -12,18 +12,18 @@ import {
   isError2,
   type HostFileStat,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import {
   fsBrowseQuerySchema,
   fsBrowseResponseSchema,
   fsHomeResponseSchema,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+} from '#/compat/core.js';
 import {
   buildEtag,
   FS_BINARY_SAMPLE_BYTES,
   guessMime,
-} from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
-import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
+} from '#/compat/core.js';
+import { classifyTextSample } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

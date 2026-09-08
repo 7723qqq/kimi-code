@@ -4,8 +4,8 @@
  * so the card refreshes only when Load is clicked.
  */
 
-import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
-import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
+import { ISessionApprovalService } from '../compat/v2';
+import { ISessionQuestionService } from '../compat/v2';
 import { useState } from 'react';
 
 import { useConnection } from '../connection';

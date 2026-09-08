@@ -21,72 +21,9 @@
 
 import type { Command } from 'commander';
 
-import { IEngineOverrideService, type ScopeSeed } from '@moonshot-ai/agent-core-v2';
-
-import { maybeLoadRustEngine } from '#/cli/rust-engine';
-import { getVersion } from '#/cli/version';
-import { KIMI_CODE_HOME_ENV } from '#/constant/app';
-import { t } from '#/i18n';
-import { getDataDir } from '#/utils/paths';
-
-import { parseRegionFlag, runLoginFlow } from './login-flow';
+import { registerAcpCommand } from './acp';
 
 export function registerNativeAcpCommand(parent: Command): void {
-  parent
-    .command('acp')
-    .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
-    .option('--login', t('cli.optionDescriptions.acpLogin'), false)
-    .option(
-      '--region <region>',
-      'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).',
-    )
-    .action(async (opts: { login?: boolean; region?: string }) => {
-      if (opts.login === true) {
-        await runLoginFlow({
-          region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
-        });
-        return;
-      }
-      // Forward `KIMI_CODE_HOME` (if set) into `authMethods[0].env` so the
-      // login subprocess clients spawn for terminal-auth writes its token
-      // under the same data root the ACP server reads from.
-      const sandboxHome = process.env[KIMI_CODE_HOME_ENV];
-      const terminalAuthEnv =
-        sandboxHome !== undefined && sandboxHome.length > 0
-          ? { [KIMI_CODE_HOME_ENV]: sandboxHome }
-          : undefined;
-      // Legacy `_meta.terminal-auth` fallback for clients that don't yet
-      // honor the first-class `type:'terminal'`. `command` is the absolute
-      // path to this very binary so the client can spawn it for login.
-      const legacyCommand = process.argv[1];
-      try {
-        const { runAcpServer } = await import('@moonshot-ai/acp-server');
-        const engineOverride = await maybeLoadRustEngine().catch(() => undefined);
-        const extraSeeds: ScopeSeed =
-          engineOverride !== undefined
-            ? [
-                [
-                  IEngineOverrideService,
-                  {
-                    getEngine: () => engineOverride,
-                    ownsTurnLifecycle: true,
-                  },
-                ] as const,
-              ]
-            : [];
-        await runAcpServer({
-          homeDir: getDataDir(),
-          agentInfo: { name: 'Kimi Code CLI', version: getVersion() },
-          ...(terminalAuthEnv ? { terminalAuthEnv } : {}),
-          ...(legacyCommand !== undefined && legacyCommand.length > 0
-            ? { terminalAuthLegacyCommand: legacyCommand }
-            : {}),
-          extraSeeds,
-        });
-        process.exit(0);
-      } catch (error) {
-        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
-        process.exit(1);
-      }
-    });
+  registerAcpCommand(parent);
 }
+

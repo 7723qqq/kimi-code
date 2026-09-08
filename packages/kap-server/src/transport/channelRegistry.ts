@@ -3,9 +3,9 @@ import {
   getScopedServiceDescriptors,
   IFeatureManager,
   LifecycleScope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
-import type { Scope, ScopedEntry, ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
+import type { Scope, ScopedEntry, ServiceIdentifier } from '#/compat/core.js';
 
 export interface ChannelMethodDescriptor {
   readonly name: string;
@@ -56,7 +56,7 @@ export function resolveAnyScopedServiceId(
     core.accessor
       .get(IFeatureManager)
       .contributedServices()
-      .find((entry) => entry.id.toString() === name)?.id
+      .find((entry: { id: { toString(): string } }) => entry.id.toString() === name)?.id
   );
 }
 

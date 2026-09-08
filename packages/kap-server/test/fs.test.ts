@@ -2,9 +2,9 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
-import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
-import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
+import { IModelCatalog, IWorkspaceInstanceManager } from '#/compat/core.js';
+import { HostFileSystem } from './fixtures/host-file-system';
+import { FakeRuntime } from './fixtures/fake-runtime';
 import { ErrorCode } from '../src/protocol/error-codes';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -162,7 +162,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const provider = await server!.core.accessor.get(IWorkspaceInstanceManager).addProvider({
       id: 'remote-test-provider',
       imports: { root: [], imports: [], local: [] },
-      attach: async (context, host) => {
+      attach: async (context: any, host: any) => {
         const runtime = Object.assign(
           new FakeRuntime(
             { workspaceId: context.id, runtimeId: 'remote-test', generation: 'remote-generation' },

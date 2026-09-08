@@ -13,7 +13,7 @@ import {
   type Scope,
   type ScopeSeed,
   TelemetryService,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,7 +82,7 @@ describe('server telemetry', () => {
     vi.stubGlobal('fetch', cloudFetch);
     const hostEvents: string[] = [];
     const hostAppender: ITelemetryAppender = {
-      track: (event) => hostEvents.push(event),
+      track: (event: any) => hostEvents.push(event),
     };
     const hostTelemetry = new TelemetryService();
     hostTelemetry.addAppender(hostAppender);

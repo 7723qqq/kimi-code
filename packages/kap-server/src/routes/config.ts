@@ -1,4 +1,4 @@
-import { IConfigService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { IConfigService, type Scope } from '#/compat/core.js';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';

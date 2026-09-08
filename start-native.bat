@@ -3,8 +3,19 @@ REM Kimi Code launcher with native Rust tools built.
 REM Usage:
 REM   start-native.bat               - Run Bun CLI with native Rust tools
 REM   start-native.bat --pure-rust   - Run pure Rust standalone REPL binary (kimi-agent-cli)
+REM   start-native.bat --web         - Run Web UI powered by native Rust server (kimi-agent --serve)
 
 setlocal
+
+set "WEB_NATIVE=0"
+if "%~1"=="--web" (
+    set "WEB_NATIVE=1"
+    shift
+)
+if "%~1"=="--web-native" (
+    set "WEB_NATIVE=1"
+    shift
+)
 
 set "PURE_RUST=0"
 if "%~1"=="--pure-rust" (
@@ -13,6 +24,25 @@ if "%~1"=="--pure-rust" (
 )
 if "%KIMI_PURE_RUST%"=="1" (
     set "PURE_RUST=1"
+)
+
+if "%WEB_NATIVE%"=="1" (
+    set "CLI_EXE=%~dp0packages\kimi-agent\target\release\kimi-agent-cli.exe"
+    if not exist "%CLI_EXE%" (
+        echo Building pure Rust standalone CLI for web server...
+        cd /d "%~dp0packages\kimi-agent"
+        cargo build --release --features cli
+        if errorlevel 1 (
+            echo [ERROR] cargo build failed.
+            pause
+            exit /b 1
+        )
+        cd /d "%~dp0"
+    )
+    echo Launching Kimi Web UI powered by native Rust server...
+    call bun run dev:cli web --rust-server %*
+    endlocal
+    exit /b %errorlevel%
 )
 
 if "%PURE_RUST%"=="1" (

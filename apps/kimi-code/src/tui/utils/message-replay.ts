@@ -176,8 +176,12 @@ export function replayEntry(
 
 export function collectReplayMessageContent(
   target: ReplayRenderContext['assistant'],
-  content: readonly ContentPart[],
+  content: string | readonly ContentPart[],
 ): void {
+  if (typeof content === 'string') {
+    target.text.push(content);
+    return;
+  }
   for (const part of content) {
     switch (part.type) {
       case 'think':
@@ -210,14 +214,16 @@ export function toolCallFromReplayMessage(
   };
 }
 
-export function toolResultOutput(content: readonly ContentPart[]): string {
+export function toolResultOutput(content: string | readonly ContentPart[]): string {
+  if (typeof content === 'string') return content;
   if (content.some((part) => part.type !== 'text')) {
     return JSON.stringify(content);
   }
   return contentPartsToText(content);
 }
 
-export function contentPartsToText(content: readonly ContentPart[]): string {
+export function contentPartsToText(content: string | readonly ContentPart[]): string {
+  if (typeof content === 'string') return content;
   return content.map(contentPartToText).join('');
 }
 

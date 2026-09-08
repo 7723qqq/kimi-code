@@ -308,6 +308,15 @@ export interface BackgroundTaskOrigin {
   readonly notificationId: string;
 }
 
+/** v2 spelling of the background-task origin kind (renamed from
+ *  `background_task`); vis normalizes both spellings on ingest. */
+export interface TaskOriginV2 {
+  readonly kind: 'task';
+  readonly taskId: string;
+  readonly status: BackgroundTaskStatus;
+  readonly notificationId: string;
+}
+
 export interface CronJobOrigin {
   readonly kind: 'cron_job';
   readonly jobId: string;
@@ -342,6 +351,7 @@ export type PromptOrigin =
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
   | BackgroundTaskOrigin
+  | TaskOriginV2
   | CronJobOrigin
   | CronMissedOrigin
   | HookResultOrigin

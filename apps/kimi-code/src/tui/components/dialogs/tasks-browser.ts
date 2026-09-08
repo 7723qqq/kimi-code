@@ -112,8 +112,8 @@ function formatRelativeTime(ts: number | null | undefined): string {
   return t('tui.dialogs.tasksBrowser.relativeTimeDays', { days });
 }
 
-function singleLine(text: string): string {
-  return text.replaceAll(/\s+/g, ' ').trim();
+function singleLine(text: string | undefined): string {
+  return (text ?? '').replaceAll(/\s+/g, ' ').trim();
 }
 
 function padToWidth(line: string, width: number): string {

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
-} from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+} from '#/compat/core.js';
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';

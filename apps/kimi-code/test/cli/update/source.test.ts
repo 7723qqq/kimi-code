@@ -15,7 +15,9 @@ vi.mock('#/utils/process/resolve-command', () => ({
 
 describe('classifyByPathHeuristic', () => {
   it('returns null for an npm-style global path (handled by classifyInstallSource)', () => {
-    expect(classifyByPathHeuristic('/usr/local/lib/node_modules/@moonshot-ai/kimi-code')).toBeNull();
+    expect(
+      classifyByPathHeuristic('/usr/local/lib/node_modules/@moonshot-ai/kimi-code'),
+    ).toBeNull();
   });
 
   it('detects yarn classic global', () => {
@@ -38,13 +40,17 @@ describe('classifyByPathHeuristic', () => {
 
   it('detects homebrew on macOS (Cellar path)', () => {
     expect(
-      classifyByPathHeuristic('/opt/homebrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code'),
+      classifyByPathHeuristic(
+        '/opt/homebrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code',
+      ),
     ).toBe('homebrew');
   });
 
   it('detects homebrew on Linux (Linuxbrew)', () => {
     expect(
-      classifyByPathHeuristic('/home/linuxbrew/.linuxbrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code'),
+      classifyByPathHeuristic(
+        '/home/linuxbrew/.linuxbrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code',
+      ),
     ).toBe('homebrew');
   });
 
@@ -62,7 +68,11 @@ describe('classifyByPathHeuristic', () => {
 describe('classifyInstallSource (npm prefix matching)', () => {
   it('matches a macOS/Linux npm global package path', () => {
     expect(
-      classifyInstallSource('/usr/local/lib/node_modules/@moonshot-ai/kimi-code', '/usr/local', 'darwin'),
+      classifyInstallSource(
+        '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
+        '/usr/local',
+        'darwin',
+      ),
     ).toBe('npm-global');
   });
 
@@ -117,17 +127,6 @@ describe('detectInstallSource', () => {
         platform: 'darwin',
       }),
     ).resolves.toBe('homebrew');
-  });
-
-  it('returns native when detectNative reports a packaged SEA-era install (highest priority)', async () => {
-    await expect(
-      detectInstallSource({
-        getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
-        getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => ({ native: true, kind: 'sea' }),
-        platform: 'darwin',
-      }),
-    ).resolves.toBe('native');
   });
 
   it('returns native for a packaged Bun install', async () => {
@@ -196,9 +195,9 @@ describe('detectNativeInstall', () => {
   });
 
   it('ignores an empty embedded-asset map', () => {
-    expect(
-      detectNativeInstall({ Bun: { version: '1.3.0' }, __KIMI_BUN_ASSETS__: {} }),
-    ).toEqual({ native: false });
+    expect(detectNativeInstall({ Bun: { version: '1.3.0' }, __KIMI_BUN_ASSETS__: {} })).toEqual({
+      native: false,
+    });
   });
 
   it('does not treat the asset marker alone as native outside the Bun runtime', () => {
@@ -212,8 +211,9 @@ describe('detectNativeInstall', () => {
     // Whatever the host runtime is, the default view must agree with it:
     // a packaged bun binary reports bun, everything else reports non-native.
     expect(detectNativeInstall()).toEqual(
-      view.Bun !== undefined && view.__KIMI_BUN_ASSETS__ !== undefined &&
-          Object.keys(view.__KIMI_BUN_ASSETS__).length > 0
+      view.Bun !== undefined &&
+        view.__KIMI_BUN_ASSETS__ !== undefined &&
+        Object.keys(view.__KIMI_BUN_ASSETS__).length > 0
         ? { native: true, kind: 'bun' }
         : { native: false },
     );

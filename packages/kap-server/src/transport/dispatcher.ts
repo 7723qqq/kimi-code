@@ -6,7 +6,7 @@ import {
   type IScopeHandle,
   type Scope,
   type ServiceIdentifier,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import type { ScopeKind } from './channel';
 import { resolveAnyScopedServiceId } from './channelRegistry';

@@ -39,6 +39,7 @@ function makeDeps(): {
         exitCodes.push(code);
         throw new Error(`exit ${String(code)}`);
       },
+      detectV2Warning: () => undefined,
     },
     stdout,
     stderr,
@@ -448,5 +449,23 @@ max_retries_per_step = 3
 
     expect(code).toBe(0);
     expect(stdout.join('')).not.toContain('KIMI_LOOP_MAX_RETRIES_PER_STEP');
+  });
+
+  it('outputs v2-data-detected warning during full doctor run when orphaned data exists', async () => {
+    await writeValidConfig();
+    await writeValidTuiConfig();
+    const { deps, stdout, stderr } = makeDeps();
+    const depsWithWarning: DoctorDeps = {
+      ...deps,
+      detectV2Warning: () =>
+        '[v2-data-detected] Legacy v2 data found in /fake/home (sessions, store). Run "kimi migrate --v2-export" before upgrading past M5 to archive them.',
+    };
+
+    const code = await handleDoctor(depsWithWarning, {});
+
+    expect(code).toBe(0);
+    expect(stderr.join('')).toContain('[v2-data-detected]');
+    expect(stderr.join('')).toContain('Legacy v2 data found');
+    expect(stdout.join('')).toContain('All checked config files are valid.');
   });
 });

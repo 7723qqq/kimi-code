@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 
-import { __resetRootLoggerForTest } from '../../../../packages/node-sdk/src/legacy';
+import { __resetRootLoggerForTest } from '../../../../packages/node-sdk/src/logging';
 
 const SESSION_LOG = 'logs/kimi-code.log';
 const GLOBAL_LOG = 'logs/global/kimi-code.log';

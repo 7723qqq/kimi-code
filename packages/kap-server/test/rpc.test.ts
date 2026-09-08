@@ -22,14 +22,14 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceService,
   getLiveSessionById,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import type {
   AgentRuntimeBindingSnapshot,
   ServiceIdentifier,
   SessionWorkspaceAssociationSnapshot,
   WorkspaceInstanceSnapshot,
-} from '@moonshot-ai/agent-core-v2';
-import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
+} from '#/compat/core.js';
+import { FakeRuntime } from './fixtures/fake-runtime';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -393,7 +393,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const provider = await server!.core.accessor.get(IWorkspaceInstanceManager).addProvider({
       id: 'debug-remote-provider',
       imports: { root: [], imports: [], local: [] },
-      attach: async (context, host) => {
+      attach: async (context: any, host: any) => {
         host.registerRuntime(new FakeRuntime({
           workspaceId: context.id,
           runtimeId: 'remote',
@@ -496,7 +496,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const events: { type: string; payload: unknown }[] = [];
     const sub = (server as RunningServer).core.accessor
       .get(IEventService)
-      .subscribe((event) => events.push(event as unknown as { type: string; payload: unknown }));
+      .subscribe((event: any) => events.push(event as unknown as { type: string; payload: unknown }));
 
     const { body } = await call<{ turn_id: number }>(
       'POST',

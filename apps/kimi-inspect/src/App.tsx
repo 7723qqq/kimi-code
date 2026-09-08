@@ -19,8 +19,8 @@
  * chat timeline.
  */
 
-import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
+import { ISessionIndex } from './compat/v2';
+import { ISessionLifecycleService } from './compat/v2';
 import { useEffect, useState } from 'react';
 
 import type { AuditTrail } from './audit/trail';

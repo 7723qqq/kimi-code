@@ -9,7 +9,7 @@ import {
   ISessionToolPolicy,
   IModelCatalog,
   type ExecutableTool,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import {
   listMcpServersResponseSchema,
   listToolsResponseSchema,

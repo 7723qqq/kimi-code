@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/kimi-code-sdk",
   "version": "0.20.0",
   "private": true,
-  "description": "TypeScript SDK for the Kimi Code Agent. M3-marked v2 library consumer — see packages/agent-core-v2/AGENTS.md §Library surface. Re-exports v2 wire types (Event2 / ContextMessage / CompactionResult / AgentReplayRecord / file + mcp + capability types) and v2 runtime helpers (proxy dispatcher / token estimation / log path resolution); the v2 RPC client uses IEngineOverrideService for in-memory v2 process talks. Stays on v2 until M5 deletion; new embedders default to the Rust engine in packages/kimi-agent.",
+  "description": "TypeScript SDK for the Kimi Code Agent. Fully decoupled from @moonshot-ai/agent-core-v2 (the v2 engine is retired); the public surface keeps the v2 wire shapes as frozen local types and the shared wire/MCP-OAuth contract lives in @moonshot-ai/protocol. The RPC client talks to the Rust engine (packages/kimi-agent) through the native addon or stdio.",
   "license": "MIT",
   "author": "Moonshot AI",
   "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
@@ -27,10 +27,16 @@
   ],
   "type": "module",
   "imports": {
-    "#/legacy": "./src/legacy/index.ts",
-    "#/legacy/*": "./src/legacy/*.ts",
+    "#/error-protocol": "./src/error-protocol/index.ts",
+    "#/error-protocol/*": "./src/error-protocol/*.ts",
+    "#/logging": "./src/logging.ts",
+    "#/telemetry": "./src/telemetry.ts",
+    "#/config-helpers": "./src/config-helpers.ts",
+    "#/model-alias": "./src/model-alias.ts",
     "#/config-local": "./src/config-local/index.ts",
     "#/config-local/*": "./src/config-local/*.ts",
+    "#/media": "./src/media/index.ts",
+    "#/media/*": "./src/media/*.ts",
     "#/*": "./src/*.ts"
   },
   "exports": {
@@ -63,12 +69,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@moonshot-ai/agent-core-v2": "workspace:^",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-agent": "workspace:*",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
-    "@moonshot-ai/klient": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "@types/yazl": "^2.4.6",

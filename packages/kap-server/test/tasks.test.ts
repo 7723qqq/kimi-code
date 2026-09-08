@@ -8,7 +8,7 @@ import {
   getLiveSessionById,
   IModelCatalog,
   type AgentTask,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -144,10 +144,10 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       idPrefix: 'test',
       kind,
       description: `fake ${kind} task`,
-      start: (sink) => {
+      start: (sink: any) => {
         if (output !== undefined) sink.appendOutput(output);
       },
-      toInfo: (base) => {
+      toInfo: (base: any) => {
         switch (kind) {
           case 'process':
             return { ...base, kind: 'process', command: 'echo hi', pid: 0, exitCode: null };
@@ -408,7 +408,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     const tasks = await mainAgentTasks(id);
     const taskId = tasks.registerTask({
       ...fakeTask('process'),
-      start: (sink) => {
+      start: (sink: any) => {
         void sink.settle({ status: 'completed' });
       },
     });

@@ -42,10 +42,9 @@ const StagedNativeUpdateSchema = z
     exeSize: z.number().int().min(1),
     stagedAt: z.string().min(1),
     /**
-     * Which packaged-engine artifact the stage carries. Absent on records
-     * written before the field existed — those always staged SEA binaries.
+     * Which packaged-engine artifact the stage carries. Defaults to `'bun'`.
      */
-    engine: z.enum(['sea', 'bun']).optional(),
+    engine: z.literal('bun').optional(),
     /**
      * True when the stage was produced by an explicit user-initiated
      * `kimi upgrade` (vs the passive background downloader): manual stages
@@ -288,9 +287,7 @@ export interface StageNativeUpdateOptions {
   readonly platform?: NodeJS.Platform;
   readonly arch?: string;
   /**
-   * Which artifact flavor to download. Defaults to `'bun'`; `'sea'` remains
-   * accepted so a staged update recorded before the SEA pipeline was retired
-   * can still be resolved explicitly.
+   * Which artifact flavor to download. Defaults to `'bun'`.
    */
   readonly engine?: NativeInstallKind;
   readonly fetchImpl?: typeof fetch;

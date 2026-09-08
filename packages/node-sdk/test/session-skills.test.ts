@@ -5,14 +5,13 @@
  * Run: bunx vitest run packages/node-sdk/test/session-skills.test.ts
  */
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { resolve, win32, join } from 'node:path';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { createKimiHarness, type Event, type KimiError, type SkillSummary } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
-import { normalizeWorkDir } from '#/v2/session-mapper';
 
 import {
   makeTempDir,
@@ -21,6 +20,14 @@ import {
   waitForSDKEvent,
 } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
+
+/** Windows-shaped paths resolve as win32 and fold to forward slashes. */
+function normalizeWorkDir(workDir: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(workDir) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(workDir)) {
+    return win32.resolve(workDir).replaceAll('\\', '/');
+  }
+  return resolve(workDir);
+}
 
 const fakeProviderState = vi.hoisted(() => ({
   histories: [] as unknown[],
@@ -100,7 +107,7 @@ describe('Session skills', () => {
         source: 'project',
         disableModelInvocation: true,
       });
-      expect(listed?.path.endsWith('/.kimi-code/skills/review/SKILL.md')).toBe(true);
+      expect(listed?.path?.endsWith('/.kimi-code/skills/review/SKILL.md')).toBe(true);
       expect(JSON.stringify(skills)).not.toContain('Review the requested file.');
     } finally {
       await harness.close();

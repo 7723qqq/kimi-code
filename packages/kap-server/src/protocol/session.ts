@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { isoDateTimeSchema } from '#/compat/core.js';
 import {
   permissionRuleSchema,
   sessionAgentConfigPartialSchema,
   sessionAgentConfigSchema,
   sessionMetadataSchema,
-} from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '#/compat/core.js';
 
 import { workspaceIdSchema } from './workspace';
 

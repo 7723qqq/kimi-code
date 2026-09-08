@@ -431,7 +431,7 @@ export const WIRE_RENDERERS: RendererMap = {
       const tone =
         r.result.decision === 'approved'
           ? 'success'
-          : r.result.decision === 'rejected'
+          : (r.result.decision as string) === 'rejected' || r.result.decision === 'denied'
             ? 'error'
             : 'neutral';
       return {

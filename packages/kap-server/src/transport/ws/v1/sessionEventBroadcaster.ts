@@ -1,6 +1,5 @@
 import type {
   AgentActivityState,
-  ApprovalResponse,
   Event2,
   IAgentScopeHandle,
   IDisposable,
@@ -10,7 +9,7 @@ import type {
   Scope,
   SessionActivityState,
   Workspace,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import {
   IAgentLifecycleService,
   IEventBus,
@@ -22,7 +21,7 @@ import {
   listSessionPendingInteractions,
   onSessionInteractionDidChangePending,
   onSessionInteractionDidResolve,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import type {
   ConfigWarningItem,
   DiUnitChangedEvent,
@@ -154,7 +153,7 @@ export class SessionEventBroadcaster {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
     this.coreEventSubscription = opts.core.accessor
       .get(IEventService)
-      .subscribe((event) => this.onCoreEvent(event));
+      .subscribe((event: Event2<any>) => this.onCoreEvent(event));
   }
 
   addGlobalTarget(target: BroadcastTarget): void {
@@ -792,7 +791,7 @@ export class SessionEventBroadcaster {
     const workView = session.accessor.get(ISessionActivityView);
     workView.state();
     state.lifecycleDisposables.push(
-      workView.onDidChange(({ state: work, cause }) => {
+      workView.onDidChange(({ state: work, cause }: { state: SessionActivityState; cause: string }) => {
         if (cause === 'turn_ended') {
           state.deferredWork = work;
           queueMicrotask(() => {
@@ -825,7 +824,7 @@ export class SessionEventBroadcaster {
       if (handle !== undefined) subscribeAgent(handle);
     }
     state.lifecycleDisposables.push(
-      agents.onDidCreate((context) => {
+      agents.onDidCreate((context: { agentId: string }) => {
         const handle = agents.handleOf(context.agentId);
         if (handle !== undefined) subscribeAgent(handle);
         this.enqueueDurable(state, {
@@ -834,7 +833,7 @@ export class SessionEventBroadcaster {
           sessionId,
         });
       }),
-      agents.onDidClose((context) => {
+      agents.onDidClose((context: { agentId: string }) => {
         const agentId = context.agentId;
         const d = state.agentDisposables.get(agentId);
         if (d !== undefined) {
@@ -865,7 +864,7 @@ export class SessionEventBroadcaster {
       } as unknown as Event2<any>);
     };
     const disposables: IDisposable[] = [
-      eventBus.subscribe((event) => {
+      eventBus.subscribe((event: Event2<any>) => {
         let projected: Event2<any> = event;
         if (event.type === 'agent.status.updated') {
           const snapshot = readLegacyStatus(handle);
@@ -964,7 +963,7 @@ export class SessionEventBroadcaster {
           }
         }
       }),
-      onSessionInteractionDidResolve(agents, ({ id, response }) => {
+      onSessionInteractionDidResolve(agents, ({ id, response }: { id: string; response: unknown }) => {
         const known = state.knownInteractions.get(id);
         if (known === undefined) return;
         state.knownInteractions.delete(id);
@@ -1266,7 +1265,12 @@ function interactionResolvedEvent(
       } as unknown as Event;
     }
     case 'approval': {
-      const r = response as Partial<ApprovalResponse>;
+      const r = response as {
+        decision?: unknown;
+        scope?: unknown;
+        feedback?: unknown;
+        selectedLabel?: unknown;
+      };
       return {
         type: 'event.approval.resolved',
         agentId,
@@ -1371,7 +1375,13 @@ function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
     return undefined;
   }
-  const ws = candidate as Partial<Workspace>;
+  const ws = candidate as {
+    id?: unknown;
+    root?: unknown;
+    name?: unknown;
+    createdAt?: unknown;
+    lastOpenedAt?: unknown;
+  };
   if (typeof ws.id !== 'string' || ws.id.length === 0) return undefined;
   if (typeof ws.root !== 'string' || ws.root.length === 0) return undefined;
   if (typeof ws.name !== 'string') return undefined;

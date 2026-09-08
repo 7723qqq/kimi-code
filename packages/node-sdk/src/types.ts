@@ -1,47 +1,536 @@
-import type {
-  AgentContextData,
-  AgentReplayRecord,
-  AgentTaskInfo,
-  AgentTaskStatus,
-  ContextMessage,
-  ExperimentalFeatureState,
-  ExperimentalFlagMap,
-  ExperimentalFlagSource,
-  ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
-  PermissionData,
-  PlanData,
-  PluginCommandDef,
-  PluginGithubMetadata,
-  PluginGithubRef,
-  PluginInfo,
-  PluginMcpServerInfo,
-  PluginSource,
-  TurnEngine,
-  PluginSummary,
-  PromptOrigin,
-  ReloadSummary,
-  ShellEnvironment,
-  SkillSummary,
-  ToolInfo,
-  UsageStatus,
-} from '@moonshot-ai/agent-core-v2';
-import type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
-import type {
-  McpRegistryPluginOrigin,
-  McpServerSource,
-} from '@moonshot-ai/agent-core-v2/app/mcpRegistry/mcpRegistry';
-import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
-import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
+import type { ContentPart, ModelCapability, ToolCall } from '@moonshot-ai/kosong';
+
+export interface ImageCompressionTelemetryClient {
+  track(
+    event: string,
+    properties?: Readonly<Record<string, string | number | boolean | null | undefined>>,
+  ): void;
+}
+
+export interface ImageCompressionTelemetry {
+  readonly client: ImageCompressionTelemetryClient;
+  readonly source: string;
+}
+
+export type StrictPropertyCheck<T, Target> = T extends Target
+  ? Exclude<keyof T, keyof Target> extends never
+    ? T
+    : never
+  : never;
+
+export type TelemetryEventName = string;
+export type TelemetryEventPayload<_K extends TelemetryEventName = string> = Record<string, unknown>;
+
+import type { ApprovalResponse } from '#/events';
+
+export type SwarmModeTrigger = 'manual' | 'auto' | 'system' | 'task' | 'tool';
+
+export type PermissionMode = 'manual' | 'yolo' | 'auto';
+
+export interface PermissionApprovalResultRecord {
+  readonly turnId?: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly action: string;
+  readonly sessionApprovalRule?: string;
+  readonly result: ApprovalResponse;
+}
+
+export interface CompactionResult {
+  readonly summary: string;
+  readonly compactedCount: number;
+  readonly tokensBefore: number;
+  readonly tokensAfter: number;
+  readonly keptUserMessageCount?: number;
+}
+
+export interface AgentConfigUpdateData {
+  readonly [key: string]: unknown;
+}
+
+export type AgentReplayRecordPayload =
+  | { readonly type: 'message'; readonly message: ContextMessage }
+  | { readonly type: 'compaction'; readonly result?: CompactionResult | 'cancelled'; readonly instruction?: string }
+  | {
+      readonly type: 'goal_updated';
+      readonly snapshot: GoalSnapshot;
+      readonly change: GoalChange | { readonly kind: 'created' };
+    }
+  | { readonly type: 'plan_updated'; readonly enabled: boolean }
+  | { readonly type: 'config_updated'; readonly config?: AgentConfigUpdateData }
+  | { readonly type: 'permission_updated'; readonly mode: PermissionMode }
+  | { readonly type: 'approval_result'; readonly record: PermissionApprovalResultRecord };
+
+export type AgentReplayRecord = { readonly time: number } & AgentReplayRecordPayload;
+
+export type TaskLifecycleStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'timed_out'
+  | 'killed'
+  | 'lost';
+
+export type AgentTaskStatus = TaskLifecycleStatus;
+export type BackgroundTaskStatus = AgentTaskStatus;
+
+export interface TaskInfoBase {
+  readonly taskId: string;
+  readonly description: string;
+  readonly status: AgentTaskStatus;
+  readonly detached?: boolean;
+  readonly startedAt: number;
+  readonly endedAt?: number | null;
+  readonly stopReason?: string;
+  readonly terminalNotificationSuppressed?: boolean;
+  readonly timeoutMs?: number;
+  readonly title?: string;
+  readonly id?: string;
+  readonly progress?: number;
+  readonly error?: string;
+}
+
+export interface ProcessTaskInfo extends TaskInfoBase {
+  readonly kind: 'process';
+  readonly command: string;
+  readonly pid: number;
+  readonly exitCode: number | null;
+}
+
+export interface AgentTaskInfo extends TaskInfoBase {
+  readonly kind: 'agent';
+  readonly agentId?: string;
+  readonly subagentType?: string;
+  readonly model?: string;
+  readonly thinkingEffort?: string;
+  readonly toolCallId?: string;
+  readonly questionCount?: number;
+}
+
+export interface QuestionTaskInfo extends TaskInfoBase {
+  readonly kind: 'question';
+  readonly questionCount: number;
+  readonly toolCallId?: string;
+}
+
+export type TaskInfo = ProcessTaskInfo | AgentTaskInfo | QuestionTaskInfo;
+export type BackgroundTaskInfo = TaskInfo;
+export type ProcessBackgroundTaskInfo = ProcessTaskInfo;
+export type AgentBackgroundTaskInfo = AgentTaskInfo;
+export type QuestionBackgroundTaskInfo = QuestionTaskInfo;
+
+export interface ContextMessage {
+  readonly id?: string;
+  readonly role: 'user' | 'assistant' | 'system' | 'tool';
+  readonly content: string | readonly ContentPart[];
+  readonly toolCalls?: readonly ToolCall[];
+  readonly origin?: PromptOrigin;
+  readonly toolCallId?: string;
+  readonly isError?: boolean;
+  readonly [key: string]: unknown;
+}
+
+export interface AgentContextData {
+  readonly history: readonly ContextMessage[];
+  readonly tokenCount: number;
+}
+
+export type ExperimentalFlagSource = 'default' | 'config' | 'env' | 'master-env';
+export interface ExperimentalFeatureState {
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly enabled: boolean;
+  readonly source?: ExperimentalFlagSource;
+  readonly title?: string;
+  readonly env?: string;
+  readonly defaultEnabled?: boolean;
+  readonly surface?: string;
+  readonly configValue?: unknown;
+  readonly [key: string]: unknown;
+}
+export type ExperimentalFlagMap = Record<string, ExperimentalFeatureState>;
+
+export interface ExportSessionManifest {
+  readonly version?: number;
+  readonly workspaceDir?: string;
+  readonly [key: string]: unknown;
+  readonly sessionId: string;
+  readonly title?: string;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly agentCount?: number;
+  readonly exportedAt?: string;
+  readonly kimiCodeVersion?: string;
+  readonly wireProtocolVersion?: string;
+  readonly os?: string;
+  readonly nodejsVersion?: string;
+  readonly sessionFirstActivity?: string;
+  readonly sessionLogPath?: string;
+  readonly globalLogPath?: string;
+}
+
+export type GoalStatus =
+  | 'active'
+  | 'paused'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'complete'
+  | 'budget_limited'
+  | 'usage_limited';
+export interface GoalBudgetLimits {
+  readonly maxTurns?: number;
+  readonly maxTokens?: number;
+  readonly maxSeconds?: number;
+}
+export interface GoalBudgetReport {
+  readonly turnsUsed: number;
+  readonly tokensUsed: number;
+  readonly secondsUsed: number;
+  readonly limits: GoalBudgetLimits;
+  readonly tokenBudget?: number;
+}
+export interface GoalChange {
+  readonly kind: string;
+  readonly description?: string;
+  readonly timestamp?: number;
+  readonly reason?: string;
+  readonly status?: string;
+  readonly actor?: string;
+  readonly stats?: any;
+}
+export interface GoalChangeStats {
+  readonly additions: number;
+  readonly deletions: number;
+  readonly modifications: number;
+}
+export interface GoalSnapshot {
+  readonly id?: string;
+  readonly goalId?: string;
+  readonly objective: string;
+  readonly status: GoalStatus;
+  readonly completionCriterion?: string;
+  readonly created_at?: number;
+  readonly updated_at?: number;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly turnsUsed?: number;
+  readonly tokensUsed?: number;
+  readonly inputTokensUsed?: number;
+  readonly outputTokensUsed?: number;
+  readonly wallClockMs?: number;
+  readonly budget?: any;
+  readonly changes?: readonly GoalChange[];
+  readonly terminalReason?: string;
+}
+export interface GoalToolResult {
+  readonly toolCallId?: string;
+  readonly success?: boolean;
+  readonly output?: string;
+  readonly error?: string;
+  readonly goal?: GoalSnapshot | null;
+}
+
+export interface PermissionData {
+  readonly mode: PermissionMode;
+  readonly rules?: readonly unknown[];
+}
+
+export interface PlanData {
+  readonly id?: string;
+  readonly content?: string;
+  readonly path?: string;
+  readonly steps?: readonly unknown[];
+  readonly activeIndex?: number;
+  readonly [key: string]: unknown;
+}
+
+export interface PluginCommandDef {
+  readonly name: string;
+  readonly description?: string;
+  readonly prompt?: string;
+  readonly pluginId?: string;
+  readonly body?: string;
+  readonly path?: string;
+}
+export interface PluginGithubRef {
+  readonly owner: string;
+  readonly repo: string;
+  readonly ref?: any;
+  readonly path?: string;
+  readonly installedSha?: string;
+  readonly [key: string]: any;
+}
+export interface PluginGithubMetadata {
+  readonly stars?: number;
+  readonly description?: string;
+}
+export type PluginSource = 'official' | 'community' | 'local' | 'git' | 'local-path' | 'github' | 'zip-url';
+export interface PluginMcpServerInfo {
+  readonly name: string;
+  readonly transport: string;
+  readonly enabled?: boolean;
+  readonly url?: string;
+  readonly command?: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly runtimeName?: string;
+  readonly envKeys?: readonly string[];
+  readonly headerKeys?: readonly string[];
+  readonly [key: string]: any;
+}
+export interface PluginInfo {
+  readonly id: string;
+  readonly name?: string;
+  readonly displayName?: string;
+  readonly description?: string;
+  readonly version?: string;
+  readonly author?: string;
+  readonly enabled: boolean;
+  readonly state?: string;
+  readonly source: PluginSource;
+  readonly commands?: readonly PluginCommandDef[];
+  readonly mcpServers?: readonly PluginMcpServerInfo[];
+  readonly github?: PluginGithubRef;
+  readonly enabledMcpServerCount?: number;
+  readonly skillCount?: number;
+  readonly mcpServerCount?: number;
+  readonly hookCount?: number;
+  readonly commandCount?: number;
+  readonly hasErrors?: boolean;
+  readonly root?: string;
+  readonly installedAt?: number | string;
+  readonly updatedAt?: number | string;
+  readonly originalSource?: string;
+  readonly manifestPath?: string;
+  readonly manifestKind?: string;
+  readonly shadowedManifestPath?: string;
+  readonly manifest?: any;
+  readonly diagnostics?: readonly any[];
+  readonly [key: string]: any;
+}
+export interface PluginSummary {
+  readonly id: string;
+  readonly name?: string;
+  readonly displayName?: string;
+  readonly version?: string;
+  readonly enabled: boolean;
+  readonly state?: string;
+  readonly source: PluginSource;
+  readonly originalSource?: string;
+  readonly skillCount?: number;
+  readonly mcpServerCount?: number;
+  readonly enabledMcpServerCount?: number;
+  readonly hookCount?: number;
+  readonly commandCount?: number;
+  readonly hasErrors?: boolean;
+  readonly github?: PluginGithubRef;
+}
+
+export type TurnEngine = 'native' | 'v2' | 'rust';
+
+export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
+
+export interface BundledSkillActivation {
+  readonly activationId: string;
+  readonly skillName: string;
+  readonly skillArgs?: string;
+  readonly skillType?: string;
+  readonly skillPath?: string;
+  readonly skillSource?: SkillSource;
+}
+
+export interface UserPromptOrigin {
+  readonly kind: 'user';
+  readonly skillActivations?: readonly BundledSkillActivation[];
+}
+
+export interface SkillActivationOrigin {
+  readonly kind: 'skill_activation';
+  readonly activationId: string;
+  readonly skillName: string;
+  readonly skillArgs?: string;
+  readonly trigger: 'user-slash' | 'model-tool' | 'nested-skill';
+  readonly skillType?: string;
+  readonly skillPath?: string;
+  readonly skillSource?: SkillSource;
+}
+
+export interface PluginCommandOrigin {
+  readonly kind: 'plugin_command';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string;
+  readonly trigger: 'user-slash';
+}
+
+export interface InjectionOrigin {
+  readonly kind: 'injection';
+  readonly variant: string;
+}
+
+export interface ShellCommandOrigin {
+  readonly kind: 'shell_command';
+  readonly phase: 'input' | 'output';
+  readonly isError?: boolean;
+}
+
+export interface CompactionSummaryOrigin {
+  readonly kind: 'compaction_summary';
+}
+
+export interface SystemTriggerOrigin {
+  readonly kind: 'system_trigger';
+  readonly name: string;
+}
+
+export interface TaskOrigin {
+  readonly kind: 'task';
+  readonly taskId: string;
+  readonly status: TaskLifecycleStatus;
+  readonly notificationId: string;
+}
+
+export interface BackgroundTaskOrigin {
+  readonly kind: 'background_task';
+  readonly taskId: string;
+  readonly status: TaskLifecycleStatus;
+  readonly notificationId: string;
+}
+
+export interface CronJobOrigin {
+  readonly kind: 'cron_job';
+  readonly jobId: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly coalescedCount: number;
+  readonly stale: boolean;
+}
+
+export interface CronMissedOrigin {
+  readonly kind: 'cron_missed';
+  readonly count: number;
+}
+
+export interface HookResultOrigin {
+  readonly kind: 'hook_result';
+  readonly event: string;
+  readonly blocked?: boolean;
+}
+
+export interface RetryOrigin {
+  readonly kind: 'retry';
+  readonly trigger?: string;
+}
+
+export type PromptOrigin =
+  | UserPromptOrigin
+  | SkillActivationOrigin
+  | PluginCommandOrigin
+  | InjectionOrigin
+  | ShellCommandOrigin
+  | CompactionSummaryOrigin
+  | SystemTriggerOrigin
+  | TaskOrigin
+  | BackgroundTaskOrigin
+  | CronJobOrigin
+  | CronMissedOrigin
+  | HookResultOrigin
+  | RetryOrigin;
+
+export interface ReloadSummary {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly errors: readonly { id: string; message: string }[];
+}
+
+export interface ShellEnvironment {
+  readonly cwd?: string;
+  readonly env?: Record<string, string>;
+  readonly term?: string;
+  readonly termProgram?: string;
+  readonly termProgramVersion?: string;
+  readonly multiplexer?: string;
+  readonly shell?: string;
+}
+
+export interface SkillSummary {
+  readonly name: string;
+  readonly description: string;
+  readonly path?: string;
+  readonly enabled?: boolean;
+  readonly source?: string;
+  readonly type?: string;
+  readonly isSubSkill?: boolean;
+  readonly disableModelInvocation?: boolean;
+  readonly [key: string]: unknown;
+}
+
+export interface ToolInfo {
+  readonly name: string;
+  readonly description?: string;
+  readonly parameters?: Record<string, unknown>;
+}
+
+export interface UsageStatus {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+  readonly totalCostUsd?: number;
+  readonly contextTokens?: number;
+  readonly contextLimit?: number;
+  readonly turnCount?: number;
+  readonly byModel?: Record<string, TokenUsage>;
+  readonly currentTurn?: TokenUsage;
+  readonly total?: TokenUsage;
+  readonly [key: string]: unknown;
+}
+
+export interface AgentCommandInfo {
+  readonly name: string;
+  readonly description?: string;
+  readonly source?: string;
+}
+
+export interface McpRegistryPluginOrigin {
+  readonly pluginId: string;
+  readonly serverName: string;
+}
+export type McpServerSource = 'user' | 'project' | 'session' | 'plugin' | 'global';
+
+export interface CapabilityStatus {
+  readonly enabled?: boolean;
+  readonly state?: string;
+  readonly reason?: string;
+  readonly id?: string;
+  readonly pluginId?: string;
+  readonly supported?: boolean;
+  readonly version?: string;
+  readonly install?: any;
+  readonly steps?: readonly any[];
+  readonly displayName?: string;
+  readonly description?: string;
+}
+
+export interface McpServerEntry {
+  readonly id?: string;
+  readonly name: string;
+  readonly status: 'running' | 'stopped' | 'failed' | 'connecting' | 'connected' | 'pending' | 'needs-auth' | 'disabled' | 'removed';
+  readonly transport: string;
+  readonly tools?: readonly unknown[];
+  readonly source?: string;
+  readonly origin?: string;
+  readonly mutable?: boolean;
+  readonly plugin?: unknown;
+  readonly toolCount?: number;
+  readonly error?: string | null;
+  readonly [key: string]: any;
+}
 
 import type { ImageLimits } from '#/image-limits';
 
@@ -59,20 +548,13 @@ import type {
   ServicesConfig,
   ThinkingConfig,
 } from '#/config-local';
-import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/legacy';
+import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/telemetry';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
-
-export type { CapabilityStatus };
-
-export type { AgentReplayRecord };
-
-export type BackgroundTaskInfo = AgentTaskInfo;
-export type BackgroundTaskStatus = AgentTaskStatus;
 
 /** Warnings from the most recent config.toml load; empty when the config is fully valid. */
 export interface ConfigDiagnostics {
@@ -96,8 +578,15 @@ export interface GetCronTasksResult {
 
 export type { McpServerEntry as McpServerInfo };
 
-export type { McpServerLocator } from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
-export type { McpServerInspection as AppMcpServerInspection } from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
+export interface McpServerLocator {
+  readonly serverName: string;
+  readonly scope?: string;
+}
+
+export interface AppMcpServerInspection {
+  readonly serverName: string;
+  readonly tools: readonly unknown[];
+}
 
 export interface McpStartupMetrics {
   readonly durationMs: number;
@@ -136,34 +625,6 @@ export interface McpTestResult {
 export type McpServerConfig = GlobalMcpServerConfig;
 export type { GlobalMcpServerConfig };
 
-export type { PermissionData, PlanData, UsageStatus };
-export type {
-  ContextMessage,
-  PromptOrigin,
-  ExperimentalFeatureState,
-  ExperimentalFlagMap,
-  ExperimentalFlagSource,
-  ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
-  PluginCommandDef,
-  PluginGithubMetadata,
-  PluginGithubRef,
-  PluginInfo,
-  PluginMcpServerInfo,
-  PluginSource,
-  PluginSummary,
-  ReloadSummary,
-  ShellEnvironment,
-  SkillSummary,
-  ToolInfo,
-  AgentCommandInfo,
-};
 export type { KimiConfig, KimiConfigPatch };
 export type {
   BackgroundConfig,
@@ -177,10 +638,8 @@ export type {
   ThinkingConfig,
 };
 export type { KimiHostIdentity, OAuthRefreshOutcome };
-export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/legacy';
+export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/telemetry';
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
-
-export type PermissionMode = 'yolo' | 'manual' | 'auto';
 
 /**
  * Result of beginning a global MCP server OAuth flow (v1 wire shape, kept as
@@ -238,7 +697,18 @@ export interface SuggestFilesResult {
 }
 
 /** Metadata of one upload in the engine's daemon file store. */
-export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+export interface FileMeta {
+  readonly id: string;
+  readonly filename?: string;
+  readonly name?: string;
+  readonly size: number;
+  readonly mimeType?: string;
+  readonly media_type?: string;
+  readonly createdAt?: number;
+  readonly created_at?: number | string;
+  readonly expiresAt?: number;
+  readonly expires_at?: number | string;
+}
 
 /** Input for `uploadFile`: the upload's display name and MIME type. */
 export interface UploadFileOptions {
@@ -279,7 +749,7 @@ export interface KimiHarnessOptions {
    * every turn is driven by this engine instead of the JS loop. `undefined`
    * keeps the default JS engine.
    */
-  readonly engineOverride?: TurnEngine | undefined;
+  readonly engineOverride?: unknown;
 }
 
 export interface CreateSessionOptions {
@@ -533,7 +1003,7 @@ export interface ResumedAgentState {
   readonly context: AgentContextData;
   readonly replay: readonly AgentReplayRecord[];
   readonly permission: PermissionData;
-  readonly plan: PlanData;
+  readonly plan: PlanData | null;
   readonly swarmMode?: boolean | undefined;
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];

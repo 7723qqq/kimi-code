@@ -10,7 +10,7 @@
  * without a Refresh button.
  */
 
-import { ISessionStateService } from '@moonshot-ai/agent-core-v2/session/state/sessionState';
+import { ISessionStateService } from '../compat/v2';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 

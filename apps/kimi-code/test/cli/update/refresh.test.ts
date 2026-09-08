@@ -69,9 +69,13 @@ describe('refreshUpdateCache', () => {
       'fetch',
       vi.fn(async (_input: string | URL, init?: RequestInit) => {
         return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'));
+            },
+            { once: true },
+          );
         });
       }),
     );

@@ -10,7 +10,7 @@
  * fetch on demand instead.
  */
 
-import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
+import type { ServiceIdentifier } from '../compat/v2';
 
 export interface IDisposable {
   dispose(): void;

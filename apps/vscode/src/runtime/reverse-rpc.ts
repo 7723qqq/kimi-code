@@ -1,18 +1,21 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID } from 'node:crypto';
 
 import type {
   ApprovalRequest,
   ApprovalResponse as CoreApprovalResponse,
   QuestionRequest,
   QuestionResult,
-} from "@moonshot-ai/kimi-code-sdk";
+} from '@moonshot-ai/kimi-code-sdk';
 
-import type { ApprovalResponse, QuestionRequest as LegacyQuestionRequest } from "../../shared/legacy-sdk";
-import { describeToolDisplay, toLegacyDisplay } from "./tool-display";
+import type {
+  ApprovalResponse,
+  QuestionRequest as LegacyQuestionRequest,
+} from '../../shared/legacy-sdk';
+import { describeToolDisplay, toLegacyDisplay } from './tool-display';
 
 export type ReverseRpcEvent =
-  | { type: "ApprovalRequest"; payload: ReturnType<typeof approvalPayload> }
-  | { type: "QuestionRequest"; payload: LegacyQuestionRequest };
+  | { type: 'ApprovalRequest'; payload: ReturnType<typeof approvalPayload> }
+  | { type: 'QuestionRequest'; payload: LegacyQuestionRequest };
 
 export class ReverseRpcController {
   private readonly approvals = new Map<string, (response: CoreApprovalResponse) => void>();
@@ -24,7 +27,7 @@ export class ReverseRpcController {
     const id = randomUUID();
     return new Promise((resolve) => {
       this.approvals.set(id, resolve);
-      this.emit({ type: "ApprovalRequest", payload: approvalPayload(id, request) });
+      this.emit({ type: 'ApprovalRequest', payload: approvalPayload(id, request) });
     });
   }
 
@@ -33,10 +36,10 @@ export class ReverseRpcController {
     return new Promise((resolve) => {
       this.questions.set(id, resolve);
       this.emit({
-        type: "QuestionRequest",
+        type: 'QuestionRequest',
         payload: {
           id,
-          tool_call_id: request.toolCallId ?? "",
+          tool_call_id: request.toolCallId ?? '',
           questions: request.questions.map((question) => ({
             question: question.question,
             header: question.header,
@@ -55,12 +58,12 @@ export class ReverseRpcController {
     const resolve = this.approvals.get(id);
     if (!resolve) return false;
     this.approvals.delete(id);
-    if (response === "approve_for_session") {
-      resolve({ decision: "approved", scope: "session" });
-    } else if (response === "approve") {
-      resolve({ decision: "approved" });
+    if (response === 'approve_for_session') {
+      resolve({ decision: 'approved', scope: 'session' });
+    } else if (response === 'approve') {
+      resolve({ decision: 'approved' });
     } else {
-      resolve({ decision: "rejected" });
+      resolve({ decision: 'rejected' });
     }
     return true;
   }
@@ -75,7 +78,7 @@ export class ReverseRpcController {
 
   cancelAll(reason: string): void {
     for (const resolve of this.approvals.values()) {
-      resolve({ decision: "cancelled", feedback: reason });
+      resolve({ decision: 'cancelled', feedback: reason });
     }
     for (const resolve of this.questions.values()) {
       resolve(null);

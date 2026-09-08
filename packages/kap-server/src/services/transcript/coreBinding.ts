@@ -16,7 +16,7 @@ import {
   type IAgentScopeHandle,
   type Interaction,
   type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStore } from '@moonshot-ai/transcript';
 
 import {
@@ -128,7 +128,7 @@ export function bindSessionTranscript(
     const projector = projectorFor(handle.id);
     store.ensureAgent(handle.id, { agentId: handle.id });
     const bus = handle.accessor.get(IEventBus);
-    const busD = bus.subscribe((event) =>
+    const busD = bus.subscribe((event: unknown) =>
       applyOps(handle.id, projector.map(event as ProjectorBusEvent)),
     );
     const loopStatus = handle.accessor.get(IAgentLoopService)?.status();
@@ -168,7 +168,7 @@ export function bindSessionTranscript(
     void session.accessor
       .get(ISessionMetadata)
       .read()
-      .then((meta) => {
+      .then((meta: { agents?: Record<string, unknown> }) => {
         for (const agentId of projectors.keys()) {
           store.describeAgent(descriptorFromMeta(agentId, meta.agents?.[agentId]));
         }
@@ -182,13 +182,13 @@ export function bindSessionTranscript(
     if (handle !== undefined) subscribeAgent(handle);
   }
   disposables.push(
-    agents.onDidCreate((context) => {
+    agents.onDidCreate((context: { agentId: string }) => {
       const handle = agents.handleOf(context.agentId);
       if (handle !== undefined) subscribeAgent(handle);
       seededAgents.add(context.agentId);
       refreshDescriptors();
     }),
-    agents.onDidClose((context) => {
+    agents.onDidClose((context: { agentId: string }) => {
       const agentId = context.agentId;
       for (const d of agentDisposables.get(agentId) ?? []) d.dispose();
       agentDisposables.delete(agentId);
@@ -242,7 +242,7 @@ export function bindSessionTranscript(
         announceInteraction(pending);
       }
     }),
-    onSessionInteractionDidResolve(agents, ({ id, response }) => {
+    onSessionInteractionDidResolve(agents, ({ id, response }: { id: string; response: unknown }) => {
       knownInteractions.delete(id);
       const agentId = interactionAgents.get(id);
       if (agentId === undefined) return;

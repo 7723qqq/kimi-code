@@ -31,9 +31,10 @@ import {
   _setTowerFeatureAssembledForTests,
   type ISessionScopeHandle,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { Emitter, Event } from '@moonshot-ai/agent-core-v2/_base/event';
-import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
+  Emitter,
+  Event,
+  TowerStore,
+} from '#/compat/core.js';
 import {
   AgentTranscript,
   TranscriptStore,

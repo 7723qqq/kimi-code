@@ -260,8 +260,8 @@ function undoAvailabilityFromContext(history: readonly ContextMessage[]): UndoAv
   for (let i = history.length - 1; i >= 0; i--) {
     const message = history[i];
     if (message === undefined) continue;
-    if (message.origin?.kind === 'injection') continue;
-    if (message.origin?.kind === 'compaction_summary') {
+    if ((message.origin as any)?.kind === 'injection') continue;
+    if ((message.origin as any)?.kind === 'compaction_summary') {
       stoppedAtCompaction = true;
       break;
     }
@@ -273,12 +273,12 @@ function undoAvailabilityFromContext(history: readonly ContextMessage[]): UndoAv
 
 function isContextUndoAnchor(message: ContextMessage): boolean {
   if (message.role !== 'user') return false;
-  const origin = message.origin;
-  if (origin === undefined || origin.kind === 'user') return true;
-  if (origin.kind === 'skill_activation') {
+  const origin: any = message.origin;
+  if (origin === undefined || origin?.kind === 'user') return true;
+  if (origin?.kind === 'skill_activation') {
     return origin.trigger === 'user-slash';
   }
-  if (origin.kind === 'plugin_command') {
+  if (origin?.kind === 'plugin_command') {
     return origin.trigger === 'user-slash';
   }
   return false;

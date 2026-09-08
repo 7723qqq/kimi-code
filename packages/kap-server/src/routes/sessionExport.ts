@@ -11,7 +11,7 @@ import {
   ISessionExportService,
   isError2,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
 import { requestLog } from '../lib/requestLog';

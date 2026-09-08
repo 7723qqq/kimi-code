@@ -15,7 +15,7 @@ import type {
   SessionActivityCause,
   SessionActivityChangedEvent,
   SessionActivityState,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import {
   IAgentActivityView,
   IAgentInteractionService,
@@ -28,6 +28,7 @@ import {
   IModelCatalog,
   IModelService,
   ISessionActivityView,
+  ISessionIndex,
   ISessionMetadata,
   ISessionLifecycleService,
   ISessionManager,
@@ -37,9 +38,9 @@ import {
   IWorkspaceSessions,
   MAIN_AGENT_ID,
   makeAgentScopeContext,
-} from '@moonshot-ai/agent-core-v2';
-import { Emitter } from '@moonshot-ai/agent-core-v2/_base/event';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+  Emitter,
+  TurnStarted,
+} from '#/compat/core.js';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -502,6 +503,9 @@ function makeCore(
       }
       if (token === IWorkspaceSessions) {
         return { listRecent: async () => [], count: async () => 3 };
+      }
+      if (token === ISessionIndex) {
+        return { get: async () => undefined, prepare: async () => {} };
       }
       return undefined;
     },

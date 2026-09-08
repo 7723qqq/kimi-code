@@ -27,13 +27,13 @@ import {
   type ImageCompressionTelemetry,
   type ITelemetryService,
   type PromptFileAttachment,
-} from '@moonshot-ai/agent-core-v2';
-import { sniffMediaFromMagic } from '@moonshot-ai/agent-core-v2/agent/media/file-type';
+} from '#/compat/core.js';
+import { sniffMediaFromMagic } from '#/compat/core.js';
 import {
   IMAGE_MIME_BY_SUFFIX,
   VIDEO_MIME_BY_SUFFIX,
-} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
-import { isSensitiveFile } from '@moonshot-ai/agent-core-v2/tool/path-access';
+} from '#/compat/core.js';
+import { isSensitiveFile } from '#/compat/core.js';
 
 import type { PromptSubmission } from '../protocol/rest-prompt';
 

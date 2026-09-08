@@ -6,8 +6,8 @@ import {
   isError2,
   Error2,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { createTerminalRequestSchema } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
+} from '#/compat/core.js';
+import { createTerminalRequestSchema } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

@@ -4,8 +4,12 @@
     "lib": ["ESNext"],
     "experimentalDecorators": true,
     "paths": {
-      "#/legacy": ["./src/legacy/index.ts"],
-      "#/legacy/*": ["./src/legacy/*.ts"],
+      "#/error-protocol": ["./src/error-protocol/index.ts"],
+      "#/error-protocol/*": ["./src/error-protocol/*.ts"],
+      "#/logging": ["./src/logging.ts"],
+      "#/telemetry": ["./src/telemetry.ts"],
+      "#/config-helpers": ["./src/config-helpers.ts"],
+      "#/model-alias": ["./src/model-alias.ts"],
       "#/config-local": ["./src/config-local/index.ts"],
       "#/config-local/*": ["./src/config-local/*.ts"],
       "#/*": ["./src/*"]

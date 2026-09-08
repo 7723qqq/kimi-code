@@ -12,7 +12,7 @@
  * inspection, OAuth orchestration) delegates to the engine's
  * `IMcpManagementService`.
  */
-import { ErrorCodes, KimiError } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 import {
   McpServerConfigSchema,
   type GlobalMcpServerConfig,

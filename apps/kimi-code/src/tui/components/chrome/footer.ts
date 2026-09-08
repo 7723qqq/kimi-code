@@ -119,7 +119,7 @@ function formatGoalBadge(
       : goal.status === 'blocked'
         ? t('tui.chrome.footer.statusBlocked')
         : t('tui.chrome.footer.statusPaused');
-  const label = `${statusLabel} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+  const label = `${statusLabel} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs ?? 0)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -681,7 +681,7 @@ export class FooterComponent implements Component {
   private goalWallClockMs(goal: AppState['goal']): number | undefined {
     if (goal === null || goal === undefined) return undefined;
     if (goal.status !== 'active') return goal.wallClockMs;
-    return goal.wallClockMs + Math.max(0, Date.now() - this.goalObservedAtMs);
+    return (goal.wallClockMs ?? 0) + Math.max(0, Date.now() - this.goalObservedAtMs);
   }
 }
 

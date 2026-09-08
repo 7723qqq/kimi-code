@@ -11,7 +11,7 @@ import type {
   ILogService,
   ISessionIndex,
   SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { MiniDb } from '@moonshot-ai/minidb';
 import { TranscriptStore, type TranscriptOperation } from '@moonshot-ai/transcript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1516,7 +1516,7 @@ describe('GlobalSearchService', () => {
         prepare: async () => ({ state: 'uninitialized', degradedCount: 0 }),
         status: () => ({ state: 'uninitialized', degradedCount: 0 }),
         listRecent: async () => ({ items: summaries, nextCursor: undefined }),
-        get: async (id) => byId.get(id),
+        get: async (id: any) => byId.get(id),
         count: async () => summaries.length,
         remove: async () => {},
       };

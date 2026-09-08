@@ -30,8 +30,9 @@ import {
   type ISessionScopeHandle,
   type Scope,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
-import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
+  type Workspace,
+} from '#/compat/core.js';
+import { SessionMetaUpdated } from '#/compat/core.js';
 import { t } from '../i18n';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
@@ -286,7 +287,7 @@ export function registerSessionsRoutes(
       const archivedOnly = raw.archived_only === true;
 
       const workspaces = await core.accessor.get(IWorkspaceService).list();
-      const roots = new Map(workspaces.map((w) => [w.id, w.root]));
+      const roots = new Map(workspaces.map((w: Workspace) => [w.id, w.root]));
 
       if (raw.workspace_id !== undefined && !roots.has(raw.workspace_id)) {
         reply.send(
@@ -693,7 +694,7 @@ export function registerSessionsRoutes(
         }
 
         const roots = new Map(
-          (await core.accessor.get(IWorkspaceService).list()).map((w) => [w.id, w.root]),
+          (await core.accessor.get(IWorkspaceService).list()).map((w: Workspace) => [w.id, w.root]),
         );
         const items = matched.slice(0, pageSize).map((summary) =>
           toWireSession(

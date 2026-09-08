@@ -87,12 +87,12 @@ export function goalSummaryJson(goal: GoalSnapshot | null): GoalSummary {
   }
   return {
     type: 'goal.summary',
-    goalId: goal.goalId,
+    goalId: goal.goalId ?? null,
     status: goal.status,
     reason: goal.terminalReason ?? null,
-    turnsUsed: goal.turnsUsed,
-    tokensUsed: goal.tokensUsed,
-    wallClockMs: goal.wallClockMs,
+    turnsUsed: goal.turnsUsed ?? null,
+    tokensUsed: goal.tokensUsed ?? null,
+    wallClockMs: goal.wallClockMs ?? null,
   };
 }
 

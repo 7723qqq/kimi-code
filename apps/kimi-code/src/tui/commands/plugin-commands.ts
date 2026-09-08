@@ -15,12 +15,13 @@ export function pluginCommandName(pluginId: string, name: string): string {
 export function buildPluginSlashCommands(defs: readonly PluginCommandDef[]): PluginSlashCommands {
   const commandMap = new Map<string, string>();
   const commands = defs.map((def) => {
-    const commandName = pluginCommandName(def.pluginId, def.name);
-    commandMap.set(commandName, def.body);
+    const pluginId = def.pluginId ?? 'plugin';
+    const commandName = pluginCommandName(pluginId, def.name);
+    commandMap.set(commandName, def.body ?? def.prompt ?? '');
     return {
       name: commandName,
       aliases: [],
-      description: def.description,
+      description: def.description ?? '',
     } satisfies KimiSlashCommand;
   });
   return { commands, commandMap };

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
+import { resolveKimiHome } from './compat/core.js';
 import { ulid } from 'ulid';
 
 export const HEARTBEAT_INTERVAL_MS = 15_000;

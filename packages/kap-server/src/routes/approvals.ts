@@ -8,7 +8,7 @@ import {
   type ApprovalResponse,
   type Interaction,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   approvalAlreadyResolvedDataSchema,

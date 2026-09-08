@@ -1,4 +1,4 @@
-import { IWorkspaceService, type Workspace } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+import { IWorkspaceService, type Workspace } from '../compat/v2';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 

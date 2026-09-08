@@ -7,7 +7,7 @@ import {
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
   type UpdateSessionProfileRequest,
-} from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '#/compat/core.js';
 
 import { goalSnapshotSchema } from './goal';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
@@ -29,7 +29,7 @@ export type {
   SessionWarning,
   SessionWarningsResponse,
   UpdateSessionProfileRequest,
-} from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '#/compat/core.js';
 
 export const createSessionRequestSchema = sessionCreateSchema;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { mentionMatchSpans } from '@/lib/mention-match';
 
 describe('mentionMatchSpans', () => {

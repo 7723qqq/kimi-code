@@ -1,28 +1,29 @@
 // apps/vis/server/src/lib/agent-record-types.ts
-// Single source of truth: engine shapes come from agent-core-v2 directly.
-// Do NOT add local interfaces that duplicate upstream shapes — the only
-// exceptions are the legacy records below, which v2 never writes but old
-// (v1-written / pre-migration) wires still contain on disk.
+// Single source of truth: engine shapes come from the frozen wire contract
+// (v1-compat.ts for v1-era records, v2-wire.ts for the v2 durable records).
+// Do NOT add local interfaces that duplicate those shapes — the only
+// exceptions are the legacy records below, which neither engine writes but
+// old (v1-written / pre-migration) wires still contain on disk.
 
-export type {
-  ContextMessage,
-  LoopRecordedEvent,
-  Message,
+import type {
   ContentPart,
+  Message,
   ToolCall,
   TokenUsage,
-  PermissionMode,
-  PromptOrigin,
-  CronTask,
-} from '@moonshot-ai/agent-core-v2';
-export { WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2/wire/migration/migration';
+} from '@moonshot-ai/kosong';
+
+import { WIRE_PROTOCOL_VERSION } from './v2-wire';
+export { WIRE_PROTOCOL_VERSION };
+export type { ContentPart, Message, ToolCall, TokenUsage };
+export type { ContextMessage, LoopRecordedEvent, PermissionMode, PromptOrigin } from './v1-compat';
 export type {
   AgentTaskInfo as BackgroundTaskInfo,
   AgentTaskStatus as BackgroundTaskStatus,
-} from '@moonshot-ai/agent-core-v2';
-export type { SubagentTaskInfo as AgentBackgroundTaskInfo } from '@moonshot-ai/agent-core-v2';
-export type { ProcessTaskInfo as ProcessBackgroundTaskInfo } from '@moonshot-ai/agent-core-v2/agent/tools/os/bash/process-task';
-export type { QuestionTaskInfo as QuestionBackgroundTaskInfo } from '@moonshot-ai/agent-core-v2/agent/tools/ask-user-question/question-background-task';
+  ProcessTaskInfo as ProcessBackgroundTaskInfo,
+  QuestionTaskInfo as QuestionBackgroundTaskInfo,
+  SubagentTaskInfo as AgentBackgroundTaskInfo,
+  CronTask,
+} from './v2-wire';
 
 import type {
   AgentTaskInfo as BackgroundTaskInfo,
@@ -30,6 +31,12 @@ import type {
   CronCursorPayload,
   CronDeletePayload,
   CronTask,
+  ConfigUpdate,
+  ContextAppendLoopEvent,
+  ContextAppendMessage,
+  ContextApplyCompactionPayload,
+  ContextClear,
+  ContextUndo,
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
@@ -43,15 +50,23 @@ import type {
   LlmRequest,
   LlmToolsSnapshot,
   McpToolsDiscovered,
+  PermissionRecordApprovalResult,
+  PermissionSetMode,
   PlanModeCancel,
   PlanModeEnter,
   PlanModeExit,
   PlanRevision,
   PluginSessionStartEvent,
+  ProfileBind,
   PromptAborted,
   PromptAccepted,
   PromptCompleted,
   PromptSteered,
+  RuntimeSetBinding,
+  StaleGuardCleared,
+  StaleGuardRecorded,
+  SwarmModeEnter,
+  SwarmModeExit,
   TaskStarted,
   TaskTerminated,
   TaskWaitDelivered,
@@ -60,35 +75,20 @@ import type {
   TokenCountingTruncated,
   TokenCountingTurnRecorded,
   ToolsRegisterUserTool,
-  ToolsUnregisterUserTool,
-} from '@moonshot-ai/agent-core-v2';
-import type {
-  ContextAppendLoopEvent,
-  ContextAppendMessage,
-  ContextApplyCompactionPayload,
-  ContextClear,
-  ContextUndo,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
-import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import type { TurnStepInterrupted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
-import type { UsageRecord } from '@moonshot-ai/agent-core-v2/agent/usage/usageOps';
-import type {
-  ConfigUpdate,
-  ProfileBind,
   ToolsResetActiveTools,
   ToolsSetActiveTools,
-} from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
-import type { PermissionSetMode } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionModeOps';
-import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRulesOps';
-import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
-import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/features/swarm/swarmOps';
-import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/features/tower/towerOps';
-import type {
-  StaleGuardCleared,
-  StaleGuardRecorded,
-} from '@moonshot-ai/agent-core-v2/features/staleGuard/staleGuardOps';
-import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/features/todo/todoOps';
+  ToolsUnregisterUserTool,
+  ToolsUpdateStore,
+  TowerModeEnter,
+  TowerModeExit,
+  TurnCancel,
+  TurnEnded,
+  TurnPrompt,
+  TurnSteer,
+  TurnStepInterrupted,
+  TurnStepRetrying,
+  UsageRecord,
+} from './v2-wire';
 
 /** A wire record with v2's literal `type` discriminant restored. v2 declares
  *  records as Event2 class + payload interface mergings whose `type` field is

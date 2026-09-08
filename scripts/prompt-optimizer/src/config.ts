@@ -9,10 +9,7 @@ import type { OptimizerConfig } from './types';
 const PROJECT_ROOT = resolve(import.meta.dirname, '../../..');
 
 export const DEFAULT_CONFIG: OptimizerConfig = {
-  systemPromptPath: resolve(
-    PROJECT_ROOT,
-    'packages/agent-core-v2/src/app/agentProfileCatalog/system.md',
-  ),
+  systemPromptPath: resolve(PROJECT_ROOT, 'packages/kimi-agent/src/prompt/system.md'),
   defaultModel: '',
   apiBaseUrl: '',
   apiKeyEnvVar: 'KIMI_API_KEY',

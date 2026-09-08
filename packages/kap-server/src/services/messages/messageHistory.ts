@@ -13,7 +13,7 @@ import {
   type IAgentScopeHandle,
   type Scope,
   type WireRecord,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import { ensureMainAgent } from '../../transport/mainAgent';
 import type { Message, MessageRole } from '../../protocol/message';
@@ -42,7 +42,6 @@ export class MessageNotFoundError extends Error {
   }
 }
 
-/** Sentinel — the route maps it to 40922. */
 export class MessageCursorNotFoundError extends Error {
   readonly messageId: string;
   constructor(messageId: string) {

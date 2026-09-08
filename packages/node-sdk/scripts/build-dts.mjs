@@ -13,23 +13,19 @@ const tscBinPath = packageBinPath('typescript', 'bin/tsc');
 const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-extractor');
 
 const packageDirs = new Set([
-  'agent-core-v2',
   'i18n',
   'i18n-shared',
   'kaos',
-  'klient',
   'kosong',
   'node-sdk',
   'oauth',
   'protocol',
 ]);
 const workspacePackages = new Map([
-  ['@moonshot-ai/agent-core-v2', 'agent-core-v2'],
   ['@moonshot-ai/kimi-code-oauth', 'oauth'],
   ['@moonshot-ai/kimi-i18n', 'i18n'],
   ['@moonshot-ai/i18n-shared', 'i18n-shared'],
   ['@moonshot-ai/kaos', 'kaos'],
-  ['@moonshot-ai/klient', 'klient'],
   ['@moonshot-ai/kosong', 'kosong'],
   ['@moonshot-ai/protocol', 'protocol'],
 ]);

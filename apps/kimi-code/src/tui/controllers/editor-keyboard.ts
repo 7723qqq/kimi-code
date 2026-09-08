@@ -810,6 +810,7 @@ export class EditorKeyboardController {
 
 function parseExpiry(meta: FileMeta | undefined): number | undefined {
   if (meta?.expires_at === undefined) return undefined;
+  if (typeof meta.expires_at === 'number') return meta.expires_at;
   const value = Date.parse(meta.expires_at);
   return Number.isFinite(value) ? value : undefined;
 }

@@ -1,5 +1,5 @@
 
-import { ISessionMcpHandle, resumeSessionById, type Scope } from '@moonshot-ai/agent-core-v2';
+import { ISessionMcpHandle, resumeSessionById, type Scope } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -87,13 +87,23 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
         return;
       }
       await resolved.view.waitForInitialLoad().catch(() => {});
-      const servers = resolved.view.list().map((entry) => ({
-        name: entry.name,
-        transport: entry.transport,
-        status: entry.status,
-        tool_count: entry.toolCount,
-        ...(entry.error !== undefined ? { error: entry.error } : {}),
-      }));
+      const servers = resolved.view.list().map(
+        (
+          entry: {
+            name: string;
+            transport: string;
+            status: string;
+            toolCount: number;
+            error?: unknown;
+          },
+        ) => ({
+          name: entry.name,
+          transport: entry.transport,
+          status: entry.status,
+          tool_count: entry.toolCount,
+          ...(entry.error !== undefined ? { error: entry.error } : {}),
+        }),
+      );
       reply.send(okEnvelope({ servers }, req.id));
     },
   );
@@ -131,7 +141,10 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
       }
       const detail = resolved.view.resolved(tail);
       const tools = detail
-        ? detail.rawTools.map((tool) => ({ name: tool.name, description: tool.description }))
+        ? detail.rawTools.map((tool: { name: string; description: string }) => ({
+            name: tool.name,
+            description: tool.description,
+          }))
         : [];
       reply.send(
         okEnvelope(

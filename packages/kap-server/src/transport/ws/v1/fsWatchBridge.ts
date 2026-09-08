@@ -7,13 +7,13 @@ import {
   IWorkspaceInstanceManager,
   getLiveSessionById,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import type { Program } from '@moonshot-ai/agent-core-v2/program/program';
+} from '#/compat/core.js';
+import type { Program } from '#/compat/core.js';
 import type {
   FsChangeEntry,
   FsChangeEvent,
   IWorkspaceFsWatchSubscription,
-} from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fsWatch';
+} from '#/compat/core.js';
 
 import type { EventEnvelope, JournalLogger } from './sessionEventJournal';
 
@@ -188,7 +188,8 @@ export class FsWatchBridge {
     if (session === undefined) return undefined;
     if (runtimeId !== 'local') throw new Error(`fs watch unavailable for runtime "${runtimeId}"`);
     const workspace = session.accessor.get(ISessionWorkspaceContext);
-    const workspaceId = session.accessor.get(ISessionContext).workspaceId;
+    const workspaceContext = session.accessor.get(ISessionContext) as { workspaceId?: string } | undefined;
+    const workspaceId = typeof workspaceContext?.workspaceId === 'string' ? workspaceContext.workspaceId : '';
     const instance = this.core.accessor.get(IWorkspaceInstanceManager).get(workspaceId);
     if (instance === undefined) throw new Error(`workspace "${workspaceId}" unavailable`);
     const program = instance.program;
@@ -229,7 +230,7 @@ export class FsWatchBridge {
     sw.programGeneration = sw.program.snapshot().generation;
     const sub = service.subscribe();
     sw.watchSub = sub;
-    sw.watchEventSub = sub.onDidChangeFiles((event) => {
+    sw.watchEventSub = sub.onDidChangeFiles((event: FsChangeEvent) => {
       this.onWatchEvent(sw, event);
     });
     this.applyUnion(sw);
@@ -273,7 +274,7 @@ export class FsWatchBridge {
       if (ev.truncated === true) {
         changes = [];
       } else {
-        changes = ev.changes.filter((c) => isUnderAny(c.path, paths));
+        changes = ev.changes.filter((c: FsChangeEntry) => isUnderAny(c.path, paths));
         if (changes.length === 0) continue;
       }
       sw.seq += 1;

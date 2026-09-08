@@ -1,5 +1,5 @@
 
-import { type Scope } from '@moonshot-ai/agent-core-v2';
+import { type Scope } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';

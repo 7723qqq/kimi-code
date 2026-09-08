@@ -4,10 +4,10 @@ import type {
   AgentContextData,
   ExperimentalFeatureState,
   SwarmModeTrigger,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/types';
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import { ErrorCodes, KimiError, makeErrorPayload } from '#/legacy';
+import { ErrorCodes, KimiError, makeErrorPayload } from '#/error-protocol';
 import type {
   ApprovalHandler,
   ApprovalRequest,

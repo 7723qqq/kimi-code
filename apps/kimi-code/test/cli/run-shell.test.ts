@@ -42,7 +42,6 @@ const mocks = vi.hoisted(() => {
     harnessGetConfigDiagnostics: vi.fn(async () => ({ warnings: [] as readonly string[] })),
     harnessGetCachedAccessToken: vi.fn(),
     harnessClose: vi.fn(),
-    detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
     kimiTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
@@ -131,10 +130,6 @@ vi.mock('#/cli/rust-engine', () => ({
   maybeLoadRustEngine: vi.fn(async () => undefined),
 }));
 
-vi.mock('@moonshot-ai/agent-core-v2', () => ({
-  probeHostEnvironment: async () => ({ shellPath: undefined }),
-}));
-
 vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   setCrashPhase: mocks.setCrashPhase,
@@ -168,11 +163,6 @@ vi.mock('../../src/tui/index', () => ({
 
 vi.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
-}));
-
-vi.mock('../../src/migration/index', async (importOriginal) => ({
-  ...(await importOriginal()),
-  detectPendingMigration: mocks.detectPendingMigration,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -940,56 +930,6 @@ describe('runShell', () => {
       exitSpy.mockRestore();
       stdout.restore();
       stderr.restore();
-    }
-  });
-
-  it('surfaces an invalid target config as an error for kimi migrate, not silently', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
-    mocks.harnessGetConfig.mockRejectedValue(
-      new Error('Invalid configuration in ~/.kimi-code/config.toml'),
-    );
-
-    // A broken config.toml must fail loudly — `kimi migrate` must not swallow
-    // it and proceed, or the user never learns their config is broken.
-    await expect(
-      runShell(
-        {
-          session: undefined,
-          continue: false,
-          yolo: false,
-          auto: false,
-          plan: false,
-          model: undefined,
-          outputFormat: undefined,
-          prompt: undefined,
-          skillsDirs: [],
-          agent: undefined,
-          agentFiles: [],
-        },
-        '1.2.3-test',
-        { migrateOnly: true },
-      ),
-    ).rejects.toThrow('Invalid configuration');
-    expect(mocks.tuiStart).not.toHaveBeenCalled();
-  });
-
-  it('refuses migration when KIMI_SHARE_DIR resolves to the Kimi Code home', async () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    try {
-      await withEnv({ KIMI_SHARE_DIR: '/tmp/kimi-code-test-home' }, async () => {
-        await runShell(minimalCliOptions, '1.2.3-test', { migrateOnly: true });
-      });
-      expect(mocks.detectPendingMigration).not.toHaveBeenCalled();
-      expect(mocks.harnessClose).toHaveBeenCalledOnce();
-      expect(mocks.tuiStart).not.toHaveBeenCalled();
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('KIMI_SHARE_DIR'));
-    } finally {
-      stderrSpy.mockRestore();
     }
   });
 });

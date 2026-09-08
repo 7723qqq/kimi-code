@@ -47,17 +47,18 @@ export function buildPluginsListLines(input: PluginsListPanelInput): readonly st
     const sourceTag = muted(`[${formatPluginSourceLabel(plugin)}]`);
     const trustBadge = ` ${renderTrustBadge(pluginTrustLabel(plugin))}`;
     lines.push(
-      `${value(plugin.displayName)} (${muted(plugin.id)}) ${muted(version)} ${sourceTag}${trustBadge} | ${enabled}${state}`,
+      `${value(plugin.displayName ?? plugin.name ?? plugin.id)} (${muted(plugin.id)}) ${muted(version)} ${sourceTag}${trustBadge} | ${enabled}${state}`,
     );
+    const mcpServerCount = plugin.mcpServerCount ?? 0;
     const mcp =
-      plugin.mcpServerCount > 0
+      mcpServerCount > 0
         ? ` | ${t('tui.messages.pluginsStatusPanel.mcpCount', {
-            enabled: plugin.enabledMcpServerCount,
-            total: plugin.mcpServerCount,
+            enabled: plugin.enabledMcpServerCount ?? 0,
+            total: mcpServerCount,
           })}`
         : '';
     lines.push(
-      `  ${muted(t('tui.messages.pluginsStatusPanel.skillsLabel'))} ${value(String(plugin.skillCount))}${muted(mcp)}${diagnostics}`,
+      `  ${muted(t('tui.messages.pluginsStatusPanel.skillsLabel'))} ${value(String(plugin.skillCount ?? 0))}${muted(mcp)}${diagnostics}`,
     );
   }
   return lines;
@@ -89,11 +90,11 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
     return `${muted(t('tui.messages.pluginsStatusPanel.trust'))}  ${muted(THIRD_PARTY_BADGE)}`;
   })();
   const lines: string[] = [
-    `${value(info.displayName)} (${muted(info.id)}) ${muted(info.version ?? '')}`.trim(),
+    `${value(info.displayName ?? info.name ?? info.id)} (${muted(info.id)}) ${muted(info.version ?? '')}`.trim(),
     `${muted(t('tui.messages.pluginsStatusPanel.status'))} ${status}${muted(t('tui.messages.pluginsStatusPanel.statePrefix'))}${stateText(info.state)}`,
     trustLine,
     `${muted(t('tui.messages.pluginsStatusPanel.source'))} ${value(info.source)}`,
-    `${muted(t('tui.messages.pluginsStatusPanel.root'))}   ${value(info.root)}`,
+    `${muted(t('tui.messages.pluginsStatusPanel.root'))}   ${value(info.root ?? '')}`,
   ];
   if (info.source === 'github' && info.github !== undefined) {
     const refLabel = `${info.github.ref.kind}:${info.github.ref.value}`;
@@ -112,11 +113,11 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
     );
   }
   lines.push(
-    `${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(info.installedAt)}`,
+    `${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(String(info.installedAt ?? ''))}`,
   );
   if (info.updatedAt !== undefined && info.updatedAt !== info.installedAt) {
     lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(info.updatedAt)}`,
+      `${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(String(info.updatedAt))}`,
     );
   }
   if (info.manifestPath !== undefined) {
@@ -154,18 +155,19 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   );
   for (const dir of info.manifest?.skills ?? []) lines.push(`  ${muted('-')} ${value(dir)}`);
 
-  if (info.mcpServers.length > 0) {
+  const mcpServers = info.mcpServers ?? [];
+  if (mcpServers.length > 0) {
     lines.push('');
     lines.push(
       value(
         t('tui.messages.pluginsStatusPanel.mcpServers', {
-          enabled: info.enabledMcpServerCount,
-          total: info.mcpServerCount,
+          enabled: info.enabledMcpServerCount ?? 0,
+          total: info.mcpServerCount ?? 0,
         }),
       ),
     );
     lines.push(muted(`  ${t('tui.messages.pluginsStatusPanel.mcpHint', { id: info.id })}`));
-    for (const server of info.mcpServers) {
+    for (const server of mcpServers) {
       const enabled = server.enabled
         ? success(t('tui.messages.pluginsStatusPanel.enabled'))
         : muted(t('tui.messages.pluginsStatusPanel.disabled'));
@@ -225,10 +227,11 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
     );
   }
 
-  if (info.diagnostics.length > 0) {
+  const diagnostics = info.diagnostics ?? [];
+  if (diagnostics.length > 0) {
     lines.push('');
     lines.push(value(t('tui.messages.pluginsStatusPanel.diagnostics')));
-    for (const d of info.diagnostics) {
+    for (const d of diagnostics) {
       const paint = d.severity === 'error' ? error : d.severity === 'warn' ? warning : muted;
       lines.push(`  ${paint(`[${d.severity}]`)} ${value(d.message)}`);
     }
@@ -237,6 +240,7 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
 }
 
 function stateText(state: PluginInfo['state']): string {
-  if (state === 'ok') return currentTheme.fg('success', state);
-  return currentTheme.fg('error', state);
+  const s = state ?? 'unknown';
+  if (s === 'ok') return currentTheme.fg('success', s);
+  return currentTheme.fg('error', s);
 }

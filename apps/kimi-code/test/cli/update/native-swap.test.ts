@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,10 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readUpdateInstallState } from '#/cli/update/install-state';
 import { readStagedNativeUpdate, stagedExeFileName } from '#/cli/update/native-stage';
-import {
-  maybeRelaunchWithStagedNativeUpdate,
-  type NativeSwapDeps,
-} from '#/cli/update/native-swap';
+import { maybeRelaunchWithStagedNativeUpdate, type NativeSwapDeps } from '#/cli/update/native-swap';
 import { KIMI_CODE_UPDATE_REEXEC_ENV } from '#/constant/app';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 
@@ -138,17 +145,21 @@ async function seedStagedUpdate(
   await writeFile(join(stagingDir, stagedExeFileName(version, 'linux')), exeBytes);
   await writeFile(
     getNativeStagedStateFile(exePath),
-    `${JSON.stringify({
-      version,
-      target: 'linux-x64',
-      exeFileName: stagedExeFileName(version, 'linux'),
-      // The swap re-verifies the staged bytes against this checksum, so the
-      // seed must record the payload's real sha256.
-      sha256: createHash('sha256').update(exeBytes).digest('hex'),
-      exeSize: STAGED_EXE_SIZE,
-      stagedAt: new Date().toISOString(),
-      manual: options?.manual === true ? true : undefined,
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version,
+        target: 'linux-x64',
+        exeFileName: stagedExeFileName(version, 'linux'),
+        // The swap re-verifies the staged bytes against this checksum, so the
+        // seed must record the payload's real sha256.
+        sha256: createHash('sha256').update(exeBytes).digest('hex'),
+        exeSize: STAGED_EXE_SIZE,
+        stagedAt: new Date().toISOString(),
+        manual: options?.manual === true ? true : undefined,
+      },
+      null,
+      2,
+    )}\n`,
     'utf-8',
   );
 }
@@ -263,7 +274,9 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     expect(calls[0]?.args).toEqual(['--version']);
     expect(calls[1]?.cmd).toBe(exePath);
     expect(calls[1]?.args).toEqual(['--flag', 'value']);
-    expect((calls[1]?.options['env'] as Record<string, string>)[KIMI_CODE_UPDATE_REEXEC_ENV]).toBe('1');
+    expect((calls[1]?.options['env'] as Record<string, string>)[KIMI_CODE_UPDATE_REEXEC_ENV]).toBe(
+      '1',
+    );
     expect(calls[1]?.options['stdio']).toBe('inherit');
     expect(exitImpl).toHaveBeenCalledWith(3);
 
@@ -559,14 +572,18 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     const claimPath = join(stagingDir, 'staged.json.swap-4242');
     await writeFile(
       claimPath,
-      `${JSON.stringify({
-        version: STAGED_VERSION,
-        target: 'linux-x64',
-        exeFileName,
-        sha256: 'a'.repeat(64),
-        exeSize: STAGED_EXE_SIZE,
-        stagedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-      }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          version: STAGED_VERSION,
+          target: 'linux-x64',
+          exeFileName,
+          sha256: 'a'.repeat(64),
+          exeSize: STAGED_EXE_SIZE,
+          stagedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
       'utf-8',
     );
     // Crash residue: the claim is older than the stale window.
@@ -604,9 +621,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     await expect(
       stat(join(stagingDir, stagedExeFileName(STAGED_VERSION, 'linux'))),
     ).resolves.toBeDefined();
-    await expect(
-      stat(join(stagingDir, `staged.json.swap-${process.pid}`)),
-    ).resolves.toBeDefined();
+    await expect(stat(join(stagingDir, `staged.json.swap-${process.pid}`))).resolves.toBeDefined();
   });
 
   it('keeps the exe a fresh staged.json references when sweeping a stale claim', async () => {
@@ -801,7 +816,9 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
       });
       return child;
     }) as unknown as NativeSwapDeps['spawnImpl'];
-    const promiseA = maybeRelaunchWithStagedNativeUpdate(makeDeps(exePath, { spawnImpl: spawnImplA }));
+    const promiseA = maybeRelaunchWithStagedNativeUpdate(
+      makeDeps(exePath, { spawnImpl: spawnImplA }),
+    );
 
     // Wait until A holds the claim.
     const stagingDir = getNativeStagingDir(exePath);

@@ -4,7 +4,7 @@ import {
   MAIN_AGENT_ID,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import { t } from '../i18n';
 

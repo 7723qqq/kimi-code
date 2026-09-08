@@ -19,11 +19,11 @@ import {
   type IDisposable,
   type Scope,
   type SessionMeta,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import {
   TowerStore,
   resolveTowerRepoRoot,
-} from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
+} from '#/compat/core.js';
 import {
   TranscriptStore,
   foldWireRecordFacts,

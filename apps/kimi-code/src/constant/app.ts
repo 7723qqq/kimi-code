@@ -109,10 +109,8 @@ export function kimiCodeCdnLatestJsonUrl(): string {
 export function kimiCodeCdnBinariesBase(): string {
   return `${kimiCodeCdnBase()}/binaries`;
 }
-// The marketplace env override name lives in the shared agent-core-v2 plugin
-// domain (kap-server consumes it from there). Deep-path import: this module is
-// evaluated on every CLI invocation, so it must not pull in the engine root.
-export { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '@moonshot-ai/agent-core-v2/app/plugin/marketplace';
+// The marketplace env override name.
+export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 // The CLI-side default catalog derives from the current region profile; the
 // env override above takes priority at the call site.
 export function kimiCodePluginMarketplaceUrl(): string {

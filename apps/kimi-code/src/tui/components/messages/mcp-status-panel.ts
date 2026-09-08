@@ -10,25 +10,32 @@ export interface McpStatusReportOptions {
 const STATUS_PRIORITY: Record<McpServerInfo['status'], number> = {
   failed: 0,
   'needs-auth': 1,
-  pending: 2,
-  connected: 3,
-  disabled: 4,
-  removed: 5,
+  connecting: 2,
+  pending: 3,
+  running: 4,
+  connected: 5,
+  stopped: 6,
+  disabled: 7,
+  removed: 8,
 };
 
 function statusLabel(status: McpServerInfo['status']): string {
   switch (status) {
     case 'connected':
+    case 'running':
       return t('tui.messages.mcpStatusPanel.status.connected');
     case 'pending':
+    case 'connecting':
       return t('tui.messages.mcpStatusPanel.status.pending');
     case 'needs-auth':
       return t('tui.messages.mcpStatusPanel.status.needsAuth');
     case 'failed':
       return t('tui.messages.mcpStatusPanel.status.failed');
     case 'disabled':
+    case 'stopped':
       return t('tui.messages.mcpStatusPanel.status.disabled');
     case 'removed':
+    default:
       return 'removed';
   }
 }
@@ -45,14 +52,18 @@ const SUMMARY_ORDER: readonly McpServerInfo['status'][] = [
 function statusPainter(status: McpServerInfo['status']): (text: string) => string {
   switch (status) {
     case 'connected':
+    case 'running':
       return (text) => currentTheme.fg('success', text);
     case 'failed':
       return (text) => currentTheme.fg('error', text);
     case 'needs-auth':
     case 'pending':
+    case 'connecting':
       return (text) => currentTheme.fg('warning', text);
     case 'disabled':
+    case 'stopped':
     case 'removed':
+    default:
       return (text) => currentTheme.fg('textDim', text);
   }
 }
@@ -61,11 +72,12 @@ function formatToolCount(server: McpServerInfo): string {
   if (server.status === 'disabled' || server.status === 'removed') {
     return t('tui.messages.mcpStatusPanel.disabledToolCount');
   }
+  const count = server.toolCount ?? 0;
   return t(
-    server.toolCount === 1
+    count === 1
       ? 'tui.messages.mcpStatusPanel.tool_one'
       : 'tui.messages.mcpStatusPanel.tool_other',
-    { count: server.toolCount },
+    { count },
   );
 }
 
@@ -97,7 +109,7 @@ function buildSummary(servers: readonly McpServerInfo[]): string {
   let toolsAvailable = 0;
   for (const server of servers) {
     counts[server.status] = (counts[server.status] ?? 0) + 1;
-    if (server.status === 'connected') toolsAvailable += server.toolCount;
+    if (server.status === 'connected') toolsAvailable += server.toolCount ?? 0;
   }
   const parts: string[] = [];
   for (const status of SUMMARY_ORDER) {
@@ -154,6 +166,7 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
 
     if (
       server.status === 'failed' &&
+      server.error !== null &&
       server.error !== undefined &&
       server.error.trim().length > 0
     ) {

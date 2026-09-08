@@ -16,7 +16,12 @@ interface GoalCompletionStats {
  * (turns / tokens / time) are exact and do not depend on model prose.
  */
 export function buildGoalCompletionMessage(goal: GoalSnapshot): string {
-  return buildGoalCompletionMessageFromStats(goal);
+  return buildGoalCompletionMessageFromStats({
+    terminalReason: goal.terminalReason,
+    turnsUsed: goal.turnsUsed ?? 0,
+    tokensUsed: goal.tokensUsed ?? 0,
+    wallClockMs: goal.wallClockMs ?? 0,
+  });
 }
 
 export function buildGoalCompletionMessageFromStats(goal: GoalCompletionStats): string {

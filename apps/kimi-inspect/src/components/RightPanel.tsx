@@ -13,7 +13,7 @@
  * rows) survives tab switches.
  */
 
-import { IAgentStateService } from '@moonshot-ai/agent-core-v2/agent/state/agentState';
+import { IAgentStateService } from '../compat/v2';
 import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';

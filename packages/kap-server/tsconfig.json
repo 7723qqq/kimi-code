@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+    "noPropertyAccessFromIndexSignature": false,
+    "paths": {
+      "#/compat/*": ["./src/compat/*"],
+      "#/*": ["./src/*"]
+    }
   },
   "include": ["src", "test"]
 }

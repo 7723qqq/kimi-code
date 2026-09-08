@@ -14,7 +14,7 @@ import {
   IOAuthToolkit,
   ITelemetryService,
   noopTelemetryService,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
 import { listenWithPortRetry, type RunningServer, startServer } from '../src/start';

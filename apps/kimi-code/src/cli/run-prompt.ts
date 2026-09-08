@@ -84,11 +84,20 @@ export async function runPrompt(
   version: string,
   io: PromptRunIO = {},
 ): Promise<void> {
-  // The agent-core-v2 engine runs on its own native DI service runtime (see
-  // v2/run-v2-print.ts). Loaded lazily so the v2 module graph stays off the
-  // CLI startup path.
-  const { runV2Print } = await import('./v2/run-v2-print');
-  await runV2Print(opts, version, io);
+  if (
+    process.env['KIMI_FORCE_V2_PRINT'] === '1' ||
+    process.env['KIMI_FORCE_V2_PRINT'] === 'true' ||
+    process.env['KIMI_NATIVE_PRINT'] === '0' ||
+    Boolean(opts.agent) ||
+    Boolean(opts.agentFiles && opts.agentFiles.length > 0)
+  ) {
+    const { runV2Print } = await import('./v2/run-v2-print.js');
+    await runV2Print(opts, version, io);
+    return;
+  }
+
+  const { runNativePrint } = await import('./run-native-print.js');
+  await runNativePrint(opts, version, io);
 }
 
 export function requireConfiguredModel(...models: readonly (string | undefined)[]): string {

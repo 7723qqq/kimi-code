@@ -9,16 +9,9 @@
  * the deleted v1 `agent-core` disk format; the v2 engine storage is
  * restructured, so those internals are no longer covered here.
  */
-import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import {
-  drainQueryStoreDisposals,
-  drainSessionIndexMirror,
-  ISessionIndex,
-  ISessionIndexMirror,
-} from '@moonshot-ai/agent-core-v2';
 import { join } from 'pathe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -231,95 +224,4 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       vi.unstubAllEnvs();
     }
   });
-
-  it('drains follow-up pages when the mapping drops entries', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      for (let i = 0; i < 3; i += 1) {
-        const created = await client.createSession({ id: `ses_drain_${i}`, workDir });
-        await client.closeSession({ sessionId: created.id });
-      }
-      const index = client.engineAccessor.get(ISessionIndex);
-      await index.prepare();
-      // A summary whose workDir can no longer be resolved (unknown workspace,
-      // no cwd) is dropped by the mapping; the page must still fill.
-      client.engineAccessor.get(ISessionIndexMirror).record({
-        id: 'ses_ghost',
-        workspaceId: 'ws_missing',
-        createdAt: 1,
-        updatedAt: Date.now() + 60_000,
-        archived: false,
-      });
-      await drainSessionIndexMirror();
-
-      const page1 = await client.listSessionsPage({ limit: 2 });
-      expect(page1.items).toHaveLength(2);
-      expect(page1.items.some((item) => item.id === 'ses_ghost')).toBe(false);
-      expect(page1.nextCursor).toBeDefined();
-
-      const page2 = await client.listSessionsPage({ limit: 2, before: page1.nextCursor });
-      expect(page2.items).toHaveLength(1);
-      expect(page2.items[0]?.id).not.toBe('ses_ghost');
-      expect(page2.nextCursor).toBeUndefined();
-
-      const ids = [...page1.items, ...page2.items].map((item) => item.id).toSorted();
-      expect(ids).toEqual(['ses_drain_0', 'ses_drain_1', 'ses_drain_2']);
-    } finally {
-      await client.close();
-      // Dispose fired the mirror/query-store async closes; await them before
-      // the shared afterEach removes the temp home.
-      await drainSessionIndexMirror();
-      await drainQueryStoreDisposals();
-      vi.unstubAllEnvs();
-    }
-  }, 15_000);
-});
-
-describe('SDKRpcClientV2 search-index separation', () => {
-  // The global full-text search database (`<homeDir>/search-index`) belongs
-  // to the kap-server search surface. The TUI-side chain (rpc client →
-  // klient → `ISessionIndex`) must list, resume and continue sessions without
-  // ever opening it — including while the session read model is still
-  // preparing.
-
-  it('listSessions / resumeSession never open the global search index', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      const created = await client.createSession({ id: 'ses_search_sep_on', workDir });
-      await client.closeSession({ sessionId: created.id });
-
-      // The read model is still preparing here: the first list kicks the
-      // background projection and answers from authoritative metadata, the
-      // resume reads the authoritative document — neither waits for, nor
-      // opens, any full-text index.
-      const sessions = await client.listSessions({ workDir });
-      expect(sessions.map((item) => item.id)).toEqual([created.id]);
-      const resumed = await client.resumeSession({ id: created.id });
-      expect(resumed.id).toBe(created.id);
-
-      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
-
-      // Settle the kicked projection before close so teardown never races it,
-      // and prove the read model really did engage (the flag took effect).
-      const status = await client.engineAccessor.get(ISessionIndex).prepare();
-      expect(status.state).toBe('ready');
-      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(true);
-      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
-    } finally {
-      await client.close();
-      // Dispose fired the mirror/query-store async closes; await them before
-      // the shared afterEach removes the temp home.
-      await drainSessionIndexMirror();
-      await drainQueryStoreDisposals();
-      vi.unstubAllEnvs();
-    }
-  }, 15_000);
 });

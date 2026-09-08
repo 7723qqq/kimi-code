@@ -2,8 +2,8 @@ import type { z } from 'zod';
 
 import type { agentEventSchema } from '../../../protocol/events-zod';
 import type { MessageContent } from '../../../protocol/message';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
+import type { PermissionMode } from '#/compat/core.js';
+import type { UsageStatus } from '#/compat/core.js';
 import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';

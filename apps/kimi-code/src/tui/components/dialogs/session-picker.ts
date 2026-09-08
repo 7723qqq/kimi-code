@@ -12,7 +12,6 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { formatSessionLabel } from '#/migration/index';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
@@ -414,7 +413,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? getCurrentMark() : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
+    const titleSource = rawTitle;
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);

@@ -8,9 +8,8 @@ import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { NPM_PACKAGE_NAME, type InstallSource } from './types';
 
-/** How the running binary was packaged. `sea` is kept for staged-update
- * records written by older builds; new packaged binaries are always `bun`. */
-export type NativeInstallKind = 'sea' | 'bun';
+/** How the running binary was packaged. Packaged binaries are always `bun`. */
+export type NativeInstallKind = 'bun';
 
 export type NativeInstallDetection =
   | { readonly native: false }

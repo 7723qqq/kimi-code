@@ -1,4 +1,4 @@
-import { daemonFileRefFromPart, parseDaemonFileUrl, type ContentPart, type ContextMessage } from '@moonshot-ai/agent-core-v2';
+import { daemonFileRefFromPart, parseDaemonFileUrl, type ContentPart, type ContextMessage } from '#/compat/core.js';
 
 import type { Message, MessageContent, MessageRole, ToolUseContent } from '../../protocol/message';
 
@@ -36,19 +36,20 @@ function mapContentPart(part: ContextMessage['content'][number]): MessageContent
         : { type: 'video', source: { kind: 'url', url: part.videoUrl.url, id: part.videoUrl.id } };
     }
   }
+  return { type: 'text', text: '' };
 }
 
 function buildProtocolContent(msg: ContextMessage): MessageContent[] {
   if (msg.role === 'tool') {
     if (msg.toolCallId === undefined) {
-      return msg.content.map((p) => mapContentPart(p));
+      return msg.content.map((p: ContentPart) => mapContentPart(p));
     }
     const hasMediaPart = msg.content.some(
-      (p) => p.type === 'image_url' || p.type === 'video_url' || p.type === 'audio_url',
+      (p: ContentPart) => p.type === 'image_url' || p.type === 'video_url' || p.type === 'audio_url',
     );
     const output: unknown = hasMediaPart
       ? msg.content
-      : msg.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
+      : msg.content.map((p: ContentPart) => (p.type === 'text' ? p.text : '')).join('');
     const part: MessageContent =
       msg.isError === true
         ? {
@@ -65,7 +66,7 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
     return [part];
   }
 
-  const base = msg.content.map((p) => mapContentPart(p));
+  const base = msg.content.map((p: ContentPart) => mapContentPart(p));
 
   if (msg.role === 'assistant' && msg.toolCalls.length > 0) {
     for (const call of msg.toolCalls) {

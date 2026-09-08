@@ -1,4 +1,4 @@
-import { createDecorator } from '@moonshot-ai/agent-core-v2';
+import { createDecorator } from '#/compat/core.js';
 
 export interface IGuiStoreService {
   readonly _serviceBrand: undefined;

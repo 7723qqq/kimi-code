@@ -1,4 +1,4 @@
-import type { Scope } from '@moonshot-ai/agent-core-v2';
+import type { Scope } from '#/compat/core.js';
 
 import { okEnvelope } from '../protocol/envelope';
 import { mapError, withTimeout } from './errors';

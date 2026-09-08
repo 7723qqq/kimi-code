@@ -14,7 +14,7 @@ import {
   type MarketplaceLocation,
   type PluginMarketplace,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -57,6 +57,19 @@ const pluginActions: ActionTable<'enable' | 'disable' | 'remove', PluginActionEx
 
 type PluginActionExtra = {
   readonly plugins: IPluginService;
+};
+
+type CapabilityDescriptor = {
+  readonly id: string;
+  readonly supported: boolean;
+  readonly displayName?: string;
+  readonly description?: string;
+};
+
+type InstalledPlugin = {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly version?: string;
 };
 
 type PluginActionCtx = PluginActionExtra & { readonly id: string; readonly body: unknown };
@@ -164,8 +177,8 @@ export function registerPluginsRoutes(
         const missing = core.accessor
           .get(ICapabilityService)
           .describeCapabilities()
-          .filter((descriptor) => descriptor.supported && !presentIds.has(descriptor.id))
-          .map((descriptor) => ({
+          .filter((descriptor: CapabilityDescriptor) => descriptor.supported && !presentIds.has(descriptor.id))
+          .map((descriptor: CapabilityDescriptor) => ({
             id: descriptor.id,
             tier: 'official' as const,
             displayName: descriptor.displayName,
@@ -178,13 +191,13 @@ export function registerPluginsRoutes(
       }
       marketplace = await withLatestVersions(marketplace, fetchImpl);
       const installed = await core.accessor.get(IPluginService).listPlugins();
-      const byId = new Map(installed.map((p) => [p.id, p]));
+      const byId = new Map<string, InstalledPlugin>(installed.map((p: InstalledPlugin) => [p.id, p] as const));
       const supportedCapabilityIds = new Set<string>(
         core.accessor
           .get(ICapabilityService)
           .describeCapabilities()
-          .filter((descriptor) => descriptor.supported)
-          .map((descriptor) => descriptor.id),
+          .filter((descriptor: CapabilityDescriptor) => descriptor.supported)
+          .map((descriptor: CapabilityDescriptor) => descriptor.id),
       );
       const entries: PluginMarketplaceEntryWire[] = [];
       for (const entry of marketplace.plugins) {
@@ -212,13 +225,13 @@ export function registerPluginsRoutes(
           'update';
         entries.push({
           id: entry.id,
-          tier: entry.tier ?? 'third-party',
-          displayName: entry.displayName,
+          tier: (entry.tier ?? 'third-party') as PluginMarketplaceEntryWire['tier'],
+          displayName: entry.displayName ?? entry.id,
           description: entry.description,
           homepage: entry.homepage,
           keywords: entry.keywords === undefined ? undefined : [...entry.keywords],
           version: entry.version,
-          source: entry.source,
+          source: entry.source ?? 'local',
           installed: installedInfo,
           updateAvailable: updateAvailable ? true : undefined,
           capabilityId: capabilityRow?.capabilityId,

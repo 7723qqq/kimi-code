@@ -1,4 +1,4 @@
-import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes, isError2 } from './compat/core.js';
 import type { FastifyError } from 'fastify';
 
 import { errEnvelope, internalErrorEnvelope } from './envelope';
@@ -17,7 +17,7 @@ interface ErrorHandlerHost {
 export function installErrorHandler(app: ErrorHandlerHost): void {
   app.setErrorHandler((err, req, reply) => {
     const requestId = req.id;
-    if (isError2(err) && err.code === ErrorCodes.CONFIG_INVALID) {
+    if (isError2(err) && (err.code as any) === ErrorCodes.CONFIG_INVALID) {
       reply
         .status(200)
         .send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));

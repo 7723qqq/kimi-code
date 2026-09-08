@@ -339,7 +339,7 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
               </SizePreview>
             ) : (
               <div className="space-y-1">
-                {output.map((p, i) => (
+                {output.map((p: ContentPart, i: number) => (
                   <ContentPartView key={i} part={p} />
                 ))}
               </div>

@@ -252,8 +252,8 @@ function logCapabilityStatus(capability: CapabilityStatus, installed?: boolean):
     install: capability.install,
     steps: capability.steps,
   };
-  const hasStepIssues = capability.steps.some((step) => step.state !== 'ok');
-  if (capability.install.error !== undefined || (installed !== false && hasStepIssues)) {
+  const hasStepIssues = capability.steps?.some((step: any) => step.state !== 'ok') ?? false;
+  if (capability.install?.error !== undefined || (installed !== false && hasStepIssues)) {
     log.warn('capability needs attention', payload);
   } else {
     log.info('capability status', payload);
@@ -281,7 +281,8 @@ async function showPluginsPicker(
 
   const installedIds = new Set(plugins.map((plugin) => plugin.id));
   for (const capability of capabilities) {
-    logCapabilityStatus(capability, installedIds.has(capability.pluginId ?? capability.id));
+    const capId = capability.pluginId ?? capability.id ?? '';
+    logCapabilityStatus(capability, installedIds.has(capId));
   }
 
   const panel = new PluginsPanelComponent({
@@ -332,9 +333,9 @@ async function showPluginsPicker(
  */
 function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketplaceEntry {
   return {
-    id: capability.id,
-    displayName: capability.displayName,
-    description: capability.description,
+    id: capability.id ?? '',
+    displayName: capability.displayName ?? '',
+    description: capability.description ?? '',
     tier: 'official',
     source: `capability:${capability.id}`,
     builtIn: true,
@@ -446,7 +447,7 @@ async function showPluginMcpPicker(
 async function confirmRemovePlugin(host: SlashCommandHost, id: string): Promise<boolean> {
   let displayName = id;
   try {
-    displayName = (await (await resolvePluginApi(host)).getPluginInfo(id)).displayName;
+    displayName = (await (await resolvePluginApi(host)).getPluginInfo(id)).displayName ?? id;
   } catch {
     // Keep the confirmation available even when plugin details cannot be loaded.
   }
@@ -600,7 +601,7 @@ async function installCapabilityFromPanel(
   if (result.state !== 'ready') {
     const permissionsRequired =
       entry.id === 'kimi-cu' &&
-      result.steps.some((step) => step.id === 'permissions' && step.state !== 'ok');
+      (result.steps?.some((step: any) => step.id === 'permissions' && step.state !== 'ok') ?? false);
     if (permissionsRequired) {
       host.showStatus(t('tui.commands.plugins.grantPermissions'), 'warning');
     } else {
@@ -686,7 +687,7 @@ async function applyPluginEnabled(
     info = undefined;
   }
   const mcpHint =
-    enabled && info !== undefined && info.mcpServerCount > info.enabledMcpServerCount
+    enabled && info !== undefined && (info.mcpServerCount ?? 0) > (info.enabledMcpServerCount ?? 0)
       ? t('tui.commands.plugins.mcpDisabledHint', { id })
       : '';
   if (showStatus) {
@@ -866,13 +867,14 @@ function showPluginInstallResult(
   summary: PluginSummary,
 ): void {
   const previous = beforeList.find((entry) => entry.id === summary.id);
+  const count = summary.mcpServerCount ?? 0;
   const mcpHint =
-    summary.mcpServerCount > 0
+    count > 0
       ? t(
-          summary.mcpServerCount === 1
+          count === 1
             ? 'tui.commands.plugins.mcpDeclaredOne'
             : 'tui.commands.plugins.mcpDeclaredMany',
-          { count: summary.mcpServerCount },
+          { count },
         )
       : '';
   const action = describeInstallAction(previous, summary);
@@ -891,9 +893,10 @@ function describeInstallAction(previous: PluginSummary | undefined, next: Plugin
     if (prev === undefined || prev === cur) return cur === undefined ? '' : ` ${cur}`;
     return ` ${prev} → ${cur ?? '-'}`;
   };
+  const label = next.displayName ?? next.name ?? next.id;
   if (previous === undefined) {
     return t('tui.commands.plugins.installedAction', {
-      label: next.displayName,
+      label,
       versions: versionFromTo(undefined, next.version),
       source: sourcePhrase(sourceLabel),
     });
@@ -901,14 +904,14 @@ function describeInstallAction(previous: PluginSummary | undefined, next: Plugin
   if (sourceIdentity(previous) !== sourceIdentity(next)) {
     const prevSourceLabel = formatPluginSourceLabel(previous);
     return t('tui.commands.plugins.migratedAction', {
-      label: next.displayName,
+      label,
       previous: prevSourceLabel,
       current: sourceLabel,
       versions: versionFromTo(previous.version, next.version),
     });
   }
   return t('tui.commands.plugins.updatedAction', {
-    label: next.displayName,
+    label,
     versions: versionFromTo(previous.version, next.version),
     source: sourcePhrase(sourceLabel),
   });

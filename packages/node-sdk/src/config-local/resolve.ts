@@ -1,7 +1,7 @@
 /**
  * Localized port of v1's config env-value helpers (`agent-core/src/config/resolve.ts`).
  */
-import { ErrorCodes, KimiError } from '#/legacy';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 const TRUE_BOOLEAN_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_BOOLEAN_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);

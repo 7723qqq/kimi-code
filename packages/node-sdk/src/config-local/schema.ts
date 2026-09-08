@@ -6,14 +6,13 @@
  * the SDK keeps the v1 document contract without importing `agent-core`;
  * keep it byte-identical to the v1 original.
  *
- * Import adaptations: `#/errors` → `#/legacy`, `HookDefSchema` comes from the
- * SDK's own localized copy (`#/legacy/config-helpers`), and `parsePattern`
+ * Import adaptations: `HookDefSchema` comes from `#/config-helpers`, and `parsePattern`
  * from the local `./matches-rule` port.
  */
 import { z } from 'zod';
 
-import { HookDefSchema } from '#/legacy';
-import { ErrorCodes, KimiError } from '#/legacy';
+import { HookDefSchema } from '#/config-helpers';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 import { parsePattern } from './matches-rule';
 
@@ -215,13 +214,9 @@ export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
 export const AgentConfigSchema = z.object({
   /**
-   * Which agent engine to use.
-   * - `"rust"`: the Rust agent engine (kimi-agent binary via stdio JSON-RPC)
-   * - `"js"`: ignored — the TypeScript agent engine is disabled for the
-   *   duration of the rust migration (a warning is printed; there is no
-   *   opt-out). Kept in the enum so existing configs still parse.
-   * - unset: the Rust engine, required — a missing or broken bundle is a
-   *   startup error, not a JS fallback.
+   * @deprecated Retired in M5 — the Rust agent engine (kimi-agent) is the only
+   * supported execution engine. The `"js"` option is ignored (a warning is printed;
+   * there is no opt-out). Kept in the enum so existing configs still parse.
    */
   engine: z.enum(['js', 'rust']).optional(),
   /**
@@ -250,14 +245,8 @@ export const AgentConfigSchema = z.object({
    */
   nativeTools: z.boolean().optional(),
   /**
-   * Rust engine self-contained mode. When true, the Rust engine refuses
-   * to fall back to the host proxy for LLM calls — the user must
-   * configure either `nativeLlmProvider` (single provider direct HTTP) or
-   * `multiLlm` (concurrent MultiLLM race), or the engine errors out
-   * immediately. The default (false) preserves the existing host-proxy
-   * fallback for backwards compatibility. This is the migration switch
-   * toward Rust not depending on TS modules (see `kimi-agent` ROADMAP
-   * P26 批 1).
+   * @deprecated Retired in M5 — native direct execution is now unconditional;
+   * this migration switch is retired and preserved only for schema backward-compatibility.
    */
   rustSelfContained: z.boolean().optional(),
 });

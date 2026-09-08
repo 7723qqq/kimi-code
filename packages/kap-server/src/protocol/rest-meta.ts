@@ -1,4 +1,4 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { isoDateTimeSchema } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { fsOpenInAppIdSchema } from './rest-fs';

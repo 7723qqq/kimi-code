@@ -14,7 +14,7 @@ Compared to upstream, this fork adds:
 - **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/config` dialog (locale selector).
 - **🤖 Team.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
 - **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
-- **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
+- **🪟 Windows launchers.** `start-native.bat` launches the native CLI (use `--web` to launch the Web UI powered by the native Rust server); `start-web-native.bat` provides one-click launch for the native Web UI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
 - **🥖 Bun as the sole packaging engine.** Release binaries are single-file builds via `bun build --compile`, produced by the CI six-platform matrix (linux/darwin/win32 × x64/arm64). The former default Node.js SEA pipeline has been retired: pi-tui helpers load from the packaged-asset cache, URL-fetch SSRF semantics are identical across runtimes (bundled undici), self-update is engine-aware and still recognizes legacy SEA installs, and `/status` shows a Runtime row.
 - Various other fixes and QoL improvements.
 

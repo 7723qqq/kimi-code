@@ -3,14 +3,14 @@ import { Readable } from 'node:stream';
 import {
   ISessionMediaStore,
   type SessionMediaFile,
-} from '@moonshot-ai/agent-core-v2/agent/media/sessionMediaStore';
+} from '#/compat/core.js';
 import {
   FileErrors,
   IFileService,
   isFileError,
-} from '@moonshot-ai/agent-core-v2/app/file/fileService';
-import { resumeSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
-import type { Scope } from '@moonshot-ai/agent-core-v2/_base/di/scope';
+} from '#/compat/core.js';
+import { resumeSessionById } from '#/compat/core.js';
+import type { Scope } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { buildContentDisposition } from '../lib/contentDisposition';
@@ -119,7 +119,7 @@ async function openStagedUpload(
       name: uploaded.meta.name,
       mediaType: uploaded.meta.media_type,
       size: uploaded.meta.size,
-      stream: (range) => uploaded.stream(range),
+      stream: (range: unknown) => uploaded.stream(range),
     };
   } catch (error) {
     if (isFileError(error, FileErrors.codes.FILE_NOT_FOUND)) return undefined;

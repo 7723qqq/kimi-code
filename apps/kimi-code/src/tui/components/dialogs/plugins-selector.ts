@@ -135,7 +135,7 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
       }
       const serverName = mcpItemServerName(chosen);
       if (serverName === undefined) return;
-      const server = this.opts.info.mcpServers.find((item) => item.name === serverName);
+      const server = this.opts.info.mcpServers?.find((item) => item.name === serverName);
       if (server === undefined) return;
       this.opts.onSelect({
         kind: 'toggle',
@@ -151,17 +151,18 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     const colors = currentTheme.palette;
     const serverItems = this.items.filter((item) => item.kind === 'plugin');
     const actionItems = this.items.filter((item) => item.kind === 'action');
+    const displayName = info.displayName ?? info.name ?? info.id;
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
       chalk
         .hex(colors.primary)
-        .bold(` ${t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: info.displayName })}`),
+        .bold(` ${t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: displayName })}`),
       mutedHintLine(t('tui.dialogs.pluginsSelector.mcpNavHint'), colors),
       '',
       sectionLabel(
         t('tui.dialogs.pluginsSelector.mcpServersSection', {
-          enabled: info.enabledMcpServerCount,
-          total: info.mcpServerCount,
+          enabled: info.enabledMcpServerCount ?? 0,
+          total: info.mcpServerCount ?? 0,
         }),
         colors,
       ),
@@ -299,18 +300,19 @@ function overviewPluginDescription(plugin: PluginSummary): string {
   const state =
     plugin.state === 'ok'
       ? ''
-      : ` · ${t('tui.dialogs.pluginsSelector.pluginState', { state: plugin.state })}`;
+      : ` · ${t('tui.dialogs.pluginsSelector.pluginState', { state: plugin.state ?? 'unknown' })}`;
   const skills = t(
     plugin.skillCount === 1
       ? 'tui.dialogs.pluginsSelector.skillCount_one'
       : 'tui.dialogs.pluginsSelector.skillCount_other',
-    { count: plugin.skillCount },
+    { count: plugin.skillCount ?? 0 },
   );
+  const mcpServerCount = plugin.mcpServerCount ?? 0;
   const mcp =
-    plugin.mcpServerCount > 0
+    mcpServerCount > 0
       ? ` · ${t('tui.dialogs.pluginsSelector.mcpCount', {
-          enabled: plugin.enabledMcpServerCount,
-          total: plugin.mcpServerCount,
+          enabled: plugin.enabledMcpServerCount ?? 0,
+          total: mcpServerCount,
         })}`
       : '';
   const diagnostics = plugin.hasErrors
@@ -931,7 +933,8 @@ export class PluginsPanelComponent extends Container implements Focusable {
 }
 
 function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
-  const items: PluginsOverviewItem[] = info.mcpServers.map((server) => {
+  const mcpServers = info.mcpServers ?? [];
+  const items: PluginsOverviewItem[] = mcpServers.map((server) => {
     const status = server.enabled ? 'enabled' : 'disabled';
     return {
       value: `${MCP_SERVER_PREFIX}${server.name}`,
@@ -961,7 +964,7 @@ function mcpServerDescription(server: PluginMcpServerInfo): string {
     return t('tui.dialogs.pluginsSelector.mcpServerTransportHint', {
       action,
       transport: server.transport.toUpperCase(),
-      target: server.url ?? server.runtimeName,
+      target: server.url ?? server.runtimeName ?? '',
     });
   }
   const args =
@@ -969,7 +972,7 @@ function mcpServerDescription(server: PluginMcpServerInfo): string {
   const command = `${server.command ?? ''}${args}`.trim();
   const base = t('tui.dialogs.pluginsSelector.mcpServerStdioHint', {
     action,
-    command: command || server.runtimeName,
+    command: command || server.runtimeName || '',
   });
   return server.cwd === undefined
     ? base
@@ -1007,10 +1010,11 @@ function marketplaceTierLabel(tier: PluginMarketplaceEntry['tier']): string {
 }
 
 function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketplaceEntry {
+  const id = capability.id ?? '';
   return {
-    id: capability.id,
-    displayName: capability.displayName,
-    source: `capability:${capability.id}`,
+    id,
+    displayName: capability.displayName ?? id,
+    source: `capability:${id}`,
     tier: 'official',
     description: capability.description,
     builtIn: true,

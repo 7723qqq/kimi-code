@@ -1,1 +1,0 @@
-export { searchBrave } from './brave';

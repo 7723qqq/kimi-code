@@ -152,7 +152,7 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
         break;
 
       case 'permission.record_approval_result':
-        if (r.result.decision === 'rejected') {
+        if ((r.result.decision as string) === 'rejected' || r.result.decision === 'denied') {
           out.push({
             severity: 'info',
             kind: 'rejected_approval',

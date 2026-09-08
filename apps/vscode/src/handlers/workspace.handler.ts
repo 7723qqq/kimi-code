@@ -1,9 +1,10 @@
-import * as vscode from "vscode";
-import { Methods } from "../../shared/bridge";
-import type { Handler } from "./types";
-import type { WorkspaceStatus } from "shared/types";
+import type { WorkspaceStatus } from 'shared/types';
+import * as vscode from 'vscode';
 
-const INPUT_HISTORY_KEY = "kimi.inputHistory";
+import { Methods } from '../../shared/bridge';
+import type { Handler } from './types';
+
+const INPUT_HISTORY_KEY = 'kimi.inputHistory';
 const MAX_HISTORY_SIZE = 100;
 
 const checkWorkspace: Handler<void, WorkspaceStatus> = async (_, ctx) => {
@@ -15,7 +16,7 @@ const checkWorkspace: Handler<void, WorkspaceStatus> = async (_, ctx) => {
 };
 
 const openFolder: Handler<void, { ok: boolean }> = async () => {
-  await vscode.commands.executeCommand("vscode.openFolder");
+  await vscode.commands.executeCommand('vscode.openFolder');
   return { ok: true };
 };
 

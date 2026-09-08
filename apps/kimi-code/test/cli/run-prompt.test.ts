@@ -21,10 +21,15 @@ import {
 
 const mocks = vi.hoisted(() => ({
   runV2Print: vi.fn(async () => {}),
+  runNativePrint: vi.fn(async () => {}),
 }));
 
 vi.mock('../../src/cli/v2/run-v2-print', () => ({
   runV2Print: mocks.runV2Print,
+}));
+
+vi.mock('../../src/cli/run-native-print', () => ({
+  runNativePrint: mocks.runNativePrint,
 }));
 
 function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
@@ -48,22 +53,49 @@ function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
 describe('runPrompt', () => {
   beforeEach(() => {
     mocks.runV2Print.mockClear();
+    mocks.runNativePrint.mockClear();
+    delete process.env['KIMI_FORCE_V2_PRINT'];
+    delete process.env['KIMI_NATIVE_PRINT'];
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    delete process.env['KIMI_FORCE_V2_PRINT'];
+    delete process.env['KIMI_NATIVE_PRINT'];
   });
 
-  it('dispatches to the native v2 runner with the CLI options', async () => {
+  it('dispatches to the native Rust runner by default with the CLI options', async () => {
+    const cliOpts = opts({ prompt: 'ship it', model: 'kimi-code/k2.5' });
+
+    await runPrompt(cliOpts, '1.2.3-test');
+
+    expect(mocks.runNativePrint).toHaveBeenCalledTimes(1);
+    expect(mocks.runNativePrint).toHaveBeenCalledWith(cliOpts, '1.2.3-test', {});
+    expect(mocks.runV2Print).not.toHaveBeenCalled();
+  });
+
+  it('dispatches to the v2 runner when KIMI_FORCE_V2_PRINT is set', async () => {
+    process.env['KIMI_FORCE_V2_PRINT'] = '1';
     const cliOpts = opts({ prompt: 'ship it', model: 'kimi-code/k2.5' });
 
     await runPrompt(cliOpts, '1.2.3-test');
 
     expect(mocks.runV2Print).toHaveBeenCalledTimes(1);
     expect(mocks.runV2Print).toHaveBeenCalledWith(cliOpts, '1.2.3-test', {});
+    expect(mocks.runNativePrint).not.toHaveBeenCalled();
   });
 
-  it('forwards the injected stdout/stderr/process io to the v2 runner', async () => {
+  it('dispatches to the v2 runner when custom agent profile is specified', async () => {
+    const cliOpts = opts({ prompt: 'ship it', agent: 'special-agent' });
+
+    await runPrompt(cliOpts, '1.2.3-test');
+
+    expect(mocks.runV2Print).toHaveBeenCalledTimes(1);
+    expect(mocks.runV2Print).toHaveBeenCalledWith(cliOpts, '1.2.3-test', {});
+    expect(mocks.runNativePrint).not.toHaveBeenCalled();
+  });
+
+  it('forwards the injected stdout/stderr/process io to the native runner', async () => {
     const stdout = { write: vi.fn(() => true) };
     const stderr = { write: vi.fn(() => true) };
     const processMock = {
@@ -74,17 +106,17 @@ describe('runPrompt', () => {
 
     await runPrompt(opts(), '1.2.3-test', { stdout, stderr, process: processMock });
 
-    expect(mocks.runV2Print).toHaveBeenCalledWith(opts(), '1.2.3-test', {
+    expect(mocks.runNativePrint).toHaveBeenCalledWith(opts(), '1.2.3-test', {
       stdout,
       stderr,
       process: processMock,
     });
   });
 
-  it('propagates v2 runner failures to the caller', async () => {
-    mocks.runV2Print.mockRejectedValueOnce(new Error('provider error'));
+  it('propagates runner failures to the caller', async () => {
+    mocks.runNativePrint.mockRejectedValueOnce(new Error('native provider error'));
 
-    await expect(runPrompt(opts(), '1.2.3-test')).rejects.toThrow('provider error');
+    await expect(runPrompt(opts(), '1.2.3-test')).rejects.toThrow('native provider error');
   });
 });
 

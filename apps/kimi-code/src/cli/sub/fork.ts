@@ -7,7 +7,7 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 import {
-  createKimiHarnessV2,
+  createKimiHarnessNative,
   type KimiHarness,
   type SessionSummary,
   type TelemetryClient,
@@ -119,7 +119,7 @@ function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
   };
   const getHarness = (): KimiHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    harness ??= createKimiHarnessV2({
+    harness ??= createKimiHarnessNative({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,

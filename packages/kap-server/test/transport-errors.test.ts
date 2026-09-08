@@ -1,4 +1,4 @@
-import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
+import { Error2, ErrorCodes } from '#/compat/core.js';
 import { ErrorCode } from '../src/protocol/error-codes';
 import { describe, expect, it } from 'vitest';
 

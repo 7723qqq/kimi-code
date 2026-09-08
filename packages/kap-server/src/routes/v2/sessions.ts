@@ -9,8 +9,9 @@ import {
   setSessionArchivedBatch,
   type Scope,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
-import { IGitService, type FsPullRequest } from '@moonshot-ai/agent-core-v2/app/git/git';
+  type Workspace,
+} from '#/compat/core.js';
+import { IGitService } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { defineRoute } from '../../middleware/defineRoute';
@@ -385,7 +386,9 @@ const GIT_DOMAIN_TTL_MS = 60_000;
 
 const GIT_DOMAIN_UNAVAILABLE: V2GitDomain = { branch: null, pull_request: null };
 
-function mapPullRequest(pr: FsPullRequest | null): V2GitDomain['pull_request'] {
+function mapPullRequest(
+  pr: { number: number; state: 'draft' | 'closed' | 'open' | 'merged'; url: string } | null,
+): V2GitDomain['pull_request'] {
   if (pr === null) return null;
   return { number: pr.number, state: pr.state === 'draft' ? 'open' : pr.state, url: pr.url };
 }
@@ -532,7 +535,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
         return facts;
       };
 
-      const filtered = page.items.filter((summary) => {
+      const filtered = page.items.filter((summary: SessionSummary) => {
         if (query.archived === 'true' && !summary.archived) return false;
         if (
           query.hasPrompt !== undefined &&
@@ -563,7 +566,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
       const loadCwdOf = async (): Promise<(summary: SessionSummary) => string | null> => {
         const roots = new Map(
           (await core.accessor.get(IWorkspaceService).list()).map(
-            (workspace) => [workspace.id, workspace.root] as const,
+            (workspace: Workspace) => [workspace.id, workspace.root] as const,
           ),
         );
         return (summary) => summary.cwd ?? roots.get(summary.workspaceId) ?? null;
@@ -706,7 +709,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
           updatedAt: cursorKey,
           createdAt: cursorKey,
         } as SessionSummary;
-        start = sorted.findIndex((item) => comparator(item, cursorItem) > 0);
+        start = sorted.findIndex((item: SessionSummary) => comparator(item, cursorItem) > 0);
         if (start === -1) start = sorted.length;
       }
 

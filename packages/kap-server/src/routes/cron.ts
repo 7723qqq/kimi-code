@@ -5,10 +5,10 @@ import {
   resumeSessionById,
   ensureMainAgent,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { IAgentCronService } from '@moonshot-ai/agent-core-v2/features/cron/cronService';
-import type { CronTask } from '@moonshot-ai/agent-core-v2/features/cron/cronTask';
-import { cronToHuman, parseCronExpression } from '@moonshot-ai/agent-core-v2/features/cron/internal/cron-expr';
+} from '#/compat/core.js';
+import { IAgentCronService } from '#/compat/core.js';
+import type { CronTask } from '#/compat/core.js';
+import { cronToHuman, parseCronExpression } from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

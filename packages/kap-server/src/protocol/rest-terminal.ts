@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { terminalSchema } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
+import { terminalSchema } from '#/compat/core.js';
 
 export const getTerminalResponseSchema = terminalSchema;
 export type GetTerminalResponse = z.infer<typeof getTerminalResponseSchema>;

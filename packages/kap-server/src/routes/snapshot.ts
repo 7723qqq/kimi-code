@@ -8,7 +8,7 @@ import {
   resumeSessionById,
   type IAgentScopeHandle,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

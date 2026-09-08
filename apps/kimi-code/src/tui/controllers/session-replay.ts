@@ -88,7 +88,8 @@ function unescapeBashXml(text: string): string {
     .replaceAll('&amp;', '&');
 }
 
-function trailingTextPart(content: readonly ContentPart[]): string | undefined {
+function trailingTextPart(content: string | readonly ContentPart[]): string | undefined {
+  if (typeof content === 'string') return content;
   const textParts = content.filter((part): part is TextPromptPart => part.type === 'text');
   return textParts[textParts.length - 1]?.text;
 }
@@ -453,8 +454,11 @@ export class SessionReplayRenderer {
     );
   }
 
-  private renderToolCalls(context: ReplayRenderContext, toolCalls: readonly ToolCall[]): void {
-    if (toolCalls.length === 0) return;
+  private renderToolCalls(
+    context: ReplayRenderContext,
+    toolCalls: readonly ToolCall[] | undefined,
+  ): void {
+    if (toolCalls === undefined || toolCalls.length === 0) return;
     const { streamingUI } = this.host;
     context.stepIndex += 1;
     this.applyStepContext(context);
@@ -773,6 +777,9 @@ export class SessionReplayRenderer {
       case 'cancelled':
         content = t('tui.statusMessages.planReviewCancelled');
         break;
+      default:
+        content = '';
+        break;
     }
     const detail =
       result.feedback !== undefined && result.feedback.length > 0
@@ -875,6 +882,7 @@ function goalLifecycleReplayContent(change: GoalReplayLifecycleChange): string {
     case 'budget_limited':
     case 'usage_limited':
     case undefined:
+    default:
       return t('tui.statusMessages.replayGoalUpdated');
   }
 }

@@ -22,7 +22,11 @@ export function resolveConfigPath(input: {
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
 }): string {
-  return input.configPath ?? portableJoin(resolveKimiHome(input.homeDir), 'config.toml');
+  return (
+    input.configPath ??
+    process.env['KIMI_CONFIG_PATH'] ??
+    portableJoin(resolveKimiHome(input.homeDir), 'config.toml')
+  );
 }
 
 export function ensureKimiHome(homeDir: string): void {

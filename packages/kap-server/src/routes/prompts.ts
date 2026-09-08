@@ -34,7 +34,7 @@ import {
   sessionMediaOriginalsDir,
   type ISessionScopeHandle,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { ErrorCode } from '../protocol/error-codes';
 import { projectPromptContentParts } from '../services/messages/messageProjection';
 import {
@@ -501,7 +501,7 @@ export function watchPromptSettlements(events: IEventBus): {
   const settledIds = new Set<string>();
   const parentOf = new Map<string, string>();
   let armed: { id: string; discard: () => void | Promise<void> } | undefined;
-  const subscription = events.subscribe((event) => {
+  const subscription = events.subscribe((event: { type: string; promptId?: unknown }) => {
     if (event.type === 'prompt.steered') {
       const steered = event as {
         readonly promptIds?: unknown;
@@ -668,15 +668,16 @@ function sendMappedError(
 }
 
 function authProviderDetails(err: Error2): { provider_id: string } | undefined {
-  const providerId = err.details?.['provider_id'];
+  const providerId = (err.details as Record<string, unknown> | undefined)?.['provider_id'];
   if (typeof providerId !== 'string') return undefined;
   return { provider_id: providerId };
 }
 
 function authModelDetails(err: Error2): { model_id?: string; provider_id?: string } | null {
   const details: { model_id?: string; provider_id?: string } = {};
-  const modelId = err.details?.['model_id'];
-  const providerId = err.details?.['provider_id'];
+  const errDetails = err.details as Record<string, unknown> | undefined;
+  const modelId = errDetails?.['model_id'];
+  const providerId = errDetails?.['provider_id'];
   if (typeof modelId === 'string') details.model_id = modelId;
   if (typeof providerId === 'string') details.provider_id = providerId;
   return Object.keys(details).length === 0 ? null : details;

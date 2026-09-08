@@ -10,8 +10,8 @@ import {
   resumeSessionById,
   type PermissionMode,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import type { SessionAgentConfigPartial } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '#/compat/core.js';
+import type { SessionAgentConfigPartial } from '#/compat/core.js';
 
 import { ensureMainAgent } from '../transport/mainAgent';
 

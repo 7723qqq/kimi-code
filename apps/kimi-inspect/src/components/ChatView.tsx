@@ -20,14 +20,14 @@
  * derives from transcript state (`meta.activity` / running turns).
  */
 
-import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
-import { IAgentPromptService } from '@moonshot-ai/agent-core-v2/agent/prompt/prompt';
-import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
+import { IAgentLoopService } from '../compat/v2';
+import { IAgentPromptService } from '../compat/v2';
+import { ISessionApprovalService } from '../compat/v2';
 import {
   ISessionQuestionService,
   type QuestionItem,
   type QuestionRequest,
-} from '@moonshot-ai/agent-core-v2/session/question/question';
+} from '../compat/v2';
 import {
   EMPTY_AGENT_STATE,
   itemId,

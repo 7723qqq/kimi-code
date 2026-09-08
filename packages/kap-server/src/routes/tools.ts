@@ -8,8 +8,7 @@ import {
   Error2,
   type Scope,
   type ToolInfo,
-  type ToolSource,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
@@ -68,7 +67,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
       const policy = agent.accessor.get(IAgentToolPolicyService);
       const tools = registry
         .list()
-        .map((info) => toProtocolTool(info, policy.isToolActive(info.name, info.source)));
+        .map((info: ToolInfo) => toProtocolTool(info, policy.isToolActive(info.name, info.source)));
       reply.send(okEnvelope({ tools }, req.id));
     },
   );
@@ -137,7 +136,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
         return;
       }
       const mcp = agent.accessor.get(IAgentMcpService);
-      if (!mcp.list().some((entry) => entry.name === parsed.id)) {
+      if (!mcp.list().some((entry: { name: string }) => entry.name === parsed.id)) {
         reply.send(mcpServerNotFound(parsed.id, req.id));
         return;
       }
@@ -175,7 +174,7 @@ async function mostRecentSessionId(core: Scope): Promise<string | undefined> {
   return newest.id;
 }
 
-function mapToolSource(source: ToolSource): ToolDescriptor['source'] {
+function mapToolSource(source: 'builtin' | 'user' | 'mcp'): ToolDescriptor['source'] {
   switch (source) {
     case 'builtin':
       return 'builtin';
@@ -210,7 +209,9 @@ function toProtocolTool(info: ToolInfo, active: boolean): ToolDescriptor {
   return base;
 }
 
-function mapMcpStatus(status: McpEntry['status']): McpServer['status'] {
+function mapMcpStatus(
+  status: 'pending' | 'connected' | 'disabled' | 'removed' | 'failed' | 'needs-auth',
+): McpServer['status'] {
   switch (status) {
     case 'pending':
       return 'connecting';

@@ -8,7 +8,7 @@ import {
   type QuestionAnswers,
   type QuestionResult,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/compat/core.js';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   type QuestionItem as ProtocolQuestionItem,
