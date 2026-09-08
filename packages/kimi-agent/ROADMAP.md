@@ -169,8 +169,8 @@
 **仍遗留的语义差异（按影响排序）**：
 
 1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。
-2. kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。
-3. standalone 服务端缺口（批次 2 进行中）：OAuth 已接真实设备码流；MCP 管理 CRUD（::inspect/::test/auth）已闭环；WS 核心事件已强类型化；REST 域（providers/catalog、prompts、/api/v2、plugins 安装、files、sessions children/warnings/title-generate/restore/archive、skills activate、acp endpoint、workspaces update、debug channels/snapshots/rpc）均已对齐。
+2. ~~kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。~~ **已解决**：event_store 经 `hub.set_persister` 对每个事件落账（server/mod.rs:88-104），fold/checkpoint/undo 已接入；session/patch.rs 由 REST state-PATCH/undo-redo（server/mod.rs:3345-3467）、sqlite_store.rs:1130-1153 与 state_store.rs:187-205 生产调用。遗留细节：persister 丢弃 `append_wire_event` 错误（server/mod.rs:103）、standalone 的 TaskRunner 无持久化（server/mod.rs:86）。
+3. **standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）**：providers CRUD / models / catalog / connections / capabilities / meta / prompts / files / api/v2 sessions 多为硬编码假数据；auth、文件上传、oauth/userinfo、healthz、per-session prompts、transcript L1/L2（/ops、/user-messages、/plan）、v2 MCP CRUD、fs:content/mkdir、debug 三方法（association/runtime-binding/snapshot）缺失或假 ok；WS 协议 54 事件中约 30 个无 emitter 且存在命名错位。全量清单与执行波次见 [reports/audits/rust-engine-gap-audit-2026-09-09.md](../../reports/audits/rust-engine-gap-audit-2026-09-09.md)（Wave 1 harness 接线 → Wave 2 品质 Rust → Wave 3 服务端契约 → Wave 4 新能力）。
 
 > **工作区状态（2026-09-06 更新）**：P157–P161 已落地——`agent-core-v2`/`klient`/`acp-server` 已物理删除，
 > `kimi-native-tools` 已并入 `packages/kimi-agent/src/native/`（单 crate、单 `.node`、单 npm 包），
