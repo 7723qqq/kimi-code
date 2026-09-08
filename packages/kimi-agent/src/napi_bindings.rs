@@ -809,6 +809,12 @@ pub struct JsMcpServerConfig {
     pub env: Option<HashMap<String, String>>,
     pub url: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    /// `false` keeps the server listed as `disabled` and skips connecting it.
+    pub enabled: Option<bool>,
+    /// Allowlist of tool names exposed to the model (v2 `enabledTools`).
+    pub enabled_tools: Option<Vec<String>>,
+    /// Denylist applied after the allowlist (v2 `disabledTools`).
+    pub disabled_tools: Option<Vec<String>>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -1232,38 +1238,38 @@ async fn build_engine_pipeline(
     if let Some(mcp_configs) = params.mcp_servers.as_ref().filter(|c| !c.is_empty()) {
         let mgr = Arc::new(crate::mcp::McpManager::new());
         for cfg in mcp_configs {
-            match cfg.transport.as_str() {
-                "stdio" => {
-                    if let Some(cmd) = &cfg.command {
-                        let args: Vec<&str> = cfg
-                            .args
-                            .as_ref()
-                            .map(|a| a.iter().map(String::as_str).collect())
-                            .unwrap_or_default();
-                        let env = cfg.env.clone().unwrap_or_default();
-                        if let Ok(client) =
-                            crate::mcp::McpClient::spawn_stdio(&cfg.name, cmd, &args, &env).await
-                        {
-                            mgr.add_client(client).await;
-                        }
-                    }
-                }
+            let recipe = match cfg.transport.as_str() {
+                "stdio" => cfg
+                    .command
+                    .as_ref()
+                    .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
+                        command: cmd.clone(),
+                        args: cfg.args.clone().unwrap_or_default(),
+                        env: cfg.env.clone().unwrap_or_default(),
+                    }),
                 "sse" | "http" => {
-                    if let Some(url) = &cfg.url {
-                        let headers = cfg.headers.clone().unwrap_or_default();
-                        if let Ok(client) =
-                            crate::mcp::McpClient::connect_sse(&cfg.name, url, headers).await
-                        {
-                            mgr.add_client(client).await;
-                        }
-                    }
+                    cfg.url
+                        .as_ref()
+                        .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
+                            url: url.clone(),
+                            headers: cfg.headers.clone().unwrap_or_default(),
+                        })
                 }
-                "mock" => {
-                    let client = crate::mcp::McpClient::mock(&cfg.name);
-                    mgr.add_client(client).await;
-                }
-                _ => {}
-            }
+                "mock" => Some(crate::mcp::manager::McpServerRecipe::Mock),
+                _ => None,
+            };
+            let Some(recipe) = recipe else {
+                continue;
+            };
+            let _ = mgr
+                .configure(
+                    &cfg.name,
+                    recipe,
+                    cfg.enabled.unwrap_or(true),
+                    cfg.enabled_tools.clone(),
+                    cfg.disabled_tools.clone(),
+                )
+                .await;
         }
         mcp_manager = Some(mgr);
     }

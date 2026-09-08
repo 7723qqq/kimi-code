@@ -1,12 +1,13 @@
 //! Dynamic MCP server manager and tool registry.
 
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::mcp::client::McpClient;
 use crate::mcp::types::McpTool;
+use crate::native::tool_naming::qualify_mcp_tool_name;
 use crate::turn_loop::types::ExecutableToolResult;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -40,19 +41,56 @@ pub enum McpServerRecipe {
         args: Vec<String>,
         env: HashMap<String, String>,
     },
+    /// In-process stub used by the napi binding path and tests.
+    Mock,
 }
 
 struct ServerState {
     recipe: McpServerRecipe,
-    /// "connected" | "failed" | "pending" (v2 `McpServerStatus` subset).
+    /// "connected" | "failed" | "pending" | "disabled" (v2 `McpServerStatus`
+    /// subset; `disabled` covers `config.enabled === false`).
     status: String,
     error: Option<String>,
+    /// Every tool the server advertised (v2 `rawTools`), including the ones
+    /// the filter hides from the model; `/mcp inspect` reads this.
+    raw_tools: Vec<McpTool>,
+}
+
+/// Per-server tool visibility (v2 `computeEnabledNames` plus `config.enabled`).
+#[derive(Debug, Clone)]
+struct ToolFilter {
+    enabled: bool,
+    enabled_tools: Option<HashSet<String>>,
+    disabled_tools: HashSet<String>,
+}
+
+impl ToolFilter {
+    fn all() -> Self {
+        Self {
+            enabled: true,
+            enabled_tools: None,
+            disabled_tools: HashSet::new(),
+        }
+    }
+
+    fn allows(&self, tool_name: &str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if let Some(enabled) = &self.enabled_tools
+            && !enabled.contains(tool_name)
+        {
+            return false;
+        }
+        !self.disabled_tools.contains(tool_name)
+    }
 }
 
 pub struct McpManager {
     clients: Arc<RwLock<HashMap<String, Arc<McpClient>>>>,
     cached_tools: Arc<RwLock<HashMap<String, (String, McpTool)>>>,
     servers: Arc<RwLock<HashMap<String, ServerState>>>,
+    filters: Arc<RwLock<HashMap<String, ToolFilter>>>,
     /// In-flight reconnects (v2 `inFlightReconnects`): late callers join the
     /// running one via its Notify instead of double-spawning.
     in_flight: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
@@ -70,27 +108,74 @@ impl McpManager {
             clients: Arc::new(RwLock::new(HashMap::new())),
             cached_tools: Arc::new(RwLock::new(HashMap::new())),
             servers: Arc::new(RwLock::new(HashMap::new())),
+            filters: Arc::new(RwLock::new(HashMap::new())),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
-    /// Register an initialized MCP client.
-    pub async fn add_client(&self, client: McpClient) {
+    /// Register (or replace) the tool-visibility filter of a server. The
+    /// config path calls this from `spawn_from_config`; the napi binding path
+    /// calls it directly before `add_client`.
+    pub async fn set_tool_filter(
+        &self,
+        name: &str,
+        enabled: bool,
+        enabled_tools: Option<Vec<String>>,
+        disabled_tools: Option<Vec<String>>,
+    ) {
+        self.filters.write().await.insert(
+            name.to_string(),
+            ToolFilter {
+                enabled,
+                enabled_tools: enabled_tools.map(|names| names.into_iter().collect()),
+                disabled_tools: disabled_tools.unwrap_or_default().into_iter().collect(),
+            },
+        );
+    }
+
+    /// Register an initialized MCP client, indexing only the tools its filter
+    /// allows (v2 `computeEnabledNames` → `resolved().tools`) while keeping
+    /// the full advertised list for inspection (v2 `rawTools`). Discovery
+    /// failures surface to the caller so the connect path can mark the entry
+    /// `failed` instead of `connected` with zero tools.
+    async fn register_client(&self, client: McpClient) -> Result<usize, String> {
         let name = client.server_name().to_string();
         let client_arc = Arc::new(client);
+        let tools = client_arc.list_tools().await?;
+        let filter = {
+            let filters = self.filters.read().await;
+            filters.get(&name).cloned().unwrap_or_else(ToolFilter::all)
+        };
 
-        if let Ok(tools) = client_arc.list_tools().await {
+        let enabled_count = {
             let mut cached = self.cached_tools.write().await;
-            for t in tools {
-                let qualified_name = format!("mcp__{}__{}", name, t.name);
-                cached.insert(qualified_name.clone(), (name.clone(), t.clone()));
+            // Re-registering a server replaces its previous tool set.
+            cached.retain(|_, (server, _)| *server != name);
+            let mut count = 0;
+            for tool in &tools {
+                if !filter.allows(&tool.name) {
+                    continue;
+                }
+                count += 1;
+                let qualified_name = qualify_mcp_tool_name(&name, &tool.name);
+                cached.insert(qualified_name, (name.clone(), tool.clone()));
                 // Also index by plain tool name if not conflicting
-                cached.insert(t.name.clone(), (name.clone(), t));
+                cached.insert(tool.name.clone(), (name.clone(), tool.clone()));
             }
-        }
+            count
+        };
 
-        let mut clients = self.clients.write().await;
-        clients.insert(name, client_arc);
+        if let Some(state) = self.servers.write().await.get_mut(&name) {
+            state.raw_tools = tools;
+        }
+        self.clients.write().await.insert(name, client_arc);
+        Ok(enabled_count)
+    }
+
+    /// Register an initialized MCP client without failing the caller on a
+    /// discovery error (direct callers: REST probes and tests).
+    pub async fn add_client(&self, client: McpClient) {
+        let _ = self.register_client(client).await;
     }
 
     /// Check if a tool name belongs to any registered MCP server.
@@ -100,15 +185,23 @@ impl McpManager {
     }
 
     /// All discovered MCP tools as engine tool definitions (for the model).
+    /// Tools of a server whose connection died are withheld (v2 `resolved()`
+    /// returns `undefined` unless the entry is `connected`,
+    /// connection-manager.ts:142-167).
     pub async fn list_tool_infos(&self) -> Vec<crate::turn_loop::types::ToolInfo> {
+        let clients = self.clients.read().await;
         let cached = self.cached_tools.read().await;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         let mut infos = Vec::new();
-        for (name, (_, tool)) in cached.iter() {
+        for (name, (server, tool)) in cached.iter() {
             // Prefer the namespaced `mcp__<server>__<tool>` form; skip the
             // plain-name alias when it duplicates a namespaced entry.
             if !name.starts_with("mcp__") || !seen.insert(name.clone()) {
                 continue;
+            }
+            match clients.get(server) {
+                Some(client) if !client.is_closed() => {}
+                _ => continue,
             }
             infos.push(crate::turn_loop::types::ToolInfo {
                 name: name.clone(),
@@ -126,25 +219,31 @@ impl McpManager {
 
         let mut entries = Vec::new();
         for (name, client) in clients.iter() {
-            let mut tools = Vec::new();
-            for (qual_name, (srv, tool)) in cached.iter() {
-                if srv == name && qual_name.starts_with("mcp__") {
-                    tools.push(McpToolSummary {
-                        name: tool.name.clone(),
-                        description: tool.description.clone().unwrap_or_default(),
-                    });
-                }
-            }
-            tools.sort_by(|a, b| a.name.cmp(&b.name));
-            let tool_count = tools.len();
             // A client whose process died mid-session must not advertise
-            // itself as connected (v2 watchForUnexpectedClose marks the
-            // entry failed and drops its tools, connection-manager.ts:360-378).
-            let (status, error) = if client.is_closed() {
-                ("failed".to_string(), Some("server closed unexpectedly".to_string()))
+            // itself as connected, and its tools must disappear from the
+            // entry (v2 watchForUnexpectedClose marks the entry failed and
+            // drops its tools, connection-manager.ts:360-378; `toolCount` is
+            // 0 unless the entry is connected, connection-manager.ts:507-518).
+            let (status, error, tools) = if client.is_closed() {
+                (
+                    "failed".to_string(),
+                    Some("server closed unexpectedly".to_string()),
+                    Vec::new(),
+                )
             } else {
-                ("connected".to_string(), None)
+                let mut tools = Vec::new();
+                for (qual_name, (srv, tool)) in cached.iter() {
+                    if srv == name && qual_name.starts_with("mcp__") {
+                        tools.push(McpToolSummary {
+                            name: tool.name.clone(),
+                            description: tool.description.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+                tools.sort_by(|a, b| a.name.cmp(&b.name));
+                ("connected".to_string(), None, tools)
             };
+            let tool_count = tools.len();
             entries.push(McpServerEntry {
                 name: name.clone(),
                 transport: client.transport_type().to_string(),
@@ -154,9 +253,8 @@ impl McpManager {
                 tools,
             });
         }
-        // Failed-to-spawn servers have no client but must still surface —
-        // they carry their recipe and the spawn error.
-        let clients = self.clients.read().await;
+        // Failed-to-spawn and disabled servers have no client but must still
+        // surface — they carry their recipe and, for failures, the spawn error.
         let servers = self.servers.read().await;
         for (name, state) in servers.iter() {
             if clients.contains_key(name) {
@@ -167,6 +265,7 @@ impl McpManager {
                 transport: match &state.recipe {
                     McpServerRecipe::Sse { .. } => "sse".into(),
                     McpServerRecipe::Stdio { .. } => "stdio".into(),
+                    McpServerRecipe::Mock => "mock".into(),
                 },
                 status: state.status.clone(),
                 tool_count: 0,
@@ -192,22 +291,26 @@ impl McpManager {
             false
         };
         cached.retain(|_, (s, _)| s != name);
+        drop(cached);
+        drop(clients);
+        drop(servers);
+        self.filters.write().await.remove(name);
         removed_server || removed_client
     }
 
-    /// Inspect tools provided by a specific MCP server.
+    /// Inspect tools provided by a specific MCP server. Prefers a live
+    /// `tools/list` round-trip and falls back to the tools discovered at
+    /// registration time, so a failed server still reports what it advertised.
     pub async fn inspect_server(&self, name: &str) -> Option<Vec<Value>> {
-        let clients = self.clients.read().await;
-        let client = clients.get(name)?;
-        if let Ok(tools) = client.list_tools().await {
-            Some(tools.into_iter().map(|t| serde_json::json!({
-                "name": t.name,
-                "description": t.description,
-                "inputSchema": t.input_schema,
-            })).collect())
-        } else {
-            Some(Vec::new())
+        let client = { self.clients.read().await.get(name).cloned() };
+        if let Some(client) = client
+            && let Ok(tools) = client.list_tools().await
+        {
+            return Some(tools.iter().map(tool_to_json).collect());
         }
+        let servers = self.servers.read().await;
+        let state = servers.get(name)?;
+        Some(state.raw_tools.iter().map(tool_to_json).collect())
     }
 
     /// Call an MCP tool dynamically.
@@ -259,34 +362,57 @@ impl McpManager {
         servers: &HashMap<String, crate::config::McpServerConfig>,
     ) {
         for (name, conf) in servers {
-            let recipe = if let Some(url) = &conf.url {
-                McpServerRecipe::Sse {
-                    url: url.clone(),
-                    headers: conf.headers.clone().unwrap_or_default(),
-                }
-            } else if let Some(cmd) = &conf.command {
-                McpServerRecipe::Stdio {
-                    command: cmd.clone(),
-                    args: conf.args.clone().unwrap_or_default(),
-                    env: conf.env.clone().unwrap_or_default(),
-                }
-            } else {
+            let Some(recipe) = recipe_from_config(conf) else {
                 continue;
             };
-            self.servers.write().await.insert(
-                name.clone(),
-                ServerState {
+            let enabled = conf.enabled.unwrap_or(true);
+            let _ = self
+                .configure(
+                    name,
                     recipe,
-                    status: "pending".into(),
-                    error: None,
-                },
-            );
-            if let Err(e) = self.connect_one(name).await {
-                let mut state = self.servers.write().await;
-                if let Some(state) = state.get_mut(name) {
+                    enabled,
+                    conf.enabled_tools.clone(),
+                    conf.disabled_tools.clone(),
+                )
+                .await;
+        }
+    }
+
+    /// Register a server from a host-supplied recipe and connect it unless
+    /// `enabled` is false (v2 `connect`, connection-manager.ts:182-205). The
+    /// napi binding path calls this directly; `spawn_from_config` wraps it.
+    pub async fn configure(
+        &self,
+        name: &str,
+        recipe: McpServerRecipe,
+        enabled: bool,
+        enabled_tools: Option<Vec<String>>,
+        disabled_tools: Option<Vec<String>>,
+    ) -> Result<(), String> {
+        self.set_tool_filter(name, enabled, enabled_tools, disabled_tools)
+            .await;
+        self.servers.write().await.insert(
+            name.to_string(),
+            ServerState {
+                recipe,
+                // v2 lists a disabled entry as `disabled` without ever
+                // connecting it (connection-manager.ts:193-204).
+                status: if enabled { "pending".into() } else { "disabled".into() },
+                error: None,
+                raw_tools: Vec::new(),
+            },
+        );
+        if !enabled {
+            return Ok(());
+        }
+        match self.connect_one(name).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Some(state) = self.servers.write().await.get_mut(name) {
                     state.status = "failed".into();
-                    state.error = Some(e);
+                    state.error = Some(e.clone());
                 }
+                Err(e)
             }
         }
     }
@@ -313,8 +439,11 @@ impl McpManager {
                 )
                 .await?
             }
+            McpServerRecipe::Mock => McpClient::mock(name),
         };
-        self.add_client(client).await;
+        // A discovery failure must mark the entry `failed`, not `connected`
+        // with zero tools (v2 `connectOne` catch branch).
+        self.register_client(client).await?;
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = "connected".into();
             state.error = None;
@@ -364,6 +493,7 @@ impl McpManager {
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = "pending".into();
             state.error = None;
+            state.raw_tools.clear();
         }
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
@@ -375,6 +505,31 @@ impl McpManager {
                 Err(e)
             }
         }
+    }
+}
+
+fn tool_to_json(tool: &McpTool) -> Value {
+    serde_json::json!({
+        "name": tool.name,
+        "description": tool.description,
+        "inputSchema": tool.input_schema,
+    })
+}
+
+/// A configured server is remote when it has a URL, otherwise stdio when it
+/// has a command; entries with neither are not MCP servers at all.
+fn recipe_from_config(conf: &crate::config::McpServerConfig) -> Option<McpServerRecipe> {
+    if let Some(url) = &conf.url {
+        Some(McpServerRecipe::Sse {
+            url: url.clone(),
+            headers: conf.headers.clone().unwrap_or_default(),
+        })
+    } else {
+        conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+            command: cmd.clone(),
+            args: conf.args.clone().unwrap_or_default(),
+            env: conf.env.clone().unwrap_or_default(),
+        })
     }
 }
 
@@ -540,6 +695,7 @@ mod tests {
                 env: None,
                 url: Some(sse_url),
                 headers: None,
+                ..Default::default()
             },
         );
         // Invalid/unreachable SSE endpoint
@@ -551,6 +707,7 @@ mod tests {
                 env: None,
                 url: Some("http://127.0.0.1:1/nonexistent_sse".into()),
                 headers: None,
+                ..Default::default()
             },
         );
         // Invalid stdio command
@@ -562,6 +719,7 @@ mod tests {
                 env: None,
                 url: None,
                 headers: None,
+                ..Default::default()
             },
         );
 
@@ -601,6 +759,7 @@ mod tests {
                 env: None,
                 url: Some(sse_url),
                 headers: None,
+                ..Default::default()
             },
         );
         let manager = McpManager::new();
@@ -622,5 +781,108 @@ mod tests {
     async fn test_reconnect_unknown_server_errors() {
         let manager = McpManager::new();
         assert!(manager.reconnect("nope").await.is_err());
+    }
+
+    /// Qualified names are sanitized before they reach the model
+    /// (v2 `tool-naming.ts` `qualifyMcpToolName`).
+    #[tokio::test]
+    async fn test_qualified_tool_names_are_sanitized() {
+        let manager = McpManager::new();
+        manager.add_client(McpClient::mock("My Search")).await;
+
+        assert!(manager.handles("mcp__My_Search__My_Search_sample_tool").await);
+        let infos = manager.list_tool_infos().await;
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].name, "mcp__My_Search__My_Search_sample_tool");
+    }
+
+    /// `enabledTools` / `disabledTools` filter what the model sees, while
+    /// inspection still reports every advertised tool (v2
+    /// `computeEnabledNames` / `rawTools`).
+    #[tokio::test]
+    async fn test_tool_filter_limits_model_visibility() {
+        let (sse_url, _shutdown) = spawn_mock_mcp_sse_server(None, None, None).await;
+        let manager = McpManager::new();
+        manager
+            .set_tool_filter(
+                "filtered",
+                true,
+                Some(vec!["calculate".to_string(), "echo".to_string()]),
+                Some(vec!["echo".to_string()]),
+            )
+            .await;
+
+        let client = McpClient::connect_sse("filtered", &sse_url, HashMap::new())
+            .await
+            .expect("SSE client connect failed");
+        manager.add_client(client).await;
+
+        let infos = manager.list_tool_infos().await;
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].name, "mcp__filtered__calculate");
+        assert!(manager.handles("mcp__filtered__calculate").await);
+        assert!(!manager.handles("mcp__filtered__echo").await);
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].tool_count, 1);
+        assert_eq!(entries[0].tools.len(), 1);
+        assert_eq!(entries[0].tools[0].name, "calculate");
+
+        let inspected = manager
+            .inspect_server("filtered")
+            .await
+            .expect("inspect failed");
+        assert_eq!(inspected.len(), 3, "inspection reports every advertised tool");
+    }
+
+    /// `enabled: false` keeps the server listed as `disabled` and never
+    /// connects it (v2 connection-manager.ts:193-204).
+    #[tokio::test]
+    async fn test_disabled_server_is_listed_without_connecting() {
+        let mut configs = HashMap::new();
+        configs.insert(
+            "off".to_string(),
+            crate::config::McpServerConfig {
+                command: Some("definitely_missing_binary_404".into()),
+                args: None,
+                env: None,
+                url: None,
+                headers: None,
+                enabled: Some(false),
+                ..Default::default()
+            },
+        );
+
+        let manager = McpManager::new();
+        manager.spawn_from_config(&configs).await;
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "disabled");
+        assert_eq!(entries[0].tool_count, 0);
+        assert!(entries[0].error.is_none());
+        assert!(!manager.handles("mcp__off__anything").await);
+    }
+
+    /// A dead client hides its tools and zeroes `toolCount` (v2
+    /// `watchForUnexpectedClose` + `toPublicEntry`).
+    #[tokio::test]
+    async fn test_closed_client_hides_tools_and_zeroes_count() {
+        let manager = McpManager::new();
+        manager.add_client(McpClient::mock("github")).await;
+        assert_eq!(manager.list_tool_infos().await.len(), 1);
+
+        let client = {
+            let clients = manager.clients.read().await;
+            clients.get("github").cloned().expect("client missing")
+        };
+        client.close().await;
+
+        assert!(manager.list_tool_infos().await.is_empty());
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].status, "failed");
+        assert_eq!(entries[0].tool_count, 0);
+        assert!(entries[0].tools.is_empty());
+        assert_eq!(entries[0].error.as_deref(), Some("server closed unexpectedly"));
     }
 }

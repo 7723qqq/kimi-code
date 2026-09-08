@@ -24,7 +24,7 @@ mod permission;
 mod read;
 mod tokens;
 mod tool_access;
-mod tool_naming;
+pub(crate) mod tool_naming;
 mod translation;
 mod web_search;
 mod workspace_index;

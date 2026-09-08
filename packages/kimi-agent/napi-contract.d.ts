@@ -177,6 +177,12 @@ export interface JsMcpServerConfig {
   env?: Record<string, string>
   url?: string
   headers?: Record<string, string>
+  /** `false` keeps the server listed as `disabled` and skips connecting it. */
+  enabled?: boolean
+  /** Allowlist of tool names exposed to the model (v2 `enabledTools`). */
+  enabledTools?: Array<string>
+  /** Denylist applied after the allowlist (v2 `disabledTools`). */
+  disabledTools?: Array<string>
 }
 
 export interface JsMessage {

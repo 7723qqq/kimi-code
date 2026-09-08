@@ -77,6 +77,17 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    /// `false` keeps the entry listed as `disabled` without ever connecting
+    /// it (v2 `config.enabled`).
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Allowlist of tool names exposed to the model; `None` exposes every
+    /// tool the server advertises (v2 `enabledTools`).
+    #[serde(default, alias = "enabledTools")]
+    pub enabled_tools: Option<Vec<String>>,
+    /// Denylist applied after the allowlist (v2 `disabledTools`).
+    #[serde(default, alias = "disabledTools")]
+    pub disabled_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
