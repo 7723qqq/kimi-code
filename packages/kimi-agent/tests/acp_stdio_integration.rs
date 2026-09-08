@@ -290,6 +290,55 @@ fn acp_response_line_is_not_treated_as_a_request() {
     assert_eq!(next["result"], "pong");
 }
 
+/// `session/set_mode` answers *and* pushes `current_mode_update`; the two
+/// lines may arrive in either order, so the test sorts them out by shape.
+#[test]
+fn acp_set_mode_notifies_on_stdio() {
+    let Some(mut client) = AcpClient::start() else {
+        return;
+    };
+    let response = client
+        .request("session/new", serde_json::json!({}))
+        .expect("session/new must answer");
+    let session_id = response["result"]["sessionId"]
+        .as_str()
+        .expect("session id")
+        .to_string();
+
+    let id = client.next_id.fetch_add(1, Ordering::SeqCst);
+    client
+        .write_line(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/set_mode",
+            "params": { "sessionId": session_id, "modeId": "auto" }
+        }))
+        .expect("set_mode must be accepted");
+
+    let first = client
+        .read_line(Duration::from_secs(10))
+        .expect("first line");
+    let second = client
+        .read_line(Duration::from_secs(10))
+        .expect("second line");
+    let (notification, response) = if first.get("method").is_some() {
+        (first, second)
+    } else {
+        (second, first)
+    };
+
+    assert_eq!(notification["method"], "session/update");
+    assert_eq!(
+        notification["params"]["update"]["sessionUpdate"],
+        "current_mode_update"
+    );
+    assert_eq!(notification["params"]["update"]["currentModeId"], "auto");
+    assert_eq!(notification["params"]["sessionId"], session_id);
+
+    assert_eq!(response["id"], serde_json::json!(id));
+    assert_eq!(response["result"]["modeId"], "auto");
+}
+
 #[test]
 fn acp_unknown_method_returns_method_not_found() {
     let Some(mut client) = AcpClient::start() else {

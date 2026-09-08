@@ -157,6 +157,60 @@ impl AcpServer {
         Ok(())
     }
 
+    /// Apply an ACP session mode (v2 `setSessionMode` + `setMode` +
+    /// `acpModeToToggles`): validate the session and mode id, persist the
+    /// permission mode the engine reads at turn start, and notify the client
+    /// with `current_mode_update`.
+    ///
+    /// Plan mode is not toggled here: the engine reads plan state through the
+    /// host state bridge (`tools/plan_mode.rs:107-127`), which this host does
+    /// not own.
+    fn apply_session_mode(
+        &self,
+        session_id: Option<&str>,
+        mode_id: Option<&str>,
+    ) -> Result<String, (i64, String)> {
+        let Some(session_id) = session_id else {
+            return Err((-32602, "Invalid params: sessionId is required".to_string()));
+        };
+        let Some(mode_id) = mode_id else {
+            return Err((-32602, "Invalid params: modeId is required".to_string()));
+        };
+        if self.store.get_session(session_id).ok().flatten().is_none() {
+            return Err((-32602, format!("Unknown sessionId: {session_id}")));
+        }
+        if !is_acp_mode_id(mode_id) {
+            return Err((-32602, format!("Unknown modeId: {mode_id}")));
+        }
+
+        let mut metadata = self
+            .store
+            .get_state("metadata", session_id)
+            .ok()
+            .flatten()
+            .filter(|value| value.is_object())
+            .unwrap_or_else(|| json!({}));
+        if let Some(object) = metadata.as_object_mut() {
+            object.insert(
+                "permission_mode".into(),
+                json!(acp_mode_permission(mode_id)),
+            );
+        }
+        let _ = self.store.put_state("metadata", session_id, &metadata);
+
+        self.channel.notify(
+            "session/update",
+            json!({
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "current_mode_update",
+                    "currentModeId": mode_id,
+                },
+            }),
+        );
+        Ok(mode_id.to_string())
+    }
+
     /// Process an incoming JSON-RPC 2.0 message and return an optional response.
     pub async fn handle_message(&self, raw: &str) -> Option<JsonRpcResponse> {
         let req: JsonRpcRequest = match serde_json::from_str(raw) {
@@ -380,11 +434,45 @@ impl AcpServer {
             }
             "session/set_mode" => {
                 let params = req.params.as_ref();
-                let mode = params
-                    .and_then(|p| p.get("mode"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("auto");
-                JsonRpcResponse::success(req.id, json!({ "mode": mode }))
+                let session_id = params
+                    .and_then(|p| p.get("sessionId"))
+                    .and_then(|v| v.as_str());
+                let mode_id = params
+                    .and_then(|p| p.get("modeId").or_else(|| p.get("mode")))
+                    .and_then(|v| v.as_str());
+                match self.apply_session_mode(session_id, mode_id) {
+                    Ok(mode) => JsonRpcResponse::success(req.id, json!({ "modeId": mode })),
+                    Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                }
+            }
+            // The `mode` arm of `session/set_config_option` funnels into the
+            // same path (v2 `setSessionConfigOption`, server.ts:471-513).
+            "session/set_config_option" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId"))
+                    .and_then(|v| v.as_str());
+                let config_id = params
+                    .and_then(|p| p.get("configId"))
+                    .and_then(|v| v.as_str());
+                let value = params
+                    .and_then(|p| p.get("value"))
+                    .and_then(|v| v.as_str());
+                if config_id != Some("mode") {
+                    JsonRpcResponse::error(
+                        req.id,
+                        -32602,
+                        format!(
+                            "Unsupported configId: {}",
+                            config_id.unwrap_or_default()
+                        ),
+                    )
+                } else {
+                    match self.apply_session_mode(session_id, value) {
+                        Ok(mode) => JsonRpcResponse::success(req.id, json!({ "modeId": mode })),
+                        Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                    }
+                }
             }
             "authenticate" => JsonRpcResponse::success(req.id, json!({ "authenticated": true })),
             "logout" => JsonRpcResponse::success(req.id, json!({ "loggedOut": true })),
@@ -398,6 +486,21 @@ impl AcpServer {
             return None;
         }
         Some(resp)
+    }
+}
+
+/// The four wire-level mode ids this host understands (v2 `isAcpModeId`,
+/// modes.ts).
+fn is_acp_mode_id(mode: &str) -> bool {
+    matches!(mode, "default" | "plan" | "auto" | "yolo")
+}
+
+/// v2 `acpModeToToggles`: the permission mode each ACP mode maps to.
+fn acp_mode_permission(mode: &str) -> &'static str {
+    match mode {
+        "auto" => "auto",
+        "yolo" => "yolo",
+        _ => "manual",
     }
 }
 
@@ -626,6 +729,139 @@ mod tests {
         );
     }
 
+    /// `session/set_mode` validates the mode id, persists the permission mode
+    /// the engine reads at turn start, and pushes `current_mode_update`
+    /// (v2 `setSessionMode` + `acpModeToToggles`).
+    #[tokio::test]
+    async fn test_acp_set_mode_persists_permission_and_notifies() {
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let new_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let sid = server.handle_message(&new_req.to_string()).await.unwrap().result.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let set_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/set_mode",
+            "params": { "sessionId": sid, "modeId": "yolo" }
+        });
+        let resp = server.handle_message(&set_req.to_string()).await.unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap()["modeId"], "yolo");
+
+        let metadata = server.store.get_state("metadata", &sid).unwrap().unwrap();
+        assert_eq!(metadata["permission_mode"], "yolo");
+
+        match rx.try_recv().expect("current_mode_update") {
+            AcpOutbound::Notification(note) => {
+                assert_eq!(note.method, "session/update");
+                let params = note.params.unwrap();
+                assert_eq!(params["sessionId"], sid);
+                assert_eq!(params["update"]["sessionUpdate"], "current_mode_update");
+                assert_eq!(params["update"]["currentModeId"], "yolo");
+            }
+            other => panic!("unexpected outbound message: {other:?}"),
+        }
+    }
+
+    /// Unknown ids are rejected with the v2 messages (server.ts:452-469).
+    #[tokio::test]
+    async fn test_acp_set_mode_rejects_unknown_ids() {
+        let server = AcpServer::in_memory().unwrap();
+        let new_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let sid = server.handle_message(&new_req.to_string()).await.unwrap().result.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let unknown_mode = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/set_mode",
+            "params": { "sessionId": sid, "modeId": "turbo" }
+        });
+        let resp = server
+            .handle_message(&unknown_mode.to_string())
+            .await
+            .unwrap();
+        assert_eq!(resp.error.as_ref().unwrap().code, -32602);
+        assert_eq!(resp.error.unwrap().message, "Unknown modeId: turbo");
+
+        let unknown_session = json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/set_mode",
+            "params": { "sessionId": "sess-nope", "modeId": "auto" }
+        });
+        let resp = server
+            .handle_message(&unknown_session.to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.error.unwrap().message,
+            "Unknown sessionId: sess-nope"
+        );
+    }
+
+    /// `session/set_config_option` routes the `mode` arm to the same handler.
+    #[tokio::test]
+    async fn test_acp_set_config_option_mode_arm() {
+        let server = AcpServer::in_memory().unwrap();
+        let new_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let sid = server.handle_message(&new_req.to_string()).await.unwrap().result.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let mode_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/set_config_option",
+            "params": { "sessionId": sid, "configId": "mode", "value": "auto" }
+        });
+        let resp = server.handle_message(&mode_req.to_string()).await.unwrap();
+        assert_eq!(resp.result.unwrap()["modeId"], "auto");
+        assert_eq!(
+            server.store.get_state("metadata", &sid).unwrap().unwrap()["permission_mode"],
+            "auto"
+        );
+
+        let model_req = json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/set_config_option",
+            "params": { "sessionId": sid, "configId": "model", "value": "kimi-k2" }
+        });
+        let resp = server.handle_message(&model_req.to_string()).await.unwrap();
+        assert_eq!(
+            resp.error.unwrap().message,
+            "Unsupported configId: model"
+        );
+    }
+
     /// Engine events reach the client as `session/update` notifications while
     /// a turn runs, and stop once the subscription is dropped.
     #[tokio::test]
@@ -733,15 +969,15 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["content"], "Hello ACP");
 
-        // 5. Set mode
+        // 5. Set mode (ACP wire name `modeId`; the legacy `mode` still parses)
         let mode_req = json!({
             "jsonrpc": "2.0",
             "id": 6,
             "method": "session/set_mode",
-            "params": { "mode": "yolo" }
+            "params": { "sessionId": sid, "modeId": "yolo" }
         });
         let resp = server.handle_message(&mode_req.to_string()).await.unwrap();
-        assert_eq!(resp.result.unwrap()["mode"], "yolo");
+        assert_eq!(resp.result.unwrap()["modeId"], "yolo");
 
         // 6. Delete session
         let del_req = json!({
