@@ -73,10 +73,19 @@ pub struct McpServerConfig {
     pub args: Option<Vec<String>>,
     #[serde(default)]
     pub env: Option<HashMap<String, String>>,
+    /// Working directory for a stdio server, resolved against the process
+    /// working directory when relative (v2 `McpServerStdioConfig.cwd`).
+    #[serde(default)]
+    pub cwd: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    /// Environment variable holding a bearer token for a remote server; the
+    /// value is read at connect time and sent as `Authorization: Bearer …`
+    /// (v2 `bearerTokenEnvVar`, client-remote.ts:9-23).
+    #[serde(default, alias = "bearerTokenEnvVar")]
+    pub bearer_token_env_var: Option<String>,
     /// Explicit transport (`stdio` / `sse` / `http`). Without it a `url`
     /// defaults to Streamable HTTP and a `command` to stdio, matching the v2
     /// config preprocess (config-schema.ts:58-65).

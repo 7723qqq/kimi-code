@@ -809,6 +809,11 @@ pub struct JsMcpServerConfig {
     pub env: Option<HashMap<String, String>>,
     pub url: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    /// Working directory for a stdio server (v2 `cwd`).
+    pub cwd: Option<String>,
+    /// Env var holding a bearer token for a remote server (v2
+    /// `bearerTokenEnvVar`).
+    pub bearer_token_env_var: Option<String>,
     /// `false` keeps the server listed as `disabled` and skips connecting it.
     pub enabled: Option<bool>,
     /// Allowlist of tool names exposed to the model (v2 `enabledTools`).
@@ -1251,6 +1256,7 @@ async fn build_engine_pipeline(
                         command: cmd.clone(),
                         args: cfg.args.clone().unwrap_or_default(),
                         env: cfg.env.clone().unwrap_or_default(),
+                        cwd: cfg.cwd.clone(),
                     }),
                 "sse" => {
                     cfg.url
@@ -1258,6 +1264,7 @@ async fn build_engine_pipeline(
                         .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
                             url: url.clone(),
                             headers: cfg.headers.clone().unwrap_or_default(),
+                            bearer_token_env_var: cfg.bearer_token_env_var.clone(),
                         })
                 }
                 "http" => {
@@ -1266,6 +1273,7 @@ async fn build_engine_pipeline(
                         .map(|url| crate::mcp::manager::McpServerRecipe::Http {
                             url: url.clone(),
                             headers: cfg.headers.clone().unwrap_or_default(),
+                            bearer_token_env_var: cfg.bearer_token_env_var.clone(),
                         })
                 }
                 "mock" => Some(crate::mcp::manager::McpServerRecipe::Mock),

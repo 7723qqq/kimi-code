@@ -36,16 +36,19 @@ pub enum McpServerRecipe {
     Sse {
         url: String,
         headers: HashMap<String, String>,
+        bearer_token_env_var: Option<String>,
     },
     /// Streamable HTTP (`transport = "http"`), the v2 default for a bare url.
     Http {
         url: String,
         headers: HashMap<String, String>,
+        bearer_token_env_var: Option<String>,
     },
     Stdio {
         command: String,
         args: Vec<String>,
         env: HashMap<String, String>,
+        cwd: Option<String>,
     },
     /// In-process stub used by the napi binding path and tests.
     Mock,
@@ -592,18 +595,36 @@ impl McpManager {
         };
         let connect = async {
             let client = match &recipe {
-                McpServerRecipe::Sse { url, headers } => {
-                    McpClient::connect_sse(name, url, headers.clone()).await?
+                McpServerRecipe::Sse {
+                    url,
+                    headers,
+                    bearer_token_env_var,
+                } => {
+                    let headers =
+                        resolve_bearer_headers("SSE", headers, bearer_token_env_var.as_deref())?;
+                    McpClient::connect_sse(name, url, headers).await?
                 }
-                McpServerRecipe::Http { url, headers } => {
-                    McpClient::connect_http(name, url, headers.clone()).await?
+                McpServerRecipe::Http {
+                    url,
+                    headers,
+                    bearer_token_env_var,
+                } => {
+                    let headers =
+                        resolve_bearer_headers("HTTP", headers, bearer_token_env_var.as_deref())?;
+                    McpClient::connect_http(name, url, headers).await?
                 }
-                McpServerRecipe::Stdio { command, args, env } => {
+                McpServerRecipe::Stdio {
+                    command,
+                    args,
+                    env,
+                    cwd,
+                } => {
                     McpClient::spawn_stdio(
                         name,
                         command,
                         &args.iter().map(String::as_str).collect::<Vec<_>>(),
                         env,
+                        cwd.as_deref(),
                     )
                     .await?
                 }
@@ -699,32 +720,72 @@ fn tool_to_json(tool: &McpTool) -> Value {
 /// `transport = "sse"`.
 fn recipe_from_config(conf: &crate::config::McpServerConfig) -> Option<McpServerRecipe> {
     let transport = conf.transport.as_deref().map(str::to_ascii_lowercase);
-    let remote = |build: fn(String, HashMap<String, String>) -> McpServerRecipe| {
-        conf.url.as_ref().map(|url| {
-            build(url.clone(), conf.headers.clone().unwrap_or_default())
-        })
-    };
-    match transport.as_deref() {
-        Some("stdio") => conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+    let stdio = || {
+        conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
             command: cmd.clone(),
             args: conf.args.clone().unwrap_or_default(),
             env: conf.env.clone().unwrap_or_default(),
+            cwd: conf.cwd.clone(),
+        })
+    };
+    let remote = |build: fn(String, HashMap<String, String>, Option<String>) -> McpServerRecipe| {
+        conf.url.as_ref().map(|url| {
+            build(
+                url.clone(),
+                conf.headers.clone().unwrap_or_default(),
+                conf.bearer_token_env_var.clone(),
+            )
+        })
+    };
+    match transport.as_deref() {
+        Some("stdio") => stdio(),
+        Some("sse") => remote(|url, headers, bearer_token_env_var| McpServerRecipe::Sse {
+            url,
+            headers,
+            bearer_token_env_var,
         }),
-        Some("sse") => remote(|url, headers| McpServerRecipe::Sse { url, headers }),
-        Some("http") => remote(|url, headers| McpServerRecipe::Http { url, headers }),
+        Some("http") => remote(|url, headers, bearer_token_env_var| McpServerRecipe::Http {
+            url,
+            headers,
+            bearer_token_env_var,
+        }),
         Some(_) => None,
         None => {
             if conf.url.is_some() {
-                remote(|url, headers| McpServerRecipe::Http { url, headers })
-            } else {
-                conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
-                    command: cmd.clone(),
-                    args: conf.args.clone().unwrap_or_default(),
-                    env: conf.env.clone().unwrap_or_default(),
+                remote(|url, headers, bearer_token_env_var| McpServerRecipe::Http {
+                    url,
+                    headers,
+                    bearer_token_env_var,
                 })
+            } else {
+                stdio()
             }
         }
     }
+}
+
+/// Merge `headers` with a bearer token read from `env_var`, mirroring v2
+/// `buildMcpRemoteHeaders` (client-remote.ts:4-25): a missing or empty
+/// variable is a configuration error, and any pre-existing Authorization
+/// header is replaced by the resolved token.
+fn resolve_bearer_headers(
+    transport: &str,
+    headers: &HashMap<String, String>,
+    env_var: Option<&str>,
+) -> Result<HashMap<String, String>, String> {
+    let mut headers = headers.clone();
+    let Some(var) = env_var else {
+        return Ok(headers);
+    };
+    let token = std::env::var(var).ok().filter(|token| !token.is_empty());
+    let Some(token) = token else {
+        return Err(format!(
+            "MCP {transport} bearer token env var \"{var}\" is not set or is empty"
+        ));
+    };
+    headers.retain(|key, _| !key.eq_ignore_ascii_case("authorization"));
+    headers.insert("Authorization".into(), format!("Bearer {token}"));
+    Ok(headers)
 }
 
 #[cfg(test)]
@@ -1184,6 +1245,7 @@ mod tests {
                 McpServerRecipe::Sse {
                     url: format!("http://{addr}/sse"),
                     headers: HashMap::new(),
+                    bearer_token_env_var: None,
                 },
                 McpServerOptions {
                     startup_timeout_ms: Some(150),
@@ -1213,6 +1275,7 @@ mod tests {
                 McpServerRecipe::Http {
                     url,
                     headers: HashMap::new(),
+                    bearer_token_env_var: None,
                 },
                 McpServerOptions::default(),
             )
@@ -1330,6 +1393,7 @@ mod tests {
                 McpServerRecipe::Http {
                     url,
                     headers: HashMap::new(),
+                    bearer_token_env_var: None,
                 },
                 McpServerOptions::default(),
             )
@@ -1344,5 +1408,76 @@ mod tests {
         assert_eq!(entries[0].status, "failed");
         assert_eq!(entries[0].error.as_deref(), Some(err.as_str()));
         assert!(!manager.handles("mcp__bad-schema__echo").await);
+    }
+
+    /// `bearerTokenEnvVar` resolves to an `Authorization: Bearer …` header at
+    /// connect time, replacing any static Authorization header
+    /// (v2 `buildMcpRemoteHeaders`, client-remote.ts:9-23).
+    #[tokio::test]
+    async fn test_bearer_token_env_var_is_sent() {
+        let var = format!("KIMI_TEST_MCP_BEARER_{}", std::process::id());
+        // SAFETY: the variable name is unique to this test process and no
+        // other test reads it.
+        unsafe { std::env::set_var(&var, "s3cret") };
+
+        let (url, seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "auth",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::from([(
+                        "Authorization".to_string(),
+                        "Bearer stale".to_string(),
+                    )]),
+                    bearer_token_env_var: Some(var.clone()),
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("bearer-token server connects");
+
+        let requests = seen.lock().await.clone();
+        assert!(!requests.is_empty());
+        for request in &requests {
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer s3cret"),
+                "the resolved token replaces the static Authorization header"
+            );
+        }
+
+        // SAFETY: see above.
+        unsafe { std::env::remove_var(&var) };
+    }
+
+    /// A missing or empty bearer token variable fails the server with the v2
+    /// message (client-remote.ts:12-16).
+    #[tokio::test]
+    async fn test_missing_bearer_token_env_var_fails_the_server() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
+        let manager = McpManager::new();
+        let err = manager
+            .configure(
+                "auth",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: Some("KIMI_TEST_MCP_MISSING_BEARER".into()),
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("a missing token must fail the server");
+        assert_eq!(
+            err,
+            "MCP HTTP bearer token env var \"KIMI_TEST_MCP_MISSING_BEARER\" is not set or is empty"
+        );
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].status, "failed");
+        assert_eq!(entries[0].error.as_deref(), Some(err.as_str()));
     }
 }

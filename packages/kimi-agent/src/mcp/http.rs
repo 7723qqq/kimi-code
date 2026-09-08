@@ -160,6 +160,13 @@ pub(crate) mod test_helpers {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::oneshot;
 
+    /// One recorded request, so tests can assert header propagation.
+    #[derive(Debug, Clone)]
+    pub struct RecordedRequest {
+        pub session: Option<String>,
+        pub authorization: Option<String>,
+    }
+
     /// Spawn a mock Streamable HTTP server.
     ///
     /// `mode` selects the response framing: `"json"` replies with a JSON body,
@@ -167,11 +174,10 @@ pub(crate) mod test_helpers {
     /// HTTP 500, `"hang"` accepts the connection without ever replying, and
     /// `"bad-schema"` advertises a tool whose inputSchema is not an object.
     ///
-    /// The returned vector records the `Mcp-Session-Id` of every request in
-    /// arrival order, so tests can assert the header is echoed.
+    /// The returned vector records every request in arrival order.
     pub async fn spawn_mock_http_server(
         mode: &'static str,
-    ) -> (String, Arc<Mutex<Vec<Option<String>>>>, oneshot::Sender<()>) {
+    ) -> (String, Arc<Mutex<Vec<RecordedRequest>>>, oneshot::Sender<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}/mcp");
@@ -212,6 +218,7 @@ pub(crate) mod test_helpers {
                             let head = String::from_utf8_lossy(&buf[..pos]).to_string();
                             let mut content_len = 0usize;
                             let mut session: Option<String> = None;
+                            let mut authorization: Option<String> = None;
                             for line in head.lines() {
                                 if let Some((k, v)) = line.split_once(':') {
                                     let key = k.trim().to_ascii_lowercase();
@@ -220,6 +227,9 @@ pub(crate) mod test_helpers {
                                     }
                                     if key == SESSION_ID_HEADER {
                                         session = Some(v.trim().to_string());
+                                    }
+                                    if key == "authorization" {
+                                        authorization = Some(v.trim().to_string());
                                     }
                                 }
                             }
@@ -231,7 +241,10 @@ pub(crate) mod test_helpers {
                                     Ok(n) => body.extend_from_slice(&chunk[..n]),
                                 }
                             }
-                            seen.lock().await.push(session);
+                            seen.lock().await.push(RecordedRequest {
+                                session,
+                                authorization,
+                            });
 
                             if mode == "status" {
                                 let _ = socket
@@ -347,11 +360,11 @@ mod tests {
 
         // initialize carried no session id; every later request echoes the one
         // the server handed back.
-        let sessions = seen.lock().await.clone();
-        assert_eq!(sessions.len(), 3, "initialize + tools/list + tools/call");
-        assert_eq!(sessions[0], None);
-        assert_eq!(sessions[1].as_deref(), Some("sess-1"));
-        assert_eq!(sessions[2].as_deref(), Some("sess-1"));
+        let requests = seen.lock().await.clone();
+        assert_eq!(requests.len(), 3, "initialize + tools/list + tools/call");
+        assert_eq!(requests[0].session, None);
+        assert_eq!(requests[1].session.as_deref(), Some("sess-1"));
+        assert_eq!(requests[2].session.as_deref(), Some("sess-1"));
     }
 
     /// An SSE-framed reply is read until the matching message arrives.

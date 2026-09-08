@@ -101,12 +101,14 @@ impl McpClient {
         Ok(client)
     }
 
-    /// Spawn an external MCP server via stdio.
+    /// Spawn an external MCP server via stdio. `cwd` overrides the child's
+    /// working directory (v2 `McpServerStdioConfig.cwd`).
     pub async fn spawn_stdio(
         server_name: &str,
         command: &str,
         args: &[&str],
         env: &HashMap<String, String>,
+        cwd: Option<&str>,
     ) -> Result<Self, String> {
         let mut cmd = Command::new(command);
         cmd.args(args)
@@ -117,6 +119,9 @@ impl McpClient {
             // A startup timeout or a dropped client must not leave the child
             // process running (v2 closes the client on both paths).
             .kill_on_drop(true);
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
 
         let mut child = cmd
             .spawn()
@@ -447,6 +452,7 @@ mod tests {
             "definitely_nonexistent_command_9999",
             &[],
             &HashMap::new(),
+            None,
         )
         .await;
 
@@ -466,7 +472,7 @@ mod tests {
             ("sh", vec!["-c", "exit 0"])
         };
 
-        let res = McpClient::spawn_stdio("exit_early", cmd, &args, &HashMap::new()).await;
+        let res = McpClient::spawn_stdio("exit_early", cmd, &args, &HashMap::new(), None).await;
         assert!(res.is_err());
         assert_eq!(res.err().unwrap(), "MCP child closed stdout prematurely");
     }
@@ -479,7 +485,7 @@ mod tests {
             ("sh", vec!["-c", "echo 'invalid_raw_line'; exit 0"])
         };
 
-        let res = McpClient::spawn_stdio("junk_stdout", cmd, &args, &HashMap::new()).await;
+        let res = McpClient::spawn_stdio("junk_stdout", cmd, &args, &HashMap::new(), None).await;
         assert!(res.is_err());
         assert_eq!(res.err().unwrap(), "MCP child closed stdout prematurely");
     }
@@ -512,7 +518,7 @@ mod tests {
         };
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        let mut client = McpClient::spawn_stdio("slow", cmd, &arg_refs, &HashMap::new())
+        let mut client = McpClient::spawn_stdio("slow", cmd, &arg_refs, &HashMap::new(), None)
             .await
             .expect("initialize handshake should succeed");
         client.set_tool_timeout(Some(Duration::from_millis(150)));
@@ -524,5 +530,44 @@ mod tests {
         assert_eq!(err, "MCP request timed out after 150ms");
 
         let _ = std::fs::remove_file(script);
+    }
+
+    /// A `cwd` is applied to the child, so a script resolved by name from that
+    /// directory starts (v2 `McpServerStdioConfig.cwd`).
+    #[tokio::test]
+    async fn test_stdio_cwd_is_applied() {
+        let dir = std::env::temp_dir().join(format!("kimi_mcp_cwd_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let (cmd, args, script) = if cfg!(windows) {
+            let script = dir.join("probe.bat");
+            std::fs::write(&script, format!("@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"))
+                .expect("write probe script");
+            (
+                "cmd",
+                vec!["/c".to_string(), "probe.bat".to_string()],
+                script,
+            )
+        } else {
+            let script = dir.join("probe.sh");
+            std::fs::write(&script, format!("echo '{reply}'\nsleep 3\n"))
+                .expect("write probe script");
+            ("sh", vec!["probe.sh".to_string()], script)
+        };
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        let client = McpClient::spawn_stdio(
+            "cwd-srv",
+            cmd,
+            &arg_refs,
+            &HashMap::new(),
+            Some(dir.to_string_lossy().as_ref()),
+        )
+        .await
+        .expect("a script resolved from the configured cwd must start");
+        assert_eq!(client.transport_type(), "stdio");
+
+        let _ = std::fs::remove_file(script);
+        let _ = std::fs::remove_dir(dir);
     }
 }

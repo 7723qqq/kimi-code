@@ -177,6 +177,13 @@ export interface JsMcpServerConfig {
   env?: Record<string, string>
   url?: string
   headers?: Record<string, string>
+  /** Working directory for a stdio server (v2 `cwd`). */
+  cwd?: string
+  /**
+   * Env var holding a bearer token for a remote server (v2
+   * `bearerTokenEnvVar`).
+   */
+  bearerTokenEnvVar?: string
   /** `false` keeps the server listed as `disabled` and skips connecting it. */
   enabled?: boolean
   /** Allowlist of tool names exposed to the model (v2 `enabledTools`). */
