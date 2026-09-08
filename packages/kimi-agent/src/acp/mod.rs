@@ -11,8 +11,7 @@
 //! notifications while a turn runs, plus server-initiated requests
 //! (`session/request_permission`, see `permission.rs`).
 //!
-//! Still missing: `session/resume` / `session/fork`, `configOptions`,
-//! replaying history on `session/load`, and the fs/terminal reverse RPCs.
+//! Still missing: the fs/terminal reverse RPCs and the auth gate.
 
 pub mod channel;
 pub mod events_map;
@@ -89,6 +88,57 @@ impl AcpServer {
             "currentModeId": self.current_mode(session_id),
             "availableModes": acp_modes(),
         })
+    }
+
+    /// Build the ACP `SessionConfigOption[]` surface advertised on
+    /// `session/new` / `session/load` / `session/resume` / `session/fork`
+    /// (v2 `buildSessionConfigOptions`, config-options.ts). This host has no
+    /// model catalog, so the `model` arm is a single row for the engine's one
+    /// model (empty when no engine is attached) and the `thinking` arm is
+    /// omitted — its presence depends on a catalog row we do not have, and v2
+    /// omits it when the model is not `thinkingSupported`. The `mode` arm
+    /// projects the canonical four modes.
+    fn config_options(&self, session_id: &str) -> serde_json::Value {
+        let model_name = self
+            .engine
+            .as_ref()
+            .map(|engine| engine.model_name().to_string())
+            .unwrap_or_default();
+        let model_option = json!({
+            "type": "select",
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "currentValue": model_name,
+            "options": if model_name.is_empty() {
+                json!([])
+            } else {
+                json!([{ "value": model_name, "name": model_name }])
+            },
+        });
+        let mode_option = json!({
+            "type": "select",
+            "id": "mode",
+            "name": "Mode",
+            "category": "mode",
+            "currentValue": self.current_mode(session_id),
+            "options": acp_modes()
+                .as_array()
+                .map(|modes| {
+                    modes
+                        .iter()
+                        .map(|mode| {
+                            json!({
+                                "value": mode["id"],
+                                "name": mode["name"],
+                                "description": mode["description"],
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        });
+        json!([model_option, mode_option])
     }
 
     /// Install the outbound channel used for notifications and back-channel
@@ -351,6 +401,7 @@ impl AcpServer {
                             req.id,
                             json!({
                                 "sessionId": session_id,
+                                "configOptions": self.config_options(&session_id),
                                 "modes": self.mode_state(&session_id),
                             }),
                         )
@@ -521,7 +572,10 @@ impl AcpServer {
                             }
                             JsonRpcResponse::success(
                                 req.id,
-                                json!({ "modes": self.mode_state(sid) }),
+                                json!({
+                                    "configOptions": self.config_options(sid),
+                                    "modes": self.mode_state(sid),
+                                }),
                             )
                         }
                         Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
@@ -548,7 +602,10 @@ impl AcpServer {
                         } else {
                             JsonRpcResponse::success(
                                 req.id,
-                                json!({ "modes": self.mode_state(sid) }),
+                                json!({
+                                    "configOptions": self.config_options(sid),
+                                    "modes": self.mode_state(sid),
+                                }),
                             )
                         }
                     }
@@ -586,6 +643,7 @@ impl AcpServer {
                                         req.id,
                                         json!({
                                             "sessionId": forked,
+                                            "configOptions": self.config_options(&forked),
                                             "modes": self.mode_state(&forked),
                                         }),
                                     )
@@ -925,6 +983,96 @@ mod tests {
         assert_eq!(available.len(), 4);
         assert_eq!(available[0]["id"], "default");
         assert_eq!(available[3]["id"], "yolo");
+    }
+
+    /// `session/new` advertises `configOptions` = `[model, mode]` with the
+    /// canonical four-mode `mode` arm and a single-row `model` arm (no model
+    /// catalog, v2 `buildSessionConfigOptions`, config-options.ts). The
+    /// `thinking` arm is omitted because no catalog row declares thinking
+    /// support.
+    #[tokio::test]
+    async fn test_acp_new_session_advertises_config_options() {
+        let server = AcpServer::in_memory().unwrap();
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let resp = server.handle_message(&req.to_string()).await.unwrap();
+        let res = resp.result.unwrap();
+        let options = res["configOptions"].as_array().unwrap();
+        assert_eq!(options.len(), 2, "model + mode, no thinking arm without a catalog");
+
+        let model = &options[0];
+        assert_eq!(model["type"], "select");
+        assert_eq!(model["id"], "model");
+        assert_eq!(model["category"], "model");
+        // No engine attached → the model arm is honest: empty currentValue and
+        // no rows (v2 keeps the unbound defaults).
+        assert_eq!(model["currentValue"], "");
+        assert_eq!(model["options"].as_array().unwrap().len(), 0);
+
+        let mode = &options[1];
+        assert_eq!(mode["id"], "mode");
+        assert_eq!(mode["category"], "mode");
+        assert_eq!(mode["currentValue"], "default");
+        let mode_options = mode["options"].as_array().unwrap();
+        assert_eq!(mode_options.len(), 4);
+        assert_eq!(mode_options[0]["value"], "default");
+        assert_eq!(mode_options[0]["name"], "Default");
+        assert_eq!(mode_options[3]["value"], "yolo");
+    }
+
+    /// With an engine attached, the `model` arm carries the engine's single
+    /// model as both `currentValue` and the one selectable row.
+    #[tokio::test]
+    async fn test_acp_config_options_model_arm_from_engine() {
+        use crate::pipeline::PipelineSpec;
+        use crate::server::engine::ServerEngine;
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = ServerEngine::new(
+            PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "kimi-k2".into(),
+                providers: Vec::new(),
+                native_llm: None,
+                workspace_root: None,
+                native_tools: false,
+                rust_self_contained: false,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+            },
+            Arc::new(crate::server::hub::EventHub::new()),
+            store.clone(),
+        );
+        let server = AcpServer::with_engine(store, Arc::new(engine));
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let resp = server.handle_message(&req.to_string()).await.unwrap();
+        let res = resp.result.unwrap();
+        let model = &res["configOptions"][0];
+        assert_eq!(model["currentValue"], "kimi-k2");
+        let rows = model["options"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["value"], "kimi-k2");
+        assert_eq!(rows[0]["name"], "kimi-k2");
     }
 
     /// ACP clients send `prompt` as `ContentBlock[]`; text, text resources and
