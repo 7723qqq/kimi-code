@@ -241,18 +241,39 @@ fn acp_session_round_trip_with_content_blocks() {
     assert!(response["error"].is_null(), "unexpected error: {response}");
     assert_eq!(response["result"]["stopReason"], "end_turn");
 
-    // The canned path stores the flattened prompt; `session/load` reads it back.
-    let response = client
-        .request(
-            "session/load",
-            serde_json::json!({ "sessionId": session_id }),
-        )
-        .expect("session/load must answer");
-    let messages = response["result"]["messages"]
-        .as_array()
-        .expect("messages")
-        .clone();
-    assert_eq!(messages[0]["content"], "hello");
+    // `session/load` replays the stored history as `session/update` chunks and
+    // answers with the mode state (v2 `loadSession`).
+    let id = client.next_id.fetch_add(1, Ordering::SeqCst);
+    client
+        .write_line(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/load",
+            "params": { "sessionId": session_id }
+        }))
+        .expect("session/load must be accepted");
+
+    let mut replayed = Vec::new();
+    let response = loop {
+        let line = client
+            .read_line(Duration::from_secs(10))
+            .expect("session/load must answer");
+        if line.get("method").is_some() {
+            replayed.push(line);
+            continue;
+        }
+        break line;
+    };
+    assert_eq!(response["id"], serde_json::json!(id));
+    assert_eq!(response["result"]["modes"]["currentModeId"], "default");
+
+    let user_chunk = replayed
+        .iter()
+        .find(|line| {
+            line["params"]["update"]["sessionUpdate"] == serde_json::json!("user_message_chunk")
+        })
+        .expect("the stored user prompt must replay");
+    assert_eq!(user_chunk["params"]["update"]["content"]["text"], "hello");
 }
 
 /// A response line (the client's answer to a server-initiated request) is

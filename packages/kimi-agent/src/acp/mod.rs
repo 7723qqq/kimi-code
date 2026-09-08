@@ -20,7 +20,8 @@ pub mod permission;
 pub mod types;
 
 use serde_json::json;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::acp::types::{
     AcpInitializeParams, JsonRpcRequest, JsonRpcResponse, acp_modes, negotiate_protocol_version,
@@ -35,6 +36,8 @@ pub struct AcpServer {
     store: Arc<SqliteSessionStore>,
     engine: Option<Arc<crate::server::engine::ServerEngine>>,
     channel: AcpChannel,
+    /// Current ACP mode per session (v2 `AcpSession.currentModeId`).
+    modes: Mutex<HashMap<String, String>>,
 }
 
 impl AcpServer {
@@ -43,6 +46,7 @@ impl AcpServer {
             store,
             engine: None,
             channel: AcpChannel::new(),
+            modes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -65,7 +69,26 @@ impl AcpServer {
             store,
             engine: Some(engine),
             channel,
+            modes: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The session's current ACP mode, defaulting to `default`.
+    fn current_mode(&self, session_id: &str) -> String {
+        self.modes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
+            .unwrap_or_else(|| "default".to_string())
+    }
+
+    /// Snapshot the ACP `SessionModeState` for a session.
+    fn mode_state(&self, session_id: &str) -> serde_json::Value {
+        json!({
+            "currentModeId": self.current_mode(session_id),
+            "availableModes": acp_modes(),
+        })
     }
 
     /// Install the outbound channel used for notifications and back-channel
@@ -197,6 +220,10 @@ impl AcpServer {
             );
         }
         let _ = self.store.put_state("metadata", session_id, &metadata);
+        self.modes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session_id.to_string(), mode_id.to_string());
 
         self.channel.notify(
             "session/update",
@@ -291,16 +318,19 @@ impl AcpServer {
                     .and_then(|v| v.as_str());
 
                 match self.store.create_session(&session_id, title) {
-                    Ok(_) => JsonRpcResponse::success(
-                        req.id,
-                        json!({
-                            "sessionId": session_id,
-                            "modes": {
-                                "currentModeId": "default",
-                                "availableModes": acp_modes(),
-                            },
-                        }),
-                    ),
+                    Ok(_) => {
+                        self.modes
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(session_id.clone(), "default".to_string());
+                        JsonRpcResponse::success(
+                            req.id,
+                            json!({
+                                "sessionId": session_id,
+                                "modes": self.mode_state(&session_id),
+                            }),
+                        )
+                    }
                     Err(e) => {
                         JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}"))
                     }
@@ -385,13 +415,32 @@ impl AcpServer {
 
                 match session_id {
                     Some(sid) => match self.store.load_session_history(sid) {
-                        Ok(history) => JsonRpcResponse::success(
-                            req.id,
-                            json!({
-                                "sessionId": sid,
-                                "messages": history,
-                            }),
-                        ),
+                        Ok(history) => {
+                            // Replay the persisted history as an ordered batch
+                            // of `session/update` chunks, then answer with the
+                            // mode state (v2 `loadSession` + `replay.ts`).
+                            for message in &history {
+                                let update = match message.role.as_str() {
+                                    "user" => "user_message_chunk",
+                                    "assistant" => "agent_message_chunk",
+                                    _ => continue,
+                                };
+                                self.channel.notify(
+                                    "session/update",
+                                    json!({
+                                        "sessionId": sid,
+                                        "update": {
+                                            "sessionUpdate": update,
+                                            "content": { "type": "text", "text": message.content },
+                                        },
+                                    }),
+                                );
+                            }
+                            JsonRpcResponse::success(
+                                req.id,
+                                json!({ "modes": self.mode_state(sid) }),
+                            )
+                        }
                         Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
                     },
                     None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
@@ -418,7 +467,23 @@ impl AcpServer {
                     .and_then(|v| v.as_str());
 
                 match session_id {
-                    Some(sid) => JsonRpcResponse::success(req.id, json!({ "sessionId": sid, "closed": true })),
+                    Some(sid) => {
+                        if self.store.get_session(sid).ok().flatten().is_none() {
+                            JsonRpcResponse::error(req.id, -32602, format!("Unknown sessionId: {sid}"))
+                        } else {
+                            // Best-effort teardown: cancel any in-flight turn and
+                            // drop the session's local mode (v2 `closeSession`,
+                            // server.ts:332-348).
+                            if let Some(ref engine) = self.engine {
+                                engine.cancel_turn(sid);
+                            }
+                            self.modes
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .remove(sid);
+                            JsonRpcResponse::success(req.id, json!({}))
+                        }
+                    }
                     None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
                 }
             }
@@ -956,7 +1021,10 @@ mod tests {
         let res = resp.result.unwrap();
         assert_eq!(res["stopReason"], "end_turn");
 
-        // 4. Load session history
+        // 4. Load session history — replayed as `session/update` chunks, the
+        // response carries the mode state (v2 `loadSession`).
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
         let load_req = json!({
             "jsonrpc": "2.0",
             "id": 5,
@@ -965,9 +1033,20 @@ mod tests {
         });
         let resp = server.handle_message(&load_req.to_string()).await.unwrap();
         assert!(resp.error.is_none());
-        let messages = resp.result.unwrap()["messages"].as_array().unwrap().clone();
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0]["content"], "Hello ACP");
+        assert_eq!(resp.result.unwrap()["modes"]["currentModeId"], "default");
+        let mut replayed = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            if let AcpOutbound::Notification(note) = message {
+                replayed.push(note.params.unwrap());
+            }
+        }
+        assert_eq!(replayed.len(), 2, "user + assistant chunks");
+        assert_eq!(replayed[0]["update"]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(replayed[0]["update"]["content"]["text"], "Hello ACP");
+        assert_eq!(
+            replayed[1]["update"]["sessionUpdate"],
+            "agent_message_chunk"
+        );
 
         // 5. Set mode (ACP wire name `modeId`; the legacy `mode` still parses)
         let mode_req = json!({
@@ -988,5 +1067,55 @@ mod tests {
         });
         let resp = server.handle_message(&del_req.to_string()).await.unwrap();
         assert_eq!(resp.result.unwrap()["deleted"], true);
+    }
+
+    /// `session/close` tears the session down best-effort and clears its local
+    /// mode; an unknown session is rejected (v2 `closeSession`).
+    #[tokio::test]
+    async fn test_acp_close_session_clears_mode() {
+        let server = AcpServer::in_memory().unwrap();
+        let new_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let sid = server.handle_message(&new_req.to_string()).await.unwrap().result.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let set_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/set_mode",
+            "params": { "sessionId": sid, "modeId": "plan" }
+        });
+        server.handle_message(&set_req.to_string()).await.unwrap();
+        assert_eq!(server.current_mode(&sid), "plan");
+
+        let close_req = json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/close",
+            "params": { "sessionId": sid }
+        });
+        let resp = server.handle_message(&close_req.to_string()).await.unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap(), json!({}));
+        assert_eq!(server.current_mode(&sid), "default");
+
+        let unknown = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/close",
+            "params": { "sessionId": "sess-nope" }
+        });
+        let resp = server.handle_message(&unknown.to_string()).await.unwrap();
+        assert_eq!(
+            resp.error.unwrap().message,
+            "Unknown sessionId: sess-nope"
+        );
     }
 }
