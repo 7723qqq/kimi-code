@@ -37,15 +37,26 @@ pub struct AcpServer {
     channel: AcpChannel,
     /// Current ACP mode per session (v2 `AcpSession.currentModeId`).
     modes: Mutex<HashMap<String, String>>,
+    /// Bypass the auth gate (v2 `disableAuth`, server.ts:110-114). The Rust
+    /// engine has no runtime auth state, so the gate is "authed iff an engine
+    /// (model) is attached"; tests and the no-engine dev path set this true.
+    disable_auth: bool,
 }
 
 impl AcpServer {
+    /// Bypass the auth gate (v2 `disableAuth`). The no-engine dev/test path
+    /// (canned prompt, no native LLM) calls this so sessions are not refused.
+    pub fn set_disable_auth(&mut self, value: bool) {
+        self.disable_auth = value;
+    }
+
     pub fn new(store: Arc<SqliteSessionStore>) -> Self {
         Self {
             store,
             engine: None,
             channel: AcpChannel::new(),
             modes: Mutex::new(HashMap::new()),
+            disable_auth: false,
         }
     }
 
@@ -69,6 +80,7 @@ impl AcpServer {
             engine: Some(engine),
             channel,
             modes: Mutex::new(HashMap::new()),
+            disable_auth: false,
         }
     }
 
@@ -141,6 +153,18 @@ impl AcpServer {
         json!([model_option, mode_option])
     }
 
+    /// Auth gate (v2 `ensureAuthed`, server.ts:625-646): throws `auth_required`
+    /// (`-32000`) unless authed or `disable_auth`. The Rust engine has no
+    /// runtime auth state, so "authed" is exactly "an engine (model) is
+    /// attached" — the no-engine path cannot run turns and is refused up front.
+    fn ensure_authed(&self) -> Result<(), (i64, String)> {
+        if self.disable_auth || self.engine.is_some() {
+            Ok(())
+        } else {
+            Err((-32000, "Authentication required".to_string()))
+        }
+    }
+
     /// Install the outbound channel used for notifications and back-channel
     /// requests.
     pub fn set_notification_sink(&self, sender: tokio::sync::mpsc::UnboundedSender<AcpOutbound>) {
@@ -181,7 +205,9 @@ impl AcpServer {
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
         let store = Arc::new(SqliteSessionStore::in_memory()?);
-        Ok(Self::new(store))
+        let mut server = Self::new(store);
+        server.disable_auth = true;
+        Ok(server)
     }
 
     /// Run the ACP server reading from stdin and writing to stdout. Responses
@@ -384,6 +410,9 @@ impl AcpServer {
                 )
             }
             "session/new" => {
+                if let Err((code, message)) = self.ensure_authed() {
+                    return Some(JsonRpcResponse::error(req.id, code, message));
+                }
                 let session_id = format!("sess-{}", fastrand::u64(..));
                 let title = req
                     .params
@@ -520,6 +549,9 @@ impl AcpServer {
                 }
             }
             "session/load" => {
+                if let Err((code, message)) = self.ensure_authed() {
+                    return Some(JsonRpcResponse::error(req.id, code, message));
+                }
                 let params = req.params.as_ref();
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
@@ -587,6 +619,9 @@ impl AcpServer {
             // the whole difference from `session/load` (v2 `resumeSession`,
             // server.ts:312-321).
             "session/resume" => {
+                if let Err((code, message)) = self.ensure_authed() {
+                    return Some(JsonRpcResponse::error(req.id, code, message));
+                }
                 let params = req.params.as_ref();
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
@@ -620,6 +655,9 @@ impl AcpServer {
             // session's history into a new session (v2 `forkSession`,
             // server.ts:266-294).
             "session/fork" => {
+                if let Err((code, message)) = self.ensure_authed() {
+                    return Some(JsonRpcResponse::error(req.id, code, message));
+                }
                 let params = req.params.as_ref();
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
@@ -777,8 +815,30 @@ impl AcpServer {
                     }
                 }
             }
-            "authenticate" => JsonRpcResponse::success(req.id, json!({ "authenticated": true })),
-            "logout" => JsonRpcResponse::success(req.id, json!({ "loggedOut": true })),
+            // `authenticate` re-checks the gate after the client runs the
+            // terminal-auth login flow (v2 `authenticate`, server.ts:380-390).
+            // The Rust engine has no managed token to drop, so `logout` is a
+            // no-op success (v2 `logout`, server.ts:392-399).
+            "authenticate" => {
+                let method_id = req
+                    .params
+                    .as_ref()
+                    .and_then(|p| p.get("methodId"))
+                    .and_then(|v| v.as_str());
+                if method_id != Some("login") {
+                    JsonRpcResponse::error(
+                        req.id,
+                        -32602,
+                        "Invalid params: methodId must be 'login'",
+                    )
+                } else {
+                    match self.ensure_authed() {
+                        Ok(()) => JsonRpcResponse::success(req.id, json!({})),
+                        Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                    }
+                }
+            }
+            "logout" => JsonRpcResponse::success(req.id, json!({})),
             "ping" => JsonRpcResponse::success(req.id, json!("pong")),
             _ => {
                 JsonRpcResponse::error(req.id, -32601, format!("Method not found: {}", req.method))
@@ -1073,6 +1133,110 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["value"], "kimi-k2");
         assert_eq!(rows[0]["name"], "kimi-k2");
+    }
+
+    /// The auth gate refuses `session/new` with `auth_required` (`-32000`)
+    /// when no engine (model) is attached and auth is not disabled
+    /// (v2 `ensureAuthed`, server.ts:625-646).
+    #[tokio::test]
+    async fn test_acp_auth_gate_blocks_session_new_without_engine() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = AcpServer::new(store); // disable_auth = false, no engine
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let resp = server.handle_message(&req.to_string()).await.unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000);
+        assert!(err.message.contains("Authentication required"));
+    }
+
+    /// `authenticate` validates `methodId` and re-checks the gate
+    /// (v2 `authenticate`, server.ts:380-390).
+    #[tokio::test]
+    async fn test_acp_authenticate_validates_method_and_gate() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = AcpServer::new(store);
+
+        // Wrong methodId → invalid params.
+        let bad = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "authenticate",
+            "params": { "methodId": "oauth" }
+        });
+        let resp = server.handle_message(&bad.to_string()).await.unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32602);
+
+        // Correct methodId but no engine → auth_required.
+        let good = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "authenticate",
+            "params": { "methodId": "login" }
+        });
+        let resp = server.handle_message(&good.to_string()).await.unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000);
+    }
+
+    /// With an engine attached, `authenticate('login')` succeeds and `logout`
+    /// is a no-op success (the Rust engine has no managed token to drop).
+    #[tokio::test]
+    async fn test_acp_authenticate_succeeds_with_engine() {
+        use crate::pipeline::PipelineSpec;
+        use crate::server::engine::ServerEngine;
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = ServerEngine::new(
+            PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "kimi-k2".into(),
+                providers: Vec::new(),
+                native_llm: None,
+                workspace_root: None,
+                native_tools: false,
+                rust_self_contained: false,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+            },
+            Arc::new(crate::server::hub::EventHub::new()),
+            store.clone(),
+        );
+        let server = AcpServer::with_engine(store, Arc::new(engine));
+
+        let auth = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "authenticate",
+            "params": { "methodId": "login" }
+        });
+        let resp = server.handle_message(&auth.to_string()).await.unwrap();
+        assert!(resp.error.is_none(), "engine attached → authed");
+
+        let logout = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "logout",
+            "params": {}
+        });
+        let resp = server.handle_message(&logout.to_string()).await.unwrap();
+        assert!(resp.error.is_none(), "logout is a no-op success");
     }
 
     /// ACP clients send `prompt` as `ContentBlock[]`; text, text resources and

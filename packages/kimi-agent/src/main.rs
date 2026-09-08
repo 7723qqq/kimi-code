@@ -146,7 +146,12 @@ async fn main() -> anyhow::Result<()> {
             ));
             kimi_agent::acp::AcpServer::with_engine(store, engine)
         } else {
-            kimi_agent::acp::AcpServer::new(store)
+            // No native LLM resolved: the canned-prompt dev/test path. The auth
+            // gate would otherwise refuse every session (no engine = not
+            // authed), so it is disabled here (v2 `disableAuth`).
+            let mut server = kimi_agent::acp::AcpServer::new(store);
+            server.set_disable_auth(true);
+            server
         };
 
         return acp_server
