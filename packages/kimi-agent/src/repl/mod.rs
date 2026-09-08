@@ -320,7 +320,7 @@ pub async fn start_repl(
     let mcp_manager = Arc::new(McpManager::new());
     // P29 批 3 接线: connect MCP servers declared in config.toml so their
     // tools are discovered and exposed to the model this session.
-    mcp_manager.spawn_from_config(&config.mcp_servers).await;
+    mcp_manager.spawn_from_config(&config).await;
 
     // Background task runner: task stop/wait delegate to real execution.
     let task_runner = Arc::new(crate::storage::task_runner::TaskRunner::for_workspace(

@@ -815,6 +815,11 @@ pub struct JsMcpServerConfig {
     pub enabled_tools: Option<Vec<String>>,
     /// Denylist applied after the allowlist (v2 `disabledTools`).
     pub disabled_tools: Option<Vec<String>>,
+    /// Startup (connect + discovery) timeout in milliseconds (v2
+    /// `startupTimeoutMs`).
+    pub startup_timeout_ms: Option<u32>,
+    /// Single tool-call timeout in milliseconds (v2 `toolTimeoutMs`).
+    pub tool_timeout_ms: Option<u32>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -1261,15 +1266,14 @@ async fn build_engine_pipeline(
             let Some(recipe) = recipe else {
                 continue;
             };
-            let _ = mgr
-                .configure(
-                    &cfg.name,
-                    recipe,
-                    cfg.enabled.unwrap_or(true),
-                    cfg.enabled_tools.clone(),
-                    cfg.disabled_tools.clone(),
-                )
-                .await;
+            let options = crate::mcp::manager::McpServerOptions {
+                enabled: cfg.enabled.unwrap_or(true),
+                enabled_tools: cfg.enabled_tools.clone(),
+                disabled_tools: cfg.disabled_tools.clone(),
+                startup_timeout_ms: cfg.startup_timeout_ms.map(u64::from),
+                tool_timeout_ms: cfg.tool_timeout_ms.map(u64::from),
+            };
+            let _ = mgr.configure(&cfg.name, recipe, options).await;
         }
         mcp_manager = Some(mgr);
     }

@@ -183,6 +183,13 @@ export interface JsMcpServerConfig {
   enabledTools?: Array<string>
   /** Denylist applied after the allowlist (v2 `disabledTools`). */
   disabledTools?: Array<string>
+  /**
+   * Startup (connect + discovery) timeout in milliseconds (v2
+   * `startupTimeoutMs`).
+   */
+  startupTimeoutMs?: number
+  /** Single tool-call timeout in milliseconds (v2 `toolTimeoutMs`). */
+  toolTimeoutMs?: number
 }
 
 export interface JsMessage {

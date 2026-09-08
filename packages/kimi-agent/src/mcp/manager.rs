@@ -3,6 +3,7 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::mcp::client::McpClient;
@@ -86,11 +87,81 @@ impl ToolFilter {
     }
 }
 
+/// v2 `DEFAULT_STARTUP_TIMEOUT_MS` (connection-manager.ts:65).
+pub const DEFAULT_MCP_STARTUP_TIMEOUT_MS: u64 = 30_000;
+/// v2 env bindings (configSection.ts:16-17).
+const MCP_STARTUP_TIMEOUT_ENV: &str = "KIMI_MCP_STARTUP_TIMEOUT_MS";
+const MCP_TOOL_TIMEOUT_ENV: &str = "KIMI_MCP_TOOL_TIMEOUT_MS";
+/// v2 `MAX_MCP_TIMEOUT_MS` (config-schema.ts:5).
+const MAX_MCP_TIMEOUT_MS: u64 = 2_147_483_647;
+
+/// Per-server registration options: visibility, enabled flag and timeouts.
+#[derive(Debug, Clone)]
+pub struct McpServerOptions {
+    pub enabled: bool,
+    pub enabled_tools: Option<Vec<String>>,
+    pub disabled_tools: Option<Vec<String>>,
+    pub startup_timeout_ms: Option<u64>,
+    pub tool_timeout_ms: Option<u64>,
+}
+
+impl Default for McpServerOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enabled_tools: None,
+            disabled_tools: None,
+            startup_timeout_ms: None,
+            tool_timeout_ms: None,
+        }
+    }
+}
+
+/// Resolved timeouts for one server (v2 `startupTimeoutMs` wrapping
+/// connect + discovery, `toolCallTimeoutMs` for a single request).
+#[derive(Debug, Clone)]
+struct McpTimeouts {
+    startup: Duration,
+    tool: Option<Duration>,
+}
+
+/// v2 parses the env value as an integer in `[1, MAX_MCP_TIMEOUT_MS]` and
+/// ignores anything else (configSection.ts:19-24).
+fn parse_timeout_env(name: &str) -> Option<u64> {
+    let raw = std::env::var(name).ok()?;
+    let parsed: u64 = raw.trim().parse().ok()?;
+    (1..=MAX_MCP_TIMEOUT_MS).contains(&parsed).then_some(parsed)
+}
+
+/// v2 precedence: per-server config → env → `[mcp]` section → 30s default
+/// (connection-manager.ts:310-314). The env value is passed in so resolution
+/// stays testable without mutating process state.
+fn resolve_startup_timeout(per_server: Option<u64>, env: Option<u64>, global: Option<u64>) -> u64 {
+    per_server
+        .or(env)
+        .or(global)
+        .unwrap_or(DEFAULT_MCP_STARTUP_TIMEOUT_MS)
+}
+
+/// v2 precedence for tool calls; `None` keeps the client built-in default
+/// (connection-manager.ts:389-390).
+fn resolve_tool_timeout(
+    per_server: Option<u64>,
+    env: Option<u64>,
+    global: Option<u64>,
+) -> Option<u64> {
+    per_server.or(env).or(global)
+}
+
 pub struct McpManager {
     clients: Arc<RwLock<HashMap<String, Arc<McpClient>>>>,
     cached_tools: Arc<RwLock<HashMap<String, (String, McpTool)>>>,
     servers: Arc<RwLock<HashMap<String, ServerState>>>,
     filters: Arc<RwLock<HashMap<String, ToolFilter>>>,
+    timeouts: Arc<RwLock<HashMap<String, McpTimeouts>>>,
+    /// Global defaults from the `[mcp]` config section (v2
+    /// `resolveDefaultTimeouts`).
+    defaults: Arc<RwLock<crate::config::McpTimeoutConfig>>,
     /// In-flight reconnects (v2 `inFlightReconnects`): late callers join the
     /// running one via its Notify instead of double-spawning.
     in_flight: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
@@ -109,6 +180,8 @@ impl McpManager {
             cached_tools: Arc::new(RwLock::new(HashMap::new())),
             servers: Arc::new(RwLock::new(HashMap::new())),
             filters: Arc::new(RwLock::new(HashMap::new())),
+            timeouts: Arc::new(RwLock::new(HashMap::new())),
+            defaults: Arc::new(RwLock::new(crate::config::McpTimeoutConfig::default())),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -133,13 +206,21 @@ impl McpManager {
         );
     }
 
+    /// Set the global `[mcp]` defaults that per-server timeouts fall back to.
+    pub async fn set_default_timeouts(&self, defaults: crate::config::McpTimeoutConfig) {
+        *self.defaults.write().await = defaults;
+    }
+
     /// Register an initialized MCP client, indexing only the tools its filter
     /// allows (v2 `computeEnabledNames` → `resolved().tools`) while keeping
     /// the full advertised list for inspection (v2 `rawTools`). Discovery
     /// failures surface to the caller so the connect path can mark the entry
     /// `failed` instead of `connected` with zero tools.
-    async fn register_client(&self, client: McpClient) -> Result<usize, String> {
+    async fn register_client(&self, mut client: McpClient) -> Result<usize, String> {
         let name = client.server_name().to_string();
+        if let Some(timeouts) = self.timeouts.read().await.get(&name).cloned() {
+            client.set_tool_timeout(timeouts.tool);
+        }
         let client_arc = Arc::new(client);
         let tools = client_arc.list_tools().await?;
         let filter = {
@@ -295,6 +376,7 @@ impl McpManager {
         drop(clients);
         drop(servers);
         self.filters.write().await.remove(name);
+        self.timeouts.write().await.remove(name);
         removed_server || removed_client
     }
 
@@ -357,52 +439,74 @@ impl McpManager {
     /// Servers that fail to spawn are remembered with a `failed` status and
     /// their error so `/mcp` views stay truthful (v2 marks failed entries,
     /// connection-manager.ts:366-372).
-    pub async fn spawn_from_config(
-        &self,
-        servers: &HashMap<String, crate::config::McpServerConfig>,
-    ) {
-        for (name, conf) in servers {
+    /// Connect every server in `config.mcp_servers`, using `config.mcp` as the
+    /// global timeout defaults (v2 `connectAll` + `resolveDefaultTimeouts`).
+    pub async fn spawn_from_config(&self, config: &crate::config::KimiConfig) {
+        self.set_default_timeouts(config.mcp.clone()).await;
+        for (name, conf) in &config.mcp_servers {
             let Some(recipe) = recipe_from_config(conf) else {
                 continue;
             };
-            let enabled = conf.enabled.unwrap_or(true);
-            let _ = self
-                .configure(
-                    name,
-                    recipe,
-                    enabled,
-                    conf.enabled_tools.clone(),
-                    conf.disabled_tools.clone(),
-                )
-                .await;
+            let options = McpServerOptions {
+                enabled: conf.enabled.unwrap_or(true),
+                enabled_tools: conf.enabled_tools.clone(),
+                disabled_tools: conf.disabled_tools.clone(),
+                startup_timeout_ms: conf.startup_timeout_ms,
+                tool_timeout_ms: conf.tool_timeout_ms,
+            };
+            let _ = self.configure(name, recipe, options).await;
         }
     }
 
-    /// Register a server from a host-supplied recipe and connect it unless
-    /// `enabled` is false (v2 `connect`, connection-manager.ts:182-205). The
-    /// napi binding path calls this directly; `spawn_from_config` wraps it.
+    /// Register a server from a host-supplied recipe and connect it unless it
+    /// is disabled (v2 `connect`, connection-manager.ts:182-205). The napi
+    /// binding path calls this directly; `spawn_from_config` wraps it.
     pub async fn configure(
         &self,
         name: &str,
         recipe: McpServerRecipe,
-        enabled: bool,
-        enabled_tools: Option<Vec<String>>,
-        disabled_tools: Option<Vec<String>>,
+        options: McpServerOptions,
     ) -> Result<(), String> {
-        self.set_tool_filter(name, enabled, enabled_tools, disabled_tools)
-            .await;
+        self.set_tool_filter(
+            name,
+            options.enabled,
+            options.enabled_tools,
+            options.disabled_tools,
+        )
+        .await;
+        let defaults = self.defaults.read().await.clone();
+        self.timeouts.write().await.insert(
+            name.to_string(),
+            McpTimeouts {
+                startup: Duration::from_millis(resolve_startup_timeout(
+                    options.startup_timeout_ms,
+                    parse_timeout_env(MCP_STARTUP_TIMEOUT_ENV),
+                    defaults.startup_timeout_ms,
+                )),
+                tool: resolve_tool_timeout(
+                    options.tool_timeout_ms,
+                    parse_timeout_env(MCP_TOOL_TIMEOUT_ENV),
+                    defaults.tool_timeout_ms,
+                )
+                .map(Duration::from_millis),
+            },
+        );
         self.servers.write().await.insert(
             name.to_string(),
             ServerState {
                 recipe,
                 // v2 lists a disabled entry as `disabled` without ever
                 // connecting it (connection-manager.ts:193-204).
-                status: if enabled { "pending".into() } else { "disabled".into() },
+                status: if options.enabled {
+                    "pending".into()
+                } else {
+                    "disabled".into()
+                },
                 error: None,
                 raw_tools: Vec::new(),
             },
         );
-        if !enabled {
+        if !options.enabled {
             return Ok(());
         }
         match self.connect_one(name).await {
@@ -426,24 +530,40 @@ impl McpManager {
             };
             state.recipe.clone()
         };
-        let client = match &recipe {
-            McpServerRecipe::Sse { url, headers } => {
-                McpClient::connect_sse(name, url, headers.clone()).await?
-            }
-            McpServerRecipe::Stdio { command, args, env } => {
-                McpClient::spawn_stdio(
-                    name,
-                    command,
-                    &args.iter().map(String::as_str).collect::<Vec<_>>(),
-                    env,
-                )
-                .await?
-            }
-            McpServerRecipe::Mock => McpClient::mock(name),
+        let startup = {
+            let timeouts = self.timeouts.read().await;
+            timeouts
+                .get(name)
+                .map(|t| t.startup)
+                .unwrap_or_else(|| Duration::from_millis(DEFAULT_MCP_STARTUP_TIMEOUT_MS))
         };
-        // A discovery failure must mark the entry `failed`, not `connected`
-        // with zero tools (v2 `connectOne` catch branch).
-        self.register_client(client).await?;
+        let connect = async {
+            let client = match &recipe {
+                McpServerRecipe::Sse { url, headers } => {
+                    McpClient::connect_sse(name, url, headers.clone()).await?
+                }
+                McpServerRecipe::Stdio { command, args, env } => {
+                    McpClient::spawn_stdio(
+                        name,
+                        command,
+                        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+                        env,
+                    )
+                    .await?
+                }
+                McpServerRecipe::Mock => McpClient::mock(name),
+            };
+            // A discovery failure must mark the entry `failed`, not
+            // `connected` with zero tools (v2 `connectOne` catch branch).
+            self.register_client(client).await
+        };
+        // v2 wraps connect + tool discovery in `withTimeout` and reports
+        // `Timed out after <ms>ms` (connection-manager.ts:594-611).
+        match tokio::time::timeout(startup, connect).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(format!("Timed out after {}ms", startup.as_millis())),
+        }
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = "connected".into();
             state.error = None;
@@ -724,7 +844,11 @@ mod tests {
         );
 
         let manager = McpManager::new();
-        manager.spawn_from_config(&configs).await;
+        let config = crate::config::KimiConfig {
+            mcp_servers: configs,
+            ..Default::default()
+        };
+        manager.spawn_from_config(&config).await;
 
         // The valid server connects and registers tools; invalid ones are gracefully skipped
         assert!(manager.handles("mcp__valid_sse__calculate").await);
@@ -763,7 +887,11 @@ mod tests {
             },
         );
         let manager = McpManager::new();
-        manager.spawn_from_config(&configs).await;
+        let config = crate::config::KimiConfig {
+            mcp_servers: configs,
+            ..Default::default()
+        };
+        manager.spawn_from_config(&config).await;
         assert_eq!(manager.server_entries().await[0].status, "connected");
 
         // Kill the mock server, then reconnect against the stored recipe.
@@ -854,7 +982,11 @@ mod tests {
         );
 
         let manager = McpManager::new();
-        manager.spawn_from_config(&configs).await;
+        let config = crate::config::KimiConfig {
+            mcp_servers: configs,
+            ..Default::default()
+        };
+        manager.spawn_from_config(&config).await;
 
         let entries = manager.server_entries().await;
         assert_eq!(entries.len(), 1);
@@ -884,5 +1016,107 @@ mod tests {
         assert_eq!(entries[0].tool_count, 0);
         assert!(entries[0].tools.is_empty());
         assert_eq!(entries[0].error.as_deref(), Some("server closed unexpectedly"));
+    }
+
+    /// v2 precedence: per-server → env → `[mcp]` section → 30s default
+    /// (connection-manager.ts:310-314, 389-390).
+    #[test]
+    fn test_timeout_resolution_precedence() {
+        assert_eq!(resolve_startup_timeout(Some(5), Some(6), Some(7)), 5);
+        assert_eq!(resolve_startup_timeout(None, Some(6), Some(7)), 6);
+        assert_eq!(resolve_startup_timeout(None, None, Some(7)), 7);
+        assert_eq!(
+            resolve_startup_timeout(None, None, None),
+            DEFAULT_MCP_STARTUP_TIMEOUT_MS
+        );
+
+        assert_eq!(resolve_tool_timeout(Some(5), Some(6), Some(7)), Some(5));
+        assert_eq!(resolve_tool_timeout(None, Some(6), Some(7)), Some(6));
+        assert_eq!(resolve_tool_timeout(None, None, Some(7)), Some(7));
+        assert_eq!(resolve_tool_timeout(None, None, None), None);
+    }
+
+    /// `[mcp]` defaults apply when the server declares no timeout of its own.
+    #[tokio::test]
+    async fn test_global_defaults_apply_to_servers_without_timeouts() {
+        let manager = McpManager::new();
+        manager
+            .set_default_timeouts(crate::config::McpTimeoutConfig {
+                startup_timeout_ms: Some(2_000),
+                tool_timeout_ms: Some(3_000),
+            })
+            .await;
+        manager
+            .configure("mock", McpServerRecipe::Mock, McpServerOptions::default())
+            .await
+            .expect("mock server connects");
+
+        let timeouts = manager.timeouts.read().await;
+        let resolved = timeouts.get("mock").expect("timeouts recorded");
+        assert_eq!(resolved.startup, Duration::from_millis(2_000));
+        assert_eq!(resolved.tool, Some(Duration::from_millis(3_000)));
+    }
+
+    /// The resolved tool timeout reaches the client (v2 passes
+    /// `toolCallTimeoutMs` into every client).
+    #[tokio::test]
+    async fn test_tool_timeout_reaches_client() {
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "mock",
+                McpServerRecipe::Mock,
+                McpServerOptions {
+                    tool_timeout_ms: Some(1_500),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("mock server connects");
+
+        let client = {
+            let clients = manager.clients.read().await;
+            clients.get("mock").cloned().expect("client registered")
+        };
+        assert_eq!(client.tool_timeout(), Some(Duration::from_millis(1_500)));
+    }
+
+    /// A server that accepts the connection but never answers the handshake
+    /// must fail with the v2 timeout text instead of hanging the caller
+    /// (connection-manager.ts:594-611).
+    #[tokio::test]
+    async fn test_startup_timeout_marks_failed() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Accept and hold every connection open without ever responding.
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+
+        let manager = McpManager::new();
+        let err = manager
+            .configure(
+                "hanging",
+                McpServerRecipe::Sse {
+                    url: format!("http://{addr}/sse"),
+                    headers: HashMap::new(),
+                },
+                McpServerOptions {
+                    startup_timeout_ms: Some(150),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect_err("handshake must time out");
+        assert_eq!(err, "Timed out after 150ms");
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "failed");
+        assert_eq!(entries[0].error.as_deref(), Some("Timed out after 150ms"));
+        assert_eq!(entries[0].tool_count, 0);
     }
 }

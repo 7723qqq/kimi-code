@@ -28,7 +28,13 @@ pub struct McpClient {
     transport: McpTransport,
     next_id: AtomicU64,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Per-request timeout resolved from `toolTimeoutMs` (v2
+    /// `toolCallTimeoutMs`); `None` keeps the transport built-in.
+    tool_timeout: Option<Duration>,
 }
+
+/// Built-in request timeout when no `toolTimeoutMs` is configured.
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl McpClient {
     /// Create a mock MCP client for testing without spawning subprocesses.
@@ -38,6 +44,16 @@ impl McpClient {
             transport: McpTransport::Mock,
             next_id: AtomicU64::new(1),
             closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            tool_timeout: None,
+        }
+    }
+
+    /// Apply the resolved per-server tool-call timeout (v2
+    /// `buildRequestOptions(toolCallTimeoutMs)`).
+    pub fn set_tool_timeout(&mut self, timeout: Option<Duration>) {
+        self.tool_timeout = timeout;
+        if let McpTransport::Sse(sse) = &mut self.transport {
+            sse.set_request_timeout(timeout);
         }
     }
 
@@ -54,6 +70,7 @@ impl McpClient {
             transport: McpTransport::Sse(sse_transport),
             next_id: AtomicU64::new(1),
             closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            tool_timeout: None,
         };
 
         // Handshake
@@ -74,7 +91,10 @@ impl McpClient {
             .envs(env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::inherit())
+            // A startup timeout or a dropped client must not leave the child
+            // process running (v2 closes the client on both paths).
+            .kill_on_drop(true);
 
         let mut child = cmd
             .spawn()
@@ -129,6 +149,7 @@ impl McpClient {
                 pending,
             },
             next_id: AtomicU64::new(1),
+            tool_timeout: None,
         };
 
         // Initialize handshake
@@ -145,6 +166,12 @@ impl McpClient {
     /// views use this to stop advertising the entry as connected.
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The resolved per-request timeout (`toolTimeoutMs`), for tests.
+    #[cfg(test)]
+    pub fn tool_timeout(&self) -> Option<Duration> {
+        self.tool_timeout
     }
 
     /// Close the client: kill the stdio child process. Dropping the client
@@ -199,7 +226,8 @@ impl McpClient {
                     .map_err(|e| format!("Failed to flush MCP stdin: {e}"))?;
                 drop(stdin_lock);
 
-                match tokio::time::timeout(Duration::from_secs(60), rx).await {
+                let wait = self.tool_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
+                match tokio::time::timeout(wait, rx).await {
                     Ok(Ok(val)) => {
                         if let Some(err) = val.get("error") {
                             return Err(format!("MCP error: {err}"));
@@ -210,7 +238,10 @@ impl McpClient {
                     Err(_) => {
                         let mut pend = pending.lock().await;
                         pend.remove(&id);
-                        Err("MCP request timed out waiting for child response (60s)".into())
+                        Err(format!(
+                            "MCP request timed out after {}ms",
+                            wait.as_millis()
+                        ))
                     }
                 }
             }
@@ -421,5 +452,47 @@ mod tests {
         let res = McpClient::spawn_stdio("junk_stdout", cmd, &args, &HashMap::new()).await;
         assert!(res.is_err());
         assert_eq!(res.err().unwrap(), "MCP child closed stdout prematurely");
+    }
+
+    /// A tool call that never gets a reply must fail with the resolved
+    /// `toolTimeoutMs` instead of waiting for the 60s built-in. The child
+    /// answers `initialize` and then stays alive without answering anything
+    /// else.
+    #[tokio::test]
+    async fn test_tool_timeout_fails_the_call() {
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let dir = std::env::temp_dir();
+        let (cmd, args, script) = if cfg!(windows) {
+            let path = dir.join(format!("kimi_mcp_slow_{}.bat", std::process::id()));
+            std::fs::write(
+                &path,
+                format!("@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"),
+            )
+            .expect("write slow server script");
+            (
+                "cmd",
+                vec!["/c".to_string(), path.to_string_lossy().into_owned()],
+                path,
+            )
+        } else {
+            let path = dir.join(format!("kimi_mcp_slow_{}.sh", std::process::id()));
+            std::fs::write(&path, format!("echo '{reply}'\nsleep 3\n"))
+                .expect("write slow server script");
+            ("sh", vec![path.to_string_lossy().into_owned()], path)
+        };
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        let mut client = McpClient::spawn_stdio("slow", cmd, &arg_refs, &HashMap::new())
+            .await
+            .expect("initialize handshake should succeed");
+        client.set_tool_timeout(Some(Duration::from_millis(150)));
+
+        let err = client
+            .call_tool("anything", &json!({}))
+            .await
+            .expect_err("tool call must time out");
+        assert_eq!(err, "MCP request timed out after 150ms");
+
+        let _ = std::fs::remove_file(script);
     }
 }

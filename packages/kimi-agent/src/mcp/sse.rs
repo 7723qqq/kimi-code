@@ -16,7 +16,13 @@ pub struct McpSseTransport {
     headers: HashMap<String, String>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
+    /// Per-request timeout resolved from `toolTimeoutMs` (v2
+    /// `toolCallTimeoutMs`); `None` keeps the 30s built-in.
+    request_timeout: Option<Duration>,
 }
+
+/// Built-in per-request timeout when no `toolTimeoutMs` is configured.
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl McpSseTransport {
     /// Connect to an MCP server via SSE and spawn the background event listener loop.
@@ -113,7 +119,13 @@ impl McpSseTransport {
             headers,
             pending,
             next_id: AtomicU64::new(1),
+            request_timeout: None,
         })
+    }
+
+    /// Apply a per-request timeout (v2 `buildRequestOptions(toolCallTimeoutMs)`).
+    pub fn set_request_timeout(&mut self, timeout: Option<Duration>) {
+        self.request_timeout = timeout;
     }
 
     /// Send a JSON-RPC request over HTTP POST and await the matching response from SSE.
@@ -157,8 +169,9 @@ impl McpSseTransport {
             ));
         }
 
-        // Await matching response from SSE event stream with 30s timeout
-        match tokio::time::timeout(Duration::from_secs(30), rx).await {
+        // Await matching response from SSE event stream.
+        let wait = self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
+        match tokio::time::timeout(wait, rx).await {
             Ok(Ok(val)) => {
                 if let Some(err) = val.get("error") {
                     return Err(format!("MCP Server Error: {err}"));
@@ -169,7 +182,10 @@ impl McpSseTransport {
             Err(_) => {
                 let mut pend = self.pending.lock().await;
                 pend.remove(&id);
-                Err("MCP request timed out waiting for SSE response (30s)".into())
+                Err(format!(
+                    "MCP request timed out after {}ms",
+                    wait.as_millis()
+                ))
             }
         }
     }

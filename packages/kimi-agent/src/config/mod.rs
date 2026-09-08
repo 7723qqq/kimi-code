@@ -88,6 +88,25 @@ pub struct McpServerConfig {
     /// Denylist applied after the allowlist (v2 `disabledTools`).
     #[serde(default, alias = "disabledTools")]
     pub disabled_tools: Option<Vec<String>>,
+    /// Startup (connect + tool discovery) timeout in milliseconds
+    /// (v2 per-server `startupTimeoutMs`).
+    #[serde(default, alias = "startupTimeoutMs")]
+    pub startup_timeout_ms: Option<u64>,
+    /// Single tool-call timeout in milliseconds (v2 per-server `toolTimeoutMs`).
+    #[serde(default, alias = "toolTimeoutMs")]
+    pub tool_timeout_ms: Option<u64>,
+}
+
+/// Global MCP defaults, mirroring the v2 `[mcp]` config section
+/// (`app/mcpConfig/configSection.ts:9-12`). Both values are also settable per
+/// server and through `KIMI_MCP_STARTUP_TIMEOUT_MS` /
+/// `KIMI_MCP_TOOL_TIMEOUT_MS`, which win over this section.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct McpTimeoutConfig {
+    #[serde(default, alias = "startupTimeoutMs")]
+    pub startup_timeout_ms: Option<u64>,
+    #[serde(default, alias = "toolTimeoutMs")]
+    pub tool_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -112,6 +131,9 @@ pub struct KimiConfig {
     pub permission: Option<PermissionConfig>,
     #[serde(rename = "mcp_servers", default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
+    /// Global MCP defaults (v2 `[mcp]` section).
+    #[serde(default)]
+    pub mcp: McpTimeoutConfig,
     #[serde(default)]
     pub github: GitHubConfig,
     /// User-configured external hooks (v2 `[hooks]` section). The engine
