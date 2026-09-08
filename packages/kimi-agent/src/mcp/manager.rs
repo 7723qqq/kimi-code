@@ -801,12 +801,31 @@ impl McpManager {
             notify
         };
         let result = self.reconnect_inner(name).await;
-        let in_flight = self.in_flight.lock().await;
-        if let Some(notify) = in_flight.get(name) {
+        // Remove the in-flight marker and wake any joiners (v2
+        // `reconnectAndJoin` deletes the entry in a `finally`,
+        // connection-manager.ts:297-301). Without the removal a later
+        // `reconnect` would find the already-notified marker and return
+        // without reconnecting.
+        let mut in_flight = self.in_flight.lock().await;
+        if let Some(notify) = in_flight.remove(name) {
             notify.notify_waiters();
         }
         drop(in_flight);
         result
+    }
+
+    /// Reconnect after any in-flight reconnect for the same server has
+    /// settled (v2 `reconnectAfterCurrent`, connection-manager.ts:297-301):
+    /// wait for the current one, then start a fresh reconnect.
+    pub async fn reconnect_after_current(&self, name: &str) -> Result<(), String> {
+        let notify = {
+            let in_flight = self.in_flight.lock().await;
+            in_flight.get(name).cloned()
+        };
+        if let Some(notify) = notify {
+            notify.notified().await;
+        }
+        self.reconnect(name).await
     }
 
     async fn reconnect_inner(&self, name: &str) -> Result<(), String> {
@@ -1194,6 +1213,35 @@ mod tests {
     async fn test_reconnect_unknown_server_errors() {
         let manager = McpManager::new();
         assert!(manager.reconnect("nope").await.is_err());
+    }
+
+    /// `reconnect_after_current` waits for any in-flight reconnect, then
+    /// starts a fresh one (v2 `reconnectAfterCurrent`,
+    /// connection-manager.ts:297-301). A completed reconnect clears its
+    /// in-flight marker, so a later `reconnect` reconnects instead of
+    /// returning on a stale notify.
+    #[tokio::test]
+    async fn test_reconnect_after_current_reconnects() {
+        let manager = McpManager::new();
+        manager
+            .configure("mock", McpServerRecipe::Mock, McpServerOptions::default())
+            .await
+            .expect("mock server connects");
+        assert_eq!(manager.server_entries().await[0].status, "connected");
+
+        // No in-flight reconnect: reconnect_after_current just reconnects.
+        manager
+            .reconnect_after_current("mock")
+            .await
+            .expect("reconnect succeeds");
+        assert_eq!(manager.server_entries().await[0].status, "connected");
+
+        // The in-flight marker was cleared, so a plain reconnect also works.
+        manager
+            .reconnect("mock")
+            .await
+            .expect("second reconnect succeeds");
+        assert_eq!(manager.server_entries().await[0].status, "connected");
     }
 
     /// Qualified names are sanitized before they reach the model
