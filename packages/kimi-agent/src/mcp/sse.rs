@@ -19,6 +19,13 @@ pub struct McpSseTransport {
     /// Per-request timeout resolved from `toolTimeoutMs` (v2
     /// `toolCallTimeoutMs`); `None` keeps the 30s built-in.
     request_timeout: Option<Duration>,
+    /// Listener fired when the SSE stream dies on its own after the handshake
+    /// (v2 `unexpectedCloseListener`, client-sse.ts:54). At most one listener;
+    /// later registrations replace earlier ones.
+    unexpected_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
+    /// Close reason buffered when the stream dies before a listener is
+    /// installed; replayed on registration (v2 `pendingUnexpectedClose`).
+    pending_close_reason: Arc<Mutex<Option<String>>>,
 }
 
 /// Built-in per-request timeout when no `toolTimeoutMs` is configured.
@@ -54,13 +61,22 @@ impl McpSseTransport {
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
+        // Unexpected-close callback slots, shared with the stream reader task
+        // below (v2 `unexpectedCloseListener` / `pendingUnexpectedClose`).
+        let unexpected_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>> =
+            Arc::new(Mutex::new(None));
+        let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
         let stream_post_url = post_url.clone();
         let stream_pending = pending.clone();
         let base_url = sse_url.to_string();
+        let close_listener = unexpected_close.clone();
+        let close_pending = pending_close_reason.clone();
 
         // Spawn background SSE stream reader
         tokio::spawn(async move {
             let mut event_stream = resp.bytes_stream().eventsource();
+            let mut last_error: Option<String> = None;
 
             while let Some(item) = event_stream.next().await {
                 match item {
@@ -91,9 +107,28 @@ impl McpSseTransport {
                             }
                         }
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        last_error = Some(e.to_string());
+                        break;
+                    }
                 }
             }
+
+            // The stream ended (EOF or error) — fire or buffer the
+            // unexpected-close reason (v2 `onerror` terminal path,
+            // client-sse.ts:175-190).
+            let reason = match last_error {
+                Some(e) => format!(
+                    "MCP SSE connection to \"{base_url}\" closed unexpectedly: {e}"
+                ),
+                None => format!("MCP SSE connection to \"{base_url}\" closed unexpectedly"),
+            };
+            crate::mcp::client::fire_or_buffer_unexpected_close(
+                &close_listener,
+                &close_pending,
+                reason,
+            )
+            .await;
         });
 
         // Wait up to 5 seconds for initial 'endpoint' event or fallback to base URL
@@ -120,7 +155,23 @@ impl McpSseTransport {
             pending,
             next_id: AtomicU64::new(1),
             request_timeout: None,
+            unexpected_close,
+            pending_close_reason,
         })
+    }
+
+    /// Register a listener that fires when the SSE stream dies on its own —
+    /// i.e. the caller has not invoked `close()` (v2 `onUnexpectedClose`,
+    /// client-sse.ts:106-115). At most one listener; later registrations
+    /// replace earlier ones. If the stream already died, the buffered reason
+    /// is replayed synchronously so the close is never dropped.
+    pub async fn on_unexpected_close(&self, listener: Box<dyn Fn(String) + Send + Sync>) {
+        let pending = self.pending_close_reason.lock().await.take();
+        if let Some(reason) = pending {
+            listener(reason);
+            return;
+        }
+        *self.unexpected_close.lock().await = Some(listener);
     }
 
     /// Apply a per-request timeout (v2 `buildRequestOptions(toolCallTimeoutMs)`).
@@ -516,6 +567,59 @@ mod tests {
         assert!(
             err.contains("MCP POST failed with status HTTP 503"),
             "unexpected error message: {err}"
+        );
+    }
+
+    /// A server that answers the SSE handshake and then closes the stream
+    /// must fire the unexpected-close listener (v2 `onUnexpectedClose`,
+    /// client-sse.ts:106-115). The reason carries the endpoint URL.
+    #[tokio::test]
+    async fn test_sse_transport_unexpected_close_fires_on_stream_end() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = vec![0u8; 8192];
+            let n = socket.read(&mut buf).await.unwrap_or(0);
+            let headers_str = String::from_utf8_lossy(&buf[..n]);
+            let first_line = headers_str.lines().next().unwrap_or("");
+            let mut parts = first_line.split_whitespace();
+            let method = parts.next().unwrap_or("");
+            let path = parts.next().unwrap_or("");
+            if method == "GET" && path == "/sse" {
+                // Send the endpoint event, then drop the socket to close the
+                // stream.
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\r\nevent: endpoint\r\ndata: /messages\r\n\r\n";
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        });
+
+        let url = format!("http://{addr}/sse");
+        let transport = McpSseTransport::connect(&url, HashMap::new())
+            .await
+            .expect("SSE connect failed");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let tx = std::sync::Mutex::new(Some(tx));
+        transport
+            .on_unexpected_close(Box::new(move |reason| {
+                if let Some(tx) = tx.lock().unwrap().take() {
+                    let _ = tx.send(reason);
+                }
+            }))
+            .await;
+
+        let reason = tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .expect("unexpected close must fire")
+            .expect("reason must be sent");
+        assert!(
+            reason.contains("closed unexpectedly"),
+            "unexpected reason: {reason}"
         );
     }
 }

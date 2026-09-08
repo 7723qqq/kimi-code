@@ -154,6 +154,18 @@
 | Debug 反射面 (/api/v1/debug/*) | 支持 kimi-inspect 调试器探查渠道、快照与 RPC 调用 | 原生端点缺失，返回 404 | 新增 `server/debug.rs`，实现 `/api/v1/debug/channels`、业务快照与动态服务方法调度器，全面兼容 kimi-inspect |
 | 文件变动回滚与持久化撤销清理 | undo 时级联清理文件历史并在请求时还原工作区受影响文件 | undo 仅删除 messages 与 turns，无文件回滚 | `sqlite_store.rs` 实现了 `revert_turn_file_changes` 并级联删除 `session_file_history`，服务端的 undo 端点接入工作区文件物理恢复 |
 
+**MCP 连接管理器对齐（2026-09-08）**：
+
+| 项 | v2 行为 | 此前 Rust 行为 | 修复后 |
+|---|---|---|---|
+| 意外关闭主动通知 | `watchForUnexpectedClose` 注册回调，传输死亡时主动标记 failed + 清空 tools + emit（connection-manager.ts:321-341） | 仅 `server_entries()` 惰性检查 `is_closed()`，status_listeners 收不到通知 | `McpClient.on_unexpected_close` + `pending_close_reason` 缓冲（stdio/SSE 传输），`McpManager::watch_unexpected_close` 以 `Arc::ptr_eq` 身份检查防竞态，意外关闭时标记 failed 并通知监听者 |
+| needs-auth 判定 | `shouldMarkNeedsAuth`：静态 headers / bearerTokenEnvVar 存在时不进入 needs-auth；`isUnauthorizedLikeError` 嗅探（connection-manager.ts:383-393,473-483） | 仅 `e.contains("401")` 字符串嗅探，无豁免 | `should_mark_needs_auth` 完整判定：oauth 已装 + remote + 无静态凭据 + 401/unauthorized 嗅探 |
+| 启动失败 stderr 诊断 | `formatStartupError` 附加子进程 stderr 尾部（connection-manager.ts:485-509） | 无 stderr 捕获 | stdio 子进程 stderr 有界尾部（4 KiB），启动/发现失败时附加到错误文本 |
+| 并行连接 | `connectAllNow` 并行 + `Promise.allSettled` 隔离（connection-manager.ts:229-246） | `spawn_from_config` 串行 for 循环 | `futures_util::future::join_all` 并行连接，失败隔离 |
+| 工具名碰撞 | `registerMcpServer` 检测同服务器/跨服务器 qualified name 冲突并 drop（mcpService.ts:186-215） | HashMap 静默覆盖 | `register_client` 检测碰撞并 `tracing::warn!` 记录，输家工具被 drop |
+| disabled 重连 | `reconnect` 对 disabled 抛 `MCP_SERVER_DISABLED`（connection-manager.ts:146-164） | 直接重连 | `reconnect_inner` 检查 `ToolFilter.enabled`，disabled 返回错误 |
+| emit 日志与容错 | `emit` 在 failed/needs-auth 记 error 日志，listener 异常被捕获（connection-manager.ts:425-442） | 无日志，listener panic 传播 | `emit_status` 加 `tracing::error!` + `catch_unwind` 容错 |
+
 **仍遗留的语义差异（按影响排序）**：
 
 1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。

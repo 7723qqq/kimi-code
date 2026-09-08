@@ -242,7 +242,7 @@ impl McpManager {
     pub fn unsubscribe_status(&self, sub: McpStatusSubscription) -> bool {
         let mut listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(pos) = listeners.iter().position(|(id, _)| *id == sub) {
-            listeners.swap_remove(pos);
+            let _ = listeners.swap_remove(pos);
             true
         } else {
             false
@@ -251,32 +251,31 @@ impl McpManager {
 
     /// Fan the current public entry for `name` out to every status listener
     /// (v2 `emit`, connection-manager.ts:360-378). No-op when the server is
-    /// unknown.
+    /// unknown. Failed / needs-auth transitions are logged, and a panicking
+    /// listener must not break the connection manager (v2 wraps listener
+    /// calls in try/catch).
     async fn emit_status(&self, name: &str) {
         let entry = {
             let servers = self.servers.read().await;
             let Some(state) = servers.get(name) else {
                 return;
             };
-            McpServerEntry {
-                name: name.to_string(),
-                transport: state.recipe.transport_label(),
-                status: state.status.clone(),
-                tool_count: state.raw_tools.len(),
-                error: state.error.clone(),
-                tools: state
-                    .raw_tools
-                    .iter()
-                    .map(|tool| McpToolSummary {
-                        name: tool.name.clone(),
-                        description: tool.description.clone().unwrap_or_default(),
-                    })
-                    .collect(),
-            }
+            to_public_entry(name, state)
         };
+        if entry.status == "failed" || entry.status == "needs-auth" {
+            tracing::error!(
+                server = %entry.name,
+                transport = %entry.transport,
+                status = %entry.status,
+                reason = ?entry.error,
+                "mcp server unavailable"
+            );
+        }
         let listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
         for (_, listener) in listeners.iter() {
-            listener(entry.clone());
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                listener(entry.clone());
+            }));
         }
     }
 
@@ -372,15 +371,44 @@ impl McpManager {
             // Re-registering a server replaces its previous tool set.
             cached.retain(|_, (server, _)| *server != name);
             let mut count = 0;
+            let mut seen_in_this_call = HashSet::new();
+            let mut collisions: Vec<String> = Vec::new();
             for tool in &tools {
                 if !filter.allows(&tool.name) {
                     continue;
                 }
-                count += 1;
                 let qualified_name = qualify_mcp_tool_name(&name, &tool.name);
+                // v2 `registerMcpServer` collision detection
+                // (mcpService.ts:186-215): a qualified name that duplicates
+                // another tool of this server, or one already registered by
+                // another server, is dropped and reported.
+                if !seen_in_this_call.insert(qualified_name.clone()) {
+                    collisions.push(format!(
+                        "\"{}\" -> {} (collides with a same-server tool)",
+                        tool.name, qualified_name
+                    ));
+                    continue;
+                }
+                if let Some((other_server, _)) = cached.get(&qualified_name)
+                    && other_server != &name
+                {
+                    collisions.push(format!(
+                        "\"{}\" -> {} (collides with server \"{other_server}\")",
+                        tool.name, qualified_name
+                    ));
+                    continue;
+                }
+                count += 1;
                 cached.insert(qualified_name, (name.clone(), tool.clone()));
                 // Also index by plain tool name if not conflicting
                 cached.insert(tool.name.clone(), (name.clone(), tool.clone()));
+            }
+            if !collisions.is_empty() {
+                tracing::warn!(
+                    server = %name,
+                    collisions = %collisions.join("; "),
+                    "MCP tool name collisions; the losing tools were dropped"
+                );
             }
             count
         };
@@ -617,23 +645,28 @@ impl McpManager {
     /// Servers that fail to spawn are remembered with a `failed` status and
     /// their error so `/mcp` views stay truthful (v2 marks failed entries,
     /// connection-manager.ts:366-372).
-    /// Connect every server in `config.mcp_servers`, using `config.mcp` as the
-    /// global timeout defaults (v2 `connectAll` + `resolveDefaultTimeouts`).
+    /// Connect every server in `config.mcp_servers` in parallel, using
+    /// `config.mcp` as the global timeout defaults (v2 `connectAll` +
+    /// `resolveDefaultTimeouts`; per-server failures are isolated so one
+    /// crashed entry never blocks the others).
     pub async fn spawn_from_config(&self, config: &crate::config::KimiConfig) {
         self.set_default_timeouts(config.mcp.clone()).await;
-        for (name, conf) in &config.mcp_servers {
-            let Some(recipe) = recipe_from_config(conf) else {
-                continue;
-            };
-            let options = McpServerOptions {
-                enabled: conf.enabled.unwrap_or(true),
-                enabled_tools: conf.enabled_tools.clone(),
-                disabled_tools: conf.disabled_tools.clone(),
-                startup_timeout_ms: conf.startup_timeout_ms,
-                tool_timeout_ms: conf.tool_timeout_ms,
-            };
-            let _ = self.configure(name, recipe, options).await;
-        }
+        let tasks = config
+            .mcp_servers
+            .iter()
+            .filter_map(|(name, conf)| {
+                let recipe = recipe_from_config(conf)?;
+                let options = McpServerOptions {
+                    enabled: conf.enabled.unwrap_or(true),
+                    enabled_tools: conf.enabled_tools.clone(),
+                    disabled_tools: conf.disabled_tools.clone(),
+                    startup_timeout_ms: conf.startup_timeout_ms,
+                    tool_timeout_ms: conf.tool_timeout_ms,
+                };
+                Some(self.configure(name, recipe, options))
+            })
+            .collect::<Vec<_>>();
+        futures_util::future::join_all(tasks).await;
     }
 
     /// Register a server from a host-supplied recipe and connect it unless it
@@ -691,21 +724,29 @@ impl McpManager {
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
             Err(e) => {
-                // A 401 on a server with no static token means the client must
-                // authenticate (v2 `shouldMarkNeedsAuth`).
-                let status = if e.contains("401") {
-                    "needs-auth"
-                } else {
-                    "failed"
-                };
-                if let Some(state) = self.servers.write().await.get_mut(name) {
-                    state.status = status.into();
-                    state.error = Some(e.clone());
-                }
-                self.emit_status(name).await;
+                self.mark_connect_failure(name, &e).await;
                 Err(e)
             }
         }
+    }
+
+    /// Mark a failed connect on the entry: `needs-auth` when the failure
+    /// looks like a 401 on a server without a static credential, otherwise
+    /// `failed` (v2 `connectOne` catch branch + `shouldMarkNeedsAuth`).
+    async fn mark_connect_failure(&self, name: &str, error: &str) {
+        let oauth_installed = self.oauth_service().await.is_some();
+        let recipe = self.servers.read().await.get(name).map(|s| s.recipe.clone());
+        let status = match recipe {
+            Some(recipe) if should_mark_needs_auth(&recipe, oauth_installed, error) => {
+                "needs-auth"
+            }
+            _ => "failed",
+        };
+        if let Some(state) = self.servers.write().await.get_mut(name) {
+            state.status = status.into();
+            state.error = Some(error.to_string());
+        }
+        self.emit_status(name).await;
     }
 
     /// Connect one configured server, marking the outcome on its entry.
@@ -764,8 +805,29 @@ impl McpManager {
                 McpServerRecipe::Mock => McpClient::mock(name),
             };
             // A discovery failure must mark the entry `failed`, not
-            // `connected` with zero tools (v2 `connectOne` catch branch).
-            self.register_client(client).await
+            // `connected` with zero tools (v2 `connectOne` catch branch). A
+            // stdio child's captured stderr is appended to the error so the
+            // failure text carries the server's diagnostics (v2
+            // `formatStartupError`, connection-manager.ts:545-574). The
+            // snapshot is taken before `register_client` moves the client.
+            let stderr_tail = client.stderr_snapshot();
+            match self.register_client(client).await {
+                Ok(count) => {
+                    // Watch for the transport dying after the handshake (v2
+                    // `watchForUnexpectedClose`, connection-manager.ts:321-341).
+                    if let Some(client_arc) = self.clients.read().await.get(name).cloned() {
+                        self.watch_unexpected_close(name, client_arc).await;
+                    }
+                    Ok(count)
+                }
+                Err(e) => {
+                    if stderr_tail.is_empty() {
+                        Err(e)
+                    } else {
+                        Err(format!("{e}\nstderr: {}", stderr_tail.trim_end()))
+                    }
+                }
+            }
         };
         // v2 wraps connect + tool discovery in `withTimeout` and reports
         // `Timed out after <ms>ms` (connection-manager.ts:594-611).
@@ -780,6 +842,61 @@ impl McpManager {
         }
         self.emit_status(name).await;
         Ok(())
+    }
+
+    /// Register the unexpected-close watch on a live client (v2
+    /// `watchForUnexpectedClose`, connection-manager.ts:321-341): when the
+    /// transport dies on its own, mark the entry `failed`, drop its tools and
+    /// notify status listeners. The callback checks the client is still the
+    /// registered one before touching state, so a shutdown / reconnect that
+    /// already moved on is never overwritten (v2 `isCurrent` + `entry.client
+    /// !== client`).
+    async fn watch_unexpected_close(&self, name: &str, client: Arc<McpClient>) {
+        let clients = self.clients.clone();
+        let servers = self.servers.clone();
+        let cached = self.cached_tools.clone();
+        let listeners = self.status_listeners.clone();
+        let name_owned = name.to_string();
+        let client_for_cb = client.clone();
+        client
+            .on_unexpected_close(Box::new(move |reason| {
+                let clients = clients.clone();
+                let servers = servers.clone();
+                let cached = cached.clone();
+                let listeners = listeners.clone();
+                let client = client_for_cb.clone();
+                let name = name_owned.clone();
+                tokio::spawn(async move {
+                    let is_current = {
+                        let clients = clients.read().await;
+                        matches!(clients.get(&name), Some(c) if Arc::ptr_eq(c, &client))
+                    };
+                    if !is_current {
+                        return;
+                    }
+                    {
+                        let mut servers = servers.write().await;
+                        if let Some(state) = servers.get_mut(&name) {
+                            state.status = "failed".into();
+                            state.error = Some(reason);
+                            state.raw_tools.clear();
+                        }
+                    }
+                    cached.write().await.retain(|_, (srv, _)| *srv != name);
+                    let entry = {
+                        let servers = servers.read().await;
+                        let Some(state) = servers.get(&name) else {
+                            return;
+                        };
+                        to_public_entry(&name, state)
+                    };
+                    let listeners = listeners.lock().unwrap_or_else(|e| e.into_inner());
+                    for (_, listener) in listeners.iter() {
+                        listener(entry.clone());
+                    }
+                });
+            }))
+            .await;
     }
 
     /// Reconnect a configured server on demand (v2 `reconnect`,
@@ -832,6 +949,15 @@ impl McpManager {
         let Some(_recipe) = self.servers.read().await.get(name).map(|s| s.recipe.clone()) else {
             return Err(format!("MCP server '{name}' is not configured"));
         };
+        // A disabled server must not be reconnected (v2 throws
+        // `MCP_SERVER_DISABLED`, connection-manager.ts:146-164).
+        let enabled = {
+            let filters = self.filters.read().await;
+            filters.get(name).map(|f| f.enabled).unwrap_or(true)
+        };
+        if !enabled {
+            return Err(format!("MCP server is disabled: {name}"));
+        }
         // Close the live client (dropping it kills the stdio child) and
         // clear its cached tools, mirroring the v2 close-then-pending order.
         if let Some(dead) = self.clients.write().await.remove(name) {
@@ -849,18 +975,7 @@ impl McpManager {
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
             Err(e) => {
-                // A 401 on a server with no static token means the client must
-                // authenticate (v2 `shouldMarkNeedsAuth`).
-                let status = if e.contains("401") {
-                    "needs-auth"
-                } else {
-                    "failed"
-                };
-                if let Some(state) = self.servers.write().await.get_mut(name) {
-                    state.status = status.into();
-                    state.error = Some(e.clone());
-                }
-                self.emit_status(name).await;
+                self.mark_connect_failure(name, &e).await;
                 Err(e)
             }
         }
@@ -873,6 +988,71 @@ fn tool_to_json(tool: &McpTool) -> Value {
         "description": tool.description,
         "inputSchema": tool.input_schema,
     })
+}
+
+/// The public view of a server entry (v2 `toPublicEntry`,
+/// connection-manager.ts:445-456): `toolCount` is the raw advertised count,
+/// which is 0 unless the entry is `connected` (the caller zeroes `raw_tools`
+/// on failure / removal).
+fn to_public_entry(name: &str, state: &ServerState) -> McpServerEntry {
+    McpServerEntry {
+        name: name.to_string(),
+        transport: state.recipe.transport_label(),
+        status: state.status.clone(),
+        tool_count: state.raw_tools.len(),
+        error: state.error.clone(),
+        tools: state
+            .raw_tools
+            .iter()
+            .map(|tool| McpToolSummary {
+                name: tool.name.clone(),
+                description: tool.description.clone().unwrap_or_default(),
+            })
+            .collect(),
+    }
+}
+
+/// Whether a connect failure should flip the entry into `needs-auth` instead
+/// of `failed` (v2 `shouldMarkNeedsAuth`, connection-manager.ts:383-393):
+/// only remote servers without a static credential participate in the OAuth
+/// flow, and only when the failure looks like a 401 / Unauthorized.
+fn should_mark_needs_auth(
+    recipe: &McpServerRecipe,
+    oauth_installed: bool,
+    error: &str,
+) -> bool {
+    if !oauth_installed {
+        return false;
+    }
+    let (headers, bearer_token_env_var) = match recipe {
+        McpServerRecipe::Sse {
+            headers,
+            bearer_token_env_var,
+            ..
+        }
+        | McpServerRecipe::Http {
+            headers,
+            bearer_token_env_var,
+            ..
+        } => (headers, bearer_token_env_var),
+        _ => return false,
+    };
+    // A pinned static credential means the 401 is a bad header, not a missing
+    // OAuth token — the real error is more actionable than "run /mcp-config
+    // login" for a server that doesn't speak OAuth.
+    if bearer_token_env_var.is_some() {
+        return false;
+    }
+    if !headers.is_empty() {
+        return false;
+    }
+    is_unauthorized_like_error(error)
+}
+
+/// v2 `isUnauthorizedLikeError` (connection-manager.ts:473-483): Rust errors
+/// are plain strings, so the name/code checks collapse into message sniffing.
+fn is_unauthorized_like_error(error: &str) -> bool {
+    error.contains("401") || error.to_ascii_lowercase().contains("unauthorized")
 }
 
 /// A configured server is remote when it has a URL, otherwise stdio when it
@@ -1168,6 +1348,67 @@ mod tests {
         assert!(by_name("invalid_stdio").error.is_some());
     }
 
+    /// `spawn_from_config` connects servers in parallel (v2 `connectAllNow` +
+    /// `Promise.allSettled`): two servers that each time out after 300ms must
+    /// finish in ~300ms total, not the ~600ms a serial loop would take.
+    #[tokio::test]
+    async fn test_spawn_from_config_parallel() {
+        let spawn_hanging = || async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            // Accept and hold every connection open without ever responding.
+            tokio::spawn(async move {
+                let mut held = Vec::new();
+                while let Ok((socket, _)) = listener.accept().await {
+                    held.push(socket);
+                }
+            });
+            addr
+        };
+        let addr1 = spawn_hanging().await;
+        let addr2 = spawn_hanging().await;
+
+        let mut configs = HashMap::new();
+        configs.insert(
+            "slow1".to_string(),
+            crate::config::McpServerConfig {
+                url: Some(format!("http://{addr1}/sse")),
+                transport: Some("sse".into()),
+                startup_timeout_ms: Some(300),
+                ..Default::default()
+            },
+        );
+        configs.insert(
+            "slow2".to_string(),
+            crate::config::McpServerConfig {
+                url: Some(format!("http://{addr2}/sse")),
+                transport: Some("sse".into()),
+                startup_timeout_ms: Some(300),
+                ..Default::default()
+            },
+        );
+
+        let manager = McpManager::new();
+        let config = crate::config::KimiConfig {
+            mcp_servers: configs,
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        manager.spawn_from_config(&config).await;
+        let elapsed = start.elapsed();
+
+        // Parallel: ~300ms (the slowest server). Serial would be ~600ms.
+        assert!(
+            elapsed < Duration::from_millis(550),
+            "parallel connect took {elapsed:?}, expected ~300ms"
+        );
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 2);
+        for entry in &entries {
+            assert_eq!(entry.status, "failed", "both hanging servers time out");
+        }
+    }
+
     /// Reconnecting a server whose endpoint died must surface `failed` with
     /// the error instead of pretending to be connected (v2 marks failed
     /// entries, connection-manager.ts:366-372).
@@ -1213,6 +1454,61 @@ mod tests {
     async fn test_reconnect_unknown_server_errors() {
         let manager = McpManager::new();
         assert!(manager.reconnect("nope").await.is_err());
+    }
+
+    /// Reconnecting a disabled server is an error (v2 throws
+    /// `MCP_SERVER_DISABLED`, connection-manager.ts:146-164).
+    #[tokio::test]
+    async fn test_reconnect_disabled_server_errors() {
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "off",
+                McpServerRecipe::Mock,
+                McpServerOptions {
+                    enabled: false,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("disabled server registers without connecting");
+        assert_eq!(manager.server_entries().await[0].status, "disabled");
+
+        let err = manager
+            .reconnect("off")
+            .await
+            .expect_err("disabled server must not reconnect");
+        assert_eq!(err, "MCP server is disabled: off");
+    }
+
+    /// A panicking status listener must not break the connection manager or
+    /// prevent other listeners from receiving the entry (v2 wraps listener
+    /// calls in try/catch, connection-manager.ts:435-441).
+    #[tokio::test]
+    async fn test_panicking_listener_does_not_break_emit() {
+        let manager = McpManager::new();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorder = seen.clone();
+        manager.on_status_change(Box::new(move |_| {
+            panic!("listener fault");
+        }));
+        manager.on_status_change(Box::new(move |entry| {
+            recorder.lock().unwrap().push(entry.status);
+        }));
+
+        manager
+            .configure("mock", McpServerRecipe::Mock, McpServerOptions::default())
+            .await
+            .expect("mock server connects");
+
+        let statuses = seen.lock().unwrap();
+        assert_eq!(
+            statuses.len(),
+            2,
+            "the healthy listener still receives both transitions"
+        );
+        assert_eq!(statuses[0], "pending");
+        assert_eq!(statuses[1], "connected");
     }
 
     /// `reconnect_after_current` waits for any in-flight reconnect, then
@@ -1296,6 +1592,60 @@ mod tests {
         assert_eq!(inspected.len(), 3, "inspection reports every advertised tool");
     }
 
+    /// A qualified tool name that duplicates another tool of the same server
+    /// is dropped (v2 `registerMcpServer` same-server collision,
+    /// mcpService.ts:186-215). "My Tool" and "My_Tool" both sanitize to
+    /// `mcp__srv__My_Tool`.
+    #[tokio::test]
+    async fn test_same_server_tool_collision_drops_losing_tool() {
+        let manager = McpManager::new();
+        let tools = vec![
+            McpTool {
+                name: "My Tool".into(),
+                description: Some("first".into()),
+                input_schema: json!({ "type": "object" }),
+            },
+            McpTool {
+                name: "My_Tool".into(),
+                description: Some("second".into()),
+                input_schema: json!({ "type": "object" }),
+            },
+        ];
+        manager
+            .add_client(McpClient::mock_with_tools("srv", tools))
+            .await;
+
+        assert!(manager.handles("mcp__srv__My_Tool").await);
+        let infos = manager.list_tool_infos().await;
+        assert_eq!(infos.len(), 1, "the losing tool is dropped");
+        assert_eq!(infos[0].description, "first", "the first registration wins");
+    }
+
+    /// A qualified tool name already registered by another server is dropped
+    /// (v2 `registerMcpServer` other-server collision). Server names that
+    /// sanitize identically ("My Server" vs "My_Server") collide on the same
+    /// qualified prefix.
+    #[tokio::test]
+    async fn test_cross_server_tool_collision_drops_losing_tool() {
+        let manager = McpManager::new();
+        let tools = vec![McpTool {
+            name: "calculate".into(),
+            description: Some("calc".into()),
+            input_schema: json!({ "type": "object" }),
+        }];
+        manager
+            .add_client(McpClient::mock_with_tools("My Server", tools.clone()))
+            .await;
+        manager
+            .add_client(McpClient::mock_with_tools("My_Server", tools))
+            .await;
+
+        assert!(manager.handles("mcp__My_Server__calculate").await);
+        let infos = manager.list_tool_infos().await;
+        assert_eq!(infos.len(), 1, "the second server's duplicate is dropped");
+        assert_eq!(infos[0].description, "calc");
+    }
+
     /// `enabled: false` keeps the server listed as `disabled` and never
     /// connects it (v2 connection-manager.ts:193-204).
     #[tokio::test]
@@ -1349,6 +1699,74 @@ mod tests {
         assert_eq!(entries[0].tool_count, 0);
         assert!(entries[0].tools.is_empty());
         assert_eq!(entries[0].error.as_deref(), Some("server closed unexpectedly"));
+    }
+
+    /// A stdio child that dies after the handshake must flip the entry to
+    /// `failed` and notify status listeners (v2 `watchForUnexpectedClose`,
+    /// connection-manager.ts:321-341).
+    #[tokio::test]
+    async fn test_unexpected_close_marks_failed_and_emits() {
+        let init = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let list = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}"#;
+        let dir = std::env::temp_dir();
+        let (cmd, args, script) = if cfg!(windows) {
+            let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
+            std::fs::write(&path, format!("@echo {init}\r\n@echo {list}\r\n@exit /b 0\r\n"))
+                .expect("write die script");
+            (
+                "cmd",
+                vec!["/c".to_string(), path.to_string_lossy().into_owned()],
+                path,
+            )
+        } else {
+            let path = dir.join(format!("kimi_mcp_die_mgr_{}.sh", std::process::id()));
+            std::fs::write(&path, format!("echo '{init}'\necho '{list}'\nexit 0\n"))
+                .expect("write die script");
+            ("sh", vec![path.to_string_lossy().into_owned()], path)
+        };
+
+        let manager = McpManager::new();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let recorder = std::sync::Mutex::new(Some(tx));
+        manager.on_status_change(Box::new(move |entry| {
+            if entry.status == "failed" {
+                if let Some(tx) = recorder.lock().unwrap().take() {
+                    let _ = tx.send(entry);
+                }
+            }
+        }));
+
+        manager
+            .configure(
+                "die",
+                McpServerRecipe::Stdio {
+                    command: cmd.to_string(),
+                    args: args.clone(),
+                    env: HashMap::new(),
+                    cwd: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("server connects");
+
+        let entry = tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .expect("unexpected close must notify listeners")
+            .expect("failed entry must be sent");
+        assert_eq!(entry.status, "failed");
+        assert!(
+            entry
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("closed unexpectedly"),
+            "unexpected error: {:?}",
+            entry.error
+        );
+        assert_eq!(entry.tool_count, 0);
+
+        let _ = std::fs::remove_file(script);
     }
 
     /// v2 precedence: per-server → env → `[mcp]` section → 30s default
@@ -1709,10 +2127,17 @@ mod tests {
     /// (v2 `shouldMarkNeedsAuth` + `resolveOAuthProvider`).
     #[tokio::test]
     async fn test_oauth_token_injection_and_needs_auth_status() {
-        // 1. No credentials + 401 → needs-auth.
+        // 1. No credentials + 401 → needs-auth. The OAuth service must be
+        // installed for the flip (v2 `shouldMarkNeedsAuth` returns false when
+        // `oauthService === undefined`).
         let (url, _seen, _shutdown) =
             crate::mcp::http::test_helpers::spawn_mock_http_server("401").await;
         let manager = McpManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::mcp::oauth::McpOAuthFileStore::new(dir.path()));
+        manager
+            .set_oauth_service(Arc::new(crate::mcp::oauth::McpOAuthService::new(store)))
+            .await;
         manager
             .configure(
                 "auth-srv",
@@ -1768,5 +2193,108 @@ mod tests {
             requests[0].authorization.as_deref(),
             Some("Bearer oauth-token")
         );
+    }
+
+    /// v2 `shouldMarkNeedsAuth` decision matrix (connection-manager.ts:383-393):
+    /// only remote servers without a static credential flip to `needs-auth`,
+    /// and only on 401 / Unauthorized-like failures.
+    #[test]
+    fn test_should_mark_needs_auth_matrix() {
+        let http = McpServerRecipe::Http {
+            url: "http://example.test/mcp".into(),
+            headers: HashMap::new(),
+            bearer_token_env_var: None,
+        };
+        let stdio = McpServerRecipe::Stdio {
+            command: "mcp-server".into(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            cwd: None,
+        };
+        let with_headers = McpServerRecipe::Http {
+            url: "http://example.test/mcp".into(),
+            headers: HashMap::from([("X-Api-Key".to_string(), "k".to_string())]),
+            bearer_token_env_var: None,
+        };
+        let with_bearer = McpServerRecipe::Http {
+            url: "http://example.test/mcp".into(),
+            headers: HashMap::new(),
+            bearer_token_env_var: Some("KIMI_MCP_TOKEN".into()),
+        };
+
+        // No OAuth service installed → never needs-auth.
+        assert!(!should_mark_needs_auth(&http, false, "401"));
+        // stdio servers never participate in the OAuth flow.
+        assert!(!should_mark_needs_auth(&stdio, true, "401"));
+        // A pinned static credential means the 401 is a bad header.
+        assert!(!should_mark_needs_auth(&with_headers, true, "401"));
+        assert!(!should_mark_needs_auth(&with_bearer, true, "401"));
+        // Remote without credentials + 401 / Unauthorized → needs-auth.
+        assert!(should_mark_needs_auth(&http, true, "401"));
+        assert!(should_mark_needs_auth(&http, true, "UnauthorizedError: token expired"));
+        assert!(should_mark_needs_auth(&http, true, "HTTP 401 Unauthorized"));
+        // Other failures stay failed.
+        assert!(!should_mark_needs_auth(&http, true, "connection refused"));
+    }
+
+    /// A static `headers` block on a 401 server must surface `failed`, not
+    /// `needs-auth` — the real error is a bad header, not a missing OAuth
+    /// token (v2 `shouldMarkNeedsAuth` headers exemption).
+    #[tokio::test]
+    async fn test_static_headers_401_is_failed_not_needs_auth() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("401").await;
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "static-headers",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::from([("X-Api-Key".to_string(), "k".to_string())]),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("401 must fail the connect");
+        let entries = manager.server_entries().await;
+        assert_eq!(
+            entries[0].status, "failed",
+            "static headers must not flip the entry to needs-auth"
+        );
+    }
+
+    /// A pinned `bearerTokenEnvVar` on a 401 server must surface `failed`, not
+    /// `needs-auth` (v2 `shouldMarkNeedsAuth` bearer exemption).
+    #[tokio::test]
+    async fn test_bearer_env_var_401_is_failed_not_needs_auth() {
+        let var = format!("KIMI_TEST_MCP_BEARER_401_{}", std::process::id());
+        // SAFETY: the variable name is unique to this test process and no
+        // other test reads it.
+        unsafe { std::env::set_var(&var, "bad-token") };
+
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("401").await;
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "bearer-401",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: Some(var.clone()),
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("401 must fail the connect");
+        let entries = manager.server_entries().await;
+        assert_eq!(
+            entries[0].status, "failed",
+            "a pinned bearer token must not flip the entry to needs-auth"
+        );
+
+        // SAFETY: see above.
+        unsafe { std::env::remove_var(&var) };
     }
 }

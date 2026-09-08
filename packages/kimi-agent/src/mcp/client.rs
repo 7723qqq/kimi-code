@@ -19,11 +19,25 @@ enum McpTransport {
         _process: Arc<Mutex<Child>>,
         stdin: Arc<Mutex<tokio::process::ChildStdin>>,
         pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+        /// Bounded tail of the child's stderr (v2 `BoundedTail`,
+        /// client-stdio.ts:STDERR_BUFFER_CAPACITY).
+        stderr: Arc<Mutex<Vec<u8>>>,
     },
     Sse(McpSseTransport),
     Http(McpHttpTransport),
-    Mock,
+    /// In-process stub used by the napi binding path and tests. Carries the
+    /// advertised tools so tests can exercise discovery edge cases (e.g. tool
+    /// name collisions) without spawning a real server.
+    Mock { tools: Vec<McpTool> },
 }
+
+/// v2 `STDERR_BUFFER_CAPACITY` (client-stdio.ts:20): the last 4 KiB of the
+/// child's stderr are kept for error reporting.
+const STDERR_BUFFER_CAPACITY: usize = 4 * 1024;
+
+/// Unexpected-close listener slot (v2 `unexpectedCloseListener`): at most one
+/// `Fn(String)` listener, later registrations replace earlier ones.
+type UnexpectedCloseListener = Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>;
 
 pub struct McpClient {
     server_name: String,
@@ -33,20 +47,64 @@ pub struct McpClient {
     /// Per-request timeout resolved from `toolTimeoutMs` (v2
     /// `toolCallTimeoutMs`); `None` keeps the transport built-in.
     tool_timeout: Option<Duration>,
+    /// Listener fired when the transport closes on its own after the
+    /// handshake (v2 `unexpectedCloseListener`, client-stdio.ts:46). At most
+    /// one listener; later registrations replace earlier ones.
+    unexpected_close: UnexpectedCloseListener,
+    /// Close reason buffered when the transport dies before a listener is
+    /// installed; replayed on registration so the close is never dropped
+    /// (v2 `pendingUnexpectedClose`, client-stdio.ts:51).
+    pending_close_reason: Arc<Mutex<Option<String>>>,
 }
 
 /// Built-in request timeout when no `toolTimeoutMs` is configured.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Fire the unexpected-close listener with `reason`, or buffer it for replay
+/// when a listener registers later (v2 `fireUnexpectedClose`,
+/// client-sse.ts:175-184). Shared by the stdio drain task, the SSE bridge and
+/// the SSE transport's stream reader.
+pub(crate) async fn fire_or_buffer_unexpected_close(
+    unexpected_close: &UnexpectedCloseListener,
+    pending_close_reason: &Arc<Mutex<Option<String>>>,
+    reason: String,
+) {
+    let listener = unexpected_close.lock().await;
+    if let Some(f) = listener.as_ref() {
+        f(reason);
+    } else {
+        *pending_close_reason.lock().await = Some(reason);
+    }
+}
+
 impl McpClient {
     /// Create a mock MCP client for testing without spawning subprocesses.
     pub fn mock(server_name: &str) -> Self {
+        Self::mock_with_tools(
+            server_name,
+            vec![McpTool {
+                name: format!("{}_sample_tool", server_name),
+                description: Some("Sample mock MCP tool".into()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    }
+                }),
+            }],
+        )
+    }
+
+    /// Create a mock MCP client advertising a custom tool list (tests).
+    pub fn mock_with_tools(server_name: &str, tools: Vec<McpTool>) -> Self {
         Self {
             server_name: server_name.to_string(),
-            transport: McpTransport::Mock,
+            transport: McpTransport::Mock { tools },
             next_id: AtomicU64::new(1),
             closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             tool_timeout: None,
+            unexpected_close: Arc::new(Mutex::new(None)),
+            pending_close_reason: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -74,6 +132,8 @@ impl McpClient {
             next_id: AtomicU64::new(1),
             closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             tool_timeout: None,
+            unexpected_close: Arc::new(Mutex::new(None)),
+            pending_close_reason: Arc::new(Mutex::new(None)),
         };
         client.initialize().await?;
         Ok(client)
@@ -87,12 +147,37 @@ impl McpClient {
     ) -> Result<Self, String> {
         let sse_transport = McpSseTransport::connect(sse_url, headers).await?;
 
+        // Bridge the transport's unexpected-close signal into the client-level
+        // slots so the manager's watch listener works uniformly across
+        // transports (v2 `SseMcpClient.onUnexpectedClose`).
+        let unexpected_close: UnexpectedCloseListener =
+            Arc::new(Mutex::new(None));
+        let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let client_unexpected = unexpected_close.clone();
+        let client_pending = pending_close_reason.clone();
+        sse_transport
+            .on_unexpected_close(Box::new(move |reason| {
+                let client_unexpected = client_unexpected.clone();
+                let client_pending = client_pending.clone();
+                tokio::spawn(async move {
+                    fire_or_buffer_unexpected_close(
+                        &client_unexpected,
+                        &client_pending,
+                        reason,
+                    )
+                    .await;
+                });
+            }))
+            .await;
+
         let client = Self {
             server_name: server_name.to_string(),
             transport: McpTransport::Sse(sse_transport),
             next_id: AtomicU64::new(1),
             closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             tool_timeout: None,
+            unexpected_close,
+            pending_close_reason,
         };
 
         // Handshake
@@ -115,7 +200,10 @@ impl McpClient {
             .envs(env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            // Capture stderr into a bounded tail so startup failures can report
+            // the child's diagnostics (v2 `stderrSnapshot`,
+            // client-stdio.ts:STDERR_BUFFER_CAPACITY).
+            .stderr(Stdio::piped())
             // A startup timeout or a dropped client must not leave the child
             // process running (v2 closes the client on both paths).
             .kill_on_drop(true);
@@ -137,12 +225,49 @@ impl McpClient {
             .take()
             .ok_or_else(|| "Failed to capture MCP child stdout".to_string())?;
 
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Failed to capture MCP child stderr".to_string())?;
+
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let stream_pending = pending.clone();
         let closed_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let client_flag = closed_flag.clone();
 
+        // Unexpected-close callback slots, shared with the stdout task below
+        // (v2 `unexpectedCloseListener` / `pendingUnexpectedClose`).
+        let unexpected_close: UnexpectedCloseListener =
+            Arc::new(Mutex::new(None));
+        let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+        // Drain the child's stderr into a bounded tail (v2 `BoundedTail`).
+        let stderr_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        let stderr_sink = stderr_buf.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut reader = stderr;
+            let mut chunk = [0u8; 1024];
+            loop {
+                match reader.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let mut buf = stderr_sink.lock().await;
+                        buf.extend_from_slice(&chunk[..n]);
+                        if buf.len() > STDERR_BUFFER_CAPACITY {
+                            let excess = buf.len() - STDERR_BUFFER_CAPACITY;
+                            buf.drain(..excess);
+                        }
+                    }
+                }
+            }
+        });
+
+        let close_listener = unexpected_close.clone();
+        let close_pending = pending_close_reason.clone();
+        let stderr_for_reason = stderr_buf.clone();
+        let name_for_reason = server_name.to_string();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -163,6 +288,19 @@ impl McpClient {
             // closed so status views stop advertising it as connected, then
             // drain and drop all pending oneshot senders immediately.
             closed_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            // Fire or buffer the unexpected-close reason (v2 `onclose` hook,
+            // client-stdio.ts:175-190): the manager's watch listener marks the
+            // entry failed, or the reason is replayed when it registers.
+            let stderr_tail = {
+                let buf = stderr_for_reason.lock().await;
+                String::from_utf8_lossy(&buf).into_owned()
+            };
+            let mut parts = vec![format!("MCP server \"{name_for_reason}\" closed unexpectedly")];
+            if !stderr_tail.trim().is_empty() {
+                parts.push(format!("stderr: {}", stderr_tail.trim_end()));
+            }
+            let reason = parts.join("\n");
+            fire_or_buffer_unexpected_close(&close_listener, &close_pending, reason).await;
             let mut lock = stream_pending.lock().await;
             lock.clear();
         });
@@ -174,13 +312,24 @@ impl McpClient {
                 _process: Arc::new(Mutex::new(child)),
                 stdin: Arc::new(Mutex::new(stdin)),
                 pending,
+                stderr: stderr_buf,
             },
             next_id: AtomicU64::new(1),
             tool_timeout: None,
+            unexpected_close,
+            pending_close_reason,
         };
 
-        // Initialize handshake
-        client.initialize().await?;
+        // Initialize handshake. On failure, capture the child's stderr so the
+        // error carries its diagnostics before the client (and its buffer) is
+        // dropped (v2 `formatStartupError`, connection-manager.ts:545-574).
+        if let Err(e) = client.initialize().await {
+            let tail = client.stderr_snapshot();
+            if tail.is_empty() {
+                return Err(e);
+            }
+            return Err(format!("{e}\nstderr: {}", tail.trim_end()));
+        }
 
         Ok(client)
     }
@@ -193,6 +342,35 @@ impl McpClient {
     /// views use this to stop advertising the entry as connected.
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Register a listener that fires when the transport closes on its own —
+    /// i.e. the caller has not invoked `close()` (v2 `onUnexpectedClose`,
+    /// client-stdio.ts:120-132). At most one listener; later registrations
+    /// replace earlier ones. If the transport already closed, the buffered
+    /// reason is replayed synchronously so the close is never dropped.
+    pub async fn on_unexpected_close(&self, listener: Box<dyn Fn(String) + Send + Sync>) {
+        let pending = self.pending_close_reason.lock().await.take();
+        if let Some(reason) = pending {
+            listener(reason);
+            return;
+        }
+        *self.unexpected_close.lock().await = Some(listener);
+    }
+
+    /// The captured tail of the child's stderr (v2 `stderrSnapshot`,
+    /// client-stdio.ts). Empty for non-stdio transports. Non-blocking: the
+    /// drain task may hold the buffer mid-write, and `blocking_lock` would
+    /// panic inside a tokio runtime.
+    pub fn stderr_snapshot(&self) -> String {
+        if let McpTransport::Stdio { stderr, .. } = &self.transport {
+            match stderr.try_lock() {
+                Ok(buf) => String::from_utf8_lossy(&buf).into_owned(),
+                Err(_) => String::new(),
+            }
+        } else {
+            String::new()
+        }
     }
 
     /// The resolved per-request timeout (`toolTimeoutMs`), for tests.
@@ -218,13 +396,13 @@ impl McpClient {
             McpTransport::Stdio { .. } => "stdio",
             McpTransport::Sse(_) => "sse",
             McpTransport::Http(_) => "http",
-            McpTransport::Mock => "mock",
+            McpTransport::Mock { .. } => "mock",
         }
     }
 
     async fn send_request(&self, method: &str, params: Value) -> Result<Value, String> {
         match &self.transport {
-            McpTransport::Mock => Ok(serde_json::json!({})),
+            McpTransport::Mock { .. } => Ok(serde_json::json!({})),
             McpTransport::Sse(sse) => sse.send_request(method, params).await,
             McpTransport::Http(http) => http.send_request(method, params).await,
             McpTransport::Stdio { stdin, pending, .. } => {
@@ -302,17 +480,8 @@ impl McpClient {
 
     /// List available tools exposed by the MCP server (`tools/list`).
     pub async fn list_tools(&self) -> Result<Vec<McpTool>, String> {
-        if matches!(self.transport, McpTransport::Mock) {
-            return Ok(vec![McpTool {
-                name: format!("{}_sample_tool", self.server_name),
-                description: Some("Sample mock MCP tool".into()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string" }
-                    }
-                }),
-            }]);
+        if let McpTransport::Mock { tools } = &self.transport {
+            return Ok(tools.clone());
         }
 
         let res = self
@@ -331,7 +500,7 @@ impl McpClient {
         name: &str,
         arguments: &Value,
     ) -> Result<McpToolCallResult, String> {
-        if matches!(self.transport, McpTransport::Mock) {
+        if matches!(self.transport, McpTransport::Mock { .. }) {
             return Ok(McpToolCallResult {
                 content: vec![McpContent {
                     content_type: "text".into(),
@@ -495,8 +664,7 @@ mod tests {
     /// answers `initialize` and then stays alive without answering anything
     /// else.
     #[tokio::test]
-    async fn test_tool_timeout_fails_the_call() {
-        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+    async fn test_tool_timeout_fails_the_call() {        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
         let dir = std::env::temp_dir();
         let (cmd, args, script) = if cfg!(windows) {
             let path = dir.join(format!("kimi_mcp_slow_{}.bat", std::process::id()));
@@ -528,6 +696,62 @@ mod tests {
             .await
             .expect_err("tool call must time out");
         assert_eq!(err, "MCP request timed out after 150ms");
+
+        let _ = std::fs::remove_file(script);
+    }
+
+    /// A child that answers the handshake and then exits must fire the
+    /// unexpected-close listener (v2 `onUnexpectedClose`,
+    /// client-stdio.ts:120-132). The reason carries the server name and any
+    /// captured stderr.
+    #[tokio::test]
+    async fn test_on_unexpected_close_fires_when_child_exits() {
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let dir = std::env::temp_dir();
+        let (cmd, args, script) = if cfg!(windows) {
+            let path = dir.join(format!("kimi_mcp_die_{}.bat", std::process::id()));
+            std::fs::write(&path, format!("@echo {reply}\r\n@exit /b 0\r\n"))
+                .expect("write die script");
+            (
+                "cmd",
+                vec!["/c".to_string(), path.to_string_lossy().into_owned()],
+                path,
+            )
+        } else {
+            let path = dir.join(format!("kimi_mcp_die_{}.sh", std::process::id()));
+            std::fs::write(&path, format!("echo '{reply}'\nexit 0\n")).expect("write die script");
+            ("sh", vec![path.to_string_lossy().into_owned()], path)
+        };
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        let client = McpClient::spawn_stdio(
+            "die_after_handshake",
+            cmd,
+            &arg_refs,
+            &HashMap::new(),
+            None,
+        )
+        .await
+        .expect("initialize handshake should succeed");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let tx = std::sync::Mutex::new(Some(tx));
+        client
+            .on_unexpected_close(Box::new(move |reason| {
+                if let Some(tx) = tx.lock().unwrap().take() {
+                    let _ = tx.send(reason);
+                }
+            }))
+            .await;
+
+        let reason = tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .expect("unexpected close must fire")
+            .expect("reason must be sent");
+        assert!(
+            reason.contains("closed unexpectedly"),
+            "unexpected reason: {reason}"
+        );
 
         let _ = std::fs::remove_file(script);
     }
