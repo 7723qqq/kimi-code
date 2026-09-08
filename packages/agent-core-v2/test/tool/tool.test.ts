@@ -976,7 +976,7 @@ describe('Agent tool description', () => {
     expect(agentDescription()).not.toContain('Available models');
   });
 
-  it('renders the pool in config order with the default first and a generic primary line', () => {
+  it('renders the pool in config order with the default first and the caller alias on the primary line', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -995,13 +995,15 @@ describe('Agent tool description', () => {
     expect(description).toContain('Available models');
     const defaultIndex = description.indexOf('- provider/fast [default]: fast and cheap');
     const smartIndex = description.indexOf('- provider/smart: hard tasks');
-    const primaryIndex = description.indexOf('- primary:');
+    const primaryIndex = description.indexOf(
+      '- primary (= mock-model): your current model and thinking level\n',
+    );
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(smartIndex).toBeGreaterThan(defaultIndex);
     expect(primaryIndex).toBeGreaterThan(smartIndex);
   });
 
-  it('lists the caller-in-pool alias with a [main model] marker and renders empty descriptions bare', () => {
+  it('renders the caller-in-pool alias as a plain entry and renders empty descriptions bare', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -1019,12 +1021,12 @@ describe('Agent tool description', () => {
     const description = agentDescription();
 
     expect(description).toContain('- provider/fast [default]: fast and cheap');
-    expect(description).toContain('- mock-model [main model]: the main model, great at hard things');
+    expect(description).toContain('- mock-model: the main model, great at hard things');
     expect(description).toContain('- provider/smart\n');
-    expect(description).toContain('- primary (mock-model)');
+    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
   });
 
-  it('marks the caller-as-default alias with both [default] and [main model]', () => {
+  it('marks the default alias with [default]', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -1041,12 +1043,12 @@ describe('Agent tool description', () => {
     const description = agentDescription();
 
     const defaultIndex = description.indexOf(
-      '- mock-model [default] [main model]: the main model, great at hard things',
+      '- mock-model [default]: the main model, great at hard things',
     );
     const fastIndex = description.indexOf('- provider/fast: fast and cheap');
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(fastIndex).toBeGreaterThan(defaultIndex);
-    expect(description).toContain('- primary (mock-model)');
+    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
   });
 
   function agentParameters(): Record<string, unknown> {
@@ -1109,7 +1111,7 @@ describe('Agent tool description', () => {
 
     const description = agentDescription();
     expect(description).toContain('- provider/fast [default]\n');
-    expect(description).toContain('- primary:');
+    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
   });
 
   it('hides the model parameter and the pool description when force is set', () => {
@@ -3242,7 +3244,7 @@ describe('AgentSwarm tool description', () => {
     expect(agentSwarmDescription()).not.toContain('Available models');
   });
 
-  it('renders the configured pool with the default marker and a generic primary line', () => {
+  it('renders the configured pool as a compact one-line summary', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -3255,10 +3257,9 @@ describe('AgentSwarm tool description', () => {
 
     const description = agentSwarmDescription();
 
-    expect(description).toContain('Available models');
-    expect(description).toContain('- provider/fast [default]: fast and cheap');
-    expect(description).toContain('- provider/smart: hard tasks');
-    expect(description).toContain('- primary:');
+    expect(description).toContain(
+      'Available models (pass via model): provider/fast [default], provider/smart, primary (your current model and thinking level).',
+    );
   });
 
   function agentSwarmParameters(): Record<string, unknown> {
