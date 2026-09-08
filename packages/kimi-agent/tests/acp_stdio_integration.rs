@@ -255,6 +255,41 @@ fn acp_session_round_trip_with_content_blocks() {
     assert_eq!(messages[0]["content"], "hello");
 }
 
+/// A response line (the client's answer to a server-initiated request) is
+/// routed to the back channel, never parsed as a client request.
+#[test]
+fn acp_response_line_is_not_treated_as_a_request() {
+    let Some(mut client) = AcpClient::start() else {
+        return;
+    };
+    client
+        .write_line(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 999,
+            "result": { "outcome": { "outcome": "cancelled" } }
+        }))
+        .expect("response line must be accepted");
+
+    let id = client.next_id.fetch_add(1, Ordering::SeqCst);
+    client
+        .write_line(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "ping",
+            "params": {}
+        }))
+        .expect("ping must be accepted");
+    let next = client
+        .read_line(Duration::from_secs(10))
+        .expect("ping must answer");
+    assert_eq!(
+        next["id"],
+        serde_json::json!(id),
+        "the response line must not produce a parse error, got {next}"
+    );
+    assert_eq!(next["result"], "pong");
+}
+
 #[test]
 fn acp_unknown_method_returns_method_not_found() {
     let Some(mut client) = AcpClient::start() else {

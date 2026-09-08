@@ -7,12 +7,16 @@
 //! turn through `ServerEngine` when one is attached and accepts both the
 //! string and the ACP `ContentBlock[]` prompt form.
 //!
-//! Still missing (see `reports/rust-engine-*` and the ROADMAP): the outbound
-//! `session/update` notification channel, the `request_permission` bridge,
-//! `session/resume` / `session/fork`, `configOptions`, and replaying history
-//! on `session/load`.
+//! Outbound traffic goes through [`AcpChannel`]: `session/update`
+//! notifications while a turn runs, plus server-initiated requests
+//! (`session/request_permission`, see `permission.rs`).
+//!
+//! Still missing: `session/resume` / `session/fork`, `configOptions`,
+//! replaying history on `session/load`, and the fs/terminal reverse RPCs.
 
+pub mod channel;
 pub mod events_map;
+pub mod permission;
 pub mod types;
 
 use serde_json::json;
@@ -25,20 +29,12 @@ use crate::events::bus::{EventBus, Subscription};
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::turn_loop::types::LLMMessage;
 
-/// One outbound JSON-RPC message: a response to a client request, or a
-/// server-initiated notification such as `session/update`.
-#[derive(Debug, Clone)]
-pub enum AcpOutbound {
-    Response(JsonRpcResponse),
-    Notification(JsonRpcRequest),
-}
-
-type NotificationSink = Arc<std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<AcpOutbound>>>>;
+pub use channel::{AcpChannel, AcpOutbound};
 
 pub struct AcpServer {
     store: Arc<SqliteSessionStore>,
     engine: Option<Arc<crate::server::engine::ServerEngine>>,
-    sink: NotificationSink,
+    channel: AcpChannel,
 }
 
 impl AcpServer {
@@ -46,7 +42,7 @@ impl AcpServer {
         Self {
             store,
             engine: None,
-            sink: Arc::new(std::sync::RwLock::new(None)),
+            channel: AcpChannel::new(),
         }
     }
 
@@ -54,49 +50,60 @@ impl AcpServer {
         store: Arc<SqliteSessionStore>,
         engine: Arc<crate::server::engine::ServerEngine>,
     ) -> Self {
+        // Every turn of this engine asks the ACP client before executing a
+        // mutating tool (v2 `interaction-bridge.ts` + `approval.ts`).
+        let channel = AcpChannel::new();
+        let factory_channel = channel.clone();
+        engine.set_host_factory(Arc::new(move |session_id: &str| {
+            Arc::new(permission::AcpPermissionHost::new(
+                Arc::new(crate::server::engine::ServerHost::standalone()),
+                factory_channel.clone(),
+                session_id.to_string(),
+            ))
+        }));
         Self {
             store,
             engine: Some(engine),
-            sink: Arc::new(std::sync::RwLock::new(None)),
+            channel,
         }
     }
 
-    /// Install the outbound channel used for `session/update` notifications.
+    /// Install the outbound channel used for notifications and back-channel
+    /// requests.
     pub fn set_notification_sink(&self, sender: tokio::sync::mpsc::UnboundedSender<AcpOutbound>) {
-        *self.sink.write().unwrap_or_else(|e| e.into_inner()) = Some(sender);
+        self.channel.set_sink(sender);
     }
 
-    fn emit_notification(&self, method: &str, params: serde_json::Value) {
-        let guard = self.sink.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(sender) = guard.as_ref() {
-            let _ = sender.send(AcpOutbound::Notification(JsonRpcResponse::notification(
-                method, params,
-            )));
-        }
+    /// The outbound channel (tests drive it directly).
+    pub fn channel(&self) -> AcpChannel {
+        self.channel.clone()
     }
 
     /// Forward one session's engine events to ACP `session/update`
     /// notifications until the returned subscription is dropped
     /// (v2 `AcpSession` subscribes the agent event stream the same way).
-    pub fn forward_session_events(
-        &self,
-        session_id: &str,
-        bus: &Arc<EventBus>,
-    ) -> Subscription {
-        let sink = self.sink.clone();
+    pub fn forward_session_events(&self, session_id: &str, bus: &Arc<EventBus>) -> Subscription {
+        let channel = self.channel.clone();
         let session = session_id.to_string();
         bus.subscribe(move |event| {
             let Some(params) = events_map::engine_event_to_session_update(&session, event) else {
                 return;
             };
-            let guard = sink.read().unwrap_or_else(|e| e.into_inner());
-            if let Some(sender) = guard.as_ref() {
-                let _ = sender.send(AcpOutbound::Notification(JsonRpcResponse::notification(
-                    "session/update",
-                    params,
-                )));
-            }
+            channel.notify("session/update", params);
         })
+    }
+
+    /// Dispatch one raw line. A response to a server-initiated request
+    /// (`{"id":N,"result"…}`) resolves the waiting back-channel call instead
+    /// of being treated as a client request.
+    pub async fn handle_line(&self, raw: &str) -> Option<JsonRpcResponse> {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
+            && let Some(id) = AcpChannel::response_id(&value)
+        {
+            self.channel.resolve(id, value).await;
+            return None;
+        }
+        self.handle_message(raw).await
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
@@ -118,9 +125,8 @@ impl AcpServer {
             while let Some(message) = rx.recv().await {
                 let value = match message {
                     AcpOutbound::Response(response) => serde_json::to_value(response),
-                    AcpOutbound::Notification(notification) => {
-                        serde_json::to_value(notification)
-                    }
+                    AcpOutbound::Notification(notification) => serde_json::to_value(notification),
+                    AcpOutbound::Request(request) => serde_json::to_value(request),
                 };
                 let Ok(value) = value else { continue };
                 if stdout.write_all(value.to_string().as_bytes()).await.is_err() {
@@ -140,12 +146,12 @@ impl AcpServer {
             if trimmed.is_empty() {
                 continue;
             }
-            if let Some(resp) = self.handle_message(trimmed).await {
+            if let Some(resp) = self.handle_line(trimmed).await {
                 let _ = tx.send(AcpOutbound::Response(resp));
             }
         }
         // Drop the sink's clone too, otherwise the writer task never ends.
-        *self.sink.write().unwrap_or_else(|e| e.into_inner()) = None;
+        self.channel.clear_sink();
         drop(tx);
         let _ = writer.await;
         Ok(())

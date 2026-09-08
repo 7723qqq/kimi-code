@@ -206,7 +206,13 @@ pub struct ServerEngine {
     mcp_manager: Mutex<Option<Arc<McpManager>>>,
     interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
     subagent_manager: Arc<SubagentManager>,
+    /// Optional per-session host factory; non-HTTP hosts (ACP) install one to
+    /// answer permission checks through their own transport.
+    host_factory: Mutex<Option<HostFactory>>,
 }
+
+/// Builds the host callbacks for one session.
+pub type HostFactory = Arc<dyn Fn(&str) -> Arc<dyn crate::callbacks::HostCallbacks> + Send + Sync>;
 
 impl ServerEngine {
     pub fn new(spec: PipelineSpec, hub: Arc<EventHub>, store: Arc<SqliteSessionStore>) -> Self {
@@ -219,7 +225,20 @@ impl ServerEngine {
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
             subagent_manager: Arc::new(SubagentManager::with_store(store)),
+            host_factory: Mutex::new(None),
         }
+    }
+
+    /// Install a per-session host factory (ACP permission bridge).
+    pub fn set_host_factory(&self, factory: HostFactory) {
+        *self.host_factory.lock().unwrap_or_else(|e| e.into_inner()) = Some(factory);
+    }
+
+    fn host_factory(&self) -> Option<HostFactory> {
+        self.host_factory
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn with_mcp_manager(self, mcp_manager: Arc<McpManager>) -> Self {
@@ -352,10 +371,15 @@ impl ServerEngine {
             system_prompt: session_system_prompt,
             ..clone_spec(&self.spec)
         };
-        let host_callbacks: Arc<dyn HostCallbacks> = if let Some(mgr) = self.interaction_manager() {
-            Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
-        } else {
-            Arc::new(ServerHost::standalone())
+        let host_callbacks: Arc<dyn HostCallbacks> = match self.host_factory() {
+            Some(factory) => factory(session_id),
+            None => {
+                if let Some(mgr) = self.interaction_manager() {
+                    Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
+                } else {
+                    Arc::new(ServerHost::standalone())
+                }
+            }
         };
 
         let ws_root = match self.store.get_session(session_id) {
