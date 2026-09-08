@@ -39,6 +39,10 @@ httparse = "1.10"
 base64 = "0.22"
 regex = "1"
 sha2 = "0.10"
+# MCP OAuth credentials are encrypted at rest with the same algorithm v2 uses
+# (AES-256-GCM, see src/mcp/oauth/crypto.rs).
+aes-gcm = "0.10"
+whoami = "1"
 globset = "0.4"
 ignore = "0.4"
 once_cell = "1"

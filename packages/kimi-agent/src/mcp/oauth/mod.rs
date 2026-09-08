@@ -1,13 +1,13 @@
 //! MCP OAuth credential plumbing.
 //!
-//! This module currently ports the on-disk **key derivation** from v2
-//! `mcpCore/oauth/store.ts` (`sanitizeStoreKey` / `canonicalMcpOAuthResource`
-//! / `mcpOAuthStoreKey`), which fixes the namespace credentials live in.
+//! Ports the on-disk **key derivation** and the **at-rest encryption** from v2
+//! `mcpCore/oauth/store.ts` and `app/mcpConfig/oauthStore.ts`.
 //!
-//! Still missing: the encrypted backing store (v2 `app/mcpConfig/oauthStore.ts`
-//! writes AES-256-GCM blobs keyed by hostname + machine id + username), the
-//! device-code login flow, single-flight refresh, and the `needs-auth` server
-//! status.
+//! Still missing: the file-backed store wiring, the device-code login flow,
+//! single-flight refresh, and the `needs-auth` server status.
+
+pub mod crypto;
+pub mod store;
 
 use sha2::{Digest, Sha256};
 
