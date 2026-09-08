@@ -288,8 +288,10 @@ impl AcpServer {
                             // Only the methods this server actually answers.
                             "sessionCapabilities": {
                                 "list": {},
+                                "resume": {},
                                 "close": {},
                                 "delete": {},
+                                "fork": {},
                             },
                             "mcpCapabilities": { "http": true, "sse": true },
                             "auth": { "logout": {} },
@@ -444,6 +446,87 @@ impl AcpServer {
                         Err(e) => JsonRpcResponse::error(req.id, -32000, format!("Database error: {e}")),
                     },
                     None => JsonRpcResponse::error(req.id, -32602, "Invalid params: sessionId is required"),
+                }
+            }
+            // `session/resume` re-attaches without replaying history — that is
+            // the whole difference from `session/load` (v2 `resumeSession`,
+            // server.ts:312-321).
+            "session/resume" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
+                    .and_then(|v| v.as_str());
+                match session_id {
+                    Some(sid) => {
+                        if self.store.get_session(sid).ok().flatten().is_none() {
+                            JsonRpcResponse::error(
+                                req.id,
+                                -32602,
+                                format!("Unknown sessionId: {sid}"),
+                            )
+                        } else {
+                            JsonRpcResponse::success(
+                                req.id,
+                                json!({ "modes": self.mode_state(sid) }),
+                            )
+                        }
+                    }
+                    None => JsonRpcResponse::error(
+                        req.id,
+                        -32602,
+                        "Invalid params: sessionId is required",
+                    ),
+                }
+            }
+            // `session/fork` (UNSTABLE in the ACP schema) copies the source
+            // session's history into a new session (v2 `forkSession`,
+            // server.ts:266-294).
+            "session/fork" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
+                    .and_then(|v| v.as_str());
+                match session_id {
+                    Some(source) => match self.store.get_session(source).ok().flatten() {
+                        None => JsonRpcResponse::error(
+                            req.id,
+                            -32602,
+                            format!("Unknown sessionId: {source}"),
+                        ),
+                        Some(_) => {
+                            let forked = format!("sess-{}", fastrand::u64(..));
+                            match self.store.fork_session(source, &forked, None) {
+                                Ok(true) => {
+                                    self.modes
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .insert(forked.clone(), "default".to_string());
+                                    JsonRpcResponse::success(
+                                        req.id,
+                                        json!({
+                                            "sessionId": forked,
+                                            "modes": self.mode_state(&forked),
+                                        }),
+                                    )
+                                }
+                                Ok(false) => JsonRpcResponse::error(
+                                    req.id,
+                                    -32602,
+                                    format!("Unknown sessionId: {source}"),
+                                ),
+                                Err(e) => JsonRpcResponse::error(
+                                    req.id,
+                                    -32000,
+                                    format!("Database error: {e}"),
+                                ),
+                            }
+                        }
+                    },
+                    None => JsonRpcResponse::error(
+                        req.id,
+                        -32602,
+                        "Invalid params: sessionId is required",
+                    ),
                 }
             }
             "session/delete" => {
@@ -672,6 +755,8 @@ mod tests {
             true
         );
         assert!(res["agentCapabilities"]["sessionCapabilities"]["list"].is_object());
+        assert!(res["agentCapabilities"]["sessionCapabilities"]["resume"].is_object());
+        assert!(res["agentCapabilities"]["sessionCapabilities"]["fork"].is_object());
         assert_eq!(res["agentCapabilities"]["mcpCapabilities"]["http"], true);
         assert_eq!(res["authMethods"][0]["id"], "login");
         assert_eq!(res["authMethods"][0]["type"], "terminal");
@@ -1067,6 +1152,101 @@ mod tests {
         });
         let resp = server.handle_message(&del_req.to_string()).await.unwrap();
         assert_eq!(resp.result.unwrap()["deleted"], true);
+    }
+
+    /// `session/resume` re-attaches without replay; `session/fork` copies the
+    /// source history into a new session (v2 `resumeSession` / `forkSession`).
+    #[tokio::test]
+    async fn test_acp_resume_and_fork() {
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let new_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {}
+        });
+        let sid = server.handle_message(&new_req.to_string()).await.unwrap().result.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let prompt_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": { "sessionId": sid, "prompt": "hi" }
+        });
+        server.handle_message(&prompt_req.to_string()).await.unwrap();
+
+        // resume: mode state only, no replayed chunks.
+        let resume_req = json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/resume",
+            "params": { "sessionId": sid }
+        });
+        let resp = server.handle_message(&resume_req.to_string()).await.unwrap();
+        assert_eq!(resp.result.unwrap()["modes"]["currentModeId"], "default");
+        assert!(
+            rx.try_recv().is_err(),
+            "resume must not replay history (that is session/load)"
+        );
+
+        // fork: new id, copied history.
+        let fork_req = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/fork",
+            "params": { "sessionId": sid }
+        });
+        let resp = server.handle_message(&fork_req.to_string()).await.unwrap();
+        let forked = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(forked, sid);
+        assert_eq!(
+            server.store.load_session_history(&forked).unwrap()[0].content,
+            "hi"
+        );
+
+        let unknown_fork = json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "session/fork",
+            "params": { "sessionId": "sess-nope" }
+        });
+        assert_eq!(
+            server
+                .handle_message(&unknown_fork.to_string())
+                .await
+                .unwrap()
+                .error
+                .unwrap()
+                .message,
+            "Unknown sessionId: sess-nope"
+        );
+
+        let unknown_resume = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/resume",
+            "params": { "sessionId": "sess-nope" }
+        });
+        assert_eq!(
+            server
+                .handle_message(&unknown_resume.to_string())
+                .await
+                .unwrap()
+                .error
+                .unwrap()
+                .message,
+            "Unknown sessionId: sess-nope"
+        );
     }
 
     /// `session/close` tears the session down best-effort and clears its local

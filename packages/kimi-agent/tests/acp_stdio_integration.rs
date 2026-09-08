@@ -360,6 +360,43 @@ fn acp_set_mode_notifies_on_stdio() {
     assert_eq!(response["result"]["modeId"], "auto");
 }
 
+/// `session/resume` answers with the mode state and `session/fork` mints a
+/// new session id (v2 `resumeSession` / `forkSession`).
+#[test]
+fn acp_resume_and_fork_on_stdio() {
+    let Some(mut client) = AcpClient::start() else {
+        return;
+    };
+    let response = client
+        .request("session/new", serde_json::json!({}))
+        .expect("session/new must answer");
+    let session_id = response["result"]["sessionId"]
+        .as_str()
+        .expect("session id")
+        .to_string();
+
+    let response = client
+        .request(
+            "session/resume",
+            serde_json::json!({ "sessionId": session_id }),
+        )
+        .expect("session/resume must answer");
+    assert!(response["error"].is_null(), "unexpected error: {response}");
+    assert_eq!(response["result"]["modes"]["currentModeId"], "default");
+
+    let response = client
+        .request(
+            "session/fork",
+            serde_json::json!({ "sessionId": session_id }),
+        )
+        .expect("session/fork must answer");
+    let forked = response["result"]["sessionId"]
+        .as_str()
+        .expect("forked session id");
+    assert_ne!(forked, session_id);
+    assert_eq!(response["result"]["modes"]["availableModes"].as_array().unwrap().len(), 4);
+}
+
 #[test]
 fn acp_unknown_method_returns_method_not_found() {
     let Some(mut client) = AcpClient::start() else {
