@@ -6,6 +6,7 @@
 pub mod client;
 pub mod http;
 pub mod manager;
+pub mod oauth;
 pub mod sse;
 pub mod types;
 
