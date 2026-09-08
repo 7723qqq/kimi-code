@@ -481,6 +481,28 @@ impl AcpServer {
                             // of `session/update` chunks, then answer with the
                             // mode state (v2 `loadSession` + `replay.ts`).
                             for message in &history {
+                                // v2 `replay.ts` projects a tool result as a
+                                // `tool_call_update` and the two message roles
+                                // as text chunks.
+                                if message.role == "tool" {
+                                    let Some(tool_call_id) = message.tool_call_id.as_deref()
+                                    else {
+                                        continue;
+                                    };
+                                    self.channel.notify(
+                                        "session/update",
+                                        json!({
+                                            "sessionId": sid,
+                                            "update": {
+                                                "sessionUpdate": "tool_call_update",
+                                                "toolCallId": tool_call_id,
+                                                "status": "completed",
+                                                "rawOutput": message.content,
+                                            },
+                                        }),
+                                    );
+                                    continue;
+                                }
                                 let update = match message.role.as_str() {
                                     "user" => "user_message_chunk",
                                     "assistant" => "agent_message_chunk",
@@ -1247,6 +1269,47 @@ mod tests {
             resp.error.unwrap().message,
             "Unknown sessionId: sess-nope"
         );
+    }
+
+    /// A stored tool result replays as `tool_call_update` (v2 `replay.ts`).
+    #[tokio::test]
+    async fn test_acp_load_replays_tool_results() {
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+        server.store.create_session("sess-tools", None).unwrap();
+        let messages = vec![
+            crate::turn_loop::types::LLMMessage::user("run it"),
+            crate::turn_loop::types::LLMMessage::assistant("ok"),
+            crate::turn_loop::types::LLMMessage {
+                role: "tool".into(),
+                content: "tool output".into(),
+                tool_call_id: Some("call-1".into()),
+                ..Default::default()
+            },
+        ];
+        server
+            .store
+            .save_turn("sess-tools", "t1", 1, &messages, None)
+            .unwrap();
+
+        let load = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/load",
+            "params": { "sessionId": "sess-tools" }
+        });
+        server.handle_message(&load.to_string()).await.unwrap();
+
+        let mut updates = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            if let AcpOutbound::Notification(note) = message {
+                updates.push(note.params.unwrap());
+            }
+        }
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[2]["update"]["sessionUpdate"], "tool_call_update");
+        assert_eq!(updates[2]["update"]["toolCallId"], "call-1");
+        assert_eq!(updates[2]["update"]["status"], "completed");
+        assert_eq!(updates[2]["update"]["rawOutput"], "tool output");
     }
 
     /// `session/list` projects storage rows into the ACP `SessionInfo` shape,
