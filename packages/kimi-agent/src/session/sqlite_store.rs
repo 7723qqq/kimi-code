@@ -206,6 +206,30 @@ pub struct SqliteSessionStore {
     conn: Mutex<Connection>,
 }
 
+/// What one compaction did, mirroring the v2 `full_compaction.completed`
+/// payload (`fullCompactionService.ts`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CompactionReport {
+    /// Messages in the history before compaction.
+    pub messages_before: usize,
+    pub removed: usize,
+    pub tokens_before: u32,
+    pub tokens_after: u32,
+    pub kept_user_message_count: usize,
+}
+
+impl CompactionReport {
+    fn skipped() -> Self {
+        Self {
+            messages_before: 0,
+            removed: 0,
+            tokens_before: 0,
+            tokens_after: 0,
+            kept_user_message_count: 0,
+        }
+    }
+}
+
 impl SqliteSessionStore {
     /// Open or create a SQLite database file at `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, rusqlite::Error> {
@@ -884,25 +908,45 @@ impl SqliteSessionStore {
     ///
     /// Records a `compaction-boundary` checkpoint first so undo bookkeeping
     /// can refuse to cross it, mirroring the ledger's compaction markers
-    /// (event_store `is_compaction`).
-    pub fn compact_session(&self, session_id: &str) -> Result<usize, String> {
+    /// (event_store `is_compaction`). `instruction` is the caller's
+    /// summarization hint (v2 `rest-session.ts:131-137`); it is recorded with
+    /// the checkpoint.
+    pub fn compact_session(
+        &self,
+        session_id: &str,
+        instruction: Option<&str>,
+    ) -> Result<CompactionReport, String> {
         let history = self.load_session_history(session_id).map_err(|e| e.to_string())?;
         if history.len() <= 2 {
-            return Ok(0);
+            return Ok(CompactionReport::skipped());
         }
         let config = crate::compaction::CompactionConfig::default();
         let compacted = crate::compaction::force_compact_messages_manual(&history, &config);
         if compacted.len() >= history.len() {
-            return Ok(0);
+            return Ok(CompactionReport::skipped());
         }
         let removed = history.len() - compacted.len();
+        let report = CompactionReport {
+            messages_before: history.len(),
+            removed,
+            tokens_before: crate::compaction::estimate_messages_tokens(&history),
+            tokens_after: crate::compaction::estimate_messages_tokens(&compacted),
+            kept_user_message_count: compacted
+                .iter()
+                .filter(|message| message.role == "user")
+                .count(),
+        };
         self.save_checkpoint(
             session_id,
             &format!("compaction-{session_id}-{}", chrono::Utc::now().timestamp_millis()),
             "compaction-boundary",
             &json!({
-                "messages_before": history.len(),
-                "removed": removed,
+                "messages_before": report.messages_before,
+                "removed": report.removed,
+                "tokens_before": report.tokens_before,
+                "tokens_after": report.tokens_after,
+                "kept_user_message_count": report.kept_user_message_count,
+                "instruction": instruction,
             }),
         )
         .map_err(|e| e.to_string())?;
@@ -915,7 +959,7 @@ impl SqliteSessionStore {
         drop(conn);
         self.save_turn(session_id, COMPACT_TURN_ID, 1, &compacted, None)
             .map_err(|e| e.to_string())?;
-        Ok(removed)
+        Ok(report)
     }
 
     /// Update the session title and refresh updated_at timestamp.
@@ -2438,7 +2482,10 @@ mod tests {
         store
             .save_turn("sess-compact", "t1", 1, &[LLMMessage::user("hi")], None)
             .unwrap();
-        assert_eq!(store.compact_session("sess-compact").unwrap(), 0);
+        assert_eq!(
+            store.compact_session("sess-compact", None).unwrap(),
+            CompactionReport::skipped()
+        );
 
         // 2. Add many turns
         for i in 2..=15 {
@@ -2458,12 +2505,23 @@ mod tests {
         let pre_len = store.load_session_history("sess-compact").unwrap().len();
         assert!(pre_len >= 29);
 
-        let removed = store.compact_session("sess-compact").unwrap();
+        let report = store.compact_session("sess-compact", Some("keep decisions")).unwrap();
+        let removed = report.removed;
         assert!(removed > 0);
+        assert_eq!(report.messages_before, pre_len);
+        assert!(report.tokens_before > report.tokens_after);
 
         let post_history = store.load_session_history("sess-compact").unwrap();
         assert_eq!(post_history.len(), pre_len - removed);
         assert!(post_history.len() < pre_len);
+        assert_eq!(
+            report.kept_user_message_count,
+            post_history
+                .iter()
+                .filter(|message| message.role == "user")
+                .count(),
+            "the report counts the user messages that survived"
+        );
 
         // Undoing a normal post-compaction turn still works…
         let undone = store.undo_turns("sess-compact", 1).unwrap();

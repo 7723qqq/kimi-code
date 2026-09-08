@@ -2104,12 +2104,46 @@ impl HttpServer {
                         }),
                     );
                 }
-                match self.store.compact_session(session_id) {
-                    Ok(removed) => HttpResponse::ok(&json!({
-                        "compacted": true,
-                        "removed": removed,
-                        "sessionId": session_id
-                    })),
+                let body: Value = if req.body.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_slice(&req.body).unwrap_or(json!({}))
+                };
+                // v2 `rest-session.ts:131-137`: the caller may pass a
+                // summarization hint with the request.
+                let instruction = body
+                    .get("instruction")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty());
+                self.hub
+                    .bus_for(session_id)
+                    .publish(&crate::events::EngineEvent::Custom(json!({
+                        "type": "compaction.started",
+                        "sessionId": session_id,
+                        "instruction": instruction,
+                    })));
+                match self.store.compact_session(session_id, instruction) {
+                    Ok(report) => {
+                        self.hub
+                            .bus_for(session_id)
+                            .publish(&crate::events::EngineEvent::Custom(json!({
+                                "type": "compaction.completed",
+                                "sessionId": session_id,
+                                "compactedCount": report.messages_before,
+                                "removed": report.removed,
+                                "tokensBefore": report.tokens_before,
+                                "tokensAfter": report.tokens_after,
+                                "keptUserMessageCount": report.kept_user_message_count,
+                            })));
+                        HttpResponse::ok(&json!({
+                            "compacted": true,
+                            "removed": report.removed,
+                            "sessionId": session_id,
+                            "compactedCount": report.messages_before,
+                            "tokensBefore": report.tokens_before,
+                            "tokensAfter": report.tokens_after,
+                        }))
+                    }
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
@@ -6302,6 +6336,74 @@ mod tests {
             std::fs::read_to_string(temp.path().join("a.txt")).unwrap(),
             "after-1"
         );
+    }
+
+    /// `POST :compact` accepts the v2 `instruction` hint, reports token
+    /// counts, and publishes `compaction.started` / `compaction.completed`.
+    #[tokio::test]
+    async fn test_http_compact_publishes_events_and_reports_tokens() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let hub = Arc::new(EventHub::new());
+        let server = HttpServer::with_hub(store.clone(), hub.clone());
+        let sid = "sess-compact-http";
+        store.create_session(sid, None).unwrap();
+        for i in 1..=12 {
+            let filler = "x".repeat(400);
+            store
+                .save_turn(
+                    sid,
+                    &format!("t{i}"),
+                    i,
+                    &[
+                        crate::turn_loop::types::LLMMessage::user(&format!("u{i} {filler}")),
+                        crate::turn_loop::types::LLMMessage::assistant(&format!("a{i} {filler}")),
+                    ],
+                    None,
+                )
+                .unwrap();
+        }
+
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let collector = seen.clone();
+        hub.bus_for(sid).subscribe(move |event| {
+            if let crate::events::types::EngineEvent::Custom(value) = event {
+                collector
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(value.clone());
+            }
+        });
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:compact"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "instruction": "keep decisions" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["compacted"], true);
+        assert!(body["removed"].as_u64().unwrap() > 0);
+        assert!(
+            body["tokensBefore"].as_u64().unwrap() > body["tokensAfter"].as_u64().unwrap(),
+            "compaction must shrink the token count: {body}"
+        );
+
+        let events = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let started = events
+            .iter()
+            .find(|event| event["type"] == "compaction.started")
+            .expect("compaction.started must be published");
+        assert_eq!(started["instruction"], "keep decisions");
+        let completed = events
+            .iter()
+            .find(|event| event["type"] == "compaction.completed")
+            .expect("compaction.completed must be published");
+        assert_eq!(completed["sessionId"], sid);
+        assert!(completed["tokensBefore"].as_u64().unwrap() > completed["tokensAfter"].as_u64().unwrap());
     }
 
     #[tokio::test]
