@@ -1,4 +1,4 @@
-import { assign, emit, enqueueActions, sendTo, setup } from '#/xstate2';
+import { assign, emit, enqueueActions, fromCallback, sendTo, setup } from '#/xstate2';
 
 import {
   createUserMessage,
@@ -14,6 +14,7 @@ import type { ToolDefinition } from '#/tool/tool';
 import { createWaitForTasks, type ToolActorRef } from './wait-for';
 import { interruptReasonOf, type TurnInterruptReason } from './errors';
 import { createSystemEntry, createUserEntry } from './turn';
+import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
 import type {
   createTurnMachine,
   HistoryMessage,
@@ -61,6 +62,7 @@ export type AgentEmitted =
 
 interface ToolEntry {
   toolCall: ToolCall;
+  scope: AbortScope;
   ref: ToolActorRef;
 }
 
@@ -74,6 +76,7 @@ export interface AgentMachineContext {
   messages: HistoryMessage[];
   turnTools: Record<string, ToolEntry>;
   background: Record<string, ToolEntry>;
+  scope: AbortScope;
   notifications: UserEntry[];
   reminders: HistoryMessage[];
   queue: QueuedPrompt[];
@@ -239,6 +242,11 @@ export function createAgentMachine({
     actors: {
       turnActor,
       toolActor: createToolMachine(executor),
+      controllerGuard: fromCallback<AgentEvent, { scope: AbortScope }>(
+        ({ input }) =>
+          () =>
+            input.scope.abort(),
+      ),
     },
     actions: {
       forwardToParent: ({ self, event }) => {
@@ -251,11 +259,13 @@ export function createAgentMachine({
         const waitForTasks = createWaitForTasks(self);
         const turnTools = { ...context.turnTools };
         for (const toolCall of event.toolCalls) {
+          const scope = withAbort(context.scope.signal);
           turnTools[toolCall.id] = {
             toolCall,
+            scope,
             ref: spawn('toolActor', {
               id: toolCall.id,
-              input: { toolCall, waitForTasks },
+              input: { toolCall, signal: scope.signal, waitForTasks },
             }),
           };
         }
@@ -268,6 +278,7 @@ export function createAgentMachine({
         for (const toolCall of event.toolCalls) {
           const entry = context.turnTools[toolCall.id];
           if (entry !== undefined) {
+            entry.scope.abort();
             enqueue.sendTo(entry.ref, { type: 'tool.abort' as const });
           }
         }
@@ -275,11 +286,13 @@ export function createAgentMachine({
       abortTurn: sendTo('turn', { type: 'turn.abort' as const }),
       abortTurnTools: enqueueActions(({ context, enqueue }) => {
         for (const entry of Object.values(context.turnTools)) {
+          entry.scope.abort();
           enqueue.sendTo(entry.ref, { type: 'tool.abort' as const });
         }
       }),
       stopTurnTools: enqueueActions(({ context, enqueue }) => {
-        for (const toolCallId of Object.keys(context.turnTools)) {
+        for (const [toolCallId, entry] of Object.entries(context.turnTools)) {
+          entry.scope.abort();
           enqueue.stopChild(toolCallId);
         }
       }),
@@ -295,12 +308,17 @@ export function createAgentMachine({
       messages: [...(input.history ?? [])],
       turnTools: {},
       background: {},
+      scope: createAbortScope(),
       notifications: [],
       reminders: [],
       queue: [],
       turnId: input.turnId ?? 0,
       branchId: input.branchId ?? 'main',
     }),
+    invoke: {
+      src: 'controllerGuard',
+      input: ({ context }) => ({ scope: context.scope }),
+    },
     on: {
       'input.submit': {
         actions: assign({
@@ -390,6 +408,7 @@ export function createAgentMachine({
             request: { ...context.input.request, tools: tools?.filter((tool) => tool.deferred !== true) },
             history: context.messages,
             maxSteps: maxStepsPerTurn,
+            parentSignal: context.scope.signal,
           }),
           onDone: {
             target: '#agent.idle',

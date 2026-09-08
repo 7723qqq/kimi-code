@@ -15,6 +15,7 @@ import type { LlmRecoveryRecord } from './recovery';
 export interface LlmInput {
   readonly config: LlmRequestConfig;
   readonly content: LlmRequestContent;
+  readonly signal: AbortSignal;
 }
 
 export interface MessageResolveContext {
@@ -65,25 +66,23 @@ function createRequestActor(
   messageResolvers: readonly MessageResolver[],
 ) {
   return fromCallback<LlmEvent, LlmInput>(({ input, sendBack }) => {
-    const controller = new AbortController();
     void (async () => {
       let messages = input.content.messages;
       for (const resolver of messageResolvers) {
         messages = await resolver.resolve(messages, {
           model: input.config.model,
-          signal: controller.signal,
+          signal: input.signal,
         });
       }
       await requester.generate(
         input.config,
         { ...input.content, messages },
         {
-          signal: controller.signal,
+          signal: input.signal,
           onEvent: sendBack,
         },
       );
     })();
-    return () => controller.abort();
   });
 }
 
