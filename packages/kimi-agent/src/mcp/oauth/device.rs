@@ -142,14 +142,13 @@ pub async fn poll_device_login(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod test_helpers {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A mock authorization server that answers with `responses` in order,
     /// repeating the last one.
-    async fn spawn_server(
+    pub async fn spawn_mock_oauth_server(
         responses: Vec<(u16, &'static str)>,
     ) -> (String, Arc<AtomicUsize>, tokio::sync::oneshot::Sender<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -191,6 +190,12 @@ mod tests {
         });
         (url, hits, shutdown_tx)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_helpers::spawn_mock_oauth_server as spawn_server;
+    use super::*;
 
     #[tokio::test]
     async fn test_begin_and_poll_device_login() {

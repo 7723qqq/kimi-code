@@ -66,6 +66,21 @@ impl McpOAuthService {
         self.store.read::<McpOAuthTokens>(key).is_some()
     }
 
+    /// Every credential key the store holds (the `auth-statuses` surface).
+    pub fn list_keys(&self) -> Vec<String> {
+        self.store.list(None)
+    }
+
+    /// Persist freshly obtained credentials (login completion).
+    pub fn store_tokens(&self, key: &str, tokens: &McpOAuthTokens) -> Result<(), String> {
+        self.store.write(key, tokens)
+    }
+
+    /// Drop one server's credentials (`auth:cancel` / `auth:reset`).
+    pub fn remove(&self, key: &str) -> Result<bool, String> {
+        self.store.remove(key)
+    }
+
     /// The access token for this key, refreshing it when expired. `None` means
     /// the server must be treated as needing authentication.
     pub async fn access_token(&self, key: &str) -> Option<String> {

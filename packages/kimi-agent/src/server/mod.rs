@@ -61,6 +61,8 @@ pub struct HttpServer {
     started_at: String,
     web_assets_dir: Option<PathBuf>,
     mcp_manager: Arc<crate::mcp::manager::McpManager>,
+    /// MCP OAuth credentials (device-code login surface).
+    mcp_oauth: Arc<tokio::sync::Mutex<Option<Arc<crate::mcp::oauth::McpOAuthService>>>>,
     interaction_manager: Arc<interaction::InteractionManager>,
     plugin_manager: Arc<plugins::PluginManager>,
     oauth_manager: Arc<oauth::OAuthManager>,
@@ -113,6 +115,7 @@ impl HttpServer {
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             web_assets_dir: None,
             mcp_manager: Arc::new(crate::mcp::manager::McpManager::new()),
+            mcp_oauth: Arc::new(tokio::sync::Mutex::new(None)),
             interaction_manager: Arc::new(
                 interaction::InteractionManager::new().with_hub(hub.clone()),
             ),
@@ -193,6 +196,17 @@ impl HttpServer {
         if let Some(engine) = &self.engine {
             engine.set_mcp_manager(manager);
         }
+        self
+    }
+
+    /// Install the MCP OAuth credential service; it also backs the manager's
+    /// bearer-token injection.
+    pub async fn with_mcp_oauth_service(
+        self,
+        service: Arc<crate::mcp::oauth::McpOAuthService>,
+    ) -> Self {
+        self.mcp_manager.set_oauth_service(service.clone()).await;
+        *self.mcp_oauth.lock().await = Some(service);
         self
     }
 
@@ -1005,11 +1019,146 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v1/mcp/auth-statuses") | ("GET", "/api/v2/mcp/auth-statuses") => {
-                HttpResponse::ok(&json!({ "statuses": {} }))
+                let service = self.mcp_oauth.lock().await.clone();
+                let statuses: serde_json::Map<String, Value> = match service {
+                    Some(service) => service
+                        .list_keys()
+                        .into_iter()
+                        .map(|key| (key, json!({ "authenticated": true })))
+                        .collect(),
+                    None => serde_json::Map::new(),
+                };
+                HttpResponse::ok(&json!({ "statuses": statuses }))
             }
-            ("POST", p) if p.starts_with("/api/v1/mcp/auth:") || p.starts_with("/api/v2/mcp/auth:") => {
+            ("POST", p)
+                if p.starts_with("/api/v1/mcp/auth:") || p.starts_with("/api/v2/mcp/auth:") =>
+            {
                 let action = p.rsplit(':').next().unwrap_or_default();
-                HttpResponse::ok(&json!({ "action": action, "status": "completed" }))
+                let body: Value = if req.body.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_slice(&req.body).unwrap_or(json!({}))
+                };
+                let name = body.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let url = body.get("url").and_then(|v| v.as_str()).unwrap_or_default();
+                let Some(service) = self.mcp_oauth.lock().await.clone() else {
+                    return HttpResponse::json(
+                        503,
+                        &json!({ "error": "MCP OAuth is not configured" }),
+                    );
+                };
+                match action {
+                    // RFC 8628 §3.1: start a device authorization.
+                    "begin" => {
+                        let endpoint = body
+                            .get("device_authorization_endpoint")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let client_id = body
+                            .get("client_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        if name.is_empty() || endpoint.is_empty() || client_id.is_empty() {
+                            return HttpResponse::bad_request(
+                                "name, device_authorization_endpoint and client_id are required",
+                            );
+                        }
+                        match crate::mcp::oauth::begin_device_login(
+                            &reqwest::Client::new(),
+                            endpoint,
+                            client_id,
+                        )
+                        .await
+                        {
+                            Ok(start) => HttpResponse::ok(&json!(start)),
+                            Err(e) => HttpResponse::bad_request(e),
+                        }
+                    }
+                    // RFC 8628 §3.4: poll until approved, then persist.
+                    "complete" => {
+                        let device_code = body
+                            .get("device_code")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let token_endpoint = body
+                            .get("token_endpoint")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let client_id = body
+                            .get("client_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        if name.is_empty()
+                            || url.is_empty()
+                            || device_code.is_empty()
+                            || token_endpoint.is_empty()
+                            || client_id.is_empty()
+                        {
+                            return HttpResponse::bad_request(
+                                "name, url, device_code, token_endpoint and client_id are required",
+                            );
+                        }
+                        let start = crate::mcp::oauth::DeviceCodeStart {
+                            device_code: device_code.to_string(),
+                            user_code: body
+                                .get("user_code")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            verification_uri: body
+                                .get("verification_uri")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            verification_uri_complete: None,
+                            expires_in: body
+                                .get("expires_in")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(300),
+                            interval: body.get("interval").and_then(|v| v.as_u64()).unwrap_or(5),
+                        };
+                        match crate::mcp::oauth::poll_device_login(
+                            &reqwest::Client::new(),
+                            token_endpoint,
+                            client_id,
+                            &start,
+                        )
+                        .await
+                        {
+                            Ok(tokens) => {
+                                let key = match crate::mcp::oauth::mcp_oauth_store_key(name, url) {
+                                    Ok(key) => key,
+                                    Err(e) => return HttpResponse::bad_request(e),
+                                };
+                                match service.store_tokens(&key, &tokens) {
+                                    Ok(()) => HttpResponse::ok(&json!({
+                                        "authenticated": true,
+                                        "key": key,
+                                    })),
+                                    Err(e) => HttpResponse::internal_error(e),
+                                }
+                            }
+                            Err(e) => HttpResponse::bad_request(e),
+                        }
+                    }
+                    // Drop the stored credentials.
+                    "cancel" | "reset" => {
+                        let key = match crate::mcp::oauth::mcp_oauth_store_key(name, url) {
+                            Ok(key) => key,
+                            Err(e) => return HttpResponse::bad_request(e),
+                        };
+                        match service.remove(&key) {
+                            Ok(removed) => HttpResponse::ok(&json!({
+                                "authenticated": false,
+                                "removed": removed,
+                            })),
+                            Err(e) => HttpResponse::internal_error(e),
+                        }
+                    }
+                    other => {
+                        HttpResponse::bad_request(format!("Unknown MCP auth action: {other}"))
+                    }
+                }
             }
             ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/mcp") => {
                 let segments: Vec<&str> = p.split('/').collect();
@@ -6404,6 +6553,103 @@ mod tests {
             .expect("compaction.completed must be published");
         assert_eq!(completed["sessionId"], sid);
         assert!(completed["tokensBefore"].as_u64().unwrap() > completed["tokensAfter"].as_u64().unwrap());
+    }
+
+    /// `mcp/auth:begin` + `:complete` drive the RFC 8628 flow and persist the
+    /// credentials; `auth-statuses` reports them and `:reset` clears them.
+    #[tokio::test]
+    async fn test_http_mcp_auth_device_flow() {
+        let (url, _hits, _shutdown) =
+            crate::mcp::oauth::device::test_helpers::spawn_mock_oauth_server(vec![
+                (
+                    200,
+                    r#"{"device_code":"dev-1","user_code":"ABCD","verification_uri":"https://example.test/device","expires_in":60,"interval":0}"#,
+                ),
+                (400, r#"{"error":"authorization_pending"}"#),
+                (
+                    200,
+                    r#"{"access_token":"mcp-token","refresh_token":"r1","expires_in":3600}"#,
+                ),
+            ])
+            .await;
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let service = Arc::new(crate::mcp::oauth::McpOAuthService::new(Arc::new(
+            crate::mcp::oauth::McpOAuthFileStore::new(dir.path()),
+        )));
+        let server = HttpServer::new(store).with_mcp_oauth_service(service).await;
+
+        let begin = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/mcp/auth:begin".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "name": "srv",
+                    "device_authorization_endpoint": url,
+                    "client_id": "client-1"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(begin.status, 200);
+        let begin_body: Value = serde_json::from_slice(&begin.body).unwrap();
+        assert_eq!(begin_body["user_code"], "ABCD");
+        assert_eq!(begin_body["verification_uri"], "https://example.test/device");
+
+        let complete = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/mcp/auth:complete".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "name": "srv",
+                    "url": "https://example.test/mcp",
+                    "device_code": "dev-1",
+                    "token_endpoint": url,
+                    "client_id": "client-1",
+                    "interval": 0,
+                    "expires_in": 60
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(complete.status, 200);
+        let complete_body: Value = serde_json::from_slice(&complete.body).unwrap();
+        assert_eq!(complete_body["authenticated"], true);
+
+        let statuses = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/mcp/auth-statuses".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let statuses_body: Value = serde_json::from_slice(&statuses.body).unwrap();
+        let key = crate::mcp::oauth::mcp_oauth_store_key("srv", "https://example.test/mcp").unwrap();
+        assert_eq!(statuses_body["statuses"][&key]["authenticated"], true);
+
+        let reset = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/mcp/auth:reset".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "name": "srv",
+                    "url": "https://example.test/mcp"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(reset.status, 200);
+        let reset_body: Value = serde_json::from_slice(&reset.body).unwrap();
+        assert_eq!(reset_body["removed"], true);
     }
 
     #[tokio::test]
