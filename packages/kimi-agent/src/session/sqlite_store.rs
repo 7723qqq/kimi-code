@@ -878,7 +878,9 @@ impl SqliteSessionStore {
         Ok(reverted)
     }
 
-    /// Compact history for the session using the force compaction algorithm.
+    /// Compact history for the session using the manual compaction algorithm
+    /// (`POST :compact` is a user-triggered compaction, so it scans from the
+    /// tail for the deepest safe split instead of the auto window).
     ///
     /// Records a `compaction-boundary` checkpoint first so undo bookkeeping
     /// can refuse to cross it, mirroring the ledger's compaction markers
@@ -889,7 +891,7 @@ impl SqliteSessionStore {
             return Ok(0);
         }
         let config = crate::compaction::CompactionConfig::default();
-        let compacted = crate::compaction::force_compact_messages(&history, &config);
+        let compacted = crate::compaction::force_compact_messages_manual(&history, &config);
         if compacted.len() >= history.len() {
             return Ok(0);
         }

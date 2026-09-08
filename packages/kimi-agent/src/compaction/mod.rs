@@ -150,7 +150,22 @@ pub fn compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> V
 /// Unconditionally compact `messages` if a safe split point exists, bypassing the
 /// `should_compact` threshold estimate. Used for runtime context overflow recovery.
 pub fn force_compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> Vec<LLMMessage> {
-    let count = compute_compact_count(messages, config);
+    apply_compaction(messages, compute_compact_count(messages, config))
+}
+
+/// Manual compaction (`POST :compact`): the count comes from the tail scan
+/// below instead of the auto window, so it compacts far more of the history
+/// (v2 `computeCompactCount(..., 'manual')`, strategy.ts:182-189).
+pub fn force_compact_messages_manual(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+) -> Vec<LLMMessage> {
+    apply_compaction(messages, compute_compact_count_manual(messages, config))
+}
+
+/// Project `count` leading messages into a summary placeholder, keeping the
+/// system message (index 0) and the tail untouched.
+fn apply_compaction(messages: &[LLMMessage], count: u32) -> Vec<LLMMessage> {
     if count == 0 {
         return messages.to_vec();
     }
@@ -163,6 +178,22 @@ pub fn force_compact_messages(messages: &[LLMMessage], config: &CompactionConfig
     });
     compacted.extend_from_slice(&messages[count as usize..]);
     compacted
+}
+
+/// Manual split-point search: walk from the tail and take the *deepest* safe
+/// split, so a manual compaction keeps only the smallest safe tail
+/// (v2 `computeCompactCount` manual branch).
+pub fn compute_compact_count_manual(messages: &[LLMMessage], config: &CompactionConfig) -> u32 {
+    let n = messages.len();
+    if n <= 1 {
+        return 0;
+    }
+    for index in (1..n).rev() {
+        if can_split_after(messages, index) {
+            return fit_compact_count_to_window(messages, (index + 1) as u32, config);
+        }
+    }
+    0
 }
 
 /// Classify whether an LLM error string indicates that the context length / window was exceeded.
@@ -1066,5 +1097,39 @@ mod tests {
             msg("user", "u3"),
         ];
         assert_messages_eq(&forced, &expected);
+    }
+
+    /// Manual compaction walks the history from the tail and takes the
+    /// deepest safe split, so it compacts strictly more than the auto window
+    /// (v2 `computeCompactCount(..., 'manual')`, strategy.ts:182-189).
+    #[test]
+    fn test_manual_compaction_scans_deeper_than_auto() {
+        let config = small_config(100_000);
+        let mut messages = vec![msg("system", "sys")];
+        for i in 0..20 {
+            messages.push(msg("user", &format!("u{i}")));
+            messages.push(msg("assistant", &format!("a{i}")));
+        }
+
+        let auto = compute_compact_count(&messages, &config);
+        let manual = compute_compact_count_manual(&messages, &config);
+        assert!(
+            manual > auto,
+            "manual {manual} must compact deeper than auto {auto}"
+        );
+        // The deepest safe split sits after the final assistant message, so a
+        // manual compaction keeps only the system prompt plus the summary —
+        // the manual branch probes `messages.length - 1`, unlike the auto
+        // window (v2 strategy.ts:182-189 does the same).
+        assert_eq!(manual as usize, messages.len());
+
+        let manual_compacted = force_compact_messages_manual(&messages, &config);
+        assert_eq!(manual_compacted.len(), 2);
+        assert_eq!(manual_compacted[0].role, "system");
+        assert_eq!(
+            manual_compacted[1].content,
+            summary_placeholder(messages.len() - 1)
+        );
+        assert!(force_compact_messages(&messages, &config).len() > manual_compacted.len());
     }
 }
