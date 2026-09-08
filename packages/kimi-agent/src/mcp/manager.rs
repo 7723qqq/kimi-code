@@ -173,6 +173,8 @@ pub struct McpManager {
     /// In-flight reconnects (v2 `inFlightReconnects`): late callers join the
     /// running one via its Notify instead of double-spawning.
     in_flight: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
+    /// OAuth credentials for remote servers (v2 `McpOAuthService`).
+    oauth: Arc<RwLock<Option<Arc<crate::mcp::oauth::McpOAuthService>>>>,
 }
 
 impl Default for McpManager {
@@ -191,6 +193,42 @@ impl McpManager {
             timeouts: Arc::new(RwLock::new(HashMap::new())),
             defaults: Arc::new(RwLock::new(crate::config::McpTimeoutConfig::default())),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            oauth: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Install the OAuth credential service used for remote servers
+    /// (v2 `McpConnectionManagerOptions.oauthService`).
+    pub async fn set_oauth_service(&self, service: Arc<crate::mcp::oauth::McpOAuthService>) {
+        *self.oauth.write().await = Some(service);
+    }
+
+    async fn oauth_service(&self) -> Option<Arc<crate::mcp::oauth::McpOAuthService>> {
+        self.oauth.read().await.clone()
+    }
+
+    /// Inject `Authorization: Bearer <token>` from the OAuth store when the
+    /// server carries no static token (v2 `resolveOAuthProvider`).
+    async fn apply_oauth_header(
+        &self,
+        name: &str,
+        url: &str,
+        headers: &mut HashMap<String, String>,
+    ) {
+        if headers
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("authorization"))
+        {
+            return;
+        }
+        let Some(service) = self.oauth_service().await else {
+            return;
+        };
+        let Ok(key) = crate::mcp::oauth::mcp_oauth_store_key(name, url) else {
+            return;
+        };
+        if let Some(token) = service.access_token(&key).await {
+            headers.insert("Authorization".into(), format!("Bearer {token}"));
         }
     }
 
@@ -568,8 +606,15 @@ impl McpManager {
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
             Err(e) => {
+                // A 401 on a server with no static token means the client must
+                // authenticate (v2 `shouldMarkNeedsAuth`).
+                let status = if e.contains("401") {
+                    "needs-auth"
+                } else {
+                    "failed"
+                };
                 if let Some(state) = self.servers.write().await.get_mut(name) {
-                    state.status = "failed".into();
+                    state.status = status.into();
                     state.error = Some(e.clone());
                 }
                 Err(e)
@@ -600,8 +645,9 @@ impl McpManager {
                     headers,
                     bearer_token_env_var,
                 } => {
-                    let headers =
+                    let mut headers =
                         resolve_bearer_headers("SSE", headers, bearer_token_env_var.as_deref())?;
+                    self.apply_oauth_header(name, url, &mut headers).await;
                     McpClient::connect_sse(name, url, headers).await?
                 }
                 McpServerRecipe::Http {
@@ -609,8 +655,9 @@ impl McpManager {
                     headers,
                     bearer_token_env_var,
                 } => {
-                    let headers =
+                    let mut headers =
                         resolve_bearer_headers("HTTP", headers, bearer_token_env_var.as_deref())?;
+                    self.apply_oauth_header(name, url, &mut headers).await;
                     McpClient::connect_http(name, url, headers).await?
                 }
                 McpServerRecipe::Stdio {
@@ -695,8 +742,15 @@ impl McpManager {
         match self.connect_one(name).await {
             Ok(()) => Ok(()),
             Err(e) => {
+                // A 401 on a server with no static token means the client must
+                // authenticate (v2 `shouldMarkNeedsAuth`).
+                let status = if e.contains("401") {
+                    "needs-auth"
+                } else {
+                    "failed"
+                };
                 if let Some(state) = self.servers.write().await.get_mut(name) {
-                    state.status = "failed".into();
+                    state.status = status.into();
                     state.error = Some(e.clone());
                 }
                 Err(e)
@@ -1479,5 +1533,71 @@ mod tests {
         let entries = manager.server_entries().await;
         assert_eq!(entries[0].status, "failed");
         assert_eq!(entries[0].error.as_deref(), Some(err.as_str()));
+    }
+
+    /// A 401 marks the server `needs-auth` instead of `failed`, and an OAuth
+    /// credential from the store is injected as a bearer token
+    /// (v2 `shouldMarkNeedsAuth` + `resolveOAuthProvider`).
+    #[tokio::test]
+    async fn test_oauth_token_injection_and_needs_auth_status() {
+        // 1. No credentials + 401 → needs-auth.
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("401").await;
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "auth-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("401 must fail the connect");
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].status, "needs-auth");
+
+        // 2. With stored credentials the token is sent.
+        let (url, seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::mcp::oauth::McpOAuthFileStore::new(dir.path()));
+        let key = crate::mcp::oauth::mcp_oauth_store_key("oauth-srv", &url).unwrap();
+        store
+            .write(
+                &key,
+                &crate::mcp::oauth::McpOAuthTokens {
+                    access_token: "oauth-token".into(),
+                    refresh_token: None,
+                    expires_at_ms: None,
+                    token_endpoint: None,
+                    client_id: None,
+                },
+            )
+            .unwrap();
+        manager
+            .set_oauth_service(Arc::new(crate::mcp::oauth::McpOAuthService::new(store)))
+            .await;
+        manager
+            .configure(
+                "oauth-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("token-authenticated server connects");
+
+        let requests = seen.lock().await.clone();
+        assert!(!requests.is_empty());
+        assert_eq!(
+            requests[0].authorization.as_deref(),
+            Some("Bearer oauth-token")
+        );
     }
 }

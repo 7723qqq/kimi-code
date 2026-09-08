@@ -7,7 +7,11 @@
 //! single-flight refresh, and the `needs-auth` server status.
 
 pub mod crypto;
+pub mod service;
 pub mod store;
+
+pub use service::{McpOAuthService, McpOAuthTokens};
+pub use store::McpOAuthFileStore;
 
 use sha2::{Digest, Sha256};
 

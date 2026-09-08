@@ -252,6 +252,12 @@ pub(crate) mod test_helpers {
                                     .await;
                                 return;
                             }
+                            if mode == "401" {
+                                let _ = socket
+                                    .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                                    .await;
+                                return;
+                            }
 
                             let json: Value =
                                 serde_json::from_slice(&body).unwrap_or(Value::Null);
