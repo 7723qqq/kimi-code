@@ -5075,7 +5075,10 @@ mod tests {
         assert_eq!(res_acp.status, 200);
         let val_acp: Value = serde_json::from_slice(&res_acp.body).unwrap();
         assert_eq!(val_acp["jsonrpc"], "2.0");
-        assert!(val_acp["result"]["capabilities"].is_object());
+        // ACP handshake uses the spec shape: numeric protocolVersion plus
+        // camelCase agentCapabilities (see src/acp/types.rs).
+        assert_eq!(val_acp["result"]["protocolVersion"], 1);
+        assert!(val_acp["result"]["agentCapabilities"].is_object());
     }
 
     #[tokio::test]
