@@ -4,11 +4,13 @@
 //! external MCP servers directly from the native Rust agent engine.
 
 pub mod client;
+pub mod http;
 pub mod manager;
 pub mod sse;
 pub mod types;
 
 pub use client::McpClient;
+pub use http::McpHttpTransport;
 pub use manager::McpManager;
 pub use sse::McpSseTransport;
 pub use types::{McpTool, McpToolCallResult};

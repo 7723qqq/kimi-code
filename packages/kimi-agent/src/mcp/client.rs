@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
+use crate::mcp::http::McpHttpTransport;
 use crate::mcp::sse::McpSseTransport;
 use crate::mcp::types::*;
 
@@ -20,6 +21,7 @@ enum McpTransport {
         pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     },
     Sse(McpSseTransport),
+    Http(McpHttpTransport),
     Mock,
 }
 
@@ -52,9 +54,29 @@ impl McpClient {
     /// `buildRequestOptions(toolCallTimeoutMs)`).
     pub fn set_tool_timeout(&mut self, timeout: Option<Duration>) {
         self.tool_timeout = timeout;
-        if let McpTransport::Sse(sse) = &mut self.transport {
-            sse.set_request_timeout(timeout);
+        match &mut self.transport {
+            McpTransport::Sse(sse) => sse.set_request_timeout(timeout),
+            McpTransport::Http(http) => http.set_request_timeout(timeout),
+            _ => {}
         }
+    }
+
+    /// Connect to a remote MCP server via Streamable HTTP (`transport = "http"`).
+    pub async fn connect_http(
+        server_name: &str,
+        url: &str,
+        headers: HashMap<String, String>,
+    ) -> Result<Self, String> {
+        let transport = McpHttpTransport::connect(url, headers).await?;
+        let client = Self {
+            server_name: server_name.to_string(),
+            transport: McpTransport::Http(transport),
+            next_id: AtomicU64::new(1),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            tool_timeout: None,
+        };
+        client.initialize().await?;
+        Ok(client)
     }
 
     /// Connect to a remote MCP server via HTTP/SSE.
@@ -190,6 +212,7 @@ impl McpClient {
         match &self.transport {
             McpTransport::Stdio { .. } => "stdio",
             McpTransport::Sse(_) => "sse",
+            McpTransport::Http(_) => "http",
             McpTransport::Mock => "mock",
         }
     }
@@ -198,6 +221,7 @@ impl McpClient {
         match &self.transport {
             McpTransport::Mock => Ok(serde_json::json!({})),
             McpTransport::Sse(sse) => sse.send_request(method, params).await,
+            McpTransport::Http(http) => http.send_request(method, params).await,
             McpTransport::Stdio { stdin, pending, .. } => {
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (tx, rx) = oneshot::channel();
@@ -250,8 +274,14 @@ impl McpClient {
 
     /// Perform MCP `initialize` handshake.
     pub async fn initialize(&self) -> Result<(), String> {
+        // Streamable HTTP only exists from 2025-03-26 on; the legacy stdio and
+        // HTTP+SSE transports keep advertising 2024-11-05.
+        let protocol_version = match &self.transport {
+            McpTransport::Http(_) => crate::mcp::http::STREAMABLE_HTTP_PROTOCOL_VERSION,
+            _ => "2024-11-05",
+        };
         let params = serde_json::json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": protocol_version,
             "capabilities": {
                 "tools": {}
             },

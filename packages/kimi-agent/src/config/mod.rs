@@ -77,6 +77,11 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    /// Explicit transport (`stdio` / `sse` / `http`). Without it a `url`
+    /// defaults to Streamable HTTP and a `command` to stdio, matching the v2
+    /// config preprocess (config-schema.ts:58-65).
+    #[serde(default)]
+    pub transport: Option<String>,
     /// `false` keeps the entry listed as `disabled` without ever connecting
     /// it (v2 `config.enabled`).
     #[serde(default)]

@@ -37,6 +37,11 @@ pub enum McpServerRecipe {
         url: String,
         headers: HashMap<String, String>,
     },
+    /// Streamable HTTP (`transport = "http"`), the v2 default for a bare url.
+    Http {
+        url: String,
+        headers: HashMap<String, String>,
+    },
     Stdio {
         command: String,
         args: Vec<String>,
@@ -345,6 +350,7 @@ impl McpManager {
                 name: name.clone(),
                 transport: match &state.recipe {
                     McpServerRecipe::Sse { .. } => "sse".into(),
+                    McpServerRecipe::Http { .. } => "http".into(),
                     McpServerRecipe::Stdio { .. } => "stdio".into(),
                     McpServerRecipe::Mock => "mock".into(),
                 },
@@ -542,6 +548,9 @@ impl McpManager {
                 McpServerRecipe::Sse { url, headers } => {
                     McpClient::connect_sse(name, url, headers.clone()).await?
                 }
+                McpServerRecipe::Http { url, headers } => {
+                    McpClient::connect_http(name, url, headers.clone()).await?
+                }
                 McpServerRecipe::Stdio { command, args, env } => {
                     McpClient::spawn_stdio(
                         name,
@@ -637,19 +646,37 @@ fn tool_to_json(tool: &McpTool) -> Value {
 }
 
 /// A configured server is remote when it has a URL, otherwise stdio when it
-/// has a command; entries with neither are not MCP servers at all.
+/// has a command; entries with neither are not MCP servers at all. An explicit
+/// `transport` wins, and a bare `url` defaults to Streamable HTTP exactly like
+/// the v2 config preprocess (`config-schema.ts:58-65`); legacy HTTP+SSE needs
+/// `transport = "sse"`.
 fn recipe_from_config(conf: &crate::config::McpServerConfig) -> Option<McpServerRecipe> {
-    if let Some(url) = &conf.url {
-        Some(McpServerRecipe::Sse {
-            url: url.clone(),
-            headers: conf.headers.clone().unwrap_or_default(),
+    let transport = conf.transport.as_deref().map(str::to_ascii_lowercase);
+    let remote = |build: fn(String, HashMap<String, String>) -> McpServerRecipe| {
+        conf.url.as_ref().map(|url| {
+            build(url.clone(), conf.headers.clone().unwrap_or_default())
         })
-    } else {
-        conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+    };
+    match transport.as_deref() {
+        Some("stdio") => conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
             command: cmd.clone(),
             args: conf.args.clone().unwrap_or_default(),
             env: conf.env.clone().unwrap_or_default(),
-        })
+        }),
+        Some("sse") => remote(|url, headers| McpServerRecipe::Sse { url, headers }),
+        Some("http") => remote(|url, headers| McpServerRecipe::Http { url, headers }),
+        Some(_) => None,
+        None => {
+            if conf.url.is_some() {
+                remote(|url, headers| McpServerRecipe::Http { url, headers })
+            } else {
+                conf.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+                    command: cmd.clone(),
+                    args: conf.args.clone().unwrap_or_default(),
+                    env: conf.env.clone().unwrap_or_default(),
+                })
+            }
+        }
     }
 }
 
@@ -815,6 +842,9 @@ mod tests {
                 env: None,
                 url: Some(sse_url),
                 headers: None,
+                // The mock speaks legacy HTTP+SSE, which is opt-in now that a
+                // bare url defaults to Streamable HTTP.
+                transport: Some("sse".into()),
                 ..Default::default()
             },
         );
@@ -827,6 +857,7 @@ mod tests {
                 env: None,
                 url: Some("http://127.0.0.1:1/nonexistent_sse".into()),
                 headers: None,
+                transport: Some("sse".into()),
                 ..Default::default()
             },
         );
@@ -883,6 +914,9 @@ mod tests {
                 env: None,
                 url: Some(sse_url),
                 headers: None,
+                // The mock speaks legacy HTTP+SSE, which is opt-in now that a
+                // bare url defaults to Streamable HTTP.
+                transport: Some("sse".into()),
                 ..Default::default()
             },
         );
@@ -1118,5 +1152,77 @@ mod tests {
         assert_eq!(entries[0].status, "failed");
         assert_eq!(entries[0].error.as_deref(), Some("Timed out after 150ms"));
         assert_eq!(entries[0].tool_count, 0);
+    }
+
+    /// A Streamable HTTP server is discovered through the `http` recipe
+    /// (v2 `HttpMcpClient`).
+    #[tokio::test]
+    async fn test_http_recipe_discovers_tools() {
+        let (url, _seen, _shutdown) = crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
+        let manager = McpManager::new();
+        manager
+            .configure(
+                "http-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("HTTP server connects");
+
+        assert!(manager.handles("mcp__http-srv__echo").await);
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].transport, "http");
+        assert_eq!(entries[0].status, "connected");
+        assert_eq!(entries[0].tool_count, 1);
+
+        let res = manager
+            .call_tool("mcp__http-srv__echo", &json!({}))
+            .await
+            .expect("tool call failed");
+        assert!(!res.is_error);
+        assert_eq!(res.content, "ok");
+    }
+
+    /// A bare `url` defaults to Streamable HTTP; legacy SSE needs an explicit
+    /// transport (v2 config preprocess, config-schema.ts:58-65).
+    #[test]
+    fn test_recipe_from_config_transport_defaults() {
+        let url_only = crate::config::McpServerConfig {
+            url: Some("http://example.test/mcp".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            recipe_from_config(&url_only),
+            Some(McpServerRecipe::Http { .. })
+        ));
+
+        let explicit_sse = crate::config::McpServerConfig {
+            url: Some("http://example.test/sse".into()),
+            transport: Some("sse".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            recipe_from_config(&explicit_sse),
+            Some(McpServerRecipe::Sse { .. })
+        ));
+
+        let command_only = crate::config::McpServerConfig {
+            command: Some("mcp-server".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            recipe_from_config(&command_only),
+            Some(McpServerRecipe::Stdio { .. })
+        ));
+
+        let unknown = crate::config::McpServerConfig {
+            url: Some("http://example.test/mcp".into()),
+            transport: Some("carrier-pigeon".into()),
+            ..Default::default()
+        };
+        assert!(recipe_from_config(&unknown).is_none());
     }
 }

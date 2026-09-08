@@ -1252,10 +1252,18 @@ async fn build_engine_pipeline(
                         args: cfg.args.clone().unwrap_or_default(),
                         env: cfg.env.clone().unwrap_or_default(),
                     }),
-                "sse" | "http" => {
+                "sse" => {
                     cfg.url
                         .as_ref()
                         .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
+                            url: url.clone(),
+                            headers: cfg.headers.clone().unwrap_or_default(),
+                        })
+                }
+                "http" => {
+                    cfg.url
+                        .as_ref()
+                        .map(|url| crate::mcp::manager::McpServerRecipe::Http {
                             url: url.clone(),
                             headers: cfg.headers.clone().unwrap_or_default(),
                         })
