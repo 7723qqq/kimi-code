@@ -238,6 +238,12 @@ impl ServerEngine {
             .clone()
     }
 
+    /// The event hub every turn publishes to; callers subscribe per session
+    /// through `EventHub::bus_for`.
+    pub fn hub(&self) -> Arc<EventHub> {
+        self.hub.clone()
+    }
+
     pub fn with_interaction_manager(self, manager: Arc<InteractionManager>) -> Self {
         *self
             .interaction_manager

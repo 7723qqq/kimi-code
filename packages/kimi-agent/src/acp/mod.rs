@@ -12,6 +12,7 @@
 //! `session/resume` / `session/fork`, `configOptions`, and replaying history
 //! on `session/load`.
 
+pub mod events_map;
 pub mod types;
 
 use serde_json::json;
@@ -20,12 +21,24 @@ use std::sync::Arc;
 use crate::acp::types::{
     AcpInitializeParams, JsonRpcRequest, JsonRpcResponse, acp_modes, negotiate_protocol_version,
 };
+use crate::events::bus::{EventBus, Subscription};
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::turn_loop::types::LLMMessage;
+
+/// One outbound JSON-RPC message: a response to a client request, or a
+/// server-initiated notification such as `session/update`.
+#[derive(Debug, Clone)]
+pub enum AcpOutbound {
+    Response(JsonRpcResponse),
+    Notification(JsonRpcRequest),
+}
+
+type NotificationSink = Arc<std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<AcpOutbound>>>>;
 
 pub struct AcpServer {
     store: Arc<SqliteSessionStore>,
     engine: Option<Arc<crate::server::engine::ServerEngine>>,
+    sink: NotificationSink,
 }
 
 impl AcpServer {
@@ -33,6 +46,7 @@ impl AcpServer {
         Self {
             store,
             engine: None,
+            sink: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
@@ -43,7 +57,46 @@ impl AcpServer {
         Self {
             store,
             engine: Some(engine),
+            sink: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    /// Install the outbound channel used for `session/update` notifications.
+    pub fn set_notification_sink(&self, sender: tokio::sync::mpsc::UnboundedSender<AcpOutbound>) {
+        *self.sink.write().unwrap_or_else(|e| e.into_inner()) = Some(sender);
+    }
+
+    fn emit_notification(&self, method: &str, params: serde_json::Value) {
+        let guard = self.sink.read().unwrap_or_else(|e| e.into_inner());
+        if let Some(sender) = guard.as_ref() {
+            let _ = sender.send(AcpOutbound::Notification(JsonRpcResponse::notification(
+                method, params,
+            )));
+        }
+    }
+
+    /// Forward one session's engine events to ACP `session/update`
+    /// notifications until the returned subscription is dropped
+    /// (v2 `AcpSession` subscribes the agent event stream the same way).
+    pub fn forward_session_events(
+        &self,
+        session_id: &str,
+        bus: &Arc<EventBus>,
+    ) -> Subscription {
+        let sink = self.sink.clone();
+        let session = session_id.to_string();
+        bus.subscribe(move |event| {
+            let Some(params) = events_map::engine_event_to_session_update(&session, event) else {
+                return;
+            };
+            let guard = sink.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(sender) = guard.as_ref() {
+                let _ = sender.send(AcpOutbound::Notification(JsonRpcResponse::notification(
+                    "session/update",
+                    params,
+                )));
+            }
+        })
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
@@ -51,28 +104,50 @@ impl AcpServer {
         Ok(Self::new(store))
     }
 
-    /// Run the ACP server reading from stdin and writing to stdout.
+    /// Run the ACP server reading from stdin and writing to stdout. Responses
+    /// and server-initiated notifications share one writer so their JSON lines
+    /// never interleave.
     pub async fn run_stdio(&self) -> Result<(), std::io::Error> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-        let stdin = tokio::io::stdin();
-        let mut stdout = tokio::io::stdout();
-        let mut reader = BufReader::new(stdin).lines();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        self.set_notification_sink(tx.clone());
 
+        let writer = tokio::spawn(async move {
+            let mut stdout = tokio::io::stdout();
+            while let Some(message) = rx.recv().await {
+                let value = match message {
+                    AcpOutbound::Response(response) => serde_json::to_value(response),
+                    AcpOutbound::Notification(notification) => {
+                        serde_json::to_value(notification)
+                    }
+                };
+                let Ok(value) = value else { continue };
+                if stdout.write_all(value.to_string().as_bytes()).await.is_err() {
+                    break;
+                }
+                if stdout.write_all(b"\n").await.is_err() {
+                    break;
+                }
+                let _ = stdout.flush().await;
+            }
+        });
+
+        let stdin = tokio::io::stdin();
+        let mut reader = BufReader::new(stdin).lines();
         while let Some(line) = reader.next_line().await? {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
             }
             if let Some(resp) = self.handle_message(trimmed).await {
-                let serialized = serde_json::to_string(&resp).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                })?;
-                stdout.write_all(serialized.as_bytes()).await?;
-                stdout.write_all(b"\n").await?;
-                stdout.flush().await?;
+                let _ = tx.send(AcpOutbound::Response(resp));
             }
         }
+        // Drop the sink's clone too, otherwise the writer task never ends.
+        *self.sink.write().unwrap_or_else(|e| e.into_inner()) = None;
+        drop(tx);
+        let _ = writer.await;
         Ok(())
     }
 
@@ -189,7 +264,13 @@ impl AcpServer {
                         if let Some(ref engine) = self.engine {
                             let history = self.store.load_session_history(sid).unwrap_or_default();
                             let turn_number = self.store.next_turn_number(sid).unwrap_or(1);
-                            match engine.run_turn(sid, turn_number, history, &p).await {
+                            // Stream this session's events as ACP
+                            // `session/update` notifications while the turn runs.
+                            let bus = engine.hub().bus_for(sid);
+                            let subscription = self.forward_session_events(sid, &bus);
+                            let result = engine.run_turn(sid, turn_number, history, &p).await;
+                            bus.unsubscribe(subscription);
+                            match result {
                                 Ok(report) => JsonRpcResponse::success(
                                     req.id,
                                     json!({
@@ -536,6 +617,54 @@ mod tests {
             history[0].content,
             "look at this\n<resource uri=\"file:///tmp/a.txt\">body</resource>\n\
              <resource_link uri=\"file:///tmp/b.txt\" name=\"b\" />"
+        );
+    }
+
+    /// Engine events reach the client as `session/update` notifications while
+    /// a turn runs, and stop once the subscription is dropped.
+    #[tokio::test]
+    async fn test_session_update_notifications_are_forwarded() {
+        use crate::events::types::EngineEvent;
+
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let bus = Arc::new(EventBus::new());
+        let subscription = server.forward_session_events("sess-1", &bus);
+
+        bus.publish(&EngineEvent::AssistantDelta {
+            agent_id: "main".into(),
+            turn_id: 3,
+            delta: "hi".into(),
+        });
+        bus.publish(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 3,
+            prompt: None,
+        });
+
+        match rx.try_recv().expect("one notification") {
+            AcpOutbound::Notification(note) => {
+                assert_eq!(note.method, "session/update");
+                let params = note.params.expect("notification params");
+                assert_eq!(params["sessionId"], "sess-1");
+                assert_eq!(params["update"]["sessionUpdate"], "agent_message_chunk");
+                assert_eq!(params["update"]["content"]["text"], "hi");
+            }
+            other => panic!("unexpected outbound message: {other:?}"),
+        }
+        assert!(rx.try_recv().is_err(), "unmapped events must not notify");
+
+        bus.unsubscribe(subscription);
+        bus.publish(&EngineEvent::AssistantDelta {
+            agent_id: "main".into(),
+            turn_id: 3,
+            delta: "again".into(),
+        });
+        assert!(
+            rx.try_recv().is_err(),
+            "a dropped subscription stops forwarding"
         );
     }
 
