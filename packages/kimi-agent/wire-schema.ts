@@ -335,3 +335,35 @@ export const sessionTurnOutcomeResultSchema = z.object({
 });
 
 export type SessionTurnOutcomeWire = z.infer<typeof sessionTurnOutcomeResultSchema>;
+
+// ── Wave 1 harness parity: btw / title / background tasks over stdio ────
+// Params mirror rpc/types.rs; responses mirror the napi addon surface.
+
+export const sessionBtwPromptParamsSchema = z.object({
+  session_id: z.string(),
+  agent_id: z.string(),
+  prompt: z.string(),
+});
+
+export const sessionBtwPromptResultSchema = z.object({
+  content: z.string(),
+  stopReason: z.string(),
+});
+
+export type SessionBtwPromptWire = z.infer<typeof sessionBtwPromptResultSchema>;
+
+export const sessionGenerateTitleParamsSchema = z.object({
+  session_id: z.string(),
+  source: z.string().optional(),
+});
+
+export const sessionBackgroundTaskOutputParamsSchema = z.object({
+  session_id: z.string(),
+  task_id: z.string(),
+});
+
+export const sessionBackgroundTaskStopParamsSchema = z.object({
+  session_id: z.string(),
+  task_id: z.string(),
+  reason: z.string().optional(),
+});

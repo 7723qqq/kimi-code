@@ -19,6 +19,11 @@ import {
   authTokenResponseSchema,
   runTurnParamsSchema,
   runTurnResultSchema,
+  sessionBackgroundTaskOutputParamsSchema,
+  sessionBackgroundTaskStopParamsSchema,
+  sessionBtwPromptParamsSchema,
+  sessionBtwPromptResultSchema,
+  sessionGenerateTitleParamsSchema,
   telemetryEventSchema,
   turnEventSchema,
 } from './wire-schema';
@@ -1326,6 +1331,21 @@ describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () =>
       expect(secondOutcome.status).toBe('ran');
       expect(await handle.historyLen()).toBeGreaterThan(0);
 
+      // Wave 1 harness parity over stdio: title derives from the live
+      // history, btw runs a side-channel turn, background tasks list empty
+      // without a runner, and cancelling an unknown btw id is false.
+      const title = await handle.generateTitle('first_turn');
+      expect(typeof title).toBe('string');
+      const agentId = await handle.startBtw();
+      expect(agentId).toMatch(/^agent-btw-/);
+      const btw = await handle.btwPrompt(agentId, 'side question');
+      expect(btw.content).toBe('hello!');
+      expect(await handle.btwCancel('agent-btw-missing')).toBe(false);
+      // Background tasks have no EngineSessionHandle surface (SDK-native
+      // only); exercise the engine methods through the process handle.
+      const tasksRaw = await agent.sessionBackgroundTaskList(handle.id);
+      expect(JSON.parse(tasksRaw)).toEqual([]);
+
       await handle.dispose();
     } finally {
       agent.stop();
@@ -2121,6 +2141,32 @@ describe('wire-schema', () => {
     expect(
       runTurnResultSchema.safeParse({ steps: 1, usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } })
         .success,
+    ).toBe(false);
+  });
+
+  it('validates the Wave 1 session params and results', () => {
+    expect(
+      sessionBtwPromptParamsSchema.safeParse({
+        session_id: 'session-1',
+        agent_id: 'agent-btw-1',
+        prompt: 'hi',
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionBtwPromptResultSchema.safeParse({ content: 'yo', stopReason: 'EndTurn' }).success,
+    ).toBe(true);
+    expect(sessionBtwPromptResultSchema.safeParse({ content: 'yo' }).success).toBe(false);
+    expect(sessionGenerateTitleParamsSchema.safeParse({ session_id: 'session-1' }).success).toBe(
+      true,
+    );
+    expect(
+      sessionBackgroundTaskStopParamsSchema.safeParse({
+        session_id: 'session-1',
+        task_id: 'task-1',
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionBackgroundTaskOutputParamsSchema.safeParse({ session_id: 'session-1' }).success,
     ).toBe(false);
   });
 });

@@ -35,6 +35,7 @@ import {
   type SessionCallbacks,
   type SessionPrompt,
   type SessionStatus,
+  type SessionTitleSource,
   type SessionTransport,
   type SessionTurnOutcome,
 } from './session-handle';
@@ -45,7 +46,12 @@ import {
   llmChatRequestSchema,
   permissionCheckRequestSchema,
   runTurnParamsSchema,
+  sessionBackgroundTaskOutputParamsSchema,
+  sessionBackgroundTaskStopParamsSchema,
+  sessionBtwPromptParamsSchema,
+  sessionBtwPromptResultSchema,
   sessionEnqueueTurnParamsSchema,
+  sessionGenerateTitleParamsSchema,
   sessionHistoryParamsSchema,
   sessionMessageSchema,
   sessionStatusResultSchema,
@@ -54,7 +60,12 @@ import {
   toolExecuteRequestSchema,
   turnEventSchema,
 } from './wire-schema';
-import type { SessionMessageWire, SessionStatusWire, SessionTurnOutcomeWire } from './wire-schema';
+import type {
+  SessionBtwPromptWire,
+  SessionMessageWire,
+  SessionStatusWire,
+  SessionTurnOutcomeWire,
+} from './wire-schema';
 
 // Project root: packages/kimi-agent/rust-loop.ts → ../../ (project root)
 const projectRoot = resolve(import.meta.dirname, '..', '..');
@@ -1523,6 +1534,77 @@ export class AgentProcess {
   async sessionDispose(sessionId: string): Promise<void> {
     await this.request('session/dispose', { session_id: sessionId });
   }
+
+  // ── Wave 1 harness parity: btw / title / background tasks ─────────────
+  // Same surface as the napi addon; the engine resolves them against the
+  // session's own pipeline (no process-global manager on this transport).
+
+  async sessionStartBtw(sessionId: string): Promise<string> {
+    const result = await this.request('session/start_btw', { session_id: sessionId });
+    return parseWireObject(z.string(), result, 'session/start_btw result');
+  }
+
+  async sessionBtwPrompt(
+    sessionId: string,
+    agentId: string,
+    prompt: string,
+  ): Promise<SessionBtwPromptWire> {
+    const params = { session_id: sessionId, agent_id: agentId, prompt };
+    parseWireObject(sessionBtwPromptParamsSchema, params, 'session/btw_prompt request');
+    const result = await this.request('session/btw_prompt', params);
+    return parseWireObject(sessionBtwPromptResultSchema, result, 'session/btw_prompt result');
+  }
+
+  async sessionBtwCancel(agentId: string): Promise<boolean> {
+    const result = await this.request('session/btw_cancel', { agent_id: agentId });
+    return parseWireObject(z.boolean(), result, 'session/btw_cancel result');
+  }
+
+  async sessionGenerateTitle(
+    sessionId: string,
+    source?: SessionTitleSource,
+  ): Promise<string | null> {
+    const params = { session_id: sessionId, ...(source === undefined ? {} : { source }) };
+    parseWireObject(sessionGenerateTitleParamsSchema, params, 'session/generate_title request');
+    const result = await this.request('session/generate_title', params);
+    return parseWireObject(z.string().nullable(), result, 'session/generate_title result');
+  }
+
+  async sessionBackgroundTaskList(sessionId: string): Promise<string> {
+    const result = await this.request('session/background_task_list', {
+      session_id: sessionId,
+    });
+    return parseWireObject(z.string(), result, 'session/background_task_list result');
+  }
+
+  async sessionBackgroundTaskOutput(sessionId: string, taskId: string): Promise<string | null> {
+    const params = { session_id: sessionId, task_id: taskId };
+    parseWireObject(
+      sessionBackgroundTaskOutputParamsSchema,
+      params,
+      'session/background_task_output request',
+    );
+    const result = await this.request('session/background_task_output', params);
+    return parseWireObject(z.string().nullable(), result, 'session/background_task_output result');
+  }
+
+  async sessionBackgroundTaskStop(
+    sessionId: string,
+    taskId: string,
+    reason?: string,
+  ): Promise<unknown> {
+    const params = {
+      session_id: sessionId,
+      task_id: taskId,
+      ...(reason === undefined ? {} : { reason }),
+    };
+    parseWireObject(
+      sessionBackgroundTaskStopParamsSchema,
+      params,
+      'session/background_task_stop request',
+    );
+    return this.request('session/background_task_stop', params);
+  }
 }
 
 // ── Stdio session transport (M1d 3b) ──────────────────────────────────────
@@ -1824,6 +1906,29 @@ export class StdioSessionTransport implements SessionTransport {
 
   async dispose(sessionId: string): Promise<void> {
     return this.agent.sessionDispose(sessionId);
+  }
+
+  // Wave 1 harness parity: the engine resolves these against the session's
+  // own pipeline, so stdio sessions support them like napi ones.
+
+  async startBtw(sessionId: string): Promise<string> {
+    return this.agent.sessionStartBtw(sessionId);
+  }
+
+  async btwPrompt(
+    sessionId: string,
+    agentId: string,
+    prompt: string,
+  ): Promise<{ content: string; stopReason: string }> {
+    return this.agent.sessionBtwPrompt(sessionId, agentId, prompt);
+  }
+
+  async btwCancel(agentId: string): Promise<boolean> {
+    return this.agent.sessionBtwCancel(agentId);
+  }
+
+  async generateTitle(sessionId: string, source?: SessionTitleSource): Promise<string | null> {
+    return this.agent.sessionGenerateTitle(sessionId, source);
   }
 }
 

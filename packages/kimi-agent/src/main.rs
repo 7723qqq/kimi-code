@@ -18,8 +18,11 @@ use kimi_agent::{
         server::RpcServer,
         types::{
             self, CancelTurnParams, HealthStatus, Message, RunTurnParams, RunTurnResult,
-            SessionCancelParams, SessionEnqueueParams, SessionHistoryParams, SessionIdParams,
-            SessionOutcomeResult, SessionStatusResult, SessionTurnOutcomeParams, TokenUsage,
+            SessionBackgroundTaskOutputParams, SessionBackgroundTaskStopParams,
+            SessionBtwCancelParams, SessionBtwPromptParams, SessionCancelParams,
+            SessionEnqueueParams, SessionGenerateTitleParams, SessionHistoryParams,
+            SessionIdParams, SessionOutcomeResult, SessionStatusResult, SessionTurnOutcomeParams,
+            TokenUsage,
         },
     },
     session::{
@@ -225,7 +228,8 @@ async fn main() -> anyhow::Result<()> {
             // The engine pipeline is shared with the session handle: the
             // callback chain (counting + native tools over the RPC host
             // bridge) and the LLM selection are built once per context.
-            let pipeline =
+            // One-shot turns have no session, so the manager is dropped.
+            let (pipeline, _) =
                 build_engine_pipeline(&input, server.clone(), Some(cancel.clone()), None).await?;
             let llm = pipeline.llm;
             let callbacks = pipeline.callbacks;
@@ -327,7 +331,7 @@ async fn main() -> anyhow::Result<()> {
                 // tool reads the live signal from it.
                 let agent_cancel_slot: Arc<Mutex<Option<ParentCancel>>> =
                     Arc::new(Mutex::new(None));
-                let pipeline = build_engine_pipeline(
+                let (pipeline, subagent_manager) = build_engine_pipeline(
                     &input,
                     server.clone(),
                     None,
@@ -390,6 +394,7 @@ async fn main() -> anyhow::Result<()> {
                             turn_event_count: pipeline.turn_event_count,
                             native_tool_count: pipeline.native_tool_count,
                             llm_transport: pipeline.llm.transport().to_string(),
+                            subagent_manager,
                             quiescence_guard: Arc::new(Mutex::new(None)),
                         },
                     );
@@ -649,6 +654,189 @@ async fn main() -> anyhow::Result<()> {
         })
     });
 
+    // ── Wave 1 harness parity: btw / title / background tasks over stdio ──
+    // Same semantics as the napi addon (napi_bindings.rs) and the standalone
+    // server, so the TS StdioSessionTransport can stop throwing
+    // "not supported" for them.
+
+    // Register session/start_btw handler
+    RpcServer::register_arc(&server, types::methods::SESSION_START_BTW, |params| {
+        Box::pin(async move {
+            let input: SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history = entry.session.snapshot_history();
+            let agent_id = kimi_agent::subagent::start_btw(&entry.subagent_manager, &history)
+                .await
+                .map_err(types::JsonRpcError::internal_error)?;
+            serde_json::to_value(&agent_id).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/btw_prompt handler
+    RpcServer::register_arc(&server, types::methods::SESSION_BTW_PROMPT, |params| {
+        Box::pin(async move {
+            let input: SessionBtwPromptParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            // The session must be live, but the side channel owns its
+            // conversation: the turn runs on the session manager's subagent
+            // runtime, outside the session's turn queue.
+            let entry = session_entry(&input.session_id)?;
+            let manager = entry.subagent_manager.clone();
+            let agent_id = input.agent_id.clone();
+            let cancel = ParentCancel::new();
+            BTW_CANCEL_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(agent_id.clone(), cancel.clone());
+            let outcome = manager
+                .resume_foreground_turn(&agent_id, &input.prompt, Some(&cancel))
+                .await;
+            BTW_CANCEL_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&agent_id);
+            let (content, stop_reason) = match outcome {
+                Some(Ok(kimi_agent::subagent::manager::ForegroundTurnOutcome::Completed(
+                    result,
+                ))) => {
+                    let content = result
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == "assistant")
+                        .map(|m| m.content.clone())
+                        .unwrap_or_default();
+                    (content, format!("{:?}", result.stop_reason))
+                }
+                Some(Ok(kimi_agent::subagent::manager::ForegroundTurnOutcome::ParentCancelled)) => {
+                    (String::new(), "Aborted".to_string())
+                }
+                Some(Err(message)) => {
+                    return Err(types::JsonRpcError::internal_error(message));
+                }
+                None => {
+                    return Err(types::JsonRpcError::internal_error(format!(
+                        "unknown btw side-channel instance: {agent_id}"
+                    )));
+                }
+            };
+            Ok(serde_json::json!({ "content": content, "stopReason": stop_reason }))
+        })
+    });
+
+    // Register session/btw_cancel handler
+    RpcServer::register_arc(&server, types::methods::SESSION_BTW_CANCEL, |params| {
+        Box::pin(async move {
+            let input: SessionBtwCancelParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let cancelled = BTW_CANCEL_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&input.agent_id)
+                .cloned()
+                .is_some_and(|cancel| {
+                    cancel.trigger();
+                    true
+                });
+            serde_json::to_value(cancelled).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/generate_title handler
+    RpcServer::register_arc(&server, types::methods::SESSION_GENERATE_TITLE, |params| {
+        Box::pin(async move {
+            let input: SessionGenerateTitleParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let entry = session_entry(&input.session_id)?;
+            let history = entry.session.snapshot_history();
+            let title = kimi_agent::session::sqlite_store::derive_session_title(
+                &history,
+                input.source.as_deref(),
+            )
+            .map_err(types::JsonRpcError::internal_error)?;
+            serde_json::to_value(title).map_err(|e| {
+                types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+            })
+        })
+    });
+
+    // Register session/background_task_list handler
+    RpcServer::register_arc(
+        &server,
+        types::methods::SESSION_BACKGROUND_TASK_LIST,
+        |params| {
+            Box::pin(async move {
+                let input: SessionIdParams = serde_json::from_value(params).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                })?;
+                let entry = session_entry(&input.session_id)?;
+                let tasks = entry
+                    .subagent_manager
+                    .get_task_runner_sync()
+                    .map(|runner| runner.list())
+                    .unwrap_or_default();
+                let raw = serde_json::to_string(&tasks).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+                })?;
+                serde_json::to_value(raw).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+                })
+            })
+        },
+    );
+
+    // Register session/background_task_output handler
+    RpcServer::register_arc(
+        &server,
+        types::methods::SESSION_BACKGROUND_TASK_OUTPUT,
+        |params| {
+            Box::pin(async move {
+                let input: SessionBackgroundTaskOutputParams = serde_json::from_value(params)
+                    .map_err(|e| {
+                        types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                    })?;
+                let entry = session_entry(&input.session_id)?;
+                let output = entry
+                    .subagent_manager
+                    .get_task_runner_sync()
+                    .and_then(|runner| runner.get_output(&input.task_id));
+                serde_json::to_value(output).map_err(|e| {
+                    types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
+                })
+            })
+        },
+    );
+
+    // Register session/background_task_stop handler
+    RpcServer::register_arc(
+        &server,
+        types::methods::SESSION_BACKGROUND_TASK_STOP,
+        |params| {
+            Box::pin(async move {
+                let input: SessionBackgroundTaskStopParams = serde_json::from_value(params)
+                    .map_err(|e| {
+                        types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
+                    })?;
+                let entry = session_entry(&input.session_id)?;
+                let runner = entry.subagent_manager.get_task_runner_sync().ok_or_else(|| {
+                    types::JsonRpcError::internal_error(
+                        "no background task runner is active for this session".to_string(),
+                    )
+                })?;
+                let wire = runner
+                    .stop(&input.task_id, input.reason.as_deref())
+                    .await
+                    .map_err(types::JsonRpcError::internal_error)?;
+                Ok(wire)
+            })
+        },
+    );
+
     // Register cancel_turn handler
     let cm = cancel_map.clone();
     RpcServer::register_arc(&server, types::methods::CANCEL_TURN, move |params| {
@@ -736,7 +924,7 @@ async fn build_engine_pipeline(
     server: Arc<RpcServer>,
     parent_cancel: Option<ParentCancel>,
     parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
-) -> Result<EnginePipeline, types::JsonRpcError> {
+) -> Result<(EnginePipeline, Arc<SubagentManager>), types::JsonRpcError> {
     let spec = PipelineSpec {
         system_prompt: params.system_prompt.clone(),
         model_name: params.model_name.clone(),
@@ -801,7 +989,7 @@ async fn build_engine_pipeline(
         &spec,
         Arc::new(RpcHostCallbacks { server }),
         PipelineHost {
-            subagent_manager,
+            subagent_manager: subagent_manager.clone(),
             parent_cancel,
             parent_cancel_slot,
             mcp_manager: None,
@@ -809,6 +997,7 @@ async fn build_engine_pipeline(
         },
     )
     .await
+    .map(|pipeline| (pipeline, subagent_manager))
     .map_err(|error| types::JsonRpcError::internal_error(error.message))
 }
 
@@ -1017,12 +1206,20 @@ struct SessionEntry {
     turn_event_count: Arc<AtomicU32>,
     native_tool_count: Arc<AtomicU32>,
     llm_transport: String,
+    /// The pipeline's subagent manager (runtime registered): btw
+    /// side-channel turns and background-task queries run against it.
+    subagent_manager: Arc<SubagentManager>,
     /// The live quiescence guard (M1c RAII). Acquire stores it; release
     /// drops it — the drop replays held turns and wakes the pump.
     quiescence_guard: Arc<Mutex<Option<QuiescenceGuard>>>,
 }
 
 static SESSION_REGISTRY: LazyLock<Mutex<HashMap<String, SessionEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// agent-id → parent-cancel for stdio btw turns (mirrors napi's CANCEL_MAP
+/// for `session_btw_prompt`; one-shot RUN_TURN turns use `cancel_map`).
+static BTW_CANCEL_MAP: LazyLock<Mutex<HashMap<String, ParentCancel>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Outcome receivers for enqueued turns, keyed by (session, turn). Enqueue

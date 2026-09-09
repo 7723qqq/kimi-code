@@ -205,6 +205,25 @@ pub mod methods {
     pub const SESSION_GET_HISTORY: &str = "session/get_history";
     /// Drop the session handle.
     pub const SESSION_DISPOSE: &str = "session/dispose";
+    /// Start a btw side-channel instance forked from the session's history.
+    /// Returns the engine-assigned subagent id (`agent-btw-…`).
+    pub const SESSION_START_BTW: &str = "session/start_btw";
+    /// Run one btw side-channel turn. Resolves `{ content, stopReason }`.
+    pub const SESSION_BTW_PROMPT: &str = "session/btw_prompt";
+    /// Abort a running btw side-channel turn. Resolves whether a turn was
+    /// pending for the agent id.
+    pub const SESSION_BTW_CANCEL: &str = "session/btw_cancel";
+    /// Derive the session title from the live cross-turn history. Resolves
+    /// the title or null; `digest` is rejected.
+    pub const SESSION_GENERATE_TITLE: &str = "session/generate_title";
+    /// Every registered background task's entry wire, oldest first, output
+    /// omitted — a JSON string. Empty array when no runner is live.
+    pub const SESSION_BACKGROUND_TASK_LIST: &str = "session/background_task_list";
+    /// One background task's output snapshot; null while running or unknown.
+    pub const SESSION_BACKGROUND_TASK_OUTPUT: &str = "session/background_task_output";
+    /// Request a cooperative stop for one background task. Resolves the
+    /// entry wire (`killed` once settled).
+    pub const SESSION_BACKGROUND_TASK_STOP: &str = "session/background_task_stop";
 }
 
 /// Permission check for a mutating tool call the engine wants to execute
@@ -719,6 +738,45 @@ pub struct SessionEnqueueParams {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionIdParams {
     pub session_id: String,
+}
+
+/// Params for `session/btw_prompt`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionBtwPromptParams {
+    pub session_id: String,
+    pub agent_id: String,
+    pub prompt: String,
+}
+
+/// Params for `session/btw_cancel`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionBtwCancelParams {
+    pub agent_id: String,
+}
+
+/// Params for `session/generate_title`. `source` is `first_turn` (default)
+/// or `user_prompts`; `digest` is rejected.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionGenerateTitleParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Params for `session/background_task_output`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionBackgroundTaskOutputParams {
+    pub session_id: String,
+    pub task_id: String,
+}
+
+/// Params for `session/background_task_stop`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionBackgroundTaskStopParams {
+    pub session_id: String,
+    pub task_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Params for `session/turn_outcome`.
