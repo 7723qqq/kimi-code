@@ -275,7 +275,8 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
             .unwrap_or(DEFAULT_HOOK_TIMEOUT_SECS)
             .clamp(1, MAX_HOOK_TIMEOUT_SECS),
     );
-    let mut child = match spawn_hook_command(&hook.command, hook.cwd.as_deref(), hook.env.as_ref()) {
+    let mut child = match spawn_hook_command(&hook.command, hook.cwd.as_deref(), hook.env.as_ref())
+    {
         Ok(child) => child,
         Err(e) => return Some(format!("{FAILED_TO_SPAWN}{e}")),
     };
@@ -366,6 +367,20 @@ fn spawn_hook_command(
     }
     if let Some(vars) = env {
         cmd.envs(vars);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // v2 `windowsHide: true` — hook shells must not flash a console window.
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // v2 `detached` (non-Windows): hooks run in their own process group
+        // so terminal signals don't reach them directly. Timeout/cancel
+        // still kills the direct child, as in v2.
+        cmd.process_group(0);
     }
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -646,7 +661,9 @@ mod tests {
         // respell the full path.
         let name = dir.path().file_name().unwrap().to_string_lossy();
         assert!(
-            denial.as_deref().is_some_and(|reason| reason.contains(name.as_ref())),
+            denial
+                .as_deref()
+                .is_some_and(|reason| reason.contains(name.as_ref())),
             "cwd not observed in hook stderr: {denial:?}"
         );
     }
