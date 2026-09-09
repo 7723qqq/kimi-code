@@ -95,6 +95,7 @@ pub mod knowledge_tool;
 pub mod list_directory;
 pub mod lsp_tool;
 pub mod memory_paths;
+pub mod moonshot_service;
 pub mod plan_mode;
 pub mod sandbox;
 pub mod select_tools;
@@ -649,12 +650,17 @@ impl NativeToolset {
             }
             "select_tools" | "selecttools" => {
                 let callbacks = self.callbacks.as_deref()?;
-                let available: std::collections::HashSet<String> = match callbacks.list_tools().await {
-                    Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
-                    Err(_) => std::collections::HashSet::new(),
-                };
+                let available: std::collections::HashSet<String> =
+                    match callbacks.list_tools().await {
+                        Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
+                        Err(_) => std::collections::HashSet::new(),
+                    };
                 let mut loaded = std::collections::HashSet::new();
-                Some(select_tools::execute_select_tools(args, &available, &mut loaded))
+                Some(select_tools::execute_select_tools(
+                    args,
+                    &available,
+                    &mut loaded,
+                ))
             }
             "team" => {
                 let mgr = self.subagent_manager.as_ref()?;
@@ -1466,7 +1472,7 @@ impl NativeToolset {
             // Unknown mode — the host validates the enum; be safe.
             _ => return None,
         }?;
-                Self::record_file_history(&resolved, pre_image.as_deref(), Some(content));
+        Self::record_file_history(&resolved, pre_image.as_deref(), Some(content));
         // Output format mirrors the host Write tool.
         Some(ok_result(format!(
             "{} {bytes_written} bytes to {path}",
@@ -1510,7 +1516,7 @@ impl NativeToolset {
             text.replacen(old, new, 1)
         };
         // `text` is the pre-image; capture the diff before writing.
-                Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
+        Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
         std::fs::write(&resolved, updated).ok()?;
         let display = resolved.strip_prefix(root).unwrap_or(&resolved).display();
         Some(ok_result(format!("Edited {display}")))
@@ -1581,7 +1587,10 @@ impl NativeToolset {
                     }
                 };
 
-                if runner.spawn_task(task_id.clone(), desc.clone(), bg_fut).is_ok() {
+                if runner
+                    .spawn_task(task_id.clone(), desc.clone(), bg_fut)
+                    .is_ok()
+                {
                     return Some(ok_result(format!(
                         "Background task started (task_id: {task_id}).\ncommand: {command}\ndescription: {desc}\nUse TaskList or TaskOutput to inspect progress."
                     )));
@@ -4540,10 +4549,22 @@ m2
         assert!(res.content.contains("Background task started"));
         assert!(res.content.contains("task_id:"));
 
-        let line = res.content.lines().find(|l| l.contains("task_id:")).unwrap();
-        let task_id = line.split("task_id: ").nth(1).unwrap().trim().trim_end_matches(['.', ')']);
+        let line = res
+            .content
+            .lines()
+            .find(|l| l.contains("task_id:"))
+            .unwrap();
+        let task_id = line
+            .split("task_id: ")
+            .nth(1)
+            .unwrap()
+            .trim()
+            .trim_end_matches(['.', ')']);
 
         let wait_res = runner.wait(task_id, 2000).await;
-        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
+        assert!(matches!(
+            wait_res,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
     }
 }
