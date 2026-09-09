@@ -775,6 +775,42 @@ function nativeParsePermissionPattern(pattern) {
 // ============================================================================
 
 // ============================================================================
+// Background tasks — the engine pipeline's task runner (process-global)
+// ============================================================================
+
+/**
+ * List every registered background task as a JSON array of entry wires
+ * (taskId / description / status / startedAt / endedAt / stopReason), oldest
+ * first, output omitted. Empty array when no engine pipeline is live.
+ * @returns {string}
+ */
+function backgroundTaskList() {
+  return binding.backgroundTaskList();
+}
+
+/**
+ * One background task's output snapshot; null while the task is still
+ * running (or the id is unknown).
+ * @param {string} id - Task id from the entry wire.
+ * @returns {string | null}
+ */
+function backgroundTaskOutput(id) {
+  return binding.backgroundTaskOutput(id);
+}
+
+/**
+ * Request a cooperative stop for one background task; resolves with its
+ * entry wire (`killed` once settled). Rejects for an unknown id or when no
+ * engine pipeline is live.
+ * @param {string} id - Task id from the entry wire.
+ * @param {string} [reason] - Stop reason recorded as the entry's `stopReason`.
+ * @returns {Promise<string>}
+ */
+async function backgroundTaskStop(id, reason) {
+  return binding.backgroundTaskStop(id, reason);
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -873,6 +909,11 @@ module.exports = {
 
   // LLM Stream (incremental)
   nativeLlmStreamStreaming,
+
+  // Background tasks
+  backgroundTaskList,
+  backgroundTaskOutput,
+  backgroundTaskStop,
 };
 
 // Non-enumerable handle to the raw binding, for the surface-contract test to

@@ -78,6 +78,7 @@ import type {
   ExportSessionResult,
   FileMeta,
   ForkSessionInput,
+  GenerateSessionTitleInput,
   GetConfigOptions,
   GetCronTasksResult,
   GlobalMcpServerAuthStatus,
@@ -120,6 +121,11 @@ import {
   probeShellPath,
   buildPolicySnapshot,
   resolveGithubCredentials,
+  resolveSubagentTimeoutMs,
+  resolveSwarmTimeoutMs,
+  resolveMaxAttemptsPerStep,
+  resolveWebSearchService,
+  resolveWebFetchService,
   type JsNativeLlmConfig,
 } from './native-llm-resolver';
 
@@ -257,6 +263,8 @@ function applySessionLlmOverrides(
     out.thinkingBudget = undefined;
     out.reasoningEffort = thinkingOn ? effort : undefined;
   }
+  // `[thinking] keep` is only injected while thinking is on (env-vars.md).
+  out.thinkingKeep = thinkingOn ? llm.thinkingKeep : undefined;
   return out;
 }
 
@@ -589,6 +597,20 @@ interface NativeSessionMeta {
 }
 
 /**
+ * The Rust `TaskRunner` entry wire (`storage/task_runner.rs:entry_wire`) —
+ * snake_case-free already, the v2 task-domain shape.
+ */
+interface EngineTaskWireEntry {
+  taskId: string;
+  description: string;
+  status: string;
+  startedAt: number;
+  endedAt?: number;
+  stopReason?: string;
+  output?: string;
+}
+
+/**
  * The durable, handle-free slice of {@link NativeSessionMeta}, written to
  * `<sessionDir>/session-meta.json` so a rename / metadata update / add-dir
  * survives a resume within the same home. Full transcript persistence is a
@@ -860,11 +882,19 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         } catch {
           return;
         }
+        // Session turns run as `turn-<n>` (session/mod.rs); a foreground
+        // subagent turn is `subturn-<rand>` (subagent/manager.rs run_one) and
+        // belongs to the active side channel (btw), which the main session
+        // event attribution must not claim.
+        const eventAgentId =
+          typeof parsed.turn_id === 'string' && parsed.turn_id.startsWith('subturn-')
+            ? (meta.activeAgentId ?? 'main')
+            : 'main';
         if (parsed.type === 'llm.delta') {
           if (parsed.part?.type === 'text' && typeof parsed.part.text === 'string') {
             this.receiveEvent({
               sessionId,
-              agentId: 'main',
+              agentId: eventAgentId,
               type: 'assistant.delta',
               turnId: meta.currentTurnId,
               delta: parsed.part.text,
@@ -875,7 +905,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           ) {
             this.receiveEvent({
               sessionId,
-              agentId: 'main',
+              agentId: eventAgentId,
               type: 'thinking.delta',
               turnId: meta.currentTurnId,
               delta: String(parsed.part.think ?? parsed.part.thinking ?? parsed.part.text),
@@ -888,7 +918,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           const toolCallId = String(parsed.tool_call_id ?? randomUUID());
           this.receiveEvent({
             sessionId,
-            agentId: 'main',
+            agentId: eventAgentId,
             type: 'tool.call.started',
             turnId: meta.currentTurnId,
             toolCallId,
@@ -897,7 +927,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           });
           this.receiveEvent({
             sessionId,
-            agentId: 'main',
+            agentId: eventAgentId,
             type: 'tool.result',
             turnId: meta.currentTurnId,
             toolCallId,
@@ -907,7 +937,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         } else if (parsed.type === 'tool.native.progress') {
           this.receiveEvent({
             sessionId,
-            agentId: 'main',
+            agentId: eventAgentId,
             type: 'tool.progress',
             turnId: meta.currentTurnId,
             // Progress must carry the same id as its started event to route to
@@ -1037,11 +1067,24 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const githubCreds = resolveGithubCredentials(config);
     const mcpConfig = this.loadGlobalMcpConfig();
     const mcpServers = resolveMcpServersForEngine(mcpConfig);
+    const subagentTimeoutMs = resolveSubagentTimeoutMs(config);
+    const swarmTimeoutMs = resolveSwarmTimeoutMs(config);
+    const maxAttempts = resolveMaxAttemptsPerStep(config);
+    const webSearch = resolveWebSearchService(config);
+    const webFetch = resolveWebFetchService(config);
     const authToken =
       nativeLlm?.authProvider === undefined
         ? undefined
         : (request: string) => {
-            const parsed = JSON.parse(request) as { provider: string; force: boolean };
+            let parsed: { provider: string; force: boolean };
+            try {
+              parsed = JSON.parse(request) as { provider: string; force: boolean };
+            } catch (error) {
+              throw new KimiError(
+                ErrorCodes.REQUEST_INVALID,
+                `malformed auth token request from the engine: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
             const tokenProvider = this.auth.resolveOAuthTokenProvider(parsed.provider);
             return tokenProvider.getAccessToken({ force: parsed.force === true });
           };
@@ -1061,6 +1104,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       nativeTools: config.agent?.nativeTools !== false,
       shellPath,
       policySnapshotJson: JSON.stringify(policySnapshot),
+      // Host-resolved config knobs (env > config, see native-llm-resolver).
+      // `?? undefined` (never null): napi Option fields reject null.
+      subagentTimeoutMs: subagentTimeoutMs ?? undefined,
+      swarmTimeoutMs: swarmTimeoutMs ?? undefined,
+      maxAttempts: maxAttempts ?? undefined,
+      webSearch: webSearch ?? undefined,
+      webFetch: webFetch ?? undefined,
       ...(githubCreds.githubToken ? { githubToken: githubCreds.githubToken } : {}),
       ...(githubCreds.githubBaseUrl ? { githubBaseUrl: githubCreds.githubBaseUrl } : {}),
       ...(nativeLlm ? { nativeLlm } : {}),
@@ -1359,17 +1409,27 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot prompt unknown or closed session "${input.sessionId}"`,
       );
     }
-    meta.busy = true;
-    meta.updatedAt = Date.now();
-
     const prompt = this.toSessionPrompt(input.input);
     const agentId = this.interactiveAgentId;
     meta.activeAgentId = agentId;
+    // Side-channel (btw) turns run outside the session's turn queue on the
+    // subagent instance, so the session-level busy flag and prompt metadata
+    // stay untouched (v2 btw semantics).
+    if (agentId !== 'main') {
+      try {
+        await this.runSideChannelTurn(meta, agentId, prompt.content);
+      } finally {
+        if (meta.activeAgentId === agentId) meta.activeAgentId = undefined;
+      }
+      return;
+    }
+    meta.busy = true;
+    meta.updatedAt = Date.now();
     // v1/v2 updated the prompt-derived title/lastPrompt before the turn
     // launched; the turn itself fails asynchronously (a model-less turn
     // rejects the turn, not the submission). Subagents (like btw) leave the
     // session-level metadata alone.
-    if (!input.skipPromptMetadata && agentId === 'main') {
+    if (!input.skipPromptMetadata) {
       this.applyPromptMetadata(meta, promptMetadataTextFromPrompt(input.input));
     }
     try {
@@ -1386,9 +1446,56 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
   }
 
+  /**
+   * Run one btw side-channel turn on the engine's subagent instance and frame
+   * it with turn.started / turn.ended events: the engine's foreground
+   * subagent path emits only the streaming deltas (the session pump owns the
+   * turn lifecycle events for queue turns), so the SDK supplies the framing
+   * the btw panel consumes. Like the main path, a failed turn surfaces
+   * through a `turn.ended` failure event instead of rejecting the submission.
+   */
+  private async runSideChannelTurn(
+    meta: NativeSessionMeta,
+    agentId: string,
+    text: string,
+  ): Promise<void> {
+    if (!meta.handle) return;
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId,
+      turnId: meta.currentTurnId,
+      type: 'turn.started',
+      origin: { kind: 'user' },
+      prompt: text,
+    });
+    let reason: TurnEndReason = 'completed';
+    try {
+      const outcome = await meta.handle.btwPrompt(agentId, text);
+      // `EndTurn` / `Aborted` / `MaxTokens` (Rust Debug) → protocol reason.
+      reason = toTurnEndReason(outcome.stopReason.replaceAll(/([a-z])([A-Z])/g, '$1_$2'));
+    } catch {
+      reason = 'failed';
+    }
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId,
+      turnId: meta.currentTurnId,
+      type: 'turn.ended',
+      reason,
+    });
+  }
+
   override async cancel(input: SessionIdRpcInput): Promise<void> {
     const meta = this.liveSessions.get(input.sessionId);
     if (!meta?.handle) return;
+    // The interactive-agent scope decides which turn the cancel targets: a
+    // side-channel (btw) turn is not in the session's turn queue, so its
+    // abort goes to the engine's registered parent-cancel for that agent.
+    const agentId = this.interactiveAgentId;
+    if (agentId !== 'main') {
+      await meta.handle.btwCancel(agentId);
+      return;
+    }
     await meta.handle.cancelTurn();
   }
 
@@ -1640,15 +1747,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    if (input.enabled) {
-      // The tower feature (workspace mission board) is not assembled on the
-      // native harness, so entering fails like the engine's flag gate did.
-      throw new KimiError(
-        ErrorCodes.SESSION_TOWER_MODE_INVALID,
-        'tower mode could not be enabled — the tower feature is not available on this engine',
-      );
-    }
-    meta.towerMode = false;
+    // The tower tools run engine-side natively (tools/tower), gated on the
+    // `main` caller and the `.tower/` workspace state — not on this flag. The
+    // flag records the coordinator mode for the host (steering semantics +
+    // status display); the requested base is validated engine-side when the
+    // agent runs TowerInit.
+    meta.towerMode = input.enabled;
     meta.updatedAt = Date.now();
     this.emitStatusUpdated(meta);
   }
@@ -2145,8 +2249,57 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async startBtw(input: SessionIdRpcInput): Promise<string> {
-    this.requireSession(input.sessionId);
-    return `btw_${randomUUID()}`;
+    const meta = this.requireSession(input.sessionId);
+    if (!meta.handle) {
+      throw new KimiError(
+        ErrorCodes.SESSION_NOT_FOUND,
+        `cannot start a btw side channel on unknown or closed session "${input.sessionId}"`,
+      );
+    }
+    return meta.handle.startBtw();
+  }
+
+  /**
+   * Deterministic title derivation over the live engine history (v2
+   * `ISessionTitleService`): the engine applies the first_turn / user_prompts
+   * rule to the session's cross-turn history. A generated title lands as
+   * `titleKind: 'generated'`; without `force` an existing generated or
+   * host-custom title is returned as-is. `source=digest` needs the managed
+   * chat_title channel and rejects engine-side.
+   */
+  override async generateSessionTitle(
+    input: GenerateSessionTitleInput,
+  ): Promise<string | undefined> {
+    const meta = this.requireSession(input.id);
+    if (!meta.handle) {
+      throw new KimiError(
+        ErrorCodes.SESSION_NOT_FOUND,
+        `cannot generate a title for unknown or closed session "${input.id}"`,
+      );
+    }
+    // `digest` needs the managed chat_title channel and rejects engine-side;
+    // fail fast with a named error instead of a native round-trip.
+    if (
+      input.source !== undefined &&
+      input.source !== 'first_turn' &&
+      input.source !== 'user_prompts'
+    ) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `unsupported title source "${input.source}": expected 'first_turn' or 'user_prompts'`,
+      );
+    }
+    if (!input.force && (meta.titleKind === 'generated' || meta.titleKind === 'custom')) {
+      return meta.title;
+    }
+    const title = await meta.handle.generateTitle(input.source);
+    if (title === null) return undefined;
+    meta.title = title;
+    meta.titleKind = 'generated';
+    meta.isCustomTitle = false;
+    meta.updatedAt = Date.now();
+    this.persistMeta(meta);
+    return title;
   }
 
   override async getCronTasks(input: SessionIdRpcInput): Promise<GetCronTasksResult> {
@@ -2727,25 +2880,89 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     this.requireSession(input.sessionId);
   }
 
+  /**
+   * The engine pipeline's task runner (Rust `TaskRunner`, attached to the
+   * process-wide subagent manager at build time) is the backing store:
+   * entries are the engine's background subagent runs (`kind: 'agent'`,
+   * v2 task-domain wire: taskId / description / status / startedAt /
+   * endedAt / stopReason).
+   */
   override async listBackgroundTasks(
-    _input: SessionIdRpcInput & { activeOnly?: boolean; limit?: number },
+    input: SessionIdRpcInput & { activeOnly?: boolean; limit?: number },
   ): Promise<readonly BackgroundTaskInfo[]> {
-    return [];
+    this.requireSession(input.sessionId);
+    const { backgroundTaskList } = await import('@moonshot-ai/kimi-agent/native');
+    let raw: unknown;
+    try {
+      raw = JSON.parse(backgroundTaskList());
+    } catch (error) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `malformed background task list from the engine: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!Array.isArray(raw)) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'malformed background task list from the engine',
+      );
+    }
+    // The engine owns the entry shape; validate just enough that a bad
+    // payload fails here with a named error instead of poisoning consumers
+    // downstream (status stays a cast — the v2 domain owns its vocabulary).
+    let tasks: BackgroundTaskInfo[] = (raw as readonly EngineTaskWireEntry[]).map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        throw new KimiError(
+          ErrorCodes.REQUEST_INVALID,
+          'malformed background task entry from the engine',
+        );
+      }
+      return {
+        kind: 'agent',
+        taskId: String(entry.taskId ?? ''),
+        description: String(entry.description ?? ''),
+        status: entry.status as BackgroundTaskInfo['status'],
+        startedAt: Number(entry.startedAt ?? 0),
+        endedAt: entry.endedAt ?? null,
+        ...(entry.stopReason !== undefined ? { stopReason: entry.stopReason } : {}),
+      };
+    });
+    if (input.activeOnly) {
+      tasks = tasks.filter((task) => task.status === 'running');
+    }
+    if (input.limit !== undefined && input.limit > 0 && tasks.length > input.limit) {
+      tasks = tasks.slice(tasks.length - input.limit);
+    }
+    return tasks;
   }
 
   override async getBackgroundTaskOutput(
-    _input: SessionIdRpcInput & { taskId: string; tail?: number },
+    input: SessionIdRpcInput & { taskId: string; tail?: number },
   ): Promise<string> {
-    return '';
+    this.requireSession(input.sessionId);
+    const { backgroundTaskOutput } = await import('@moonshot-ai/kimi-agent/native');
+    const output = backgroundTaskOutput(input.taskId) ?? '';
+    // `tail` caps to trailing characters (the `getBackgroundTaskOutput`
+    // contract); the engine returns the full snapshot.
+    if (input.tail === undefined || input.tail < 0) return output;
+    return input.tail === 0 ? '' : output.slice(-input.tail);
   }
 
   override async stopBackgroundTask(
-    _input: SessionIdRpcInput & { taskId: string; reason?: string },
-  ): Promise<void> {}
+    input: SessionIdRpcInput & { taskId: string; reason?: string },
+  ): Promise<void> {
+    this.requireSession(input.sessionId);
+    const { backgroundTaskStop } = await import('@moonshot-ai/kimi-agent/native');
+    await backgroundTaskStop(input.taskId, input.reason);
+  }
 
   override async detachBackgroundTask(
-    _input: SessionIdRpcInput & { taskId: string },
+    input: SessionIdRpcInput & { taskId: string },
   ): Promise<BackgroundTaskInfo | undefined> {
+    // The engine task runner is process-global: its tasks already outlive the
+    // session handle, so there is no separate detach transition to record.
+    // The session check keeps the guard consistent with list/get/stop.
+    this.requireSession(input.sessionId);
     return undefined;
   }
 

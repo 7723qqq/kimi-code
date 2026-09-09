@@ -181,6 +181,15 @@ const nativeLlmConfig = z.object({
   custom_headers: z.record(z.string(), z.string()).optional(),
   reasoning_effort: z.string().optional(),
   thinking_budget: z.number().optional(),
+  /** Moonshot preserved-thinking passthrough (`thinking.keep`). */
+  thinking_keep: z.string().optional(),
+});
+
+/** One host-resolved `[services.moonshot_*]` backend (v2 `configSection.ts`). */
+const webServiceConfig = z.object({
+  base_url: z.string(),
+  api_key: z.string().optional(),
+  custom_headers: z.record(z.string(), z.string()).optional(),
 });
 
 const policySnapshot = z.object({
@@ -250,6 +259,10 @@ export const runTurnParamsSchema = z.object({
     )
     .optional(),
   subagent_timeout_ms: z.number().optional(),
+  swarm_timeout_ms: z.number().optional(),
+  max_attempts: z.number().optional(),
+  web_search: webServiceConfig.optional(),
+  web_fetch: webServiceConfig.optional(),
   /** P52 native-path vetoes: non-empty reason = the engine rejects the
    *  affected native executions with this text as the tool result. */
   agent_tool_veto: z.string().optional(),

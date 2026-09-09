@@ -42,6 +42,7 @@ import {
   type SecondaryModelConfig,
   type ServicesConfig,
   type SubagentConfig,
+  type SwarmConfig,
   type ThinkingConfig,
   validateConfig,
 } from './schema';
@@ -366,6 +367,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'subagent' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'swarm' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'agent' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'secondaryModel' && isPlainObject(value)) {
@@ -575,6 +578,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
   setSection(out, 'subagent', config.subagent, subagentToToml);
+  setSection(out, 'swarm', config.swarm, swarmToToml);
   setSection(out, 'agent', config.agent, agentToToml);
   setSection(out, 'secondary_model', config.secondaryModel, secondaryModelToToml);
   setSection(out, 'mcp', config.mcp, mcpToToml);
@@ -773,6 +777,14 @@ function backgroundToToml(
 function subagentToToml(subagent: SubagentConfig, rawSubagent: unknown): Record<string, unknown> {
   const out = cloneRecord(rawSubagent);
   for (const [key, value] of Object.entries(subagent)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function swarmToToml(swarm: SwarmConfig, rawSwarm: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawSwarm);
+  for (const [key, value] of Object.entries(swarm)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

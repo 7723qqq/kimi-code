@@ -59,7 +59,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
     }
   });
 
-  it('validates setTowerMode boolean argument and rejects an incapable model', async () => {
+  it('validates setTowerMode boolean argument and records the coordinator mode', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-tower-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-tower-work-');
     await writeTestConfig(homeDir);
@@ -71,9 +71,12 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       await expect(session.setTowerMode('yes' as unknown as boolean)).rejects.toMatchObject({
         code: ErrorCodes.REQUEST_INVALID,
       });
-      await expect(session.setTowerMode(true)).rejects.toMatchObject({
-        code: 'session.tower_mode_invalid',
-      });
+      // The tower tools run engine-side natively; the flag records the
+      // coordinator mode and must be reflected in the live status.
+      await session.setTowerMode(true);
+      await expect(session.getStatus()).resolves.toMatchObject({ towerMode: true });
+      await session.setTowerMode(false);
+      await expect(session.getStatus()).resolves.toMatchObject({ towerMode: false });
     } finally {
       await harness.close();
     }

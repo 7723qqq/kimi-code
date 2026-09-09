@@ -28,6 +28,9 @@ const DEFAULT_SUBAGENT_TYPE: &str = "coder";
 
 /// The default foreground timeout (v2 `DEFAULT_SUBAGENT_TIMEOUT_MS`: 2h).
 const DEFAULT_SUBAGENT_TIMEOUT_MS: u64 = 2 * 60 * 60 * 1000;
+/// The swarm timeout default (v2 `DEFAULT_SWARM_TIMEOUT_MS`: 2h). Swarms
+/// resolve only this knob — never the subagent timeout.
+const DEFAULT_SWARM_TIMEOUT_MS: u64 = 2 * 60 * 60 * 1000;
 
 /// Placeholder for subagent prompts (`PROMPT_TEMPLATE_PLACEHOLDER`).
 const PROMPT_TEMPLATE_PLACEHOLDER: &str = "{{item}}";
@@ -366,10 +369,13 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
 ///
 /// Returns `None` if the call should fall back to the host runtime
 /// (e.g. requires `fork`, `model` override, or unknown subagent profiles).
+/// `_timeout_ms` is the dispatch's `Agent` timeout, kept for call-site
+/// symmetry but ignored: swarms resolve only the host swarm timeout
+/// (v2 `resolveSwarmTimeoutMs`), never the subagent timeout.
 pub async fn execute_agent_swarm(
     manager: &Arc<SubagentManager>,
     args: &Value,
-    timeout_ms: Option<u64>,
+    _timeout_ms: Option<u64>,
     parent_cancel: Option<&ParentCancel>,
     tool_call_id: Option<&str>,
 ) -> Option<ExecutableToolResult> {
@@ -461,10 +467,14 @@ pub async fn execute_agent_swarm(
     let mut seen_prompts: HashMap<String, usize> = HashMap::new();
     let mut tasks: Vec<AgentRunTask<SwarmTaskSpec>> = Vec::new();
     let parent_tool_call_id = tool_call_id.unwrap_or("swarm").to_string();
+    // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): a dedicated
+    // knob — unlike `Agent` turns, swarms never inherit the subagent
+    // timeout, so only the override (or the 2h swarm default) applies.
     let timeout = Some(Duration::from_millis(
-        timeout_ms
+        manager
+            .swarm_timeout_ms()
             .filter(|t| *t > 0)
-            .unwrap_or(DEFAULT_SUBAGENT_TIMEOUT_MS),
+            .unwrap_or(DEFAULT_SWARM_TIMEOUT_MS),
     ));
 
     let batch_signal = AbortSignal::new();

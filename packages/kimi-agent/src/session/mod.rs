@@ -38,7 +38,7 @@ use crate::rpc::types::{
     StateWriteRequest, StateWriteResponse, ToolExecuteRequest, ToolExecuteResponse,
 };
 use crate::turn_events::{TurnCancelReason, TurnCancelTarget, TurnEndReason, TurnEvent};
-use crate::turn_loop::run_turn::run_turn;
+use crate::turn_loop::run_turn::run_turn_continued;
 use crate::turn_loop::types::{GoalContext, LLM, LLMMessage, RunTurnInput, ToolInfo, TurnResult};
 
 /// How an enqueued prompt joins the turn pipeline (v2 `StepRequest.admission`).
@@ -173,6 +173,9 @@ pub struct SessionConfig {
     pub callbacks: Arc<dyn HostCallbacks>,
     /// Step cap for every turn (v2 `maxStepsPerTurn`).
     pub max_steps: u32,
+    /// Host `loopControl.maxAttemptsPerStep` (v2); `None` keeps the engine
+    /// default.
+    pub max_attempts: Option<u32>,
     /// Context window the host resolved for the session's model (v2
     /// `ModelCapability.max_context_tokens`); `None` keeps the engine default.
     pub max_context_tokens: Option<u32>,
@@ -190,6 +193,9 @@ pub struct SessionConfig {
     /// itself is built once per session. `None` = no native agent context.
     pub agent_cancel_slot:
         Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// Turn-lifecycle hook dispatch (`UserPromptSubmit` / `PreCompact` /
+    /// `Stop`); `None` skips those dispatches.
+    pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
 }
 
 struct PendingTurn {
@@ -254,9 +260,12 @@ struct SessionContext {
     goal: Option<GoalProvider>,
     on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
     max_steps: u32,
+    max_attempts: Option<u32>,
     max_context_tokens: Option<u32>,
     /// P55: see [`SessionConfig::agent_cancel_slot`].
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// Turn-lifecycle hook dispatch; see [`SessionConfig::hook_guard`].
+    hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -299,8 +308,10 @@ impl EngineSession {
             goal: config.goal,
             on_before_turn: config.on_before_turn,
             max_steps: config.max_steps,
+            max_attempts: config.max_attempts,
             max_context_tokens: config.max_context_tokens,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
+            hook_guard: config.hook_guard.clone(),
         });
         let wakeup = Arc::new(Notify::new());
         let callbacks = ctx.callbacks.clone();
@@ -854,7 +865,7 @@ async fn run_session_turn(
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {
-        max_attempts: None,
+        max_attempts: ctx.max_attempts,
         turn_id: format!("turn-{turn_id}"),
         llm: ctx.llm.as_ref(),
         messages,
@@ -864,8 +875,9 @@ async fn run_session_turn(
         max_context_tokens: ctx.max_context_tokens,
         goal,
         cancellation: Some(cancel),
+        hook_guard: ctx.hook_guard.clone(),
     };
-    let result = run_turn(input, &ctx.callbacks)
+    let result = run_turn_continued(input, &ctx.callbacks)
         .await
         .map_err(|e| e.to_string())?;
     Ok(TurnOutcome::Ran(result))
@@ -1119,11 +1131,13 @@ mod tests {
             llm,
             callbacks,
             max_steps: 5,
+            max_attempts: None,
             max_context_tokens: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
             on_before_turn: None,
             agent_cancel_slot: None,
+            hook_guard: None,
         };
         EngineSession::new(config).await
     }
@@ -1570,7 +1584,9 @@ mod tests {
         );
         assert_eq!(
             turn_end_error_payload(&Stop::Filtered, 3),
-            Some(serde_json::json!("Provider safety policy blocked the response."))
+            Some(serde_json::json!(
+                "Provider safety policy blocked the response."
+            ))
         );
         assert_eq!(turn_end_error_payload(&Stop::EndTurn, 3), None);
     }

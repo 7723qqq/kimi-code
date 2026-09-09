@@ -204,6 +204,13 @@ pub struct SubagentManager {
     session_store: RwLock<Option<Arc<SqliteSessionStore>>>,
     /// Optional TaskRunner for background subagent task management and inspection.
     task_runner: RwLock<Option<Arc<crate::storage::TaskRunner>>>,
+    /// Host-resolved `[swarm] timeout_ms` (v2 `resolveSwarmTimeoutMs`; env
+    /// `KIMI_CODE_SWARM_TIMEOUT_MS` wins host-side). Rides the manager because
+    /// the toolset dispatch passes the `Agent` timeout to both tools — the
+    /// swarm-specific value is read at `AgentSwarm` execution time.
+    /// `None` keeps the previous behavior: the swarm follows the subagent
+    /// timeout (or the 2h default).
+    swarm_timeout_ms: Mutex<Option<u64>>,
 }
 
 /// A foreground subagent's resume record (P55).
@@ -325,6 +332,11 @@ async fn run_one(
         max_context_tokens: None,
         goal: None,
         cancellation: Some(cancel_flag.clone()),
+        // Lifecycle hooks (`UserPromptSubmit` / `PreCompact` / `Stop`) are
+        // main-turn scoped by design; subagent turns skip them here while
+        // `PreToolUse` gating still applies through the tool callbacks.
+        // Keep `run_turn` (not `run_turn_continued`) for the same reason.
+        hook_guard: None,
     };
     let run_future = crate::turn_loop::run_turn::run_turn(run_input, callbacks);
     tokio::pin!(run_future);
@@ -401,14 +413,32 @@ impl SubagentManager {
         // "not available". The role overlay emphasizes the handoff: the
         // worker's final message IS the entire handoff to the parent.
         let tower_worker_tools: Vec<String> = [
-            "Agent", "Bash",
-            "TowerFinding", "TowerInbox", "TowerMission", "TowerReview", "TowerSend", "TowerStatus",
-            "CronCreate", "CronDelete", "CronList",
-            "Edit", "EnterPlanMode", "ExitPlanMode",
-            "Glob", "Grep", "Read", "Skill",
-            "TaskList", "TaskOutput", "TaskStop",
-            "TodoList", "WaitFor",
-            "WebSearch", "FetchURL", "Write",
+            "Agent",
+            "Bash",
+            "TowerFinding",
+            "TowerInbox",
+            "TowerMission",
+            "TowerReview",
+            "TowerSend",
+            "TowerStatus",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "Edit",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "Glob",
+            "Grep",
+            "Read",
+            "Skill",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+            "TodoList",
+            "WaitFor",
+            "WebSearch",
+            "FetchURL",
+            "Write",
             "mcp__*",
         ]
         .iter()
@@ -453,7 +483,27 @@ worktree root the tower assigns you as your full authority scope.";
             foreground_histories: Arc::new(Mutex::new(HashMap::new())),
             session_store: RwLock::new(None),
             task_runner: RwLock::new(None),
+            swarm_timeout_ms: Mutex::new(None),
         }
+    }
+
+    /// Host-pushed `[swarm] timeout_ms` for the native `AgentSwarm` tool (v2
+    /// `resolveSwarmTimeoutMs`). `None` clears the override so the swarm
+    /// falls back to the 2h swarm default; swarms never inherit the
+    /// subagent timeout. Set per pipeline build.
+    pub fn set_swarm_timeout_ms(&self, timeout_ms: Option<u64>) {
+        *self
+            .swarm_timeout_ms
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = timeout_ms.filter(|timeout| *timeout > 0);
+    }
+
+    /// The host-resolved swarm timeout, if any. Read at `AgentSwarm` execution.
+    pub fn swarm_timeout_ms(&self) -> Option<u64> {
+        *self
+            .swarm_timeout_ms
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Construct with a persistent TaskRunner for background subagents.
@@ -575,7 +625,12 @@ worktree root the tower assigns you as your full authority scope.";
     }
 
     /// Spawn a new subagent instance with an explicit identifier.
-    pub async fn spawn_with_id(&self, id: &str, type_name: &str, role: &str) -> Result<String, String> {
+    pub async fn spawn_with_id(
+        &self,
+        id: &str,
+        type_name: &str,
+        role: &str,
+    ) -> Result<String, String> {
         let defs = self.definitions.read().await;
         if !defs.contains_key(type_name) && type_name != "self" {
             return Err(format!("Unknown subagent type: '{type_name}'"));
@@ -644,9 +699,7 @@ worktree root the tower assigns you as your full authority scope.";
             instances.get(&subagent_id).map(|(_, c)| c.clone())
         };
 
-        let runner = {
-            self.task_runner.read().await.clone()
-        };
+        let runner = { self.task_runner.read().await.clone() };
 
         let subagent_run = async move {
             let turn_id = format!("subturn-{}", fastrand::u64(..));
@@ -669,6 +722,7 @@ worktree root the tower assigns you as your full authority scope.";
                 max_context_tokens: None,
                 goal: None,
                 cancellation: cancel_flag,
+                hook_guard: None,
             };
 
             let run_result = crate::tools::CALLER_AGENT_ID
@@ -685,18 +739,18 @@ worktree root the tower assigns you as your full authority scope.";
                         "Subagent '{}' finished in {} steps (Tokens: {}).",
                         subagent_role, turn_res.steps, turn_res.usage.total_tokens
                     );
-                    mgr.update_state(&subagent_id, SubagentState::Completed, Some(result_text.clone()))
-                        .await;
+                    mgr.update_state(
+                        &subagent_id,
+                        SubagentState::Completed,
+                        Some(result_text.clone()),
+                    )
+                    .await;
                     result_text
                 }
                 Err(err_msg) => {
                     let err_text = format!("Error: {err_msg}");
-                    mgr.update_state(
-                        &subagent_id,
-                        SubagentState::Failed,
-                        Some(err_text.clone()),
-                    )
-                    .await;
+                    mgr.update_state(&subagent_id, SubagentState::Failed, Some(err_text.clone()))
+                        .await;
                     err_text
                 }
             }
@@ -1102,7 +1156,10 @@ worktree root the tower assigns you as your full authority scope.";
     }
 
     /// Retrieve stored message history of a completed foreground subagent (for forking or resuming).
-    pub fn get_foreground_history(&self, id: &str) -> Option<Vec<crate::turn_loop::types::LLMMessage>> {
+    pub fn get_foreground_history(
+        &self,
+        id: &str,
+    ) -> Option<Vec<crate::turn_loop::types::LLMMessage>> {
         if let Some(msgs) = self
             .foreground_histories
             .lock()
@@ -1285,6 +1342,7 @@ worktree root the tower assigns you as your full authority scope.";
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel_flag.clone()),
+            hook_guard: None,
         };
         let run_result = crate::tools::CALLER_AGENT_ID
             .scope(
@@ -1417,7 +1475,7 @@ worktree root the tower assigns you as your full authority scope.";
     pub async fn kill(&self, id: &str) -> Result<bool, String> {
         let runner = self.task_runner.read().await.clone();
         if let Some(r) = runner {
-            let _ = r.stop(id).await;
+            let _ = r.stop(id, None).await;
         }
         let mut instances = self.instances.write().await;
         if let Some((inst, cancel_flag)) = instances.get_mut(id) {
@@ -2118,14 +2176,20 @@ mod tests {
 
         // Verify history is retrievable
         assert_eq!(manager1.get_foreground_history(agent_id).unwrap().len(), 2);
-        assert_eq!(manager1.resume_profile(agent_id).await.as_deref(), Some("research"));
+        assert_eq!(
+            manager1.resume_profile(agent_id).await.as_deref(),
+            Some("research")
+        );
 
         // Now simulate a full restart: create a new SubagentManager with no in-memory state
         let manager2 = Arc::new(SubagentManager::with_store(store.clone()));
         manager2.set_runtime(llm.clone(), callbacks.clone()).await;
 
         // In-memory histories are empty in manager2
-        assert_eq!(manager2.resume_profile(agent_id).await.as_deref(), Some("research"));
+        assert_eq!(
+            manager2.resume_profile(agent_id).await.as_deref(),
+            Some("research")
+        );
         let history = manager2.get_foreground_history(agent_id);
         assert!(history.is_some());
         assert_eq!(history.unwrap().len(), 2);
@@ -2159,6 +2223,9 @@ mod tests {
             .unwrap();
 
         let wait_res = runner.wait(&id, 2000).await;
-        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
+        assert!(matches!(
+            wait_res,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
     }
 }

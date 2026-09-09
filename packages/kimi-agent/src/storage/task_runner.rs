@@ -193,7 +193,10 @@ impl TaskRunner {
             let (status, stop_reason) = if output.is_some() {
                 (TaskStatus::Completed, None)
             } else {
-                (TaskStatus::Killed, Some("Stopped by TaskStop".to_string()))
+                // Killed via the cancel flag, which only `stop()` sets — and
+                // `stop()` records the reason on the entry up front — so the
+                // wrapper settles with `None` and never overwrites it.
+                (TaskStatus::Killed, None)
             };
             runner.settle_task(&task_id, status, output, stop_reason);
             let _ = done_tx.send(());
@@ -220,14 +223,26 @@ impl TaskRunner {
     /// `killed` once the task settled, the still-running entry if it
     /// never yields (the wrapper settles it later). Stopping a terminal
     /// task returns its current entry unchanged.
-    pub async fn stop(&self, id: &str) -> Result<Value, String> {
+    ///
+    /// The `reason` becomes the entry's `stopReason` (blank/`None` falls
+    /// back to `"Stopped by TaskStop"`); a reason already on the entry is
+    /// never overwritten.
+    pub async fn stop(&self, id: &str, reason: Option<&str>) -> Result<Value, String> {
         let done = {
-            let tasks = self.tasks.lock().unwrap();
-            let Some(entry) = tasks.get(id) else {
+            let mut tasks = self.tasks.lock().unwrap();
+            let Some(entry) = tasks.get_mut(id) else {
                 return Err(format!("Task not found: {id}"));
             };
             if entry.status != TaskStatus::Running {
                 return Ok(self.entry_wire(entry));
+            }
+            if entry.stop_reason.is_none() {
+                let reason = reason
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "Stopped by TaskStop".to_string());
+                entry.stop_reason = Some(reason);
             }
             entry.cancel.store(true, Ordering::Relaxed);
             entry.cancel_notify.notify_waiters();
@@ -321,10 +336,7 @@ impl TaskRunner {
                 entry.stop_reason = Some(reason);
             }
             let ended_at = entry.ended_at.unwrap_or(now_ms());
-            let preview = entry
-                .output
-                .as_deref()
-                .and_then(truncate_preview);
+            let preview = entry.output.as_deref().and_then(truncate_preview);
             let description = entry.description.clone();
             let wire = self.entry_wire(entry);
             (description, ended_at, preview, wire)
@@ -533,7 +545,7 @@ mod tests {
         assert_eq!(tasks[0]["taskId"], "task-1");
         assert_eq!(tasks[0]["status"], "running");
         // Clean up the pending task so the test runtime can shut down.
-        let wire = runner.stop("task-1").await.unwrap();
+        let wire = runner.stop("task-1", None).await.unwrap();
         assert_eq!(wire["status"], "killed");
     }
 
@@ -547,7 +559,7 @@ mod tests {
                 std::future::pending::<String>(),
             )
             .unwrap();
-        let wire = runner.stop("task-1").await.unwrap();
+        let wire = runner.stop("task-1", None).await.unwrap();
         assert_eq!(wire["status"], "killed");
         assert_eq!(wire["stopReason"], "Stopped by TaskStop");
         assert!(wire["endedAt"].as_u64().unwrap() >= wire["startedAt"].as_u64().unwrap());
@@ -600,7 +612,7 @@ mod tests {
             TaskWaitResult::TimedOut(wire) => assert_eq!(wire["status"], "running"),
             other => panic!("expected timed out, got {other:?}"),
         }
-        runner.stop("task-1").await.unwrap();
+        runner.stop("task-1", None).await.unwrap();
     }
 
     #[tokio::test]
@@ -610,7 +622,7 @@ mod tests {
             runner.wait("nope", 100).await,
             TaskWaitResult::NotFound
         ));
-        let err = runner.stop("nope").await.unwrap_err();
+        let err = runner.stop("nope", None).await.unwrap_err();
         assert!(err.contains("Task not found: nope"));
         assert_eq!(runner.get_output("nope"), None);
         assert_eq!(runner.entry("nope"), None);
@@ -649,7 +661,35 @@ mod tests {
         assert!(entries[0].get("output").is_none());
         assert_eq!(entries[1]["taskId"], "task-2");
         assert_eq!(entries[1]["status"], "running");
-        runner.stop("task-2").await.unwrap();
+        runner.stop("task-2", None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stop_records_custom_reason() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task(
+                "task-1".into(),
+                "long".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+        let wire = runner
+            .stop("task-1", Some("User initiated stop"))
+            .await
+            .unwrap();
+        assert_eq!(wire["status"], "killed");
+        assert_eq!(wire["stopReason"], "User initiated stop");
+        // A blank reason falls back to the default.
+        runner
+            .spawn_task(
+                "task-2".into(),
+                "long".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+        let wire = runner.stop("task-2", Some("   ")).await.unwrap();
+        assert_eq!(wire["stopReason"], "Stopped by TaskStop");
     }
 
     #[tokio::test]
@@ -659,8 +699,10 @@ mod tests {
             .spawn_task("task-1".into(), "a".into(), async { "x".to_string() })
             .unwrap();
         runner.wait("task-1", 5000).await;
-        let wire = runner.stop("task-1").await.unwrap();
+        let wire = runner.stop("task-1", Some("late reason")).await.unwrap();
         assert_eq!(wire["status"], "completed");
+        // Terminal entries keep their state: no reason is attached.
+        assert!(wire.get("stopReason").is_none());
     }
 
     #[tokio::test]

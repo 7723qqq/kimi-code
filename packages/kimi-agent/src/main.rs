@@ -28,7 +28,7 @@ use kimi_agent::{
     },
     subagent::{ParentCancel, SubagentManager},
     turn_loop::{
-        run_turn::{run_turn, run_turn_with_telemetry},
+        run_turn::{run_turn_continued, run_turn_with_telemetry},
         types::*,
     },
 };
@@ -120,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
                     reasoning_effort: None,
                     thinking_budget: None,
                     auth_provider: None,
+                    thinking_keep: None,
                 }),
                 workspace_root: Some(workspace.display().to_string()),
                 native_tools: true,
@@ -260,11 +261,12 @@ async fn main() -> anyhow::Result<()> {
                 max_context_tokens,
                 goal: input.goal,
                 cancellation: Some(cancel.flag()),
+                hook_guard: pipeline.hook_guard.clone(),
             };
 
             let result = match input.telemetry {
                 Some(context) => run_turn_with_telemetry(run_input, context, &callbacks).await,
-                None => run_turn(run_input, &callbacks).await,
+                None => run_turn_continued(run_input, &callbacks).await,
             };
 
             // Clean up the cancellation flag.
@@ -366,11 +368,13 @@ async fn main() -> anyhow::Result<()> {
                     llm: pipeline.llm.clone(),
                     callbacks: pipeline.callbacks.clone(),
                     max_steps: input.max_steps.unwrap_or(u32::MAX),
+                    max_attempts: input.max_attempts,
                     max_context_tokens: input.max_context_tokens,
                     tool_defs: tool_defs_provider,
                     goal: goal_provider,
                     on_before_turn: None,
                     agent_cancel_slot: Some(agent_cancel_slot),
+                    hook_guard: pipeline.hook_guard.clone(),
                 })
                 .await;
 
@@ -772,6 +776,26 @@ async fn build_engine_pipeline(
     subagent_manager
         .register_profile_snapshot(&params.subagent_profiles)
         .await;
+    // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): the manager
+    // carries it so the native `AgentSwarm` tool reads it at execution time.
+    subagent_manager.set_swarm_timeout_ms(params.swarm_timeout_ms);
+    // Host-resolved `[services.moonshot_*]` backends (v2 `configSection.ts`).
+    // Always installed — including `None` — so a backend resolved for one
+    // session never leaks into a later pipeline that resolves none.
+    kimi_agent::tools::web_search::set_service_config(params.web_search.as_ref().map(|cfg| {
+        kimi_agent::tools::web_search::WebSearchServiceConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+            custom_headers: cfg.custom_headers.clone(),
+        }
+    }));
+    kimi_agent::tools::fetch_url::set_service_config(params.web_fetch.as_ref().map(|cfg| {
+        kimi_agent::tools::fetch_url::WebFetchServiceConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+            custom_headers: cfg.custom_headers.clone(),
+        }
+    }));
 
     pipeline::build_engine_pipeline(
         &spec,
@@ -854,6 +878,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             reasoning_effort: None,
             thinking_budget: None,
             auth_provider: None,
+            thinking_keep: None,
         }),
         workspace_root: Some(workspace.display().to_string()),
         native_tools: true,
@@ -1047,13 +1072,14 @@ async fn run_self_test() -> anyhow::Result<()> {
         max_context_tokens: None,
         goal: None,
         cancellation: None,
+        hook_guard: None,
     };
 
     // Create a minimal server for the test
     let server = Arc::new(RpcServer::new());
     let callbacks: Arc<dyn HostCallbacks> = Arc::new(RpcHostCallbacks { server });
 
-    let result = run_turn(input, &callbacks).await;
+    let result = run_turn_continued(input, &callbacks).await;
 
     match result {
         Ok(res) => {

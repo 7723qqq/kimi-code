@@ -89,17 +89,18 @@ describe('Session.listBackgroundTasks / getBackgroundTaskOutput', () => {
     }
   });
 
-  it('stopBackgroundTask is a no-op for an unknown task id', async () => {
+  it('stopBackgroundTask rejects for an unknown task id', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-bgtask-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-bgtask-work-');
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_bg_stop_unknown', workDir });
-      // Unknown task ids must not throw — the core BPM silently no-ops.
+      // The engine task runner fails unknown ids loudly (the standalone server
+      // 404s the same request); a stop targets a listed, existing task.
       await expect(
         session.stopBackgroundTask('bash-deadbeef', { reason: 'test' }),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow(/Task not found/);
     } finally {
       await harness.close();
     }

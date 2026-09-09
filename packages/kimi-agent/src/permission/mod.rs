@@ -23,7 +23,7 @@ use globset::Glob;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::native::permission_engine::dangerous_command::{analyze_bash_command, DangerousVerdict};
+use crate::native::permission_engine::dangerous_command::{DangerousVerdict, analyze_bash_command};
 
 /// Permission mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -72,8 +72,10 @@ pub struct PolicySnapshot {
     #[serde(default)]
     pub git_cwd: Option<String>,
     /// User-configured external hooks (v2 `[hooks]`). The engine executes
-    /// the `PreToolUse` ones before native tool calls (G-6 #6); other
-    /// events stay host-owned.
+    /// the `PreToolUse` ones before native tool calls (G-6 #6), notifies
+    /// the observe-only `PostToolUse` / `PostToolUseFailure` /
+    /// `UserPromptSubmit` / `PreCompact` events fire-and-forget, and lets
+    /// matching `Stop` hooks veto a clean text stop once per turn.
     #[serde(default)]
     pub pre_tool_hooks: Vec<HookDef>,
 }
@@ -270,7 +272,10 @@ impl PermissionEngine {
         //    `evaluate_bash_command` gate (`sudo reboot` refused in Yolo).
         if tool_lower == "bash"
             && let Some(command) = target_subject.as_deref()
-            && matches!(analyze_bash_command(command), DangerousVerdict::Dangerous(_))
+            && matches!(
+                analyze_bash_command(command),
+                DangerousVerdict::Dangerous(_)
+            )
         {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
@@ -449,24 +454,16 @@ const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
 ];
 
 /// Basenames that are sensitive on their own (v2 `SENSITIVE_BASENAMES`).
-const SENSITIVE_BASENAMES: &[&str] = &[
-    ".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials",
-];
+const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 
 /// Basename prefixes that match when followed by `-`, `_`, or a known
 /// dot-variant suffix (v2 `SENSITIVE_BASENAME_PREFIXES`).
-const SENSITIVE_BASENAME_PREFIXES: &[&str] = &[
-    "id_rsa", "id_ed25519", "id_ecdsa", "credentials",
-];
+const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 
 /// Exempt basenames — these are NOT sensitive even if they look like they
 /// might be (v2 `ENV_EXEMPTIONS` and `PUBLIC_KEY_BASENAMES`).
-const ENV_EXEMPT_BASENAMES: &[&str] = &[
-    ".env.example", ".env.sample", ".env.template",
-];
-const PUBLIC_KEY_BASENAMES: &[&str] = &[
-    "id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub",
-];
+const ENV_EXEMPT_BASENAMES: &[&str] = &[".env.example", ".env.sample", ".env.template"];
+const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
 
 /// Path-suffix components that flag a file as sensitive when they appear as
 /// a path segment (v2 `SENSITIVE_PATH_SUFFIXES`). The first component
@@ -474,10 +471,7 @@ const PUBLIC_KEY_BASENAMES: &[&str] = &[
 /// (`.aws` / `.gcp`); the join produces `.aws/credentials` and the match
 /// is `comparable.contains("/.aws/credentials/")` which catches both the
 /// file itself and any sibling under the credentials directory.
-const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[
-    &[".aws", "credentials"],
-    &[".gcp", "credentials"],
-];
+const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[&[".aws", "credentials"], &[".gcp", "credentials"]];
 
 /// True when `path_str` matches a v2 sensitive-file pattern. Mirrors v2
 /// `path-access.ts:isSensitiveFile` (the napi fast path lives in
@@ -513,9 +507,7 @@ pub fn is_sensitive_path(path_str: &str) -> bool {
     // Prefix + separator (`id_rsa-prod`, `credentials_backup`) or
     // prefix + dot-variant (`id_rsa.bak`, `credentials.old`).
     for prefix in SENSITIVE_BASENAME_PREFIXES {
-        if basename.len() > prefix.len()
-            && basename.starts_with(prefix)
-        {
+        if basename.len() > prefix.len() && basename.starts_with(prefix) {
             let suffix = &basename[prefix.len()..];
             let next = suffix.chars().next().unwrap_or('\0');
             if next == '-' || next == '_' {
@@ -674,7 +666,10 @@ mod tests {
         let verdict_auto = engine_auto.evaluate("Write", &json!({ "path": "src/main.rs" }));
         assert_eq!(verdict_auto.decision, VerdictDecision::Deny);
         assert_eq!(verdict_auto.policy_name, "UserConfiguredDeny");
-        assert_eq!(verdict_auto.reason, Some("Denied by user rule: Write".into()));
+        assert_eq!(
+            verdict_auto.reason,
+            Some("Denied by user rule: Write".into())
+        );
         assert!(!verdict_auto.is_allow());
 
         // 3. Wildcard tool rule `*(*.secret)` denies any matching tool call
@@ -799,8 +794,14 @@ mod tests {
         });
 
         // Read-only GitHub tools are approved by DefaultToolApprove
-        for tool in ["GitHubGetRepo", "GitHubGetPRDiff", "GitHubSearchCode", "GitHubGetMe"] {
-            let verdict = engine.evaluate(tool, &json!({ "owner": "octocat", "repo": "hello-world" }));
+        for tool in [
+            "GitHubGetRepo",
+            "GitHubGetPRDiff",
+            "GitHubSearchCode",
+            "GitHubGetMe",
+        ] {
+            let verdict =
+                engine.evaluate(tool, &json!({ "owner": "octocat", "repo": "hello-world" }));
             assert_eq!(
                 verdict.decision,
                 VerdictDecision::Allow,
@@ -962,10 +963,7 @@ mod tests {
     fn test_session_approval_history() {
         let engine = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Manual,
-            session_approvals: vec![
-                "Write(src/*.rs)".into(),
-                "Bash(cargo test)".into(),
-            ],
+            session_approvals: vec!["Write(src/*.rs)".into(), "Bash(cargo test)".into()],
             ..Default::default()
         });
 
@@ -1003,10 +1001,7 @@ mod tests {
         // Even in YOLO mode, an explicit user ask rule requires confirmation
         let engine = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Yolo,
-            ask_rules: vec![
-                "Write(config/*)".into(),
-                "Bash(deploy *)".into(),
-            ],
+            ask_rules: vec!["Write(config/*)".into(), "Bash(deploy *)".into()],
             ..Default::default()
         });
 
@@ -1039,10 +1034,7 @@ mod tests {
         // In Manual mode, explicit allow rules permit normally restricted operations
         let engine = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Manual,
-            allow_rules: vec![
-                "Write(tmp/*)".into(),
-                "Bash(npm run lint)".into(),
-            ],
+            allow_rules: vec!["Write(tmp/*)".into(), "Bash(npm run lint)".into()],
             ..Default::default()
         });
 
@@ -1104,7 +1096,9 @@ mod tests {
             assert_eq!(verdict.policy_name, "GitControlPathAccessAsk");
             assert_eq!(
                 verdict.reason,
-                Some(format!("Access to git control path requires approval: {path}"))
+                Some(format!(
+                    "Access to git control path requires approval: {path}"
+                ))
             );
             assert!(!verdict.is_allow());
 
@@ -1118,7 +1112,9 @@ mod tests {
             assert_eq!(verdict_yolo.policy_name, "GitControlPathAccessAsk");
             assert_eq!(
                 verdict_yolo.reason,
-                Some(format!("Access to git control path requires approval: {path}"))
+                Some(format!(
+                    "Access to git control path requires approval: {path}"
+                ))
             );
         }
 
@@ -1127,7 +1123,8 @@ mod tests {
         assert_eq!(verdict_gitignore.decision, VerdictDecision::Allow);
         assert_eq!(verdict_gitignore.policy_name, "DefaultToolApprove");
 
-        let verdict_workflow = engine_manual.evaluate("Read", &json!({ "path": ".github/workflows/ci.yml" }));
+        let verdict_workflow =
+            engine_manual.evaluate("Read", &json!({ "path": ".github/workflows/ci.yml" }));
         assert_eq!(verdict_workflow.decision, VerdictDecision::Allow);
         assert_eq!(verdict_workflow.policy_name, "DefaultToolApprove");
     }
@@ -1141,29 +1138,22 @@ mod tests {
         });
 
         // 1. Write inside git_cwd is approved by GitCwdWriteApprove
-        let verdict = engine.evaluate(
-            "Write",
-            &json!({ "path": "/workspace/project/src/lib.rs" }),
-        );
+        let verdict = engine.evaluate("Write", &json!({ "path": "/workspace/project/src/lib.rs" }));
         assert_eq!(verdict.decision, VerdictDecision::Allow);
         assert_eq!(verdict.policy_name, "GitCwdWriteApprove");
         assert_eq!(verdict.reason, None);
         assert!(verdict.is_allow());
 
         // 2. Edit inside git_cwd is approved by GitCwdWriteApprove
-        let verdict_edit = engine.evaluate(
-            "Edit",
-            &json!({ "path": "/workspace/project/Cargo.toml" }),
-        );
+        let verdict_edit =
+            engine.evaluate("Edit", &json!({ "path": "/workspace/project/Cargo.toml" }));
         assert_eq!(verdict_edit.decision, VerdictDecision::Allow);
         assert_eq!(verdict_edit.policy_name, "GitCwdWriteApprove");
         assert_eq!(verdict_edit.reason, None);
 
         // 3. Write outside git_cwd falls back to FallbackAsk
-        let verdict_outside = engine.evaluate(
-            "Write",
-            &json!({ "path": "/other/location/file.txt" }),
-        );
+        let verdict_outside =
+            engine.evaluate("Write", &json!({ "path": "/other/location/file.txt" }));
         assert_eq!(verdict_outside.decision, VerdictDecision::Ask);
         assert_eq!(verdict_outside.policy_name, "FallbackAsk");
         assert_eq!(
@@ -1172,10 +1162,8 @@ mod tests {
         );
 
         // 4. Write inside git_cwd but targeting sensitive file hits SensitiveFileAccessAsk
-        let verdict_sensitive = engine.evaluate(
-            "Write",
-            &json!({ "path": "/workspace/project/.env" }),
-        );
+        let verdict_sensitive =
+            engine.evaluate("Write", &json!({ "path": "/workspace/project/.env" }));
         assert_eq!(verdict_sensitive.decision, VerdictDecision::Ask);
         assert_eq!(verdict_sensitive.policy_name, "SensitiveFileAccessAsk");
         assert_eq!(
@@ -1192,7 +1180,10 @@ mod tests {
         assert_eq!(verdict_git.policy_name, "GitControlPathAccessAsk");
         assert_eq!(
             verdict_git.reason,
-            Some("Access to git control path requires approval: /workspace/project/.git/config".into())
+            Some(
+                "Access to git control path requires approval: /workspace/project/.git/config"
+                    .into()
+            )
         );
     }
 
@@ -1465,7 +1456,8 @@ mod tests {
             Some("https://api.test/data")
         );
         assert_eq!(
-            extract_rule_subject("fetch_url", &json!({ "url": "https://api.test/data" })).as_deref(),
+            extract_rule_subject("fetch_url", &json!({ "url": "https://api.test/data" }))
+                .as_deref(),
             Some("https://api.test/data")
         );
 
@@ -1491,7 +1483,10 @@ mod tests {
         assert_eq!(extract_rule_subject("read", &json!({ "path": true })), None);
 
         // Unknown tool returns None
-        assert_eq!(extract_rule_subject("unknown_tool", &json!({ "path": "foo" })), None);
+        assert_eq!(
+            extract_rule_subject("unknown_tool", &json!({ "path": "foo" })),
+            None
+        );
     }
 
     #[test]

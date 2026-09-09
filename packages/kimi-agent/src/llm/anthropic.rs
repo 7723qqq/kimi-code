@@ -20,7 +20,7 @@ pub fn build_request(
     messages: &[WireMessage],
     tools: &[ToolInfo],
 ) -> Value {
-    build_request_full(model, max_tokens, messages, tools, false, None)
+    build_request_full(model, max_tokens, messages, tools, false, None, None)
 }
 
 /// Build an Anthropic Messages request body, optionally streaming.
@@ -31,10 +31,13 @@ pub fn build_request_with_options(
     tools: &[ToolInfo],
     stream: bool,
 ) -> Value {
-    build_request_full(model, max_tokens, messages, tools, stream, None)
+    build_request_full(model, max_tokens, messages, tools, stream, None, None)
 }
 
 /// Build an Anthropic Messages request body with optional thinking budget.
+/// `thinking_keep` is the Moonshot preserved-thinking passthrough: a
+/// `clear_thinking_20251015` context-management edit (the host filters
+/// off-values and gates on Thinking, so any value here goes on the wire).
 pub fn build_request_full(
     model: &str,
     max_tokens: u32,
@@ -42,6 +45,7 @@ pub fn build_request_full(
     tools: &[ToolInfo],
     stream: bool,
     thinking_budget: Option<u32>,
+    thinking_keep: Option<&str>,
 ) -> Value {
     let mut system = String::new();
     let mut msgs: Vec<Value> = Vec::new();
@@ -113,9 +117,7 @@ pub fn build_request_full(
     // strictly aligning with TS `anthropic-cache-breakpoints.ts`.
     // Supports both user text/media and assistant tool_use blocks.
     if let Some(last_msg) = msgs.last_mut()
-        && let Some(content_arr) = last_msg
-            .get_mut("content")
-            .and_then(|c| c.as_array_mut())
+        && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
         && let Some(last_block) = content_arr.last_mut()
     {
         last_block["cache_control"] = json!({ "type": "ephemeral" });
@@ -160,6 +162,18 @@ pub fn build_request_full(
         req["thinking"] = json!({
             "type": "enabled",
             "budget_tokens": budget,
+        });
+    }
+    if let Some(keep) = thinking_keep
+        && !keep.is_empty()
+    {
+        // Preserved thinking rides a `clear_thinking_20251015`
+        // context-management edit (beta `context-management-2025-06-27`;
+        // the transport switches to the beta Messages API with it).
+        // `keep` forwards the configured string (usually "all"), mirroring
+        // the host Anthropic provider.
+        req["context_management"] = json!({
+            "edits": [{ "type": "clear_thinking_20251015", "keep": keep }],
         });
     }
 
@@ -1101,16 +1115,47 @@ mod tests {
             &[],
             true,
             Some(4096),
+            None,
         );
         assert_eq!(req_thinking["thinking"]["type"], "enabled");
         assert_eq!(req_thinking["thinking"]["budget_tokens"], 4096);
         // max_tokens should be bumped if <= budget
         assert!(req_thinking["max_tokens"].as_u64().unwrap() > 4096);
 
-        let req_no_thinking =
-            build_request_full("claude-3-7-sonnet-20250219", 4096, &msgs, &[], true, None);
+        let req_no_thinking = build_request_full(
+            "claude-3-7-sonnet-20250219",
+            4096,
+            &msgs,
+            &[],
+            true,
+            None,
+            None,
+        );
         assert!(req_no_thinking.get("thinking").is_none());
         assert_eq!(req_no_thinking["max_tokens"], 4096);
+    }
+
+    #[test]
+    fn test_build_request_thinking_keep() {
+        let msgs = vec![WireMessage::text("user", "hello")];
+        let req_keep = build_request_full(
+            "claude-sonnet-4-5",
+            64000,
+            &msgs,
+            &[],
+            true,
+            None,
+            Some("all"),
+        );
+        assert_eq!(
+            req_keep["context_management"]["edits"][0]["type"],
+            "clear_thinking_20251015"
+        );
+        assert_eq!(req_keep["context_management"]["edits"][0]["keep"], "all");
+
+        let req_no_keep =
+            build_request_full("claude-sonnet-4-5", 64000, &msgs, &[], true, None, None);
+        assert!(req_no_keep.get("context_management").is_none());
     }
 
     #[test]
@@ -1146,7 +1191,7 @@ mod tests {
             description: "read a file".into(),
             input_schema: json!({ "type": "object" }),
         }];
-        let req = build_request_full("claude-3-7-sonnet", 4096, &msgs, &tools, true, None);
+        let req = build_request_full("claude-3-7-sonnet", 4096, &msgs, &tools, true, None, None);
 
         // Slot 1: system prompt (if present)
         // Slot 2: last tool definition

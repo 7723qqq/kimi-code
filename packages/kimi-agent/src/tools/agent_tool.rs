@@ -483,7 +483,12 @@ pub async fn execute_agent(
 
     let run = tokio::time::timeout(
         std::time::Duration::from_millis(timeout),
-        manager.run_foreground_turn_with_history(&agent_id, &prompt, inherited_history, parent_cancel),
+        manager.run_foreground_turn_with_history(
+            &agent_id,
+            &prompt,
+            inherited_history,
+            parent_cancel,
+        ),
     )
     .await;
 
@@ -1139,7 +1144,10 @@ mod tests {
         ) -> BoxFuture<'_, Result<TurnChatResponse, Box<dyn std::error::Error + Send + Sync>>>
         {
             let mut prompts = self.prompts.lock().unwrap();
-            self.messages_sent.lock().unwrap().push(params.messages.clone());
+            self.messages_sent
+                .lock()
+                .unwrap()
+                .push(params.messages.clone());
             if let Some(last_user) = params
                 .messages
                 .iter()
@@ -1432,9 +1440,16 @@ mod tests {
             })
             .await;
 
-        assert!(result.is_some(), "fork must execute natively, not fall back to host");
+        assert!(
+            result.is_some(),
+            "fork must execute natively, not fall back to host"
+        );
         let res = result.unwrap();
-        assert!(!res.is_error, "fork execution must succeed: {}", res.content);
+        assert!(
+            !res.is_error,
+            "fork execution must succeed: {}",
+            res.content
+        );
         assert!(res.content.contains("status: completed"));
         assert!(res.content.contains("forked agent response"));
 
@@ -1442,15 +1457,28 @@ mod tests {
         assert_eq!(messages_sent.len(), 1);
         let sent_messages = &messages_sent[0];
         // sent_messages has: system message (from run_turn), then the 4 forked messages
-        let user_idx = sent_messages.iter().position(|m| m.content == "parent prompt").expect("parent prompt must be present");
+        let user_idx = sent_messages
+            .iter()
+            .position(|m| m.content == "parent prompt")
+            .expect("parent prompt must be present");
         assert_eq!(sent_messages[user_idx].role, "user");
         assert_eq!(sent_messages[user_idx + 1].role, "assistant");
         assert_eq!(sent_messages[user_idx + 1].content, "I will call a tool");
         assert_eq!(sent_messages[user_idx + 2].role, "tool");
-        assert_eq!(sent_messages[user_idx + 2].tool_call_id.as_deref(), Some("call-1"));
-        assert_eq!(sent_messages[user_idx + 2].content, crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT);
+        assert_eq!(
+            sent_messages[user_idx + 2].tool_call_id.as_deref(),
+            Some("call-1")
+        );
+        assert_eq!(
+            sent_messages[user_idx + 2].content,
+            crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT
+        );
         assert_eq!(sent_messages[user_idx + 3].role, "user");
-        assert!(sent_messages[user_idx + 3].content.contains("continue from fork"));
+        assert!(
+            sent_messages[user_idx + 3]
+                .content
+                .contains("continue from fork")
+        );
     }
 
     #[tokio::test]
@@ -1490,10 +1518,16 @@ mod tests {
             .unwrap();
 
         let wait_res = runner.wait(agent_id, 3000).await;
-        assert!(matches!(wait_res, crate::storage::TaskWaitResult::Completed(_)));
+        assert!(matches!(
+            wait_res,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
 
         let output = runner.get_output(agent_id);
-        assert_eq!(output.as_deref(), Some("findings: the loop is in run_turn.rs"));
+        assert_eq!(
+            output.as_deref(),
+            Some("findings: the loop is in run_turn.rs")
+        );
 
         let entry = runner.entry(agent_id).expect("entry must exist");
         assert_eq!(entry["status"], "completed");
@@ -1534,7 +1568,10 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let stop_res = runner.stop(agent_id).await.expect("stop should succeed");
+        let stop_res = runner
+            .stop(agent_id, None)
+            .await
+            .expect("stop should succeed");
         assert_eq!(stop_res["status"], "killed");
         assert_eq!(stop_res["stopReason"], "Stopped by TaskStop");
     }

@@ -35,7 +35,7 @@ use crate::server::hub::EventHub;
 use crate::server::interaction::InteractionManager;
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::subagent::SubagentManager;
-use crate::turn_loop::run_turn::run_turn;
+use crate::turn_loop::run_turn::run_turn_continued;
 use crate::turn_loop::types::{LLM, LLMMessage, RunTurnInput};
 
 /// A host for standalone server execution with optional interactive interaction
@@ -202,6 +202,10 @@ pub struct ServerEngine {
     hub: Arc<EventHub>,
     store: Arc<SqliteSessionStore>,
     max_steps: u32,
+    /// Host `loopControl.maxAttemptsPerStep` override (`None` = the engine
+    /// default). Wired per host like `max_steps`; the session pump threads
+    /// its own value instead.
+    max_attempts: Option<u32>,
     active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
     mcp_manager: Mutex<Option<Arc<McpManager>>>,
     interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
@@ -221,6 +225,7 @@ impl ServerEngine {
             hub,
             store: store.clone(),
             max_steps: 32,
+            max_attempts: None,
             active_turns: Mutex::new(HashMap::new()),
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
@@ -287,6 +292,11 @@ impl ServerEngine {
 
     pub fn with_max_steps(mut self, max_steps: u32) -> Self {
         self.max_steps = max_steps.max(1);
+        self
+    }
+
+    pub fn with_max_attempts(mut self, max_attempts: Option<u32>) -> Self {
+        self.max_attempts = max_attempts;
         self
     }
 
@@ -358,7 +368,8 @@ impl ServerEngine {
         let mut session_system_prompt = self.spec.system_prompt.clone();
         if (session_system_prompt.is_empty()
             || session_system_prompt == "sys"
-            || session_system_prompt.starts_with("You are kimi-agent, running as a standalone service."))
+            || session_system_prompt
+                .starts_with("You are kimi-agent, running as a standalone service."))
             && let Some(ref ws) = self.spec.workspace_root
         {
             session_system_prompt = crate::prompt::SystemPromptBuilder::build_default(ws);
@@ -394,13 +405,14 @@ impl ServerEngine {
             _ => None,
         };
         let ws_ref = ws_root.as_deref().unwrap_or(std::path::Path::new("."));
-        let host_callbacks: Arc<dyn HostCallbacks> = match crate::storage::StateStore::for_workspace(ws_ref) {
-            Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
-                inner: host_callbacks,
-                store: Arc::new(store),
-            }),
-            Err(_) => host_callbacks,
-        };
+        let host_callbacks: Arc<dyn HostCallbacks> =
+            match crate::storage::StateStore::for_workspace(ws_ref) {
+                Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
+                    inner: host_callbacks,
+                    store: Arc::new(store),
+                }),
+                Err(_) => host_callbacks,
+            };
         let pipeline = build_engine_pipeline(
             &spec,
             host_callbacks,
@@ -420,6 +432,7 @@ impl ServerEngine {
         self.execute(
             pipeline.llm.as_ref(),
             &pipeline.callbacks,
+            pipeline.hook_guard.clone(),
             session_id,
             turn_number,
             history,
@@ -446,14 +459,23 @@ impl ServerEngine {
         } else {
             Arc::new(ServerHost::standalone())
         };
-        self.execute(llm, &callbacks, session_id, turn_number, history, prompt)
-            .await
+        self.execute(
+            llm,
+            &callbacks,
+            None,
+            session_id,
+            turn_number,
+            history,
+            prompt,
+        )
+        .await
     }
 
     async fn execute(
         &self,
         llm: &dyn LLM,
         callbacks: &Arc<dyn HostCallbacks>,
+        hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
         session_id: &str,
         turn_number: u32,
         history: Vec<LLMMessage>,
@@ -485,7 +507,7 @@ impl ServerEngine {
         let input_len = messages.len();
 
         let input = RunTurnInput {
-            max_attempts: None,
+            max_attempts: self.max_attempts,
             turn_id: turn_id.clone(),
             llm,
             messages,
@@ -495,9 +517,10 @@ impl ServerEngine {
             max_context_tokens: None,
             goal: None,
             cancellation: Some(cancel),
+            hook_guard,
         };
 
-        let result = run_turn(input, callbacks)
+        let result = run_turn_continued(input, callbacks)
             .await
             .map_err(|error| EngineError::Turn(error.to_string()))?;
 

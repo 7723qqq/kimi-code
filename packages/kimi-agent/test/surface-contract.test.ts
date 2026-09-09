@@ -71,6 +71,10 @@ const UNWRAPPED_BINDINGS = new Set([
   'sessionExtendHistory',
   'sessionReleaseQuiescence',
   'sessionTryAcquireQuiescence',
+  'sessionStartBtw',
+  'sessionBtwPrompt',
+  'sessionBtwCancel',
+  'sessionGenerateTitle',
 ]);
 
 describe.skipIf(wrapper === undefined)('native tools export surface contract', () => {

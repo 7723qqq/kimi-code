@@ -19,6 +19,12 @@ import {
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolveKimiHome,
+  resolveMaxAttemptsPerStep,
+  resolveSubagentTimeoutMs,
+  resolveSwarmTimeoutMs,
+  resolveThinkingKeep,
+  resolveWebFetchService,
+  resolveWebSearchService,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { TurnEngineAdapter } from '@moonshot-ai/kimi-agent/rust-loop';
 
@@ -52,6 +58,8 @@ interface NativeLlmDef {
   thinking_budget?: number;
   /** OAuth-managed auth: the transport fetches bearer tokens via `host/auth_token`. */
   auth_provider?: string;
+  /** Moonshot preserved-thinking passthrough (`thinking.keep`). */
+  thinking_keep?: string;
 }
 
 /** A native-transport candidate: either a usable definition, or why it is not. */
@@ -62,7 +70,14 @@ interface NativeLlmResolution {
 
 interface RustEngineConfig {
   defaultModel?: string;
-  thinking?: { enabled?: boolean; effort?: string };
+  thinking?: { enabled?: boolean; effort?: string; keep?: string };
+  subagent?: { timeoutMs?: number };
+  swarm?: { timeoutMs?: number };
+  loopControl?: { maxAttemptsPerStep?: number; maxRetriesPerStep?: number };
+  services?: {
+    moonshotSearch?: { baseUrl?: string; apiKey?: string; customHeaders?: Record<string, string> };
+    moonshotFetch?: { baseUrl?: string; apiKey?: string; customHeaders?: Record<string, string> };
+  };
   providers?: Record<
     string,
     {
@@ -294,6 +309,8 @@ function tryResolveNativeLlm(
       reasoning_effort: reasoningEffort,
       thinking_budget: thinkingBudget,
       auth_provider: hasOAuth ? providerName : undefined,
+      // `[thinking] keep` is only injected while thinking is on (env-vars.md).
+      thinking_keep: isThinkingDisabled ? undefined : resolveThinkingKeep(config),
     },
   };
 }
@@ -510,6 +527,32 @@ async function resolveRustEngine(
       const resolution = extractNativeLlm(reloaded.config);
       patchEngineExecution({ llmFallbackReason: resolution.reason });
       return resolution.def;
+    },
+    // Host-resolved config knobs (env > config) read fresh per turn so
+    // config.toml edits land on the next session build; see the SDK's
+    // native-llm-resolver for the shared precedence implementation.
+    getSubagentTimeoutMs: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveSubagentTimeoutMs(reloaded.config);
+    },
+    getSwarmTimeoutMs: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveSwarmTimeoutMs(reloaded.config);
+    },
+    getMaxAttemptsPerStep: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveMaxAttemptsPerStep(reloaded.config);
+    },
+    getWebServices: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      const webSearch = resolveWebSearchService(reloaded.config);
+      const webFetch = resolveWebFetchService(reloaded.config);
+      if (webSearch === undefined && webFetch === undefined) return undefined;
+      return { webSearch, webFetch };
     },
     authToken: (request) => {
       const provider = authTokenFacade().resolveOAuthTokenProvider(request.provider);

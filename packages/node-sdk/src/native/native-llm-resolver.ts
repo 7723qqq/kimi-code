@@ -25,6 +25,12 @@ export interface JsNativeLlmConfig {
   thinkingBudget?: number;
   /** OAuth-managed auth: the transport fetches bearer tokens via `host/auth_token`. */
   authProvider?: string;
+  /**
+   * Moonshot preserved-thinking passthrough (`thinking.keep`): sent as
+   * `thinking.keep` on the kimi/openai body and as a `clear_thinking_20251015`
+   * context-management edit on anthropic. Only carried while thinking is on.
+   */
+  thinkingKeep?: string;
 }
 
 export interface PolicySnapshotDto {
@@ -136,6 +142,7 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
     reasoningEffort,
     thinkingBudget,
     authProvider: hasOAuth ? providerName : undefined,
+    thinkingKeep: resolveThinkingKeep(config),
   };
 }
 
@@ -178,6 +185,154 @@ export function resolveGithubCredentials(config: KimiConfig): {
     githubToken: config.github?.token ?? process.env['GITHUB_TOKEN'],
     githubBaseUrl: config.github?.baseUrl,
   };
+}
+
+// ── Config → engine-param resolvers (Wave 2) ───────────────────────────────
+// Precedence per value: environment variable > owning config section, matching
+// the documented config contract (config-files.md). Invalid values are
+// ignored so a bad entry degrades to the next source instead of failing the
+// session. The config params are structural subsets so every host that
+// resolves engine session params (the SDK's own buildHandle, the CLI's
+// rust-engine adapter) shares one implementation.
+
+function positiveInt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function nonNegativeInt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+/** Per-subagent (`Agent`) timeout in ms; `0` = no timeout. */
+export function resolveSubagentTimeoutMs(config: {
+  subagent?: { timeoutMs?: number };
+}): number | undefined {
+  return nonNegativeInt(process.env['KIMI_SUBAGENT_TIMEOUT_MS']) ?? config.subagent?.timeoutMs;
+}
+
+/** Per-`AgentSwarm` subagent timeout in ms, independent of `[subagent]`. */
+export function resolveSwarmTimeoutMs(config: {
+  swarm?: { timeoutMs?: number };
+}): number | undefined {
+  return (
+    nonNegativeInt(process.env['KIMI_CODE_SWARM_TIMEOUT_MS']) ?? config.swarm?.timeoutMs
+  );
+}
+
+/**
+ * Maximum total attempts for a failing step (v2 `loopControl.max_attempts_per_step`).
+ * The deprecated `KIMI_LOOP_MAX_RETRIES_PER_STEP` is honored when the renamed
+ * variable is unset; `kimi doctor` owns the deprecation warning.
+ */
+export function resolveMaxAttemptsPerStep(config: {
+  loopControl?: { maxAttemptsPerStep?: number; maxRetriesPerStep?: number };
+}): number | undefined {
+  return (
+    nonNegativeInt(process.env['KIMI_LOOP_MAX_ATTEMPTS_PER_STEP']) ??
+    nonNegativeInt(process.env['KIMI_LOOP_MAX_RETRIES_PER_STEP']) ??
+    config.loopControl?.maxAttemptsPerStep ??
+    config.loopControl?.maxRetriesPerStep
+  );
+}
+
+const THINKING_KEEP_OFF_VALUES = new Set(['false', '0', 'no', 'off', 'none', 'null']);
+
+/**
+ * Moonshot preserved-thinking passthrough (`thinking.keep`): env
+ * `KIMI_MODEL_THINKING_KEEP` > `[thinking].keep`. An off-value resolves to
+ * `undefined` (no keep on the wire). Unset stays `undefined` — unlike the
+ * host-proxy path's "all" default, the native wire keeps bodies unchanged
+ * until the user configures keep.
+ */
+export function resolveThinkingKeep(config: { thinking?: { keep?: string } }): string | undefined {
+  const raw = process.env['KIMI_MODEL_THINKING_KEEP'] ?? config.thinking?.keep;
+  const value = raw?.trim();
+  if (value === undefined || value.length === 0) return undefined;
+  if (THINKING_KEEP_OFF_VALUES.has(value.toLowerCase())) return undefined;
+  return value;
+}
+
+/** Raw-byte budget for model-initiated image reads (env > config). */
+export function resolveImageReadByteBudget(config: {
+  image?: { readByteBudget?: number };
+}): number | undefined {
+  return (
+    positiveInt(process.env['KIMI_IMAGE_READ_BYTE_BUDGET']) ?? config.image?.readByteBudget
+  );
+}
+
+/** One `[services.moonshot_*]` entry (base URL + credential + extra headers). */
+export interface WebServiceConfig {
+  baseUrl: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
+}
+
+interface MoonshotServiceConfigShape {
+  baseUrl?: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
+}
+
+function nonBlank(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
+ * Resolve one `[services.moonshot_*]` entry with its `KIMI_WEB_*` env overlay
+ * (env wins). An env base URL is a credential boundary: persisted api keys,
+ * OAuth refs, and custom headers from config.toml never cross into an
+ * env-selected endpoint (mirrors the v2 `isolateEnvServiceCredentials`
+ * semantics).
+ */
+function resolveWebService(
+  service: MoonshotServiceConfigShape | undefined,
+  baseUrlEnv: string,
+  apiKeyEnv: string,
+): WebServiceConfig | undefined {
+  const envBaseUrl = nonBlank(process.env[baseUrlEnv]);
+  const envApiKey = nonBlank(process.env[apiKeyEnv]);
+  if (envBaseUrl !== undefined) {
+    return { baseUrl: envBaseUrl, apiKey: envApiKey };
+  }
+  const baseUrl = nonBlank(service?.baseUrl);
+  if (baseUrl === undefined) return undefined;
+  const customHeaders = service?.customHeaders;
+  return {
+    baseUrl,
+    apiKey: envApiKey ?? nonBlank(service?.apiKey),
+    customHeaders:
+      customHeaders !== undefined && Object.keys(customHeaders).length > 0
+        ? customHeaders
+        : undefined,
+  };
+}
+
+/** `[services.moonshot_search]` / `KIMI_WEB_SEARCH_*` → native WebSearch backend. */
+export function resolveWebSearchService(config: {
+  services?: { moonshotSearch?: MoonshotServiceConfigShape };
+}): WebServiceConfig | undefined {
+  return resolveWebService(
+    config.services?.moonshotSearch,
+    'KIMI_WEB_SEARCH_BASE_URL',
+    'KIMI_WEB_SEARCH_API_KEY',
+  );
+}
+
+/** `[services.moonshot_fetch]` / `KIMI_WEB_FETCH_*` → native FetchURL backend. */
+export function resolveWebFetchService(config: {
+  services?: { moonshotFetch?: MoonshotServiceConfigShape };
+}): WebServiceConfig | undefined {
+  return resolveWebService(
+    config.services?.moonshotFetch,
+    'KIMI_WEB_FETCH_BASE_URL',
+    'KIMI_WEB_FETCH_API_KEY',
+  );
 }
 
 export function probeShellPath(): string | undefined {

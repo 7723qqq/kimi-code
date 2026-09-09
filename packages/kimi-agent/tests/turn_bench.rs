@@ -156,6 +156,7 @@ async fn run_turn_sync(
         max_context_tokens: None,
         goal: None,
         cancellation: None,
+        hook_guard: None,
     };
     run_turn(black_box(input), callbacks)
         .await

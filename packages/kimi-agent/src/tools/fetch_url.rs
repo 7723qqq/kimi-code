@@ -1,15 +1,22 @@
 //! FetchUrl — HTTP fetcher with SSRF protection and HTML content extraction.
 //!
 //! Ported for `kimi-agent` (P26 批 2). Executes in-process in Rust using
-//! `reqwest` and `scraper`.
+//! `reqwest` and `scraper`. When the host resolves a
+//! `[services.moonshot_fetch]` backend (v2 `configSection.ts`), the fetch is
+//! tried through the Moonshot service first — `POST {base_url}` with
+//! `{"url": …}`, `Accept: text/markdown`, the response body being the
+//! extracted markdown (v2 `MoonshotFetchURLProvider`) — and the direct fetch
+//! below stays the fallback on any service failure.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use scraper::{Html, Selector};
-use serde_json::Value;
+use serde_json::{Value, json};
 use url::Url;
 
+use super::moonshot_service::{self, MoonshotServiceConfig};
 use crate::turn_loop::types::ExecutableToolResult;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
@@ -18,6 +25,94 @@ const DEFAULT_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 /// Redirect hops followed before giving up — the cap `Policy::limited` used.
 const MAX_REDIRECT_HOPS: usize = 10;
+
+/// One host-resolved `[services.moonshot_fetch]` backend (v2
+/// `MoonshotFetchURLProvider`). Set per pipeline build from session params;
+/// the tool consults it at execution time.
+pub type WebFetchServiceConfig = MoonshotServiceConfig;
+
+static SERVICE_CONFIG: LazyLock<Mutex<Option<MoonshotServiceConfig>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Install (or clear with `None`) the host-resolved Moonshot fetch backend.
+/// Always installed per pipeline build — including `None` — so a backend
+/// resolved for one session never leaks into the next.
+pub fn set_service_config(config: Option<MoonshotServiceConfig>) {
+    moonshot_service::install(&SERVICE_CONFIG, config);
+}
+
+fn service_config() -> Option<MoonshotServiceConfig> {
+    moonshot_service::current(&SERVICE_CONFIG)
+}
+
+/// Build the Moonshot fetch request: body and headers (bearer, Accept,
+/// content-type, custom headers win).
+pub fn moonshot_fetch_request_parts(
+    config: &MoonshotServiceConfig,
+    url: &str,
+    api_key: &str,
+) -> (String, String, Vec<(String, String)>) {
+    let body = json!({ "url": url }).to_string();
+    let headers = moonshot_service::bearer_headers(
+        api_key,
+        &config.custom_headers,
+        &[("Accept", "text/markdown")],
+    );
+    (config.base_url.clone(), body, headers)
+}
+
+/// Try the Moonshot fetch service. `Ok(Some(result))` = the service answered
+/// (success or a tool-level error result); `Ok(None)` = the service failed
+/// and the caller should fall back to the direct fetch (v2 `localFallback`).
+/// Fallbacks log at debug: the outcome is routine, the reason aids diagnosis.
+async fn fetch_via_moonshot(
+    config: &MoonshotServiceConfig,
+    url_str: &str,
+) -> Result<Option<ExecutableToolResult>, ()> {
+    let Some(api_key) = moonshot_service::non_blank_key(&config.api_key) else {
+        // Unconfigured credential: a service error, but v2 treats any failure
+        // as fallback-worthy — the direct fetch still runs.
+        tracing::debug!("moonshot fetch skipped (missing API key), falling back to direct fetch");
+        return Err(());
+    };
+    let (url, body, headers) = moonshot_fetch_request_parts(config, url_str, &api_key);
+    let client = match moonshot_service::build_client() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!(
+                "moonshot fetch skipped (client build: {e}), falling back to direct fetch"
+            );
+            return Err(());
+        }
+    };
+    let request = moonshot_service::apply_headers(client.post(&url).body(body), headers);
+    let response = match request.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            tracing::debug!("moonshot fetch failed (network: {e}), falling back to direct fetch");
+            return Err(());
+        }
+    };
+    let status = response.status();
+    let text = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::debug!("moonshot fetch failed (read body: {e}), falling back to direct fetch");
+            return Err(());
+        }
+    };
+    if status.as_u16() != 200 {
+        // Mirror v2: any non-200 falls back to the local fetcher.
+        tracing::debug!("moonshot fetch failed (HTTP {status}), falling back to direct fetch");
+        return Err(());
+    }
+    Ok(Some(ExecutableToolResult {
+        stop_turn: false,
+        content: text,
+        is_error: false,
+        note: None,
+    }))
+}
 
 pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     let url_str = args.get("url")?.as_str()?;
@@ -28,6 +123,14 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
             is_error: true,
             note: None,
         });
+    }
+
+    // Host-resolved `[services.moonshot_fetch]` backend first; the direct
+    // fetch below is the fallback (v2 `MoonshotFetchURLProvider.localFallback`).
+    if let Some(config) = service_config()
+        && let Ok(Some(result)) = fetch_via_moonshot(&config, url_str).await
+    {
+        return Some(result);
     }
 
     let mut current_url = url_str.to_string();
@@ -445,13 +548,38 @@ mod tests {
         assert!(validate_url("http://example.com/foo", false).is_ok());
 
         let ftp_err = validate_url("ftp://example.com", false).unwrap_err();
-        assert_eq!(ftp_err, "Unsupported scheme \"ftp\" — only http(s) allowed.");
+        assert_eq!(
+            ftp_err,
+            "Unsupported scheme \"ftp\" — only http(s) allowed."
+        );
 
         let file_err = validate_url("file:///etc/passwd", false).unwrap_err();
-        assert_eq!(file_err, "Unsupported scheme \"file\" — only http(s) allowed.");
+        assert_eq!(
+            file_err,
+            "Unsupported scheme \"file\" — only http(s) allowed."
+        );
 
         let relative_err = validate_url("/local/path", false).unwrap_err();
         assert!(relative_err.starts_with("Invalid URL:"));
+    }
+
+    #[test]
+    fn test_moonshot_fetch_request_parts() {
+        let config = WebFetchServiceConfig {
+            base_url: "https://api.example.test/coding/v1/fetch".into(),
+            api_key: Some("sk-test".into()),
+            custom_headers: [("X-Trace".to_string(), "t1".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        let (url, body, headers) =
+            moonshot_fetch_request_parts(&config, "https://docs.example.test/guide", "sk-test");
+        assert_eq!(url, "https://api.example.test/coding/v1/fetch");
+        assert_eq!(body, r#"{"url":"https://docs.example.test/guide"}"#);
+        assert!(headers.contains(&("Authorization".to_string(), "Bearer sk-test".to_string())));
+        assert!(headers.contains(&("Accept".to_string(), "text/markdown".to_string())));
+        assert!(headers.contains(&("Content-Type".to_string(), "application/json".to_string())));
+        assert!(headers.contains(&("X-Trace".to_string(), "t1".to_string())));
     }
 
     #[test]

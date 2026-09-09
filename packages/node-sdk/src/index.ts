@@ -81,6 +81,20 @@ export {
 } from '#/media/mediaRef';
 export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
+// Host-side config → engine-param resolvers (env > config precedence, see
+// #/native/native-llm-resolver). Shared so every host that builds engine
+// session params resolves the knobs identically.
+export {
+  resolveSubagentTimeoutMs,
+  resolveSwarmTimeoutMs,
+  resolveMaxAttemptsPerStep,
+  resolveThinkingKeep,
+  resolveImageReadByteBudget,
+  resolveWebSearchService,
+  resolveWebFetchService,
+  type WebServiceConfig,
+} from '#/native/native-llm-resolver';
+
 // Host-side config helpers — the localized v1 config-document layer (see
 // #/config-local), used by hosts (e.g. the CLI's server telemetry bootstrap)
 // that need to inspect config without spinning up a full engine.

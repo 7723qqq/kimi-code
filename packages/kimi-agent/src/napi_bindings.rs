@@ -52,7 +52,7 @@ use crate::session::{
     Admission, EngineSession, GoalProvider, SessionConfig, ToolDefsProvider, TurnOutcome,
     TurnRequest,
 };
-use crate::turn_loop::{run_turn::run_turn, run_turn::run_turn_with_telemetry, types::*};
+use crate::turn_loop::{run_turn::run_turn_continued, run_turn::run_turn_with_telemetry, types::*};
 
 // ── Global callback registry ───────────────────────────────────────────────
 
@@ -785,6 +785,11 @@ pub struct JsRunTurnParams {
     /// `resolveSubagentTimeoutMs`). Absent → engine default (2h). `i64`
     /// because napi cannot read JS numbers as `u64`.
     pub subagent_timeout_ms: Option<i64>,
+    /// Host-resolved `AgentSwarm` timeout in ms (v2 `resolveSwarmTimeoutMs`).
+    /// Absent → the 2h swarm default; swarms never inherit
+    /// `subagent_timeout_ms`. `i64` because napi cannot read JS numbers as
+    /// `u64`.
+    pub swarm_timeout_ms: Option<i64>,
     /// P52 native-path vetoes (host-formatted deny reasons; see
     /// `RunTurnParams`).
     pub agent_tool_veto: Option<String>,
@@ -796,6 +801,14 @@ pub struct JsRunTurnParams {
     pub session_id: Option<String>,
     /// Native MCP servers configuration (P73).
     pub mcp_servers: Option<Vec<JsMcpServerConfig>>,
+    /// Host-resolved `[services.moonshot_search]` / `KIMI_WEB_SEARCH_*`
+    /// backend (v2 `configSection.ts`). When set, the native WebSearch tool
+    /// calls this endpoint instead of scraping DuckDuckGo.
+    pub web_search: Option<JsWebServiceConfig>,
+    /// Host-resolved `[services.moonshot_fetch]` / `KIMI_WEB_FETCH_*`
+    /// backend. When set, the native FetchURL tool tries this endpoint
+    /// first and falls back to the direct fetch on failure (v2 semantics).
+    pub web_fetch: Option<JsWebServiceConfig>,
 }
 
 /// MCP server configuration for pure-Rust MCP manager (P73).
@@ -892,6 +905,22 @@ pub struct JsNativeLlmConfig {
     /// a bearer token (`host/auth_token`) instead of using the static
     /// `api_key`. Absent means static-key auth.
     pub auth_provider: Option<String>,
+    /// Moonshot preserved-thinking passthrough (`thinking.keep`): `keep` on
+    /// the kimi/openai body, a `clear_thinking_20251015` context-management
+    /// edit on anthropic. Host filters off-values; absent = no keep on the
+    /// wire.
+    pub thinking_keep: Option<String>,
+}
+
+/// One host-resolved `[services.moonshot_*]` entry (v2 `configSection.ts`):
+/// the endpoint the native WebSearch / FetchURL tools call instead of the
+/// built-in DuckDuckGo scrape / direct HTTP fetch.
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsWebServiceConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub custom_headers: Option<std::collections::HashMap<String, String>>,
 }
 
 #[napi(object)]
@@ -1249,33 +1278,32 @@ async fn build_engine_pipeline(
         let mgr = Arc::new(crate::mcp::McpManager::new());
         for cfg in mcp_configs {
             let recipe = match cfg.transport.as_str() {
-                "stdio" => cfg
-                    .command
+                "stdio" => {
+                    cfg.command
+                        .as_ref()
+                        .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
+                            command: cmd.clone(),
+                            args: cfg.args.clone().unwrap_or_default(),
+                            env: cfg.env.clone().unwrap_or_default(),
+                            cwd: cfg.cwd.clone(),
+                        })
+                }
+                "sse" => cfg
+                    .url
                     .as_ref()
-                    .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
-                        command: cmd.clone(),
-                        args: cfg.args.clone().unwrap_or_default(),
-                        env: cfg.env.clone().unwrap_or_default(),
-                        cwd: cfg.cwd.clone(),
+                    .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
+                        url: url.clone(),
+                        headers: cfg.headers.clone().unwrap_or_default(),
+                        bearer_token_env_var: cfg.bearer_token_env_var.clone(),
                     }),
-                "sse" => {
-                    cfg.url
-                        .as_ref()
-                        .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
-                            url: url.clone(),
-                            headers: cfg.headers.clone().unwrap_or_default(),
-                            bearer_token_env_var: cfg.bearer_token_env_var.clone(),
-                        })
-                }
-                "http" => {
-                    cfg.url
-                        .as_ref()
-                        .map(|url| crate::mcp::manager::McpServerRecipe::Http {
-                            url: url.clone(),
-                            headers: cfg.headers.clone().unwrap_or_default(),
-                            bearer_token_env_var: cfg.bearer_token_env_var.clone(),
-                        })
-                }
+                "http" => cfg
+                    .url
+                    .as_ref()
+                    .map(|url| crate::mcp::manager::McpServerRecipe::Http {
+                        url: url.clone(),
+                        headers: cfg.headers.clone().unwrap_or_default(),
+                        bearer_token_env_var: cfg.bearer_token_env_var.clone(),
+                    }),
                 "mock" => Some(crate::mcp::manager::McpServerRecipe::Mock),
                 _ => None,
             };
@@ -1293,6 +1321,35 @@ async fn build_engine_pipeline(
         }
         mcp_manager = Some(mgr);
     }
+
+    // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): the
+    // process-wide manager carries it so the native `AgentSwarm` tool reads
+    // it at execution time. `try_from` drops negatives without wrapping; the
+    // manager itself drops zero.
+    SUBAGENT_MANAGER.set_swarm_timeout_ms(
+        params
+            .swarm_timeout_ms
+            .and_then(|timeout| u64::try_from(timeout).ok()),
+    );
+
+    // Host-resolved `[services.moonshot_*]` backends (v2 `configSection.ts`):
+    // the tools read the process-global seam at execution time. Always
+    // installed — including `None` — so a backend resolved for one session
+    // never leaks into a later pipeline that resolves none.
+    crate::tools::web_search::set_service_config(params.web_search.as_ref().map(|cfg| {
+        crate::tools::web_search::WebSearchServiceConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
+        }
+    }));
+    crate::tools::fetch_url::set_service_config(params.web_fetch.as_ref().map(|cfg| {
+        crate::tools::fetch_url::WebFetchServiceConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
+        }
+    }));
 
     let spec = PipelineSpec {
         system_prompt: params.system_prompt.clone(),
@@ -1321,6 +1378,7 @@ async fn build_engine_pipeline(
             reasoning_effort: cfg.reasoning_effort.clone(),
             thinking_budget: cfg.thinking_budget,
             auth_provider: cfg.auth_provider.clone(),
+            thinking_keep: cfg.thinking_keep.clone(),
         }),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools.unwrap_or(false),
@@ -1441,6 +1499,7 @@ async fn run_turn_rust_impl(
     let callbacks = pipeline.callbacks;
     let turn_event_count = pipeline.turn_event_count;
     let native_tool_count = pipeline.native_tool_count;
+    let hook_guard = pipeline.hook_guard.clone();
 
     let messages: Vec<LLMMessage> = params
         .messages
@@ -1505,6 +1564,7 @@ async fn run_turn_rust_impl(
         max_context_tokens: params.max_context_tokens,
         goal,
         cancellation: Some(cancellation),
+        hook_guard: hook_guard.clone(),
     };
 
     let telemetry_context = params.telemetry.map(|t| TelemetryContext {
@@ -1515,7 +1575,7 @@ async fn run_turn_rust_impl(
     });
     let result = match telemetry_context {
         Some(context) => run_turn_with_telemetry(input, context, &callbacks).await,
-        None => run_turn(input, &callbacks).await,
+        None => run_turn_continued(input, &callbacks).await,
     };
 
     CANCEL_MAP
@@ -1794,11 +1854,13 @@ pub fn create_engine_session(
                 llm: pipeline.llm.clone(),
                 callbacks: pipeline.callbacks.clone(),
                 max_steps: params.max_steps.unwrap_or(u32::MAX),
+                max_attempts: params.max_attempts,
                 max_context_tokens: params.max_context_tokens,
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
                 on_before_turn: None,
                 agent_cancel_slot: Some(agent_cancel_slot),
+                hook_guard: pipeline.hook_guard.clone(),
             })
             .await;
 
@@ -2076,6 +2138,188 @@ pub fn session_release_quiescence(session_id: String) -> napi::Result<()> {
             .unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     })
+}
+
+// ── Embedded harness capabilities (Wave 1) ────────────────────────────────
+// Session-scoped capabilities the TUI harness drives outside the turn queue.
+// The standalone server exposes the same state over HTTP (btw: POST
+// /sessions/:id/btw, title: POST /sessions/:id/title/generate, tasks:
+// /api/v1/tasks); here they cross the napi boundary directly.
+
+/// Start a btw side-channel instance forked from the session's current
+/// history (v2 `/btw`; mirrors `start_btw` at the standalone server).
+/// Returns the engine-assigned subagent id (`agent-btw-…`); the side-channel
+/// turns run through `session_btw_prompt` on the process-wide
+/// [`SUBAGENT_MANAGER`] runtime.
+#[napi]
+pub fn session_start_btw(env: Env, session_id: String) -> napi::Result<JsObject> {
+    let history = session_entry(&session_id)?.session.snapshot_history();
+    env.execute_tokio_future(
+        async move {
+            crate::subagent::start_btw(&SUBAGENT_MANAGER, &history)
+                .await
+                .map_err(napi::Error::from_reason)
+        },
+        |env, agent_id: String| env.create_string(&agent_id),
+    )
+}
+
+/// Run one btw side-channel turn (v2 `/btw` panel). The turn runs on the
+/// subagent instance's tool-free profile (resume semantics: the prompt is
+/// appended to the forked conversation seeded by `session_start_btw`), and
+/// its deltas stream through the owning session's `emit_event` callback
+/// attributed to the btw agent id. The resolved value carries the final
+/// assistant text plus the raw stop reason.
+#[napi]
+pub fn session_btw_prompt(
+    env: Env,
+    session_id: String,
+    agent_id: String,
+    prompt: String,
+) -> napi::Result<JsObject> {
+    // The session must be live, but the side channel owns its conversation:
+    // the turn runs on the shared subagent runtime, outside the session's
+    // turn queue.
+    session_entry(&session_id)?;
+    let manager = SUBAGENT_MANAGER.clone();
+    env.execute_tokio_future(
+        async move {
+            // Register a parent-cancel under the agent id so
+            // `session_btw_cancel` can abort the run mid-turn.
+            let cancel = crate::subagent::types::ParentCancel::new();
+            CANCEL_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(agent_id.clone(), cancel.clone());
+            let outcome = manager
+                .resume_foreground_turn(&agent_id, &prompt, Some(&cancel))
+                .await;
+            CANCEL_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&agent_id);
+            match outcome {
+                Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::Completed(result))) => {
+                    let content = result
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == "assistant")
+                        .map(|m| m.content.clone())
+                        .unwrap_or_default();
+                    Ok((content, format!("{:?}", result.stop_reason)))
+                }
+                Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::ParentCancelled)) => {
+                    Ok((String::new(), "Aborted".to_string()))
+                }
+                Some(Err(message)) => Err(napi::Error::from_reason(message)),
+                None => Err(napi::Error::from_reason(format!(
+                    "unknown btw side-channel instance: {agent_id}"
+                ))),
+            }
+        },
+        |env, (content, stop_reason): (String, String)| {
+            let mut obj = env.create_object()?;
+            obj.set_named_property("content", env.create_string_from_std(content)?)?;
+            obj.set_named_property("stopReason", env.create_string_from_std(stop_reason)?)?;
+            Ok(obj)
+        },
+    )
+}
+
+/// Abort a running btw side-channel turn (v2 `/btw` panel cancel). Triggers
+/// the parent-cancel registered by `session_btw_prompt`; returns whether a
+/// turn was pending for this agent id.
+#[napi]
+pub fn session_btw_cancel(agent_id: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let cancel = CANCEL_MAP
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&agent_id)
+            .cloned();
+        match cancel {
+            Some(cancel) => {
+                cancel.trigger();
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    })
+}
+
+/// Derive the session title from the live cross-turn history — the
+/// deterministic first_turn / user_prompts sources of
+/// `SqliteSessionStore::generate_title` applied to the embedded session's
+/// in-memory history. Returns null when no user prompt exists yet; the
+/// `digest` source is rejected (it needs the managed chat_title channel).
+#[napi]
+pub fn session_generate_title(
+    session_id: String,
+    source: Option<String>,
+) -> napi::Result<Option<String>> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let history = entry.session.snapshot_history();
+        crate::session::sqlite_store::derive_session_title(&history, source.as_deref())
+            .map_err(napi::Error::from_reason)
+    })
+}
+
+/// Every registered background task's entry wire, oldest first, output
+/// omitted — the JSON array the standalone server serves from its task
+/// runner (`GET /api/v1/tasks`, server/mod.rs). The runner is the one the
+/// active engine pipeline attached to the process-wide subagent manager; an
+/// empty array when no pipeline is live.
+#[napi]
+pub fn background_task_list() -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let tasks = SUBAGENT_MANAGER
+            .get_task_runner_sync()
+            .map(|runner| runner.list())
+            .unwrap_or_default();
+        serde_json::to_string(&tasks).map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// One background task's output snapshot; null while the task is still
+/// running (or unknown) — the [`TaskRunner::get_output`] contract.
+#[napi]
+pub fn background_task_output(id: String) -> napi::Result<Option<String>> {
+    guard_sync_panic(|| {
+        Ok(SUBAGENT_MANAGER
+            .get_task_runner_sync()
+            .and_then(|runner| runner.get_output(&id)))
+    })
+}
+
+/// Request a cooperative stop for one background task and resolve with its
+/// entry wire (`killed` once settled) — the `POST /api/v1/tasks/:id/stop`
+/// semantics. The optional `reason` becomes the entry's `stopReason` (blank
+/// falls back to `"Stopped by TaskStop"`). Fails for an unknown id or a
+/// process without a live runner.
+#[napi]
+pub fn background_task_stop(
+    env: Env,
+    id: String,
+    reason: Option<String>,
+) -> napi::Result<JsObject> {
+    let runner = SUBAGENT_MANAGER.get_task_runner_sync().ok_or_else(|| {
+        napi::Error::from_reason("no background task runner is active in this process")
+    })?;
+    env.execute_tokio_future(
+        async move {
+            runner
+                .stop(&id, reason.as_deref())
+                .await
+                .map_err(napi::Error::from_reason)
+        },
+        |env, wire: serde_json::Value| {
+            env.create_string_from_std(
+                serde_json::to_string(&wire).unwrap_or_else(|e| e.to_string()),
+            )
+        },
+    )
 }
 
 #[cfg(test)]

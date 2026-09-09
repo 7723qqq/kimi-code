@@ -162,6 +162,19 @@ export interface NativeLlmDef {
    * Requires the host to wire `RustEngineOptions.authToken`.
    */
   auth_provider?: string;
+  /**
+   * Moonshot preserved-thinking passthrough (`thinking.keep`): sent as
+   * `thinking.keep` on the kimi/openai body and as a `clear_thinking_20251015`
+   * context-management edit on anthropic. Absent = no keep on the wire.
+   */
+  thinking_keep?: string;
+}
+
+/** One host-resolved `[services.moonshot_*]` backend (v2 `configSection.ts`). */
+export interface WebServiceWire {
+  baseUrl: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
 }
 
 /** Options controlling the native (in-Rust) execution paths. */
@@ -221,6 +234,18 @@ export interface RustEngineOptions {
    * Read fresh on each turn.
    */
   getPolicySnapshot?: () => PolicySnapshot | undefined;
+  /**
+   * Host-resolved per-session config knobs (Wave 2 wiring). Read fresh per
+   * turn so config edits are reflected; the per-turn engine input wins when
+   * it carries the same field (timeouts/attempts — web services are
+   * host-level only, with no per-turn override). Precedence inside each
+   * resolver: env var > config section (`resolveSubagentTimeoutMs` & co.
+   * from the SDK).
+   */
+  getSubagentTimeoutMs?: () => number | undefined;
+  getSwarmTimeoutMs?: () => number | undefined;
+  getMaxAttemptsPerStep?: () => number | undefined;
+  getWebServices?: () => { webSearch?: WebServiceWire; webFetch?: WebServiceWire } | undefined;
   /**
    * Called once per completed turn with the result handed back to v2. The host
    * surfaces which transport actually ran the turn (`/status`); the adapter
@@ -1585,6 +1610,7 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             reasoning_effort: (nativeLlm as Record<string, unknown>)['reasoningEffort'] as string | undefined,
             thinking_budget: (nativeLlm as Record<string, unknown>)['thinkingBudget'] as number | undefined,
             auth_provider: (nativeLlm as Record<string, unknown>)['authProvider'] as string | undefined,
+            thinking_keep: (nativeLlm as Record<string, unknown>)['thinkingKeep'] as string | undefined,
           },
     workspace_root: params['workspaceRoot'],
     native_tools: params['nativeTools'],
@@ -1616,8 +1642,26 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
           : (JSON.parse(p.summaryPolicyJson) as unknown),
     })),
     subagent_timeout_ms: params['subagentTimeoutMs'],
+    swarm_timeout_ms: params['swarmTimeoutMs'],
+    max_attempts: params['maxAttempts'],
+    web_search: toStdioWebService(params['webSearch']),
+    web_fetch: toStdioWebService(params['webFetch']),
     agent_tool_veto: params['agentToolVeto'],
     tools_veto: params['toolsVeto'],
+  };
+}
+
+/** Convert the camelCase JS web-service config to the stdio snake_case wire. */
+function toStdioWebService(
+  raw: unknown,
+): { base_url: string; api_key?: string; custom_headers?: Record<string, string> } | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const cfg = raw as { baseUrl?: string; apiKey?: string; customHeaders?: Record<string, string> };
+  if (cfg.baseUrl === undefined) return undefined;
+  return {
+    base_url: cfg.baseUrl,
+    api_key: cfg.apiKey,
+    custom_headers: cfg.customHeaders,
   };
 }
 
@@ -2425,6 +2469,13 @@ export function createRunTurnOverride(
     const policySnapshot = options?.getPolicySnapshot?.();
     const githubCredentials = options?.getGithubCredentials?.();
     const telemetryContext = options?.getTelemetryContext?.();
+    // Resolve the host config knobs once per turn: every getter re-reads
+    // the config file, so calling them inline would reload it up to four
+    // times per turn (and could mix generations between webSearch/webFetch).
+    const subagentTimeoutMs = input.subagentTimeoutMs ?? options?.getSubagentTimeoutMs?.();
+    const swarmTimeoutMs = input.swarmTimeoutMs ?? options?.getSwarmTimeoutMs?.();
+    const maxAttempts = input.maxAttempts ?? options?.getMaxAttemptsPerStep?.();
+    const webServices = options?.getWebServices?.();
     const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
     const stateRead = input.stateRead?.bind(input) ?? options?.stateRead;
     const stateWrite = input.stateWrite?.bind(input) ?? options?.stateWrite;
@@ -2485,7 +2536,10 @@ export function createRunTurnOverride(
         policy: policySnapshot,
         github: githubCredentials,
         subagentProfiles: input.subagentProfiles,
-        subagentTimeoutMs: input.subagentTimeoutMs,
+        subagentTimeoutMs,
+        swarmTimeoutMs,
+        maxAttempts,
+        webServices,
         agentToolVeto: input.agentToolVeto,
         toolsVeto: input.toolsVeto,
       });
@@ -2524,6 +2578,7 @@ export function createRunTurnOverride(
                   reasoningEffort: nativeLlm.reasoning_effort,
                   thinkingBudget: nativeLlm.thinking_budget,
                   authProvider: nativeLlm.auth_provider,
+                  thinkingKeep: nativeLlm.thinking_keep,
                 },
           workspaceRoot,
           nativeTools,
@@ -2563,7 +2618,11 @@ export function createRunTurnOverride(
                 })
               : undefined,
           })),
-          subagentTimeoutMs: input.subagentTimeoutMs,
+          subagentTimeoutMs,
+          swarmTimeoutMs,
+          maxAttempts,
+          webSearch: webServices?.webSearch,
+          webFetch: webServices?.webFetch,
           // P52 native-path vetoes (swarm Agent denial / btw full tool
           // denial): part of the session fingerprint, so an enter/exit
           // rebuilds the session and the engine sees the fresh reasons.

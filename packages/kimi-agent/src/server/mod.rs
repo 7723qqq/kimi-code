@@ -85,23 +85,26 @@ impl HttpServer {
     pub fn with_hub(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> Self {
         let task_runner = Arc::new(TaskRunner::new(None));
         let store_persister = store.clone();
-        hub.set_persister(Arc::new(move |seq_ev: &crate::server::hub::SequencedEvent| {
-            let now = chrono::Utc::now().timestamp_millis();
-            let event_type = seq_ev.event.event_type().to_string();
-            let is_checkpoint = event_type == "turn.ended" || event_type == "checkpoint";
-            let is_compaction = event_type == "context.compaction";
-            let payload = serde_json::to_value(&seq_ev.event).unwrap_or(serde_json::Value::Null);
-            let raw = crate::native::event_store::RawWireEvent {
-                id: format!("wevt-{}", fastrand::u64(..)),
-                session_id: seq_ev.session_id.to_string(),
-                event_type,
-                payload,
-                is_checkpoint,
-                is_compaction,
-                created_at: now,
-            };
-            let _ = store_persister.append_wire_event(&raw);
-        }));
+        hub.set_persister(Arc::new(
+            move |seq_ev: &crate::server::hub::SequencedEvent| {
+                let now = chrono::Utc::now().timestamp_millis();
+                let event_type = seq_ev.event.event_type().to_string();
+                let is_checkpoint = event_type == "turn.ended" || event_type == "checkpoint";
+                let is_compaction = event_type == "context.compaction";
+                let payload =
+                    serde_json::to_value(&seq_ev.event).unwrap_or(serde_json::Value::Null);
+                let raw = crate::native::event_store::RawWireEvent {
+                    id: format!("wevt-{}", fastrand::u64(..)),
+                    session_id: seq_ev.session_id.to_string(),
+                    event_type,
+                    payload,
+                    is_checkpoint,
+                    is_compaction,
+                    created_at: now,
+                };
+                let _ = store_persister.append_wire_event(&raw);
+            },
+        ));
 
         Self {
             store: store.clone(),
@@ -123,7 +126,9 @@ impl HttpServer {
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
             config_override: Arc::new(Mutex::new(None)),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
-            subagent_manager: Arc::new(crate::subagent::SubagentManager::new().with_task_runner(task_runner)),
+            subagent_manager: Arc::new(
+                crate::subagent::SubagentManager::new().with_task_runner(task_runner),
+            ),
         }
     }
 
@@ -136,10 +141,7 @@ impl HttpServer {
     }
 
     #[must_use]
-    pub fn with_subagent_manager(
-        mut self,
-        manager: Arc<crate::subagent::SubagentManager>,
-    ) -> Self {
+    pub fn with_subagent_manager(mut self, manager: Arc<crate::subagent::SubagentManager>) -> Self {
         self.subagent_manager = manager;
         self
     }
@@ -248,7 +250,8 @@ impl HttpServer {
             engine.set_interaction_manager(self.interaction_manager.clone());
         }
         self.subagent_manager = engine.subagent_manager();
-        self.subagent_manager.set_task_runner_sync(self.task_runner.clone());
+        self.subagent_manager
+            .set_task_runner_sync(self.task_runner.clone());
         self.engine = Some(Arc::new(engine));
         self
     }
@@ -269,9 +272,12 @@ impl HttpServer {
 
     #[must_use]
     pub fn with_task_runner(mut self, task_runner: Arc<TaskRunner>) -> Self {
-        self.subagent_manager.set_task_runner_sync(task_runner.clone());
+        self.subagent_manager
+            .set_task_runner_sync(task_runner.clone());
         if let Some(engine) = &self.engine {
-            engine.subagent_manager().set_task_runner_sync(task_runner.clone());
+            engine
+                .subagent_manager()
+                .set_task_runner_sync(task_runner.clone());
         }
         self.task_runner = task_runner;
         self
@@ -292,11 +298,15 @@ impl HttpServer {
     }
 
     pub async fn config(&self) -> crate::config::KimiConfig {
-        self.config_override.lock().await.clone().unwrap_or_else(|| {
-            crate::config::KimiConfig::discover()
-                .map(|(c, _)| c)
-                .unwrap_or_default()
-        })
+        self.config_override
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| {
+                crate::config::KimiConfig::discover()
+                    .map(|(c, _)| c)
+                    .unwrap_or_default()
+            })
     }
 
     /// The fan-out handle connections attach to and turns publish through.
@@ -591,11 +601,16 @@ impl HttpServer {
                 }))
             }
             ("GET", "/api/v1/config") => {
-                let config = self.config_override.lock().await.clone().unwrap_or_else(|| {
-                    crate::config::KimiConfig::discover()
-                        .map(|(c, _)| c)
-                        .unwrap_or_default()
-                });
+                let config = self
+                    .config_override
+                    .lock()
+                    .await
+                    .clone()
+                    .unwrap_or_else(|| {
+                        crate::config::KimiConfig::discover()
+                            .map(|(c, _)| c)
+                            .unwrap_or_default()
+                    });
                 HttpResponse::ok(&format_config_response(&config))
             }
             ("POST", "/api/v1/config") => {
@@ -603,11 +618,16 @@ impl HttpServer {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let mut config = self.config_override.lock().await.clone().unwrap_or_else(|| {
-                    crate::config::KimiConfig::discover()
-                        .map(|(c, _)| c)
-                        .unwrap_or_default()
-                });
+                let mut config = self
+                    .config_override
+                    .lock()
+                    .await
+                    .clone()
+                    .unwrap_or_else(|| {
+                        crate::config::KimiConfig::discover()
+                            .map(|(c, _)| c)
+                            .unwrap_or_default()
+                    });
                 if let Some(dm) = body.get("default_model").and_then(|v| v.as_str()) {
                     config.default_model = Some(dm.to_string());
                 }
@@ -863,7 +883,9 @@ impl HttpServer {
                 HttpResponse::ok(&json!({ "items": items }))
             }
             ("GET", p) if p.starts_with("/api/v1/catalog/providers/") => {
-                let catalog_id = p.strip_prefix("/api/v1/catalog/providers/").unwrap_or_default();
+                let catalog_id = p
+                    .strip_prefix("/api/v1/catalog/providers/")
+                    .unwrap_or_default();
                 HttpResponse::ok(&json!({
                     "id": catalog_id,
                     "name": format!("Catalog {catalog_id}"),
@@ -882,29 +904,38 @@ impl HttpServer {
                     m.to_string()
                 } else if tail == "set_default" {
                     let body: Value = serde_json::from_slice(&req.body).unwrap_or(json!({}));
-                    body.get("model").and_then(|v| v.as_str()).unwrap_or("kimi-latest").to_string()
+                    body.get("model")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("kimi-latest")
+                        .to_string()
                 } else {
                     tail.to_string()
                 };
-                let mut config = self.config_override.lock().await.clone().unwrap_or_else(|| {
-                    crate::config::KimiConfig::discover()
-                        .map(|(c, _)| c)
-                        .unwrap_or_default()
-                });
+                let mut config = self
+                    .config_override
+                    .lock()
+                    .await
+                    .clone()
+                    .unwrap_or_else(|| {
+                        crate::config::KimiConfig::discover()
+                            .map(|(c, _)| c)
+                            .unwrap_or_default()
+                    });
                 config.default_model = Some(model_id.clone());
                 *self.config_override.lock().await = Some(config);
                 HttpResponse::ok(&json!({ "model": model_id }))
             }
-            ("GET", "/api/v1/prompts") => {
-                HttpResponse::ok(&json!({ "items": [] }))
-            }
+            ("GET", "/api/v1/prompts") => HttpResponse::ok(&json!({ "items": [] })),
             ("POST", "/api/v1/prompts") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
                 let prompt_id = format!("prompt-{}", ulid::Ulid::new());
-                let session_id = body.get("session_id").and_then(|v| v.as_str()).unwrap_or_default();
+                let session_id = body
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 HttpResponse::ok(&json!({
                     "id": prompt_id,
                     "session_id": session_id,
@@ -912,29 +943,30 @@ impl HttpServer {
                     "created_at": chrono::Utc::now().to_rfc3339()
                 }))
             }
-            ("GET", "/api/v1/files") => {
-                HttpResponse::ok(&json!({ "files": [] }))
-            }
+            ("GET", "/api/v1/files") => HttpResponse::ok(&json!({ "files": [] })),
             ("GET", "/api/v2/sessions") => {
                 let sessions = self.store.list_sessions().unwrap_or_default();
-                let items: Vec<Value> = sessions.into_iter().map(|s| {
-                    json!({
-                        "session_id": s.session_id,
-                        "title": s.title,
-                        "created_at": s.created_at,
-                        "updated_at": s.updated_at,
-                        "archived": s.archived,
-                        "workspace_id": s.workspace_id,
-                        "meta": {
+                let items: Vec<Value> = sessions
+                    .into_iter()
+                    .map(|s| {
+                        json!({
                             "session_id": s.session_id,
-                            "has_prompt": true
-                        },
-                        "activity": {
-                            "status": "idle",
-                            "model": Value::Null
-                        }
+                            "title": s.title,
+                            "created_at": s.created_at,
+                            "updated_at": s.updated_at,
+                            "archived": s.archived,
+                            "workspace_id": s.workspace_id,
+                            "meta": {
+                                "session_id": s.session_id,
+                                "has_prompt": true
+                            },
+                            "activity": {
+                                "status": "idle",
+                                "model": Value::Null
+                            }
+                        })
                     })
-                }).collect();
+                    .collect();
                 HttpResponse::ok(&json!({
                     "items": items,
                     "total": items.len(),
@@ -991,9 +1023,7 @@ impl HttpServer {
             }
             // On-demand reconnect for a configured server (v2
             // `reconnectAndJoin` surface): truthful failed/connected status.
-            ("POST", p)
-                if p.starts_with("/api/v1/mcp/servers/") && p.ends_with(":reconnect") =>
-            {
+            ("POST", p) if p.starts_with("/api/v1/mcp/servers/") && p.ends_with(":reconnect") => {
                 let name = p
                     .strip_prefix("/api/v1/mcp/servers/")
                     .and_then(|rest| rest.strip_suffix(":reconnect"))
@@ -1012,7 +1042,10 @@ impl HttpServer {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("test-server");
+                let name = body
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("test-server");
                 HttpResponse::ok(&json!({ "ok": true, "name": name, "connected": true }))
             }
             ("POST", "/api/v1/mcp/servers:inspect") | ("POST", "/api/v2/mcp/servers:inspect") => {
@@ -1020,14 +1053,20 @@ impl HttpServer {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let name = body.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let name = body
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 if let Some(tools) = self.mcp_manager.inspect_server(name).await {
                     HttpResponse::ok(&json!({ "name": name, "tools": tools }))
                 } else {
                     HttpResponse::not_found()
                 }
             }
-            ("DELETE", p) if p.starts_with("/api/v1/mcp/servers/") || p.starts_with("/api/v2/mcp/servers/") => {
+            ("DELETE", p)
+                if p.starts_with("/api/v1/mcp/servers/")
+                    || p.starts_with("/api/v2/mcp/servers/") =>
+            {
                 let name = p.rsplit('/').next().unwrap_or_default();
                 if self.mcp_manager.remove_server(name).await {
                     HttpResponse::ok(&json!({ "removed": true, "name": name }))
@@ -1056,7 +1095,10 @@ impl HttpServer {
                 } else {
                     serde_json::from_slice(&req.body).unwrap_or(json!({}))
                 };
-                let name = body.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let name = body
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let url = body.get("url").and_then(|v| v.as_str()).unwrap_or_default();
                 let Some(service) = self.mcp_oauth.lock().await.clone() else {
                     return HttpResponse::json(
@@ -1172,9 +1214,7 @@ impl HttpServer {
                             Err(e) => HttpResponse::internal_error(e),
                         }
                     }
-                    other => {
-                        HttpResponse::bad_request(format!("Unknown MCP auth action: {other}"))
-                    }
+                    other => HttpResponse::bad_request(format!("Unknown MCP auth action: {other}")),
                 }
             }
             ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/mcp") => {
@@ -1430,7 +1470,10 @@ impl HttpServer {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let id = body.get("id").or_else(|| body.get("name")).and_then(|v| v.as_str());
+                let id = body
+                    .get("id")
+                    .or_else(|| body.get("name"))
+                    .and_then(|v| v.as_str());
                 let Some(id) = id else {
                     return HttpResponse::bad_request("Missing plugin id");
                 };
@@ -1511,7 +1554,11 @@ impl HttpServer {
                     .and_then(|v| v.as_str())
                     .unwrap_or("kimi");
                 let region = body.get("region").and_then(|v| v.as_str());
-                let flow = self.oauth_manager.clone().start_login(provider, region).await;
+                let flow = self
+                    .oauth_manager
+                    .clone()
+                    .start_login(provider, region)
+                    .await;
                 HttpResponse::ok(&json!(flow))
             }
             ("GET", "/api/v1/oauth/login") => {
@@ -1894,7 +1941,18 @@ impl HttpServer {
                     }
                     segments[6]
                 };
-                match self.task_runner.stop(task_id).await {
+                match self
+                    .task_runner
+                    .stop(
+                        task_id,
+                        serde_json::from_slice::<Value>(&req.body)
+                            .ok()
+                            .as_ref()
+                            .and_then(|body| body.get("reason"))
+                            .and_then(|reason| reason.as_str()),
+                    )
+                    .await
+                {
                     Ok(wire) => HttpResponse::ok(&json!({ "stopped": true, "task": wire })),
                     Err(_) => HttpResponse::not_found(),
                 }
@@ -2202,9 +2260,7 @@ impl HttpServer {
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
-            ("GET", p)
-                if p.starts_with("/api/v1/sessions/") && p.ends_with("/children") =>
-            {
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/children") => {
                 let session_id = p
                     .strip_prefix("/api/v1/sessions/")
                     .and_then(|rest| rest.strip_suffix("/children"))
@@ -2214,9 +2270,7 @@ impl HttpServer {
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
-            ("GET", p)
-                if p.starts_with("/api/v1/sessions/") && p.ends_with("/warnings") =>
-            {
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/warnings") => {
                 let session_id = p
                     .strip_prefix("/api/v1/sessions/")
                     .and_then(|rest| rest.strip_suffix("/warnings"))
@@ -2228,9 +2282,7 @@ impl HttpServer {
                 // honestly empty rather than fabricated.
                 HttpResponse::ok(&json!({ "warnings": [] }))
             }
-            ("POST", p)
-                if p.starts_with("/api/v1/sessions/") && p.ends_with("/title/generate") =>
-            {
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/title/generate") => {
                 let session_id = p
                     .strip_prefix("/api/v1/sessions/")
                     .and_then(|rest| rest.strip_suffix("/title/generate"))
@@ -2324,7 +2376,10 @@ impl HttpServer {
                     serde_json::from_slice(&req.body).unwrap_or(json!({}))
                 };
                 let count = body.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-                let revert_files = body.get("revert_files").and_then(|v| v.as_bool()).unwrap_or(false);
+                let revert_files = body
+                    .get("revert_files")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 // Never delete rows under a running turn (v2 raises
                 // SESSION_BUSY before undoing).
                 if let Some(engine) = self.engine.as_ref()
@@ -2347,7 +2402,8 @@ impl HttpServer {
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
                 if revert_files
-                    && let Some(workdir) = fs_routes::resolve_session_workdir(&self.store, session_id)
+                    && let Some(workdir) =
+                        fs_routes::resolve_session_workdir(&self.store, session_id)
                 {
                     for turn_number in &turn_numbers {
                         let _ = self.store.revert_turn_file_changes(
@@ -2743,7 +2799,9 @@ impl HttpServer {
                     "grep" => fs_routes::handle_grep(&work_dir, &body),
                     "open" => fs_routes::handle_open(&work_dir, &body),
                     "reveal" => fs_routes::handle_reveal(&work_dir, &body),
-                    _ => HttpResponse::bad_request(format!("Unsupported filesystem action: {action}")),
+                    _ => HttpResponse::bad_request(format!(
+                        "Unsupported filesystem action: {action}"
+                    )),
                 }
             }
             ("GET", p)
@@ -2762,7 +2820,9 @@ impl HttpServer {
                 } else {
                     return HttpResponse::not_found();
                 };
-                let rel_path = file_path_raw.strip_suffix(":download").unwrap_or(file_path_raw);
+                let rel_path = file_path_raw
+                    .strip_suffix(":download")
+                    .unwrap_or(file_path_raw);
                 let work_dir = match fs_routes::resolve_session_workdir(&self.store, session_id) {
                     Some(d) => d,
                     None => return HttpResponse::not_found(),
@@ -2837,7 +2897,9 @@ impl HttpServer {
                     Err(_) => json!({}),
                 };
                 let work_dir = fs_routes::resolve_session_workdir(&self.store, session_id)
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                    });
                 let cwd_str = body
                     .get("cwd")
                     .and_then(|v| v.as_str())
@@ -2847,7 +2909,11 @@ impl HttpServer {
                 let cols_opt = body.get("cols").and_then(|v| v.as_u64()).map(|c| c as u32);
                 let rows_opt = body.get("rows").and_then(|v| v.as_u64()).map(|r| r as u32);
 
-                match self.terminal_manager.create(session_id, &cwd_str, shell_opt, cols_opt, rows_opt).await {
+                match self
+                    .terminal_manager
+                    .create(session_id, &cwd_str, shell_opt, cols_opt, rows_opt)
+                    .await
+                {
                     Ok(term) => HttpResponse::json(201, &json!(term)),
                     Err(err) => HttpResponse::internal_error(err),
                 }
@@ -2861,7 +2927,9 @@ impl HttpServer {
                 if parts.len() != 2 {
                     return HttpResponse::not_found();
                 }
-                let session_id = parts[0].strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                let session_id = parts[0]
+                    .strip_prefix("/api/v1/sessions/")
+                    .unwrap_or_default();
                 let terminal_id = parts[1];
                 match self.terminal_manager.get(session_id, terminal_id).await {
                     Some(term) => HttpResponse::ok(&json!(term)),
@@ -2877,9 +2945,14 @@ impl HttpServer {
                 if parts.len() != 2 {
                     return HttpResponse::not_found();
                 }
-                let session_id = parts[0].strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                let session_id = parts[0]
+                    .strip_prefix("/api/v1/sessions/")
+                    .unwrap_or_default();
                 let tail = parts[1];
-                let terminal_id = tail.strip_suffix(":close").or_else(|| tail.strip_suffix("/close")).unwrap_or(tail);
+                let terminal_id = tail
+                    .strip_suffix(":close")
+                    .or_else(|| tail.strip_suffix("/close"))
+                    .unwrap_or(tail);
                 match self.terminal_manager.close(session_id, terminal_id).await {
                     Ok(()) => HttpResponse::ok(&json!({ "closed": true })),
                     Err(e) => HttpResponse::bad_request(e),
@@ -2894,15 +2967,24 @@ impl HttpServer {
                 if parts.len() != 2 {
                     return HttpResponse::not_found();
                 }
-                let session_id = parts[0].strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                let session_id = parts[0]
+                    .strip_prefix("/api/v1/sessions/")
+                    .unwrap_or_default();
                 let tail = parts[1];
-                let terminal_id = tail.strip_suffix(":write").or_else(|| tail.strip_suffix("/write")).unwrap_or(tail);
+                let terminal_id = tail
+                    .strip_suffix(":write")
+                    .or_else(|| tail.strip_suffix("/write"))
+                    .unwrap_or(tail);
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
                     Err(_) => json!({}),
                 };
                 let data = body.get("data").and_then(|v| v.as_str()).unwrap_or("");
-                match self.terminal_manager.write(session_id, terminal_id, data.as_bytes()).await {
+                match self
+                    .terminal_manager
+                    .write(session_id, terminal_id, data.as_bytes())
+                    .await
+                {
                     Ok(()) => HttpResponse::ok(&json!({ "written": true })),
                     Err(e) => HttpResponse::bad_request(e),
                 }
@@ -2916,16 +2998,25 @@ impl HttpServer {
                 if parts.len() != 2 {
                     return HttpResponse::not_found();
                 }
-                let session_id = parts[0].strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                let session_id = parts[0]
+                    .strip_prefix("/api/v1/sessions/")
+                    .unwrap_or_default();
                 let tail = parts[1];
-                let terminal_id = tail.strip_suffix(":resize").or_else(|| tail.strip_suffix("/resize")).unwrap_or(tail);
+                let terminal_id = tail
+                    .strip_suffix(":resize")
+                    .or_else(|| tail.strip_suffix("/resize"))
+                    .unwrap_or(tail);
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
                     Err(_) => json!({}),
                 };
                 let cols = body.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u32;
                 let rows = body.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u32;
-                match self.terminal_manager.resize(session_id, terminal_id, cols, rows).await {
+                match self
+                    .terminal_manager
+                    .resize(session_id, terminal_id, cols, rows)
+                    .await
+                {
                     Ok(()) => HttpResponse::ok(&json!({ "resized": true })),
                     Err(e) => HttpResponse::bad_request(e),
                 }
@@ -2939,12 +3030,23 @@ impl HttpServer {
                 if parts.len() != 2 {
                     return HttpResponse::not_found();
                 }
-                let session_id = parts[0].strip_prefix("/api/v1/sessions/").unwrap_or_default();
+                let session_id = parts[0]
+                    .strip_prefix("/api/v1/sessions/")
+                    .unwrap_or_default();
                 let tail = parts[1];
                 let terminal_id = tail.strip_suffix("/output").unwrap_or(tail);
-                let since_seq = req.query_param("since_seq").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-                match self.terminal_manager.output(session_id, terminal_id, since_seq).await {
-                    Ok((output, total)) => HttpResponse::ok(&json!({ "output": output, "total": total })),
+                let since_seq = req
+                    .query_param("since_seq")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                match self
+                    .terminal_manager
+                    .output(session_id, terminal_id, since_seq)
+                    .await
+                {
+                    Ok((output, total)) => {
+                        HttpResponse::ok(&json!({ "output": output, "total": total }))
+                    }
                     Err(e) => HttpResponse::bad_request(e),
                 }
             }
@@ -3072,7 +3174,10 @@ impl HttpServer {
 
                 match self.store.get_wire_events(session_id, since, limit) {
                     Ok(events) => {
-                        let total = self.store.count_wire_events(session_id).unwrap_or(events.len());
+                        let total = self
+                            .store
+                            .count_wire_events(session_id)
+                            .unwrap_or(events.len());
                         let latest_seq = self.store.latest_wire_event_seq(session_id).unwrap_or(0);
                         HttpResponse::ok(&json!({
                             "sessionId": session_id,
@@ -3409,11 +3514,11 @@ impl HttpServer {
             );
         };
 
-        let inverse_patch =
-            match crate::session::patch::apply_patch(&mut current_wire, &patch_set) {
-                Ok(inv) => inv,
-                Err(e) => return HttpResponse::bad_request(format!("Failed to apply patch: {e}")),
-            };
+        let inverse_patch = match crate::session::patch::apply_patch(&mut current_wire, &patch_set)
+        {
+            Ok(inv) => inv,
+            Err(e) => return HttpResponse::bad_request(format!("Failed to apply patch: {e}")),
+        };
 
         if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str()) {
             if session.title.as_deref() != Some(new_title) {
@@ -3481,8 +3586,7 @@ impl HttpServer {
             };
 
         let mut current_wire = format_wire_session(&session, &self.store, self.engine.as_ref());
-        let redo_patch = match crate::session::patch::apply_patch(&mut current_wire, &inverse_set)
-        {
+        let redo_patch = match crate::session::patch::apply_patch(&mut current_wire, &inverse_set) {
             Ok(p) => p,
             Err(e) => return HttpResponse::bad_request(format!("Failed to revert patch: {e}")),
         };
@@ -4193,7 +4297,12 @@ mod tests {
             .await;
         assert_eq!(res_btw_colon.status, 200);
         let val_btw_colon: Value = serde_json::from_slice(&res_btw_colon.body).unwrap();
-        assert!(val_btw_colon["agent_id"].as_str().unwrap().starts_with("agent-btw-"));
+        assert!(
+            val_btw_colon["agent_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("agent-btw-")
+        );
 
         // 5. Missing session on status/abort/fork/btw -> 404
         let res_missing_status = server
@@ -5416,7 +5525,12 @@ mod tests {
             .await;
         assert_eq!(res_content.status, 200);
         let val_content: Value = serde_json::from_slice(&res_content.body).unwrap();
-        assert!(val_content["content"].as_str().unwrap().contains("println!(\"hello\")"));
+        assert!(
+            val_content["content"]
+                .as_str()
+                .unwrap()
+                .contains("println!(\"hello\")")
+        );
 
         // 6. Non-existent session
         let res_missing_prof = server
@@ -5686,7 +5800,10 @@ mod tests {
         assert_eq!(res_login.status, 200);
         let val_login: Value = serde_json::from_slice(&res_login.body).unwrap();
         assert_eq!(val_login["status"], "error");
-        assert!(val_login["errorMessage"].is_string(), "the failure reason must travel");
+        assert!(
+            val_login["errorMessage"].is_string(),
+            "the failure reason must travel"
+        );
 
         // 2. GET /api/v1/oauth/login
         let res_poll = server
@@ -6018,12 +6135,18 @@ mod tests {
 
         // 1. Create session with cwd metadata pointing to temp_dir
         let sid = "sess-fs-test";
-        server.store.create_session(sid, Some("FS Test Session")).unwrap();
-        server.store.put_state(
-            "metadata",
-            sid,
-            &json!({ "cwd": work_dir.to_string_lossy() }),
-        ).unwrap();
+        server
+            .store
+            .create_session(sid, Some("FS Test Session"))
+            .unwrap();
+        server
+            .store
+            .put_state(
+                "metadata",
+                sid,
+                &json!({ "cwd": work_dir.to_string_lossy() }),
+            )
+            .unwrap();
 
         // 2. mkdir via POST /api/v1/sessions/:id/fs:mkdir
         let mkdir_res = server
@@ -6095,7 +6218,10 @@ mod tests {
             })
             .await;
         assert_eq!(dl_res.status, 200);
-        assert_eq!(String::from_utf8_lossy(&dl_res.body), "Hello from native fs test!");
+        assert_eq!(
+            String::from_utf8_lossy(&dl_res.body),
+            "Hello from native fs test!"
+        );
 
         // 8. git_status via POST /api/v1/sessions/:id/fs:git_status
         let git_res = server
@@ -6118,12 +6244,18 @@ mod tests {
 
         // 1. Create session
         let sid = "sess-term-test";
-        server.store.create_session(sid, Some("Terminal Test Session")).unwrap();
-        server.store.put_state(
-            "metadata",
-            sid,
-            &json!({ "cwd": work_dir.to_string_lossy() }),
-        ).unwrap();
+        server
+            .store
+            .create_session(sid, Some("Terminal Test Session"))
+            .unwrap();
+        server
+            .store
+            .put_state(
+                "metadata",
+                sid,
+                &json!({ "cwd": work_dir.to_string_lossy() }),
+            )
+            .unwrap();
 
         // 2. Create terminal via POST /api/v1/sessions/:id/terminals
         let create_res = server
@@ -6135,7 +6267,8 @@ mod tests {
                 body: serde_json::to_vec(&json!({
                     "cols": 80,
                     "rows": 24
-                })).unwrap(),
+                }))
+                .unwrap(),
             })
             .await;
         assert_eq!(create_res.status, 201);
@@ -6226,7 +6359,10 @@ mod tests {
     async fn test_http_subagents_and_snapshot_routes() {
         let server = HttpServer::in_memory().unwrap();
         let sid = "sess-sub-test";
-        server.store.create_session(sid, Some("Subagent Test Session")).unwrap();
+        server
+            .store
+            .create_session(sid, Some("Subagent Test Session"))
+            .unwrap();
 
         // 1. Initial list empty
         let list_res = server
@@ -6432,8 +6568,14 @@ mod tests {
         assert_eq!(post_patch_res.status, 200);
         let post_patch_val: Value = serde_json::from_slice(&post_patch_res.body).unwrap();
         assert_eq!(post_patch_val["session"]["title"], "Object Patched Title");
-        assert_eq!(post_patch_val["session"]["metadata"]["client_version"], "1.2.3");
-        assert_eq!(post_patch_val["session"]["metadata"]["custom_tag"], "production");
+        assert_eq!(
+            post_patch_val["session"]["metadata"]["client_version"],
+            "1.2.3"
+        );
+        assert_eq!(
+            post_patch_val["session"]["metadata"]["custom_tag"],
+            "production"
+        );
 
         // 4. Undo the last patch
         let undo_res = server
@@ -6569,7 +6711,10 @@ mod tests {
             .find(|event| event["type"] == "compaction.completed")
             .expect("compaction.completed must be published");
         assert_eq!(completed["sessionId"], sid);
-        assert!(completed["tokensBefore"].as_u64().unwrap() > completed["tokensAfter"].as_u64().unwrap());
+        assert!(
+            completed["tokensBefore"].as_u64().unwrap()
+                > completed["tokensAfter"].as_u64().unwrap()
+        );
     }
 
     /// `mcp/auth:begin` + `:complete` drive the RFC 8628 flow and persist the
@@ -6614,7 +6759,10 @@ mod tests {
         assert_eq!(begin.status, 200);
         let begin_body: Value = serde_json::from_slice(&begin.body).unwrap();
         assert_eq!(begin_body["user_code"], "ABCD");
-        assert_eq!(begin_body["verification_uri"], "https://example.test/device");
+        assert_eq!(
+            begin_body["verification_uri"],
+            "https://example.test/device"
+        );
 
         let complete = server
             .handle_request(&HttpRequest {
@@ -6648,7 +6796,8 @@ mod tests {
             })
             .await;
         let statuses_body: Value = serde_json::from_slice(&statuses.body).unwrap();
-        let key = crate::mcp::oauth::mcp_oauth_store_key("srv", "https://example.test/mcp").unwrap();
+        let key =
+            crate::mcp::oauth::mcp_oauth_store_key("srv", "https://example.test/mcp").unwrap();
         assert_eq!(statuses_body["statuses"][&key]["authenticated"], true);
 
         let reset = server
@@ -6676,7 +6825,9 @@ mod tests {
         let server = HttpServer::with_hub(store.clone(), hub.clone());
 
         let sid = "sess-event-http";
-        store.create_session(sid, Some("Event Stream Test")).unwrap();
+        store
+            .create_session(sid, Some("Event Stream Test"))
+            .unwrap();
 
         // 1. Publish events onto hub lane -> automatically captured by persister into wire_events
         let bus = hub.bus_for(sid);

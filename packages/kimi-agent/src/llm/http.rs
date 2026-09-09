@@ -166,6 +166,7 @@ impl NativeHttpLlm {
                 &params.tools,
                 true,
                 self.config.thinking_budget,
+                self.config.thinking_keep.as_deref(),
             )
         } else if is_responses {
             openai_responses::build_request_full(
@@ -184,6 +185,7 @@ impl NativeHttpLlm {
                 &params.tools,
                 true,
                 self.config.reasoning_effort.as_deref(),
+                self.config.thinking_keep.as_deref(),
             )
         };
 
@@ -309,6 +311,16 @@ impl NativeHttpLlm {
             req = req
                 .header("x-api-key", token)
                 .header("anthropic-version", "2023-06-01");
+            // Preserved thinking rides the beta Messages API
+            // (`context-management-2025-06-27`), mirroring the host provider.
+            if self
+                .config
+                .thinking_keep
+                .as_deref()
+                .is_some_and(|keep| !keep.is_empty())
+            {
+                req = req.header("anthropic-beta", "context-management-2025-06-27");
+            }
         } else {
             req = req.header("authorization", format!("Bearer {token}"));
         }
@@ -552,6 +564,7 @@ mod tests {
             reasoning_effort: None,
             thinking_budget: None,
             auth_provider: None,
+            thinking_keep: None,
         }
     }
 
@@ -587,7 +600,9 @@ mod tests {
         assert!(llm.is_retryable_error("llm sse decode error: expected value at line 1"));
         assert!(!llm.is_retryable_error("llm http status 401 Unauthorized: bad key"));
         assert!(!llm.is_retryable_error("llm http status 400 Bad Request: invalid schema"));
-        assert!(!llm.is_retryable_error("llm http status 402 Payment Required: Insufficient Balance"));
+        assert!(
+            !llm.is_retryable_error("llm http status 402 Payment Required: Insufficient Balance")
+        );
     }
 
     #[test]
@@ -729,16 +744,17 @@ mod tests {
         let chat_llm = llm.clone();
         let chat_token = token.clone();
         let chat = tokio::spawn(async move {
-            chat_llm.chat(LLMChatParams {
-                cancel: Some(chat_token),
-                messages: vec![crate::turn_loop::types::LLMMessage {
-                    role: "user".into(),
-                    content: "hi".into(),
-                    ..Default::default()
-                }],
-                tools: vec![],
-            })
-            .await
+            chat_llm
+                .chat(LLMChatParams {
+                    cancel: Some(chat_token),
+                    messages: vec![crate::turn_loop::types::LLMMessage {
+                        role: "user".into(),
+                        content: "hi".into(),
+                        ..Default::default()
+                    }],
+                    tools: vec![],
+                })
+                .await
         });
 
         // Let the first delta arrive, then cancel mid-stream.

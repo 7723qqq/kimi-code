@@ -489,6 +489,24 @@ pub struct NativeLlmConfig {
     /// `api_key`. `api_key` stays the fallback for providers that carry both.
     #[serde(default)]
     pub auth_provider: Option<String>,
+    /// Moonshot preserved-thinking passthrough (`thinking.keep`): `keep` on
+    /// the kimi/openai body, a `clear_thinking_20251015` context-management
+    /// edit on anthropic. The host filters off-values; `None` = no keep on
+    /// the wire.
+    #[serde(default)]
+    pub thinking_keep: Option<String>,
+}
+
+/// One host-resolved `[services.moonshot_*]` entry (v2 `configSection.ts`):
+/// the endpoint the native WebSearch / FetchURL tools call instead of the
+/// built-in DuckDuckGo scrape / direct HTTP fetch.
+#[derive(Clone, Debug, Deserialize)]
+pub struct WebServiceConfig {
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub custom_headers: std::collections::HashMap<String, String>,
 }
 
 /// Debug never renders the key: this struct is `{:?}`-formatted on paths that
@@ -585,6 +603,21 @@ pub struct RunTurnParams {
     /// `resolveSubagentTimeoutMs`). `None` → engine default (2h).
     #[serde(default)]
     pub subagent_timeout_ms: Option<u64>,
+    /// Host-resolved `AgentSwarm` timeout in ms (v2 `resolveSwarmTimeoutMs`).
+    /// `None` → the 2h swarm default; swarms never inherit
+    /// `subagent_timeout_ms`.
+    #[serde(default)]
+    pub swarm_timeout_ms: Option<u64>,
+    /// Host-resolved `[services.moonshot_search]` / `KIMI_WEB_SEARCH_*`
+    /// backend (v2 `configSection.ts`). When set, the native WebSearch tool
+    /// calls this endpoint instead of scraping DuckDuckGo.
+    #[serde(default)]
+    pub web_search: Option<WebServiceConfig>,
+    /// Host-resolved `[services.moonshot_fetch]` / `KIMI_WEB_FETCH_*`
+    /// backend. When set, the native FetchURL tool tries this endpoint
+    /// first and falls back to the direct fetch on failure (v2 semantics).
+    #[serde(default)]
+    pub web_fetch: Option<WebServiceConfig>,
     /// P52 native-path vetoes: non-empty reason = the engine rejects the
     /// affected native executions with this text as the tool result.
     /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
@@ -868,6 +901,19 @@ pub struct TokenUsage {
     /// Prompt tokens written into the provider's cache by this call.
     #[serde(default)]
     pub input_cache_creation: u32,
+}
+
+impl TokenUsage {
+    /// Fold another step/iteration's counts into this accumulator. The
+    /// step loop and the Stop-hook continuation loop share it so token
+    /// budgets never under-count across iterations.
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.total_tokens += other.total_tokens;
+        self.input_cache_read += other.input_cache_read;
+        self.input_cache_creation += other.input_cache_creation;
+    }
 }
 
 /// Health check response.

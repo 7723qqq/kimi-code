@@ -48,6 +48,10 @@ pub struct EnginePipeline {
     pub turn_event_count: Arc<AtomicU32>,
     /// Native tool call counter from the native-tool wrapper.
     pub native_tool_count: Arc<AtomicU32>,
+    /// Turn-lifecycle hook dispatch (`UserPromptSubmit` / `PreCompact` /
+    /// `Stop`); `None` when the policy snapshot configures no hooks. Turn
+    /// drivers clone it per turn; subagent turns pass `None` by design.
+    pub hook_guard: Option<Arc<HookGuard>>,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -180,6 +184,13 @@ pub async fn build_engine_pipeline(
     let permission_engine = policy_snapshot
         .clone()
         .map(|s| Arc::new(crate::permission::PermissionEngine::new(s)));
+    // Turn-lifecycle hooks (v2 `agentExternalHooksService`, G-6 #6):
+    // user-configured commands observe the turn (`UserPromptSubmit` /
+    // `PreCompact`) and can veto a clean text stop (`Stop`). Built once
+    // per pipeline; turn drivers clone it per turn, subagent turns skip it.
+    let hook_guard = policy_snapshot
+        .clone()
+        .map(|s| Arc::new(HookGuard::new(s.pre_tool_hooks)));
     let callbacks: Arc<dyn HostCallbacks> =
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
@@ -190,9 +201,11 @@ pub async fn build_engine_pipeline(
                     ) = match crate::storage::StateStore::for_workspace(std::path::Path::new(root))
                     {
                         Ok(store) => {
-                            let runner = crate::storage::TaskRunner::for_workspace(std::path::Path::new(root))
-                                .ok()
-                                .map(Arc::new);
+                            let runner = crate::storage::TaskRunner::for_workspace(
+                                std::path::Path::new(root),
+                            )
+                            .ok()
+                            .map(Arc::new);
                             (
                                 Arc::new(crate::callbacks::StateStoreCallbacks {
                                     inner: base_callbacks.clone(),
@@ -222,9 +235,6 @@ pub async fn build_engine_pipeline(
                     ));
                     // PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6):
                     // user-configured commands gate native calls.
-                    let hook_guard = policy_snapshot
-                        .clone()
-                        .map(|s| Arc::new(HookGuard::new(s.pre_tool_hooks)));
                     let mut toolset = toolset
                         .with_subagents(subagent_manager.clone())
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
@@ -252,7 +262,9 @@ pub async fn build_engine_pipeline(
                     } else if let Some(ref mode_str) = spec.sandbox_mode {
                         let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
                         let root = spec.workspace_root.clone().unwrap_or_default();
-                        Some(crate::tools::sandbox::SandboxExecutionPolicy::new(mode, root))
+                        Some(crate::tools::sandbox::SandboxExecutionPolicy::new(
+                            mode, root,
+                        ))
                     } else {
                         None
                     };
@@ -290,7 +302,7 @@ pub async fn build_engine_pipeline(
                         })),
                         stale_guard: Some(stale_gate),
                         goal_guard: Some(goal_guard),
-                        hook_guard,
+                        hook_guard: hook_guard.clone(),
                         agent_tool_veto: spec.agent_tool_veto.clone(),
                         tools_veto: spec.tools_veto.clone(),
                         todo_tool_veto: spec.todo_tool_veto.clone(),
@@ -360,6 +372,7 @@ pub async fn build_engine_pipeline(
         callbacks,
         turn_event_count,
         native_tool_count,
+        hook_guard,
     })
 }
 

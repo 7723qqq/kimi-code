@@ -621,6 +621,31 @@ export function nativeWebSearch(
 ): Promise<NativeWebSearchResult>;
 
 // ============================================================================
+// Background tasks — the engine pipeline's task runner (process-global)
+// ============================================================================
+
+/**
+ * Every registered background task as a JSON array of entry wires
+ * (taskId / description / status / startedAt / endedAt / stopReason),
+ * oldest first, output omitted. Empty array when no engine pipeline is live.
+ */
+export function backgroundTaskList(): string;
+
+/**
+ * One background task's output snapshot; null while the task is still
+ * running (or the id is unknown).
+ */
+export function backgroundTaskOutput(id: string): string | null;
+
+/**
+ * Request a cooperative stop for one background task; resolves with its
+ * entry wire (`killed` once settled). Rejects for an unknown id or when no
+ * engine pipeline is live.
+ * @param reason Stop reason recorded as the entry's `stopReason`.
+ */
+export function backgroundTaskStop(id: string, reason?: string): Promise<string>;
+
+// ============================================================================
 // XML / HTML escaping
 // ============================================================================
 

@@ -131,8 +131,9 @@ impl HostCallbacks for ReplDummyHostCallbacks {
                     .unwrap_or_default();
                 match action {
                     "stop" => {
+                        let reason = request.value.get("reason").and_then(|r| r.as_str());
                         let entry = runner
-                            .stop(id)
+                            .stop(id, reason)
                             .await
                             .map_err(|e| format!("State write error: [-32002] {e}"))?;
                         return Ok(StateWriteResponse {
@@ -378,6 +379,7 @@ pub async fn start_repl(
             reasoning_effort: None,
             thinking_budget: None,
             auth_provider: None,
+            thinking_keep: None,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));
@@ -463,7 +465,7 @@ pub async fn start_repl(
         })),
         stale_guard: Some(stale_gate),
         goal_guard: Some(goal_guard),
-        hook_guard: Some(hook_guard),
+        hook_guard: Some(hook_guard.clone()),
         // REPL has no swarm/btw contexts — nothing to veto.
         agent_tool_veto: None,
         tools_veto: None,
@@ -484,6 +486,7 @@ pub async fn start_repl(
         llm: llm.clone(),
         callbacks: tool_callbacks.clone(),
         max_steps: 25,
+        max_attempts: None,
         max_context_tokens: None,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
@@ -502,6 +505,7 @@ pub async fn start_repl(
         // REPL spawns subagents through its own invoke_subagent family; the
         // foreground `Agent` context has no session cancel slot to consult.
         agent_cancel_slot: None,
+        hook_guard: Some(hook_guard),
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;
 

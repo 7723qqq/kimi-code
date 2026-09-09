@@ -30,6 +30,13 @@ export type SessionAdmission =
   | 'activeOrNextTurn'
   | 'activeTurnOnly';
 
+/**
+ * The `title/generate` source selector the engine accepts (`first_turn` |
+ * `user_prompts`); `digest` needs the managed chat_title channel and is
+ * rejected engine-side.
+ */
+export type SessionTitleSource = 'first_turn' | 'user_prompts';
+
 /** The outcome of one enqueued turn (engine-side failures reject the promise). */
 export interface SessionTurnOutcome {
   status: 'ran' | 'cancelledBeforeStart';
@@ -112,6 +119,14 @@ interface SessionNativeModule {
   sessionHistoryLen(sessionId: string): number;
   sessionGetHistory(sessionId: string): string;
   sessionDispose(sessionId: string): void;
+  sessionStartBtw(sessionId: string): Promise<string>;
+  sessionBtwPrompt(
+    sessionId: string,
+    agentId: string,
+    prompt: string,
+  ): Promise<{ content: string; stopReason: string }>;
+  sessionBtwCancel(agentId: string): boolean;
+  sessionGenerateTitle(sessionId: string, source?: SessionTitleSource): string | null;
   getCallbackPayload(id: number): string | null;
   resolveCallback(id: number, error: string | null, result: string | null): void;
 }
@@ -302,6 +317,46 @@ export class EngineSessionHandle {
     return this.transport.getHistory(this.id);
   }
 
+  /**
+   * Start a btw side-channel instance forked from this session's current
+   * history (v2 `/btw`); resolves with the engine-assigned agent id. Turns
+   * run through {@link btwPrompt} outside the session's turn queue.
+   */
+  async startBtw(): Promise<string> {
+    if (!this.transport.startBtw) {
+      throw new Error('btw side-channel is not supported on this session transport');
+    }
+    return this.transport.startBtw(this.id);
+  }
+
+  /** Run one btw side-channel turn on a previously started instance. */
+  async btwPrompt(agentId: string, prompt: string): Promise<{ content: string; stopReason: string }> {
+    if (!this.transport.btwPrompt) {
+      throw new Error('btw side-channel is not supported on this session transport');
+    }
+    return this.transport.btwPrompt(this.id, agentId, prompt);
+  }
+
+  /** Abort a running btw side-channel turn; true when a turn was pending. */
+  async btwCancel(agentId: string): Promise<boolean> {
+    if (!this.transport.btwCancel) {
+      throw new Error('btw side-channel is not supported on this session transport');
+    }
+    return this.transport.btwCancel(agentId);
+  }
+
+  /**
+   * Derive the session title from the live cross-turn history; null when no
+   * user prompt exists yet. `source` is the v2 `title/generate` selector;
+   * `digest` is rejected engine-side, so it is not a valid input here.
+   */
+  async generateTitle(source?: SessionTitleSource): Promise<string | null> {
+    if (!this.transport.generateTitle) {
+      throw new Error('session title generation is not supported on this session transport');
+    }
+    return this.transport.generateTitle(this.id, source);
+  }
+
   dispose(): Promise<void> {
     return this.transport.dispose(this.id);
   }
@@ -336,6 +391,15 @@ export interface SessionTransport {
   historyLen(sessionId: string): Promise<number>;
   getHistory(sessionId: string): Promise<SessionPrompt[]>;
   dispose(sessionId: string): Promise<void>;
+  /** Optional: capabilities only the napi transport carries today (stdio parity pending). */
+  startBtw?(sessionId: string): Promise<string>;
+  btwPrompt?(
+    sessionId: string,
+    agentId: string,
+    prompt: string,
+  ): Promise<{ content: string; stopReason: string }>;
+  btwCancel?(agentId: string): Promise<boolean>;
+  generateTitle?(sessionId: string, source?: SessionTitleSource): Promise<string | null>;
 }
 
 /** The napi addon transport: the callback registry + session.* module calls. */
@@ -462,5 +526,25 @@ class NapiSessionTransport implements SessionTransport {
 
   async dispose(sessionId: string): Promise<void> {
     this.mod.sessionDispose(sessionId);
+  }
+
+  async startBtw(sessionId: string): Promise<string> {
+    return this.mod.sessionStartBtw(sessionId);
+  }
+
+  async btwPrompt(
+    sessionId: string,
+    agentId: string,
+    prompt: string,
+  ): Promise<{ content: string; stopReason: string }> {
+    return this.mod.sessionBtwPrompt(sessionId, agentId, prompt);
+  }
+
+  async btwCancel(agentId: string): Promise<boolean> {
+    return this.mod.sessionBtwCancel(agentId);
+  }
+
+  async generateTitle(sessionId: string, source?: SessionTitleSource): Promise<string | null> {
+    return this.mod.sessionGenerateTitle(sessionId, source) ?? null;
   }
 }

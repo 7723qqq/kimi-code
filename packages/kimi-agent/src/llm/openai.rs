@@ -17,7 +17,7 @@ use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo}
 /// - Tool results become `{ role: "tool", tool_call_id, content }`.
 /// - An assistant turn that only calls tools sends `content: null`.
 pub fn build_request(model: &str, messages: &[WireMessage], tools: &[ToolInfo]) -> Value {
-    build_request_full(model, messages, tools, false, None)
+    build_request_full(model, messages, tools, false, None, None)
 }
 
 /// Build an OpenAI Chat Completions request body, optionally streaming.
@@ -29,16 +29,19 @@ pub fn build_request_with_options(
     tools: &[ToolInfo],
     stream: bool,
 ) -> Value {
-    build_request_full(model, messages, tools, stream, None)
+    build_request_full(model, messages, tools, stream, None, None)
 }
 
-/// Build an OpenAI Chat Completions request body with streaming and optional reasoning effort.
+/// Build an OpenAI Chat Completions request body with streaming, optional
+/// reasoning effort, and optional preserved-thinking passthrough
+/// (`thinking.keep`; the host filters off-values and gates on Thinking).
 pub fn build_request_full(
     model: &str,
     messages: &[WireMessage],
     tools: &[ToolInfo],
     stream: bool,
     reasoning_effort: Option<&str>,
+    thinking_keep: Option<&str>,
 ) -> Value {
     let msgs: Vec<Value> = messages.iter().map(project_message).collect();
 
@@ -56,6 +59,16 @@ pub fn build_request_full(
         && effort != "none"
     {
         req["reasoning_effort"] = json!(effort);
+    }
+    if let Some(keep) = thinking_keep
+        && !keep.is_empty()
+    {
+        // Moonshot preserved-thinking passthrough (`thinking.keep`):
+        // merged onto the `thinking` object so a companion config set
+        // alongside survives.
+        let mut thinking = req.get("thinking").cloned().unwrap_or_else(|| json!({}));
+        thinking["keep"] = json!(keep);
+        req["thinking"] = thinking;
     }
 
     if !tools.is_empty() {
@@ -233,10 +246,7 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
         return TokenUsage::default();
     };
 
-    let prompt_tokens = u
-        .get("prompt_tokens")
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
+    let prompt_tokens = u.get("prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
     let output_tokens = u
         .get("completion_tokens")
         .and_then(|x| x.as_u64())
@@ -816,14 +826,24 @@ mod tests {
             tool_calls: vec![],
             tool_call_id: None,
         }];
-        let req_high = build_request_full("gpt-4o", &msgs, &[], true, Some("high"));
+        let req_high = build_request_full("gpt-4o", &msgs, &[], true, Some("high"), None);
         assert_eq!(req_high["reasoning_effort"], "high");
 
-        let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"));
+        let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"), None);
         assert!(req_off.get("reasoning_effort").is_none());
 
-        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None);
+        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None, None);
         assert!(req_none.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_build_request_thinking_keep() {
+        let msgs = vec![WireMessage::text("user", "hello")];
+        let req_keep = build_request_full("kimi-k2", &msgs, &[], true, None, Some("all"));
+        assert_eq!(req_keep["thinking"]["keep"], "all");
+
+        let req_no_keep = build_request_full("kimi-k2", &msgs, &[], true, None, None);
+        assert!(req_no_keep.get("thinking").is_none());
     }
 
     #[test]

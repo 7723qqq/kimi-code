@@ -168,6 +168,12 @@ export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
 
 export const LoopControlSchema = z.object({
   maxStepsPerTurn: z.number().int().min(0).optional(),
+  maxAttemptsPerStep: z.number().int().min(0).optional(),
+  /**
+   * @deprecated Renamed to `maxAttemptsPerStep` (the value was always a
+   * total-attempt limit). Kept so existing configs parse and round-trip;
+   * the engine reads `maxAttemptsPerStep` only.
+   */
   maxRetriesPerStep: z.number().int().min(0).optional(),
   maxRalphIterations: z.number().int().min(-1).optional(), // -1 means unlimited
   reservedContextSize: z.number().int().min(0).optional(),
@@ -208,6 +214,17 @@ export const SubagentConfigSchema = z.object({
 });
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
+
+export const SwarmConfigSchema = z.object({
+  /**
+   * Per-`AgentSwarm` subagent timeout in milliseconds, independent of
+   * `[subagent].timeoutMs`. `0` means no timeout. Defaults to 2 hours when
+   * unset.
+   */
+  timeoutMs: z.number().int().min(0).optional(),
+});
+
+export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 
 export const AgentConfigSchema = z.object({
   /**
@@ -426,6 +443,7 @@ export const KimiConfigSchema = z.object({
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
+  swarm: SwarmConfigSchema.optional(),
   agent: AgentConfigSchema.optional(),
   secondaryModel: SecondaryModelConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
@@ -445,6 +463,7 @@ const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
+const SwarmConfigPatchSchema = SwarmConfigSchema.partial();
 const AgentConfigPatchSchema = AgentConfigSchema.partial();
 const SecondaryModelConfigPatchSchema = SecondaryModelConfigSchema.partial();
 const McpConfigPatchSchema = McpConfigSchema.partial();
@@ -479,6 +498,7 @@ export const KimiConfigPatchSchema = z
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
     subagent: SubagentConfigPatchSchema.optional(),
+    swarm: SwarmConfigPatchSchema.optional(),
     agent: AgentConfigPatchSchema.optional(),
     secondaryModel: SecondaryModelConfigPatchSchema.optional(),
     mcp: McpConfigPatchSchema.optional(),

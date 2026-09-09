@@ -46,6 +46,14 @@ pub struct TurnResult {
     /// transcript there.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub messages: Vec<LLMMessage>,
+    /// Stop-hook continuation (v2 `runStopHooks`): when a text-finished turn
+    /// trips a matching `Stop` hook, its veto text rides here as the user
+    /// message the driver should re-prompt with. `None` = the stop proceeds.
+    /// Built-in drivers never see it set — `run_turn_continued` consumes the
+    /// veto transparently inside the turn; only direct `run_turn` users
+    /// observe (and must act on) this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_hook_continuation: Option<String>,
 }
 
 /// Reasons a turn can stop.
@@ -826,6 +834,13 @@ pub struct RunTurnInput<'a> {
     /// Optional cancellation flag. When set to true, the loop aborts
     /// before the next step with `LoopTurnStopReason::Aborted`.
     pub cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Optional hook guard for turn-lifecycle hook dispatch
+    /// (`UserPromptSubmit` at the turn head, `PreCompact` before trimming,
+    /// `Stop` on a clean text finish; `PreToolUse` / `PostToolUse` gating
+    /// lives on the tool callbacks instead). `None` skips those dispatches —
+    /// subagent turns always pass `None`, so lifecycle hooks are main-turn
+    /// scoped while `PreToolUse` gating still applies inside subagents.
+    pub hook_guard: Option<std::sync::Arc<crate::tools::external_hooks::HookGuard>>,
 }
 
 /// Host-injected context for the engine's turn telemetry (M1c). The host
