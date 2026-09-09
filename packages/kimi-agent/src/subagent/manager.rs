@@ -368,6 +368,83 @@ impl SubagentManager {
             },
         );
 
+        // Pre-register the standard builtin profiles (agent / coder / explore
+        // / plan) so spawn lookups resolve them in every transport path. v2
+        // registers these from its profile catalog; the Rust side had
+        // `register_builtin_profiles` but it was only called from tests,
+        // leaving TowerSpawn / AgentSwarm / Team / Agent with builtin
+        // profiles to fail with "not available" on every host.
+        for p in crate::prompt::ProfileCatalog::with_builtins().list() {
+            defs.insert(
+                p.name.clone(),
+                SubagentDefinition {
+                    name: p.name.clone(),
+                    description: p.description.clone(),
+                    system_prompt: if p.role_additional.is_empty() {
+                        format!("You are {}. Complete the user's task accurately.", p.name)
+                    } else {
+                        p.role_additional.clone()
+                    },
+                    tools: p.tools.iter().map(|t| t.to_lowercase()).collect(),
+                    disallowed_tools: Vec::new(),
+                    prompt_prefix: None,
+                    summary_policy: None,
+                    model: None,
+                },
+            );
+        }
+
+        // Tower worker profile (v2 `TOWER_WORKER_PROFILE_DEF`):
+        // executes one tower mission in its own git worktree, coordinating
+        // only through Tower* tools. Without this registration, every
+        // `TowerSpawn` lookup returns None and the host falls back with
+        // "not available". The role overlay emphasizes the handoff: the
+        // worker's final message IS the entire handoff to the parent.
+        let tower_worker_tools: Vec<String> = [
+            "Agent", "Bash",
+            "TowerFinding", "TowerInbox", "TowerMission", "TowerReview", "TowerSend", "TowerStatus",
+            "CronCreate", "CronDelete", "CronList",
+            "Edit", "EnterPlanMode", "ExitPlanMode",
+            "Glob", "Grep", "Read", "Skill",
+            "TaskList", "TaskOutput", "TaskStop",
+            "TodoList", "WaitFor",
+            "WebSearch", "FetchURL", "Write",
+            "mcp__*",
+        ]
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
+        const TOWER_WORKER_ROLE_OVERLAY: &str = "\
+Tower worker protocol. Your final message is the entire handoff — the parent sees nothing \
+else from your run. Make it technically complete: what you changed and why, the path of every \
+file you touched, how you verified the change (tests or commands run, with results), and \
+anything left undone or worth follow-up. Coordinate only through the Tower* tools; treat the \
+worktree root the tower assigns you as your full authority scope.";
+        defs.insert(
+            "tower-worker".into(),
+            SubagentDefinition {
+                name: "tower-worker".into(),
+                description: "Tower worker/reviewer agent — executes one tower mission in its own git worktree (or reviews one branch), coordinating only through Tower* tools. Spawned via the TowerSpawn tool.".into(),
+                system_prompt: format!(
+                    "{}\n\n{}",
+                    "You are a tower worker. Complete the assigned mission accurately.",
+                    TOWER_WORKER_ROLE_OVERLAY,
+                ),
+                tools: tower_worker_tools,
+                disallowed_tools: Vec::new(),
+                prompt_prefix: None,
+                summary_policy: Some(crate::subagent::types::SummaryPolicy {
+                    min_chars: 200,
+                    continuation_prompt: "Your summary was too brief. Expand it: what you \
+                        changed and why, the path of every file you touched, how you \
+                        verified the change, and anything left undone or worth follow-up."
+                        .into(),
+                    retries: 1,
+                }),
+                model: None,
+            },
+        );
+
         Self {
             definitions: Arc::new(RwLock::new(defs)),
             instances: Arc::new(RwLock::new(HashMap::new())),

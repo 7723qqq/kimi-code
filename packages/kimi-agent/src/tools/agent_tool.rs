@@ -995,17 +995,24 @@ mod tests {
     #[tokio::test]
     async fn extended_features_fall_back_to_host() {
         let manager = manager_with(Arc::new(SummaryLlm)).await;
-        for args in [
-            serde_json::json!({ "resume": "agent-9", "prompt": "x" }),
-            serde_json::json!({ "run_in_background": true, "prompt": "x" }),
-        ] {
-            assert!(
-                execute_agent(&manager, &args, None, None, None)
-                    .await
-                    .is_none(),
-                "host-only feature must fall back: {args}"
-            );
-        }
+        // Unknown resume ids stay host-owned (P55 native resume only covers
+        // agents whose conversation we hold; unknown ids fall back so the
+        // host's persistent scopes can resolve them).
+        assert!(
+            execute_agent(
+                &manager,
+                &serde_json::json!({ "resume": "agent-9", "prompt": "x" }),
+                None,
+                None,
+                None,
+            )
+            .await
+            .is_none(),
+            "unknown resume ids must fall back to the host"
+        );
+        // Note: `run_in_background` (P58) and `resume`/`fork` are native; the
+        // `requires_host_routes_extended_features` test asserts the routing
+        // decision and the spawn paths cover the execution paths.
     }
 
     #[tokio::test]
