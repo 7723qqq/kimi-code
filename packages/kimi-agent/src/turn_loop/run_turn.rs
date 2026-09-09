@@ -1478,6 +1478,8 @@ mod tests {
             matcher: String::new(),
             command: "echo hook-fired".into(),
             timeout: Some(5),
+            cwd: None,
+            env: None,
         };
         let guard = Arc::new(crate::tools::external_hooks::HookGuard::new(vec![
             hook("UserPromptSubmit"),
@@ -1527,6 +1529,8 @@ mod tests {
                 matcher: String::new(),
                 command: stop_veto_command("keep going"),
                 timeout: Some(10),
+                cwd: None,
+                env: None,
             },
         ]))
     }
@@ -1588,6 +1592,8 @@ mod tests {
                 matcher: String::new(),
                 command: "echo all good".into(),
                 timeout: Some(10),
+                cwd: None,
+                env: None,
             },
         ]));
 

@@ -43,7 +43,7 @@ impl HookGuard {
     }
 
     /// Hooks matching an event + tool-name target, deduped by command
-    /// within a single trigger (v2 `matchHooks` dedup).
+    /// within a single trigger (v2 `matchHooks` dedups on cwd + command).
     fn matched_hooks(&self, event: &str, target: &str) -> Vec<HookDef> {
         let mut matched: Vec<HookDef> = Vec::new();
         let mut seen_commands = std::collections::HashSet::new();
@@ -55,7 +55,7 @@ impl HookGuard {
                 continue;
             }
             // v2 dedupes by command within a single trigger.
-            if !seen_commands.insert(hook.command.clone()) {
+            if !seen_commands.insert((hook.cwd.clone(), hook.command.clone())) {
                 continue;
             }
             matched.push(hook.clone());
@@ -275,7 +275,7 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
             .unwrap_or(DEFAULT_HOOK_TIMEOUT_SECS)
             .clamp(1, MAX_HOOK_TIMEOUT_SECS),
     );
-    let mut child = match spawn_hook_command(&hook.command) {
+    let mut child = match spawn_hook_command(&hook.command, hook.cwd.as_deref(), hook.env.as_ref()) {
         Ok(child) => child,
         Err(e) => return Some(format!("{FAILED_TO_SPAWN}{e}")),
     };
@@ -344,8 +344,14 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
 }
 
 /// Spawn the hook command through the platform shell (v2 `spawn(command,
-/// { shell: true })`: cmd.exe on Windows, sh elsewhere).
-fn spawn_hook_command(command: &str) -> std::io::Result<tokio::process::Child> {
+/// { shell: true })`: cmd.exe on Windows, sh elsewhere). `cwd` overrides
+/// the working directory; `env` entries merge over the inherited
+/// environment (v2 spreads `process.env` first).
+fn spawn_hook_command(
+    command: &str,
+    cwd: Option<&str>,
+    env: Option<&std::collections::HashMap<String, String>>,
+) -> std::io::Result<tokio::process::Child> {
     let mut cmd = if cfg!(windows) {
         let mut cmd = Command::new("cmd");
         cmd.arg("/C").arg(command);
@@ -355,6 +361,12 @@ fn spawn_hook_command(command: &str) -> std::io::Result<tokio::process::Child> {
         cmd.arg("-c").arg(command);
         cmd
     };
+    if let Some(dir) = cwd.filter(|dir| !dir.is_empty()) {
+        cmd.current_dir(dir);
+    }
+    if let Some(vars) = env {
+        cmd.envs(vars);
+    }
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -427,6 +439,8 @@ mod tests {
             matcher: matcher.into(),
             command: command.into(),
             timeout: None,
+            cwd: None,
+            env: None,
         }
     }
 
@@ -583,10 +597,116 @@ mod tests {
             matcher: String::new(),
             command: sleeper().into(),
             timeout: Some(1),
+            cwd: None,
+            env: None,
         }]);
         assert_eq!(
             guard.denial(&request("Write")).await.as_deref(),
             Some(TIMED_OUT)
+        );
+    }
+
+    /// A command that exits 2 with the child's working directory on
+    /// stderr — proves `cwd` reaches the child (v2 `cwd` option).
+    fn cwd_report_command() -> &'static str {
+        if cfg!(windows) {
+            "echo %CD% 1>&2 & exit /b 2"
+        } else {
+            "echo $PWD >&2; exit 2"
+        }
+    }
+
+    /// A command that exits 2 with a custom env value on stderr — proves
+    /// `env` reaches the child (v2 `env` option, merged over inheritance).
+    fn env_report_command() -> &'static str {
+        if cfg!(windows) {
+            "echo %KIMI_HOOK_TEST_VALUE% 1>&2 & exit /b 2"
+        } else {
+            "echo $KIMI_HOOK_TEST_VALUE >&2; exit 2"
+        }
+    }
+
+    #[tokio::test]
+    async fn hook_cwd_reaches_the_child() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let guard = HookGuard::new(vec![HookDef {
+            event: "PreToolUse".into(),
+            matcher: String::new(),
+            command: cwd_report_command().into(),
+            timeout: None,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            env: None,
+        }]);
+        let denial = guard.denial(&request("Write")).await;
+        // The denial reason is the child's reported cwd. Compare only the
+        // dir name: canonicalization (symlinked /tmp, short names) can
+        // respell the full path.
+        let name = dir.path().file_name().unwrap().to_string_lossy();
+        assert!(
+            denial.as_deref().is_some_and(|reason| reason.contains(name.as_ref())),
+            "cwd not observed in hook stderr: {denial:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hook_env_reaches_the_child() {
+        let guard = HookGuard::new(vec![HookDef {
+            event: "PreToolUse".into(),
+            matcher: String::new(),
+            command: env_report_command().into(),
+            timeout: None,
+            cwd: None,
+            env: Some(
+                [(
+                    "KIMI_HOOK_TEST_VALUE".to_string(),
+                    "hook-env-ok".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+        }]);
+        assert_eq!(
+            guard.denial(&request("Write")).await.as_deref(),
+            Some("hook-env-ok")
+        );
+    }
+
+    #[tokio::test]
+    async fn commands_dedupe_accounts_for_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let marker = dir.path().join("marker.txt");
+        let command = format!("echo 1 >> {}", marker.to_string_lossy());
+        // Same command, different cwd: v2 dedups on cwd + command, so both run.
+        let guard = HookGuard::new(vec![
+            HookDef {
+                event: "PreToolUse".into(),
+                matcher: String::new(),
+                command: command.clone(),
+                timeout: None,
+                cwd: None,
+                env: None,
+            },
+            HookDef {
+                event: "PreToolUse".into(),
+                matcher: String::new(),
+                command,
+                timeout: None,
+                cwd: Some(dir.path().to_string_lossy().to_string()),
+                env: None,
+            },
+        ]);
+        let _ = guard.denial(&request("Write")).await;
+        let runs = std::fs::read_to_string(&marker).unwrap_or_default();
+        assert_eq!(
+            runs.lines().count(),
+            2,
+            "same command in different cwds must run once each"
         );
     }
 

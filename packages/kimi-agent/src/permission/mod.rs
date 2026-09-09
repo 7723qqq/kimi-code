@@ -43,8 +43,10 @@ pub enum PermissionMode {
 }
 
 /// A user-configured external hook (v2 `HookDefSchema`): an event name, an
-/// optional regex `matcher` (empty = match all), the command to run, and an
-/// optional timeout in seconds (1-600, default 30).
+/// optional regex `matcher` (empty = match all), the command to run, an
+/// optional timeout in seconds (1-600, default 30), an optional working
+/// directory, and optional extra environment variables (merged over the
+/// inherited environment).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HookDef {
     #[serde(default)]
@@ -54,6 +56,10 @@ pub struct HookDef {
     pub command: String,
     #[serde(default)]
     pub timeout: Option<u64>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub env: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Snapshot of permission configuration passed from host at step boundary.

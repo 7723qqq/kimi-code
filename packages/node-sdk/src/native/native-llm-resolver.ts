@@ -45,6 +45,8 @@ export interface PolicySnapshotDto {
     matcher: string;
     command: string;
     timeout?: number;
+    cwd?: string;
+    env?: Record<string, string>;
   }>;
 }
 
@@ -173,6 +175,8 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
         matcher: h.matcher ?? '',
         command: h.command ?? '',
         timeout: h.timeout,
+        cwd: h.cwd,
+        env: h.env,
       })),
   };
 }

@@ -2662,6 +2662,8 @@ mod tests {
                 "echo denied by gate hook >&2; exit 2".into()
             },
             timeout: None,
+            cwd: None,
+            env: None,
         }
     }
 
@@ -2708,6 +2710,8 @@ mod tests {
                     "exit 0".into()
                 },
                 timeout: None,
+                cwd: None,
+                env: None,
             }]);
         let response = native
             .execute_tool(ToolExecuteRequest {
