@@ -103,8 +103,14 @@ impl HookGuard {
         if matched.is_empty() {
             return;
         }
-        let output_slice = if content.len() > 2000 {
-            &content[..2000]
+        // Char-boundary-safe 2000-char prefix: `&content[..2000]` would panic
+        // on a multi-byte UTF-8 boundary (v2 sliced chars, not bytes).
+        let output_slice: &str = if content.len() > 2000 {
+            let mut end = 2000;
+            while !content.is_char_boundary(end) {
+                end -= 1;
+            }
+            &content[..end]
         } else {
             content
         };
@@ -123,6 +129,116 @@ impl HookGuard {
                 let _ = run_hook(&hook, &p).await;
             });
         }
+    }
+
+    /// Run matching `Stop` hooks when a turn is about to end (v2
+    /// `agentExternalHooksService.runStopHooks` / `agentExternalHooksService.ts:239-263`).
+    /// A hook can veto the stop and enqueue a continuation: its trimmed
+    /// stdout (or stderr if stdout is empty) is returned to the caller as
+    /// the user message the host should re-prompt with. `None` means no
+    /// matching hook asked to continue — the stop proceeds.
+    ///
+    /// The engine does not self-continue (single-turn per host prompt, see
+    /// `run_turn_with_telemetry::goal.continuation`). The caller surfaces
+    /// the returned text to the host via a `turn.continuation` telemetry
+    /// event so the SDK / REPL re-prompts; v2 wires it as a `stop_hook`
+    /// continuation step on the loop.
+    pub async fn notify_stop(
+        &self,
+        tool_name: &str,
+        tool_call_id: &str,
+        reason: &str,
+    ) -> Option<String> {
+        let mut matched: Vec<HookDef> = Vec::new();
+        let mut seen_commands = std::collections::HashSet::new();
+        for hook in &self.hooks {
+            if hook.event != "Stop" {
+                continue;
+            }
+            if !matcher_matches(&hook.matcher, tool_name) {
+                continue;
+            }
+            if !seen_commands.insert(hook.command.clone()) {
+                continue;
+            }
+            matched.push(hook.clone());
+        }
+        if matched.is_empty() {
+            return None;
+        }
+        let payload = serde_json::json!({
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "stop_reason": reason,
+        });
+        let results = futures_util::future::join_all(
+            matched.iter().map(|hook| run_stop_hook(hook, &payload)),
+        )
+        .await;
+        for result in results.into_iter().flatten() {
+            if !result.trim().is_empty() {
+                return Some(result);
+            }
+        }
+        None
+    }
+}
+
+/// Run a Stop hook and capture its stdout (falling back to stderr). The
+/// v2 `runStopHooks` semantics: the hook's text is the continuation
+/// message; an empty output means "do not continue". The exit code is
+/// ignored — Stop hooks communicate through their output, not their code.
+async fn run_stop_hook(hook: &HookDef, payload: &Value) -> Option<String> {
+    let stdin_payload = match serde_json::to_string(payload) {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    let timeout_secs = hook
+        .timeout
+        .unwrap_or(DEFAULT_HOOK_TIMEOUT_SECS)
+        .clamp(1, MAX_HOOK_TIMEOUT_SECS);
+    let mut command = if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(&hook.command);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(&hook.command);
+        c
+    };
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(stdin_payload.as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    }
+    let output = match tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) => out,
+        _ => return None,
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = if !stdout.trim().is_empty() {
+        stdout.trim().to_string()
+    } else {
+        stderr.trim().to_string()
+    };
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
     }
 }
 
@@ -508,5 +624,59 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         };
         assert!(content.contains("done"));
+    }
+
+    /// A command that writes a known reason to stdout and exits 0 — the
+    /// Stop-hook continuation contract (v2 `agentExternalHooksService.ts:239-263`).
+    fn echo_reason_command(reason: &str) -> String {
+        if cfg!(windows) {
+            format!("echo {}", reason)
+        } else {
+            format!("echo '{}'", reason.replace('\'', "'\\''"))
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_hook_continuation_returns_reason_when_non_empty() {
+        let guard = HookGuard::new(vec![hook(
+            "Stop",
+            "",
+            &echo_reason_command("user asked to keep going"),
+        )]);
+        let reason = guard
+            .notify_stop("Write", "call-1", "user_cancelled")
+            .await;
+        assert_eq!(reason.as_deref(), Some("user asked to keep going"));
+    }
+
+    #[tokio::test]
+    async fn stop_hook_with_empty_stdout_does_not_continue() {
+        // `true` prints nothing — no continuation text, the stop proceeds.
+        let guard = HookGuard::new(vec![hook("Stop", "", "true")]);
+        let reason = guard
+            .notify_stop("Write", "call-1", "user_cancelled")
+            .await;
+        assert!(reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn stop_hook_filters_by_event_and_matcher() {
+        // PreToolUse hook should never run for Stop dispatch.
+        let guard = HookGuard::new(vec![
+            hook("PreToolUse", "", &echo_reason_command("pretool")),
+            hook("Stop", "Bash", &echo_reason_command("bash-only")),
+        ]);
+        // Non-Bash tool: no Stop matcher hit.
+        assert!(
+            guard
+                .notify_stop("Write", "c1", "x")
+                .await
+                .is_none()
+        );
+        // Bash tool: Stop matcher hits, returns the bash-only reason.
+        assert_eq!(
+            guard.notify_stop("Bash", "c2", "x").await.as_deref(),
+            Some("bash-only")
+        );
     }
 }
