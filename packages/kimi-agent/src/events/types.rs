@@ -35,6 +35,12 @@ pub enum EngineEvent {
     },
     #[serde(rename = "goal.budget.limit_reached")]
     GoalBudgetLimitReached { turn_id: String, goal_id: String },
+    /// A scheduled cron entry fired (v2 `cron.fired`). The host subscribes
+    /// and turns the fired prompt into a new turn or surfaces it to the user.
+    /// Wire shape carries the entry id and prompt so the host can render or
+    /// route without a separate fetch.
+    #[serde(rename = "cron.fired")]
+    CronFired { entry_id: String, prompt: String },
     #[serde(rename = "assistant.delta")]
     AssistantDelta {
         agent_id: String,
@@ -173,6 +179,7 @@ impl EngineEvent {
             EngineEvent::SubagentSpawned { .. } => "subagent.spawned",
             EngineEvent::SubagentCompleted { .. } => "subagent.completed",
             EngineEvent::SubagentFailed { .. } => "subagent.failed",
+            EngineEvent::CronFired { .. } => "cron.fired",
             EngineEvent::Custom(v) => v.get("type").and_then(|t| t.as_str()).unwrap_or("custom"),
         }
     }

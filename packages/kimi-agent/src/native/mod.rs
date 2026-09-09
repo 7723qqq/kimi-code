@@ -10,7 +10,7 @@ mod fetch_url;
 mod file_cache;
 mod file_type;
 mod glob;
-mod goal;
+pub mod goal;
 mod grep;
 mod image_compress;
 mod line_endings;

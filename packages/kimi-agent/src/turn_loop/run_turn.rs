@@ -129,6 +129,9 @@ pub fn run_turn_with_telemetry<'a>(
     ));
     Box::pin(async move {
         let started = std::time::Instant::now();
+        // Capture the goal before the move into `run_turn` so the
+        // continuation emission below can read it after the turn.
+        let goal_for_continuation = input.goal.clone();
         let result = run_turn(input, callbacks).await;
         match &result {
             Ok(result) => {
@@ -153,6 +156,73 @@ pub fn run_turn_with_telemetry<'a>(
                             "interrupt_reason": telemetry_interrupt_reason(&result.stop_reason),
                         })),
                     ));
+                }
+                // Goal-mode continuation (v2 `launchContinuationTurn`):
+                // a successful goal turn enqueues another turn so the goal
+                // progresses past a single model response. v2 enqueues a
+                // `ContinuationStepRequest` on the loop; the engine
+                // surfaces this as a `goal.continuation` telemetry event the
+                // host watches to re-prompt (SDK / REPL wire the loop).
+                if reason == "completed"
+                    && let Some(goal) = goal_for_continuation.as_ref()
+                    && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
+                {
+                    let continuation_prompt = crate::native::goal::steering::render_continuation(
+                        &goal.objective,
+                        goal.tokens_used,
+                        goal.token_budget,
+                    );
+                    callbacks.telemetry(telemetry_payload(
+                        "goal.continuation",
+                        &telemetry,
+                        &turn_id,
+                        Some(serde_json::json!({
+                            "goal_id": goal.goal_id,
+                            "tokens_used": goal.tokens_used,
+                            "token_budget": goal.token_budget,
+                            "prompt": continuation_prompt,
+                        })),
+                    ));
+                }
+                // Goal-mode terminal transitions (v2 `blockIfBudgetReached` +
+                // `settleAbnormalTurn`): the engine tells the host to leave
+                // `active`. `goal.blocked` covers budget stops so the host
+                // transitions the goal to `blocked` with a budget reason;
+                // `goal.paused` covers failed / aborted / filtered turns so
+                // the host pauses with the classified reason. v2 emits
+                // `goal.status_changed` for both (goalOps.ts:1083,
+                // `goalFailurePauseReason`).
+                if let Some(goal) = goal_for_continuation.as_ref()
+                    && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
+                {
+                    match &result.stop_reason {
+                        LoopTurnStopReason::BudgetLimited => {
+                            callbacks.telemetry(telemetry_payload(
+                                "goal.blocked",
+                                &telemetry,
+                                &turn_id,
+                                Some(serde_json::json!({
+                                    "goal_id": goal.goal_id,
+                                    "reason": "budget",
+                                })),
+                            ));
+                        }
+                        LoopTurnStopReason::Filtered
+                        | LoopTurnStopReason::Aborted
+                        | LoopTurnStopReason::MaxSteps
+                        | LoopTurnStopReason::Unknown => {
+                            callbacks.telemetry(telemetry_payload(
+                                "goal.paused",
+                                &telemetry,
+                                &turn_id,
+                                Some(serde_json::json!({
+                                    "goal_id": goal.goal_id,
+                                    "reason": telemetry_interrupt_reason(&result.stop_reason),
+                                })),
+                            ));
+                        }
+                        _ => {}
+                    }
                 }
             }
             Err(_) => {
@@ -290,6 +360,11 @@ pub fn run_turn<'a>(
     let turn_id = input.turn_id.clone();
     let max_steps = input.max_steps.max(1);
     let user_messages = input.messages.clone();
+    // Seed the date-change baseline from the conversation history (v2's
+    // history-scanned `lastDisclosure`) before `user_messages` moves into the
+    // turn body: a prior disclosure suppresses the per-turn baseline
+    // re-injection until the date changes.
+    let date_baseline = crate::injection::scan_date_baseline(&user_messages);
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
     // Bind this turn to the goal that was active when it started (G-6 #8):
@@ -393,7 +468,8 @@ pub fn run_turn<'a>(
         // the product, the local store in the REPL. No local store is built
         // here: in the product the state lives host-side and a workspace- or
         // home-local directory would be a side effect with no consumer.
-        let mut injection_registry = crate::injection::InjectionRegistry::with_defaults();
+        let mut injection_registry =
+            crate::injection::InjectionRegistry::with_defaults(date_baseline);
         let goal_plan_state = Arc::new(CallbackStateSnapshot::default());
         if input.llm.transport() != "host-proxy" {
             crate::injection::goal_plan::register_goal_plan_injections(
@@ -518,7 +594,7 @@ pub fn run_turn<'a>(
                 // same channel, so a mid-turn plan exit or goal pause shows up
                 // at this step head. A failed read keeps the previous value.
                 goal_plan_state.refresh(callbacks.as_ref()).await;
-                for text in injection_registry.build_injections() {
+                for text in injection_registry.build_injections(step_num == 1) {
                     messages.push(crate::injection::injection_message(text));
                 }
             }
