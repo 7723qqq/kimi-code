@@ -361,8 +361,8 @@ export interface JsRunTurnParams {
   /**
    * Host-resolved `AgentSwarm` timeout in ms (v2 `resolveSwarmTimeoutMs`).
    * Absent → the 2h swarm default; swarms never inherit
-   * `subagent_timeout_ms`.
-   * `i64` because napi cannot read JS numbers as `u64`.
+   * `subagent_timeout_ms`. `i64` because napi cannot read JS numbers as
+   * `u64`.
    */
   swarmTimeoutMs?: number
   /**
