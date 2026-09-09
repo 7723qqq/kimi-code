@@ -37,7 +37,7 @@ const STDERR_BUFFER_CAPACITY: usize = 4 * 1024;
 
 /// Unexpected-close listener slot (v2 `unexpectedCloseListener`): at most one
 /// `Fn(String)` listener, later registrations replace earlier ones.
-type UnexpectedCloseListener = Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>;
+pub(crate) type UnexpectedCloseListener = Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>;
 
 pub struct McpClient {
     server_name: String,
@@ -505,6 +505,7 @@ impl McpClient {
                 content: vec![McpContent {
                     content_type: "text".into(),
                     text: Some(format!("Mock execution of {name} with {arguments}")),
+                    ..Default::default()
                 }],
                 is_error: false,
             });

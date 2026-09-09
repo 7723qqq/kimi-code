@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::mcp::client::McpClient;
-use crate::mcp::types::McpTool;
+use crate::mcp::types::{McpContent, McpTool};
 use crate::native::tool_naming::qualify_mcp_tool_name;
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -601,6 +601,53 @@ impl McpManager {
         Some(state.raw_tools.iter().map(tool_to_json).collect())
     }
 
+    /// Render an MCP content block to a text representation. Text blocks
+    /// pass through verbatim; image / audio / video blocks become a notice
+    /// with the mime type and a base64 preview (truncated); resource blocks
+    /// include the uri and text. Used because the tool-result wire type
+    /// (`ExecutableToolResult.content: String`) cannot yet carry
+    /// `ContentPart` — non-text blocks must not be silently dropped.
+    fn render_mcp_content(c: &McpContent, preview_bytes: usize) -> String {
+        match c.content_type.as_str() {
+            "text" | "string" => c.text.clone().unwrap_or_default(),
+            "image" | "audio" | "video" => {
+                let mime = c.mime_type.as_deref().unwrap_or("<unknown>");
+                let data = c.data.as_deref().unwrap_or("");
+                let preview: String = data.chars().take(preview_bytes).collect();
+                let total = data.len();
+                if preview_bytes >= total {
+                    format!(
+                        "[MCP {kind} (mime={mime}, {total} bytes base64) data:<{data}>]",
+                        kind = c.content_type
+                    )
+                } else {
+                    format!(
+                        "[MCP {kind} (mime={mime}, {total} bytes base64, preview first {preview_bytes}) data:<{preview}…>]",
+                        kind = c.content_type
+                    )
+                }
+            }
+            "resource" => match &c.resource {
+                Some(value) => {
+                    let uri = value
+                        .get("uri")
+                        .and_then(Value::as_str)
+                        .unwrap_or("<missing uri>");
+                    let text = value
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("<no text>");
+                    format!("[MCP resource uri={uri} text=<{text}>]")
+                }
+                None => "[MCP resource with empty payload]".to_string(),
+            },
+            unknown => {
+                let mime = c.mime_type.as_deref().unwrap_or("");
+                format!("[MCP unknown content type={unknown} mime={mime} text=<{}>]", c.text.as_deref().unwrap_or(""))
+            }
+        }
+    }
+
     /// Call an MCP tool dynamically.
     pub async fn call_tool(
         &self,
@@ -619,11 +666,15 @@ impl McpManager {
 
         match client.call_tool(&mcp_tool.name, arguments).await {
             Ok(res) => {
+                // Render every content block to text so non-text variants
+                // (image/audio/resource) are never silently dropped — the
+                // full `ExecutableToolResult.content: String` wire type
+                // can't carry `ContentPart`s yet, so non-text blocks fall
+                // back to a descriptive notice with a data preview.
+                const NON_TEXT_PREVIEW_BYTES: usize = 120;
                 let mut text_parts = Vec::new();
                 for c in res.content {
-                    if let Some(t) = c.text {
-                        text_parts.push(t);
-                    }
+                    text_parts.push(Self::render_mcp_content(&c, NON_TEXT_PREVIEW_BYTES));
                 }
                 Some(ExecutableToolResult {
                     stop_turn: false,

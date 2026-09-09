@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::future::{BoxFuture, FutureExt, Shared};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Notify, oneshot};
 use tokio::task::JoinHandle;
@@ -39,7 +40,7 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// The runner's view of a task's status; the wire strings match the v2
 /// task domain (`running` / `completed` / `killed`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     Running,
     Completed,
@@ -99,6 +100,26 @@ pub struct TaskRunner {
     /// settles cannot lose each other's updates.
     persist_lock: Mutex<()>,
     store: Option<StateStore>,
+    /// Completion notifications awaiting delivery (v2
+    /// `task.notificationDelivery`). Settled tasks push here so a host
+    /// or in-process consumer can drain and surface them as
+    /// conversation input; the runner itself does not inject — v2
+    /// wires the dispatcher, repl, and host to consume.
+    pending_notifications: Mutex<Vec<TaskNotification>>,
+}
+
+/// A task completion event queued by [`TaskRunner::settle_task`] and
+/// drained via [`TaskRunner::take_pending_notifications`]. Mirrors v2's
+/// `task.notificationDelivery` payload shape: identifier, description,
+/// terminal status, optional output preview, and wall-clock end time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskNotification {
+    pub task_id: String,
+    pub description: String,
+    pub status: TaskStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_preview: Option<String>,
+    pub ended_at: u64,
 }
 
 impl TaskRunner {
@@ -110,6 +131,7 @@ impl TaskRunner {
             tasks: Mutex::new(HashMap::new()),
             persist_lock: Mutex::new(()),
             store,
+            pending_notifications: Mutex::new(Vec::new()),
         }
     }
 
@@ -287,7 +309,7 @@ impl TaskRunner {
         output: Option<String>,
         stop_reason: Option<String>,
     ) {
-        let wire = {
+        let (description, ended_at, output_preview, wire) = {
             let mut tasks = self.tasks.lock().unwrap();
             let Some(entry) = tasks.get_mut(id) else {
                 return;
@@ -298,7 +320,14 @@ impl TaskRunner {
             if let Some(reason) = stop_reason {
                 entry.stop_reason = Some(reason);
             }
-            self.entry_wire(entry)
+            let ended_at = entry.ended_at.unwrap_or(now_ms());
+            let preview = entry
+                .output
+                .as_deref()
+                .and_then(truncate_preview);
+            let description = entry.description.clone();
+            let wire = self.entry_wire(entry);
+            (description, ended_at, preview, wire)
         };
         if let Some(output) = wire.get("output").and_then(|v| v.as_str())
             && let Some(store) = &self.store
@@ -306,6 +335,31 @@ impl TaskRunner {
             store.write_task_output(id, output);
         }
         self.persist_wire(&wire);
+        // Queue a completion notification for delivery (v2
+        // `task.notificationDelivery`). Consumers (host, repl, engine
+        // injection) drain via `take_pending_notifications`.
+        self.pending_notifications
+            .lock()
+            .unwrap()
+            .push(TaskNotification {
+                task_id: id.to_string(),
+                description,
+                status,
+                output_preview,
+                ended_at,
+            });
+    }
+
+    /// Drain pending completion notifications. The runner retains nothing
+    /// after the call; consumers that need persistence persist themselves.
+    pub fn take_pending_notifications(&self) -> Vec<TaskNotification> {
+        std::mem::take(&mut *self.pending_notifications.lock().unwrap())
+    }
+
+    /// Pending notification count (for hosts that want to know whether to
+    /// poll without consuming the queue).
+    pub fn pending_notification_count(&self) -> usize {
+        self.pending_notifications.lock().unwrap().len()
     }
 
     /// The task entry as the state bridge wire value: `taskId` /
@@ -380,6 +434,29 @@ async fn cancelled(cancel: Arc<AtomicBool>, cancel_notify: Arc<Notify>) {
         }
         notified.await;
     }
+}
+
+/// Truncate a task output for inclusion in the completion notification
+/// payload (v2 `renderNotificationXml` keeps a head/tail preview).
+const NOTIFICATION_PREVIEW_CHARS: usize = 500;
+
+fn truncate_preview(output: &str) -> Option<String> {
+    let total = output.chars().count();
+    if total <= NOTIFICATION_PREVIEW_CHARS {
+        return Some(output.to_string());
+    }
+    // For moderate lengths, keep head and tail so the model can still see
+    // what the task started and finished with.
+    let head: String = output.chars().take(NOTIFICATION_PREVIEW_CHARS).collect();
+    let tail: String = output
+        .chars()
+        .rev()
+        .take(NOTIFICATION_PREVIEW_CHARS)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    Some(format!("{head}\n…\n{tail}"))
 }
 
 fn now_ms() -> u64 {

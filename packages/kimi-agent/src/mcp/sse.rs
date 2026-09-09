@@ -10,6 +10,8 @@ use futures_util::StreamExt;
 use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, oneshot};
 
+use super::client::UnexpectedCloseListener;
+
 pub struct McpSseTransport {
     post_url: Arc<RwLock<Option<String>>>,
     http_client: reqwest::Client,
@@ -22,7 +24,7 @@ pub struct McpSseTransport {
     /// Listener fired when the SSE stream dies on its own after the handshake
     /// (v2 `unexpectedCloseListener`, client-sse.ts:54). At most one listener;
     /// later registrations replace earlier ones.
-    unexpected_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
+    unexpected_close: UnexpectedCloseListener,
     /// Close reason buffered when the stream dies before a listener is
     /// installed; replayed on registration (v2 `pendingUnexpectedClose`).
     pending_close_reason: Arc<Mutex<Option<String>>>,
@@ -63,8 +65,7 @@ impl McpSseTransport {
 
         // Unexpected-close callback slots, shared with the stream reader task
         // below (v2 `unexpectedCloseListener` / `pendingUnexpectedClose`).
-        let unexpected_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>> =
-            Arc::new(Mutex::new(None));
+        let unexpected_close: UnexpectedCloseListener = Arc::new(Mutex::new(None));
         let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         let stream_post_url = post_url.clone();

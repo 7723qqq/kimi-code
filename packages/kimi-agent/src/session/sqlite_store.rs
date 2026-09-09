@@ -750,29 +750,8 @@ impl SqliteSessionStore {
         session_id: &str,
         source: Option<&str>,
     ) -> Result<Option<String>, String> {
-        match source.unwrap_or("first_turn") {
-            "digest" => {
-                return Err("source=digest requires the managed chat_title channel, which the native server does not wire yet".into())
-            }
-            "first_turn" | "user_prompts" => {}
-            other => return Err(format!("unknown title source: {other}")),
-        }
         let history = self.load_session_history(session_id).map_err(|e| e.to_string())?;
-        let prompt = history
-            .iter()
-            .filter(|m| m.role == "user")
-            .map(|m| m.content.trim())
-            .find(|c| !c.is_empty());
-        let Some(prompt) = prompt else {
-            return Ok(None);
-        };
-        let mut title: String = prompt
-            .chars()
-            .map(|c| if c.is_whitespace() { ' ' } else { c })
-            .collect();
-        title = title.trim().to_string();
-        title.truncate(60);
-        Ok(Some(title))
+        derive_session_title(&history, source)
     }
 
     /// Undo the latest `count` completed turns in the session.
@@ -1630,6 +1609,40 @@ impl EventStore for SqliteSessionStore {
     fn undo_to_last_checkpoint(&self, session_id: &str) -> Result<usize, EventStoreError> {
         SqliteSessionStore::undo_to_last_checkpoint(self, session_id)
     }
+}
+
+/// Deterministic title derivation from a conversation's user prompts (v2
+/// `title/generate` source=first_turn|user_prompts): the first non-empty
+/// user message, whitespace-normalized, truncated to 60 chars. The `digest`
+/// source requires the managed chat_title channel and is rejected here.
+/// Free-standing so the napi embedded-session path (which owns its history
+/// in memory, not in this store) applies the identical rule.
+pub fn derive_session_title(
+    history: &[LLMMessage],
+    source: Option<&str>,
+) -> Result<Option<String>, String> {
+    match source.unwrap_or("first_turn") {
+        "digest" => {
+            return Err("source=digest requires the managed chat_title channel, which the native engine does not wire yet".into())
+        }
+        "first_turn" | "user_prompts" => {}
+        other => return Err(format!("unknown title source: {other}")),
+    }
+    let prompt = history
+        .iter()
+        .filter(|m| m.role == "user")
+        .map(|m| m.content.trim())
+        .find(|c| !c.is_empty());
+    let Some(prompt) = prompt else {
+        return Ok(None);
+    };
+    let mut title: String = prompt
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect();
+    title = title.trim().to_string();
+    title.truncate(60);
+    Ok(Some(title))
 }
 
 #[cfg(test)]

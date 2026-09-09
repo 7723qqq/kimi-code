@@ -11,11 +11,25 @@ pub struct McpTool {
     pub input_schema: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// MCP content block (per the MCP spec `CallToolResult.content[]`):
+/// text carries the string text; image / audio carry a base64 payload with
+/// a mime type; resource carries a `resource` blob (uri + optional
+/// text/mime). The engine preserves every variant — v2's
+/// `convertMCPContentBlock` maps them to model `ContentPart`s, but our
+/// `ExecutableToolResult.content: String` can't carry media yet, so non-text
+/// blocks fall back to a descriptive notice in the tool output (data is
+/// truncated to a preview, never silently dropped).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct McpContent {
     #[serde(rename = "type")]
     pub content_type: String,
     pub text: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub data: Option<String>,
+    #[serde(default)]
+    pub resource: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

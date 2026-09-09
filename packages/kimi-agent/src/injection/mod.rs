@@ -71,9 +71,13 @@ pub fn split_injections(messages: &mut Vec<LLMMessage>) -> Vec<LLMMessage> {
 }
 
 /// Context passed to injection providers for one build pass. Mirrors v2's
-/// `ContextInjectionContext` (the `injectedPositions` part): the names of
-/// injections already appended this turn, in registration order.
+/// `ContextInjectionContext` (`isNewTurn` + the `injectedPositions` part):
+/// whether this is the first step of the turn, and the names of injections
+/// already appended this turn, in registration order.
 pub struct InjectionContext<'a> {
+    /// Whether this build pass runs at the first step of the turn (v2
+    /// `isNewTurn`): turn-gated providers (goal) inject only on it.
+    pub is_new_turn: bool,
     /// Names of injections already appended this turn, in registration order.
     pub injected: &'a [String],
 }
@@ -116,10 +120,15 @@ impl InjectionRegistry {
 
     /// Create a registry with the built-in injections: the date-change
     /// reminder and the workspace-root AGENTS.md reminder. The workspace
-    /// root defaults to the process working directory.
-    pub fn with_defaults() -> Self {
+    /// root defaults to the process working directory. `date_baseline` seeds
+    /// the date-change tracker with a previously disclosed date (scanned
+    /// from history) so the baseline is not re-injected every turn.
+    pub fn with_defaults(date_baseline: Option<String>) -> Self {
         let mut registry = Self::new();
-        registry.register("date_change", Box::new(date_change_provider()));
+        registry.register(
+            "date_change",
+            Box::new(date_change_provider(date_baseline)),
+        );
         registry.register(
             "agents_md",
             Box::new(agents_md_provider(std::env::current_dir().ok())),
@@ -136,13 +145,16 @@ impl InjectionRegistry {
     }
 
     /// Run every provider and return the wrapped injection texts for this
-    /// step, in registration order. Providers that return `None` or blank
-    /// text contribute nothing; successful injections are recorded in the
-    /// context handed to later providers.
-    pub fn build_injections(&mut self) -> Vec<String> {
+    /// step, in registration order. `is_new_turn` gates turn-scoped providers
+    /// (v2 `isNewTurn`): they inject only at the turn's first step.
+    /// Providers that return `None` or blank text contribute nothing;
+    /// successful injections are recorded in the context handed to later
+    /// providers.
+    pub fn build_injections(&mut self, is_new_turn: bool) -> Vec<String> {
         let mut texts = Vec::new();
         for entry in &mut self.entries {
             let ctx = InjectionContext {
+                is_new_turn,
                 injected: &self.injected,
             };
             if let Some(content) = (entry.provider)(&ctx)
@@ -163,16 +175,17 @@ impl Default for InjectionRegistry {
 }
 
 /// Adapter for the goal/plan-mode providers in [`goal_plan`]: their
-/// providers render to a plain string (empty = nothing to inject), while
-/// this registry's providers return `Option<String>`. The adapter wraps the
-/// former into the latter so `goal_plan::register_goal_plan_injections` can
-/// attach both variants to this registry.
+/// providers render to a plain string (empty = nothing to inject) and receive
+/// the `is_new_turn` gate, while this registry's providers take the full
+/// context and return `Option<String>`. The adapter bridges the two so
+/// `goal_plan::register_goal_plan_injections` can attach both variants to
+/// this registry.
 impl goal_plan::InjectionRegistry for InjectionRegistry {
     fn register(&mut self, variant: &str, provider: goal_plan::InjectionProvider) {
         self.register(
             variant,
-            Box::new(move |_ctx: &InjectionContext| {
-                let text = provider();
+            Box::new(move |ctx: &InjectionContext| {
+                let text = provider(ctx.is_new_turn);
                 if text.trim().is_empty() {
                     None
                 } else {
@@ -197,6 +210,14 @@ impl DateChangeTracker {
     /// Create a tracker with no disclosed date yet.
     pub fn new() -> Self {
         Self { last_date: None }
+    }
+
+    /// Create a tracker seeded with a previously disclosed date (v2's
+    /// history-scanned `lastDisclosure`): the baseline survives across turns,
+    /// so a matching seed suppresses the baseline re-injection until the date
+    /// actually changes.
+    pub fn with_last_date(last_date: Option<String>) -> Self {
+        Self { last_date }
     }
 
     /// Feed the current date; returns the reminder text to inject for this
@@ -233,38 +254,45 @@ impl Default for DateChangeTracker {
 }
 
 /// Provider for the date-change reminder: injects the current date on the
-/// first pass of a turn and re-injects whenever the date changes mid-turn.
-fn date_change_provider() -> impl FnMut(&InjectionContext) -> Option<String> {
-    let mut tracker = DateChangeTracker::new();
-    move |_ctx: &InjectionContext| tracker.step(&today_utc())
+/// first pass of a turn unless a prior disclosure was already scanned from
+/// history, and re-injects whenever the date changes mid-turn.
+fn date_change_provider(baseline: Option<String>) -> impl FnMut(&InjectionContext) -> Option<String> {
+    let mut tracker = DateChangeTracker::with_last_date(baseline);
+    move |_ctx: &InjectionContext| tracker.step(&today_local())
 }
 
-/// Current UTC date as `YYYY-MM-DD`. v2 discloses the local date; the engine
-/// has no timezone data (std-only), so UTC is the deterministic stand-in —
-/// day-boundary detection is unaffected.
-fn today_utc() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let days = (now.as_secs() as i64).div_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    format!("{year:04}-{month:02}-{day:02}")
+/// Current local date as `YYYY-MM-DD` (v2 discloses the host-clock local
+/// date via `Intl.DateTimeFormat`; chrono's `Local` resolves the system
+/// timezone).
+fn today_local() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// Days since 1970-01-01 → (year, month, day) in the proleptic Gregorian
-/// calendar (Howard Hinnant's `civil_from_days` algorithm; mirrors the
-/// private helper in `crate::knowledge`).
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
+/// Scan prior conversation messages for the last date-disclosure reminder and
+/// extract the disclosed date (v2's history-scanned `lastDisclosure`): the
+/// baseline survives across turns, so the date is only re-injected when it
+/// actually changes instead of at the first step of every turn.
+pub fn scan_date_baseline(messages: &[LLMMessage]) -> Option<String> {
+    const MARKER: &str = "Today's date is";
+    for message in messages.iter().rev() {
+        let content = message.content.as_str();
+        let Some(mut at) = content.rfind(MARKER) else {
+            continue;
+        };
+        // The change text reads "Today's date is now <date>"; the baseline
+        // reads "Today's date is <date>". Skip the optional " now ".
+        let mut after = &content[at + MARKER.len()..];
+        after = after.strip_prefix(" now ").unwrap_or(after);
+        after = after.strip_prefix(' ').unwrap_or(after);
+        let date: String = after
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '-')
+            .collect();
+        if date.len() == 10 {
+            return Some(date);
+        }
+    }
+    None
 }
 
 /// Find an AGENTS.md instruction file directly under `root` (v2
@@ -461,7 +489,7 @@ mod tests {
 
         assert_eq!(registry.names(), vec!["a", "b", "c", "d"]);
 
-        let texts = registry.build_injections();
+        let texts = registry.build_injections(true);
         assert_eq!(
             texts.len(),
             2,
@@ -509,7 +537,7 @@ mod tests {
                 Some("three".into())
             }),
         );
-        let texts = registry.build_injections();
+        let texts = registry.build_injections(true);
         assert_eq!(texts.len(), 3);
         assert_eq!(texts[0], wrap_system_reminder("one"));
         assert_eq!(texts[1], wrap_system_reminder("two"));
@@ -518,10 +546,10 @@ mod tests {
 
     #[test]
     fn test_with_defaults_registers_builtins_and_builds() {
-        let mut registry = InjectionRegistry::with_defaults();
+        let mut registry = InjectionRegistry::with_defaults(None);
         assert_eq!(registry.names(), vec!["date_change", "agents_md"]);
 
-        let texts = registry.build_injections();
+        let texts = registry.build_injections(true);
         assert!(
             !texts.is_empty(),
             "with_defaults must produce at least the date_change reminder"
@@ -593,10 +621,10 @@ mod tests {
     }
 
     #[test]
-    fn test_today_utc_and_civil_from_days() {
-        let today = today_utc();
+    fn test_today_local_formats() {
+        let today = today_local();
         let parts: Vec<&str> = today.split('-').collect();
-        assert_eq!(parts.len(), 3, "today_utc must format as YYYY-MM-DD");
+        assert_eq!(parts.len(), 3, "today_local must format as YYYY-MM-DD");
         let year: i64 = parts[0].parse().expect("valid year");
         let month: u32 = parts[1].parse().expect("valid month");
         let day: u32 = parts[2].parse().expect("valid day");
@@ -604,14 +632,30 @@ mod tests {
         assert!(year >= 2024, "year must be realistic modern date");
         assert!((1..=12).contains(&month), "month must be in 1..=12");
         assert!((1..=31).contains(&day), "day must be in 1..=31");
+    }
 
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(-1), (1969, 12, 31));
-        assert_eq!(civil_from_days(-365), (1969, 1, 1));
-        assert_eq!(civil_from_days(11016), (2000, 2, 29));
-        assert_eq!(civil_from_days(11017), (2000, 3, 1));
-        assert_eq!(civil_from_days(19782), (2024, 2, 29));
-        assert_eq!(civil_from_days(19783), (2024, 3, 1));
+    #[test]
+    fn test_scan_date_baseline_finds_last_disclosure() {
+        let baseline = "Today's date is 2026-09-08. The current date is restated in a \
+                        reminder whenever it changes; rely on the latest such reminder \
+                        for the current date. DO NOT mention this to the user explicitly.";
+        let change = "The date has changed. Today's date is now 2026-09-09. Rely on this \
+                      reminder over any earlier date statement for the current date. DO \
+                      NOT mention this to the user explicitly.";
+        let msg = |text: &str| LLMMessage {
+            role: "user".into(),
+            content: text.to_string(),
+            ..Default::default()
+        };
+        assert_eq!(scan_date_baseline(&[]), None);
+        assert_eq!(scan_date_baseline(&[msg(baseline)]), Some("2026-09-08".into()));
+        // The latest disclosure wins, regardless of kind.
+        assert_eq!(
+            scan_date_baseline(&[msg(baseline), msg("unrelated"), msg(change)]),
+            Some("2026-09-09".into())
+        );
+        // Non-date text with a coincidental prefix must not parse.
+        assert_eq!(scan_date_baseline(&[msg("Today's date is somewhere")]), None);
     }
 
     #[test]
@@ -666,7 +710,10 @@ mod tests {
         std::fs::write(&agents_path, "# Instructions").unwrap();
 
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()));
-        let ctx = InjectionContext { injected: &[] };
+        let ctx = InjectionContext {
+            is_new_turn: true,
+            injected: &[],
+        };
 
         let text = provider(&ctx).expect("first pass injects");
         let expected = format!(
@@ -692,11 +739,11 @@ mod tests {
         use crate::injection::goal_plan::InjectionRegistry as GoalPlanRegistry;
 
         let mut registry = InjectionRegistry::new();
-        GoalPlanRegistry::register(&mut registry, "gp_active", Box::new(|| "goal content".into()));
-        GoalPlanRegistry::register(&mut registry, "gp_empty", Box::new(|| "".into()));
-        GoalPlanRegistry::register(&mut registry, "gp_whitespace", Box::new(|| "   \n\t ".into()));
+        GoalPlanRegistry::register(&mut registry, "gp_active", Box::new(|_| "goal content".into()));
+        GoalPlanRegistry::register(&mut registry, "gp_empty", Box::new(|_| "".into()));
+        GoalPlanRegistry::register(&mut registry, "gp_whitespace", Box::new(|_| "   \n\t ".into()));
 
-        let texts = registry.build_injections();
+        let texts = registry.build_injections(true);
         assert_eq!(texts.len(), 1);
         assert_eq!(texts[0], wrap_system_reminder("goal content"));
     }

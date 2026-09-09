@@ -384,14 +384,16 @@ pub fn plan_mode_variant(
 /// in `crate::injection` (parallel workstream); implement this trait for it
 /// so [`register_goal_plan_injections`] can attach the two variants.
 pub trait InjectionRegistry {
-    /// Register a provider under a variant name. The registry decides when
-    /// to invoke providers (goal: new turns; plan_mode: the cadence above);
-    /// an empty provider result means "nothing to inject".
+    /// Register a provider under a variant name. The registry invokes the
+    /// provider at every step head with the `is_new_turn` gate (v2
+    /// `isNewTurn`); an empty provider result means "nothing to inject".
     fn register(&mut self, variant: &str, provider: InjectionProvider);
 }
 
-/// A provider renders the injection text for one variant.
-pub type InjectionProvider = Box<dyn Fn() -> String + Send + Sync>;
+/// A provider renders the injection text for one variant. Receives the
+/// `is_new_turn` gate so turn-scoped variants (goal) can inject only at the
+/// turn's first step (v2 `goalInjection.ts` `isNewTurn`).
+pub type InjectionProvider = Box<dyn Fn(bool) -> String + Send + Sync>;
 
 /// Minimal state-store contract, matching the `read_domain` interface of
 /// `crate::storage::state_store` (parallel workstream).
@@ -405,14 +407,13 @@ pub trait StateStore {
 /// `state_store` (pass a shared handle, e.g. `Arc::new(store)` or an
 /// `Arc::clone` of an existing handle; the store must be `Sync + 'static`
 /// so the providers can live as long as the registry). The goal provider
-/// renders the goal reminder from `read_domain("goal")`; the plan-mode
-/// provider renders the activation reminder from `read_domain("plan")`.
-/// Both return an empty string when there is nothing to inject.
-///
-/// The registry is expected to invoke the goal provider on new turns only
-/// (v2 `isNewTurn`), and to drive the plan-mode cadence itself with
-/// [`plan_mode_variant`] / [`plan_mode_sparse_text`] / [`plan_mode_exit_text`]
-/// plus its own `plan.wasActive` tracking.
+/// renders the goal reminder from `read_domain("goal")` on new turns only
+/// (v2 `goalInjection.ts` gates on `isNewTurn`); the plan-mode provider
+/// renders the activation reminder from `read_domain("plan")` at every step
+/// head, driving its own cadence with [`plan_mode_variant`] /
+/// [`plan_mode_sparse_text`] / [`plan_mode_exit_text`] plus its own
+/// `plan.wasActive` tracking. Both return an empty string when there is
+/// nothing to inject.
 pub fn register_goal_plan_injections<R, S>(registry: &mut R, state_store: Arc<S>)
 where
     R: InjectionRegistry,
@@ -421,7 +422,10 @@ where
     let goal_store = Arc::clone(&state_store);
     registry.register(
         "goal",
-        Box::new(move || {
+        Box::new(move |is_new_turn: bool| {
+            if !is_new_turn {
+                return String::new();
+            }
             goal_store
                 .read_domain("goal")
                 .map(|value| goal_injection_text(&value))
@@ -442,7 +446,7 @@ where
     let plan_store = Arc::clone(&state_store);
     registry.register(
         "plan_mode",
-        Box::new(move || {
+        Box::new(move |_is_new_turn: bool| {
             let mut state = tracker.lock().unwrap();
             let plan_val = plan_store.read_domain("plan");
             let is_active = plan_val.as_ref().map(plan_is_active).unwrap_or(false);
@@ -822,11 +826,11 @@ Plan file: PLAN.md"#
         assert_eq!(registry.providers[0].0, "goal");
         assert_eq!(registry.providers[1].0, "plan_mode");
 
-        let goal_text = registry.providers[0].1();
+        let goal_text = registry.providers[0].1(true);
         assert!(goal_text.starts_with("You are working under an active goal (goal mode)."));
         assert!(goal_text.contains("Status: active"));
 
-        let plan_text = registry.providers[1].1();
+        let plan_text = registry.providers[1].1(true);
         assert!(plan_text.starts_with("Plan mode is active."));
         assert!(plan_text.ends_with("\n\n\nPlan file: PLAN.md"));
     }
@@ -841,8 +845,8 @@ Plan file: PLAN.md"#
             plan: None,
         };
         register_goal_plan_injections(&mut registry, Arc::new(store));
-        assert_eq!(registry.providers[0].1(), "");
-        assert_eq!(registry.providers[1].1(), "");
+        assert_eq!(registry.providers[0].1(true), "");
+        assert_eq!(registry.providers[1].1(true), "");
     }
 
     #[test]
@@ -869,24 +873,24 @@ Plan file: PLAN.md"#
         register_goal_plan_injections(&mut registry, Arc::clone(&store));
 
         // Turn 0: First activation -> Full reminder
-        let t0 = registry.providers[1].1();
+        let t0 = registry.providers[1].1(true);
         assert!(t0.starts_with("Plan mode is active."));
 
         // Turn 1: Dedup window -> Empty
-        let t1 = registry.providers[1].1();
+        let t1 = registry.providers[1].1(true);
         assert_eq!(t1, "");
 
         // Turn 2: Dedup window passed (>= 2) -> Sparse reminder
-        let t2 = registry.providers[1].1();
+        let t2 = registry.providers[1].1(true);
         assert!(t2.starts_with("Plan mode still active"));
 
         // Exit plan mode
         *store.plan.lock().unwrap() = Some(json!({ "active": false }));
-        let t_exit = registry.providers[1].1();
+        let t_exit = registry.providers[1].1(true);
         assert_eq!(t_exit, plan_mode_exit_text());
 
         // Subsequent turns after exit -> Empty
-        let t_after = registry.providers[1].1();
+        let t_after = registry.providers[1].1(true);
         assert_eq!(t_after, "");
     }
 }

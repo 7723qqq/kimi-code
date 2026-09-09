@@ -423,6 +423,23 @@ fn format_wire_session(
     let message_count = history.len();
     let context_tokens: usize = history.iter().map(|m| m.content.len() / 4).sum();
 
+    // Derive `pending_interaction` from the engine's InteractionManager
+    // when an engine is attached: v2 surfaced a real value here instead of
+    // the "none" stub the engine previously hardcoded, and the TUI status
+    // panel relies on it to render the question / approval state.
+    let pending_interaction = engine
+        .and_then(|e| e.interaction_manager())
+        .map(|mgr| {
+            if !mgr.list_questions(session_id).is_empty() {
+                "question"
+            } else if !mgr.list_approvals(session_id).is_empty() {
+                "approval"
+            } else {
+                "none"
+            }
+        })
+        .unwrap_or("none");
+
     let model = store
         .get_state("agent_config", session_id)
         .ok()
@@ -494,8 +511,8 @@ fn format_wire_session(
         "updated_at": updated_iso,
         "busy": busy,
         "main_turn_active": busy,
-        "pending_interaction": "none",
-        "archived": false,
+        "pending_interaction": pending_interaction,
+        "archived": session.archived,
         "metadata": Value::Object(metadata_obj),
         "agent_config": Value::Object(config_obj),
         "usage": {

@@ -268,6 +268,50 @@ pub struct NativeToolset {
     caller_agent_id: Option<String>,
     session_id: Option<String>,
     task_runner: Option<std::sync::Arc<crate::storage::TaskRunner>>,
+    /// Native file-history capture (v2 `fileHistoryService`): when set,
+    /// mutating file tools (`write` / `edit`) record a row into
+    /// `session_file_history` for each successful change.
+    file_history: Option<FileHistoryCtx>,
+}
+
+/// Bundle the native file-history recorder needs: the store handle plus
+/// the session to attribute the change to. `turn_id` is read from the
+/// `TURN_ID` task-local at record time, which the turn runner scopes per
+/// turn (REPL callers that don't scope it record under turn 0).
+#[derive(Clone)]
+struct FileHistoryCtx {
+    store: std::sync::Arc<crate::session::sqlite_store::SqliteSessionStore>,
+    session_id: String,
+}
+
+thread_local! {
+    /// Per-call file-history context installed by
+    /// `run_mutating_file_tool_on_blocking_pool` so the static `write` /
+    /// `edit` fns can reach the recorder without changing their signature.
+    static FILE_HISTORY: std::cell::RefCell<Option<FileHistoryCtx>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// Per-turn identifier scoped by the turn runner. The native mutating
+    /// file tools read it when recording the file-history row.
+    static TURN_ID: std::cell::RefCell<usize> =
+        const { std::cell::RefCell::new(0) };
+}
+
+/// Scoped task-local: install a `turn_id` for the duration of `f`.
+/// `None` is a no-op (no installation); nested installs are not tracked.
+pub fn scope_turn_id<F: FnOnce() -> R, R>(turn_id: usize, f: F) -> R {
+    struct Restore<'a>(std::cell::RefMut<'a, usize>);
+    impl<'a> Drop for Restore<'a> {
+        fn drop(&mut self) {
+            *self.0 = 0;
+        }
+    }
+    TURN_ID.with(|cell| {
+        let prev = *cell.borrow();
+        *cell.borrow_mut() = turn_id;
+        let _restore = Restore(cell.borrow_mut());
+        f()
+    })
 }
 
 impl NativeToolset {
@@ -308,6 +352,7 @@ impl NativeToolset {
             caller_agent_id: None,
             session_id: None,
             task_runner: None,
+            file_history: None,
         })
     }
 
@@ -324,6 +369,25 @@ impl NativeToolset {
 
     pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Enable native file-history capture for mutating file tools (`write` /
+    /// `edit`). Each successful mutation records a `session_file_history`
+    /// row (v2 `fileHistoryService.onWillExecuteTool` capture, plus the
+    /// post-image diff) so `undo {revert_files:true}` and the
+    /// `/file-history/*` endpoints have real data. `turn_id` is captured
+    /// from the `TURN_ID` task-local when set, else 0 — single-turn
+    /// pipelines (REPL) and call-site rewrites are not required.
+    pub fn with_file_history(
+        mut self,
+        store: std::sync::Arc<crate::session::sqlite_store::SqliteSessionStore>,
+        session_id: impl Into<String>,
+    ) -> Self {
+        self.file_history = Some(FileHistoryCtx {
+            store,
+            session_id: session_id.into(),
+        });
         self
     }
 
@@ -758,6 +822,14 @@ impl NativeToolset {
         }
     }
 
+    async fn spawn_file_tool(
+        root: PathBuf,
+        args: Value,
+        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+    ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
+        tokio::task::spawn_blocking(move || tool(&root, &args)).await
+    }
+
     /// Run a synchronous mutating file-I/O tool (`write` / `edit`) on tokio's
     /// blocking pool. Same ownership rules as the read-only variant, but a
     /// `JoinError` becomes an error result rather than a `None` host fallback:
@@ -768,18 +840,29 @@ impl NativeToolset {
         args: &Value,
         tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
-        match Self::spawn_file_tool(self.root.clone(), args.clone(), tool).await {
+        let ctx = self.file_history.clone();
+        match Self::spawn_mutating_file_tool(self.root.clone(), args.clone(), tool, ctx).await {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(true, e.to_string()),
         }
     }
 
-    async fn spawn_file_tool(
+    async fn spawn_mutating_file_tool(
         root: PathBuf,
         args: Value,
         tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+        ctx: Option<FileHistoryCtx>,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
-        tokio::task::spawn_blocking(move || tool(&root, &args)).await
+        tokio::task::spawn_blocking(move || {
+            // Install the recorder for the duration of this blocking call;
+            // `write` / `edit` read it back out to record the change. A
+            // no-op for callers without `with_file_history`.
+            FILE_HISTORY.with(|cell| *cell.borrow_mut() = ctx);
+            let result = tool(&root, &args);
+            FILE_HISTORY.with(|cell| *cell.borrow_mut() = None);
+            result
+        })
+        .await
     }
 
     /// Resolve a path argument inside the workspace. `None` when the path
@@ -1322,6 +1405,33 @@ impl NativeToolset {
 
     // ── Write ──────────────────────────────────────────────────────────
 
+    /// Record a successful mutating-file change into the session file-history
+    /// table when a recorder is installed (v2 `fileHistoryService.onWillExecuteTool`
+    /// + post-image diff). Reads `turn_id` from the `TURN_ID` task-local so
+    /// multi-turn pipelines attribute changes per turn. A failure to record
+    /// never affects the tool result — the change itself already landed.
+    fn record_file_history(resolved: &Path, before: Option<&str>, after: Option<&str>) {
+        let Some(ctx) = FILE_HISTORY.with(|cell| cell.borrow().clone()) else {
+            return;
+        };
+        let turn_id = TURN_ID.with(|cell| *cell.borrow());
+        if let Err(e) = ctx.store.record_file_change(
+            &ctx.session_id,
+            turn_id,
+            &resolved.display().to_string(),
+            before,
+            after,
+        ) {
+            tracing::debug!(
+                session = %ctx.session_id,
+                turn_id,
+                path = %resolved.display(),
+                error = %e,
+                "file-history record failed"
+            );
+        }
+    }
+
     fn write(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         let content = args.get("content")?.as_str()?;
@@ -1333,6 +1443,13 @@ impl NativeToolset {
         if let Some(parent) = resolved.parent() {
             std::fs::create_dir_all(parent).ok()?;
         }
+        // Snapshot the pre-image before the write so the recorder can store
+        // the diff (v2 `fileHistoryService.onWillExecuteTool` capture).
+        let pre_image = if resolved.is_file() {
+            std::fs::read_to_string(&resolved).ok()
+        } else {
+            None
+        };
         let bytes_written = match mode {
             "overwrite" => std::fs::write(&resolved, content)
                 .ok()
@@ -1349,6 +1466,7 @@ impl NativeToolset {
             // Unknown mode — the host validates the enum; be safe.
             _ => return None,
         }?;
+                Self::record_file_history(&resolved, pre_image.as_deref(), Some(content));
         // Output format mirrors the host Write tool.
         Some(ok_result(format!(
             "{} {bytes_written} bytes to {path}",
@@ -1391,6 +1509,8 @@ impl NativeToolset {
             }
             text.replacen(old, new, 1)
         };
+        // `text` is the pre-image; capture the diff before writing.
+                Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
         std::fs::write(&resolved, updated).ok()?;
         let display = resolved.strip_prefix(root).unwrap_or(&resolved).display();
         Some(ok_result(format!("Edited {display}")))
