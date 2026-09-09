@@ -33,6 +33,13 @@ pub enum PermissionMode {
     Manual,
     Auto,
     Yolo,
+    /// Any mode the engine does not model (e.g. the host's `plan` mode).
+    /// Tolerant deserialization prevents an unknown mode from silently
+    /// dropping the whole policy snapshot (hooks + rules) at the napi
+    /// boundary: the permission chain still sees an explicit mode value,
+    /// just one it treats as the manual default.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A user-configured external hook (v2 `HookDefSchema`): an event name, an
@@ -103,6 +110,17 @@ pub struct ParsedRule {
 pub fn parse_permission_pattern(pattern: &str) -> Option<ParsedRule> {
     let trimmed = pattern.trim();
     if trimmed.is_empty() {
+        return None;
+    }
+
+    // v2 `matchRuleSubjects` treats a leading `!` on a rule as negation
+    // ("matches when the subject does NOT match the pattern"). Our engine
+    // uses separate `deny_rules` / `ask_rules` / `allow_rules` lists, so
+    // the negation semantics do not apply; instead, silently compiling
+    // `Bash(!rm *)` into a literal `!rm ` glob would deny almost every
+    // command. Refuse such patterns so the caller gets a clear error
+    // rather than a foot-gun.
+    if trimmed.starts_with('!') {
         return None;
     }
 
@@ -424,22 +442,107 @@ fn extract_rule_subject(tool_lower: &str, args: &Value) -> Option<String> {
     }
 }
 
-pub fn is_sensitive_path(path_str: &str) -> bool {
-    let normalized = path_str.replace('\\', "/");
-    let segments: Vec<&str> = normalized.split('/').filter(|s| !s.is_empty()).collect();
+/// File-name suffixes that turn a credential / SSH-key basename into a
+/// sensitive dot-variant (v2 `SENSITIVE_DOT_VARIANT_SUFFES`).
+const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
+    "bak", "backup", "copy", "disabled", "key", "old", "orig", "pem", "save", "tmp",
+];
 
-    for seg in &segments {
-        let lower = seg.to_ascii_lowercase();
-        if lower == ".env" || lower.starts_with(".env.") {
-            return true;
+/// Basenames that are sensitive on their own (v2 `SENSITIVE_BASENAMES`).
+const SENSITIVE_BASENAMES: &[&str] = &[
+    ".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials",
+];
+
+/// Basename prefixes that match when followed by `-`, `_`, or a known
+/// dot-variant suffix (v2 `SENSITIVE_BASENAME_PREFIXES`).
+const SENSITIVE_BASENAME_PREFIXES: &[&str] = &[
+    "id_rsa", "id_ed25519", "id_ecdsa", "credentials",
+];
+
+/// Exempt basenames — these are NOT sensitive even if they look like they
+/// might be (v2 `ENV_EXEMPTIONS` and `PUBLIC_KEY_BASENAMES`).
+const ENV_EXEMPT_BASENAMES: &[&str] = &[
+    ".env.example", ".env.sample", ".env.template",
+];
+const PUBLIC_KEY_BASENAMES: &[&str] = &[
+    "id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub",
+];
+
+/// Path-suffix components that flag a file as sensitive when they appear as
+/// a path segment (v2 `SENSITIVE_PATH_SUFFIXES`). The first component
+/// carries the leading dot because on disk the directories are hidden
+/// (`.aws` / `.gcp`); the join produces `.aws/credentials` and the match
+/// is `comparable.contains("/.aws/credentials/")` which catches both the
+/// file itself and any sibling under the credentials directory.
+const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[
+    &[".aws", "credentials"],
+    &[".gcp", "credentials"],
+];
+
+/// True when `path_str` matches a v2 sensitive-file pattern. Mirrors v2
+/// `path-access.ts:isSensitiveFile` (the napi fast path lives in
+/// `native/path_access.rs`; this is the std fallback the engine uses when
+/// the napi bindings are not available).
+pub fn is_sensitive_path(path_str: &str) -> bool {
+    let comparable = path_str.replace('\\', "/").to_ascii_lowercase();
+    let basename = comparable
+        .rsplit_once('/')
+        .map(|(_, name)| name)
+        .unwrap_or(comparable.as_str());
+
+    // Exemptions: `.env.example`/`.sample`/`.template` and the `.pub`
+    // counterparts of the SSH key basenames. v2 checks these BEFORE the
+    // other branches so the dot-variant and prefix rules do not false-match.
+    if ENV_EXEMPT_BASENAMES.contains(&basename) {
+        return false;
+    }
+    if PUBLIC_KEY_BASENAMES.contains(&basename) {
+        return false;
+    }
+
+    // Exact sensitive basenames.
+    if SENSITIVE_BASENAMES.contains(&basename) {
+        return true;
+    }
+
+    // `.env.<anything>` (`.env.local`, `.env.production`, …).
+    if basename.starts_with(".env.") {
+        return true;
+    }
+
+    // Prefix + separator (`id_rsa-prod`, `credentials_backup`) or
+    // prefix + dot-variant (`id_rsa.bak`, `credentials.old`).
+    for prefix in SENSITIVE_BASENAME_PREFIXES {
+        if basename.len() > prefix.len()
+            && basename.starts_with(prefix)
+        {
+            let suffix = &basename[prefix.len()..];
+            let next = suffix.chars().next().unwrap_or('\0');
+            if next == '-' || next == '_' {
+                return true;
+            }
+            if next == '.'
+                && suffix
+                    .strip_prefix('.')
+                    .map(|s| SENSITIVE_DOT_VARIANT_SUFFIXES.contains(&s))
+                    .unwrap_or(false)
+            {
+                return true;
+            }
         }
-        if lower == "id_rsa" || lower == "id_ed25519" || lower == "id_ecdsa" || lower == "id_dsa" {
-            return true;
-        }
-        if lower.ends_with(".pem") || lower.ends_with(".key") || lower.ends_with(".pfx") {
+    }
+
+    // Path-component suffixes: `.aws/credentials`, `.gcp/credentials` (or
+    // their containing directory, e.g. `path/to/.aws/credentials/file`).
+    for suffix_parts in SENSITIVE_PATH_SUFFIXES {
+        let suffix = suffix_parts.join("/");
+        if comparable.ends_with(&format!("/{suffix}"))
+            || comparable.contains(&format!("/{suffix}/"))
+        {
             return true;
         }
     }
+
     false
 }
 
@@ -532,15 +635,11 @@ mod tests {
         );
         assert!(!verdict.is_allow());
 
-        // Edit server.key with Windows backslash
+        // Edit ssl\server.key — standalone `.key` is NOT sensitive in v2
+        // (only the dot-variants of `id_rsa` / `id_ed25519` / `id_ecdsa` /
+        // `credentials` are). The path must not trigger SensitiveFileAccessAsk.
         let verdict = engine.evaluate("Edit", &json!({ "path": "ssl\\server.key" }));
-        assert_eq!(verdict.decision, VerdictDecision::Ask);
-        assert_eq!(verdict.policy_name, "SensitiveFileAccessAsk");
-        assert_eq!(
-            verdict.reason,
-            Some("Access to sensitive file requires approval: ssl\\server.key".into())
-        );
-        assert!(!verdict.is_allow());
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
     }
 
     #[test]
@@ -1235,7 +1334,7 @@ mod tests {
 
     #[test]
     fn test_is_sensitive_path() {
-        // Positive cases: .env variants
+        // Positive cases: .env variants (v2 `ENV_PREFIX` + basenames)
         assert!(is_sensitive_path(".env"));
         assert!(is_sensitive_path(".env.local"));
         assert!(is_sensitive_path(".env.production"));
@@ -1245,37 +1344,58 @@ mod tests {
         assert!(is_sensitive_path("config/.env"));
         assert!(is_sensitive_path("backend/.env.production"));
 
-        // Positive cases: SSH private keys
+        // Positive cases: SSH private keys (v2 `SENSITIVE_BASENAMES`)
         assert!(is_sensitive_path("id_rsa"));
         assert!(is_sensitive_path("id_ed25519"));
         assert!(is_sensitive_path("id_ecdsa"));
-        assert!(is_sensitive_path("id_dsa"));
         assert!(is_sensitive_path("~/.ssh/id_rsa"));
         assert!(is_sensitive_path("/root/.ssh/id_ed25519"));
         assert!(is_sensitive_path("ID_RSA"));
+        // v2 prefix+separator and prefix+dot-variant: id_rsa.bak, id_rsa-prod,
+        // credentials_backup, credentials.old, etc.
+        assert!(is_sensitive_path("id_rsa.bak"));
+        assert!(is_sensitive_path("id_rsa-prod"));
+        assert!(is_sensitive_path("id_ed25519.old"));
+        assert!(is_sensitive_path("credentials.bak"));
+        assert!(is_sensitive_path("credentials_backup"));
 
-        // Positive cases: certificates and private keys
-        assert!(is_sensitive_path("server.key"));
-        assert!(is_sensitive_path("cert.pem"));
-        assert!(is_sensitive_path("identity.pfx"));
-        assert!(is_sensitive_path("certs/ca.pem"));
-        assert!(is_sensitive_path("keys/secret.KEY"));
+        // Positive cases: credentials basenames + path-suffix components
+        assert!(is_sensitive_path("credentials"));
+        assert!(is_sensitive_path("~/.aws/credentials"));
+        assert!(is_sensitive_path("/root/.gcp/credentials"));
+        assert!(is_sensitive_path("path/to/.aws/credentials"));
+        assert!(is_sensitive_path("path/to/.aws/credentials/extra"));
 
-        // Positive cases: Windows paths
+        // Positive cases: Windows paths (backslashes normalised)
         assert!(is_sensitive_path("C:\\Users\\admin\\.ssh\\id_rsa"));
         assert!(is_sensitive_path("app\\config\\.env.local"));
-        assert!(is_sensitive_path("ssl\\server.key"));
+        assert!(is_sensitive_path("C:\\path\\.aws\\credentials"));
 
-        // Negative cases: safe non-sensitive files
+        // Negative cases: exemptions (v2 `ENV_EXEMPTIONS` + `PUBLIC_KEY_BASENAMES`)
+        assert!(!is_sensitive_path(".env.example"));
+        assert!(!is_sensitive_path(".env.sample"));
+        assert!(!is_sensitive_path(".env.template"));
+        assert!(!is_sensitive_path("id_rsa.pub"));
+        assert!(is_sensitive_path("id_rsa"));
+        assert!(!is_sensitive_path("id_ed25519.pub"));
+        assert!(!is_sensitive_path("id_ecdsa.pub"));
+        assert!(!is_sensitive_path(".ENV.example"));
+
+        // Negative cases: safe non-sensitive files. v2 does NOT flag
+        // arbitrary `.pem` / `.key` / `.pfx` — only the dot-variants of
+        // `id_rsa` / `id_ed25519` / `id_ecdsa` / `credentials`.
         assert!(!is_sensitive_path("environment.ts"));
         assert!(!is_sensitive_path("dotenv.js"));
         assert!(!is_sensitive_path("environment.json"));
-        assert!(!is_sensitive_path("id_rsa.pub"));
-        assert!(!is_sensitive_path("id_ed25519.pub"));
         assert!(!is_sensitive_path("key.txt"));
         assert!(!is_sensitive_path("keyboard.rs"));
         assert!(!is_sensitive_path("README.md"));
         assert!(!is_sensitive_path("src/main.rs"));
+        assert!(!is_sensitive_path("server.key"));
+        assert!(!is_sensitive_path("cert.pem"));
+        assert!(!is_sensitive_path("identity.pfx"));
+        assert!(!is_sensitive_path("certs/ca.pem"));
+        assert!(!is_sensitive_path("keys/secret.KEY"));
     }
 
     #[test]
