@@ -51,14 +51,16 @@ fn service_config() -> Option<MoonshotServiceConfig> {
 }
 
 /// Build the Moonshot search request: body, URL, and headers (bearer,
-/// content-type, custom headers win).
+/// content-type, optional tool-call id, custom headers win).
 pub fn moonshot_search_request_parts(
     config: &MoonshotServiceConfig,
     query: &str,
     api_key: &str,
+    tool_call_id: Option<&str>,
 ) -> (String, String, Vec<(String, String)>) {
     let body = json!({ "text_query": query }).to_string();
-    let headers = moonshot_service::bearer_headers(api_key, &config.custom_headers, &[]);
+    let headers =
+        moonshot_service::bearer_headers(api_key, &config.custom_headers, &[], tool_call_id);
     (config.base_url.clone(), body, headers)
 }
 
@@ -124,6 +126,7 @@ fn err_result(content: String) -> ExecutableToolResult {
 async fn search_via_moonshot(
     config: &MoonshotServiceConfig,
     query: &str,
+    tool_call_id: Option<&str>,
 ) -> Option<ExecutableToolResult> {
     // A missing credential is a tool error here, not a fallback: when a
     // search backend is configured it *replaces* the DDG scrape, so there
@@ -134,7 +137,7 @@ async fn search_via_moonshot(
             "Moonshot search service is not configured: missing API key.".to_string(),
         ));
     };
-    let (url, body, headers) = moonshot_search_request_parts(config, query, &api_key);
+    let (url, body, headers) = moonshot_search_request_parts(config, query, &api_key, tool_call_id);
     let client = match moonshot_service::build_client() {
         Ok(c) => c,
         Err(e) => {
@@ -199,7 +202,10 @@ async fn search_via_moonshot(
     })
 }
 
-pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
+pub async fn execute_web_search(
+    args: &Value,
+    tool_call_id: Option<&str>,
+) -> Option<ExecutableToolResult> {
     let query = args.get("query")?.as_str()?;
     if query.trim().is_empty() {
         return Some(ExecutableToolResult {
@@ -213,7 +219,7 @@ pub async fn execute_web_search(args: &Value) -> Option<ExecutableToolResult> {
     // A host-resolved `[services.moonshot_search]` backend replaces the DDG
     // scrape (v2 `WebSearchProviderService.fromServicesConfig`).
     if let Some(config) = service_config() {
-        return search_via_moonshot(&config, query).await;
+        return search_via_moonshot(&config, query, tool_call_id).await;
     }
 
     let client = match reqwest::Client::builder()
@@ -451,12 +457,20 @@ mod tests {
                 .into_iter()
                 .collect(),
         };
-        let (url, body, headers) = moonshot_search_request_parts(&config, "rust tokio", "sk-test");
+        let (url, body, headers) =
+            moonshot_search_request_parts(&config, "rust tokio", "sk-test", Some("call-1"));
         assert_eq!(url, "https://api.example.test/coding/v1/search");
         assert_eq!(body, r#"{"text_query":"rust tokio"}"#);
         assert!(headers.contains(&("Authorization".to_string(), "Bearer sk-test".to_string())));
         assert!(headers.contains(&("Content-Type".to_string(), "application/json".to_string())));
+        assert!(headers.contains(&("X-Msh-Tool-Call-Id".to_string(), "call-1".to_string())));
         assert!(headers.contains(&("X-Trace".to_string(), "t1".to_string())));
+        // No call id (or a blank one) → no header, mirroring v2.
+        let (_, _, headers) = moonshot_search_request_parts(&config, "rust tokio", "sk-test", None);
+        assert!(!headers.iter().any(|(k, _)| k == "X-Msh-Tool-Call-Id"));
+        let (_, _, headers) =
+            moonshot_search_request_parts(&config, "rust tokio", "sk-test", Some(""));
+        assert!(!headers.iter().any(|(k, _)| k == "X-Msh-Tool-Call-Id"));
     }
 
     #[test]

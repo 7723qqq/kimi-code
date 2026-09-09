@@ -569,8 +569,8 @@ impl NativeToolset {
             "listdirectory" | "list_directory" => {
                 list_directory::execute_list_directory(&self.root, args)
             }
-            "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args).await,
-            "websearch" | "web_search" => web_search::execute_web_search(args).await,
+            "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args, tool_call_id).await,
+            "websearch" | "web_search" => web_search::execute_web_search(args, tool_call_id).await,
             "lsp" => lsp_tool::execute_lsp_tool(&self.root, args).await,
             "invokesubagent" | "invoke_subagent" => {
                 let mgr = self.subagent_manager.as_ref()?;

@@ -51,19 +51,26 @@ pub fn non_blank_key(api_key: &Option<String>) -> Option<String> {
 }
 
 /// The bearer header set: `Authorization`, then any per-tool extras (e.g.
-/// fetch's `Accept`), then `Content-Type`, with custom headers appended
-/// last so they win.
+/// fetch's `Accept`), then `Content-Type`, then the optional
+/// `X-Msh-Tool-Call-Id` (v2 sends it when the call has an id), with custom
+/// headers appended last so they win.
 pub fn bearer_headers(
     api_key: &str,
     custom_headers: &HashMap<String, String>,
     extra: &[(&str, &str)],
+    tool_call_id: Option<&str>,
 ) -> Vec<(String, String)> {
-    let mut headers = Vec::with_capacity(2 + extra.len() + custom_headers.len());
+    let mut headers = Vec::with_capacity(
+        2 + extra.len() + usize::from(tool_call_id.is_some()) + custom_headers.len(),
+    );
     headers.push(("Authorization".to_string(), format!("Bearer {api_key}")));
     for (key, value) in extra {
         headers.push((key.to_string(), value.to_string()));
     }
     headers.push(("Content-Type".to_string(), "application/json".to_string()));
+    if let Some(id) = tool_call_id.filter(|id| !id.is_empty()) {
+        headers.push(("X-Msh-Tool-Call-Id".to_string(), id.to_string()));
+    }
     for (key, value) in custom_headers {
         headers.push((key.clone(), value.clone()));
     }

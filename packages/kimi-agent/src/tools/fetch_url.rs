@@ -51,12 +51,14 @@ pub fn moonshot_fetch_request_parts(
     config: &MoonshotServiceConfig,
     url: &str,
     api_key: &str,
+    tool_call_id: Option<&str>,
 ) -> (String, String, Vec<(String, String)>) {
     let body = json!({ "url": url }).to_string();
     let headers = moonshot_service::bearer_headers(
         api_key,
         &config.custom_headers,
         &[("Accept", "text/markdown")],
+        tool_call_id,
     );
     (config.base_url.clone(), body, headers)
 }
@@ -68,6 +70,7 @@ pub fn moonshot_fetch_request_parts(
 async fn fetch_via_moonshot(
     config: &MoonshotServiceConfig,
     url_str: &str,
+    tool_call_id: Option<&str>,
 ) -> Result<Option<ExecutableToolResult>, ()> {
     let Some(api_key) = moonshot_service::non_blank_key(&config.api_key) else {
         // Unconfigured credential: a service error, but v2 treats any failure
@@ -75,7 +78,8 @@ async fn fetch_via_moonshot(
         tracing::debug!("moonshot fetch skipped (missing API key), falling back to direct fetch");
         return Err(());
     };
-    let (url, body, headers) = moonshot_fetch_request_parts(config, url_str, &api_key);
+    let (url, body, headers) =
+        moonshot_fetch_request_parts(config, url_str, &api_key, tool_call_id);
     let client = match moonshot_service::build_client() {
         Ok(c) => c,
         Err(e) => {
@@ -114,7 +118,10 @@ async fn fetch_via_moonshot(
     }))
 }
 
-pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
+pub async fn execute_fetch_url(
+    args: &Value,
+    tool_call_id: Option<&str>,
+) -> Option<ExecutableToolResult> {
     let url_str = args.get("url")?.as_str()?;
     if url_str.trim().is_empty() {
         return Some(ExecutableToolResult {
@@ -128,7 +135,7 @@ pub async fn execute_fetch_url(args: &Value) -> Option<ExecutableToolResult> {
     // Host-resolved `[services.moonshot_fetch]` backend first; the direct
     // fetch below is the fallback (v2 `MoonshotFetchURLProvider.localFallback`).
     if let Some(config) = service_config()
-        && let Ok(Some(result)) = fetch_via_moonshot(&config, url_str).await
+        && let Ok(Some(result)) = fetch_via_moonshot(&config, url_str, tool_call_id).await
     {
         return Some(result);
     }
@@ -572,14 +579,28 @@ mod tests {
                 .into_iter()
                 .collect(),
         };
-        let (url, body, headers) =
-            moonshot_fetch_request_parts(&config, "https://docs.example.test/guide", "sk-test");
+        let (url, body, headers) = moonshot_fetch_request_parts(
+            &config,
+            "https://docs.example.test/guide",
+            "sk-test",
+            Some("call-7"),
+        );
         assert_eq!(url, "https://api.example.test/coding/v1/fetch");
         assert_eq!(body, r#"{"url":"https://docs.example.test/guide"}"#);
         assert!(headers.contains(&("Authorization".to_string(), "Bearer sk-test".to_string())));
         assert!(headers.contains(&("Accept".to_string(), "text/markdown".to_string())));
         assert!(headers.contains(&("Content-Type".to_string(), "application/json".to_string())));
+        assert!(headers.contains(&("X-Msh-Tool-Call-Id".to_string(), "call-7".to_string())));
         assert!(headers.contains(&("X-Trace".to_string(), "t1".to_string())));
+        // The tool-call id rides after Content-Type and before custom
+        // headers, mirroring v2's header order.
+        let names: Vec<&str> = headers.iter().map(|(k, _)| k.as_str()).collect();
+        let id_pos = names
+            .iter()
+            .position(|k| *k == "X-Msh-Tool-Call-Id")
+            .unwrap();
+        assert!(names[..id_pos].contains(&"Content-Type"));
+        assert!(!names[..id_pos].contains(&"X-Trace"));
     }
 
     #[test]
