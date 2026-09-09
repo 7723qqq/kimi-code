@@ -174,13 +174,31 @@ async fn confirm_and_exit(
             )
             .await
         }
-        // v2 exitPlanModeReview.ts:132-140 — a plain reject (no feedback)
-        // carries `isError: true, stopTurn: true` so the turn ends as
-        // completed with plan mode still active.
-        Answer::Rejected => ExecutableToolResult {
+        // Feedback-bearing reject: surface the user's free text so the
+        // model can read it, and do NOT end the turn (v2
+        // exitPlanModeReview.ts:122-140). Plan mode stays active.
+        Answer::Rejected(Some(feedback)) => ok_result(format!(
+            "User rejected the plan. Feedback:\n\n{feedback}"
+        )),
+        // Plain Reject click: end the turn, plan mode stays active (v2
+        // exitPlanModeReview.ts:140-148).
+        Answer::Rejected(None) => ExecutableToolResult {
             stop_turn: true,
             ..err_result(PLAN_REJECTED_MESSAGE.into())
         },
+        // "Reject and Exit": deactivate plan mode and end the turn (v2
+        // exitPlanModeReview.ts:100-110).
+        Answer::RejectAndExit => {
+            exit_plan(
+                callbacks,
+                turn_id,
+                tool_call_id,
+                path,
+                None,
+                true,
+            )
+            .await
+        }
         Answer::Revise => ok_result(PLAN_REVISE_MESSAGE.into()),
         Answer::Dismissed => ok_result(PLAN_APPROVAL_DISMISSED_MESSAGE.into()),
     }
@@ -199,6 +217,13 @@ fn question_options(options: &[ExitPlanModeOption]) -> Vec<AskQuestionOption> {
             AskQuestionOption {
                 label: "Reject".into(),
                 description: Some("Keep plan mode active; the plan is rejected.".into()),
+            },
+            AskQuestionOption {
+                label: "Reject and Exit".into(),
+                description: Some(
+                    "Reject the plan AND deactivate plan mode so the next turn is unconstrained."
+                        .into(),
+                ),
             },
             AskQuestionOption {
                 label: "Revise".into(),
@@ -220,15 +245,25 @@ enum Answer {
     /// Approved; carries the chosen approach label when the model provided
     /// options and the user picked one.
     Approved(Option<String>),
-    Rejected,
+    /// Rejected. Carries the user's free-text feedback when the answer was
+    /// entered as an "Other" value; `None` for a plain Reject click.
+    /// v2 `exitPlanModeReview.ts:122-140`: feedback-bearing rejections do
+    /// NOT set `stopTurn` and surface the text in the result so the model
+    /// can read it.
+    Rejected(Option<String>),
+    /// "Reject and Exit": exit plan mode and end the turn (v2
+    /// `exitPlanModeReview.ts:100-110`).
+    RejectAndExit,
     Revise,
     Dismissed,
 }
 
 /// Interpret the host's question response against the v2 approval outcomes:
-/// an explicit approval exits, "Revise" asks for revisions, any other
-/// selection (including the "Other" free text) is a rejection, and an empty
-/// or cancelled response is a dismissal.
+/// an explicit approval exits, "Revise" asks for revisions, "Reject and
+/// Exit" exits plan mode and ends the turn, a plain Reject click keeps
+/// plan mode active, any other answer (including the "Other" free text)
+/// is a feedback-bearing reject, and an empty or cancelled response is
+/// a dismissal.
 fn interpret_answer(
     response: &AskQuestionResponse,
     question: &str,
@@ -243,14 +278,23 @@ fn interpret_answer(
     if options.is_empty() {
         return match answer.as_str() {
             "Approve (Recommended)" => Answer::Approved(None),
+            "Reject and Exit" => Answer::RejectAndExit,
             "Revise" => Answer::Revise,
-            _ => Answer::Rejected,
+            // A plain "Reject" click OR free-text "Other" with content: v2
+            // distinguishes them but both keep plan mode active; the
+            // feedback-bearing case is detected below.
+            "Reject" => Answer::Rejected(None),
+            _ => Answer::Rejected(Some(answer.clone())),
         };
     }
-    if options.iter().any(|option| option.label == *answer) {
+    // Model-provided options: the answer is the chosen option label, or
+    // free text when the user picked "Other". An answer that matches no
+    // option label is free-text feedback.
+    if let Some(option) = options.iter().find(|option| option.label == *answer) {
+        let _ = option;
         Answer::Approved(Some(answer.clone()))
     } else {
-        Answer::Rejected
+        Answer::Rejected(Some(answer.clone()))
     }
 }
 
@@ -650,13 +694,14 @@ mod tests {
         let question = ask_received.lock().unwrap().clone().unwrap();
         assert_eq!(question.questions.len(), 1);
         assert_eq!(question.questions[0].header.as_deref(), Some("Plan Review"));
-        assert_eq!(question.questions[0].options.len(), 3);
+        assert_eq!(question.questions[0].options.len(), 4);
         assert_eq!(
             question.questions[0].options[0].label,
             "Approve (Recommended)"
         );
         assert_eq!(question.questions[0].options[1].label, "Reject");
-        assert_eq!(question.questions[0].options[2].label, "Revise");
+        assert_eq!(question.questions[0].options[2].label, "Reject and Exit");
+        assert_eq!(question.questions[0].options[3].label, "Revise");
         let request = write_received.lock().unwrap().clone().unwrap();
         assert_eq!(request.value, serde_json::json!({ "active": false }));
     }
@@ -834,10 +879,14 @@ mod tests {
             PermissionMode::Manual,
         )
         .await;
-        assert!(result.is_error);
-        assert!(result.stop_turn);
-        assert_eq!(result.content, PLAN_REJECTED_MESSAGE);
+        assert!(!result.is_error);
+        assert!(!result.stop_turn);
+        assert_eq!(
+            result.content,
+            "User rejected the plan. Feedback:\n\nSomething else entirely"
+        );
         assert!(write_received.lock().unwrap().is_none());
+        // Free-text feedback keeps plan mode active (no state_write).
     }
 
     #[tokio::test]
