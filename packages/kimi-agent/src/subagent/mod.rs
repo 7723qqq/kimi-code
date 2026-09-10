@@ -7,6 +7,7 @@ pub mod btw;
 pub mod fork;
 pub mod manager;
 pub mod persistent;
+pub mod secondary;
 pub mod types;
 
 pub use btw::{

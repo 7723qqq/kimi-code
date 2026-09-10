@@ -196,6 +196,9 @@ pub struct SubagentManager {
     instances: InstanceMap,
     persistent: PersistentMap,
     runtime: RwLock<Option<Arc<SubagentRuntime>>>,
+    /// Per-instance LLM bindings (`[secondary_model]` pool choices), keyed by
+    /// instance id. Absent = inherit the session runtime LLM.
+    instance_llms: Arc<RwLock<HashMap<String, Arc<dyn crate::turn_loop::types::LLM>>>>,
     /// P55: accumulated conversation history per foreground agent id, so a
     /// `resume` call continues the same subagent natively (v2 persistent
     /// scopes). Written on foreground completion; read by `resume` calls.
@@ -481,6 +484,7 @@ worktree root the tower assigns you as your full authority scope.";
             persistent: Arc::new(RwLock::new(HashMap::new())),
             runtime: RwLock::new(None),
             foreground_histories: Arc::new(Mutex::new(HashMap::new())),
+            instance_llms: Arc::new(RwLock::new(HashMap::new())),
             session_store: RwLock::new(None),
             task_runner: RwLock::new(None),
             swarm_timeout_ms: Mutex::new(None),
@@ -566,6 +570,25 @@ worktree root the tower assigns you as your full authority scope.";
             })
             .await;
         }
+    }
+
+    /// Bind one subagent instance to a specific LLM (the `[secondary_model]`
+    /// pool choice). The run paths prefer this over the session runtime LLM,
+    /// so concurrent subagents can run on different models; unbound instances
+    /// keep inheriting the session model.
+    pub async fn set_instance_llm(
+        &self,
+        id: &str,
+        llm: Arc<dyn crate::turn_loop::types::LLM>,
+    ) {
+        self.instance_llms
+            .write()
+            .await
+            .insert(id.to_string(), llm);
+    }
+
+    async fn instance_llm(&self, id: &str) -> Option<Arc<dyn crate::turn_loop::types::LLM>> {
+        self.instance_llms.read().await.get(id).cloned()
     }
 
     /// Inject the execution runtime (LLM + callbacks) so subagents can run
@@ -811,6 +834,15 @@ worktree root the tower assigns you as your full authority scope.";
             .runtime()
             .await
             .ok_or_else(|| "no subagent runtime injected".to_string())?;
+        // A `[secondary_model]` pool binding overrides the session model for
+        // this instance only; the callbacks chain is shared either way.
+        let runtime = match self.instance_llm(id).await {
+            Some(llm) => Arc::new(SubagentRuntime {
+                llm,
+                callbacks: runtime.callbacks.clone(),
+            }),
+            None => runtime,
+        };
         let def = self.definition_for(&type_name, &role).await;
 
         // The subagent sees the host table narrowed by its profile policy

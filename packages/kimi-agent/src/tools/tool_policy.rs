@@ -108,12 +108,14 @@ fn glob_match(pattern: &str, name: &str) -> bool {
     pattern.starts_with('*') || pattern.ends_with('*') || rest.is_empty()
 }
 
-/// Tool names the engine executes in-process that carry their own
-/// definition (the `Agent` / `AgentSwarm` subagent surface).
-fn subagent_defs() -> Vec<ToolInfo> {
+/// Subagent orchestration definitions (the `Agent` / `AgentSwarm` surface),
+/// carrying the `[secondary_model]` pool when one is configured.
+fn subagent_defs(
+    pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
+) -> Vec<ToolInfo> {
     vec![
-        crate::tools::agent_tool::agent_tool_def(),
-        crate::tools::swarm_tool::agent_swarm_tool_def(),
+        crate::tools::agent_tool::agent_tool_def(pool),
+        crate::tools::swarm_tool::agent_swarm_tool_def(pool),
     ]
 }
 
@@ -125,9 +127,10 @@ pub fn native_tool_defs(
     github_available: bool,
     tower_enabled: bool,
     filter: Option<&ToolsFilter>,
+    secondary_model: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> Vec<ToolInfo> {
     let mut defs = crate::tools::core_tool_defs::core_tool_defs();
-    defs.extend(subagent_defs());
+    defs.extend(subagent_defs(secondary_model));
     defs.push(crate::tools::todo_list::todo_list_tool_def());
     defs.push(crate::tools::ask_user_question::ask_user_question_tool_def());
     defs.push(crate::tools::plan_mode::enter_plan_mode_tool_def());
@@ -242,7 +245,7 @@ mod tests {
 
     #[test]
     fn native_tool_defs_expose_the_orchestration_surface() {
-        let defs = native_tool_defs(false, false, None);
+        let defs = native_tool_defs(false, false, None, None);
         let names = def_names(&defs);
         for expected in [
             "Read",
@@ -289,7 +292,7 @@ mod tests {
             enabled: Vec::new(),
             disabled: vec!["WebSearch".into(), "mcp__github__*".into()],
         };
-        let defs = native_tool_defs(false, false, Some(&filter));
+        let defs = native_tool_defs(false, false, Some(&filter), None);
         let names = def_names(&defs);
         assert!(!names.contains(&"WebSearch"));
         assert!(names.contains(&"FetchURL"));
@@ -298,19 +301,19 @@ mod tests {
             enabled: vec!["Read".into()],
             disabled: Vec::new(),
         };
-        let defs = native_tool_defs(false, false, Some(&allow_only_read));
+        let defs = native_tool_defs(false, false, Some(&allow_only_read), None);
         assert_eq!(def_names(&defs), vec!["Read"]);
     }
 
     #[test]
     fn github_and_tower_defs_follow_their_switches() {
-        let github_defs = native_tool_defs(true, false, None);
+        let github_defs = native_tool_defs(true, false, None, None);
         let with_github = def_names(&github_defs);
         assert!(
             with_github.iter().any(|name| name.starts_with("GitHub")),
             "github tools are advertised when a token is configured"
         );
-        let tower_defs = native_tool_defs(false, true, None);
+        let tower_defs = native_tool_defs(false, true, None, None);
         let with_tower = def_names(&tower_defs);
         assert!(with_tower.contains(&"TowerInit"));
     }

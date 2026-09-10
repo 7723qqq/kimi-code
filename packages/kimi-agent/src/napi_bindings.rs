@@ -776,6 +776,10 @@ pub struct JsRunTurnParams {
     pub shell_path: Option<String>,
     /// Optional JSON-serialized PolicySnapshot for local permission evaluation (P26 批 3).
     pub policy_snapshot_json: Option<String>,
+    /// Optional JSON-serialized `[secondary_model]` subagent model pool: the
+    /// default alias, `force`, and one resolved LLM config per pool entry.
+    /// Absent = subagents inherit the caller's model.
+    pub secondary_model_json: Option<String>,
     /// Host-resolved `[github]` config credentials for the native GitHub
     /// tools (v2 `configSection.ts`). Env fallbacks are applied Rust-side
     /// (v2 `envOverlay.ts` semantics: config wins, env fills the gap).
@@ -1417,6 +1421,10 @@ async fn build_engine_pipeline(
         }),
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
+        secondary_model: params
+            .secondary_model_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<crate::rpc::types::SecondaryModelPool>(json).ok()),
     };
 
     pipeline::build_engine_pipeline(

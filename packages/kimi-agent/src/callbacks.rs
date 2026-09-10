@@ -1033,6 +1033,7 @@ impl HostCallbacks for NativeToolCallbacks {
                 toolset.github_credentials().is_some(),
                 tower_enabled,
                 filter.as_ref(),
+                toolset.secondary_model().map(|pool| pool.as_ref()),
             );
             if let Ok(response) = inner.list_tools().await {
                 for tool in response.tools {

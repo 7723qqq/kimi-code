@@ -101,6 +101,10 @@ pub struct PipelineSpec {
     pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
+    /// The host-resolved `[secondary_model]` subagent model pool, when the
+    /// section is configured and the experimental flag enables it. `None`
+    /// keeps the v2 default: subagents inherit the caller's model.
+    pub secondary_model: Option<crate::rpc::types::SecondaryModelPool>,
 }
 
 /// The two per-entry policies the chain must not decide on its own.
@@ -255,6 +259,31 @@ pub async fn build_engine_pipeline(
                     if let Some(ref session) = spec.session_id {
                         toolset = toolset.with_session_id(session);
                     }
+                    // `[secondary_model]`: one ready-built LLM per pool alias.
+                    // Built here (before the session LLM) because the pool only
+                    // needs the alias configs; `primary` binds the session LLM
+                    // at resolve time.
+                    let secondary_model = spec.secondary_model.as_ref().map(|pool| {
+                        let llms = pool
+                            .models
+                            .iter()
+                            .map(|entry| {
+                                let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::from(
+                                    build_native_llm(
+                                        &entry.llm,
+                                        &spec.system_prompt,
+                                        &base_callbacks,
+                                    ),
+                                );
+                                (entry.alias.clone(), llm)
+                            })
+                            .collect();
+                        Arc::new(crate::subagent::secondary::SecondaryModelRuntime::new(
+                            pool.clone(),
+                            llms,
+                        ))
+                    });
+                    toolset = toolset.with_secondary_model(secondary_model);
                     if let Some(manager) = mcp_manager {
                         toolset = toolset.with_mcp(manager);
                     }
@@ -338,19 +367,7 @@ pub async fn build_engine_pipeline(
             .collect();
         Box::new(MultiLLM::new(providers))
     } else if let Some(cfg) = spec.native_llm.clone() {
-        let sink_callbacks = callbacks.clone();
-        let mut llm = NativeHttpLlm::new(cfg.clone(), spec.system_prompt.clone())
-            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-        if cfg.auth_provider.is_some() {
-            let auth_callbacks = callbacks.clone();
-            let provider_name = cfg.auth_provider.clone().unwrap_or_default();
-            llm = llm.with_auth_provider(Arc::new(move |force| {
-                let cb = auth_callbacks.clone();
-                let provider = provider_name.clone();
-                Box::pin(async move { cb.auth_token(provider, force).await })
-            }));
-        }
-        Box::new(llm)
+        build_native_llm(&cfg, &spec.system_prompt, &callbacks)
     } else {
         if spec.rust_self_contained {
             return Err(PipelineError {
@@ -371,6 +388,29 @@ pub async fn build_engine_pipeline(
     subagent_manager
         .set_runtime(llm.clone(), callbacks.clone())
         .await;
+
+/// Build a native HTTP LLM for one `NativeLlmConfig`: the single place the
+/// session model and every `[secondary_model]` pool alias go through, so the
+/// event sink and OAuth token plumbing cannot drift between them.
+fn build_native_llm(
+    cfg: &NativeLlmConfig,
+    system_prompt: &str,
+    callbacks: &Arc<dyn HostCallbacks>,
+) -> Box<dyn crate::turn_loop::types::LLM> {
+    let sink_callbacks = callbacks.clone();
+    let mut llm = NativeHttpLlm::new(cfg.clone(), system_prompt.to_string())
+        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+    if cfg.auth_provider.is_some() {
+        let auth_callbacks = callbacks.clone();
+        let provider_name = cfg.auth_provider.clone().unwrap_or_default();
+        llm = llm.with_auth_provider(Arc::new(move |force| {
+            let cb = auth_callbacks.clone();
+            let provider = provider_name.clone();
+            Box::pin(async move { cb.auth_token(provider, force).await })
+        }));
+    }
+    Box::new(llm)
+}
 
     Ok(EnginePipeline {
         llm,
@@ -477,6 +517,7 @@ mod tests {
             sandbox_policy: None,
             caller_agent_id: None,
             session_id: None,
+            secondary_model: None,
         }
     }
 

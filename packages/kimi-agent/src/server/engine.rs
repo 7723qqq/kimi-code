@@ -599,6 +599,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         tower_worktree_root: spec.tower_worktree_root.clone(),
         sandbox_mode: spec.sandbox_mode.clone(),
         sandbox_policy: spec.sandbox_policy.clone(),
+        secondary_model: spec.secondary_model.clone(),
         caller_agent_id: spec.caller_agent_id.clone(),
         session_id: spec.session_id.clone(),
     }
@@ -632,6 +633,7 @@ mod tests {
             sandbox_policy: None,
             caller_agent_id: None,
             session_id: None,
+            secondary_model: None,
         }
     }
 

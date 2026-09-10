@@ -277,6 +277,9 @@ pub struct NativeToolset {
     /// The user's global `[tools]` enable/disable lists (v2 tool policy):
     /// applied to the advertised table and enforced again before execution.
     tools_filter: Option<tool_policy::ToolsFilter>,
+    /// `[secondary_model]`: the subagent model pool the `Agent` / `AgentSwarm`
+    /// tools advertise and bind. `None` = subagents inherit the caller's model.
+    secondary_model: Option<std::sync::Arc<crate::subagent::secondary::SecondaryModelRuntime>>,
 }
 
 /// Bundle the native file-history recorder needs: the store handle plus
@@ -359,6 +362,7 @@ impl NativeToolset {
             task_runner: None,
             file_history: None,
             tools_filter: None,
+            secondary_model: None,
         })
     }
 
@@ -506,6 +510,22 @@ impl NativeToolset {
     /// Host-resolved `[github]` credentials, when the session has any.
     pub fn github_credentials(&self) -> Option<&github::GitHubCredentials> {
         self.github_credentials.as_ref()
+    }
+
+    /// Attach the `[secondary_model]` subagent model pool.
+    pub fn with_secondary_model(
+        mut self,
+        pool: Option<std::sync::Arc<crate::subagent::secondary::SecondaryModelRuntime>>,
+    ) -> Self {
+        self.secondary_model = pool;
+        self
+    }
+
+    /// The subagent model pool, when `[secondary_model]` is configured.
+    pub fn secondary_model(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::subagent::secondary::SecondaryModelRuntime>> {
+        self.secondary_model.as_ref()
     }
 
     /// Execute a read-only tool natively when supported and inside the
@@ -713,6 +733,7 @@ impl NativeToolset {
                     self.subagent_timeout_ms,
                     self.effective_parent_cancel().as_ref(),
                     tool_call_id,
+                    self.secondary_model.as_deref(),
                 )
                 .await
             }
@@ -724,6 +745,7 @@ impl NativeToolset {
                     self.subagent_timeout_ms,
                     self.effective_parent_cancel().as_ref(),
                     tool_call_id,
+                    self.secondary_model.as_deref(),
                 )
                 .await
             }

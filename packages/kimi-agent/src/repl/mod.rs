@@ -297,7 +297,7 @@ async fn build_repl_tool_defs(
     defs.push(crate::tools::skill::skill_tool_def());
     defs.push(crate::tools::knowledge_tool::knowledge_tool_def());
     defs.push(crate::tools::team_tool::team_tool_def());
-    defs.push(crate::tools::swarm_tool::agent_swarm_tool_def());
+    defs.push(crate::tools::swarm_tool::agent_swarm_tool_def(None));
     defs.extend(crate::tools::tower::tower_tool_defs());
     defs
 }

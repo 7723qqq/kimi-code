@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-local';
-import { buildPolicySnapshot } from '#/native/native-llm-resolver';
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
+import { buildPolicySnapshot, resolveSecondaryModelPool } from '#/native/native-llm-resolver';
 
 import { TEST_IDENTITY } from './test-identity';
 
@@ -223,11 +223,14 @@ max_context_size = "large"
   });
 
   it('round-trips the github token section as a typed string field', async () => {
-    const config = parseConfigString(`
+    const config = parseConfigString(
+      `
 [github]
 token = "ghp_example_token"
 base_url = "https://github.example.com/api/v3"
-`, 'github.toml');
+`,
+      'github.toml',
+    );
     expect(config.github).toEqual({
       token: 'ghp_example_token',
       baseUrl: 'https://github.example.com/api/v3',
@@ -266,7 +269,9 @@ disabled = ["Bash"]
       enabled: ['Read', 'Grep'],
       disabled: ['Bash'],
     });
-    expect(buildPolicySnapshot(parseConfigString('', 'empty.toml'), '.').tools_filter).toBeUndefined();
+    expect(
+      buildPolicySnapshot(parseConfigString('', 'empty.toml'), '.').tools_filter,
+    ).toBeUndefined();
 
     const dir = await makeTempDir();
     const configPath = join(dir, 'config.toml');
@@ -279,6 +284,164 @@ disabled = ["Bash"]
       enabled: ['Read', 'Grep'],
       disabled: ['Bash'],
     });
+  });
+
+  const POOL_TOML = `
+default_model = "kimi-code/k3"
+
+[providers.local]
+type = "openai"
+base_url = "https://example.test/v1"
+api_key = "YOUR_API_KEY"
+
+[models."kimi-code/k3"]
+provider = "local"
+model = "k3"
+max_context_size = 200000
+
+[models."kimi-code/fast"]
+provider = "local"
+model = "fast"
+max_context_size = 200000
+`;
+
+  it('resolves the [secondary_model] pool into the engine wire shape', () => {
+    const config = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/fast"
+default_effort = "high"
+
+[secondary_model.models]
+"kimi-code/k3" = "Hard problems."
+"kimi-code/fast" = "Cheap and quick."
+`,
+      'secondary.toml',
+    );
+
+    const pool = resolveSecondaryModelPool(config, true);
+    expect(pool).toMatchObject({
+      force: false,
+      defaultModel: 'kimi-code/fast',
+      callerModelAlias: 'kimi-code/k3',
+    });
+    expect(pool?.models.map((entry) => entry.alias)).toEqual(['kimi-code/k3', 'kimi-code/fast']);
+    expect(pool?.models.find((entry) => entry.alias === 'kimi-code/fast')?.hint).toBe(
+      'Cheap and quick.',
+    );
+    // The section's default_effort outranks the entry's own effort.
+    expect(pool?.models.find((entry) => entry.alias === 'kimi-code/fast')?.llm).toMatchObject({
+      model: 'fast',
+      base_url: 'https://example.test/v1',
+      reasoning_effort: 'high',
+    });
+  });
+
+  it('treats a lone default_model as a single-entry pool', () => {
+    const config = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/fast"
+`,
+      'secondary-lone.toml',
+    );
+    const pool = resolveSecondaryModelPool(config, true);
+    expect(pool?.models.map((entry) => entry.alias)).toEqual(['kimi-code/fast']);
+    expect(pool?.models[0]?.hint).toBe('');
+  });
+
+  it('rejects a malformed [secondary_model] section by naming the entry', () => {
+    const unknownDefault = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/missing"
+
+[secondary_model.models]
+"kimi-code/fast" = ""
+`,
+      'secondary-bad-default.toml',
+    );
+    expect(() => resolveSecondaryModelPool(unknownDefault, true)).toThrow(
+      /not a \[secondary_model\.models\] key/,
+    );
+
+    const forceWithTable = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/fast"
+force = true
+
+[secondary_model.models]
+"kimi-code/fast" = ""
+`,
+      'secondary-force.toml',
+    );
+    expect(() => resolveSecondaryModelPool(forceWithTable, true)).toThrow(
+      /force cannot be combined/,
+    );
+
+    const forceWithoutDefault = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+force = true
+`,
+      'secondary-force-without-default.toml',
+    );
+    expect(() => resolveSecondaryModelPool(forceWithoutDefault, true)).toThrow(
+      /required when \[secondary_model\]\.force is set/,
+    );
+
+    const forceWithTableNoDefault = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+force = true
+
+[secondary_model.models]
+"kimi-code/fast" = ""
+`,
+      'secondary-force-table-no-default.toml',
+    );
+    expect(() => resolveSecondaryModelPool(forceWithTableNoDefault, true)).toThrow(
+      /force cannot be combined/,
+    );
+
+    const brokenAlias = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/unresolvable"
+
+[secondary_model.models]
+"kimi-code/unresolvable" = ""
+`,
+      'secondary-broken-alias.toml',
+    );
+    expect(() => resolveSecondaryModelPool(brokenAlias, true)).toThrow(
+      /"kimi-code\/unresolvable" could not be resolved/,
+    );
+
+    const reserved = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "primary"
+
+[secondary_model.models]
+primary = ""
+`,
+      'secondary-reserved.toml',
+    );
+    expect(() => resolveSecondaryModelPool(reserved, true)).toThrow(/reserved/);
+  });
+
+  it('stays inert while the experimental flag is disabled', () => {
+    const config = parseConfigString(
+      `${POOL_TOML}
+[secondary_model]
+default_model = "kimi-code/fast"
+`,
+      'secondary-disabled.toml',
+    );
+    expect(resolveSecondaryModelPool(config, false)).toBeUndefined();
+    expect(resolveSecondaryModelPool(parseConfigString('', 'no-pool.toml'), true)).toBeUndefined();
   });
 
   it('accepts camelCase aliases without keeping unknown fields in typed config', () => {
@@ -442,8 +605,8 @@ describe('KimiHarness config API', () => {
             'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
           surface: 'core',
           env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-          defaultEnabled: false,
-          enabled: false,
+          defaultEnabled: true,
+          enabled: true,
           source: 'default',
         },
       ]),

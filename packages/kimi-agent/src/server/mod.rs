@@ -3752,6 +3752,7 @@ mod tests {
                 sandbox_policy: None,
                 caller_agent_id: None,
                 session_id: None,
+                secondary_model: None,
             },
             hub,
             store,

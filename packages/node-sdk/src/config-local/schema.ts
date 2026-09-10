@@ -116,10 +116,11 @@ export type ModelAlias = z.infer<typeof ModelAliasSchema>;
  * `config/secondary-model.ts`). `default_effort` doubles as the subagent
  * thinking effort.
  *
- * The section is shared with the v2 engine's subagent model pool, whose keys
+ * The section is shared with the v2 subagent model pool, whose keys
  * (`default_model`, `[secondary_model.models]`, `force`) are declared here so
- * the config write path round-trips them; the default engine never consumes
- * them, and `secondaryModelPatch` excludes them from the recipe patch.
+ * the config write path round-trips them and the native engine can resolve
+ * the pool at session create; `secondaryModelPatch` excludes them from the
+ * recipe patch.
  */
 export const SecondaryModelConfigSchema = ModelAliasOverrideSchema.extend({
   model: z.string().min(1).optional(),

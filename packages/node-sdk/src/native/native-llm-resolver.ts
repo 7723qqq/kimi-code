@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
+
 import type { KimiConfig } from '#/config-local';
+import { ErrorCodes, KimiError } from '#/error-protocol';
 
 // The engine's transports own these headers (openai/anthropic auth, the
 // anthropic-version pin, the google api-key); reqwest appends rather than
@@ -7,12 +9,7 @@ import type { KimiConfig } from '#/config-local';
 // value and break the credential. Mirrors rust-engine.ts's AUTH_HEADERS — the
 // two native-LLM resolvers must agree, or the same provider resolves to
 // different headers depending on which entry point built the session.
-const AUTH_HEADERS = new Set([
-  'authorization',
-  'x-api-key',
-  'anthropic-version',
-  'x-goog-api-key',
-]);
+const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'anthropic-version', 'x-goog-api-key']);
 
 export interface JsNativeLlmConfig {
   protocol: string;
@@ -67,8 +64,24 @@ export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
 
 export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefined {
   const defaultModelAlias = config.defaultModel;
-  const modelConfig =
-    defaultModelAlias === undefined ? undefined : config.models?.[defaultModelAlias];
+  return defaultModelAlias === undefined
+    ? undefined
+    : resolveNativeLlmForAlias(config, defaultModelAlias);
+}
+
+/**
+ * Resolve one `[models]` alias into a native transport config — the shared
+ * path for the session's own model and every `[secondary_model]` pool entry.
+ * `effortOverride` is the pool section's `default_effort`, which outranks the
+ * bound entry's own `default_effort` but not an explicit `thinking.enabled =
+ * false` (v2 `resolveSubagentThinking`).
+ */
+export function resolveNativeLlmForAlias(
+  config: KimiConfig,
+  alias: string,
+  effortOverride?: string,
+): JsNativeLlmConfig | undefined {
+  const modelConfig = config.models?.[alias];
   const providerName = modelConfig?.provider ?? config.agent?.nativeLlmProvider;
   if (!providerName) return undefined;
 
@@ -96,8 +109,10 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
 
   let model = modelConfig?.model ?? provider.defaultModel;
   if (!model && config.models) {
-    const alias = Object.entries(config.models).find(([, m]) => m.provider === providerName);
-    if (alias) model = alias[1].model;
+    const aliasEntry = Object.entries(config.models).find(
+      ([, entry]) => entry.provider === providerName,
+    );
+    if (aliasEntry) model = aliasEntry[1].model;
   }
   if (!model) return undefined;
 
@@ -111,7 +126,7 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
   let thinkingBudget: number | undefined;
 
   const thinkingConfig = config.thinking;
-  const modelEffort = modelConfig?.defaultEffort ?? thinkingConfig?.effort;
+  const modelEffort = effortOverride ?? modelConfig?.defaultEffort ?? thinkingConfig?.effort;
 
   if (
     thinkingConfig?.enabled !== false &&
@@ -151,9 +166,11 @@ export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefi
 }
 
 export function buildPolicySnapshot(config: KimiConfig, workDir: string): PolicySnapshotDto {
-  const mode = (config.yolo === true
-    ? 'yolo'
-    : config.defaultPermissionMode ?? 'manual') as 'manual' | 'auto' | 'yolo' | 'plan';
+  const mode = (config.yolo === true ? 'yolo' : (config.defaultPermissionMode ?? 'manual')) as
+    | 'manual'
+    | 'auto'
+    | 'yolo'
+    | 'plan';
   const rules = config.permission?.rules ?? [];
   const hooks = config.hooks ?? [];
   const tools = config.tools;
@@ -199,6 +216,127 @@ export function resolveGithubCredentials(config: KimiConfig): {
   };
 }
 
+/** The reserved alias that always binds the caller's own model. */
+export const PRIMARY_SUBAGENT_MODEL_CHOICE = 'primary';
+
+/** One `[secondary_model.models]` pool entry in the engine's wire shape. */
+export interface SecondaryModelEntryWire {
+  alias: string;
+  hint: string;
+  llm: Record<string, unknown>;
+}
+
+/** The `[secondary_model]` pool in the engine's wire shape. */
+export interface SecondaryModelPoolWire {
+  force: boolean;
+  defaultModel: string;
+  callerModelAlias?: string;
+  models: SecondaryModelEntryWire[];
+}
+
+/** The engine reads snake_case `NativeLlmConfig`; the JS view is camelCase. */
+function nativeLlmWire(config: JsNativeLlmConfig): Record<string, unknown> {
+  return {
+    protocol: config.protocol,
+    base_url: config.baseUrl,
+    api_key: config.apiKey,
+    model: config.model,
+    max_tokens: config.maxTokens,
+    custom_headers: config.customHeaders,
+    reasoning_effort: config.reasoningEffort,
+    thinking_budget: config.thinkingBudget,
+    auth_provider: config.authProvider,
+    thinking_keep: config.thinkingKeep,
+  };
+}
+
+/**
+ * Resolve `[secondary_model]` into the engine's subagent model pool (v2
+ * `resolveSubagentModelPool` + `assertValidSubagentModelConfig`).
+ *
+ * Returns `undefined` when the feature is disabled or the section configures
+ * no pool. A malformed section throws `config.invalid` naming the offending
+ * entry, so the session fails loudly at startup instead of silently ignoring
+ * the user's configuration. `KIMI_SECONDARY_MODEL` / `KIMI_SECONDARY_EFFORT`
+ * override the recipe in memory only, matching the config-local overlay.
+ */
+export function resolveSecondaryModelPool(
+  config: KimiConfig,
+  enabled: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): SecondaryModelPoolWire | undefined {
+  if (!enabled) return undefined;
+  const section = config.secondaryModel;
+  if (section === undefined) return undefined;
+
+  const envModel = nonBlank(env['KIMI_SECONDARY_MODEL']);
+  const envEffort = nonBlank(env['KIMI_SECONDARY_EFFORT']);
+  const defaultModel = envModel ?? section.defaultModel ?? section.model;
+  const defaultEffort = envEffort ?? section.defaultEffort;
+  const force = section.force === true;
+  const table = section.models;
+  const hints = new Map<string, string>();
+
+  // `force` only pins the choice the pool table would offer; the two keys are
+  // mutually exclusive and force still needs something to bind (v2
+  // `assertValidSubagentModelConfig`'s ordering: force checks first).
+  if (force && table !== undefined) {
+    throw invalidConfig(
+      '[secondary_model].force cannot be combined with [secondary_model.models]: the pool table only exists to offer the main agent a choice, and force removes that choice',
+    );
+  }
+  if (table === undefined) {
+    if (defaultModel === undefined) {
+      if (force) {
+        throw invalidConfig(
+          '[secondary_model].default_model is required when [secondary_model].force is set',
+        );
+      }
+      // A section with no pool keys (patch-only recipe) stays inert.
+      return undefined;
+    }
+    hints.set(defaultModel, '');
+  } else {
+    for (const [alias, hint] of Object.entries(table)) hints.set(alias, hint ?? '');
+    if (defaultModel === undefined) {
+      throw invalidConfig(
+        '[secondary_model].default_model is required when [secondary_model.models] is configured',
+      );
+    }
+    if (!hints.has(defaultModel)) {
+      throw invalidConfig(
+        `[secondary_model].default_model "${defaultModel}" is not a [secondary_model.models] key. Available models: ${[...hints.keys()].join(', ')}.`,
+      );
+    }
+  }
+  if (hints.has(PRIMARY_SUBAGENT_MODEL_CHOICE)) {
+    throw invalidConfig(
+      `[secondary_model.models] key "${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved: it always binds the caller's own model. Rename the pool entry.`,
+    );
+  }
+
+  const models = [...hints.entries()].map(([alias, hint]) => {
+    const llm = resolveNativeLlmForAlias(config, alias, defaultEffort);
+    if (llm === undefined) {
+      throw invalidConfig(
+        `[secondary_model.models] entry "${alias}" could not be resolved: add it to [models] with a provider that has credentials.`,
+      );
+    }
+    return { alias, hint, llm: nativeLlmWire(llm) };
+  });
+
+  return {
+    force,
+    defaultModel,
+    callerModelAlias: config.defaultModel,
+    models,
+  };
+}
+
+function invalidConfig(message: string): KimiError {
+  return new KimiError(ErrorCodes.CONFIG_INVALID, message);
+}
+
 // ── Config → engine-param resolvers (Wave 2) ───────────────────────────────
 // Precedence per value: environment variable > owning config section, matching
 // the documented config contract (config-files.md). Invalid values are
@@ -230,9 +368,7 @@ export function resolveSubagentTimeoutMs(config: {
 export function resolveSwarmTimeoutMs(config: {
   swarm?: { timeoutMs?: number };
 }): number | undefined {
-  return (
-    nonNegativeInt(process.env['KIMI_CODE_SWARM_TIMEOUT_MS']) ?? config.swarm?.timeoutMs
-  );
+  return nonNegativeInt(process.env['KIMI_CODE_SWARM_TIMEOUT_MS']) ?? config.swarm?.timeoutMs;
 }
 
 /**
@@ -272,9 +408,7 @@ export function resolveThinkingKeep(config: { thinking?: { keep?: string } }): s
 export function resolveImageReadByteBudget(config: {
   image?: { readByteBudget?: number };
 }): number | undefined {
-  return (
-    positiveInt(process.env['KIMI_IMAGE_READ_BYTE_BUDGET']) ?? config.image?.readByteBudget
-  );
+  return positiveInt(process.env['KIMI_IMAGE_READ_BYTE_BUDGET']) ?? config.image?.readByteBudget;
 }
 
 /** One `[services.moonshot_*]` entry (base URL + credential + extra headers). */

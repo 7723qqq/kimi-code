@@ -120,6 +120,7 @@ import {
   resolveNativeLlm,
   probeShellPath,
   buildPolicySnapshot,
+  resolveSecondaryModelPool,
   resolveGithubCredentials,
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
@@ -490,10 +491,21 @@ const NATIVE_EXPERIMENTAL_FLAGS: readonly NativeExperimentalFlag[] = [
     description:
       'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
     env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-    defaultEnabled: false,
+    defaultEnabled: true,
     surface: 'core',
   },
 ];
+
+/**
+ * Whether one experimental flag is enabled for this config — the registry's
+ * precedence (env > `[experimental]` > master env > default). Engine-param
+ * resolvers read this instead of duplicating the flag logic.
+ */
+export function isExperimentalFlagEnabled(config: KimiConfig, flagId: string): boolean {
+  return (
+    resolveExperimentalFeatures(config).find((flag) => flag.id === flagId)?.enabled === true
+  );
+}
 
 function resolveExperimentalFeatures(config: KimiConfig): readonly ExperimentalFeatureState[] {
   const masterEnv = process.env['KIMI_CODE_EXPERIMENTAL_FLAG'];
@@ -1060,6 +1072,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       },
     };
 
+    // The `[secondary_model]` pool rides the session params as JSON; a
+    // malformed section throws here, so the session fails at startup naming
+    // the offending alias.
+    const secondaryModel = resolveSecondaryModelPool(
+      config,
+      isExperimentalFlagEnabled(config, 'secondary-model'),
+    );
     const policySnapshot = buildPolicySnapshot(config, workDir);
     // The session's live permission / plan mode overrides the config-derived
     // snapshot default: setPermission / setPlanMode mutate meta, and a rebuild
@@ -1105,6 +1124,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       nativeTools: config.agent?.nativeTools !== false,
       shellPath,
       policySnapshotJson: JSON.stringify(policySnapshot),
+      secondaryModelJson:
+        secondaryModel === undefined ? undefined : JSON.stringify(secondaryModel),
       // Host-resolved config knobs (env > config, see native-llm-resolver).
       // `?? undefined` (never null): napi Option fields reject null.
       subagentTimeoutMs: subagentTimeoutMs ?? undefined,

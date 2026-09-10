@@ -481,7 +481,7 @@ pub enum ContentBlock {
 /// Configuration for the native HTTP LLM transport. When present on
 /// `RunTurnParams`, the Rust engine calls the provider directly over
 /// HTTP with SSE streaming instead of proxying `llm_chat` to the JS host.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 pub struct NativeLlmConfig {
     /// Wire protocol: `"openai"` (Chat Completions) or `"anthropic"` (Messages).
     pub protocol: String,
@@ -514,6 +514,33 @@ pub struct NativeLlmConfig {
     /// the wire.
     #[serde(default)]
     pub thinking_keep: Option<String>,
+}
+
+/// One `[secondary_model.models]` pool entry: the alias the model passes via
+/// the `model` parameter, the hint shown in the tool description, and the
+/// host-resolved LLM that alias binds to.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SecondaryModelEntry {
+    pub alias: String,
+    #[serde(default)]
+    pub hint: String,
+    pub llm: NativeLlmConfig,
+}
+
+/// The `[secondary_model]` subagent model pool (v2
+/// `session/subagent/configSection.ts`), resolved by the host: the default
+/// alias, whether every spawn is forced onto it, the caller's own alias (for
+/// the `[main model]` marker), and one ready-built LLM per pool entry.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecondaryModelPool {
+    #[serde(default)]
+    pub force: bool,
+    pub default_model: String,
+    #[serde(default)]
+    pub caller_model_alias: Option<String>,
+    #[serde(default)]
+    pub models: Vec<SecondaryModelEntry>,
 }
 
 /// One host-resolved `[services.moonshot_*]` entry (v2 `configSection.ts`):
@@ -655,6 +682,12 @@ pub struct RunTurnParams {
     pub caller_agent_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Host-resolved `[secondary_model]` subagent model pool (v2
+    /// `session/subagent/configSection.ts`): one ready-built LLM per alias.
+    /// Rides the turn params like every other host-resolved setting; `None`
+    /// keeps the v2 default (subagents inherit the caller's model).
+    #[serde(default)]
+    pub secondary_model: Option<SecondaryModelPool>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).

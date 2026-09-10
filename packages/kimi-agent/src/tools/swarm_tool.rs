@@ -82,6 +82,9 @@ struct SubagentSwarmLauncher {
     manager: Arc<SubagentManager>,
     parent_cancel: Option<ParentCancel>,
     inherited_history: Option<Vec<crate::turn_loop::types::LLMMessage>>,
+    /// `[secondary_model]` binding for item-spawned subagents; `None` inherits
+    /// the session model.
+    llm: Option<Arc<dyn crate::turn_loop::types::LLM>>,
 }
 
 impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
@@ -91,6 +94,7 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
     ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
         let manager = self.manager.clone();
         let parent_cancel = self.parent_cancel.clone();
+        let item_llm = self.llm.clone();
         let fork_history = if options.plan.fork {
             self.inherited_history.clone()
         } else {
@@ -99,6 +103,9 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
         Box::pin(async move {
             let role = format!("Swarm worker for {}", options.run.description);
             let agent_id = manager.spawn(&options.profile_name, &role).await?;
+            if let Some(llm) = item_llm.clone() {
+                manager.set_instance_llm(&agent_id, llm).await;
+            }
             let prompt = options.run.prompt;
             let signal = options.run.signal;
             let handle_id = agent_id.clone();
@@ -378,12 +385,25 @@ pub async fn execute_agent_swarm(
     _timeout_ms: Option<u64>,
     parent_cancel: Option<&ParentCancel>,
     tool_call_id: Option<&str>,
+    pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> Option<ExecutableToolResult> {
-    if requires_host(args) {
+    // Without a pool a `model` override stays host-owned; with one the engine
+    // absorbs and validates it for the item-spawned subagents.
+    if pool.is_none() && requires_host(args) {
         return None;
     }
 
-    manager.runtime().await.as_ref()?;
+    let runtime = manager.runtime().await?;
+    let item_llm = match pool {
+        Some(pool) => {
+            let requested = args.get("model").and_then(|value| value.as_str());
+            match pool.resolve(&runtime.llm, requested) {
+                Ok(binding) => Some(binding.llm),
+                Err(message) => return Some(err_result(message)),
+            }
+        }
+        None => None,
+    };
 
     let input: AgentSwarmToolInput = match serde_json::from_value(args.clone()) {
         Ok(parsed) => parsed,
@@ -570,6 +590,7 @@ pub async fn execute_agent_swarm(
         manager: manager.clone(),
         parent_cancel: parent_cancel.cloned(),
         inherited_history,
+        llm: item_llm,
     });
 
     let env_map: HashMap<String, String> = std::env::vars().collect();
@@ -591,46 +612,66 @@ pub async fn execute_agent_swarm(
 }
 
 /// Tool definition for `AgentSwarm`.
-pub fn agent_swarm_tool_def() -> ToolInfo {
+pub fn agent_swarm_tool_def(
+    pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
+) -> ToolInfo {
+    let mut description = "Launch multiple subagents from one prompt template, existing agent resumes, or both. Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly `{{item}}`.".to_string();
+    // v2 `buildSubagentModelDescriptions`: a forced pool exposes no choice,
+    // so it appends neither the listing nor (below) the `model` parameter.
+    if let Some(pool) = pool && pool.exposes_choice() {
+        description.push_str("\n\n");
+        description.push_str(&pool.description());
+    }
+    let mut input_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Short description for the whole swarm."
+            },
+            "subagent_type": {
+                "type": "string",
+                "description": "Subagent type used for every new subagent spawned from items; defaults to coder when omitted."
+            },
+            "prompt_template": {
+                "type": "string",
+                "description": "Prompt template for each subagent. The {{item}} placeholder is replaced with each item value."
+            },
+            "items": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Values used to fill {{item}}. Each item launches one new subagent."
+            },
+            "resume_agent_ids": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Flat object: keys are existing subagent agent_id strings, values are continuation prompts."
+            },
+            "fork": {
+                "type": "boolean",
+                "description": "When true, start each item-spawned subagent from a snapshot of the calling agent's completed conversation history."
+            }
+        },
+        "required": ["description"]
+    });
+    if let Some(pool) = pool
+        && pool.exposes_choice()
+        && let Some(properties) = input_schema
+            .get_mut("properties")
+            .and_then(|properties| properties.as_object_mut())
+    {
+        properties.insert(
+            "model".into(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Which model to run the item-spawned subagents on: one of the aliases listed under \"Available models\" in this tool description, or \"primary\" for the main model you are running on. When omitted, the configured default model is used."
+            }),
+        );
+    }
     ToolInfo {
         name: "AgentSwarm".into(),
-        description: "Launch multiple subagents from one prompt template, existing agent resumes, or both. Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly `{{item}}`.".into(),
-        input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "Short description for the whole swarm."
-                },
-                "subagent_type": {
-                    "type": "string",
-                    "description": "Subagent type used for every new subagent spawned from items; defaults to coder when omitted."
-                },
-                "prompt_template": {
-                    "type": "string",
-                    "description": "Prompt template for each subagent. The {{item}} placeholder is replaced with each item value."
-                },
-                "items": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Values used to fill {{item}}. Each item launches one new subagent."
-                },
-                "resume_agent_ids": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Flat object: keys are existing subagent agent_id strings, values are continuation prompts."
-                },
-                "fork": {
-                    "type": "boolean",
-                    "description": "When true, start each item-spawned subagent from a snapshot of the calling agent's completed conversation history."
-                },
-                "model": {
-                    "type": "string",
-                    "description": "Which model to run the item-spawned subagents on."
-                }
-            },
-            "required": ["description"]
-        }),
+        description,
+        input_schema,
     }
 }
 
@@ -640,10 +681,59 @@ mod tests {
 
     #[test]
     fn test_swarm_tool_def_shape() {
-        let def = agent_swarm_tool_def();
+        let def = agent_swarm_tool_def(None);
         assert_eq!(def.name, "AgentSwarm");
         assert!(def.description.contains("{{item}}"));
         assert!(def.input_schema.get("properties").is_some());
+    }
+
+    #[test]
+    fn test_swarm_def_advertises_the_pool_only_when_a_choice_is_offered() {
+        fn pool(force: bool) -> crate::subagent::secondary::SecondaryModelRuntime {
+            crate::subagent::secondary::SecondaryModelRuntime::new(
+                crate::rpc::types::SecondaryModelPool {
+                    force,
+                    default_model: "fast".into(),
+                    caller_model_alias: None,
+                    models: vec![crate::rpc::types::SecondaryModelEntry {
+                        alias: "fast".into(),
+                        hint: String::new(),
+                        llm: Default::default(),
+                    }],
+                },
+                std::collections::HashMap::new(),
+            )
+        }
+
+        let offered = agent_swarm_tool_def(Some(&pool(false)));
+        assert!(offered.description.contains("Available models (pass via model):"));
+        assert!(
+            offered
+                .input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_some()
+        );
+
+        let forced = agent_swarm_tool_def(Some(&pool(true)));
+        assert!(!forced.description.contains("Available models"), "{}", forced.description);
+        assert!(
+            forced
+                .input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_none()
+        );
+
+        let bare = agent_swarm_tool_def(None);
+        assert!(!bare.description.contains("Available models"));
+        assert!(
+            bare
+                .input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -814,7 +904,7 @@ mod tests {
             "items": ["a", "b"],
             "prompt_template": "check {{item}}"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None).await;
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None).await;
         assert!(res.is_none());
     }
 
@@ -825,7 +915,7 @@ mod tests {
             "items": ["a", "b"],
             "prompt_template": "check {{item}}"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None)
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
             .await
             .unwrap();
         assert!(res.is_error);
@@ -840,7 +930,7 @@ mod tests {
             "items": ["a"],
             "prompt_template": "check {{item}}"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None)
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
             .await
             .unwrap();
         assert!(res.is_error);
@@ -854,7 +944,7 @@ mod tests {
             "description": "missing template",
             "items": ["a", "b"]
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None)
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
             .await
             .unwrap();
         assert!(res.is_error);
@@ -869,7 +959,7 @@ mod tests {
             "items": ["a", "b"],
             "prompt_template": "check all items"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None)
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
             .await
             .unwrap();
         assert!(res.is_error);
@@ -884,7 +974,7 @@ mod tests {
             "items": ["a", "a"],
             "prompt_template": "check {{item}}"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, None)
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
             .await
             .unwrap();
         assert!(res.is_error);
@@ -899,7 +989,7 @@ mod tests {
             "items": ["src/main.rs", "src/lib.rs"],
             "prompt_template": "review {{item}}"
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-1"))
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-1"), None)
             .await
             .unwrap();
         assert!(!res.is_error, "Swarm execution failed: {}", res.content);
@@ -929,7 +1019,7 @@ mod tests {
             "description": "resuming work",
             "resume_agent_ids": resumes
         });
-        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-2"))
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-2"), None)
             .await
             .unwrap();
         assert!(!res.is_error, "Resume swarm failed: {}", res.content);

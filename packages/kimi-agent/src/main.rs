@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
                 shell_path: None,
                 policy_snapshot: None,
                 session_id: None,
+                secondary_model: None,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 todo_tool_veto: None,
@@ -954,6 +955,7 @@ async fn build_engine_pipeline(
         sandbox_policy: None,
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
+        secondary_model: params.secondary_model.clone(),
     };
 
     // Subagent manager for the native `Agent` tool (P46): one per pipeline (the
@@ -1088,6 +1090,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         sandbox_policy: None,
         caller_agent_id: None,
         session_id: None,
+        secondary_model: None,
     };
 
     std::fs::create_dir_all(&cli.data_dir)?;

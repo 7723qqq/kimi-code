@@ -101,52 +101,75 @@ When NOT to use Agent: skip delegation for trivial work you can do directly — 
 Once a subagent is running, leave that scope to it: do not redo its searches or reads in parallel, and do not abandon it midway and finish the job manually.";
 
 /// The `Agent` tool definition (v2 `SubagentTool`): the subagent spawn /
-/// resume surface. The optional `model` parameter is added when a
-/// secondary-model pool is configured (`[secondary_model]`); without one the
-/// parameter is not advertised, matching v2's `stripSubagentModelParameter`.
-pub fn agent_tool_def() -> crate::turn_loop::types::ToolInfo {
+/// resume surface. The optional `model` parameter is added only when a
+/// `[secondary_model]` pool advertises a choice; without one the parameter is
+/// not advertised, matching v2's `stripSubagentModelParameter`.
+pub fn agent_tool_def(
+    pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
+) -> crate::turn_loop::types::ToolInfo {
     let catalog = crate::prompt::profiles::ProfileCatalog::with_builtins();
     let mut available = String::new();
     for profile in catalog.list() {
         available.push_str(&format!("- {}: {}\n", profile.name, profile.description));
     }
-    let description = format!(
+    let mut description = format!(
         "{AGENT_TOOL_DESCRIPTION}\n\nAvailable agent types:\n{}",
         available.trim_end()
     );
+    // v2 `buildSubagentModelDescriptions`: a forced pool exposes no choice,
+    // so it appends neither the listing nor (below) the `model` parameter.
+    if let Some(pool) = pool && pool.exposes_choice() {
+        description.push_str("\n\n");
+        description.push_str(&pool.description());
+    }
+    let mut input_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": "Full task prompt for the subagent"
+            },
+            "description": {
+                "type": "string",
+                "description": "Short task description (3-5 words) for UI display"
+            },
+            "subagent_type": {
+                "type": "string",
+                "description": "One of the available agent types (see \"Available agent types\" in this tool description). Defaults to \"coder\" when omitted."
+            },
+            "resume": {
+                "type": "string",
+                "description": "Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected."
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting."
+            },
+            "fork": {
+                "type": "boolean",
+                "description": "Fork the current context: the subagent starts with a snapshot of this agent's completed conversation history instead of zero context, inheriting this agent's agent type, tool set, and model. A non-empty resume is rejected. If subagent_type is provided, it must match this agent's type."
+            }
+        },
+        "required": ["prompt", "description"]
+    });
+    if let Some(pool) = pool
+        && pool.exposes_choice()
+        && let Some(properties) = input_schema
+            .get_mut("properties")
+            .and_then(|properties| properties.as_object_mut())
+    {
+        properties.insert(
+            "model".into(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Which model to run the subagent on: one of the aliases listed under \"Available models\" in this tool description, or \"primary\" for the main model you are running on (for hard, quality-sensitive tasks). When omitted, the configured default model is used. Ignored when resuming — resumed subagents keep their own model."
+            }),
+        );
+    }
     crate::turn_loop::types::ToolInfo {
         name: "Agent".into(),
         description,
-        input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Full task prompt for the subagent"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Short task description (3-5 words) for UI display"
-                },
-                "subagent_type": {
-                    "type": "string",
-                    "description": "One of the available agent types (see \"Available agent types\" in this tool description). Defaults to \"coder\" when omitted."
-                },
-                "resume": {
-                    "type": "string",
-                    "description": "Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected."
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "description": "If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting."
-                },
-                "fork": {
-                    "type": "boolean",
-                    "description": "Fork the current context: the subagent starts with a snapshot of this agent's completed conversation history instead of zero context, inheriting this agent's agent type, tool set, and model. A non-empty resume is rejected. If subagent_type is provided, it must match this agent's type."
-                }
-            },
-            "required": ["prompt", "description"]
-        }),
+        input_schema,
     }
 }
 
@@ -364,8 +387,12 @@ pub async fn execute_agent(
     timeout_ms: Option<u64>,
     parent_cancel: Option<&ParentCancel>,
     tool_call_id: Option<&str>,
+    pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> Option<ExecutableToolResult> {
-    if requires_host(args) {
+    // Without a `[secondary_model]` pool an explicit `model` stays host-owned
+    // (the host may route it to an external subagent backend). With a pool the
+    // engine absorbs the parameter and validates it below.
+    if pool.is_none() && requires_host(args) {
         return None;
     }
     // Native resume (P55): a `resume` for an agent whose conversation we
@@ -382,6 +409,26 @@ pub async fn execute_agent(
         )
         .await;
     }
+
+    // The pool binding applies to the spawn, not to resumes (a resumed agent
+    // keeps its own model, v2 `stripSubagentModelParameter` note).
+    let binding_llm = match pool {
+        Some(pool) => {
+            let runtime = manager.runtime().await?;
+            match pool.resolve(&runtime.llm, string_arg(args, "model").as_deref()) {
+                Ok(binding) => Some(binding.llm),
+                Err(message) => {
+                    return Some(ExecutableToolResult {
+                        stop_turn: false,
+                        content: message,
+                        is_error: true,
+                        note: None,
+                    });
+                }
+            }
+        }
+        None => None,
+    };
     let is_fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
     let profile_name =
         string_arg(args, "subagent_type").unwrap_or_else(|| DEFAULT_PROFILE_NAME.into());
@@ -435,6 +482,9 @@ pub async fn execute_agent(
     // which the host turns into the usual synthetic notification turn.
     if args.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) {
         let agent_id = manager.spawn(&profile_name, &description).await.ok()?;
+        if let Some(llm) = binding_llm.as_ref() {
+            manager.set_instance_llm(&agent_id, llm.clone()).await;
+        }
         emit_spawned_started(
             runtime.callbacks.as_ref(),
             &agent_id,
@@ -537,6 +587,9 @@ pub async fn execute_agent(
     // Spawn first so the id exists even if the run times out (the failure
     // text carries it, matching v2).
     let agent_id = manager.spawn(&profile_name, &description).await.ok()?;
+    if let Some(llm) = binding_llm.as_ref() {
+        manager.set_instance_llm(&agent_id, llm.clone()).await;
+    }
 
     // v2 `emitAgentRunSpawned` + `mirrorAgentRun`'s SubagentStarted: the
     // host dispatches the same lifecycle events the host-side subagent
@@ -830,6 +883,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("first turn runs natively");
@@ -842,6 +896,7 @@ mod tests {
         let second = execute_agent(
             &manager,
             &serde_json::json!({ "resume": agent_id, "prompt": "continue" }),
+            None,
             None,
             None,
             None,
@@ -862,6 +917,7 @@ mod tests {
         let result = execute_agent(
             &manager,
             &serde_json::json!({ "resume": "agent-unknown", "prompt": "x" }),
+            None,
             None,
             None,
             None,
@@ -921,6 +977,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("truncation is a native outcome, not a fallback");
@@ -965,6 +1022,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("first turn runs natively");
@@ -977,6 +1035,7 @@ mod tests {
         let second = execute_agent(
             &manager,
             &serde_json::json!({ "resume": agent_id, "prompt": "more" }),
+            None,
             None,
             None,
             None,
@@ -1017,6 +1076,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("foreground call must run natively");
@@ -1050,6 +1110,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("untyped call resolves to the coder profile");
@@ -1062,6 +1123,7 @@ mod tests {
         let result = execute_agent(
             &manager,
             &serde_json::json!({ "subagent_type": "plugin-reviewer", "prompt": "x" }),
+            None,
             None,
             None,
             None,
@@ -1083,7 +1145,8 @@ mod tests {
                 None,
                 None,
                 None,
-            )
+            None,
+        )
             .await
             .is_none(),
             "unknown resume ids must fall back to the host"
@@ -1101,6 +1164,7 @@ mod tests {
             &manager,
             &serde_json::json!({ "subagent_type": "looper", "prompt": "loop forever" }),
             Some(300),
+            None,
             None,
             None,
         )
@@ -1127,6 +1191,7 @@ mod tests {
             &serde_json::json!({ "subagent_type": "looper", "prompt": "loop until aborted" }),
             Some(60_000),
             Some(&parent_cancel),
+            None,
             None,
         )
         .await
@@ -1327,6 +1392,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("prefix profile runs natively");
@@ -1365,6 +1431,7 @@ mod tests {
         let result = execute_agent(
             &manager,
             &serde_json::json!({ "subagent_type": "coder", "prompt": "do it" }),
+            None,
             None,
             None,
             None,
@@ -1411,6 +1478,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("runs natively");
@@ -1446,6 +1514,7 @@ mod tests {
             None,
             None,
             Some("tool-call-7"),
+            None,
         )
         .await
         .expect("runs natively");
@@ -1508,7 +1577,8 @@ mod tests {
                     None,
                     None,
                     Some("call-1"),
-                )
+            None,
+        )
                 .await
             })
             .await;
@@ -1574,6 +1644,7 @@ mod tests {
             None,
             None,
             Some("call-bg-1"),
+            None,
         )
         .await
         .expect("must execute natively");
@@ -1627,6 +1698,7 @@ mod tests {
             None,
             None,
             Some("call-bg-2"),
+            None,
         )
         .await
         .expect("must execute natively");
@@ -1647,5 +1719,197 @@ mod tests {
             .expect("stop should succeed");
         assert_eq!(stop_res["status"], "killed");
         assert_eq!(stop_res["stopReason"], "Stopped by TaskStop");
+    }
+
+    // ── [secondary_model] pool ─────────────────────────────────────────────
+
+    use crate::subagent::secondary::{SecondaryModelRuntime, PRIMARY_MODEL_CHOICE};
+    use crate::rpc::types::{SecondaryModelEntry, SecondaryModelPool};
+
+    /// Build a pool runtime whose `strong` alias binds `alias_llm`.
+    fn pool_runtime(alias_llm: Arc<RecordingPromptLlm>, force: bool) -> SecondaryModelRuntime {
+        let config = SecondaryModelPool {
+            force,
+            default_model: "strong".into(),
+            caller_model_alias: Some("main-model".into()),
+            models: vec![SecondaryModelEntry {
+                alias: "strong".into(),
+                hint: "Pick this for hard problems.".into(),
+                llm: Default::default(),
+            }],
+        };
+        SecondaryModelRuntime::new(
+            config,
+            [("strong".to_string(), alias_llm as Arc<dyn crate::turn_loop::types::LLM>)]
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    #[tokio::test]
+    async fn agent_with_a_pool_alias_runs_on_the_pool_llm() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let alias_llm = Arc::new(RecordingPromptLlm::new(vec!["pool answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+        let pool = pool_runtime(alias_llm.clone(), false);
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "hard task",
+                "model": "strong",
+            }),
+            None,
+            None,
+            None,
+            Some(&pool),
+        )
+        .await
+        .expect("pool aliases run natively");
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(alias_llm.call_count(), 1, "the pool alias served the turn");
+        assert_eq!(session_llm.call_count(), 0, "the session model stayed idle");
+    }
+
+    #[tokio::test]
+    async fn agent_primary_binds_the_session_model() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let alias_llm = Arc::new(RecordingPromptLlm::new(vec!["pool answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+        let pool = pool_runtime(alias_llm.clone(), false);
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "quality task",
+                "model": PRIMARY_MODEL_CHOICE,
+            }),
+            None,
+            None,
+            None,
+            Some(&pool),
+        )
+        .await
+        .expect("primary runs natively");
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(session_llm.call_count(), 1, "primary bound the session model");
+        assert_eq!(alias_llm.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn agent_invalid_pool_alias_lists_the_choices() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+        let pool = pool_runtime(Arc::new(RecordingPromptLlm::new(vec![])), false);
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "task",
+                "model": "nope",
+            }),
+            None,
+            None,
+            None,
+            Some(&pool),
+        )
+        .await
+        .expect("invalid aliases resolve to an error result, not a host fallback");
+
+        assert!(result.is_error);
+        assert!(result.content.contains("Invalid model \"nope\""), "{}", result.content);
+        assert!(result.content.contains("strong, primary"), "{}", result.content);
+        assert_eq!(session_llm.call_count(), 0, "no turn ran");
+    }
+
+    #[tokio::test]
+    async fn agent_force_rejects_an_explicit_model() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+        let pool = pool_runtime(Arc::new(RecordingPromptLlm::new(vec![])), true);
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "task",
+                "model": "strong",
+            }),
+            None,
+            None,
+            None,
+            Some(&pool),
+        )
+        .await
+        .expect("force rejections are error results");
+
+        assert!(result.is_error);
+        assert!(result.content.contains("[secondary_model].force"), "{}", result.content);
+    }
+
+    #[tokio::test]
+    async fn agent_without_a_pool_still_defers_model_overrides_to_the_host() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "task",
+                "model": "strong",
+            }),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+        assert!(result.is_none(), "no pool → the host owns model overrides");
+        assert_eq!(session_llm.call_count(), 0);
+    }
+
+    #[test]
+    fn agent_def_advertises_the_pool_only_when_a_choice_is_offered() {
+        let llm = Arc::new(RecordingPromptLlm::new(vec![]));
+        let offered = agent_tool_def(Some(&pool_runtime(llm.clone(), false)));
+        assert!(offered.description.contains("Available models (pass via model):"));
+        assert!(
+            offered
+                .input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_some()
+        );
+
+        let forced = agent_tool_def(Some(&pool_runtime(llm, true)));
+        assert!(!forced.description.contains("Available models"), "{}", forced.description);
+        assert!(
+            forced
+                .input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_none()
+        );
+
+        let bare = agent_tool_def(None);
+        assert!(!bare.description.contains("Available models"));
+        assert!(
+            bare.input_schema
+                .get("properties")
+                .and_then(|properties| properties.get("model"))
+                .is_none()
+        );
     }
 }
