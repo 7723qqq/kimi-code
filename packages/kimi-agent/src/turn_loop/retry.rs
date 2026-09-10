@@ -9,6 +9,28 @@ use std::time::Duration;
 /// `RunTurnInput::max_attempts` (`loopControl.maxAttemptsPerStep`).
 pub const DEFAULT_MAX_RETRY_ATTEMPTS: u32 = 10;
 
+/// Whether an env switch is set to a truthy value (v2 `parseBooleanEnv`):
+/// `1` / `true` / `yes` / `on`, case-insensitive; anything else — including an
+/// unset variable — is false.
+pub fn parse_truthy_env(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+/// `KIMI_CODE_INFINITE_RETRY` (v2 #3240, llmRequesterService.ts): retry every
+/// failed LLM request indefinitely — turn steps and operation requests such
+/// as compaction alike — instead of giving up after `max_attempts`. Waits use
+/// the same exponential backoff and honor the provider's `Retry-After`;
+/// cancellation still aborts during the wait.
+pub fn infinite_retry_enabled() -> bool {
+    parse_truthy_env("KIMI_CODE_INFINITE_RETRY")
+}
+
 /// Configuration for retry behavior.
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -49,6 +71,25 @@ mod tests {
         assert_eq!(config.max_attempts, 10);
         assert_eq!(config.base_delay_ms, 1000);
         assert_eq!(config.max_delay_ms, 30000);
+    }
+
+    /// v2 `parseBooleanEnv` parity: `1`/`true`/`yes`/`on` are truthy (case
+    /// insensitive, trimmed), everything else — including an unset variable —
+    /// is falsy. A test-unique variable name keeps parallel tests out of each
+    /// other's environment.
+    #[test]
+    fn parse_truthy_env_matches_v2_boolean_parsing() {
+        let name = "KIMI_TEST_TRUTHY_ENV_PROBE";
+        for value in ["1", "true", "TRUE", "yes", "on", " on "] {
+            unsafe { std::env::set_var(name, value) };
+            assert!(parse_truthy_env(name), "{value:?} must be truthy");
+        }
+        for value in ["0", "false", "no", "off", "", "maybe"] {
+            unsafe { std::env::set_var(name, value) };
+            assert!(!parse_truthy_env(name), "{value:?} must be falsy");
+        }
+        unsafe { std::env::remove_var(name) };
+        assert!(!parse_truthy_env(name), "unset must be falsy");
     }
 
     #[test]

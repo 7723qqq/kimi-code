@@ -24,13 +24,18 @@ fn classify_llm_error(
     llm: &dyn LLM,
     attempt: u32,
     config: &RetryConfig,
+    infinite_retry: bool,
 ) -> Result<Option<Duration>, Box<dyn std::error::Error + Send + Sync>> {
     let err_str = err.to_string();
     // `err` is dropped here (end of function scope for the parameter).
     if !llm.is_retryable_error(&err_str) {
         return Err(boxed_err(err_str));
     }
-    if attempt >= config.max_attempts {
+    // `KIMI_CODE_INFINITE_RETRY` retries every retryable LLM request without
+    // exhausting the budget (v2 #3240, llmRequesterService.ts). Context
+    // overflow is never retryable, so the deterministic overflow-recovery
+    // path is unaffected.
+    if !infinite_retry && attempt >= config.max_attempts {
         return Err(boxed_err(format!(
             "LLM call failed after {attempt} attempts: {err_str}"
         )));
@@ -43,7 +48,7 @@ fn classify_llm_error(
 /// Retrying sooner than that is wasted: the request will be throttled again,
 /// and one exhausted retry budget is spent on requests that were always going
 /// to be rejected.
-fn retry_after_hint(error: &str) -> Option<Duration> {
+pub(crate) fn retry_after_hint(error: &str) -> Option<Duration> {
     let marker = " (retry-after ";
     let start = error.rfind(marker)? + marker.len();
     let rest = &error[start..];
@@ -57,7 +62,7 @@ fn retry_after_hint(error: &str) -> Option<Duration> {
 
 /// Pick the wait before the next attempt: the provider's request when it is
 /// longer than the plain backoff, the backoff otherwise.
-fn step_delay(backoff: Duration, hint: Option<Duration>) -> Duration {
+pub(crate) fn step_delay(backoff: Duration, hint: Option<Duration>) -> Duration {
     match hint {
         Some(hint) if hint > backoff => hint,
         _ => backoff,
@@ -122,16 +127,19 @@ pub fn execute_loop_step_with_retry<'a>(
         };
 
         let mut attempt: u32 = 0;
+        let infinite_retry = crate::turn_loop::retry::infinite_retry_enabled();
         let response = loop {
             attempt += 1;
             // Match the chat result and extract only Send-safe values, so the
             // non-Send `Box<dyn Error>` is fully consumed before the `.await`.
             let (break_resp, return_err, wait_hint) = match llm.chat(params.clone()).await {
                 Ok(resp) => (Some(resp), None, None),
-                Err(err) => match classify_llm_error(err, llm, attempt, &retry_config) {
-                    Ok(hint) => (None, None, hint),
-                    Err(e) => (None, Some(e), None),
-                },
+                Err(err) => {
+                    match classify_llm_error(err, llm, attempt, &retry_config, infinite_retry) {
+                        Ok(hint) => (None, None, hint),
+                        Err(e) => (None, Some(e), None),
+                    }
+                }
             };
             if let Some(resp) = break_resp {
                 break resp;
@@ -147,10 +155,21 @@ pub fn execute_loop_step_with_retry<'a>(
                 failed_attempt = attempt,
                 next_attempt = attempt + 1,
                 max_attempts = retry_config.max_attempts,
+                infinite_retry = infinite_retry,
                 delay_ms = delay.as_millis() as u64,
                 "TurnStepRetrying"
             );
-            tokio::time::sleep(delay).await;
+            // A cancellation landing during the backoff wait aborts the step
+            // immediately instead of sleeping out the delay (v2 #3240).
+            match cancel {
+                Some(token) => tokio::select! {
+                    _ = token.cancelled() => {
+                        return Err(boxed_err("llm cancelled during retry backoff".into()));
+                    }
+                    _ = tokio::time::sleep(delay) => {}
+                },
+                None => tokio::time::sleep(delay).await,
+            }
         };
 
         let usage = response.usage.clone();
@@ -516,6 +535,88 @@ mod tests {
         assert_eq!(
             step_delay(Duration::from_secs(3), None),
             Duration::from_secs(3)
+        );
+    }
+
+    /// Infinite retry mode (`KIMI_CODE_INFINITE_RETRY`) lifts the attempt cap
+    /// for retryable errors only; the flag is injected so the test never
+    /// touches the process environment.
+    #[test]
+    fn classify_llm_error_honors_infinite_retry() {
+        let llm = FlakyLlm::new(100, true);
+        let config = RetryConfig {
+            max_attempts: 2,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+
+        let exhausted = classify_llm_error(
+            Box::new(std::io::Error::other("simulated failure")),
+            &llm,
+            2,
+            &config,
+            false,
+        );
+        assert!(exhausted.is_err(), "cap reached without infinite mode");
+
+        let infinite = classify_llm_error(
+            Box::new(std::io::Error::other("simulated failure")),
+            &llm,
+            2,
+            &config,
+            true,
+        );
+        assert!(
+            infinite.is_ok(),
+            "infinite mode must keep retrying past max_attempts"
+        );
+
+        // Non-retryable errors still fail fast in infinite mode.
+        let non_retryable_llm = FlakyLlm::new(100, false);
+        let fatal = classify_llm_error(
+            Box::new(std::io::Error::other("bad request")),
+            &non_retryable_llm,
+            1,
+            &config,
+            true,
+        );
+        assert!(fatal.is_err(), "non-retryable errors never retry");
+    }
+
+    #[tokio::test]
+    async fn test_cancel_aborts_during_backoff_wait() {
+        // A retryable failure with a long backoff: cancellation must end the
+        // step immediately instead of sleeping out the delay (v2 #3240).
+        let llm = FlakyLlm::new(u32::MAX, true);
+        let config = RetryConfig {
+            max_attempts: 10,
+            base_delay_ms: 30_000,
+            max_delay_ms: 30_000,
+        };
+        let token = tokio_util::sync::CancellationToken::new();
+        let cancel = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel.cancel();
+        });
+        let started = std::time::Instant::now();
+        let result = execute_loop_step_with_retry(
+            "t1",
+            1,
+            &llm,
+            vec![],
+            &[],
+            vec![],
+            &config,
+            Some(&token),
+        )
+        .await;
+        assert!(result.is_err(), "cancelled step must resolve with an error");
+        assert_eq!(llm.calls.load(Ordering::SeqCst), 1, "no retry after cancel");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "cancel must not wait out the 30s backoff, took {:?}",
+            started.elapsed()
         );
     }
 }
