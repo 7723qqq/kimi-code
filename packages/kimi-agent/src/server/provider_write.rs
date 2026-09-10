@@ -184,7 +184,10 @@ fn alias_write(provider_id: &str, entry: &ProviderModelForm) -> ModelAliasWrite 
         capabilities: entry.capabilities.clone(),
         max_output_size: entry.max_output_size,
         support_efforts: entry.support_efforts.clone(),
+        default_effort: None,
         adaptive_thinking: entry.adaptive_thinking,
+        protocol: None,
+        beta_api: None,
     }
 }
 

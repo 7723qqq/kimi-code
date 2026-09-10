@@ -267,6 +267,39 @@ impl OAuthManager {
         self.load_token(provider).is_some()
     }
 
+    /// The credential names the managed Kimi Code token may live under: the
+    /// Web UI signs in without a provider (the server default `kimi`), while
+    /// the TS CLI basenames its `oauth/kimi-code` key to `kimi-code.json`.
+    pub const MANAGED_TOKEN_NAMES: [&'static str; 2] = ["kimi", "kimi-code"];
+
+    /// Whether any managed-token alias is stored.
+    pub fn has_managed_token(&self) -> bool {
+        Self::MANAGED_TOKEN_NAMES
+            .iter()
+            .any(|name| self.has_cached_token(name))
+    }
+
+    /// A usable managed access token under any alias, refreshing when the
+    /// cached one is stale (v2 `resolveOAuthToken`).
+    pub async fn managed_access_token(&self) -> Result<String, String> {
+        for name in Self::MANAGED_TOKEN_NAMES {
+            if let Some(token) = self.load_usable_token(name) {
+                return Ok(token.access_token);
+            }
+            if let Some(stored) = self.load_token(name)
+                && let Ok(refreshed) = self.refresh_token(name, &stored).await
+            {
+                return Ok(refreshed.access_token);
+            }
+        }
+        Err("no cached managed credential; sign in first".into())
+    }
+
+    /// The managed API base URL this server is configured against.
+    pub fn managed_base_url(&self) -> &str {
+        &self.managed_base_url
+    }
+
     /// Start a real device-code login: request a device authorization, then
     /// poll the token endpoint in the background until the user approves,
     /// the code expires, or the flow is cancelled.

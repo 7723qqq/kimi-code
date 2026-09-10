@@ -87,7 +87,10 @@ pub struct ModelAliasWrite {
     pub capabilities: Option<Vec<String>>,
     pub max_output_size: Option<u32>,
     pub support_efforts: Option<Vec<String>>,
+    pub default_effort: Option<String>,
     pub adaptive_thinking: Option<bool>,
+    pub protocol: Option<String>,
+    pub beta_api: Option<bool>,
 }
 
 fn table_at<'a>(document: &'a mut DocumentMut, key: &str) -> Result<&'a mut Table, String> {
@@ -207,11 +210,23 @@ pub fn write_model_alias(document: &mut DocumentMut, alias: &ModelAliasWrite) ->
     if let Some(support_efforts) = &alias.support_efforts {
         table.insert("support_efforts", string_array(support_efforts));
     }
+    if let Some(default_effort) = &alias.default_effort {
+        table.insert(
+            "default_effort",
+            Item::Value(Value::from(default_effort.clone())),
+        );
+    }
     if let Some(adaptive_thinking) = alias.adaptive_thinking {
         table.insert(
             "adaptive_thinking",
             Item::Value(Value::from(adaptive_thinking)),
         );
+    }
+    if let Some(protocol) = &alias.protocol {
+        table.insert("protocol", Item::Value(Value::from(protocol.clone())));
+    }
+    if let Some(beta_api) = alias.beta_api {
+        table.insert("beta_api", Item::Value(Value::from(beta_api)));
     }
     let item = reparse_table(&["models", alias.alias_id.as_str()], table)?;
     table_at(document, "models")?.insert(alias.alias_id.as_str(), item);
@@ -220,6 +235,18 @@ pub fn write_model_alias(document: &mut DocumentMut, alias: &ModelAliasWrite) ->
 
 /// Drop every `[models.<alias>]` whose `provider` is `provider_id`.
 pub fn remove_model_aliases_of(document: &mut DocumentMut, provider_id: &str) {
+    remove_model_aliases_matching(document, provider_id, "", &[]);
+}
+
+/// Drop every alias of `provider_id` whose key starts with `key_prefix` and is
+/// not listed in `keep` (the refresh keeps vanished upstream models out while
+/// leaving user-authored aliases alone).
+pub fn remove_model_aliases_matching(
+    document: &mut DocumentMut,
+    provider_id: &str,
+    key_prefix: &str,
+    keep: &[String],
+) {
     let Some(models) = document
         .as_table_mut()
         .get_mut("models")
@@ -229,10 +256,13 @@ pub fn remove_model_aliases_of(document: &mut DocumentMut, provider_id: &str) {
     };
     let doomed: Vec<String> = models
         .iter()
-        .filter(|(_, item)| {
-            item.get("provider")
-                .and_then(Item::as_str)
-                .is_some_and(|provider| provider == provider_id)
+        .filter(|(key, item)| {
+            key.starts_with(key_prefix)
+                && !keep.iter().any(|kept| kept == key)
+                && item
+                    .get("provider")
+                    .and_then(Item::as_str)
+                    .is_some_and(|provider| provider == provider_id)
         })
         .map(|(key, _)| key.to_string())
         .collect();
@@ -303,7 +333,10 @@ mod tests {
             capabilities: Some(vec!["tools".into(), "thinking".into()]),
             max_output_size: None,
             support_efforts: Some(vec!["low".into()]),
+            default_effort: None,
             adaptive_thinking: None,
+            protocol: None,
+            beta_api: None,
         }
     }
 

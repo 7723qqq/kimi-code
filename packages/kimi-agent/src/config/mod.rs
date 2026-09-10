@@ -45,10 +45,20 @@ pub struct ModelAliasConfig {
     pub display_name: Option<String>,
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
+    #[serde(rename = "max_output_size", default)]
+    pub max_output_size: Option<u32>,
     #[serde(rename = "support_efforts", default)]
     pub support_efforts: Option<Vec<String>>,
     #[serde(rename = "default_effort", default)]
     pub default_effort: Option<String>,
+    #[serde(rename = "adaptive_thinking", default)]
+    pub adaptive_thinking: Option<bool>,
+    /// Per-model wire protocol override (v2 `ModelRecord.protocol`).
+    #[serde(default)]
+    pub protocol: Option<String>,
+    /// Route anthropic-protocol models through the beta Messages API.
+    #[serde(rename = "beta_api", default)]
+    pub beta_api: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

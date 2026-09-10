@@ -33,6 +33,7 @@ pub mod media;
 pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
+pub mod provider_refresh;
 pub mod provider_write;
 pub mod router;
 pub mod static_files;
@@ -167,11 +168,27 @@ impl HttpServer {
         self
     }
 
+    /// Use a specific OAuth manager (tests point it at a mock credential
+    /// store and hosts).
+    #[must_use]
+    pub fn with_oauth_manager(mut self, manager: Arc<oauth::OAuthManager>) -> Self {
+        self.oauth_manager = manager;
+        self
+    }
+
     fn config_write_path(&self) -> Option<PathBuf> {
         self.config_write_path
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// Whether a provider carries a usable cached credential: its own token,
+    /// or any managed-token alias when it is the managed provider.
+    fn has_cached_token(&self, provider: &str) -> bool {
+        self.oauth_manager.has_cached_token(provider)
+            || (provider == crate::server::model_catalog::MANAGED_PROVIDER_NAME
+                && self.oauth_manager.has_managed_token())
     }
 
     #[must_use]
@@ -752,8 +769,7 @@ impl HttpServer {
             }
             ("GET", "/api/v1/providers") => {
                 let config = self.config().await;
-                let has_cached_token =
-                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                let has_cached_token = |provider: &str| self.has_cached_token(provider);
                 HttpResponse::ok(&crate::server::model_catalog::providers(
                     &config,
                     &has_cached_token,
@@ -771,8 +787,7 @@ impl HttpServer {
                     Ok(form) => form,
                     Err(error) => return provider_validation_error(error.to_string()),
                 };
-                let has_cached_token =
-                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                let has_cached_token = |provider: &str| self.has_cached_token(provider);
                 match crate::server::provider_write::create(
                     &self.config_override,
                     self.config_write_path().as_deref(),
@@ -787,6 +802,43 @@ impl HttpServer {
                     }
                 }
             }
+            ("POST", "/api/v1/providers:refresh") => {
+                let result = crate::server::provider_refresh::refresh(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &self.oauth_manager,
+                    "all",
+                    None,
+                )
+                .await;
+                HttpResponse::ok(&result)
+            }
+            ("POST", "/api/v1/providers:refresh_oauth") => {
+                let result = crate::server::provider_refresh::refresh(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &self.oauth_manager,
+                    "oauth",
+                    None,
+                )
+                .await;
+                HttpResponse::ok(&result)
+            }
+            ("POST", p) if p.starts_with("/api/v1/providers/") && p.ends_with(":refresh") => {
+                let provider_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/providers/")
+                        .trim_end_matches(":refresh"),
+                );
+                let result = crate::server::provider_refresh::refresh(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &self.oauth_manager,
+                    "all",
+                    Some(&provider_id),
+                )
+                .await;
+                HttpResponse::ok(&result)
+            }
             ("GET", p)
                 if p.starts_with("/api/v1/providers/")
                     && !p.starts_with("/api/v1/providers/catalog") =>
@@ -794,8 +846,7 @@ impl HttpServer {
                 let provider_id = crate::server::router::decode_path_segment(
                     p.trim_start_matches("/api/v1/providers/"),
                 );
-                let has_cached_token =
-                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                let has_cached_token = |provider: &str| self.has_cached_token(provider);
                 match crate::server::provider_write::get(
                     &self.config_override,
                     self.config_write_path().as_deref(),
@@ -825,8 +876,7 @@ impl HttpServer {
                     Ok(form) => form,
                     Err(error) => return provider_validation_error(error.to_string()),
                 };
-                let has_cached_token =
-                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                let has_cached_token = |provider: &str| self.has_cached_token(provider);
                 match crate::server::provider_write::replace(
                     &self.config_override,
                     self.config_write_path().as_deref(),
@@ -1651,8 +1701,7 @@ impl HttpServer {
             }
             ("GET", "/api/v1/auth") => {
                 let config = self.config().await;
-                let has_cached_token =
-                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                let has_cached_token = |provider: &str| self.has_cached_token(provider);
                 HttpResponse::ok(&crate::server::model_catalog::auth_summary(
                     &config,
                     &has_cached_token,
@@ -5038,6 +5087,129 @@ max_context_size = 128000
         assert_eq!(body["code"], 40001);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_http_provider_refresh_discovers_managed_models() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // A mock `GET /models` whose payload the test can swap between calls.
+        let payload = Arc::new(std::sync::Mutex::new(json!({
+            "data": [
+                { "id": "k3", "context_length": 200000, "display_name": "K3", "supports_thinking_type": "both" },
+                { "id": "k3-fast", "context_length": 128000 }
+            ]
+        })));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let payload_for_server = payload.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let payload = payload_for_server.lock().unwrap().clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0u8; 4096];
+                    let _ = sock.read(&mut buffer).await;
+                    let body = payload.to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(response.as_bytes()).await;
+                    let _ = sock.flush().await;
+                });
+            }
+        });
+
+        // Cached OAuth credential the refresh authenticates with.
+        let credentials = std::env::temp_dir().join(format!("kimi-refresh-creds-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&credentials).unwrap();
+        std::fs::write(
+            credentials.join("kimi.json"),
+            json!({
+                "access_token": "token-1",
+                "refresh_token": "refresh-1",
+                "expires_at": chrono::Utc::now().timestamp() + 3600,
+                "scope": "kimi",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir().join(format!("kimi-refresh-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "default_model = \"kimi-code/k3\"\n\n[providers.\"managed:kimi-code\"]\ntype = \"kimi\"\nbase_url = \"http://{addr}/v1\"\noauth = {{ provider = \"managed:kimi-code\" }}\n"
+            ),
+        )
+        .unwrap();
+
+        let oauth = crate::server::oauth::OAuthManager::with_hosts(
+            format!("http://{addr}"),
+            format!("http://{addr}/v1"),
+            Some(credentials.clone()),
+        );
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_oauth_manager(Arc::new(oauth))
+            .with_config_write_path(config_path.clone());
+
+        fn request(path: &str) -> HttpRequest {
+            HttpRequest {
+                method: "POST".into(),
+                path: path.into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            }
+        }
+
+        // 1. A targeted refresh discovers both models and writes the aliases.
+        let res = server
+            .handle_request(&request(
+                "/api/v1/providers/managed%3Akimi-code:refresh",
+            ))
+            .await;
+        assert_eq!(res.status, 200);
+        let result: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(result["changed"][0]["provider_id"], "managed:kimi-code");
+        assert_eq!(result["changed"][0]["provider_name"], "Kimi Code");
+        assert_eq!(result["changed"][0]["added"], 2);
+        assert_eq!(result["changed"][0]["removed"], 0);
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[models.\"kimi-code/k3\"]"), "{text}");
+        assert!(text.contains("[models.\"kimi-code/k3-fast\"]"), "{text}");
+        assert!(text.contains("provider = \"managed:kimi-code\""), "{text}");
+
+        // 2. The same payload again is a no-op.
+        let res = server
+            .handle_request(&request(
+                "/api/v1/providers/managed%3Akimi-code:refresh",
+            ))
+            .await;
+        let result: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(result["unchanged"], json!(["managed:kimi-code"]));
+        assert!(result["changed"].as_array().unwrap().is_empty());
+
+        // 3. A model the endpoint stops listing is reported and removed.
+        *payload.lock().unwrap() = json!({
+            "data": [{ "id": "k3", "context_length": 200000 }]
+        });
+        let res = server
+            .handle_request(&request("/api/v1/providers:refresh"))
+            .await;
+        let result: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(result["changed"][0]["removed"], 1);
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("kimi-code/k3-fast"), "{text}");
+        assert!(text.contains("default_model = \"kimi-code/k3\""), "{text}");
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&credentials).ok();
     }
 
     #[tokio::test]
