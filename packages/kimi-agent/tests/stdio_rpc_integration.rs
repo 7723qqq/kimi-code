@@ -1755,3 +1755,387 @@ fn run_turn_native_write_allowed_by_passing_hook() {
     assert_eq!(native_events.len(), 1);
     assert_eq!(native_events[0]["is_error"], false);
 }
+
+fn stdio_create_session(
+    client: &mut RpcClient,
+    turn_id: &str,
+    workspace: &std::path::Path,
+) -> String {
+    let resp = client
+        .request(
+            "session/create",
+            serde_json::json!({
+                "turn_id": turn_id,
+                "system_prompt": "You are a test assistant.",
+                "model_name": "test-model",
+                "messages": [{"role": "user", "content": "seed"}],
+                "tools": [],
+                "max_steps": 5,
+                "workspace_root": workspace.to_string_lossy(),
+                "native_tools": true
+            }),
+        )
+        .expect("session/create response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/create returned error: {resp}"
+    );
+    resp["result"]
+        .as_str()
+        .expect("session/create returns a session id")
+        .to_string()
+}
+
+#[test]
+fn session_start_btw_returns_agent_id() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "btw-create", workspace.path());
+
+    let resp = client
+        .request(
+            "session/start_btw",
+            serde_json::json!({ "session_id": session_id }),
+        )
+        .expect("session/start_btw response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/start_btw errored: {resp}"
+    );
+    let agent_id = resp["result"]
+        .as_str()
+        .expect("start_btw returns an agent id");
+    assert!(
+        agent_id.starts_with("agent-btw-"),
+        "unexpected agent id: {agent_id}"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_generate_title_empty_history_returns_null() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "title-empty", workspace.path());
+
+    let resp = client
+        .request(
+            "session/generate_title",
+            serde_json::json!({ "session_id": session_id }),
+        )
+        .expect("session/generate_title response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/generate_title errored: {resp}"
+    );
+    assert!(
+        resp["result"].is_null(),
+        "empty history must yield a null title, got: {resp}"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_generate_title_rejects_digest_source() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "title-digest", workspace.path());
+
+    let resp = client
+        .request(
+            "session/generate_title",
+            serde_json::json!({ "session_id": session_id, "source": "digest" }),
+        )
+        .expect("session/generate_title response within 10s");
+    let err = resp
+        .get("error")
+        .expect("digest source must be rejected");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains("digest"),
+        "digest rejection message expected, got: {resp}"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_btw_cancel_unknown_agent_returns_false() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+
+    let resp = client
+        .request(
+            "session/btw_cancel",
+            serde_json::json!({ "agent_id": "agent-btw-unknown" }),
+        )
+        .expect("session/btw_cancel response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/btw_cancel errored: {resp}"
+    );
+    assert_eq!(
+        resp["result"], false,
+        "unknown agent must not cancel anything"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_background_task_list_returns_empty_array() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "bgtask-list", workspace.path());
+
+    let resp = client
+        .request(
+            "session/background_task_list",
+            serde_json::json!({ "session_id": session_id }),
+        )
+        .expect("session/background_task_list response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/background_task_list errored: {resp}"
+    );
+    assert_eq!(
+        resp["result"], "[]",
+        "no runner means an empty task list, got: {resp}"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_background_task_output_unknown_returns_null() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "bgtask-output", workspace.path());
+
+    let resp = client
+        .request(
+            "session/background_task_output",
+            serde_json::json!({ "session_id": session_id, "task_id": "none" }),
+        )
+        .expect("session/background_task_output response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "session/background_task_output errored: {resp}"
+    );
+    assert!(
+        resp["result"].is_null(),
+        "unknown task must yield null, got: {resp}"
+    );
+
+    client.shutdown();
+}
+
+#[test]
+fn session_background_task_stop_unknown_task_errors() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "bgtask-stop", workspace.path());
+
+    let resp = client
+        .request(
+            "session/background_task_stop",
+            serde_json::json!({ "session_id": session_id, "task_id": "none" }),
+        )
+        .expect("session/background_task_stop response within 10s");
+    let err = resp.get("error").expect("unknown task must error");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains("Task not found"),
+        "task-not-found message expected, got: {resp}"
+    );
+
+    client.shutdown();
+}
+
+fn read_json_line(reader: &mut BufReader<std::process::ChildStdout>) -> Option<serde_json::Value> {
+    let mut buf = String::new();
+    let n = reader.read_line(&mut buf).ok()?;
+    if n == 0 {
+        return None;
+    }
+    let trimmed = buf.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    serde_json::from_str(trimmed).ok()
+}
+
+fn read_rpc_response(
+    reader: &mut BufReader<std::process::ChildStdout>,
+    deadline: &Instant,
+    id: u64,
+) -> serde_json::Value {
+    loop {
+        if Instant::now() > *deadline {
+            panic!("timed out waiting for RPC response id={id}");
+        }
+        let Some(msg) = read_json_line(reader) else {
+            continue;
+        };
+        if msg.get("method").is_some() {
+            continue;
+        }
+        if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
+            return msg;
+        }
+    }
+}
+
+#[test]
+fn session_btw_prompt_runs_side_channel_turn() {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => {
+            eprintln!("Skipping test: kimi-agent binary not built.");
+            return;
+        }
+    };
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut reader = BufReader::new(child.stdout.take().expect("stdout"));
+    let deadline = Instant::now() + Duration::from_secs(60);
+
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/create",
+            "params": {
+                "turn_id": "btw-session",
+                "system_prompt": "You are a test assistant.",
+                "model_name": "test-model",
+                "messages": [{"role": "user", "content": "seed"}],
+                "tools": [],
+                "max_steps": 5,
+                "workspace_root": workspace.path().to_string_lossy(),
+                "native_tools": true
+            }
+        })
+    )
+    .expect("write session/create");
+    stdin.flush().unwrap();
+    let create_resp = read_rpc_response(&mut reader, &deadline, 1);
+    assert!(
+        create_resp.get("error").is_none(),
+        "session/create errored: {create_resp}"
+    );
+    let session_id = create_resp["result"]
+        .as_str()
+        .expect("session id")
+        .to_string();
+
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 2, "method": "session/start_btw",
+            "params": {"session_id": session_id}
+        })
+    )
+    .expect("write session/start_btw");
+    stdin.flush().unwrap();
+    let btw_resp = read_rpc_response(&mut reader, &deadline, 2);
+    assert!(
+        btw_resp.get("error").is_none(),
+        "session/start_btw errored: {btw_resp}"
+    );
+    let agent_id = btw_resp["result"].as_str().expect("agent id").to_string();
+
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 3, "method": "session/btw_prompt",
+            "params": {"session_id": session_id, "agent_id": agent_id, "prompt": "two plus two"}
+        })
+    )
+    .expect("write session/btw_prompt");
+    stdin.flush().unwrap();
+
+    let outcome = loop {
+        if Instant::now() > deadline {
+            panic!("timed out waiting for btw_prompt response");
+        }
+        let Some(msg) = read_json_line(&mut reader) else {
+            continue;
+        };
+        match msg.get("method").and_then(|m| m.as_str()) {
+            Some("host/llm_chat") => {
+                let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                writeln!(
+                    stdin,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0", "id": req_id,
+                        "result": {
+                            "content": "four",
+                            "tool_calls": [],
+                            "finish_reason": "stop",
+                            "usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}
+                        }
+                    })
+                )
+                .unwrap();
+                stdin.flush().unwrap();
+            }
+            Some("host/list_tools") => {
+                let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                writeln!(
+                    stdin,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0", "id": req_id, "result": {"tools": []}
+                    })
+                )
+                .unwrap();
+                stdin.flush().unwrap();
+            }
+            _ => {
+                if msg.get("id").and_then(|v| v.as_u64()) == Some(3) {
+                    break msg;
+                }
+            }
+        }
+    };
+
+    assert!(
+        outcome.get("error").is_none(),
+        "session/btw_prompt errored: {outcome}"
+    );
+    assert_eq!(
+        outcome["result"]["content"], "four",
+        "side-channel answer echoed, got: {outcome}"
+    );
+    assert!(
+        outcome["result"]["stopReason"].is_string(),
+        "stopReason present, got: {outcome}"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
