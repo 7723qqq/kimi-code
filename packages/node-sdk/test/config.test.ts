@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-local';
+import { buildPolicySnapshot } from '#/native/native-llm-resolver';
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
@@ -246,6 +247,37 @@ base_url = "https://github.example.com/api/v3"
     expect(reloaded.github).toEqual({
       token: 'ghp_example_token',
       baseUrl: 'https://github.example.com/api/v3',
+    });
+  });
+
+  it('round-trips the [tools] global switch and resolves it into the policy snapshot', async () => {
+    const config = parseConfigString(
+      `
+[tools]
+enabled = ["Read", "Grep"]
+disabled = ["Bash"]
+`,
+      'tools.toml',
+    );
+    expect(config.tools).toEqual({ enabled: ['Read', 'Grep'], disabled: ['Bash'] });
+
+    // The engine receives the switch through the policy snapshot.
+    expect(buildPolicySnapshot(config, '.').tools_filter).toEqual({
+      enabled: ['Read', 'Grep'],
+      disabled: ['Bash'],
+    });
+    expect(buildPolicySnapshot(parseConfigString('', 'empty.toml'), '.').tools_filter).toBeUndefined();
+
+    const dir = await makeTempDir();
+    const configPath = join(dir, 'config.toml');
+    await writeConfigFile(configPath, config);
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[tools]');
+    expect(text).toContain('enabled = [ "Read", "Grep" ]');
+    expect(readConfigFile(configPath).tools).toEqual({
+      enabled: ['Read', 'Grep'],
+      disabled: ['Bash'],
     });
   });
 

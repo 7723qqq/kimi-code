@@ -863,7 +863,7 @@ mod tests {
                 "invoke_subagent",
                 "manage_subagents",
                 "define_subagent",
-                "ask_user_question",
+                "AskUserQuestion",
                 "TodoList",
                 "EnterPlanMode",
                 "GetGoal",

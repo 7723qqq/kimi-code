@@ -1017,33 +1017,41 @@ impl HostCallbacks for NativeToolCallbacks {
         self.inner.state_write(request)
     }
 
+    /// The tool table the model is offered: the engine-owned native
+    /// definitions (the toolset executes those calls in-process) merged with
+    /// the host's own table and MCP-discovered tools. A missing host table is
+    /// normal on the napi path — the engine table then stands alone instead
+    /// of leaving the model with no tools at all.
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         let inner = self.inner.clone();
+        let toolset = self.toolset.clone();
+        let tower_enabled = self.tower_worktree_root.is_some();
         let mcp_mgr = self.toolset.mcp_manager().cloned();
         Box::pin(async move {
-            let host_res = inner.list_tools().await;
-            if let Some(mcp) = mcp_mgr {
-                let mcp_tools = mcp.list_tool_infos().await;
-                match host_res {
-                    Ok(mut response) => {
-                        for tool in mcp_tools {
-                            if !response.tools.iter().any(|t| t.name == tool.name) {
-                                response.tools.push(tool);
-                            }
-                        }
-                        Ok(response)
-                    }
-                    Err(err) => {
-                        if !mcp_tools.is_empty() {
-                            Ok(ListToolsResponse { tools: mcp_tools })
-                        } else {
-                            Err(err)
-                        }
+            let filter = toolset.tools_filter().cloned();
+            let mut tools = crate::tools::tool_policy::native_tool_defs(
+                toolset.github_credentials().is_some(),
+                tower_enabled,
+                filter.as_ref(),
+            );
+            if let Ok(response) = inner.list_tools().await {
+                for tool in response.tools {
+                    if !tools.iter().any(|t| t.name == tool.name) {
+                        tools.push(tool);
                     }
                 }
-            } else {
-                host_res
             }
+            if let Some(mcp) = mcp_mgr {
+                for tool in mcp.list_tool_infos().await {
+                    if !tools.iter().any(|t| t.name == tool.name) {
+                        tools.push(tool);
+                    }
+                }
+            }
+            if let Some(filter) = &filter {
+                tools.retain(|tool| filter.allows(&tool.name));
+            }
+            Ok(ListToolsResponse { tools })
         })
     }
 
@@ -3266,6 +3274,34 @@ mod tests {
         tools: Vec<crate::turn_loop::types::ToolInfo>,
     }
 
+    /// A host with no tool table at all: `list_tools` falls back to the
+    /// trait's error, like the napi harness whose callbacks do not answer
+    /// `host/list_tools`.
+    struct HostWithoutToolTable;
+
+    impl HostCallbacks for HostWithoutToolTable {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+    }
+
     impl HostCallbacks for HostWithToolsCallbacks {
         fn llm_chat(
             &self,
@@ -3295,8 +3331,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {
-        let tmp = tempfile::tempdir().unwrap();
+    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {        let tmp = tempfile::tempdir().unwrap();
         let mcp_mgr = Arc::new(crate::mcp::McpManager::new());
         let mock_client = crate::mcp::McpClient::mock("test_server");
         mcp_mgr.add_client(mock_client).await;
@@ -3339,5 +3374,93 @@ mod tests {
                 .iter()
                 .any(|t| t.name.starts_with("mcp__test_server__"))
         );
+    }
+
+    /// The napi harness has no host tool table (its `host/list_tools` errors):
+    /// the engine-owned definitions must stand alone instead of leaving the
+    /// model with nothing to call.
+    #[tokio::test]
+    async fn test_native_tool_callbacks_list_tools_survives_a_missing_host_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let toolset = Arc::new(NativeToolset::new(tmp.path().to_str().unwrap(), None).unwrap());
+        let callbacks = NativeToolCallbacks {
+            inner: Arc::new(HostWithoutToolTable),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
+        };
+
+        let res = callbacks.list_tools().await.unwrap();
+        assert!(res.tools.iter().any(|t| t.name == "Read"));
+        assert!(res.tools.iter().any(|t| t.name == "Agent"));
+        assert!(res.tools.iter().any(|t| t.name == "AskUserQuestion"));
+        assert!(
+            !res.tools.iter().any(|t| t.name == "TowerInit"),
+            "tower tools stay gated"
+        );
+    }
+
+    /// The global `[tools]` switch filters the merged table (host and MCP
+    /// definitions included), not just the engine's own definitions.
+    #[tokio::test]
+    async fn test_native_tool_callbacks_list_tools_applies_the_tools_filter() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mcp_mgr = Arc::new(crate::mcp::McpManager::new());
+        mcp_mgr
+            .add_client(crate::mcp::McpClient::mock("test_server"))
+            .await;
+        let toolset = Arc::new(
+            NativeToolset::new(tmp.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_mcp(mcp_mgr)
+                .with_tools_filter(Some(crate::tools::tool_policy::ToolsFilter {
+                    enabled: vec!["Read".into(), "host_custom_tool".into()],
+                    disabled: vec!["mcp__test_server__*".into()],
+                })),
+        );
+
+        let callbacks = NativeToolCallbacks {
+            inner: Arc::new(HostWithToolsCallbacks {
+                tools: vec![
+                    crate::turn_loop::types::ToolInfo {
+                        name: "host_custom_tool".into(),
+                        description: "host tool".into(),
+                        input_schema: serde_json::json!({}),
+                    },
+                    crate::turn_loop::types::ToolInfo {
+                        name: "host_other_tool".into(),
+                        description: "host tool".into(),
+                        input_schema: serde_json::json!({}),
+                    },
+                ],
+            }),
+            toolset,
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
+        };
+
+        let res = callbacks.list_tools().await.unwrap();
+        let names: Vec<&str> = res.tools.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["Read", "host_custom_tool"]);
     }
 }

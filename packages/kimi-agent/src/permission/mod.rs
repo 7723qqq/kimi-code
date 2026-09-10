@@ -77,6 +77,12 @@ pub struct PolicySnapshot {
     pub session_approvals: Vec<String>,
     #[serde(default)]
     pub git_cwd: Option<String>,
+    /// The user's global `[tools]` switch (v2 `tools.enabled` /
+    /// `tools.disabled`), resolved by the host from `config.toml`. The engine
+    /// intersects it with the advertised tool table and enforces it again
+    /// before executing a native call.
+    #[serde(default)]
+    pub tools_filter: Option<crate::tools::tool_policy::ToolsFilter>,
     /// User-configured external hooks (v2 `[hooks]`). The engine executes
     /// the `PreToolUse` ones before native tool calls (G-6 #6), notifies
     /// the observe-only `PostToolUse` / `PostToolUseFailure` /

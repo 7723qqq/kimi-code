@@ -153,7 +153,7 @@ fn map_response(response: AskQuestionResponse) -> ExecutableToolResult {
 /// schema mirrors v2 `AskUserQuestionInputSchemaWithBackground`.
 pub fn ask_user_question_tool_def() -> crate::turn_loop::types::ToolInfo {
     crate::turn_loop::types::ToolInfo {
-        name: "ask_user_question".into(),
+        name: "AskUserQuestion".into(),
         description: "Ask the user questions with structured options during execution. Use it to collect user preferences, resolve ambiguous or underspecified instructions, or let the user decide between implementation approaches. Ask 1-4 questions at a time, each with 2-4 meaningful, distinct options; keep labels concise (1-5 words, append '(Recommended)' to a recommended option) and use descriptions for trade-offs. Users always have an 'Other' option — do not create one yourself. The result is JSON with an `answers` object keyed by question text (comma-separated labels for multi_select, or the user's own words for 'Other'); empty answers with a note means the user dismissed the question — do not treat that as selecting an option, and do not re-ask the same question. Set background=true when you can keep working without the answer: the host starts a background question task and returns a task_id immediately; the answer arrives automatically in a later turn — do not poll, sleep, or fabricate the answer.".into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn test_tool_def_matches_v2_schema() {
         let def = ask_user_question_tool_def();
-        assert_eq!(def.name, "ask_user_question");
+        assert_eq!(def.name, "AskUserQuestion");
         assert_eq!(def.input_schema["type"], "object");
         assert_eq!(def.input_schema["required"][0], "questions");
         assert!(def.input_schema["properties"]["questions"].is_object());

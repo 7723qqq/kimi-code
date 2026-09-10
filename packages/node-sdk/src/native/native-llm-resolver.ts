@@ -40,6 +40,8 @@ export interface PolicySnapshotDto {
   allow_rules: string[];
   session_approvals: string[];
   git_cwd?: string;
+  /** The user's global `[tools]` switch, enforced engine-side. */
+  tools_filter?: { enabled: string[]; disabled: string[] };
   pre_tool_hooks: Array<{
     event: string;
     matcher: string;
@@ -154,6 +156,11 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
     : config.defaultPermissionMode ?? 'manual') as 'manual' | 'auto' | 'yolo' | 'plan';
   const rules = config.permission?.rules ?? [];
   const hooks = config.hooks ?? [];
+  const tools = config.tools;
+  const toolsFilter =
+    tools === undefined || (tools.enabled === undefined && tools.disabled === undefined)
+      ? undefined
+      : { enabled: tools.enabled ?? [], disabled: tools.disabled ?? [] };
 
   return {
     mode,
@@ -168,6 +175,7 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
       .map((r) => r.pattern),
     session_approvals: [],
     git_cwd: workDir,
+    tools_filter: toolsFilter,
     pre_tool_hooks: hooks
       .filter((h) => typeof h.command === 'string')
       .map((h) => ({

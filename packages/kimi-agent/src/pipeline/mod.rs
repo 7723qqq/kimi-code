@@ -240,6 +240,11 @@ pub async fn build_engine_pipeline(
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
                         .with_parent_cancel_slot_if(parent_cancel_slot)
                         .with_callbacks(base_callbacks.clone())
+                        .with_tools_filter(
+                            spec.policy_snapshot
+                                .as_ref()
+                                .and_then(|snapshot| snapshot.tools_filter.clone()),
+                        )
                         .with_github_credentials(GitHubCredentials {
                             token: spec.github_token.clone(),
                             base_url: spec.github_base_url.clone(),

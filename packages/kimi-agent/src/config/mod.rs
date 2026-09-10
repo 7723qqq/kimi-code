@@ -317,6 +317,10 @@ impl KimiConfig {
             allow_rules,
             session_approvals: Vec::new(),
             git_cwd: git_cwd.map(|p| p.to_string_lossy().to_string()),
+            // The standalone loader has no global `[tools]` section; the
+            // host-driven paths (napi / standalone server) pass the resolved
+            // switch in through their own snapshot.
+            tools_filter: None,
             pre_tool_hooks: self.hooks.clone(),
         }
     }

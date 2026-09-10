@@ -601,6 +601,11 @@ async function resolveRustEngine(
         (cfg['hooks'] as
           | Array<{ event?: string; matcher?: string; command?: string; timeout?: number }>
           | undefined) ?? [];
+      const tools = cfg['tools'] as { enabled?: string[]; disabled?: string[] } | undefined;
+      const toolsFilter =
+        tools === undefined || (tools.enabled === undefined && tools.disabled === undefined)
+          ? undefined
+          : { enabled: tools.enabled ?? [], disabled: tools.disabled ?? [] };
       return {
         mode,
         deny_rules: rules
@@ -612,6 +617,9 @@ async function resolveRustEngine(
         allow_rules: rules
           .filter((r) => r.decision === 'allow' && typeof r.pattern === 'string')
           .map((r) => r.pattern!),
+        // Global `[tools]` switch: the engine intersects the advertised
+        // table and refuses disabled calls even when the model remembers them.
+        tools_filter: toolsFilter,
         // G-6 #6: user-configured external hooks ride the snapshot so the
         // engine can run PreToolUse hooks before native tool calls.
         pre_tool_hooks: hooks

@@ -205,6 +205,20 @@ export const BackgroundConfigSchema = z.object({
 
 export type BackgroundConfig = z.infer<typeof BackgroundConfigSchema>;
 
+/**
+ * The global `[tools]` switch: applied to every agent in all sessions and
+ * intersected with each agent's own tool policy. Built-in tools match by
+ * exact name; MCP tools match with `mcp__` globs.
+ */
+export const ToolsConfigSchema = z.object({
+  /** Allowlist; an empty or absent list constrains nothing. */
+  enabled: z.array(z.string()).optional(),
+  /** Denylist, applied after the allowlist. */
+  disabled: z.array(z.string()).optional(),
+});
+
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
+
 export const SubagentConfigSchema = z.object({
   /**
    * Per-subagent (`Agent` / `AgentSwarm`, foreground and background) timeout
@@ -442,6 +456,7 @@ export const KimiConfigSchema = z.object({
   extraAgentDirs: z.array(z.string()).optional(),
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
+  tools: ToolsConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
   swarm: SwarmConfigSchema.optional(),
   agent: AgentConfigSchema.optional(),
@@ -462,6 +477,7 @@ const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
 const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
+const ToolsConfigPatchSchema = ToolsConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
 const SwarmConfigPatchSchema = SwarmConfigSchema.partial();
 const AgentConfigPatchSchema = AgentConfigSchema.partial();
@@ -497,6 +513,7 @@ export const KimiConfigPatchSchema = z
     extraAgentDirs: z.array(z.string()).optional(),
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
+    tools: ToolsConfigPatchSchema.optional(),
     subagent: SubagentConfigPatchSchema.optional(),
     swarm: SwarmConfigPatchSchema.optional(),
     agent: AgentConfigPatchSchema.optional(),

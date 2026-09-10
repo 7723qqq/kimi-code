@@ -2453,3 +2453,112 @@ describe.skipIf(!nativeEntry)('napi EngineSessionHandle — manual compaction', 
     }
   });
 });
+
+describe.skipIf(!nativeEntry)('napi EngineSessionHandle — engine-owned tool table', () => {
+  /**
+   * Run one native-transport turn against a local mock provider and return
+   * the tool names the OpenAI request advertised.
+   */
+  async function captureAdvertisedTools(policySnapshotJson?: string): Promise<string[]> {
+    const http = await import('node:http');
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const captured: string[][] = [];
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString('utf8');
+      });
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body) as { tools?: Array<{ function?: { name?: string } }> };
+          captured.push((parsed.tools ?? []).map((tool) => String(tool.function?.name ?? '')));
+        } catch {
+          captured.push([]);
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            id: 'chatcmpl-tool-table',
+            object: 'chat.completion',
+            created: 0,
+            model: 'test-model',
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'done' },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-tool-table-'));
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'tool-table',
+        maxSteps: 1,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [],
+        policySnapshotJson,
+        nativeLlm: {
+          protocol: 'openai',
+          baseUrl: `http://127.0.0.1:${String(port)}/v1`,
+          apiKey: 'sk-test',
+          model: 'test-model',
+        },
+      },
+      {
+        llmChat: async () => {
+          throw new Error('native transport must serve this turn');
+        },
+        executeTool: () => JSON.stringify({ content: '', is_error: false }),
+        emitEvent: () => {},
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+        stateRead: () => JSON.stringify({ value: null }),
+        stateWrite: () => JSON.stringify({ value: null }),
+        // Deliberately no listTools handler: the napi harness has none, so
+        // the engine-owned table must stand alone.
+      },
+    );
+    try {
+      const turn = await session.enqueueTurn({ role: 'user', content: 'hi' }, 'newTurn');
+      expect((await session.turnOutcome(turn)).status).toBe('ran');
+      expect(captured.length).toBeGreaterThan(0);
+      return captured[0] ?? [];
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  it('advertises the engine tool table when the host provides none', async () => {
+    const tools = await captureAdvertisedTools(JSON.stringify({ mode: 'auto' }));
+    expect(tools).toContain('Read');
+    expect(tools).toContain('Bash');
+    expect(tools).toContain('Agent');
+    expect(tools).toContain('AskUserQuestion');
+    expect(tools).toContain('TodoList');
+    expect(tools).not.toContain('TowerInit');
+  });
+
+  it('applies the [tools] switch from the policy snapshot', async () => {
+    const tools = await captureAdvertisedTools(
+      JSON.stringify({
+        mode: 'auto',
+        tools_filter: { enabled: [], disabled: ['WebSearch', 'mcp__github__*'] },
+      }),
+    );
+    expect(tools).not.toContain('WebSearch');
+    expect(tools).toContain('FetchURL');
+  }, 15_000);
+});

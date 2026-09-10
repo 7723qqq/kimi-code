@@ -43,6 +43,7 @@ import {
   type ServicesConfig,
   type SubagentConfig,
   type SwarmConfig,
+  type ToolsConfig,
   type ThinkingConfig,
   validateConfig,
 } from './schema';
@@ -359,6 +360,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformLoopControlData(value);
     } else if (targetKey === 'background' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'tools' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'image' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'experimental' && isPlainObject(value)) {
@@ -577,6 +580,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
+  setSection(out, 'tools', config.tools, toolsToToml);
   setSection(out, 'subagent', config.subagent, subagentToToml);
   setSection(out, 'swarm', config.swarm, swarmToToml);
   setSection(out, 'agent', config.agent, agentToToml);
@@ -769,6 +773,14 @@ function backgroundToToml(
 ): Record<string, unknown> {
   const out = cloneRecord(rawBackground);
   for (const [key, value] of Object.entries(background)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function toolsToToml(tools: ToolsConfig, rawTools: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawTools);
+  for (const [key, value] of Object.entries(tools)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

@@ -77,6 +77,79 @@ pub fn requires_host(args: &serde_json::Value) -> bool {
     string_arg(args, "model").is_some()
 }
 
+/// The v2 `SubagentTool` description body (condensed from
+/// `agent-core-v2/src/agent/tools/agent/agent*.md`), with the profile list
+/// appended at definition time.
+const AGENT_TOOL_DESCRIPTION: &str = "\
+Launch a subagent to handle a task. The subagent runs as a same-process loop instance with its own context. Delegating also keeps the bulk of intermediate file contents out of your own context — you get a conclusion back instead of a pile of dumps.
+
+Writing the prompt:
+- The subagent starts with zero context — it has not seen this conversation. Brief it like a colleague who just walked into the room: state the goal, list what you already know, hand over the specifics.
+- Lookups (read this file, run that test): put the exact path or command in the prompt. The subagent should not have to search for things you already know.
+- Investigations (figure out X, find why Y): give the question, not prescribed steps — fixed steps become dead weight when the premise is wrong.
+- Do not delegate understanding. If the task hinges on a file path or line number, find it yourself first and write it into the prompt.
+
+Usage notes:
+- When the task continues earlier work a subagent already did, prefer resuming that agent (pass its `resume` id) over spawning a fresh instance — the resumed agent keeps its prior context.
+- A subagent's result is only visible to you, not to the user. When the user needs to see what a subagent produced, summarize the relevant parts yourself in your own reply.
+- Subagents use a fixed 2-hour timeout. If one times out, resume the same agent instead of starting over.
+- When `run_in_background=true`, the subagent runs detached from this turn. The completion arrives in a later turn as a synthetic user-role message containing its result — you do not need to poll, sleep, or check on its progress. Default to a foreground subagent when your next step needs its result.
+- Context forking: when the task builds on this conversation, pass `fork: true` instead of briefing from scratch — the subagent then starts with a snapshot of your completed history (inheriting your own agent type, tool set, and model), so the prompt only needs the task itself.
+
+When NOT to use Agent: skip delegation for trivial work you can do directly — reading a file whose path you already know, searching a small known set of files, or any task that takes only a step or two. Delegation has a context-handoff cost; it pays off only when the task is substantial enough to outweigh it.
+
+Once a subagent is running, leave that scope to it: do not redo its searches or reads in parallel, and do not abandon it midway and finish the job manually.";
+
+/// The `Agent` tool definition (v2 `SubagentTool`): the subagent spawn /
+/// resume surface. The optional `model` parameter is added when a
+/// secondary-model pool is configured (`[secondary_model]`); without one the
+/// parameter is not advertised, matching v2's `stripSubagentModelParameter`.
+pub fn agent_tool_def() -> crate::turn_loop::types::ToolInfo {
+    let catalog = crate::prompt::profiles::ProfileCatalog::with_builtins();
+    let mut available = String::new();
+    for profile in catalog.list() {
+        available.push_str(&format!("- {}: {}\n", profile.name, profile.description));
+    }
+    let description = format!(
+        "{AGENT_TOOL_DESCRIPTION}\n\nAvailable agent types:\n{}",
+        available.trim_end()
+    );
+    crate::turn_loop::types::ToolInfo {
+        name: "Agent".into(),
+        description,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Full task prompt for the subagent"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Short task description (3-5 words) for UI display"
+                },
+                "subagent_type": {
+                    "type": "string",
+                    "description": "One of the available agent types (see \"Available agent types\" in this tool description). Defaults to \"coder\" when omitted."
+                },
+                "resume": {
+                    "type": "string",
+                    "description": "Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected."
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting."
+                },
+                "fork": {
+                    "type": "boolean",
+                    "description": "Fork the current context: the subagent starts with a snapshot of this agent's completed conversation history instead of zero context, inheriting this agent's agent type, tool set, and model. A non-empty resume is rejected. If subagent_type is provided, it must match this agent's type."
+                }
+            },
+            "required": ["prompt", "description"]
+        }),
+    }
+}
+
 /// The v2 success shape (`formatForegroundAgentSuccess`).
 fn format_success(agent_id: &str, profile: &str, summary: &str) -> String {
     format!(

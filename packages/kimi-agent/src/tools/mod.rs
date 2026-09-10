@@ -109,6 +109,7 @@ pub mod team_tool;
 pub mod todo_item;
 pub mod todo_list;
 pub mod tool_dedupe;
+pub mod tool_policy;
 pub mod tower;
 pub mod web_search;
 
@@ -273,6 +274,9 @@ pub struct NativeToolset {
     /// mutating file tools (`write` / `edit`) record a row into
     /// `session_file_history` for each successful change.
     file_history: Option<FileHistoryCtx>,
+    /// The user's global `[tools]` enable/disable lists (v2 tool policy):
+    /// applied to the advertised table and enforced again before execution.
+    tools_filter: Option<tool_policy::ToolsFilter>,
 }
 
 /// Bundle the native file-history recorder needs: the store handle plus
@@ -354,6 +358,7 @@ impl NativeToolset {
             session_id: None,
             task_runner: None,
             file_history: None,
+            tools_filter: None,
         })
     }
 
@@ -486,6 +491,23 @@ impl NativeToolset {
         self
     }
 
+    /// Attach the user's global `[tools]` switch; every native call must
+    /// survive it even when the model calls a disabled tool from memory.
+    pub fn with_tools_filter(mut self, filter: Option<tool_policy::ToolsFilter>) -> Self {
+        self.tools_filter = filter;
+        self
+    }
+
+    /// The user's global `[tools]` switch, if configured.
+    pub fn tools_filter(&self) -> Option<&tool_policy::ToolsFilter> {
+        self.tools_filter.as_ref()
+    }
+
+    /// Host-resolved `[github]` credentials, when the session has any.
+    pub fn github_credentials(&self) -> Option<&github::GitHubCredentials> {
+        self.github_credentials.as_ref()
+    }
+
     /// Execute a read-only tool natively when supported and inside the
     /// sandbox. `None` means "not handled here — send it to the host".
     pub fn execute(&self, tool_name: &str, args: &Value) -> Option<ExecutableToolResult> {
@@ -551,6 +573,22 @@ impl NativeToolset {
         let caller = self.effective_caller_agent_id();
         if let Some(denial) = crate::subagent::check_btw_tool_denial(Some(caller.as_str())) {
             return Some(denial);
+        }
+
+        // Global `[tools]` switch (v2 tool policy): enforced again before
+        // execution so a disabled tool is refused even when the model calls
+        // it from memory instead of reading the advertised table.
+        if let Some(filter) = &self.tools_filter
+            && filter.blocks_call(tool_name)
+        {
+            return Some(ExecutableToolResult {
+                stop_turn: false,
+                content: format!(
+                    "Tool '{tool_name}' is disabled by the [tools] configuration and cannot run."
+                ),
+                is_error: true,
+                note: Some("tool_policy".into()),
+            });
         }
 
         match tool_name.to_ascii_lowercase().as_str() {
