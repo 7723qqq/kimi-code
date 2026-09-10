@@ -146,11 +146,10 @@ async fn main() -> anyhow::Result<()> {
                 tools_veto: None,
             };
             let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-            let engine = Arc::new(kimi_agent::server::engine::ServerEngine::new(
-                spec,
-                hub,
-                store.clone(),
-            ));
+            let engine = Arc::new(
+                kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone())
+                    .with_max_attempts(config.resolve_max_attempts_per_step()),
+            );
             kimi_agent::acp::AcpServer::with_engine(store, engine)
         } else {
             // No native LLM resolved: the canned-prompt dev/test path. The auth
@@ -1108,7 +1107,8 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // connecting WebSocket clients attach through the same registry, so a turn's
     // events genuinely reach them with the numbering that lane assigns.
     let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone());
+    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone())
+        .with_max_attempts(config.resolve_max_attempts_per_step());
     let mut server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
         .with_auth(auth);

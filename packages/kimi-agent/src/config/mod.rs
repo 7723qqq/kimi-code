@@ -153,6 +153,17 @@ pub struct SecondaryModelConfig {
     pub default_effort: Option<String>,
 }
 
+/// The `[loop_control]` section (v2 `loopControl`): per-step limits the host
+/// threads into the turn loop. `max_retries_per_step` is the deprecated
+/// spelling of `max_attempts_per_step` and still resolves.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LoopControlConfig {
+    #[serde(rename = "max_attempts_per_step", default)]
+    pub max_attempts_per_step: Option<u32>,
+    #[serde(rename = "max_retries_per_step", default)]
+    pub max_retries_per_step: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KimiConfig {
     #[serde(rename = "default_model", default)]
@@ -163,6 +174,10 @@ pub struct KimiConfig {
     pub models: HashMap<String, ModelAliasConfig>,
     #[serde(default)]
     pub agent: AgentConfig,
+    /// Turn-loop limits (v2 `[loop_control]` section); see
+    /// [`KimiConfig::resolve_max_attempts_per_step`].
+    #[serde(rename = "loop_control", default)]
+    pub loop_control: LoopControlConfig,
     #[serde(default)]
     pub permission: Option<PermissionConfig>,
     #[serde(rename = "mcp_servers", default)]
@@ -398,6 +413,18 @@ impl KimiConfig {
         }))
     }
 
+    /// Resolve the per-step LLM attempt cap (v2 `resolveMaxAttemptsPerStep`):
+    /// env `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` > deprecated
+    /// `KIMI_LOOP_MAX_RETRIES_PER_STEP` > `[loop_control].max_attempts_per_step`
+    /// > the deprecated `max_retries_per_step`. `None` keeps the engine
+    /// default (10), so an unset section changes nothing.
+    pub fn resolve_max_attempts_per_step(&self) -> Option<u32> {
+        env_non_negative("KIMI_LOOP_MAX_ATTEMPTS_PER_STEP")
+            .or_else(|| env_non_negative("KIMI_LOOP_MAX_RETRIES_PER_STEP"))
+            .or(self.loop_control.max_attempts_per_step)
+            .or(self.loop_control.max_retries_per_step)
+    }
+
     /// Build a [`PolicySnapshot`] from the configuration.
     pub fn build_policy_snapshot(&self, git_cwd: Option<PathBuf>) -> PolicySnapshot {
         let mode = if self.agent.yolo == Some(true) {
@@ -507,6 +534,13 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
+}
+
+/// Parse a non-negative integer environment variable (v2 `nonNegativeInt`):
+/// an invalid value is ignored so a bad entry degrades to the next source
+/// instead of failing the session.
+fn env_non_negative(name: &str) -> Option<u32> {
+    std::env::var(name).ok()?.trim().parse::<u32>().ok()
 }
 
 #[cfg(test)]
@@ -746,5 +780,87 @@ default_model = "nope"
         .unwrap();
         let error = unresolvable.extract_secondary_model_pool(None).unwrap_err();
         assert!(error.contains("could not be resolved"), "{error}");
+    }
+
+    #[test]
+    fn test_resolve_max_attempts_per_step() {
+        let keys = [
+            "KIMI_LOOP_MAX_ATTEMPTS_PER_STEP",
+            "KIMI_LOOP_MAX_RETRIES_PER_STEP",
+        ];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        // The env vars outrank the file: clear them first so the config-only
+        // precedence below is not poisoned by the developer's shell.
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let explicit = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_attempts_per_step = 3
+"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.resolve_max_attempts_per_step(), Some(3));
+
+        // The deprecated spelling still resolves, but the current key wins.
+        let deprecated = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_retries_per_step = 5
+"#,
+        )
+        .unwrap();
+        assert_eq!(deprecated.resolve_max_attempts_per_step(), Some(5));
+
+        let both = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_attempts_per_step = 3
+max_retries_per_step = 5
+"#,
+        )
+        .unwrap();
+        assert_eq!(both.resolve_max_attempts_per_step(), Some(3));
+
+        // An absent (or empty) section keeps the engine default.
+        assert_eq!(
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .resolve_max_attempts_per_step(),
+            None
+        );
+        assert_eq!(
+            KimiConfig::from_str("[loop_control]\n")
+                .unwrap()
+                .resolve_max_attempts_per_step(),
+            None
+        );
+
+        unsafe {
+            std::env::set_var(keys[0], "7");
+            std::env::set_var(keys[1], "9");
+        }
+        assert_eq!(both.resolve_max_attempts_per_step(), Some(7), "env wins");
+        unsafe { std::env::remove_var(keys[0]) };
+        assert_eq!(
+            both.resolve_max_attempts_per_step(),
+            Some(9),
+            "the deprecated env is the next source"
+        );
+        unsafe { std::env::remove_var(keys[1]) };
+        assert_eq!(both.resolve_max_attempts_per_step(), Some(3), "config next");
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
     }
 }

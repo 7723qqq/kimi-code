@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-local';
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
-import { buildPolicySnapshot, resolveSecondaryModelPool } from '#/native/native-llm-resolver';
+import {
+  buildPolicySnapshot,
+  resolveMaxAttemptsPerStep,
+  resolveSecondaryModelPool,
+} from '#/native/native-llm-resolver';
 
 import { TEST_IDENTITY } from './test-identity';
 
@@ -442,6 +446,35 @@ default_model = "kimi-code/fast"
     );
     expect(resolveSecondaryModelPool(config, false)).toBeUndefined();
     expect(resolveSecondaryModelPool(parseConfigString('', 'no-pool.toml'), true)).toBeUndefined();
+  });
+
+  it('resolves loop_control.max_attempts_per_step with env precedence', () => {
+    const config = parseConfigString(
+      `
+[loop_control]
+max_attempts_per_step = 3
+`,
+      'loop-control.toml',
+    );
+    expect(resolveMaxAttemptsPerStep(config)).toBe(3);
+
+    // The deprecated spelling still resolves, but the current key wins.
+    const deprecated = parseConfigString(
+      `
+[loop_control]
+max_retries_per_step = 5
+`,
+      'loop-control-deprecated.toml',
+    );
+    expect(resolveMaxAttemptsPerStep(deprecated)).toBe(5);
+
+    vi.stubEnv('KIMI_LOOP_MAX_ATTEMPTS_PER_STEP', '7');
+    expect(resolveMaxAttemptsPerStep(config)).toBe(7);
+    vi.unstubAllEnvs();
+
+    vi.stubEnv('KIMI_LOOP_MAX_RETRIES_PER_STEP', '9');
+    expect(resolveMaxAttemptsPerStep(config)).toBe(9);
+    vi.unstubAllEnvs();
   });
 
   it('accepts camelCase aliases without keeping unknown fields in typed config', () => {
