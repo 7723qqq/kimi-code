@@ -75,6 +75,8 @@ const UNWRAPPED_BINDINGS = new Set([
   'sessionBtwPrompt',
   'sessionBtwCancel',
   'sessionGenerateTitle',
+  'sessionCompact',
+  'sessionCancelCompaction',
 ]);
 
 describe.skipIf(wrapper === undefined)('native tools export surface contract', () => {

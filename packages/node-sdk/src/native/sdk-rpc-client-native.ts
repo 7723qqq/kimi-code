@@ -709,7 +709,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   private readonly liveSessions = new Map<string, NativeSessionMeta>();
   private readonly sessionBaseDir: string;
-  private readonly activeCompactionControllers = new Map<string, AbortController>();
+  /** Sessions whose in-flight compaction was cancelled from the host. */
+  private readonly compactionCancels = new Set<string>();
 
   constructor(options: SDKRpcClientNativeOptions = {}) {
     super();
@@ -2112,48 +2113,81 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async compact(input: SessionIdRpcInput & CompactOptions): Promise<void> {
     const meta = this.requireSession(input.sessionId);
     const handle = meta.handle;
-    const historyLen = handle ? await handle.historyLen() : 0;
-    if (historyLen === 0) {
-      throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact');
-    }
     if (!handle) {
       throw new KimiError(
         ErrorCodes.COMPACTION_UNABLE,
         'No engine handle available for compaction',
       );
     }
+    const historyLen = await handle.historyLen();
+    if (historyLen === 0) {
+      throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact');
+    }
+    if (historyLen <= 1) {
+      throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'History too short to compact');
+    }
     const acquired = await handle.tryAcquireQuiescence();
     if (!acquired) {
       throw new KimiError(ErrorCodes.COMPACTION_FAILED, 'Session is busy');
     }
-    const abortCtrl = new AbortController();
-    this.activeCompactionControllers.set(meta.id, abortCtrl);
+    this.compactionCancels.delete(meta.id);
+    this.receiveEvent({
+      type: 'compaction.started',
+      sessionId: meta.id,
+      agentId: 'main',
+      trigger: 'manual',
+      instruction: input.instruction,
+    });
     try {
-      const history = await handle.getHistory();
-      if (history.length <= 1) {
+      // Engine-side: the session's own model writes the summary of the deep
+      // prefix (honoring `instruction`) and the smallest safe tail stays
+      // verbatim — no host-side placeholder message.
+      const report = await handle.compact(input.instruction);
+      if (!report.changed) {
         throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'History too short to compact');
       }
-      const lastMessages = history.slice(-2);
-      const summaryMsg: SessionPrompt = {
-        role: 'user',
-        content: `[Previous conversation summary: ${history.length - 2} messages compacted${input.instruction ? ` (${input.instruction})` : ''}]`,
-      };
-      await handle.setHistory([summaryMsg, ...lastMessages]);
-      meta.messageCount = 1 + lastMessages.length;
+      meta.messageCount = report.messageCount;
       this.persistMeta(meta);
       await this.persistHistory(meta);
+      this.receiveEvent({
+        type: 'compaction.completed',
+        sessionId: meta.id,
+        agentId: 'main',
+        result: {
+          summary: report.summary ?? '',
+          compactedCount: report.compactedCount ?? 0,
+          tokensBefore: report.tokensBefore,
+          tokensAfter: report.tokensAfter,
+        },
+      });
+    } catch (error) {
+      // The transcript's compaction block only closes on a terminal event, so
+      // every failure after `started` must emit one — a user-triggered cancel
+      // resolves silently, any other failure still throws with the real reason.
+      const cancelled = this.compactionCancels.delete(meta.id);
+      this.receiveEvent({
+        type: 'compaction.cancelled',
+        sessionId: meta.id,
+        agentId: 'main',
+      });
+      if (cancelled) return;
+      if (error instanceof KimiError) throw error;
+      throw new KimiError(
+        ErrorCodes.COMPACTION_FAILED,
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
-      this.activeCompactionControllers.delete(meta.id);
       await handle.releaseQuiescence();
     }
   }
 
   override async cancelCompaction(input: SessionIdRpcInput): Promise<void> {
-    this.requireSession(input.sessionId);
-    const ctrl = this.activeCompactionControllers.get(input.sessionId);
-    if (ctrl) {
-      ctrl.abort();
-      this.activeCompactionControllers.delete(input.sessionId);
+    const meta = this.requireSession(input.sessionId);
+    // True only when the engine had a compaction in flight; remembering it
+    // lets `compact` translate the engine's cancellation error into a
+    // `compaction.cancelled` event instead of a failure.
+    if ((await meta.handle?.cancelCompaction()) === true) {
+      this.compactionCancels.add(meta.id);
     }
   }
 

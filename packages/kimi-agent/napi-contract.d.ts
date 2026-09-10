@@ -1263,6 +1263,13 @@ export declare function sessionBtwCancel(agentId: string): boolean
 export declare function sessionBtwPrompt(sessionId: string, agentId: string, prompt: string): object
 
 /**
+ * Abort the compaction `session_compact` is running; true when one was in
+ * flight. The summarizer call is cancelled and the session history keeps
+ * its pre-compaction content.
+ */
+export declare function sessionCancelCompaction(sessionId: string): boolean
+
+/**
  * Cancel a turn by id (active → interrupted at the next step boundary;
  * queued or quiescence-held → dropped with `cancelledBeforeStart`). Without
  * an id the active turn (if any) is cancelled. Returns whether anything was
@@ -1271,6 +1278,19 @@ export declare function sessionBtwPrompt(sessionId: string, agentId: string, pro
 export declare function sessionCancelTurn(sessionId: string, turnId?: number | undefined | null): boolean
 
 export declare function sessionClearHistory(sessionId: string): void
+
+/**
+ * Manually compact the session's cross-turn history with an LLM-written
+ * summary — the embedded `/compact [instruction]` path (v2's compaction
+ * operation). Resolves with a JSON compaction report (`changed`,
+ * `messageCount`, `compactedCount`, `tokensBefore`, `tokensAfter`,
+ * `summary`). Everything up to the deepest safe split is replaced by the
+ * summary, so the smallest safe tail is kept verbatim. The host owns the
+ * quiescence window around this call; cancellation goes through
+ * [`session_cancel_compaction`], and a cancelled compaction leaves the
+ * history untouched.
+ */
+export declare function sessionCompact(sessionId: string, instruction?: string | undefined | null): object
 
 /**
  * Drop the session handle. The engine-owned pump task parks forever once the

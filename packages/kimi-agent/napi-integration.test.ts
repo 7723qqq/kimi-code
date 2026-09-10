@@ -2284,3 +2284,172 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
   });
 });
 
+
+describe.skipIf(!nativeEntry)('napi EngineSessionHandle — manual compaction', () => {
+  /** The summarizer prompt's system message (compaction/mod.rs). */
+  const SUMMARIZER_MARKER = 'conversation summarizer';
+
+  interface LlmChatWire {
+    messages?: Array<{ role?: string; content?: string }>;
+  }
+
+  function isSummarizerCall(request: string): boolean {
+    const parsed = JSON.parse(request) as LlmChatWire;
+    const first = parsed.messages?.[0];
+    return (
+      first?.role === 'system' && (first.content ?? '').includes(SUMMARIZER_MARKER)
+    );
+  }
+
+  it('rewrites the history with the model-written summary', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-compact-sess-'));
+    let summaryCalls = 0;
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'compact-session',
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [],
+      },
+      {
+        llmChat: (request: string) => {
+          if (isSummarizerCall(request)) {
+            summaryCalls += 1;
+            return JSON.stringify({
+              content: 'SUMMARY: the user asked one question.',
+              tool_calls: [],
+              finish_reason: 'stop',
+              usage: { input_tokens: 5, output_tokens: 4, total_tokens: 9 },
+            });
+          }
+          return JSON.stringify({
+            content: 'assistant reply',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+          });
+        },
+        executeTool: () => JSON.stringify({ content: '', is_error: false }),
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+        stateRead: () => JSON.stringify({ value: null }),
+      },
+    );
+    try {
+      const turn = await session.enqueueTurn({ role: 'user', content: 'first question' }, 'newTurn');
+      const outcome = await session.turnOutcome(turn);
+      expect(outcome.status).toBe('ran');
+      expect(await session.historyLen()).toBe(2);
+
+      const report = await session.compact('Focus on decisions.');
+      expect(report.changed).toBe(true);
+      expect(report.summary).toBe('SUMMARY: the user asked one question.');
+      expect(report.compactedCount).toBe(2);
+      expect(report.tokensBefore).toBeGreaterThan(0);
+      expect(summaryCalls).toBe(1);
+
+      const history = await session.getHistory();
+      expect(history).toHaveLength(report.messageCount);
+      expect(history[0]?.content).toBe('SUMMARY: the user asked one question.');
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves an uncompactable history untouched without calling the model', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-compact-noop-'));
+    let summaryCalls = 0;
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'compact-noop',
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [],
+      },
+      {
+        llmChat: (request: string) => {
+          if (isSummarizerCall(request)) {
+            summaryCalls += 1;
+          }
+          return JSON.stringify({
+            content: 'assistant reply',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        },
+        executeTool: () => JSON.stringify({ content: '', is_error: false }),
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+      },
+    );
+    try {
+      await session.setHistory([{ role: 'user', content: 'only a user message' }]);
+      const report = await session.compact();
+      expect(report.changed).toBe(false);
+      expect(report.messageCount).toBe(1);
+      expect(summaryCalls).toBe(0);
+      expect(await session.historyLen()).toBe(1);
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('cancels an in-flight compaction and keeps the pre-compaction history', async () => {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-compact-cancel-'));
+    const session = await EngineSessionHandle.create(
+      {
+        ...validParams,
+        turnId: 'compact-cancel',
+        maxSteps: 2,
+        workspaceRoot,
+        nativeTools: true,
+        tools: [],
+      },
+      {
+        llmChat: (request: string) => {
+          if (isSummarizerCall(request)) {
+            // Retryable transport failure: the engine enters its backoff,
+            // which is where the cancel lands.
+            throw new Error('llm transport error connection refused');
+          }
+          return JSON.stringify({
+            content: 'assistant reply',
+            tool_calls: [],
+            finish_reason: 'stop',
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+          });
+        },
+        executeTool: () => JSON.stringify({ content: '', is_error: false }),
+        checkPermission: () => JSON.stringify({ decision: 'allow' }),
+      },
+    );
+    try {
+      const turn = await session.enqueueTurn({ role: 'user', content: 'first question' }, 'newTurn');
+      expect((await session.turnOutcome(turn)).status).toBe('ran');
+      const before = await session.historyLen();
+
+      const compacting = session.compact();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(await session.cancelCompaction()).toBe(true);
+      await expect(compacting).rejects.toThrow(/cancelled/i);
+
+      expect(await session.historyLen()).toBe(before);
+      // Nothing is left in flight, so a second cancel has nothing to abort.
+      expect(await session.cancelCompaction()).toBe(false);
+    } finally {
+      await session.dispose();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});

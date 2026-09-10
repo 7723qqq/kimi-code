@@ -437,13 +437,15 @@ fn telemetry_payload(
 /// `AbortSignal`, generate.ts:154-202). The polling watcher exits when the
 /// flag fires or when this guard drops at any turn exit; the 25ms poll is
 /// the mid-stream cancellation latency ceiling.
-struct TurnCancellation {
+pub(crate) struct TurnCancellation {
     token: tokio_util::sync::CancellationToken,
     _shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl TurnCancellation {
-    fn from_flag(flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Self {
+    pub(crate) fn from_flag(
+        flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Self {
         let token = tokio_util::sync::CancellationToken::new();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         if let Some(flag) = flag {
@@ -465,7 +467,7 @@ impl TurnCancellation {
         }
     }
 
-    fn token(&self) -> &tokio_util::sync::CancellationToken {
+    pub(crate) fn token(&self) -> &tokio_util::sync::CancellationToken {
         &self.token
     }
 }
@@ -702,6 +704,7 @@ pub fn run_turn<'a>(
                 &compaction_config,
                 input.llm,
                 None,
+                Some(turn_cancel.token()),
             )
             .await;
             if compacted.len() != messages.len() {
@@ -805,6 +808,7 @@ pub fn run_turn<'a>(
                                 &compaction_config,
                                 input.llm,
                                 None,
+                                Some(turn_cancel.token()),
                             )
                             .await;
                         if force_compacted.len() < messages.len() {

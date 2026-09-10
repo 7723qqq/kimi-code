@@ -37,6 +37,20 @@ export type SessionAdmission =
  */
 export type SessionTitleSource = 'first_turn' | 'user_prompts';
 
+/** The engine's `/compact` report (v2 `CompactionResult`). */
+export interface SessionCompactionReport {
+  /** False when no safe split exists — the history was left untouched. */
+  changed: boolean;
+  /** History length after the compaction (unchanged when `changed` is false). */
+  messageCount: number;
+  /** Messages replaced by the summary; absent when nothing was compacted. */
+  compactedCount?: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  /** The LLM-written summary; absent when nothing was compacted. */
+  summary?: string;
+}
+
 /** The outcome of one enqueued turn (engine-side failures reject the promise). */
 export interface SessionTurnOutcome {
   status: 'ran' | 'cancelledBeforeStart';
@@ -127,6 +141,8 @@ interface SessionNativeModule {
   ): Promise<{ content: string; stopReason: string }>;
   sessionBtwCancel(agentId: string): boolean;
   sessionGenerateTitle(sessionId: string, source?: SessionTitleSource): string | null;
+  sessionCompact(sessionId: string, instruction?: string): Promise<string>;
+  sessionCancelCompaction(sessionId: string): boolean;
   getCallbackPayload(id: number): string | null;
   resolveCallback(id: number, error: string | null, result: string | null): void;
 }
@@ -357,6 +373,27 @@ export class EngineSessionHandle {
     return this.transport.generateTitle(this.id, source);
   }
 
+  /**
+   * Compact this session's history engine-side: the model writes a summary of
+   * the deep prefix (honoring the optional `instruction`) and only the
+   * smallest safe tail stays verbatim. Resolves with the engine's report. The
+   * caller owns the quiescence window around the call.
+   */
+  async compact(instruction?: string): Promise<SessionCompactionReport> {
+    if (!this.transport.compact) {
+      throw new Error('compaction is not supported on this session transport');
+    }
+    return this.transport.compact(this.id, instruction);
+  }
+
+  /** Abort a running {@link compact}; true when one was in flight. */
+  async cancelCompaction(): Promise<boolean> {
+    if (!this.transport.cancelCompaction) {
+      throw new Error('compaction is not supported on this session transport');
+    }
+    return this.transport.cancelCompaction(this.id);
+  }
+
   dispose(): Promise<void> {
     return this.transport.dispose(this.id);
   }
@@ -400,6 +437,9 @@ export interface SessionTransport {
   ): Promise<{ content: string; stopReason: string }>;
   btwCancel?(agentId: string): Promise<boolean>;
   generateTitle?(sessionId: string, source?: SessionTitleSource): Promise<string | null>;
+  /** Compact with an engine-written LLM summary; resolves with the engine's report. */
+  compact?(sessionId: string, instruction?: string): Promise<SessionCompactionReport>;
+  cancelCompaction?(sessionId: string): Promise<boolean>;
 }
 
 /** The napi addon transport: the callback registry + session.* module calls. */
@@ -546,5 +586,13 @@ class NapiSessionTransport implements SessionTransport {
 
   async generateTitle(sessionId: string, source?: SessionTitleSource): Promise<string | null> {
     return this.mod.sessionGenerateTitle(sessionId, source) ?? null;
+  }
+
+  async compact(sessionId: string, instruction?: string): Promise<SessionCompactionReport> {
+    return JSON.parse(await this.mod.sessionCompact(sessionId, instruction)) as SessionCompactionReport;
+  }
+
+  async cancelCompaction(sessionId: string): Promise<boolean> {
+    return this.mod.sessionCancelCompaction(sessionId);
   }
 }

@@ -123,6 +123,13 @@ static NEXT_CALLBACK_ID: AtomicU32 = AtomicU32::new(1);
 static CANCEL_MAP: LazyLock<Mutex<HashMap<String, crate::subagent::types::ParentCancel>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// In-flight compaction cancel flags keyed by session id. `session_compact`
+/// registers one for the duration of the summarizer call;
+/// `session_cancel_compaction` triggers it so a long summarizer request can
+/// be aborted from the UI instead of finishing the manual `/compact`.
+static COMPACTION_CANCEL: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Process-wide subagent manager (P28). Instance state (running/completed
 /// subagents) survives across turns; the execution runtime is re-injected
 /// per turn because llm/callbacks are turn-scoped.
@@ -1670,6 +1677,12 @@ struct SessionEntry {
     turn_event_count: Arc<std::sync::atomic::AtomicU32>,
     native_tool_count: Arc<std::sync::atomic::AtomicU32>,
     llm_transport: String,
+    /// The session's own LLM, kept for operations that run outside a turn
+    /// (the `/compact` summarizer call).
+    llm: Arc<dyn LLM>,
+    /// The context window the host resolved for the session's model, used to
+    /// derive the compaction config for `/compact`.
+    max_context_tokens: Option<u32>,
     /// The live quiescence guard (M1c RAII). Acquire stores it; release drops
     /// it — the drop replays held turns and wakes the pump.
     quiescence_guard: Arc<Mutex<Option<crate::session::QuiescenceGuard>>>,
@@ -1875,6 +1888,8 @@ pub fn create_engine_session(
                         turn_event_count: pipeline.turn_event_count,
                         native_tool_count: pipeline.native_tool_count,
                         llm_transport: pipeline.llm.transport().to_string(),
+                        llm: pipeline.llm.clone(),
+                        max_context_tokens: params.max_context_tokens,
                         quiescence_guard: Arc::new(Mutex::new(None)),
                     },
                 );
@@ -2264,6 +2279,121 @@ pub fn session_generate_title(
         crate::session::sqlite_store::derive_session_title(&history, source.as_deref())
             .map_err(napi::Error::from_reason)
     })
+}
+
+/// Manually compact the session's cross-turn history with an LLM-written
+/// summary — the embedded `/compact [instruction]` path (v2's compaction
+/// operation). Resolves with a JSON compaction report (`changed`,
+/// `messageCount`, `compactedCount`, `tokensBefore`, `tokensAfter`,
+/// `summary`). Everything up to the deepest safe split is replaced by the
+/// summary, so the smallest safe tail is kept verbatim. The host owns the
+/// quiescence window around this call; cancellation goes through
+/// [`session_cancel_compaction`], and a cancelled compaction leaves the
+/// history untouched.
+#[napi]
+pub fn session_compact(
+    env: Env,
+    session_id: String,
+    instruction: Option<String>,
+) -> napi::Result<JsObject> {
+    let entry = session_entry(&session_id)?;
+    let flag = Arc::new(AtomicBool::new(false));
+    COMPACTION_CANCEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(session_id.clone(), flag.clone());
+    env.execute_tokio_future(
+        async move {
+            let result = compact_session_with_summary(&entry, instruction, &flag).await;
+            COMPACTION_CANCEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&session_id);
+            result
+        },
+        |env, report: serde_json::Value| {
+            env.create_string_from_std(
+                serde_json::to_string(&report).unwrap_or_else(|e| e.to_string()),
+            )
+        },
+    )
+}
+
+/// Abort the compaction `session_compact` is running; true when one was in
+/// flight. The summarizer call is cancelled and the session history keeps
+/// its pre-compaction content.
+#[napi]
+pub fn session_cancel_compaction(session_id: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let flag = COMPACTION_CANCEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&session_id)
+            .cloned();
+        match flag {
+            Some(flag) => {
+                flag.store(true, Ordering::Relaxed);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    })
+}
+
+/// Compact `entry`'s history with the session's own LLM. The system prompt
+/// heads the working list and is never compacted (it is stripped again before
+/// the result is stored); injection messages survive the trim exactly as they
+/// do in the turn loop.
+async fn compact_session_with_summary(
+    entry: &SessionEntry,
+    instruction: Option<String>,
+    flag: &Arc<AtomicBool>,
+) -> napi::Result<serde_json::Value> {
+    let llm = entry.llm.clone();
+    let history = entry.session.snapshot_history();
+    let mut messages = vec![LLMMessage::system(llm.system_prompt())];
+    messages.extend(history);
+    let config = crate::compaction::config_for_window(entry.max_context_tokens);
+    let injections = crate::injection::split_injections(&mut messages);
+    let tokens_before = crate::compaction::estimate_messages_tokens(&messages);
+    let count = crate::compaction::compute_compact_count_manual(&messages, &config);
+    if count == 0 {
+        return Ok(serde_json::json!({
+            "changed": false,
+            "messageCount": messages.len() - 1 + injections.len(),
+            "tokensBefore": tokens_before,
+            "tokensAfter": tokens_before,
+        }));
+    }
+    let cancel = crate::turn_loop::run_turn::TurnCancellation::from_flag(Some(flag.clone()));
+    let compacted = crate::compaction::force_compact_messages_manual_with_summary(
+        &messages,
+        &config,
+        llm.as_ref(),
+        instruction.as_deref(),
+        Some(cancel.token()),
+    )
+    .await;
+    if flag.load(Ordering::Relaxed) {
+        return Err(napi::Error::from_reason("compaction cancelled"));
+    }
+    let summary = compacted
+        .get(1)
+        .map(|m| m.content.clone())
+        .unwrap_or_default();
+    let tokens_after = crate::compaction::estimate_messages_tokens(&compacted);
+    let mut new_history = compacted[1..].to_vec();
+    new_history.extend(injections);
+    let message_count = new_history.len() as u32;
+    entry.session.set_history(new_history);
+    Ok(serde_json::json!({
+        "changed": true,
+        "messageCount": message_count,
+        "compactedCount": count - 1,
+        "tokensBefore": tokens_before,
+        "tokensAfter": tokens_after,
+        "summary": summary,
+    }))
 }
 
 /// Every registered background task's entry wire, oldest first, output
