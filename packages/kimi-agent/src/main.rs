@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         } else {
             kimi_agent::config::KimiConfig::discover().map_err(|e| anyhow::anyhow!("{e}"))?
         };
+        install_web_services(&config);
 
         let acp_server = if let Some(native) = config.extract_native_llm(cli.model.as_deref()) {
             let workspace = std::env::current_dir()?;
@@ -188,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
             kimi_agent::config::KimiConfig::discover().map_err(|e| anyhow::anyhow!("{e}"))?
         };
         let cwd = std::env::current_dir()?;
+        install_web_services(&config);
         return kimi_agent::repl::start_repl(config, cwd, cli.model).await;
     }
 
@@ -1019,6 +1021,28 @@ fn with_loop_control(
     }
 }
 
+/// Install the standalone entries' `[services.moonshot_*]` backends from
+/// `config.toml` (env `KIMI_WEB_*` wins; see
+/// [`kimi_agent::config::KimiConfig::resolve_web_search_service`]). The
+/// host-driven entries (napi / stdio RPC) pass a host-resolved pair through
+/// session params; this covers the entries that read the file themselves.
+/// Called once per process — the tool seam is process-global by design.
+fn install_web_services(config: &kimi_agent::config::KimiConfig) {
+    let to_seam = |service: kimi_agent::config::ResolvedWebService| {
+        kimi_agent::tools::moonshot_service::MoonshotServiceConfig {
+            base_url: service.base_url,
+            api_key: service.api_key,
+            custom_headers: service.custom_headers,
+        }
+    };
+    kimi_agent::tools::web_search::set_service_config(
+        config.resolve_web_search_service().map(to_seam),
+    );
+    kimi_agent::tools::fetch_url::set_service_config(
+        config.resolve_web_fetch_service().map(to_seam),
+    );
+}
+
 /// The composition root for the standalone server: config -> `PipelineSpec` ->
 /// `ServerEngine` -> `HttpServer` -> TCP listener.
 ///
@@ -1062,6 +1086,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         None => kimi_agent::config::KimiConfig::discover()
             .map_err(|error| anyhow::anyhow!("{error}"))?,
     };
+    install_web_services(&config);
 
     let native = config.extract_native_llm(cli.model.as_deref()).ok_or_else(|| {
         anyhow::anyhow!(

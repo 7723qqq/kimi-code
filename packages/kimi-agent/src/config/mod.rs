@@ -159,6 +159,38 @@ pub struct GitHubConfig {
     pub base_url: Option<String>,
 }
 
+/// One `[services.moonshot_search]` / `[services.moonshot_fetch]` entry (v2
+/// `MoonshotServiceConfig`). Snake_case is the file contract; the camelCase
+/// aliases match the spelling the host schema also accepts.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MoonshotServiceConfig {
+    #[serde(rename = "base_url", alias = "baseUrl", default)]
+    pub base_url: Option<String>,
+    #[serde(rename = "api_key", alias = "apiKey", default)]
+    pub api_key: Option<String>,
+    #[serde(rename = "custom_headers", alias = "customHeaders", default)]
+    pub custom_headers: Option<HashMap<String, String>>,
+}
+
+/// The `[services]` section (v2 `configSection.ts`): optional Moonshot
+/// backends that replace (search) or front (fetch) the built-in web tools.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServicesConfig {
+    #[serde(rename = "moonshot_search", alias = "moonshotSearch", default)]
+    pub moonshot_search: Option<MoonshotServiceConfig>,
+    #[serde(rename = "moonshot_fetch", alias = "moonshotFetch", default)]
+    pub moonshot_fetch: Option<MoonshotServiceConfig>,
+}
+
+/// One web-service backend after the `KIMI_WEB_*` env overlay, ready for the
+/// native tool seam.
+#[derive(Debug, Clone)]
+pub struct ResolvedWebService {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub custom_headers: HashMap<String, String>,
+}
+
 /// The `[secondary_model]` subagent model pool section (v2
 /// `session/subagent/configSection.ts`): either a declared pool
 /// (`default_model` + the `models` alias table) or the recipe shape
@@ -237,6 +269,10 @@ pub struct KimiConfig {
     pub mcp: McpTimeoutConfig,
     #[serde(default)]
     pub github: GitHubConfig,
+    /// `[services]` web-service backends (v2 `configSection.ts`); see
+    /// [`KimiConfig::resolve_web_search_service`].
+    #[serde(default)]
+    pub services: ServicesConfig,
     /// Subagent model pool (v2 `[secondary_model]` section); see
     /// [`KimiConfig::extract_secondary_model_pool`].
     #[serde(rename = "secondary_model", default)]
@@ -516,6 +552,30 @@ impl KimiConfig {
         Some(value.to_string())
     }
 
+    /// Resolve `[services.moonshot_search]` into the native WebSearch backend
+    /// (v2 `isolateEnvServiceCredentials`: env `KIMI_WEB_SEARCH_BASE_URL` /
+    /// `KIMI_WEB_SEARCH_API_KEY` over `config.toml`). An `oauth`-only entry
+    /// (managed login) resolves without a credential, mirroring the host
+    /// resolver; the tools then report or fall back accordingly.
+    pub fn resolve_web_search_service(&self) -> Option<ResolvedWebService> {
+        resolve_web_service(
+            self.services.moonshot_search.as_ref(),
+            "KIMI_WEB_SEARCH_BASE_URL",
+            "KIMI_WEB_SEARCH_API_KEY",
+        )
+    }
+
+    /// Resolve `[services.moonshot_fetch]` into the native FetchURL backend
+    /// (env `KIMI_WEB_FETCH_BASE_URL` / `KIMI_WEB_FETCH_API_KEY` over
+    /// `config.toml`).
+    pub fn resolve_web_fetch_service(&self) -> Option<ResolvedWebService> {
+        resolve_web_service(
+            self.services.moonshot_fetch.as_ref(),
+            "KIMI_WEB_FETCH_BASE_URL",
+            "KIMI_WEB_FETCH_API_KEY",
+        )
+    }
+
     /// Build a [`PolicySnapshot`] from the configuration.
     pub fn build_policy_snapshot(&self, git_cwd: Option<PathBuf>) -> PolicySnapshot {
         let mode = if self.agent.yolo == Some(true) {
@@ -565,6 +625,45 @@ impl KimiConfig {
             pre_tool_hooks: self.hooks.clone(),
         }
     }
+}
+
+/// A non-blank trimmed string (v2 `nonBlankEnv` / `nonEmptyString`).
+fn non_blank(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Resolve one `[services.moonshot_*]` entry with its `KIMI_WEB_*` env
+/// overlay (v2 `isolateEnvServiceCredentials`): an env base URL is a
+/// credential boundary — persisted api keys and custom headers never cross
+/// into an env-selected endpoint — otherwise the env api key outranks the
+/// persisted one. A missing (or blank) base URL resolves to `None`, leaving
+/// the tool on its built-in path.
+fn resolve_web_service(
+    service: Option<&MoonshotServiceConfig>,
+    base_url_env: &str,
+    api_key_env: &str,
+) -> Option<ResolvedWebService> {
+    let env_base_url = non_blank(std::env::var(base_url_env).ok().as_deref());
+    let env_api_key = non_blank(std::env::var(api_key_env).ok().as_deref());
+    if let Some(base_url) = env_base_url {
+        return Some(ResolvedWebService {
+            base_url,
+            api_key: env_api_key,
+            custom_headers: HashMap::new(),
+        });
+    }
+    let service = service?;
+    let base_url = non_blank(service.base_url.as_deref())?;
+    Some(ResolvedWebService {
+        base_url,
+        api_key: env_api_key.or_else(|| non_blank(service.api_key.as_deref())),
+        custom_headers: service.custom_headers.clone().unwrap_or_default(),
+    })
 }
 
 fn normalize_base_url(url: &str, protocol: &str) -> String {
@@ -1021,6 +1120,135 @@ max_steps_per_turn = 0
             match saved {
                 Some(value) => std::env::set_var(key, value),
                 None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    const SERVICES_CONFIG: &str = r#"
+[services.moonshot_search]
+base_url = "https://search.example.test/v1"
+api_key = "sk-search"
+custom_headers = { "X-Trace" = "t1" }
+
+[services.moonshotFetch]
+baseUrl = "https://fetch.example.test/v1"
+apiKey = "sk-fetch"
+"#;
+
+    #[test]
+    fn test_parse_services_config() {
+        // Snake_case is the file contract; the camelCase section + keys parse
+        // too (the host schema accepts both spellings).
+        let config = KimiConfig::from_str(SERVICES_CONFIG).unwrap();
+        let search = config.services.moonshot_search.as_ref().unwrap();
+        assert_eq!(
+            search.base_url.as_deref(),
+            Some("https://search.example.test/v1")
+        );
+        assert_eq!(search.api_key.as_deref(), Some("sk-search"));
+        assert_eq!(
+            search
+                .custom_headers
+                .as_ref()
+                .unwrap()
+                .get("X-Trace")
+                .map(String::as_str),
+            Some("t1")
+        );
+        let fetch = config.services.moonshot_fetch.as_ref().unwrap();
+        assert_eq!(
+            fetch.base_url.as_deref(),
+            Some("https://fetch.example.test/v1")
+        );
+        assert_eq!(fetch.api_key.as_deref(), Some("sk-fetch"));
+        // An absent section stays inert.
+        assert!(
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .services
+                .moonshot_search
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_resolve_web_services_env_overlay() {
+        let keys = [
+            "KIMI_WEB_SEARCH_BASE_URL",
+            "KIMI_WEB_SEARCH_API_KEY",
+            "KIMI_WEB_FETCH_BASE_URL",
+            "KIMI_WEB_FETCH_API_KEY",
+        ];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        // The env vars outrank the file: clear them first so the config-only
+        // precedence below is not poisoned by the developer's shell.
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let config = KimiConfig::from_str(SERVICES_CONFIG).unwrap();
+        let search = config.resolve_web_search_service().unwrap();
+        assert_eq!(search.base_url, "https://search.example.test/v1");
+        assert_eq!(search.api_key.as_deref(), Some("sk-search"));
+        assert_eq!(search.custom_headers.len(), 1);
+
+        // An env api key outranks the persisted one; config headers stay.
+        unsafe { std::env::set_var("KIMI_WEB_SEARCH_API_KEY", "sk-env") };
+        let search = config.resolve_web_search_service().unwrap();
+        assert_eq!(search.api_key.as_deref(), Some("sk-env"));
+        assert_eq!(search.custom_headers.len(), 1);
+
+        // An env base URL is a credential boundary: the persisted key and
+        // headers never cross into it, and a blank env key is unset rather
+        // than the config key.
+        unsafe {
+            std::env::set_var(
+                "KIMI_WEB_SEARCH_BASE_URL",
+                "https://env.example.test/search",
+            );
+            std::env::set_var("KIMI_WEB_SEARCH_API_KEY", "  ");
+        }
+        let search = config.resolve_web_search_service().unwrap();
+        assert_eq!(search.base_url, "https://env.example.test/search");
+        assert_eq!(search.api_key, None);
+        assert!(search.custom_headers.is_empty());
+
+        // The fetch entry resolves independently of the search env overlay.
+        assert_eq!(
+            config
+                .resolve_web_fetch_service()
+                .unwrap()
+                .api_key
+                .as_deref(),
+            Some("sk-fetch")
+        );
+
+        // A blank base URL (and an absent entry) resolve to None.
+        unsafe { std::env::remove_var("KIMI_WEB_SEARCH_BASE_URL") };
+        let blank = KimiConfig::from_str(
+            r#"
+[services.moonshot_search]
+base_url = "   "
+api_key = "sk-search"
+"#,
+        )
+        .unwrap();
+        assert!(blank.resolve_web_search_service().is_none());
+        assert!(
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .resolve_web_search_service()
+                .is_none()
+        );
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
             }
         }
     }
