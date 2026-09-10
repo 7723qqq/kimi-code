@@ -169,6 +169,16 @@ pub struct LoopControlConfig {
     pub max_retries_per_step: Option<u32>,
 }
 
+/// The `[thinking]` section (v2 `thinking`): the enable switch and the
+/// preserved-thinking passthrough (`keep`) it gates.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThinkingConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub keep: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KimiConfig {
     #[serde(rename = "default_model", default)]
@@ -183,6 +193,10 @@ pub struct KimiConfig {
     /// [`KimiConfig::resolve_max_attempts_per_step`].
     #[serde(rename = "loop_control", default)]
     pub loop_control: LoopControlConfig,
+    /// Thinking configuration (v2 `[thinking]` section); see
+    /// [`KimiConfig::resolve_thinking_keep`].
+    #[serde(default)]
+    pub thinking: ThinkingConfig,
     #[serde(default)]
     pub permission: Option<PermissionConfig>,
     #[serde(rename = "mcp_servers", default)]
@@ -392,6 +406,7 @@ impl KimiConfig {
             ));
         }
 
+        let thinking_keep = self.resolve_thinking_keep();
         let models = entries
             .into_iter()
             .map(|(alias, hint)| {
@@ -403,7 +418,11 @@ impl KimiConfig {
                 Ok(SecondaryModelEntry {
                     alias,
                     hint,
-                    llm: native_llm_config(resolved, section.default_effort.as_deref()),
+                    llm: native_llm_config(
+                        resolved,
+                        section.default_effort.as_deref(),
+                        thinking_keep.as_deref(),
+                    ),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -440,6 +459,30 @@ impl KimiConfig {
             .or(self.loop_control.max_steps_per_turn)
             .or(self.loop_control.max_steps_per_run)
             .filter(|value| *value > 0)
+    }
+
+    /// Resolve the preserved-thinking passthrough (v2 `resolveThinkingKeep`):
+    /// env `KIMI_MODEL_THINKING_KEEP` > `[thinking].keep`. Off values
+    /// (`false`/`0`/`no`/`off`/`none`/`null`) and `[thinking].enabled = false`
+    /// resolve to `None`; unset stays `None` — the native wire is opt-in,
+    /// unlike the host-proxy path's `"all"` default.
+    pub fn resolve_thinking_keep(&self) -> Option<String> {
+        if self.thinking.enabled == Some(false) {
+            return None;
+        }
+        let raw = std::env::var("KIMI_MODEL_THINKING_KEEP")
+            .ok()
+            .or_else(|| self.thinking.keep.clone())?;
+        let value = raw.trim();
+        if value.is_empty()
+            || matches!(
+                value.to_ascii_lowercase().as_str(),
+                "false" | "0" | "no" | "off" | "none" | "null"
+            )
+        {
+            return None;
+        }
+        Some(value.to_string())
     }
 
     /// Build a [`PolicySnapshot`] from the configuration.
@@ -512,7 +555,12 @@ fn normalize_base_url(url: &str, protocol: &str) -> String {
 /// pool-level `default_effort` the way the host's `resolveNativeLlmForAlias`
 /// does: an anthropic entry gets a thinking budget, an OpenAI-compatible one
 /// the `reasoning_effort` passthrough (off values never enable thinking).
-fn native_llm_config(resolved: ResolvedNativeLlm, effort: Option<&str>) -> NativeLlmConfig {
+/// `thinking_keep` rides every entry, exactly as the host sets it.
+fn native_llm_config(
+    resolved: ResolvedNativeLlm,
+    effort: Option<&str>,
+    thinking_keep: Option<&str>,
+) -> NativeLlmConfig {
     let mut llm = NativeLlmConfig {
         protocol: resolved.protocol,
         base_url: resolved.base_url,
@@ -523,7 +571,7 @@ fn native_llm_config(resolved: ResolvedNativeLlm, effort: Option<&str>) -> Nativ
         reasoning_effort: None,
         thinking_budget: None,
         auth_provider: None,
-        thinking_keep: None,
+        thinking_keep: thinking_keep.map(str::to_string),
     };
     if let Some(effort) = effort
         && effort != "off"
@@ -937,6 +985,77 @@ max_steps_per_turn = 0
             None,
             "an env 0 means unlimited and outranks the config"
         );
+
+        unsafe {
+            match saved {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn test_resolve_thinking_keep() {
+        let key = "KIMI_MODEL_THINKING_KEEP";
+        let saved = std::env::var(key).ok();
+        unsafe { std::env::remove_var(key) };
+
+        let explicit = KimiConfig::from_str(
+            r#"
+[thinking]
+keep = "all"
+"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.resolve_thinking_keep().as_deref(), Some("all"));
+
+        // Off values disable the passthrough; unset stays opt-in (no keep).
+        let off = KimiConfig::from_str(
+            r#"
+[thinking]
+keep = "off"
+"#,
+        )
+        .unwrap();
+        assert_eq!(off.resolve_thinking_keep(), None);
+        assert_eq!(
+            KimiConfig::from_str(SAMPLE_CONFIG).unwrap().resolve_thinking_keep(),
+            None
+        );
+
+        // `enabled = false` gates the passthrough off.
+        let disabled = KimiConfig::from_str(
+            r#"
+[thinking]
+enabled = false
+keep = "all"
+"#,
+        )
+        .unwrap();
+        assert_eq!(disabled.resolve_thinking_keep(), None);
+
+        // Env outranks the file, off values included.
+        unsafe { std::env::set_var(key, "all") };
+        assert_eq!(off.resolve_thinking_keep().as_deref(), Some("all"));
+        unsafe { std::env::set_var(key, "none") };
+        assert_eq!(explicit.resolve_thinking_keep(), None);
+
+        // Every `[secondary_model]` entry rides the same passthrough.
+        unsafe { std::env::remove_var(key) };
+        let pool = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[thinking]
+keep = "all"
+
+[secondary_model]
+default_model = "fast"
+"#
+        ))
+        .unwrap()
+        .extract_secondary_model_pool(None)
+        .unwrap()
+        .unwrap();
+        assert_eq!(pool.models[0].llm.thinking_keep.as_deref(), Some("all"));
 
         unsafe {
             match saved {
