@@ -256,6 +256,8 @@ export interface RustEngineOptions {
   getSubagentTimeoutMs?: () => number | undefined;
   getSwarmTimeoutMs?: () => number | undefined;
   getMaxAttemptsPerStep?: () => number | undefined;
+  /** Per-turn step cap; `undefined` keeps the engine's unbounded default. */
+  getMaxStepsPerTurn?: () => number | undefined;
   getWebServices?: () => { webSearch?: WebServiceWire; webFetch?: WebServiceWire } | undefined;
   /**
    * Called once per completed turn with the result handed back to v2. The host
@@ -2580,6 +2582,7 @@ export function createRunTurnOverride(
     const subagentTimeoutMs = input.subagentTimeoutMs ?? options?.getSubagentTimeoutMs?.();
     const swarmTimeoutMs = input.swarmTimeoutMs ?? options?.getSwarmTimeoutMs?.();
     const maxAttempts = input.maxAttempts ?? options?.getMaxAttemptsPerStep?.();
+    const maxSteps = input.maxSteps ?? options?.getMaxStepsPerTurn?.();
     const webServices = options?.getWebServices?.();
     const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
     const stateRead = input.stateRead?.bind(input) ?? options?.stateRead;
@@ -2644,6 +2647,7 @@ export function createRunTurnOverride(
         subagentTimeoutMs,
         swarmTimeoutMs,
         maxAttempts,
+        maxSteps,
         webServices,
         agentToolVeto: input.agentToolVeto,
         toolsVeto: input.toolsVeto,
@@ -2668,7 +2672,7 @@ export function createRunTurnOverride(
           modelName: input.llm.modelAlias,
           messages: [],
           tools: [],
-          maxSteps: input.maxSteps,
+          maxSteps,
           maxContextTokens: input.maxContextTokens,
           nativeLlm:
             nativeLlm === undefined

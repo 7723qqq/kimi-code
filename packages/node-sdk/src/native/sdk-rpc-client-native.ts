@@ -125,6 +125,7 @@ import {
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
   resolveMaxAttemptsPerStep,
+  resolveMaxStepsPerTurn,
   resolveWebSearchService,
   resolveWebFetchService,
   type JsNativeLlmConfig,
@@ -1090,6 +1091,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const subagentTimeoutMs = resolveSubagentTimeoutMs(config);
     const swarmTimeoutMs = resolveSwarmTimeoutMs(config);
     const maxAttempts = resolveMaxAttemptsPerStep(config);
+    const maxSteps = resolveMaxStepsPerTurn(config);
     const webSearch = resolveWebSearchService(config);
     const webFetch = resolveWebFetchService(config);
     const authToken =
@@ -1131,6 +1133,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       subagentTimeoutMs: subagentTimeoutMs ?? undefined,
       swarmTimeoutMs: swarmTimeoutMs ?? undefined,
       maxAttempts: maxAttempts ?? undefined,
+      maxSteps: maxSteps ?? undefined,
       webSearch: webSearch ?? undefined,
       webFetch: webFetch ?? undefined,
       ...(githubCreds.githubToken ? { githubToken: githubCreds.githubToken } : {}),

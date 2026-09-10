@@ -20,6 +20,7 @@ import {
   resolveConfigPath,
   resolveKimiHome,
   resolveMaxAttemptsPerStep,
+  resolveMaxStepsPerTurn,
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
   resolveThinkingKeep,
@@ -545,6 +546,11 @@ async function resolveRustEngine(
       const reloaded = loadRuntimeConfigSafe(resolvedConfig);
       if (reloaded.fileError !== undefined) return undefined;
       return resolveMaxAttemptsPerStep(reloaded.config);
+    },
+    getMaxStepsPerTurn: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveMaxStepsPerTurn(reloaded.config);
     },
     getWebServices: () => {
       const reloaded = loadRuntimeConfigSafe(resolvedConfig);

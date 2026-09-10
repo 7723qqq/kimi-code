@@ -387,6 +387,21 @@ export function resolveMaxAttemptsPerStep(config: {
   );
 }
 
+/**
+ * Per-turn step cap (`loopControl.maxStepsPerTurn`; env
+ * `KIMI_LOOP_MAX_STEPS_PER_TURN` wins). `0` and unset both mean unlimited
+ * (v2 `loopService.ts` only enforces a positive cap), so both resolve to
+ * `undefined` and the engine keeps its own default.
+ */
+export function resolveMaxStepsPerTurn(config: {
+  loopControl?: { maxStepsPerTurn?: number };
+}): number | undefined {
+  const raw =
+    nonNegativeInt(process.env['KIMI_LOOP_MAX_STEPS_PER_TURN']) ??
+    config.loopControl?.maxStepsPerTurn;
+  return raw === undefined || raw === 0 ? undefined : raw;
+}
+
 const THINKING_KEEP_OFF_VALUES = new Set(['false', '0', 'no', 'off', 'none', 'null']);
 
 /**

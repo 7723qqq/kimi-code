@@ -154,10 +154,15 @@ pub struct SecondaryModelConfig {
 }
 
 /// The `[loop_control]` section (v2 `loopControl`): per-step limits the host
-/// threads into the turn loop. `max_retries_per_step` is the deprecated
-/// spelling of `max_attempts_per_step` and still resolves.
+/// threads into the turn loop. The deprecated spellings
+/// (`max_retries_per_step`, `max_steps_per_run`) still resolve when the
+/// current key is unset.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LoopControlConfig {
+    #[serde(rename = "max_steps_per_turn", default)]
+    pub max_steps_per_turn: Option<u32>,
+    #[serde(rename = "max_steps_per_run", default)]
+    pub max_steps_per_run: Option<u32>,
     #[serde(rename = "max_attempts_per_step", default)]
     pub max_attempts_per_step: Option<u32>,
     #[serde(rename = "max_retries_per_step", default)]
@@ -423,6 +428,18 @@ impl KimiConfig {
             .or_else(|| env_non_negative("KIMI_LOOP_MAX_RETRIES_PER_STEP"))
             .or(self.loop_control.max_attempts_per_step)
             .or(self.loop_control.max_retries_per_step)
+    }
+
+    /// Resolve the per-turn step cap (v2 `loopControl.maxStepsPerTurn`): env
+    /// `KIMI_LOOP_MAX_STEPS_PER_TURN` > `[loop_control].max_steps_per_turn` >
+    /// the deprecated `max_steps_per_run`. Unset or `0` means unlimited
+    /// (v2 only enforces a positive cap), so both resolve to `None` and the
+    /// engine keeps its own default.
+    pub fn resolve_max_steps_per_turn(&self) -> Option<u32> {
+        env_non_negative("KIMI_LOOP_MAX_STEPS_PER_TURN")
+            .or(self.loop_control.max_steps_per_turn)
+            .or(self.loop_control.max_steps_per_run)
+            .filter(|value| *value > 0)
     }
 
     /// Build a [`PolicySnapshot`] from the configuration.
@@ -860,6 +877,71 @@ max_retries_per_step = 5
                     Some(value) => std::env::set_var(key, value),
                     None => std::env::remove_var(key),
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_resolve_max_steps_per_turn() {
+        let key = "KIMI_LOOP_MAX_STEPS_PER_TURN";
+        let saved = std::env::var(key).ok();
+        unsafe { std::env::remove_var(key) };
+
+        let explicit = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_steps_per_turn = 25
+"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.resolve_max_steps_per_turn(), Some(25));
+
+        // The deprecated rename still resolves, but the current key wins.
+        let deprecated = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_steps_per_run = 30
+"#,
+        )
+        .unwrap();
+        assert_eq!(deprecated.resolve_max_steps_per_turn(), Some(30));
+
+        let both = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_steps_per_turn = 25
+max_steps_per_run = 30
+"#,
+        )
+        .unwrap();
+        assert_eq!(both.resolve_max_steps_per_turn(), Some(25));
+
+        // `0` means unlimited, exactly like an unset value.
+        let unlimited = KimiConfig::from_str(
+            r#"
+[loop_control]
+max_steps_per_turn = 0
+"#,
+        )
+        .unwrap();
+        assert_eq!(unlimited.resolve_max_steps_per_turn(), None);
+
+        let absent = KimiConfig::from_str(SAMPLE_CONFIG).unwrap();
+        assert_eq!(absent.resolve_max_steps_per_turn(), None);
+
+        unsafe { std::env::set_var(key, "12") };
+        assert_eq!(both.resolve_max_steps_per_turn(), Some(12), "env wins");
+        unsafe { std::env::set_var(key, "0") };
+        assert_eq!(
+            both.resolve_max_steps_per_turn(),
+            None,
+            "an env 0 means unlimited and outranks the config"
+        );
+
+        unsafe {
+            match saved {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
             }
         }
     }

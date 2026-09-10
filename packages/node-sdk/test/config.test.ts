@@ -9,6 +9,7 @@ import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 import {
   buildPolicySnapshot,
   resolveMaxAttemptsPerStep,
+  resolveMaxStepsPerTurn,
   resolveSecondaryModelPool,
 } from '#/native/native-llm-resolver';
 
@@ -474,6 +475,34 @@ max_retries_per_step = 5
 
     vi.stubEnv('KIMI_LOOP_MAX_RETRIES_PER_STEP', '9');
     expect(resolveMaxAttemptsPerStep(config)).toBe(9);
+    vi.unstubAllEnvs();
+  });
+
+  it('resolves loop_control.max_steps_per_turn with env precedence', () => {
+    const config = parseConfigString(
+      `
+[loop_control]
+max_steps_per_turn = 25
+`,
+      'loop-control-steps.toml',
+    );
+    expect(resolveMaxStepsPerTurn(config)).toBe(25);
+
+    // `0` means unlimited, exactly like an unset value.
+    const unlimited = parseConfigString(
+      `
+[loop_control]
+max_steps_per_turn = 0
+`,
+      'loop-control-unlimited.toml',
+    );
+    expect(resolveMaxStepsPerTurn(unlimited)).toBeUndefined();
+    expect(resolveMaxStepsPerTurn(parseConfigString('', 'no-loop-control.toml'))).toBeUndefined();
+
+    vi.stubEnv('KIMI_LOOP_MAX_STEPS_PER_TURN', '12');
+    expect(resolveMaxStepsPerTurn(config)).toBe(12);
+    vi.stubEnv('KIMI_LOOP_MAX_STEPS_PER_TURN', '0');
+    expect(resolveMaxStepsPerTurn(config)).toBeUndefined();
     vi.unstubAllEnvs();
   });
 

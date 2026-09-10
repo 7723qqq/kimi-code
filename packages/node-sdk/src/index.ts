@@ -88,6 +88,7 @@ export {
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
   resolveMaxAttemptsPerStep,
+  resolveMaxStepsPerTurn,
   resolveThinkingKeep,
   resolveImageReadByteBudget,
   resolveWebSearchService,

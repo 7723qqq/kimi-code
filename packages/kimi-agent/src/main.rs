@@ -146,10 +146,10 @@ async fn main() -> anyhow::Result<()> {
                 tools_veto: None,
             };
             let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-            let engine = Arc::new(
-                kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone())
-                    .with_max_attempts(config.resolve_max_attempts_per_step()),
-            );
+            let engine = Arc::new(with_loop_control(
+                kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone()),
+                &config,
+            ));
             kimi_agent::acp::AcpServer::with_engine(store, engine)
         } else {
             // No native LLM resolved: the canned-prompt dev/test path. The auth
@@ -1004,6 +1004,21 @@ async fn build_engine_pipeline(
     .map_err(|error| types::JsonRpcError::internal_error(error.message))
 }
 
+/// Apply the host-resolved `[loop_control]` limits to a standalone engine:
+/// the attempt cap always (an absent value keeps the engine default) and the
+/// step cap only when configured, so an unset section leaves the server's own
+/// default untouched.
+fn with_loop_control(
+    engine: kimi_agent::server::engine::ServerEngine,
+    config: &kimi_agent::config::KimiConfig,
+) -> kimi_agent::server::engine::ServerEngine {
+    let engine = engine.with_max_attempts(config.resolve_max_attempts_per_step());
+    match config.resolve_max_steps_per_turn() {
+        Some(max_steps) => engine.with_max_steps(max_steps),
+        None => engine,
+    }
+}
+
 /// The composition root for the standalone server: config -> `PipelineSpec` ->
 /// `ServerEngine` -> `HttpServer` -> TCP listener.
 ///
@@ -1107,8 +1122,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // connecting WebSocket clients attach through the same registry, so a turn's
     // events genuinely reach them with the numbering that lane assigns.
     let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-    let engine = kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone())
-        .with_max_attempts(config.resolve_max_attempts_per_step());
+    let engine = with_loop_control(
+        kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone()),
+        &config,
+    );
     let mut server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
         .with_auth(auth);
