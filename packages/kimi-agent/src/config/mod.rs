@@ -626,7 +626,7 @@ fn native_llm_config(
     llm
 }
 
-fn dirs_home() -> Option<PathBuf> {
+pub(crate) fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)

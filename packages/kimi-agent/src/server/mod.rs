@@ -25,6 +25,7 @@ pub mod auth;
 pub mod debug;
 pub mod engine;
 pub mod envelope;
+pub mod files;
 pub mod fs_routes;
 pub mod http;
 pub mod hub;
@@ -78,6 +79,8 @@ pub struct HttpServer {
     /// or discovery when unset (unset in tests via
     /// [`HttpServer::with_config_write_path`]).
     config_write_path: std::sync::Mutex<Option<PathBuf>>,
+    /// The `/api/v1/files` upload store.
+    file_store: files::FileStore,
     terminal_manager: Arc<terminal::TerminalManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
 }
@@ -137,6 +140,7 @@ impl HttpServer {
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
             config_override: Arc::new(Mutex::new(None)),
             config_write_path: std::sync::Mutex::new(None),
+            file_store: files::FileStore::new(),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
@@ -173,6 +177,13 @@ impl HttpServer {
     #[must_use]
     pub fn with_oauth_manager(mut self, manager: Arc<oauth::OAuthManager>) -> Self {
         self.oauth_manager = manager;
+        self
+    }
+
+    /// Use a specific upload store (tests point it at a temp directory).
+    #[must_use]
+    pub fn with_file_store(mut self, store: files::FileStore) -> Self {
+        self.file_store = store;
         self
     }
 
@@ -1051,7 +1062,78 @@ impl HttpServer {
                     "created_at": chrono::Utc::now().to_rfc3339()
                 }))
             }
-            ("GET", "/api/v1/files") => HttpResponse::ok(&json!({ "files": [] })),
+            ("GET", "/api/v1/files") => match self.file_store.list() {
+                Ok(metas) => {
+                    let items: Vec<Value> = metas
+                        .iter()
+                        .filter_map(|meta| serde_json::to_value(meta).ok())
+                        .collect();
+                    HttpResponse::ok(&json!({ "files": items }))
+                }
+                Err((status, code, message)) => {
+                    HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                }
+            },
+            ("POST", "/api/v1/files") => {
+                let content_type = req.header("content-type").unwrap_or_default().to_string();
+                match crate::server::files::upload(&self.file_store, &content_type, &req.body) {
+                    Ok(meta) => HttpResponse::json(200, &meta),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
+            ("GET", p) if p.starts_with("/api/v1/files/") => {
+                let file_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/files/"),
+                );
+                match self.file_store.get(&file_id) {
+                    Ok((meta, path)) => {
+                        let bytes = match std::fs::read(&path) {
+                            Ok(bytes) => bytes,
+                            Err(error) => {
+                                return HttpResponse::internal_error(format!(
+                                    "cannot read {}: {error}",
+                                    path.display()
+                                ));
+                            }
+                        };
+                        let total = bytes.len() as u64;
+                        let mut response = match req
+                            .header("range")
+                            .and_then(|header| crate::server::files::parse_range(header, total))
+                        {
+                            Some((start, end)) => {
+                                let slice = bytes[start as usize..=end as usize].to_vec();
+                                HttpResponse::bytes(206, meta.media_type.clone(), slice)
+                                    .with_header("content-range", format!("bytes {start}-{end}/{total}"))
+                            }
+                            None => HttpResponse::bytes(200, meta.media_type.clone(), bytes),
+                        };
+                        response
+                            .with_header(
+                                "content-disposition",
+                                crate::server::files::content_disposition(&meta.name, &meta.media_type),
+                            )
+                            .with_header("accept-ranges", "bytes")
+                            .with_header("etag", format!("\"{}-{total}\"", meta.id))
+                    }
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
+            ("DELETE", p) if p.starts_with("/api/v1/files/") => {
+                let file_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/files/"),
+                );
+                match self.file_store.delete(&file_id) {
+                    Ok(()) => HttpResponse::ok(&json!({ "deleted": true })),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
             ("GET", "/api/v2/sessions") => {
                 let sessions = self.store.list_sessions().unwrap_or_default();
                 let items: Vec<Value> = sessions
@@ -5210,6 +5292,118 @@ max_context_size = 128000
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&credentials).ok();
+    }
+
+    #[tokio::test]
+    async fn test_http_files_upload_download_delete() {
+        let dir = std::env::temp_dir().join(format!("kimi-files-route-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_file_store(crate::server::files::FileStore::with_root(dir.clone()));
+
+        let boundary = "route-boundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"file\"; filename=\"note.txt\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: text/plain\r\n\r\n");
+        body.extend_from_slice(b"hello files");
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/files".into(),
+                query: None,
+                headers: HashMap::from([(
+                    "content-type".to_string(),
+                    format!("multipart/form-data; boundary={boundary}"),
+                )]),
+                body,
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let meta: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(meta["name"], "note.txt");
+        assert_eq!(meta["media_type"], "text/plain");
+        assert_eq!(meta["size"], 11);
+        let file_id = meta["id"].as_str().unwrap().to_string();
+
+        // Download the whole file.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/files/{file_id}"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body, b"hello files");
+        assert_eq!(res.header("accept-ranges"), Some("bytes"));
+        assert_eq!(
+            res.header("content-disposition"),
+            Some("attachment; filename=\"note.txt\"")
+        );
+
+        // A range answers 206 with the slice.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/files/{file_id}"),
+                query: None,
+                headers: HashMap::from([("range".to_string(), "bytes=0-4".to_string())]),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 206);
+        assert_eq!(res.body, b"hello");
+        assert_eq!(res.header("content-range"), Some("bytes 0-4/11"));
+
+        // Unknown ids answer FILE_NOT_FOUND.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/files/f_missing".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 404);
+        let missing: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(missing["code"], 40407);
+
+        // Delete drops the blob; the listing is empty afterwards.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/files/{file_id}"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let deleted: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(deleted["deleted"], true);
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/files".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let list: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(list["files"].as_array().unwrap().len(), 0);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

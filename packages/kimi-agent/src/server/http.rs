@@ -44,6 +44,10 @@ use crate::server::ws;
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 /// Hard cap on a request body.
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
+/// The upload route buffers its body, so this is the whole-file cap: larger
+/// than the 4 MiB control-plane limit, below kap-server's streamed 1 GiB.
+const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 /// How long a connection may take to send a complete request.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// Read granularity while filling in a body.
@@ -221,8 +225,13 @@ async fn read_request(stream: &mut TcpStream) -> Result<Option<Received>, Reject
 
     let (head, remainder) = buffered.split_at(header_end + 4);
     let mut request = parse_head(head)?;
+    let body_limit = if request.path == "/api/v1/files" {
+        MAX_UPLOAD_BYTES
+    } else {
+        MAX_BODY_BYTES
+    };
     let expected = declared_body_len(&request.headers)?;
-    if expected > MAX_BODY_BYTES {
+    if expected > body_limit {
         return Err(RejectReason::BodyTooLarge);
     }
 
@@ -233,7 +242,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<Option<Received>, Reject
             return Err(RejectReason::Malformed("connection closed mid-body"));
         }
         body.extend_from_slice(&chunk[..read]);
-        if body.len() > MAX_BODY_BYTES {
+        if body.len() > body_limit {
             return Err(RejectReason::BodyTooLarge);
         }
     }
@@ -348,6 +357,7 @@ fn reason_phrase(status: u16) -> &'static str {
         200 => "OK",
         201 => "Created",
         204 => "No Content",
+        206 => "Partial Content",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
