@@ -191,6 +191,22 @@ pub struct ResolvedWebService {
     pub custom_headers: HashMap<String, String>,
 }
 
+/// The `[subagent]` section (v2 `session/subagent/configSection.ts`): the
+/// timeout one `Agent` subagent turn may run for, foreground and background.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubagentConfig {
+    #[serde(rename = "timeout_ms", alias = "timeoutMs", default)]
+    pub timeout_ms: Option<u64>,
+}
+
+/// The `[swarm]` section (v2 `features/swarm/configSection.ts`): the timeout
+/// for one `AgentSwarm` subagent, independent of `[subagent]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SwarmConfig {
+    #[serde(rename = "timeout_ms", alias = "timeoutMs", default)]
+    pub timeout_ms: Option<u64>,
+}
+
 /// The `[secondary_model]` subagent model pool section (v2
 /// `session/subagent/configSection.ts`): either a declared pool
 /// (`default_model` + the `models` alias table) or the recipe shape
@@ -273,6 +289,14 @@ pub struct KimiConfig {
     /// [`KimiConfig::resolve_web_search_service`].
     #[serde(default)]
     pub services: ServicesConfig,
+    /// Per-subagent timeout (v2 `[subagent]` section); see
+    /// [`KimiConfig::resolve_subagent_timeout_ms`].
+    #[serde(default)]
+    pub subagent: SubagentConfig,
+    /// Per-swarm timeout (v2 `[swarm]` section); see
+    /// [`KimiConfig::resolve_swarm_timeout_ms`].
+    #[serde(default)]
+    pub swarm: SwarmConfig,
     /// Subagent model pool (v2 `[secondary_model]` section); see
     /// [`KimiConfig::extract_secondary_model_pool`].
     #[serde(rename = "secondary_model", default)]
@@ -576,6 +600,23 @@ impl KimiConfig {
         )
     }
 
+    /// Resolve the per-`Agent` subagent timeout (v2
+    /// `resolveSubagentTimeoutMs`): env `KIMI_SUBAGENT_TIMEOUT_MS` (a
+    /// non-negative integer) over `[subagent].timeout_ms`. `None` keeps the
+    /// engine default (2h); `0` is passed through and the tools treat it as
+    /// the default, matching the host-driven paths.
+    pub fn resolve_subagent_timeout_ms(&self) -> Option<u64> {
+        env_non_negative_u64("KIMI_SUBAGENT_TIMEOUT_MS").or(self.subagent.timeout_ms)
+    }
+
+    /// Resolve the per-`AgentSwarm` subagent timeout (v2
+    /// `resolveSwarmTimeoutMs`): env `KIMI_CODE_SWARM_TIMEOUT_MS` over
+    /// `[swarm].timeout_ms`. A dedicated knob — swarms never inherit the
+    /// subagent timeout.
+    pub fn resolve_swarm_timeout_ms(&self) -> Option<u64> {
+        env_non_negative_u64("KIMI_CODE_SWARM_TIMEOUT_MS").or(self.swarm.timeout_ms)
+    }
+
     /// Build a [`PolicySnapshot`] from the configuration.
     pub fn build_policy_snapshot(&self, git_cwd: Option<PathBuf>) -> PolicySnapshot {
         let mode = if self.agent.yolo == Some(true) {
@@ -736,6 +777,11 @@ pub(crate) fn dirs_home() -> Option<PathBuf> {
 /// instead of failing the session.
 fn env_non_negative(name: &str) -> Option<u32> {
     std::env::var(name).ok()?.trim().parse::<u32>().ok()
+}
+
+/// The `u64` sibling of [`env_non_negative`] for millisecond timeouts.
+fn env_non_negative_u64(name: &str) -> Option<u64> {
+    std::env::var(name).ok()?.trim().parse::<u64>().ok()
 }
 
 #[cfg(test)]
@@ -1242,6 +1288,62 @@ api_key = "sk-search"
                 .resolve_web_search_service()
                 .is_none()
         );
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_resolve_subagent_and_swarm_timeouts() {
+        let keys = ["KIMI_SUBAGENT_TIMEOUT_MS", "KIMI_CODE_SWARM_TIMEOUT_MS"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let config = KimiConfig::from_str(
+            r#"
+[subagent]
+timeout_ms = 5000
+
+[swarm]
+timeoutMs = 7000
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.resolve_subagent_timeout_ms(), Some(5000));
+        assert_eq!(config.resolve_swarm_timeout_ms(), Some(7000));
+
+        // The env overlay outranks the file and each knob is independent.
+        unsafe { std::env::set_var("KIMI_SUBAGENT_TIMEOUT_MS", "9000") };
+        assert_eq!(config.resolve_subagent_timeout_ms(), Some(9000));
+        assert_eq!(config.resolve_swarm_timeout_ms(), Some(7000));
+        unsafe { std::env::set_var("KIMI_CODE_SWARM_TIMEOUT_MS", "8000") };
+        assert_eq!(config.resolve_swarm_timeout_ms(), Some(8000));
+        unsafe { std::env::remove_var("KIMI_CODE_SWARM_TIMEOUT_MS") };
+
+        // `0` passes through — the tools read it as the engine default,
+        // matching the host-driven paths; an invalid env value falls back to
+        // the file.
+        unsafe { std::env::set_var("KIMI_SUBAGENT_TIMEOUT_MS", "0") };
+        assert_eq!(config.resolve_subagent_timeout_ms(), Some(0));
+        unsafe { std::env::set_var("KIMI_SUBAGENT_TIMEOUT_MS", "-1") };
+        assert_eq!(config.resolve_subagent_timeout_ms(), Some(5000));
+        unsafe { std::env::set_var("KIMI_SUBAGENT_TIMEOUT_MS", "soon") };
+        assert_eq!(config.resolve_subagent_timeout_ms(), Some(5000));
+
+        // Absent sections resolve to None (the engine keeps its 2h default).
+        let absent = KimiConfig::from_str(SAMPLE_CONFIG).unwrap();
+        assert_eq!(absent.resolve_subagent_timeout_ms(), None);
+        assert_eq!(absent.resolve_swarm_timeout_ms(), None);
 
         unsafe {
             for (key, value) in keys.iter().zip(saved) {

@@ -300,6 +300,23 @@ impl ServerEngine {
         self
     }
 
+    /// Host-resolved `[subagent] timeout_ms` (v2 `resolveSubagentTimeoutMs`):
+    /// rides the pipeline spec, so every subagent turn the sessions spawn
+    /// (foreground and background) reads the same override. `None` keeps the
+    /// engine's 2h default; `0` means the same as `None` to the tools.
+    pub fn with_subagent_timeout_ms(mut self, timeout_ms: Option<u64>) -> Self {
+        self.spec.subagent_timeout_ms = timeout_ms;
+        self
+    }
+
+    /// Host-resolved `[swarm] timeout_ms` (v2 `resolveSwarmTimeoutMs`): a
+    /// dedicated knob on the shared subagent manager — swarms never inherit
+    /// the subagent timeout. `None` keeps the 2h swarm default.
+    pub fn with_swarm_timeout_ms(self, timeout_ms: Option<u64>) -> Self {
+        self.subagent_manager.set_swarm_timeout_ms(timeout_ms);
+        self
+    }
+
     pub fn store(&self) -> &Arc<SqliteSessionStore> {
         &self.store
     }

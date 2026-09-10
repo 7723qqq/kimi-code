@@ -147,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
                 tools_veto: None,
             };
             let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-            let engine = Arc::new(with_loop_control(
+            let engine = Arc::new(with_standalone_limits(
                 kimi_agent::server::engine::ServerEngine::new(spec, hub, store.clone()),
                 &config,
             ));
@@ -1006,19 +1006,24 @@ async fn build_engine_pipeline(
     .map_err(|error| types::JsonRpcError::internal_error(error.message))
 }
 
-/// Apply the host-resolved `[loop_control]` limits to a standalone engine:
-/// the attempt cap always (an absent value keeps the engine default) and the
-/// step cap only when configured, so an unset section leaves the server's own
-/// default untouched.
-fn with_loop_control(
+/// Apply the host-resolved config limits to a standalone engine: the
+/// `[loop_control]` caps (the attempt cap always — an absent value keeps the
+/// engine default — and the step cap only when configured), plus the
+/// `[subagent]` / `[swarm]` timeouts (the agent timeout rides the pipeline
+/// spec, the swarm timeout the shared subagent manager). Unset sections leave
+/// the engine defaults untouched.
+fn with_standalone_limits(
     engine: kimi_agent::server::engine::ServerEngine,
     config: &kimi_agent::config::KimiConfig,
 ) -> kimi_agent::server::engine::ServerEngine {
     let engine = engine.with_max_attempts(config.resolve_max_attempts_per_step());
-    match config.resolve_max_steps_per_turn() {
+    let engine = match config.resolve_max_steps_per_turn() {
         Some(max_steps) => engine.with_max_steps(max_steps),
         None => engine,
-    }
+    };
+    engine
+        .with_subagent_timeout_ms(config.resolve_subagent_timeout_ms())
+        .with_swarm_timeout_ms(config.resolve_swarm_timeout_ms())
 }
 
 /// Install the standalone entries' `[services.moonshot_*]` backends from
@@ -1147,7 +1152,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // connecting WebSocket clients attach through the same registry, so a turn's
     // events genuinely reach them with the numbering that lane assigns.
     let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
-    let engine = with_loop_control(
+    let engine = with_standalone_limits(
         kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone()),
         &config,
     );

@@ -318,6 +318,9 @@ pub async fn start_repl(
     ui::render_banner(&workspace, active_model_str, &current_session_id);
 
     let subagent_manager = Arc::new(SubagentManager::new());
+    // Host-resolved `[swarm] timeout_ms` (v2 `resolveSwarmTimeoutMs`): the
+    // `AgentSwarm` tool reads it at execution time.
+    subagent_manager.set_swarm_timeout_ms(config.resolve_swarm_timeout_ms());
     let mcp_manager = Arc::new(McpManager::new());
     // P29 批 3 接线: connect MCP servers declared in config.toml so their
     // tools are discovered and exposed to the model this session.
@@ -433,6 +436,7 @@ pub async fn start_repl(
         NativeToolset::new(&workspace_str, None)
             .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
             .with_subagents(subagent_manager.clone())
+            .with_agent_context(config.resolve_subagent_timeout_ms(), None)
             .with_mcp(mcp_manager.clone())
             .with_callbacks(base_callbacks.clone())
             .with_github_credentials(github_credentials.clone()),
