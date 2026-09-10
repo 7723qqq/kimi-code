@@ -697,7 +697,13 @@ pub fn run_turn<'a>(
             // are pulled out before compacting and re-appended after, so
             // reminders survive the windowing.
             let injections = crate::injection::split_injections(&mut messages);
-            let compacted = crate::compaction::compact_messages(&messages, &compaction_config);
+            let compacted = crate::compaction::compact_messages_with_summary(
+                &messages,
+                &compaction_config,
+                input.llm,
+                None,
+            )
+            .await;
             if compacted.len() != messages.len() {
                 tracing::debug!(
                     turn_id = %turn_id,
@@ -793,10 +799,14 @@ pub fn run_turn<'a>(
                     }
                     if crate::compaction::is_context_overflow_error(&err_str) {
                         let injections = crate::injection::split_injections(&mut messages);
-                        let force_compacted = crate::compaction::force_compact_messages(
-                            &messages,
-                            &compaction_config,
-                        );
+                        let force_compacted =
+                            crate::compaction::force_compact_messages_with_summary(
+                                &messages,
+                                &compaction_config,
+                                input.llm,
+                                None,
+                            )
+                            .await;
                         if force_compacted.len() < messages.len() {
                             tracing::warn!(
                                 turn_id = %turn_id,
@@ -4423,8 +4433,21 @@ mod tests {
                             "llm http status 400 Bad Request: context_length_exceeded",
                         ))
                             as Box<dyn std::error::Error + Send + Sync>)
+                    } else if count == 1 {
+                        // Second call is the summarizer invoked by
+                        // `force_compact_messages_with_summary`. Return empty
+                        // content so it falls back to `summary_placeholder`,
+                        // preserving the exact placeholder format the next
+                        // assertion checks.
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
                     } else {
-                        // Second call succeeds after compaction.
+                        // Third call succeeds after compaction.
                         assert_eq!(
                             params.messages.len(),
                             6,
@@ -4505,7 +4528,7 @@ mod tests {
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
-        assert_eq!(llm.call_count.load(Ordering::SeqCst), 2);
+        assert_eq!(llm.call_count.load(Ordering::SeqCst), 3);
         assert_eq!(result.stop_reason, LoopTurnStopReason::EndTurn);
         assert_eq!(
             result.messages.last().unwrap().content,

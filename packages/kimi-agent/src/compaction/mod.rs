@@ -10,7 +10,7 @@
 //! split point that cannot orphan a tool exchange, and the most recent
 //! tail is kept verbatim.
 
-use crate::turn_loop::types::{ContentBlock, LLMMessage};
+use crate::turn_loop::types::{ContentBlock, LLM, LLMChatParams, LLMMessage};
 
 /// Default context window (tokens) assumed when the engine has no model
 /// capability data. Mirrors `DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS` in
@@ -224,6 +224,143 @@ pub(crate) fn summary_placeholder(omitted: usize) -> String {
     )
 }
 
+/// Default instruction for the summarizer when the caller provides none.
+const DEFAULT_SUMMARIZATION_INSTRUCTION: &str = "\
+Summarize the conversation below concisely. Preserve key context, decisions, \
+user goals, and any unresolved tool exchanges. The summary replaces the \
+original messages in the conversation history, so it must be self-contained.";
+
+/// Build the prompt messages for the summarizer LLM call.
+///
+/// The system message instructs the model to summarize; the user message
+/// carries the omitted conversation as a flat `role: content` transcript,
+/// prefixed by the optional instruction. Tool calls are serialized inline so
+/// the summarizer can see what was done.
+fn summarization_prompt(
+    omitted: &[LLMMessage],
+    instruction: Option<&str>,
+) -> Vec<LLMMessage> {
+    let mut transcript = String::new();
+    for m in omitted {
+        if !transcript.is_empty() {
+            transcript.push('\n');
+        }
+        transcript.push_str(&m.role);
+        transcript.push_str(": ");
+        transcript.push_str(&m.content);
+        for call in &m.tool_calls {
+            transcript.push_str(&format!(
+                " [tool_call: {}({})]",
+                call.name,
+                call.arguments
+            ));
+        }
+    }
+
+    let user_content = match instruction {
+        Some(custom) => format!("{custom}\n\n{transcript}"),
+        None => format!("{DEFAULT_SUMMARIZATION_INSTRUCTION}\n\n{transcript}"),
+    };
+
+    vec![
+        LLMMessage::system(
+            "You are a conversation summarizer. Produce a concise, self-contained summary.",
+        ),
+        LLMMessage::user(user_content),
+    ]
+}
+
+/// Call the LLM to summarize `omitted` messages.
+///
+/// Returns `Some(summary)` when the LLM responds with non-empty content,
+/// `None` on error or empty content (the caller falls back to
+/// [`summary_placeholder`]). The summarizer call sends no tools — the model
+/// should only produce text.
+pub async fn summarize_with_llm(
+    omitted: &[LLMMessage],
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+) -> Option<String> {
+    let prompt = summarization_prompt(omitted, instruction);
+    let params = LLMChatParams {
+        messages: prompt,
+        tools: Vec::new(),
+        cancel: None,
+    };
+    match llm.chat(params).await {
+        Ok(response) => {
+            let trimmed = response.content.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// Unconditionally compact `messages` with a real LLM summary, falling back
+/// to [`summary_placeholder`] when the summarizer returns nothing.
+///
+/// Like [`force_compact_messages`] but the compacted prefix is replaced by a
+/// user message carrying the LLM-generated summary instead of a fixed
+/// placeholder.
+pub async fn force_compact_messages_with_summary(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+) -> Vec<LLMMessage> {
+    let count = compute_compact_count(messages, config);
+    if count == 0 {
+        return messages.to_vec();
+    }
+    let omitted = &messages[1..count as usize];
+    let summary = summarize_with_llm(omitted, llm, instruction)
+        .await
+        .unwrap_or_else(|| summary_placeholder(omitted.len()));
+    apply_compaction_with_summary(messages, count, summary)
+}
+
+/// Threshold-gated compaction with a real LLM summary.
+///
+/// Like [`compact_messages`] but uses [`force_compact_messages_with_summary`]
+/// when the trigger fires.
+pub async fn compact_messages_with_summary(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+) -> Vec<LLMMessage> {
+    if !should_compact(estimate_messages_tokens(messages), config) {
+        return messages.to_vec();
+    }
+    force_compact_messages_with_summary(messages, config, llm, instruction).await
+}
+
+/// Project `count` leading messages into a summary, keeping the system
+/// message (index 0) and the tail untouched. Like [`apply_compaction`] but
+/// uses the provided `summary` text instead of [`summary_placeholder`].
+fn apply_compaction_with_summary(
+    messages: &[LLMMessage],
+    count: u32,
+    summary: String,
+) -> Vec<LLMMessage> {
+    if count == 0 {
+        return messages.to_vec();
+    }
+    let mut compacted = Vec::with_capacity(messages.len() - count as usize + 2);
+    compacted.push(messages[0].clone());
+    compacted.push(LLMMessage {
+        role: "user".into(),
+        content: summary,
+        ..Default::default()
+    });
+    compacted.extend_from_slice(&messages[count as usize..]);
+    compacted
+}
+
 /// Decide how many leading messages to compact.
 ///
 /// Returns N where `messages[0..N]` is replaced by a summary placeholder
@@ -362,7 +499,9 @@ fn prefix_ends_with_open_tool_exchange(messages: &[LLMMessage], index: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::turn_loop::types::{ContentBlock, ToolCall};
+    use crate::rpc::types::BoxFuture;
+    use crate::rpc::types::TokenUsage;
+    use crate::turn_loop::types::{ContentBlock, LLM, LLMChatParams, LLMChatResponse, ToolCall};
 
     fn msg(role: &str, content: &str) -> LLMMessage {
         LLMMessage {
@@ -1132,5 +1271,256 @@ mod tests {
             summary_placeholder(messages.len() - 1)
         );
         assert!(force_compact_messages(&messages, &config).len() > manual_compacted.len());
+    }
+
+    // ── LLM summarizer tests ──────────────────────────────────────────────
+
+    struct SummarizerMockLlm {
+        content: String,
+        fail: bool,
+    }
+
+    impl LLM for SummarizerMockLlm {
+        fn system_prompt(&self) -> &str {
+            "test"
+        }
+        fn model_name(&self) -> &str {
+            "test-summarizer"
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+        fn chat(
+            &self,
+            _: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            let content = self.content.clone();
+            let fail = self.fail;
+            Box::pin(async move {
+                if fail {
+                    Err("summarizer unavailable".into())
+                } else {
+                    Ok(LLMChatResponse {
+                        content,
+                        thinking: vec![],
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage::default(),
+                    })
+                }
+            })
+        }
+    }
+
+    fn compactable_messages() -> Vec<LLMMessage> {
+        vec![
+            msg("system", "system-prompt"),
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+            msg("assistant", "assistant-2"),
+            msg("user", "user-3"),
+            msg("assistant", "assistant-3"),
+            msg("user", "user-4"),
+        ]
+    }
+
+    fn compacting_config() -> CompactionConfig {
+        CompactionConfig {
+            max_context_tokens: 1000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 4,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_summarize_with_llm_returns_summary_on_success() {
+        let omitted = vec![
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+        ];
+        let llm = SummarizerMockLlm {
+            content: "  Summary of earlier conversation.  ".into(),
+            fail: false,
+        };
+        let result = summarize_with_llm(&omitted, &llm, None).await;
+        assert_eq!(result, Some("Summary of earlier conversation.".into()));
+    }
+
+    #[tokio::test]
+    async fn test_summarize_with_llm_returns_none_on_empty_content() {
+        let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
+        let llm = SummarizerMockLlm {
+            content: String::new(),
+            fail: false,
+        };
+        let result = summarize_with_llm(&omitted, &llm, None).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_with_llm_returns_none_on_error() {
+        let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
+        let llm = SummarizerMockLlm {
+            content: "unused".into(),
+            fail: true,
+        };
+        let result = summarize_with_llm(&omitted, &llm, None).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_summarization_prompt_includes_instruction_and_transcript() {
+        let omitted = vec![
+            msg("user", "hello"),
+            msg("assistant", "hi there"),
+        ];
+        let prompt = summarization_prompt(&omitted, Some("Custom instruction."));
+        assert_eq!(prompt.len(), 2);
+        assert_eq!(prompt[0].role, "system");
+        assert_eq!(prompt[1].role, "user");
+        assert!(
+            prompt[1].content.contains("Custom instruction."),
+            "user message must contain the custom instruction"
+        );
+        assert!(
+            prompt[1].content.contains("user: hello"),
+            "user message must contain the transcript"
+        );
+        assert!(
+            prompt[1].content.contains("assistant: hi there"),
+            "user message must contain the transcript"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_summarization_prompt_uses_default_instruction_when_none() {
+        let omitted = vec![msg("user", "hello")];
+        let prompt = summarization_prompt(&omitted, None);
+        assert_eq!(prompt.len(), 2);
+        assert!(
+            prompt[1].content.contains(DEFAULT_SUMMARIZATION_INSTRUCTION),
+            "user message must contain the default instruction"
+        );
+        assert!(
+            prompt[1].content.contains("user: hello"),
+            "user message must contain the transcript"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_summarization_prompt_serializes_tool_calls() {
+        let mut m = msg("assistant", "running tools");
+        m.tool_calls.push(tool_call("t1", "read", serde_json::json!({ "path": "/a" })));
+        let omitted = vec![m];
+        let prompt = summarization_prompt(&omitted, None);
+        assert!(
+            prompt[1].content.contains("[tool_call: read("),
+            "tool calls must be serialized in the transcript"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_with_summary_uses_llm_summary() {
+        let messages = compactable_messages();
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: "LLM summary of the conversation.".into(),
+            fail: false,
+        };
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None).await;
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(compacted.len(), messages.len() - count as usize + 2);
+        assert_eq!(compacted[0].role, "system");
+        assert_eq!(compacted[0].content, "system-prompt");
+        assert_eq!(compacted[1].role, "user");
+        assert_eq!(compacted[1].content, "LLM summary of the conversation.");
+        assert_messages_eq(&compacted[2..], &messages[count as usize..]);
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_with_summary_falls_back_on_empty_content() {
+        let messages = compactable_messages();
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: String::new(),
+            fail: false,
+        };
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None).await;
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_with_summary_falls_back_on_error() {
+        let messages = compactable_messages();
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: "unused".into(),
+            fail: true,
+        };
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None).await;
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_with_summary_no_compaction_returns_unchanged() {
+        let messages = vec![msg("system", "sys"), msg("user", "hi")];
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: "unused".into(),
+            fail: false,
+        };
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None).await;
+        assert_messages_eq(&compacted, &messages);
+    }
+
+    #[tokio::test]
+    async fn test_compact_with_summary_skips_when_below_threshold() {
+        let messages = compactable_messages();
+        let config = small_config(100_000);
+        let llm = SummarizerMockLlm {
+            content: "unused".into(),
+            fail: false,
+        };
+        let compacted = compact_messages_with_summary(&messages, &config, &llm, None).await;
+        assert_messages_eq(&compacted, &messages);
+    }
+
+    #[tokio::test]
+    async fn test_compact_with_summary_triggers_when_above_threshold() {
+        let messages = compactable_messages();
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: "Real summary.".into(),
+            fail: false,
+        };
+        let compacted = compact_messages_with_summary(&messages, &config, &llm, None).await;
+        assert_ne!(compacted.len(), messages.len());
+        assert_eq!(compacted[1].content, "Real summary.");
+    }
+
+    #[tokio::test]
+    async fn test_compact_with_summary_passes_instruction_to_summarizer() {
+        let messages = compactable_messages();
+        let config = compacting_config();
+        let llm = SummarizerMockLlm {
+            content: "Instruction-aware summary.".into(),
+            fail: false,
+        };
+        let compacted = compact_messages_with_summary(
+            &messages,
+            &config,
+            &llm,
+            Some("Focus on user goals."),
+        )
+        .await;
+        assert_eq!(compacted[1].content, "Instruction-aware summary.");
     }
 }
