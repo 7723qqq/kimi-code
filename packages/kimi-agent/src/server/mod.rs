@@ -12,10 +12,14 @@
 //! - the WebSocket connection fans out events but speaks no kap-server
 //!   `/api/v1/ws` message schema, so a client written against that schema cannot
 //!   drive it;
-//! - responses are bare objects, not kap-server's `{code, msg, data, request_id}`
-//!   envelope — the 401 is the only envelope-shaped route.
+//! - JSON responses carry the kap-server `{code, msg, data, request_id}`
+//!   envelope (wrapped in `http::serve_connection`), but several routes still
+//!   serve reduced data (files upload, transcript L1/L2, prompts) and provider
+//!   model refresh (`providers:refresh`) is not implemented.
 //!
-//! The `/api/v1` surface the app actually serves is still `packages/kap-server`.
+//! `kimi-agent --serve` is the active `/api/v1` surface; the deprecated
+//! `packages/kap-server` remains only as the fallback for installations
+//! without the native binary.
 
 pub mod auth;
 pub mod debug;
@@ -29,6 +33,7 @@ pub mod media;
 pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
+pub mod provider_write;
 pub mod router;
 pub mod static_files;
 pub mod terminal;
@@ -68,6 +73,10 @@ pub struct HttpServer {
     plugin_manager: Arc<plugins::PluginManager>,
     oauth_manager: Arc<oauth::OAuthManager>,
     config_override: Arc<Mutex<Option<crate::config::KimiConfig>>>,
+    /// The `config.toml` the write routes mutate: the file the server loaded,
+    /// or discovery when unset (unset in tests via
+    /// [`HttpServer::with_config_write_path`]).
+    config_write_path: std::sync::Mutex<Option<PathBuf>>,
     terminal_manager: Arc<terminal::TerminalManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
 }
@@ -126,6 +135,7 @@ impl HttpServer {
             plugin_manager: Arc::new(plugins::PluginManager::new(store)),
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
             config_override: Arc::new(Mutex::new(None)),
+            config_write_path: std::sync::Mutex::new(None),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
@@ -139,6 +149,29 @@ impl HttpServer {
         } else {
             self.subagent_manager.clone()
         }
+    }
+
+    /// Point the provider write routes at an explicit `config.toml`; unset
+    /// keeps discovery (the `--serve` path passes the file it loaded).
+    #[must_use]
+    pub fn with_config_write_path(mut self, path: PathBuf) -> Self {
+        self.config_write_path = std::sync::Mutex::new(Some(path));
+        self
+    }
+
+    /// Seed the server's config view with the file it loaded, so reads and
+    /// provider writes agree with the engine (the `--serve` path).
+    #[must_use]
+    pub fn with_config(mut self, config: crate::config::KimiConfig) -> Self {
+        self.config_override = Arc::new(Mutex::new(Some(config)));
+        self
+    }
+
+    fn config_write_path(&self) -> Option<PathBuf> {
+        self.config_write_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     #[must_use]
@@ -319,6 +352,17 @@ impl HttpServer {
         let store = Arc::new(SqliteSessionStore::in_memory()?);
         Ok(Self::new(store))
     }
+}
+
+/// A kap-server validation error for malformed provider payloads.
+fn provider_validation_error(message: String) -> HttpResponse {
+    HttpResponse::json(
+        400,
+        &json!({
+            "code": crate::server::envelope::error_codes::VALIDATION_FAILED,
+            "msg": message,
+        }),
+    )
 }
 
 fn extract_session_action<'a>(path: &'a str, action: &str) -> Option<&'a str> {
@@ -714,6 +758,106 @@ impl HttpServer {
                     &config,
                     &has_cached_token,
                 ))
+            }
+            ("POST", "/api/v1/providers") => {
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let form = match serde_json::from_value::<
+                    crate::server::provider_write::CreateProviderForm,
+                >(body)
+                {
+                    Ok(form) => form,
+                    Err(error) => return provider_validation_error(error.to_string()),
+                };
+                let has_cached_token =
+                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                match crate::server::provider_write::create(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &has_cached_token,
+                    form,
+                )
+                .await
+                {
+                    Ok(item) => HttpResponse::json(201, &item),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
+            ("GET", p)
+                if p.starts_with("/api/v1/providers/")
+                    && !p.starts_with("/api/v1/providers/catalog") =>
+            {
+                let provider_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/providers/"),
+                );
+                let has_cached_token =
+                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                match crate::server::provider_write::get(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &has_cached_token,
+                    &provider_id,
+                )
+                .await
+                {
+                    Ok(item) => HttpResponse::ok(&item),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
+            ("PUT", p) if p.starts_with("/api/v1/providers/") => {
+                let provider_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/providers/"),
+                );
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let form = match serde_json::from_value::<
+                    crate::server::provider_write::ReplaceProviderForm,
+                >(body)
+                {
+                    Ok(form) => form,
+                    Err(error) => return provider_validation_error(error.to_string()),
+                };
+                let has_cached_token =
+                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                match crate::server::provider_write::replace(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &has_cached_token,
+                    &provider_id,
+                    form,
+                )
+                .await
+                {
+                    Ok(item) => HttpResponse::ok(&item),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
+            }
+            ("DELETE", p) if p.starts_with("/api/v1/providers/") => {
+                let provider_id = crate::server::router::decode_path_segment(
+                    p.trim_start_matches("/api/v1/providers/"),
+                );
+                match crate::server::provider_write::delete(
+                    &self.config_override,
+                    self.config_write_path().as_deref(),
+                    &provider_id,
+                )
+                .await
+                {
+                    Ok(item) => HttpResponse::ok(&item),
+                    Err((status, code, message)) => {
+                        HttpResponse::json(status, &json!({ "code": code, "msg": message }))
+                    }
+                }
             }
             ("GET", "/api/v1/catalog/providers") | ("GET", "/api/v1/providers/catalog") => {
                 let items = json!([
@@ -4739,6 +4883,161 @@ max_context_size = 128000
         let val_init: Value = serde_json::from_slice(&res_init.body).unwrap();
         assert_eq!(val_init["status"], "initiated");
         assert!(val_init["prompt"].as_str().unwrap().contains("AGENTS.md"));
+    }
+
+    #[tokio::test]
+    async fn test_http_provider_crud_writes_config() {
+        let dir = std::env::temp_dir().join(format!("kimi-provider-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            "default_model = \"\"\n\n[providers.openai]\ntype = \"openai\"\napi_key = \"sk-old\"\n",
+        )
+        .unwrap();
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+
+        fn request(method: &str, path: &str, body: Option<&Value>) -> HttpRequest {
+            HttpRequest {
+                method: method.into(),
+                path: path.into(),
+                query: None,
+                headers: HashMap::new(),
+                body: body
+                    .map(|value| serde_json::to_vec(value).unwrap())
+                    .unwrap_or_default(),
+            }
+        }
+
+        // 1. Create writes the provider + aliases and seeds the unset default.
+        let create_body = json!({
+            "id": "kimi-code",
+            "type": "openai",
+            "api_key": "sk-test",
+            "base_url": "https://example.test/v1",
+            "default_model": "k3",
+            "models": [
+                { "model": "k3", "max_context_size": 200000, "display_name": "K3" },
+                { "model": "fast", "max_context_size": 128000 }
+            ]
+        });
+        let res = server
+            .handle_request(&request("POST", "/api/v1/providers", Some(&create_body)))
+            .await;
+        assert_eq!(res.status, 201);
+        let created: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(created["id"], "kimi-code");
+        assert_eq!(created["has_api_key"], true);
+        assert_eq!(created["status"], "connected");
+        assert_eq!(created["default_model"], "kimi-code/k3");
+
+        // 2. A duplicate id is a PROVIDER_ALREADY_EXISTS conflict.
+        let res = server
+            .handle_request(&request("POST", "/api/v1/providers", Some(&create_body)))
+            .await;
+        assert_eq!(res.status, 409);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40921);
+
+        // 3. The single-provider read reveals the stored key.
+        let res = server
+            .handle_request(&request("GET", "/api/v1/providers/kimi-code", None))
+            .await;
+        assert_eq!(res.status, 200);
+        let fetched: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(fetched["api_key"], "sk-test");
+
+        // 4. The write is format-preserving and the read side sees it.
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.kimi-code]"), "{text}");
+        assert!(text.contains("[models.\"kimi-code/k3\"]"), "{text}");
+        assert!(text.contains("default_model = \"kimi-code/k3\""), "{text}");
+        assert!(text.contains("[providers.openai]"), "{text}");
+        let res = server
+            .handle_request(&request("GET", "/api/v1/models", None))
+            .await;
+        let models: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(
+            models["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["model"] == "kimi-code/k3")
+        );
+
+        // 5. Replace with a rename migrates default_model, drops stale aliases.
+        let res = server
+            .handle_request(&request(
+                "PUT",
+                "/api/v1/providers/kimi-code",
+                Some(&json!({
+                    "new_id": "kimi-code-2",
+                    "type": "anthropic",
+                    "api_key": "sk-new",
+                    "base_url": "https://example.test/v2",
+                    "default_model": "k3",
+                    "models": [{ "model": "k3", "max_context_size": 200000 }]
+                })),
+            ))
+            .await;
+        assert_eq!(res.status, 200);
+        let replaced: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(replaced["provider"]["id"], "kimi-code-2");
+        assert_eq!(replaced["provider"]["type"], "anthropic");
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.kimi-code-2]"), "{text}");
+        assert!(!text.contains("[providers.kimi-code]"), "{text}");
+        assert!(text.contains("default_model = \"kimi-code-2/k3\""), "{text}");
+        assert!(!text.contains("kimi-code/fast"), "{text}");
+
+        // 6. OAuth-managed providers refuse writes; delete cleans aliases.
+        let mut text = std::fs::read_to_string(&config_path).unwrap();
+        text.push_str(
+            "\n[providers.\"managed:kimi-code\"]\ntype = \"kimi\"\noauth = { provider = \"managed:kimi-code\" }\n",
+        );
+        std::fs::write(&config_path, text).unwrap();
+        *server.config_override.lock().await = None;
+
+        let res = server
+            .handle_request(&request(
+                "DELETE",
+                "/api/v1/providers/managed%3Akimi-code",
+                None,
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40003);
+
+        let res = server
+            .handle_request(&request("DELETE", "/api/v1/providers/kimi-code-2", None))
+            .await;
+        assert_eq!(res.status, 200);
+        let deleted: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(deleted["deleted"], true);
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        // The provider and its aliases are gone; the (now dangling) default
+        // pointer is the user's setting and stays, matching kap-server.
+        assert!(!text.contains("[providers.kimi-code-2]"), "{text}");
+        assert!(!text.contains("[models.\"kimi-code-2/k3\"]"), "{text}");
+        assert!(text.contains("default_model = \"kimi-code-2/k3\""), "{text}");
+        assert!(text.contains("[providers.openai]"), "{text}");
+
+        // 7. Validation failures carry the kap-server validation code.
+        let res = server
+            .handle_request(&request(
+                "POST",
+                "/api/v1/providers",
+                Some(&json!({ "id": "bad id!", "type": "openai", "models": [] })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

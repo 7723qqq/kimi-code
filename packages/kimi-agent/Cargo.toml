@@ -52,6 +52,7 @@ chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 toml = "0.8"
+toml_edit = "0.22"
 
 ulid = "1"
 thiserror = "1.0"

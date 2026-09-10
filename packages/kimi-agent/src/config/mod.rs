@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use crate::permission::{HookDef, PermissionMode, PolicySnapshot};
 use crate::rpc::types::{NativeLlmConfig, SecondaryModelEntry, SecondaryModelPool};
 
+pub mod write;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
     #[serde(rename = "default_model", default)]

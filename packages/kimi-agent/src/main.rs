@@ -1128,7 +1128,9 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     );
     let mut server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
-        .with_auth(auth);
+        .with_auth(auth)
+        .with_config(config.clone())
+        .with_config_write_path(source.clone());
 
     let web_assets_dir = cli.web_assets.clone().or_else(|| {
         let candidates = [

@@ -55,6 +55,15 @@ impl HttpRequest {
     }
 }
 
+/// Percent-decode one path segment. Provider ids can carry reserved
+/// characters (`managed:kimi-code`), which clients URL-encode.
+pub fn decode_path_segment(raw: &str) -> String {
+    url::form_urlencoded::parse(raw.as_bytes())
+        .next()
+        .map(|(value, _)| value.into_owned())
+        .unwrap_or_else(|| raw.to_string())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub status: u16,

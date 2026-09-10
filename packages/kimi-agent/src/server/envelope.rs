@@ -10,6 +10,7 @@ pub mod error_codes {
 
     pub const VALIDATION_FAILED: u32 = 40001;
     pub const REQUEST_MALFORMED: u32 = 40002;
+    pub const PROVIDER_OAUTH_MANAGED: u32 = 40003;
     pub const AUTH_TOKEN_UNAUTHORIZED: u32 = 40112;
 
     pub const SESSION_NOT_FOUND: u32 = 40401;
@@ -22,11 +23,14 @@ pub mod error_codes {
     pub const MCP_SERVER_NOT_FOUND: u32 = 40408;
     pub const FS_PATH_NOT_FOUND: u32 = 40409;
     pub const WORKSPACE_NOT_FOUND: u32 = 40410;
+    pub const PROVIDER_NOT_FOUND: u32 = 40412;
+    pub const MODEL_NOT_FOUND: u32 = 40413;
     pub const PLUGIN_NOT_FOUND: u32 = 40419;
 
     pub const SESSION_BUSY: u32 = 40901;
     pub const APPROVAL_ALREADY_RESOLVED: u32 = 40902;
     pub const QUESTION_DISMISSED: u32 = 40909;
+    pub const PROVIDER_ALREADY_EXISTS: u32 = 40921;
 
     pub const INTERNAL_ERROR: u32 = 50001;
 }
@@ -59,9 +63,157 @@ pub fn err_envelope(code: u32, msg: &str, request_id: &str) -> Value {
     })
 }
 
+/// Wrap one dispatcher response into the kap-server envelope the Web client's
+/// REST transport unwraps:
+///
+/// - non-JSON bodies (static assets, media, downloads) stay untouched;
+/// - a body that is already an envelope (debug routes, 401 challenges) is
+///   left as-is;
+/// - 2xx bodies become `code: 0` with the original body as `data`;
+/// - error bodies keep an explicit non-zero `code` when they carry one,
+///   otherwise the status maps onto the closest kap-server code, and the
+///   message comes from `error` / `msg` / `message`.
+pub fn envelope_response(
+    request_id: &str,
+    response: crate::server::router::HttpResponse,
+) -> crate::server::router::HttpResponse {
+    let crate::server::router::HttpResponse {
+        status,
+        headers,
+        body: raw,
+    } = response;
+    let is_json = headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("json"));
+    if !is_json {
+        return crate::server::router::HttpResponse {
+            status,
+            headers,
+            body: raw,
+        };
+    }
+    let Ok(body) = serde_json::from_slice::<Value>(&raw) else {
+        return crate::server::router::HttpResponse {
+            status,
+            headers,
+            body: raw,
+        };
+    };
+    if is_envelope(&body) {
+        return crate::server::router::HttpResponse {
+            status,
+            headers,
+            body: raw,
+        };
+    }
+    let wrapped = if (200..300).contains(&status) {
+        ok_envelope(&body, request_id)
+    } else {
+        let msg = body
+            .get("error")
+            .and_then(Value::as_str)
+            .or_else(|| body.get("msg").and_then(Value::as_str))
+            .or_else(|| body.get("message").and_then(Value::as_str))
+            .unwrap_or_default();
+        let code = body
+            .get("code")
+            .and_then(Value::as_u64)
+            .map(|code| code as u32)
+            .filter(|code| *code != error_codes::SUCCESS)
+            .unwrap_or_else(|| code_for_status(status));
+        err_envelope(code, msg, request_id)
+    };
+    // The original headers (auth challenge, cache policy, …) survive.
+    let mut wrapped_response = crate::server::router::HttpResponse::json(status, &wrapped);
+    wrapped_response.headers = headers;
+    wrapped_response
+}
+
+fn is_envelope(value: &Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| ["code", "msg", "data"].iter().all(|key| object.contains_key(*key)))
+}
+
+/// The closest kap-server code for a status the dispatcher did not annotate.
+fn code_for_status(status: u16) -> u32 {
+    match status {
+        400 | 405 | 422 => error_codes::VALIDATION_FAILED,
+        401 | 403 => error_codes::AUTH_TOKEN_UNAUTHORIZED,
+        404 => error_codes::SESSION_NOT_FOUND,
+        409 => error_codes::SESSION_BUSY,
+        500..=599 => error_codes::INTERNAL_ERROR,
+        other => other as u32,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::router::HttpResponse;
+
+    #[test]
+    fn envelope_response_wraps_json_successes() {
+        let response = HttpResponse::json(200, &json!({ "items": [1, 2] }));
+        let wrapped = envelope_response("req_1", response);
+        assert_eq!(wrapped.status, 200);
+        let body: Value = serde_json::from_slice(&wrapped.body).unwrap();
+        assert_eq!(body["code"], 0);
+        assert_eq!(body["msg"], "success");
+        assert_eq!(body["data"]["items"], json!([1, 2]));
+        assert_eq!(body["request_id"], "req_1");
+    }
+
+    #[test]
+    fn envelope_response_wraps_errors_with_mapped_codes() {
+        let response = HttpResponse::json(404, &json!({ "error": "Not Found" }));
+        let body: Value = serde_json::from_slice(&envelope_response("req_2", response).body).unwrap();
+        assert_eq!(body["code"], error_codes::SESSION_NOT_FOUND);
+        assert_eq!(body["msg"], "Not Found");
+        assert!(body["data"].is_null());
+
+        // An explicit code wins over the status mapping.
+        let coded = HttpResponse::json(
+            404,
+            &json!({ "code": error_codes::PROVIDER_NOT_FOUND, "msg": "provider gone" }),
+        );
+        let body: Value = serde_json::from_slice(&envelope_response("req_3", coded).body).unwrap();
+        assert_eq!(body["code"], error_codes::PROVIDER_NOT_FOUND);
+        assert_eq!(body["msg"], "provider gone");
+    }
+
+    #[test]
+    fn envelope_response_keeps_headers_and_passes_existing_envelopes() {
+        let response =
+            HttpResponse::json(401, &json!({ "code": 40101, "msg": "Unauthorized", "data": null }))
+                .with_header("WWW-Authenticate", "Bearer realm=\"kimi-code\"");
+        let wrapped = envelope_response("req_7", response);
+        assert_eq!(wrapped.status, 401);
+        assert_eq!(
+            wrapped.header("www-authenticate"),
+            Some("Bearer realm=\"kimi-code\"")
+        );
+        // A code+msg+data body is already an envelope and stays byte-level
+        // unchanged apart from nothing — the extra keys survive.
+        let body: Value = serde_json::from_slice(&wrapped.body).unwrap();
+        assert_eq!(body["code"], 40101);
+        assert!(body.get("request_id").is_none() || body["request_id"] == "req_7");
+    }
+
+    #[test]
+    fn envelope_response_leaves_raw_and_enveloped_bodies_alone() {
+        // Non-JSON (static asset / download) passes through byte-for-byte.
+        let raw = HttpResponse::bytes(200, "text/html", b"<html>".to_vec());
+        let wrapped = envelope_response("req_4", raw);
+        assert_eq!(wrapped.body, b"<html>");
+
+        // An existing envelope (debug routes) is not wrapped twice.
+        let enveloped = HttpResponse::json(200, &ok_envelope(&json!({ "ok": true }), "req_5"));
+        let wrapped = envelope_response("req_6", enveloped);
+        let body: Value = serde_json::from_slice(&wrapped.body).unwrap();
+        assert_eq!(body["request_id"], "req_5");
+        assert_eq!(body["data"]["ok"], true);
+    }
 
     #[test]
     fn test_ok_envelope() {

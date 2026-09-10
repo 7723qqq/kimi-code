@@ -1253,6 +1253,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
+ "toml_edit",
  "tower-lsp",
  "tracing",
  "tracing-subscriber",

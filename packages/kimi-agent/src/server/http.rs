@@ -181,6 +181,11 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
     // dispatches through it is gated; only the WebSocket handshake needs a
     // credential checked here, because it never reaches that dispatcher.
     let response = server.handle_request(&received.request).await;
+    // kap-server envelope convention: the Web client's REST transport reads
+    // only `data` from an enveloped body, so JSON responses are wrapped here
+    // (assets, downloads and already-enveloped bodies pass through).
+    let response =
+        crate::server::envelope::envelope_response(&received.request.request_id(), response);
     write_response(&mut stream, &response).await
 }
 

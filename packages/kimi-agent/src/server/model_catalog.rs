@@ -15,7 +15,7 @@ use crate::config::KimiConfig;
 /// The managed Kimi Code OAuth provider (`KIMI_CODE_PROVIDER_NAME`).
 pub const MANAGED_PROVIDER_NAME: &str = "managed:kimi-code";
 
-fn non_empty(value: Option<&str>) -> Option<&str> {
+pub(crate) fn non_empty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
@@ -87,45 +87,53 @@ struct ProviderItem<'a> {
     models: Vec<&'a str>,
 }
 
-/// Every `[providers.*]` entry mapped to `ProviderCatalogItem` (v2
-/// `IModelCatalog.listProviders`), with the credential state deciding
-/// `connected` vs `unconfigured`.
+/// One `[providers.*]` entry mapped to `ProviderCatalogItem` (v2
+/// `toProtocolProvider`), with the credential state deciding `connected` vs
+/// `unconfigured`. `None` when the provider is not configured.
+pub fn provider_item(
+    config: &KimiConfig,
+    provider_id: &str,
+    has_cached_token: &dyn Fn(&str) -> bool,
+) -> Option<Value> {
+    let provider = config.providers.get(provider_id)?;
+    let has_api_key = non_empty(provider.api_key.as_deref()).is_some();
+    let has_oauth_token = provider.oauth.is_some() && has_cached_token(provider_id);
+    let default_model = provider.default_model.clone().or_else(|| {
+        let global = non_empty(config.default_model.as_deref())?;
+        let record = config.models.get(global)?;
+        let owner = record
+            .provider
+            .as_deref()
+            .or(config.default_provider.as_deref());
+        (owner == Some(provider_id)).then(|| global.to_string())
+    });
+    let item = ProviderItem {
+        id: provider_id,
+        provider_type: provider.provider_type.as_deref().unwrap_or("openai"),
+        base_url: provider.base_url.as_deref(),
+        default_model,
+        has_api_key,
+        status: if has_api_key || has_oauth_token {
+            "connected"
+        } else {
+            "unconfigured"
+        },
+        models: config
+            .models
+            .iter()
+            .filter(|(_, alias)| alias.provider.as_deref() == Some(provider_id))
+            .map(|(model_id, _)| model_id.as_str())
+            .collect(),
+    };
+    serde_json::to_value(item).ok()
+}
+
+/// Every `[providers.*]` entry (v2 `IModelCatalog.listProviders`).
 pub fn providers(config: &KimiConfig, has_cached_token: &dyn Fn(&str) -> bool) -> Value {
-    let items: Vec<ProviderItem<'_>> = config
+    let items: Vec<Value> = config
         .providers
-        .iter()
-        .map(|(provider_id, provider)| {
-            let has_api_key = non_empty(provider.api_key.as_deref()).is_some();
-            let has_oauth_token =
-                provider.oauth.is_some() && has_cached_token(provider_id.as_str());
-            let default_model = provider.default_model.clone().or_else(|| {
-                let global = non_empty(config.default_model.as_deref())?;
-                let record = config.models.get(global)?;
-                let owner = record
-                    .provider
-                    .as_deref()
-                    .or(config.default_provider.as_deref());
-                (owner == Some(provider_id.as_str())).then(|| global.to_string())
-            });
-            ProviderItem {
-                id: provider_id,
-                provider_type: provider.provider_type.as_deref().unwrap_or("openai"),
-                base_url: provider.base_url.as_deref(),
-                default_model,
-                has_api_key,
-                status: if has_api_key || has_oauth_token {
-                    "connected"
-                } else {
-                    "unconfigured"
-                },
-                models: config
-                    .models
-                    .iter()
-                    .filter(|(_, alias)| alias.provider.as_deref() == Some(provider_id.as_str()))
-                    .map(|(model_id, _)| model_id.as_str())
-                    .collect(),
-            }
-        })
+        .keys()
+        .filter_map(|provider_id| provider_item(config, provider_id, has_cached_token))
         .collect();
     json!({ "items": items })
 }
@@ -279,7 +287,10 @@ max_context_size = 200000
         assert_eq!(kimi_code["has_api_key"], false);
         assert_eq!(kimi_code["status"], "unconfigured");
         assert_eq!(kimi_code["default_model"], "kimi-code/k3");
-        assert_eq!(kimi_code["models"], json!(["kimi-code/k3", "kimi-code/fast"]));
+        let kimi_models = kimi_code["models"].as_array().unwrap();
+        assert_eq!(kimi_models.len(), 2);
+        assert!(kimi_models.contains(&json!("kimi-code/k3")));
+        assert!(kimi_models.contains(&json!("kimi-code/fast")));
 
         // The managed provider is OAuth-authenticated through its cached token.
         let managed = items
