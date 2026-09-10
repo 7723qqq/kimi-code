@@ -18,14 +18,14 @@ use crate::turn_loop::types::LLM;
 pub const PRIMARY_MODEL_CHOICE: &str = "primary";
 
 /// Where a subagent's bound model came from (v2 `SubagentModelSource`).
+/// Inheritance has no binding in the engine — an unbound instance already
+/// runs on the session LLM — so only the three bound sources appear here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentModelSource {
     /// `force = true` pinned the model; the `model` parameter is rejected.
     Forced,
     /// The caller passed `primary` and inherits its own model and effort.
     PrimaryOverride,
-    /// No pool applies; the caller's model is inherited.
-    Inherited,
     /// The requested alias, or the pool's default model.
     SecondaryPool,
 }
@@ -164,15 +164,16 @@ impl SecondaryModelRuntime {
         })
     }
 
-    /// Resolve without a pool: an explicit `model` argument is rejected (the
-    /// parameter is not advertised) and everything else inherits the session's
-    /// own model.
+    /// Validate an explicit `model` argument when no pool is configured:
+    /// `primary` (and omitting the parameter) inherit the caller's model,
+    /// anything else is the v2 `CONFIG_INVALID` text. No binding is returned —
+    /// an unbound instance already runs on the session LLM.
     pub fn resolve_without_pool(requested: Option<&str>) -> Result<(), String> {
         match requested {
+            None | Some(PRIMARY_MODEL_CHOICE) => Ok(()),
             Some(requested) => Err(format!(
                 "Invalid model \"{requested}\": no [secondary_model.models] pool is configured, so subagents inherit the caller's model (pass \"{PRIMARY_MODEL_CHOICE}\" or omit the model parameter)."
             )),
-            None => Ok(()),
         }
     }
 }
@@ -329,8 +330,9 @@ mod tests {
     }
 
     #[test]
-    fn without_a_pool_an_explicit_model_is_rejected() {
+    fn without_a_pool_only_primary_is_accepted() {
         assert!(SecondaryModelRuntime::resolve_without_pool(None).is_ok());
+        assert!(SecondaryModelRuntime::resolve_without_pool(Some(PRIMARY_MODEL_CHOICE)).is_ok());
         let error = SecondaryModelRuntime::resolve_without_pool(Some("fast")).unwrap_err();
         assert!(error.contains("no [secondary_model.models] pool"), "{error}");
         assert!(error.contains("primary"), "{error}");

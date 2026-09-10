@@ -131,7 +131,9 @@ async fn main() -> anyhow::Result<()> {
                 shell_path: None,
                 policy_snapshot: None,
                 session_id: None,
-                secondary_model: None,
+                secondary_model: config
+                    .extract_secondary_model_pool(cli.model.as_deref())
+                    .map_err(|error| anyhow::anyhow!("{error}"))?,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 todo_tool_veto: None,
@@ -1090,7 +1092,9 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         sandbox_policy: None,
         caller_agent_id: None,
         session_id: None,
-        secondary_model: None,
+        secondary_model: config
+            .extract_secondary_model_pool(cli.model.as_deref())
+            .map_err(|error| anyhow::anyhow!("{error}"))?,
     };
 
     std::fs::create_dir_all(&cli.data_dir)?;

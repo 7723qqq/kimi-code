@@ -5,13 +5,12 @@
 //! (permission gate, stale/plan/dedup guards, truncation) and reports the
 //! v2-shaped result. Everything the v2 tool supports beyond that stays
 //! host-owned by falling back (returning `None`):
-//! - `fork`, and an explicit `model` override (`requires_host`)
 //! - profiles missing from the pushed snapshot (plugin sources, external
 //!   backends like claude-code/codex)
 //! - a turn without an injected subagent runtime
 //!
-//! `resume` (P55) and `run_in_background` (P58) started out on that list and
-//! are native now.
+//! `resume` (P55), `run_in_background` (P58), `fork` and the explicit
+//! `model` override started out on that list and are native now.
 //!
 //! The host keeps its `Agent` tool registered either way, so a fallback is
 //! a routing decision, never a capability loss.
@@ -68,13 +67,6 @@ fn string_arg(args: &serde_json::Value, name: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-}
-
-/// Whether the call must run on the host: an explicit `model` override
-/// that the engine scope does not absorb. `fork`, `resume` and `run_in_background`
-/// run natively.
-pub fn requires_host(args: &serde_json::Value) -> bool {
-    string_arg(args, "model").is_some()
 }
 
 /// The v2 `SubagentTool` description body (condensed from
@@ -389,12 +381,11 @@ pub async fn execute_agent(
     tool_call_id: Option<&str>,
     pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> Option<ExecutableToolResult> {
-    // Without a `[secondary_model]` pool an explicit `model` stays host-owned
-    // (the host may route it to an external subagent backend). With a pool the
-    // engine absorbs the parameter and validates it below.
-    if pool.is_none() && requires_host(args) {
-        return None;
-    }
+    // Without a `[secondary_model]` pool the engine still absorbs the `model`
+    // parameter: `primary` (or omitting it) inherits the caller's model, any
+    // other value is the v2 no-pool error — the host no longer owns subagent
+    // model routing.
+    let requested_model = string_arg(args, "model");
     // Native resume (P55): a `resume` for an agent whose conversation we
     // hold continues natively; unknown ids stay host-owned (v2 persistent
     // scopes live there).
@@ -415,7 +406,7 @@ pub async fn execute_agent(
     let binding_llm = match pool {
         Some(pool) => {
             let runtime = manager.runtime().await?;
-            match pool.resolve(&runtime.llm, string_arg(args, "model").as_deref()) {
+            match pool.resolve(&runtime.llm, requested_model.as_deref()) {
                 Ok(binding) => Some(binding.llm),
                 Err(message) => {
                     return Some(ExecutableToolResult {
@@ -427,7 +418,21 @@ pub async fn execute_agent(
                 }
             }
         }
-        None => None,
+        None => {
+            if let Err(message) =
+                crate::subagent::secondary::SecondaryModelRuntime::resolve_without_pool(
+                    requested_model.as_deref(),
+                )
+            {
+                return Some(ExecutableToolResult {
+                    stop_turn: false,
+                    content: message,
+                    is_error: true,
+                    note: None,
+                });
+            }
+            None
+        }
     };
     let is_fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
     let profile_name =
@@ -837,26 +842,6 @@ mod tests {
             .await;
     }
 
-    #[test]
-    fn requires_host_routes_extended_features() {
-        // P55: resume is resolved per-id at execution time, not routed here.
-        assert!(!requires_host(&serde_json::json!({ "resume": "agent-1" })));
-        // Native fork: fork is supported natively.
-        assert!(!requires_host(&serde_json::json!({ "fork": true })));
-        // P58: run_in_background runs natively (detached spawn + completion
-        // events); the host task system bridges the notification.
-        assert!(!requires_host(
-            &serde_json::json!({ "run_in_background": true })
-        ));
-        assert!(requires_host(&serde_json::json!({ "model": "k2" })));
-        assert!(!requires_host(&serde_json::json!({
-            "subagent_type": "research",
-            "prompt": "go"
-        })));
-        // Blank resume is normalized away by v2's preprocess — not a resume.
-        assert!(!requires_host(&serde_json::json!({ "resume": "  " })));
-    }
-
     #[tokio::test]
     async fn resume_continues_a_completed_foreground_conversation() {
         let recorder = Arc::new(EventRecorder::new());
@@ -1151,9 +1136,8 @@ mod tests {
             .is_none(),
             "unknown resume ids must fall back to the host"
         );
-        // Note: `run_in_background` (P58) and `resume`/`fork` are native; the
-        // `requires_host_routes_extended_features` test asserts the routing
-        // decision and the spawn paths cover the execution paths.
+        // Note: `run_in_background` (P58), `resume`, `fork` and the explicit
+        // `model` override are all native; the spawn paths cover them.
     }
 
     #[tokio::test]
@@ -1857,7 +1841,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn agent_without_a_pool_still_defers_model_overrides_to_the_host() {
+    async fn agent_without_a_pool_rejects_an_explicit_model() {
         let recorder = Arc::new(EventRecorder::new());
         let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
         let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
@@ -1874,10 +1858,41 @@ mod tests {
             None,
             None,
         )
-        .await;
+        .await
+        .expect("no-pool model overrides are error results, not host fallbacks");
 
-        assert!(result.is_none(), "no pool → the host owns model overrides");
-        assert_eq!(session_llm.call_count(), 0);
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("no [secondary_model.models] pool"),
+            "{}",
+            result.content
+        );
+        assert_eq!(session_llm.call_count(), 0, "no turn ran");
+    }
+
+    #[tokio::test]
+    async fn agent_without_a_pool_accepts_primary() {
+        let recorder = Arc::new(EventRecorder::new());
+        let session_llm = Arc::new(RecordingPromptLlm::new(vec!["session answer".into()]));
+        let manager = manager_with_callbacks(session_llm.clone(), recorder.clone()).await;
+
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({
+                "subagent_type": "coder",
+                "prompt": "task",
+                "model": PRIMARY_MODEL_CHOICE,
+            }),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("primary without a pool inherits the caller's model");
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(session_llm.call_count(), 1, "the session model served the turn");
     }
 
     #[test]

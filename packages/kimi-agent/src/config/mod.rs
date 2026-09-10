@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::permission::{HookDef, PermissionMode, PolicySnapshot};
+use crate::rpc::types::{NativeLlmConfig, SecondaryModelEntry, SecondaryModelPool};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
@@ -131,6 +132,27 @@ pub struct GitHubConfig {
     pub base_url: Option<String>,
 }
 
+/// The `[secondary_model]` subagent model pool section (v2
+/// `session/subagent/configSection.ts`): either a declared pool
+/// (`default_model` + the `models` alias table) or the recipe shape
+/// (`model` pointing at a `[models]` entry, a single-entry pool).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecondaryModelConfig {
+    #[serde(rename = "default_model", default)]
+    pub default_model: Option<String>,
+    /// `[secondary_model.models]`: alias → hint shown in the tool description.
+    #[serde(default)]
+    pub models: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub force: Option<bool>,
+    /// Recipe pointer to a `[models]` entry; the single-entry pool default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Subagent thinking effort override (v2 `default_effort`).
+    #[serde(rename = "default_effort", default)]
+    pub default_effort: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KimiConfig {
     #[serde(rename = "default_model", default)]
@@ -150,6 +172,10 @@ pub struct KimiConfig {
     pub mcp: McpTimeoutConfig,
     #[serde(default)]
     pub github: GitHubConfig,
+    /// Subagent model pool (v2 `[secondary_model]` section); see
+    /// [`KimiConfig::extract_secondary_model_pool`].
+    #[serde(rename = "secondary_model", default)]
+    pub secondary_model: Option<SecondaryModelConfig>,
     /// User-configured external hooks (v2 `[hooks]` section). The engine
     /// executes the `PreToolUse` ones before native tool calls (G-6 #6).
     #[serde(default)]
@@ -275,6 +301,103 @@ impl KimiConfig {
         })
     }
 
+    /// Resolve `[secondary_model]` into the engine's subagent model pool (v2
+    /// `resolveSubagentModelPool` + `assertValidSubagentModelConfig`).
+    ///
+    /// `Ok(None)` when the section is absent or carries no pool keys (a
+    /// patch-only recipe stays inert). A malformed section is an error naming
+    /// the offending entry, so the standalone entry points fail at startup
+    /// instead of silently disabling the user's configuration.
+    pub fn extract_secondary_model_pool(
+        &self,
+        target_model: Option<&str>,
+    ) -> Result<Option<SecondaryModelPool>, String> {
+        let Some(section) = self.secondary_model.as_ref() else {
+            return Ok(None);
+        };
+        let force = section.force == Some(true);
+        let table = section.models.as_ref();
+        let default_model = section.default_model.as_deref().or(section.model.as_deref());
+
+        if force && table.is_some() {
+            return Err(
+                "[secondary_model].force cannot be combined with [secondary_model.models]: the pool table only exists to offer the main agent a choice, and force removes that choice"
+                    .into(),
+            );
+        }
+        if table.is_none() && default_model.is_none() {
+            if force {
+                return Err(
+                    "[secondary_model].default_model is required when [secondary_model].force is set"
+                        .into(),
+                );
+            }
+            return Ok(None);
+        }
+        let entries: Vec<(String, String)> = match table {
+            Some(table) => table
+                .iter()
+                .map(|(alias, hint)| (alias.clone(), hint.clone()))
+                .collect(),
+            None => vec![(
+                default_model
+                    .expect("a pool default is required without a table")
+                    .to_string(),
+                String::new(),
+            )],
+        };
+        if entries
+            .iter()
+            .any(|(alias, _)| alias == crate::subagent::secondary::PRIMARY_MODEL_CHOICE)
+        {
+            return Err(format!(
+                "[secondary_model.models] key \"{}\" is reserved: it always binds the caller's own model. Rename the pool entry.",
+                crate::subagent::secondary::PRIMARY_MODEL_CHOICE
+            ));
+        }
+        let Some(default_model) = default_model else {
+            return Err(
+                "[secondary_model].default_model is required when [secondary_model.models] is configured"
+                    .into(),
+            );
+        };
+        if table.is_some() && !entries.iter().any(|(alias, _)| alias == default_model) {
+            let available = entries
+                .iter()
+                .map(|(alias, _)| alias.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "[secondary_model].default_model \"{default_model}\" is not a [secondary_model.models] key. Available models: {available}."
+            ));
+        }
+
+        let models = entries
+            .into_iter()
+            .map(|(alias, hint)| {
+                let resolved = self.extract_native_llm(Some(alias.as_str())).ok_or_else(|| {
+                    format!(
+                        "[secondary_model.models] entry \"{alias}\" could not be resolved: add it to [models] with a provider that has credentials."
+                    )
+                })?;
+                Ok(SecondaryModelEntry {
+                    alias,
+                    hint,
+                    llm: native_llm_config(resolved, section.default_effort.as_deref()),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        Ok(Some(SecondaryModelPool {
+            force,
+            default_model: default_model.to_string(),
+            caller_model_alias: target_model
+                .map(str::to_string)
+                .or_else(|| self.default_model.clone()),
+            models,
+        }))
+    }
+
     /// Build a [`PolicySnapshot`] from the configuration.
     pub fn build_policy_snapshot(&self, git_cwd: Option<PathBuf>) -> PolicySnapshot {
         let mode = if self.agent.yolo == Some(true) {
@@ -339,6 +462,45 @@ fn normalize_base_url(url: &str, protocol: &str) -> String {
     } else {
         format!("{trimmed}/v1")
     }
+}
+
+/// Convert one resolved native model into the wire config, applying the
+/// pool-level `default_effort` the way the host's `resolveNativeLlmForAlias`
+/// does: an anthropic entry gets a thinking budget, an OpenAI-compatible one
+/// the `reasoning_effort` passthrough (off values never enable thinking).
+fn native_llm_config(resolved: ResolvedNativeLlm, effort: Option<&str>) -> NativeLlmConfig {
+    let mut llm = NativeLlmConfig {
+        protocol: resolved.protocol,
+        base_url: resolved.base_url,
+        api_key: resolved.api_key,
+        model: resolved.model,
+        max_tokens: resolved.max_tokens,
+        custom_headers: Default::default(),
+        reasoning_effort: None,
+        thinking_budget: None,
+        auth_provider: None,
+        thinking_keep: None,
+    };
+    if let Some(effort) = effort
+        && effort != "off"
+        && effort != "none"
+    {
+        if llm.protocol == "anthropic" {
+            llm.thinking_budget = Some(match effort {
+                "low" => 1024,
+                "medium" => 4096,
+                "high" | "on" => 32000,
+                other => other
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .unwrap_or(32000),
+            });
+        } else {
+            llm.reasoning_effort = Some(effort.to_string());
+        }
+    }
+    llm
 }
 
 fn dirs_home() -> Option<PathBuf> {
@@ -412,5 +574,177 @@ pattern = "Read(*)"
         assert_eq!(native_llm.protocol, "anthropic");
         assert_eq!(native_llm.base_url, "https://api.anthropic.com/v1");
         assert_eq!(native_llm.api_key, "sk-ant-key");
+    }
+
+    const POOL_CONFIG: &str = r#"
+default_model = "kimi-k2"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-kimi-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[providers.anthropic]
+type = "anthropic"
+api_key = "sk-ant-key"
+base_url = "https://api.anthropic.com"
+
+[models.kimi-k2]
+provider = "kimi"
+model = "kimi-k2-0711"
+
+[models.fast]
+provider = "kimi"
+model = "kimi-k2-fast"
+
+[models.thinky]
+provider = "anthropic"
+model = "claude-sonnet"
+"#;
+
+    #[test]
+    fn test_extract_secondary_model_pool() {
+        let config = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "fast"
+default_effort = "high"
+
+[secondary_model.models]
+"kimi-k2" = "Hard problems."
+"fast" = "Cheap and quick."
+"thinky" = ""
+"#
+        ))
+        .unwrap();
+        let pool = config.extract_secondary_model_pool(None).unwrap().unwrap();
+        assert!(!pool.force);
+        assert_eq!(pool.default_model, "fast");
+        assert_eq!(pool.caller_model_alias.as_deref(), Some("kimi-k2"));
+
+        let fast = pool.models.iter().find(|entry| entry.alias == "fast").unwrap();
+        assert_eq!(fast.hint, "Cheap and quick.");
+        assert_eq!(fast.llm.model, "kimi-k2-fast");
+        assert_eq!(fast.llm.reasoning_effort.as_deref(), Some("high"));
+
+        let thinky = pool.models.iter().find(|entry| entry.alias == "thinky").unwrap();
+        assert_eq!(thinky.llm.protocol, "anthropic");
+        assert_eq!(thinky.llm.thinking_budget, Some(32000));
+
+        // The session's own alias (`--model`) wins the `[main model]` marker.
+        let pool = config
+            .extract_secondary_model_pool(Some("thinky"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(pool.caller_model_alias.as_deref(), Some("thinky"));
+    }
+
+    #[test]
+    fn test_secondary_model_pool_shapes_and_errors() {
+        let lone = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "fast"
+"#
+        ))
+        .unwrap();
+        let pool = lone.extract_secondary_model_pool(None).unwrap().unwrap();
+        assert_eq!(pool.default_model, "fast");
+        assert_eq!(pool.models.len(), 1);
+        assert_eq!(pool.models[0].alias, "fast");
+        assert_eq!(pool.models[0].hint, "");
+
+        let recipe = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+model = "fast"
+"#
+        ))
+        .unwrap();
+        let pool = recipe.extract_secondary_model_pool(None).unwrap().unwrap();
+        assert_eq!(pool.default_model, "fast");
+        assert_eq!(pool.models.len(), 1);
+
+        // A section with no pool keys (patch-only recipe) stays inert.
+        let inert = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_effort = "high"
+"#
+        ))
+        .unwrap();
+        assert!(inert.extract_secondary_model_pool(None).unwrap().is_none());
+        assert!(
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .extract_secondary_model_pool(None)
+                .unwrap()
+                .is_none()
+        );
+
+        let unknown_default = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "missing"
+
+[secondary_model.models]
+"fast" = ""
+"#
+        ))
+        .unwrap();
+        let error = unknown_default.extract_secondary_model_pool(None).unwrap_err();
+        assert!(error.contains("is not a [secondary_model.models] key"), "{error}");
+
+        let force_with_table = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "fast"
+force = true
+
+[secondary_model.models]
+"fast" = ""
+"#
+        ))
+        .unwrap();
+        let error = force_with_table.extract_secondary_model_pool(None).unwrap_err();
+        assert!(error.contains("force cannot be combined"), "{error}");
+
+        let force_without_default = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+force = true
+"#
+        ))
+        .unwrap();
+        let error = force_without_default
+            .extract_secondary_model_pool(None)
+            .unwrap_err();
+        assert!(error.contains("required when [secondary_model].force is set"), "{error}");
+
+        let reserved = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "primary"
+
+[secondary_model.models]
+primary = ""
+"#
+        ))
+        .unwrap();
+        let error = reserved.extract_secondary_model_pool(None).unwrap_err();
+        assert!(error.contains("reserved"), "{error}");
+
+        let unresolvable = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[secondary_model]
+default_model = "nope"
+
+[secondary_model.models]
+"nope" = ""
+"#
+        ))
+        .unwrap();
+        let error = unresolvable.extract_secondary_model_pool(None).unwrap_err();
+        assert!(error.contains("could not be resolved"), "{error}");
     }
 }

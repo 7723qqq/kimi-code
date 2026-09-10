@@ -57,18 +57,6 @@ pub struct SwarmTaskSpec {
     pub is_resume: bool,
 }
 
-/// Whether this invocation carries arguments that require host-side handling.
-fn requires_host(args: &Value) -> bool {
-    if args
-        .get("model")
-        .and_then(|v| v.as_str())
-        .is_some_and(|m| !m.is_empty())
-    {
-        return true;
-    }
-    false
-}
-
 fn is_rate_limit_error(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
     lower.contains("429")
@@ -375,7 +363,7 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
 /// Execute the `AgentSwarm` tool natively.
 ///
 /// Returns `None` if the call should fall back to the host runtime
-/// (e.g. requires `fork`, `model` override, or unknown subagent profiles).
+/// (e.g. unknown subagent profiles, or a turn without an injected runtime).
 /// `_timeout_ms` is the dispatch's `Agent` timeout, kept for call-site
 /// symmetry but ignored: swarms resolve only the host swarm timeout
 /// (v2 `resolveSwarmTimeoutMs`), never the subagent timeout.
@@ -387,22 +375,24 @@ pub async fn execute_agent_swarm(
     tool_call_id: Option<&str>,
     pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> Option<ExecutableToolResult> {
-    // Without a pool a `model` override stays host-owned; with one the engine
-    // absorbs and validates it for the item-spawned subagents.
-    if pool.is_none() && requires_host(args) {
-        return None;
-    }
-
+    // The engine absorbs the `model` parameter with or without a pool: with
+    // one it binds the requested alias, without one only `primary` (or no
+    // model) is legal — anything else is the v2 no-pool error.
+    let requested = args.get("model").and_then(|value| value.as_str());
     let runtime = manager.runtime().await?;
     let item_llm = match pool {
-        Some(pool) => {
-            let requested = args.get("model").and_then(|value| value.as_str());
-            match pool.resolve(&runtime.llm, requested) {
-                Ok(binding) => Some(binding.llm),
-                Err(message) => return Some(err_result(message)),
+        Some(pool) => match pool.resolve(&runtime.llm, requested) {
+            Ok(binding) => Some(binding.llm),
+            Err(message) => return Some(err_result(message)),
+        },
+        None => {
+            if let Err(message) =
+                crate::subagent::secondary::SecondaryModelRuntime::resolve_without_pool(requested)
+            {
+                return Some(err_result(message));
             }
+            None
         }
-        None => None,
     };
 
     let input: AgentSwarmToolInput = match serde_json::from_value(args.clone()) {
@@ -733,6 +723,26 @@ mod tests {
                 .get("properties")
                 .and_then(|properties| properties.get("model"))
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_swarm_rejects_an_explicit_model_without_a_pool() {
+        let mgr = manager_with_runtime().await;
+        let args = serde_json::json!({
+            "description": "model override",
+            "items": ["a", "b"],
+            "prompt_template": "check {{item}}",
+            "model": "k3"
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, None, None)
+            .await
+            .expect("no-pool model overrides are error results, not host fallbacks");
+        assert!(res.is_error);
+        assert!(
+            res.content.contains("no [secondary_model.models] pool"),
+            "{}",
+            res.content
         );
     }
 
