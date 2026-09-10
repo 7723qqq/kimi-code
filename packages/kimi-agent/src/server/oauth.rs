@@ -261,6 +261,12 @@ impl OAuthManager {
         Some(token)
     }
 
+    /// Whether a cached OAuth token exists for the provider (v2
+    /// `hasCachedAccessToken`): in memory or as `<credentials dir>/<provider>.json`.
+    pub fn has_cached_token(&self, provider: &str) -> bool {
+        self.load_token(provider).is_some()
+    }
+
     /// Start a real device-code login: request a device authorization, then
     /// poll the token endpoint in the background until the user approves,
     /// the code expires, or the flow is cancelled.

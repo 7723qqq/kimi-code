@@ -22,6 +22,10 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     #[serde(rename = "max_tokens", default)]
     pub max_tokens: Option<u32>,
+    /// OAuth binding (v2 `providers.*.oauth`): its presence marks the
+    /// provider OAuth-authenticated even without a static key.
+    #[serde(default)]
+    pub oauth: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -32,6 +36,17 @@ pub struct ModelAliasConfig {
     pub model: Option<String>,
     #[serde(rename = "system_prompt", default)]
     pub system_prompt: Option<String>,
+    /// Catalog fields the REST surface exposes (v2 `ModelRecord`).
+    #[serde(rename = "max_context_size", default)]
+    pub max_context_size: Option<u32>,
+    #[serde(rename = "display_name", default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    #[serde(rename = "support_efforts", default)]
+    pub support_efforts: Option<Vec<String>>,
+    #[serde(rename = "default_effort", default)]
+    pub default_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -183,6 +198,10 @@ pub struct ThinkingConfig {
 pub struct KimiConfig {
     #[serde(rename = "default_model", default)]
     pub default_model: Option<String>,
+    /// Global default provider pointer (v2 `default_provider`): the fallback
+    /// owner for model aliases that do not name a provider.
+    #[serde(rename = "default_provider", default)]
+    pub default_provider: Option<String>,
     #[serde(default)]
     pub providers: HashMap<String, ProviderConfig>,
     #[serde(default)]

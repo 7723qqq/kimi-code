@@ -26,6 +26,7 @@ pub mod http;
 pub mod hub;
 pub mod interaction;
 pub mod media;
+pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
 pub mod router;
@@ -573,7 +574,7 @@ impl HttpServer {
         }
 
         let resp = match (method.as_str(), path) {
-            ("GET", "/api/v1/health") | ("GET", "/health") => HttpResponse::ok(&json!({
+            ("GET", "/api/v1/health") | ("GET", "/health") | ("GET", "/healthz") => HttpResponse::ok(&json!({
                 "status": "ok",
                 "version": env!("CARGO_PKG_VERSION"),
                 "engine": "kimi-agent-rust",
@@ -702,104 +703,17 @@ impl HttpServer {
                 "message": "Kimi agent native server is shutting down"
             })),
             ("GET", "/api/v1/models") | ("GET", "/api/v1/model-catalog") => {
-                let default_model = self
-                    .engine
-                    .as_ref()
-                    .map(|e| e.model_name())
-                    .unwrap_or("kimi-latest");
-                let items = json!([
-                    {
-                        "id": default_model,
-                        "model": default_model,
-                        "display_name": format!("Active Model ({default_model})"),
-                        "provider": "default",
-                        "max_context_size": 262144,
-                        "capabilities": ["tools", "thinking", "multimodal"],
-                        "default": true,
-                    },
-                    {
-                        "id": "claude-3-7-sonnet-20250219",
-                        "model": "claude-3-7-sonnet-20250219",
-                        "display_name": "Claude 3.7 Sonnet",
-                        "provider": "anthropic",
-                        "max_context_size": 200000,
-                        "capabilities": ["tools", "thinking", "multimodal"],
-                        "default": false,
-                    },
-                    {
-                        "id": "gpt-4o",
-                        "model": "gpt-4o",
-                        "display_name": "GPT-4o",
-                        "provider": "openai",
-                        "max_context_size": 128000,
-                        "capabilities": ["tools", "multimodal"],
-                        "default": false,
-                    }
-                ]);
-                HttpResponse::ok(&json!({
-                    "default_model": default_model,
-                    "items": items
-                }))
+                let config = self.config().await;
+                HttpResponse::ok(&crate::server::model_catalog::models(&config))
             }
             ("GET", "/api/v1/providers") => {
-                let items = json!([
-                    {
-                        "id": "kimi",
-                        "name": "Moonshot / Kimi",
-                        "type": "kimi",
-                        "base_url": "https://api.moonshot.cn/v1",
-                        "models": [
-                            {
-                                "model": "kimi-latest",
-                                "display_name": "Kimi Latest",
-                                "max_context_size": 262144,
-                                "capabilities": ["tools", "thinking", "multimodal"]
-                            }
-                        ]
-                    },
-                    {
-                        "id": "anthropic",
-                        "name": "Anthropic",
-                        "type": "anthropic",
-                        "base_url": "https://api.anthropic.com/v1",
-                        "models": [
-                            {
-                                "model": "claude-3-7-sonnet-20250219",
-                                "display_name": "Claude 3.7 Sonnet",
-                                "max_context_size": 200000,
-                                "capabilities": ["tools", "thinking", "multimodal"]
-                            }
-                        ]
-                    },
-                    {
-                        "id": "openai",
-                        "name": "OpenAI",
-                        "type": "openai",
-                        "base_url": "https://api.openai.com/v1",
-                        "models": [
-                            {
-                                "model": "gpt-4o",
-                                "display_name": "GPT-4o",
-                                "max_context_size": 128000,
-                                "capabilities": ["tools", "multimodal"]
-                            }
-                        ]
-                    },
-                    {
-                        "id": "google-genai",
-                        "name": "Google Gemini",
-                        "type": "google-genai",
-                        "models": [
-                            {
-                                "model": "gemini-2.5-pro",
-                                "display_name": "Gemini 2.5 Pro",
-                                "max_context_size": 1000000,
-                                "capabilities": ["tools", "thinking", "multimodal"]
-                            }
-                        ]
-                    }
-                ]);
-                HttpResponse::ok(&json!({ "items": items }))
+                let config = self.config().await;
+                let has_cached_token =
+                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                HttpResponse::ok(&crate::server::model_catalog::providers(
+                    &config,
+                    &has_cached_token,
+                ))
             }
             ("GET", "/api/v1/catalog/providers") | ("GET", "/api/v1/providers/catalog") => {
                 let items = json!([
@@ -1587,9 +1501,18 @@ impl HttpServer {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
                 HttpResponse::ok(&self.oauth_manager.get_usage(&provider).await)
             }
-            ("GET", "/api/v1/oauth/user") => {
+            ("GET", "/api/v1/oauth/user") | ("GET", "/api/v1/oauth/userinfo") => {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
                 HttpResponse::ok(&self.oauth_manager.get_user_info(&provider).await)
+            }
+            ("GET", "/api/v1/auth") => {
+                let config = self.config().await;
+                let has_cached_token =
+                    |provider: &str| self.oauth_manager.has_cached_token(provider);
+                HttpResponse::ok(&crate::server::model_catalog::auth_summary(
+                    &config,
+                    &has_cached_token,
+                ))
             }
             ("POST", "/api/v1/workspaces") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -4594,8 +4517,31 @@ mod tests {
     #[tokio::test]
     async fn test_http_models_catalog_and_session_export() {
         let server = HttpServer::in_memory().unwrap();
+        // The catalog routes project `config.toml`, so inject a deterministic
+        // one instead of discovering the developer's config.
+        let config: crate::config::KimiConfig = r#"
+default_model = "kimi-latest"
 
-        // 1. Models catalog
+[providers.kimi]
+type = "openai"
+api_key = "sk-test"
+base_url = "https://example.test/v1"
+
+[models.kimi-latest]
+provider = "kimi"
+model = "kimi-latest"
+max_context_size = 262144
+
+[models.fast]
+provider = "kimi"
+model = "k3-fast"
+max_context_size = 128000
+"#
+        .parse()
+        .unwrap();
+        *server.config_override.lock().await = Some(config);
+
+        // 1. Models catalog (config-driven, v2 `IModelCatalog.listModels`)
         let res_models = server
             .handle_request(&HttpRequest {
                 method: "GET".into(),
@@ -4607,10 +4553,14 @@ mod tests {
             .await;
         assert_eq!(res_models.status, 200);
         let val_models: Value = serde_json::from_slice(&res_models.body).unwrap();
-        assert_eq!(val_models["default_model"], "kimi-latest");
         let items = val_models["items"].as_array().unwrap();
-        assert!(!items.is_empty());
-        assert_eq!(items[0]["id"], "kimi-latest");
+        let model = items
+            .iter()
+            .find(|item| item["model"] == "kimi-latest")
+            .unwrap();
+        assert_eq!(model["provider"], "kimi");
+        assert_eq!(model["display_name"], "kimi-latest");
+        assert_eq!(model["max_context_size"], 262144);
 
         // Alternate /model-catalog endpoint also returns 200
         let res_catalog = server
@@ -4682,7 +4632,7 @@ mod tests {
             .await;
         assert_eq!(res_exp_none.status, 404);
 
-        // 3. Providers listing
+        // 3. Providers listing (config-driven, credential state included)
         let res_providers = server
             .handle_request(&HttpRequest {
                 method: "GET".into(),
@@ -4694,7 +4644,32 @@ mod tests {
             .await;
         assert_eq!(res_providers.status, 200);
         let val_prov: Value = serde_json::from_slice(&res_providers.body).unwrap();
-        assert!(val_prov["items"].as_array().unwrap().len() >= 4);
+        let providers = val_prov["items"].as_array().unwrap();
+        let kimi = providers.iter().find(|item| item["id"] == "kimi").unwrap();
+        assert_eq!(kimi["type"], "openai");
+        assert_eq!(kimi["has_api_key"], true);
+        assert_eq!(kimi["status"], "connected");
+        assert_eq!(kimi["default_model"], "kimi-latest");
+        let kimi_models = kimi["models"].as_array().unwrap();
+        assert_eq!(kimi_models.len(), 2);
+        assert!(kimi_models.contains(&json!("kimi-latest")));
+        assert!(kimi_models.contains(&json!("fast")));
+
+        // 3b. Auth readiness reflects the injected config.
+        let res_auth = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/auth".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_auth.status, 200);
+        let val_auth: Value = serde_json::from_slice(&res_auth.body).unwrap();
+        assert_eq!(val_auth["models_ready"], true);
+        assert_eq!(val_auth["providers_count"], 1);
+        assert_eq!(val_auth["managed_provider"], Value::Null);
 
         // 4. Catalog providers listing
         let res_catalog_prov = server
@@ -4714,7 +4689,7 @@ mod tests {
         let res_set_default = server
             .handle_request(&HttpRequest {
                 method: "POST".into(),
-                path: "/api/v1/models/claude-3-7-sonnet-20250219:set_default".into(),
+                path: "/api/v1/models/fast:set_default".into(),
                 query: None,
                 headers: HashMap::new(),
                 body: Vec::new(),
@@ -4722,7 +4697,7 @@ mod tests {
             .await;
         assert_eq!(res_set_default.status, 200);
         let val_set_def: Value = serde_json::from_slice(&res_set_default.body).unwrap();
-        assert_eq!(val_set_def["model"], "claude-3-7-sonnet-20250219");
+        assert_eq!(val_set_def["model"], "fast");
 
         // 6. Prompts list
         let res_prompts = server
