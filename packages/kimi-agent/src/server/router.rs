@@ -274,11 +274,19 @@ mod tests {
                 headers: h,
                 body: Vec::new(),
             };
-            assert!(req.wants_envelope(), "expected wants_envelope for header {val}");
+            assert!(
+                req.wants_envelope(),
+                "expected wants_envelope for header {val}"
+            );
         }
 
         // 4. wants_envelope via query param (?envelope=1 / ?envelope=true)
-        for q in ["envelope=1", "envelope=true", "envelope=TRUE", "foo=bar&envelope=1"] {
+        for q in [
+            "envelope=1",
+            "envelope=true",
+            "envelope=TRUE",
+            "foo=bar&envelope=1",
+        ] {
             let req = HttpRequest {
                 method: "GET".into(),
                 path: "/".into(),
@@ -286,7 +294,10 @@ mod tests {
                 headers: HashMap::new(),
                 body: Vec::new(),
             };
-            assert!(req.wants_envelope(), "expected wants_envelope for query {q}");
+            assert!(
+                req.wants_envelope(),
+                "expected wants_envelope for query {q}"
+            );
         }
 
         // 5. Negative wants_envelope cases
@@ -298,7 +309,10 @@ mod tests {
                 headers: HashMap::new(),
                 body: Vec::new(),
             };
-            assert!(!req.wants_envelope(), "expected not wants_envelope for query {q}");
+            assert!(
+                !req.wants_envelope(),
+                "expected not wants_envelope for query {q}"
+            );
         }
     }
 

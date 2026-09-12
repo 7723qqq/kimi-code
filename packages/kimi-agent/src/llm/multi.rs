@@ -319,8 +319,8 @@ mod tests {
         let mock = MockTestLlm::new("fast", 5, false);
         let params = LLMChatParams {
             cancel: None,
-            messages: vec![],
-            tools: vec![],
+            messages: Arc::from(Vec::new()),
+            tools: Arc::from(Vec::new()),
         };
         let result = mock.chat(params).await;
         assert!(result.is_ok());
@@ -332,8 +332,8 @@ mod tests {
         let mock = MockTestLlm::new("failing", 5, true);
         let params = LLMChatParams {
             cancel: None,
-            messages: vec![],
-            tools: vec![],
+            messages: Arc::from(Vec::new()),
+            tools: Arc::from(Vec::new()),
         };
         let result = mock.chat(params).await;
         assert!(result.is_err());
@@ -510,8 +510,8 @@ mod tests {
         let winner = multi
             .first_past_the_post(LLMChatParams {
                 cancel: None,
-                messages: vec![],
-                tools: vec![],
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
             })
             .await
             .unwrap();
@@ -574,8 +574,8 @@ mod tests {
 
         let params = LLMChatParams {
             cancel: None,
-            messages: vec![],
-            tools: vec![],
+            messages: Arc::from(Vec::new()),
+            tools: Arc::from(Vec::new()),
         };
 
         let (r1, r2) = tokio::join!(p1.chat(params.clone()), p2.chat(params));
@@ -645,6 +645,7 @@ mod tests {
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
                 Box::pin(async {
                     Ok(ToolExecuteResponse {
+                        delivery: None,
                         stop_turn: false,
                         content: String::new(),
                         is_error: false,
@@ -684,8 +685,8 @@ mod tests {
     fn empty_params() -> LLMChatParams {
         LLMChatParams {
             cancel: None,
-            messages: vec![],
-            tools: vec![],
+            messages: Arc::from(Vec::new()),
+            tools: Arc::from(Vec::new()),
         }
     }
 
@@ -833,6 +834,7 @@ mod tests {
             ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
                 Box::pin(async {
                     Ok(ToolExecuteResponse {
+                        delivery: None,
                         stop_turn: false,
                         content: String::new(),
                         is_error: false,

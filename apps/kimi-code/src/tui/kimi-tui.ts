@@ -679,8 +679,8 @@ export class KimiTUI {
     }
     void this.showTmuxKeyboardWarningIfNeeded();
     // Config diagnostics (deprecated keys/env vars, invalid sections) in
-    // warning yellow at boot; `run-prompt`/`run-v2-print` print them to
-    // stderr for non-interactive runs.
+    // warning yellow at boot; `run-prompt` prints them to stderr for
+    // non-interactive runs.
     void this.showConfigWarningsIfAny();
     if (this.state.startupState === 'picker') {
       void this.dialogController.bootstrapFromPicker();

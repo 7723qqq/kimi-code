@@ -282,6 +282,18 @@ export const AgentConfigSchema = z.object({
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
+export const ShellConfigSchema = z.object({
+  /**
+   * Local command-shell preference (Rust engine). `auto` (default) detects
+   * PowerShell 7 → Windows PowerShell → Git Bash → `cmd` on Windows and uses
+   * `/bin/bash` elsewhere; `bash` / `powershell` / `pwsh` / `cmd` pins one.
+   * `KIMI_SHELL_PATH` still takes priority.
+   */
+  preference: z.enum(['auto', 'bash', 'powershell', 'pwsh', 'cmd']).optional(),
+});
+
+export type ShellConfig = z.infer<typeof ShellConfigSchema>;
+
 export const MAX_MCP_TIMEOUT_MS = 2_147_483_647;
 const McpTimeoutMsSchema = z.number().int().min(1).max(MAX_MCP_TIMEOUT_MS);
 
@@ -461,6 +473,7 @@ export const KimiConfigSchema = z.object({
   subagent: SubagentConfigSchema.optional(),
   swarm: SwarmConfigSchema.optional(),
   agent: AgentConfigSchema.optional(),
+  shell: ShellConfigSchema.optional(),
   secondaryModel: SecondaryModelConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   image: ImageConfigSchema.optional(),
@@ -518,6 +531,7 @@ export const KimiConfigPatchSchema = z
     subagent: SubagentConfigPatchSchema.optional(),
     swarm: SwarmConfigPatchSchema.optional(),
     agent: AgentConfigPatchSchema.optional(),
+    shell: ShellConfigSchema.partial().optional(),
     secondaryModel: SecondaryModelConfigPatchSchema.optional(),
     mcp: McpConfigPatchSchema.optional(),
     image: ImageConfigPatchSchema.optional(),

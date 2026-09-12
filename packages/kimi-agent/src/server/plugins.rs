@@ -283,23 +283,35 @@ mod tests {
         let list = load_marketplace(None);
         assert_eq!(list.len(), 3);
 
-        let ds = list.iter().find(|p| p.id == "kimi-datasource").expect("kimi-datasource");
+        let ds = list
+            .iter()
+            .find(|p| p.id == "kimi-datasource")
+            .expect("kimi-datasource");
         assert_eq!(ds.tier, "official");
         assert_eq!(ds.display_name, "Kimi Datasource");
         assert_eq!(ds.version.as_deref(), Some("3.4.0"));
         assert_eq!(ds.source, "./official/kimi-datasource");
         assert_eq!(ds.keywords.as_ref().unwrap(), &vec!["data", "mcp"]);
 
-        let wb = list.iter().find(|p| p.id == "kimi-webbridge").expect("kimi-webbridge");
+        let wb = list
+            .iter()
+            .find(|p| p.id == "kimi-webbridge")
+            .expect("kimi-webbridge");
         assert_eq!(wb.tier, "official");
         assert_eq!(wb.display_name, "Kimi WebBridge");
         assert_eq!(wb.version.as_deref(), Some("1.11.3"));
         assert_eq!(wb.source, "./official/kimi-webbridge");
 
-        let sp = list.iter().find(|p| p.id == "superpowers").expect("superpowers");
+        let sp = list
+            .iter()
+            .find(|p| p.id == "superpowers")
+            .expect("superpowers");
         assert_eq!(sp.tier, "curated");
         assert_eq!(sp.display_name, "Superpowers");
-        assert_eq!(sp.homepage.as_deref(), Some("https://github.com/obra/superpowers"));
+        assert_eq!(
+            sp.homepage.as_deref(),
+            Some("https://github.com/obra/superpowers")
+        );
     }
 
     #[test]
@@ -321,7 +333,11 @@ mod tests {
                 }
             ]
         });
-        std::fs::write(plugins_dir.join("marketplace.json"), custom_catalog.to_string()).unwrap();
+        std::fs::write(
+            plugins_dir.join("marketplace.json"),
+            custom_catalog.to_string(),
+        )
+        .unwrap();
 
         let entries = load_marketplace(Some(temp_dir.path()));
         assert_eq!(entries.len(), 1);

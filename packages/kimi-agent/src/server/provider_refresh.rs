@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::config::KimiConfig;
-use crate::config::write::{ModelAliasWrite, remove_model_aliases_matching, update_config, write_model_alias};
+use crate::config::write::{
+    ModelAliasWrite, remove_model_aliases_matching, update_config, write_model_alias,
+};
 use crate::server::oauth::OAuthManager;
 
 /// The managed provider name (`KIMI_CODE_PROVIDER_NAME`).
@@ -65,7 +67,11 @@ fn parse_think_efforts(value: Option<&Value>) -> (Option<Vec<String>>, Option<St
 
 /// `toModelInfo` + `capabilitiesForModel` + `toManagedModelAlias`.
 fn parse_model(item: &Value) -> Result<Option<DiscoveredModel>, String> {
-    let Some(id) = item.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+    let Some(id) = item
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    else {
         return Ok(None);
     };
     let context_length = item.get("context_length").and_then(Value::as_u64);
@@ -76,9 +82,10 @@ fn parse_model(item: &Value) -> Result<Option<DiscoveredModel>, String> {
     };
     let raw_capabilities = string_array(item.get("capabilities"));
     let supports_reasoning = item.get("supports_reasoning").and_then(Value::as_bool) == Some(true)
-        || raw_capabilities
-            .as_ref()
-            .is_some_and(|caps| caps.iter().any(|cap| cap == "thinking" || cap == "always_thinking"));
+        || raw_capabilities.as_ref().is_some_and(|caps| {
+            caps.iter()
+                .any(|cap| cap == "thinking" || cap == "always_thinking")
+        });
     let supports_image_in = item.get("supports_image_in").and_then(Value::as_bool) == Some(true)
         || raw_capabilities
             .as_ref()
@@ -153,9 +160,14 @@ fn parse_model(item: &Value) -> Result<Option<DiscoveredModel>, String> {
     }))
 }
 
-fn alias_from_model(provider_id: &str, alias_prefix: &str, model: &DiscoveredModel) -> ModelAliasWrite {
+fn alias_from_model(
+    provider_id: &str,
+    alias_prefix: &str,
+    model: &DiscoveredModel,
+) -> ModelAliasWrite {
     let thinking_capable = model.capabilities.as_ref().is_some_and(|caps| {
-        caps.iter().any(|cap| cap == "thinking" || cap == "always_thinking")
+        caps.iter()
+            .any(|cap| cap == "thinking" || cap == "always_thinking")
     });
     let anthropic = model.protocol.as_deref() == Some("anthropic");
     ModelAliasWrite {
@@ -293,8 +305,9 @@ async fn resolve_targets(
         if provider_id.is_some_and(|wanted| wanted != id) {
             continue;
         }
-        let is_managed_oauth =
-            id == KIMI_CODE_PROVIDER_NAME && provider.provider_type.as_deref() == Some("kimi") && provider.oauth.is_some();
+        let is_managed_oauth = id == KIMI_CODE_PROVIDER_NAME
+            && provider.provider_type.as_deref() == Some("kimi")
+            && provider.oauth.is_some();
         if scope == "oauth" && !is_managed_oauth {
             continue;
         }
@@ -325,7 +338,11 @@ async fn resolve_targets(
         if normalized_base_url(base_url) != managed_base {
             continue;
         }
-        let Some(api_key) = provider.api_key.as_deref().map(str::trim).filter(|key| !key.is_empty())
+        let Some(api_key) = provider
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
         else {
             continue;
         };
@@ -424,19 +441,18 @@ pub async fn refresh(
             .collect();
         let same = existing.len() == models.len()
             && existing.iter().all(|(key, alias)| {
-                let Some(model) = models.iter().find(|model| &format!("{}{}", target.alias_prefix, model.id) == *key)
+                let Some(model) = models
+                    .iter()
+                    .find(|model| &format!("{}{}", target.alias_prefix, model.id) == *key)
                 else {
                     return false;
                 };
                 alias_snapshot(alias) == desired_snapshot(model)
             });
-        let default_lost = before
-            .default_model
-            .as_deref()
-            .is_some_and(|default| {
-                existing.iter().any(|(key, _)| key.as_str() == default)
-                    && !desired_keys.iter().any(|key| key == default)
-            });
+        let default_lost = before.default_model.as_deref().is_some_and(|default| {
+            existing.iter().any(|(key, _)| key.as_str() == default)
+                && !desired_keys.iter().any(|key| key == default)
+        });
         if same && !default_lost {
             unchanged.push(target.provider_id.clone());
             continue;
@@ -446,7 +462,9 @@ pub async fn refresh(
             .iter()
             .filter(|model| {
                 let key = format!("{}{}", target.alias_prefix, model.id);
-                !existing.iter().any(|(existing_key, _)| **existing_key == key)
+                !existing
+                    .iter()
+                    .any(|(existing_key, _)| **existing_key == key)
             })
             .count() as u64;
         let removed = existing
@@ -523,9 +541,18 @@ mod tests {
         assert_eq!(model.display_name.as_deref(), Some("K3"));
         assert_eq!(
             model.capabilities.as_deref(),
-            Some(&["thinking".to_string(), "image_in".to_string(), "tool_use".to_string()][..])
+            Some(
+                &[
+                    "thinking".to_string(),
+                    "image_in".to_string(),
+                    "tool_use".to_string()
+                ][..]
+            )
         );
-        assert_eq!(model.support_efforts.as_deref(), Some(&["low".to_string(), "high".to_string()][..]));
+        assert_eq!(
+            model.support_efforts.as_deref(),
+            Some(&["low".to_string(), "high".to_string()][..])
+        );
         assert_eq!(model.default_effort.as_deref(), Some("high"));
         assert_eq!(model.protocol.as_deref(), Some("anthropic"));
 
@@ -541,7 +568,11 @@ mod tests {
     fn rejects_missing_context_length_and_skips_entries_without_ids() {
         assert!(parse_model(&json!({ "id": "no-context" })).is_err());
         assert!(parse_model(&json!({ "id": "zero", "context_length": 0 })).is_err());
-        assert!(parse_model(&json!({ "context_length": 100 })).unwrap().is_none());
+        assert!(
+            parse_model(&json!({ "context_length": 100 }))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

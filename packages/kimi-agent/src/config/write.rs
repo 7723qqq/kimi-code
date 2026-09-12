@@ -187,7 +187,10 @@ pub fn remove_provider(document: &mut DocumentMut, id: &str) {
 }
 
 /// Write (or replace) one `[models.<alias>]` entry.
-pub fn write_model_alias(document: &mut DocumentMut, alias: &ModelAliasWrite) -> Result<(), String> {
+pub fn write_model_alias(
+    document: &mut DocumentMut,
+    alias: &ModelAliasWrite,
+) -> Result<(), String> {
     let mut table = Table::new();
     table.insert("provider", Item::Value(Value::from(alias.provider.clone())));
     table.insert("model", Item::Value(Value::from(alias.model.clone())));
@@ -196,7 +199,10 @@ pub fn write_model_alias(document: &mut DocumentMut, alias: &ModelAliasWrite) ->
         Item::Value(Value::from(i64::from(alias.max_context_size))),
     );
     if let Some(display_name) = &alias.display_name {
-        table.insert("display_name", Item::Value(Value::from(display_name.clone())));
+        table.insert(
+            "display_name",
+            Item::Value(Value::from(display_name.clone())),
+        );
     }
     if let Some(capabilities) = &alias.capabilities {
         table.insert("capabilities", string_array(capabilities));
@@ -387,7 +393,10 @@ type = "openai"
             model.capabilities,
             Some(vec!["tools".to_string(), "thinking".to_string()])
         );
-        assert_eq!(config.default_model.as_deref(), Some("managed:kimi-code/k3"));
+        assert_eq!(
+            config.default_model.as_deref(),
+            Some("managed:kimi-code/k3")
+        );
     }
 
     #[test]

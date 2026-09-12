@@ -12,16 +12,118 @@ use serde_json::{Value, json};
 
 use crate::acp::channel::AcpChannel;
 use crate::acp::events_map::infer_tool_kind;
+use crate::acp::types::AcpClientCapabilities;
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{
-    BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
-    ToolExecuteRequest, ToolExecuteResponse,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
+    PermissionCheckRequest, PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
 };
+use crate::tools::ask_user_question::QUESTION_DISMISSED_MESSAGE;
 
 /// Canonical option ids (v2 `approval.ts:8-10`).
 pub const APPROVE_ONCE_OPTION_ID: &str = "approve_once";
 pub const APPROVE_ALWAYS_OPTION_ID: &str = "approve_always";
 pub const REJECT_OPTION_ID: &str = "reject";
+
+fn tool_ok(content: String) -> ToolExecuteResponse {
+    ToolExecuteResponse {
+        delivery: None,
+        stop_turn: false,
+        content,
+        is_error: false,
+        note: None,
+    }
+}
+
+fn tool_error(content: String) -> ToolExecuteResponse {
+    ToolExecuteResponse {
+        delivery: None,
+        stop_turn: false,
+        content,
+        is_error: true,
+        note: None,
+    }
+}
+
+fn answered_question_response(answers: serde_json::Value) -> AskQuestionResponse {
+    let answers = answers
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|text| (key.clone(), text.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    AskQuestionResponse {
+        answers,
+        method: Some("enter".into()),
+        note: None,
+        cancelled: None,
+        reason: None,
+    }
+}
+
+fn dismissed_question_response() -> AskQuestionResponse {
+    AskQuestionResponse {
+        answers: std::collections::HashMap::new(),
+        method: None,
+        note: Some(QUESTION_DISMISSED_MESSAGE.to_string()),
+        cancelled: None,
+        reason: None,
+    }
+}
+
+/// Run a Bash call on the client's terminal (`terminal/create` →
+/// `wait_for_exit` → `output` → `release`). Falls back to the native Bash when
+/// the client advertised a terminal but could not create one.
+async fn run_bash_on_terminal(
+    channel: AcpChannel,
+    session_id: String,
+    inner: Arc<dyn HostCallbacks>,
+    fallback: ToolExecuteRequest,
+    command: String,
+) -> Result<ToolExecuteResponse, String> {
+    #[cfg(windows)]
+    let (shell, flag) = ("cmd", "/C");
+    #[cfg(not(windows))]
+    let (shell, flag) = ("sh", "-c");
+
+    let terminal_id = match channel
+        .create_terminal(
+            &session_id,
+            shell,
+            &[flag.to_string(), command.clone()],
+            None,
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(_) => return inner.execute_tool(fallback).await,
+    };
+
+    let exit = channel
+        .wait_for_terminal_exit(&session_id, &terminal_id)
+        .await;
+    let output = channel
+        .terminal_output(&session_id, &terminal_id)
+        .await
+        .unwrap_or_default();
+    let _ = channel.release_terminal(&session_id, &terminal_id).await;
+
+    let exit_code = exit
+        .ok()
+        .and_then(|value| value.get("exitCode").and_then(serde_json::Value::as_i64));
+    Ok(ToolExecuteResponse {
+        delivery: None,
+        stop_turn: false,
+        content: output,
+        is_error: exit_code.is_some_and(|code| code != 0),
+        note: None,
+    })
+}
 
 /// The option set offered to the client: allow-once is the primary action,
 /// allow-always the secondary, reject last (v2 `buildApprovalOptions`).
@@ -80,16 +182,32 @@ pub struct AcpPermissionHost {
     session_id: String,
     /// Tools the user approved with `approve_always` in this session.
     approved_tools: Arc<Mutex<HashSet<String>>>,
+    /// The client's declared capabilities; drives whether the client owns
+    /// Read/Write execution (fs reverse RPC) instead of the native sandbox.
+    capabilities: Arc<std::sync::Mutex<AcpClientCapabilities>>,
 }
 
 impl AcpPermissionHost {
-    pub fn new(inner: Arc<dyn HostCallbacks>, channel: AcpChannel, session_id: String) -> Self {
+    pub fn new(
+        inner: Arc<dyn HostCallbacks>,
+        channel: AcpChannel,
+        session_id: String,
+        capabilities: Arc<std::sync::Mutex<AcpClientCapabilities>>,
+    ) -> Self {
         Self {
             inner,
             channel,
             session_id,
             approved_tools: Arc::new(Mutex::new(HashSet::new())),
+            capabilities,
         }
+    }
+
+    fn capabilities(&self) -> AcpClientCapabilities {
+        self.capabilities
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn session_approved(&self, tool_name: &str) -> bool {
@@ -99,11 +217,10 @@ impl AcpPermissionHost {
             .unwrap_or(false)
     }
 
-    fn remember_session_approval(&self, tool_name: &str) {
-        if let Ok(mut approved) = self.approved_tools.lock() {
-            approved.insert(tool_name.to_string());
-        }
-    }
+    // `remember_session_approval` deliberately does not exist as a method:
+    // `check_permission` records the approval inside its `async move` closure
+    // (the shared `approved_tools` handle is cloned in, since `self` cannot
+    // cross the spawn boundary).
 }
 
 impl HostCallbacks for AcpPermissionHost {
@@ -118,7 +235,132 @@ impl HostCallbacks for AcpPermissionHost {
         &self,
         request: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-        self.inner.execute_tool(request)
+        let tool = request.tool_name.to_ascii_lowercase();
+        if !self.owns_tool(&request.tool_name) {
+            return self.inner.execute_tool(request);
+        }
+        let channel = self.channel.clone();
+        let session_id = self.session_id.clone();
+        let inner = self.inner.clone();
+        if tool == "bash" {
+            let fallback = request.clone();
+            let command = request
+                .arguments
+                .get("command")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
+            return Box::pin(async move {
+                run_bash_on_terminal(channel, session_id, inner, fallback, command).await
+            });
+        }
+        let write = tool == "write";
+        let path = request
+            .arguments
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let content = request
+            .arguments
+            .get("content")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+        Box::pin(async move {
+            let Some(path) = path else {
+                return Ok(tool_error(
+                    "this tool requires a `path` argument".to_string(),
+                ));
+            };
+            if write {
+                match channel.write_text_file(&session_id, &path, &content).await {
+                    Ok(()) => Ok(tool_ok(format!("Wrote {path}"))),
+                    Err(error) => Ok(tool_error(error)),
+                }
+            } else {
+                match channel.read_text_file(&session_id, &path).await {
+                    Ok(text) => Ok(tool_ok(text)),
+                    Err(error) => Ok(tool_error(error)),
+                }
+            }
+        })
+    }
+
+    fn owns_tool(&self, tool_name: &str) -> bool {
+        let capabilities = self.capabilities();
+        match tool_name.to_ascii_lowercase().as_str() {
+            "read" => capabilities.fs.read_text_file,
+            "write" => capabilities.fs.write_text_file,
+            "bash" => capabilities.terminal,
+            _ => false,
+        }
+    }
+
+    /// Bridge an `AskUserQuestion` request to the ACP client: `elicitation/create`
+    /// (form mode) when the client advertises it, else the
+    /// `session/request_permission` single-select bridge. Any failure resolves
+    /// to the engine's canonical "user dismissed" response (v2
+    /// `interaction-bridge.ts` `handleQuestion`).
+    fn ask_question(
+        &self,
+        request: AskQuestionRequest,
+    ) -> BoxFuture<'static, Result<AskQuestionResponse, String>> {
+        let channel = self.channel.clone();
+        let session_id = self.session_id.clone();
+        let elicitation_form = self.capabilities().elicitation.form;
+        Box::pin(async move {
+            if request.questions.is_empty() {
+                return Ok(dismissed_question_response());
+            }
+            let tool_call_id = if request.tool_call_id.is_empty() {
+                "ask-user".to_string()
+            } else {
+                request.tool_call_id.clone()
+            };
+
+            if elicitation_form {
+                let params = crate::acp::question::question_request_to_elicitation_params(
+                    &request.questions,
+                    &session_id,
+                    &tool_call_id,
+                );
+                if let Ok(response) = channel.request("elicitation/create", params).await {
+                    return Ok(
+                        match crate::acp::question::elicitation_response_to_question_answers(
+                            &request.questions,
+                            &response,
+                        ) {
+                            Some(answers) => answered_question_response(answers),
+                            None => dismissed_question_response(),
+                        },
+                    );
+                }
+                // Fall through to the request_permission bridge.
+            }
+
+            let question = &request.questions[0];
+            let params = json!({
+                "sessionId": session_id,
+                "options": crate::acp::question::question_item_to_permission_options(question, 0),
+                "toolCall": {
+                    "toolCallId": tool_call_id,
+                    "title": "AskUserQuestion",
+                    "content": [{
+                        "type": "content",
+                        "content": { "type": "text", "text": question.question },
+                    }],
+                },
+            });
+            match channel.request("session/request_permission", params).await {
+                Ok(response) => Ok(
+                    match crate::acp::question::outcome_to_question_answer(question, &response) {
+                        Some(answers) => answered_question_response(answers),
+                        None => dismissed_question_response(),
+                    },
+                ),
+                Err(_) => Ok(dismissed_question_response()),
+            }
+        })
     }
 
     fn check_permission(
@@ -180,7 +422,8 @@ mod tests {
 
     #[test]
     fn test_decision_mapping() {
-        let selected = |option: &str| json!({ "outcome": { "outcome": "selected", "optionId": option } });
+        let selected =
+            |option: &str| json!({ "outcome": { "outcome": "selected", "optionId": option } });
         assert!(decision_from_response(&selected("approve_once")).is_allow());
         assert!(decision_from_response(&selected("approve_always")).is_allow());
         // Legacy python kimi-cli ids.
@@ -222,6 +465,7 @@ mod tests {
             Arc::new(crate::server::engine::ServerHost::standalone()),
             channel.clone(),
             "sess-1".into(),
+            Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
         ));
         let request = PermissionCheckRequest {
             tool_name: "Write".into(),
@@ -281,6 +525,7 @@ mod tests {
             Arc::new(crate::server::engine::ServerHost::standalone()),
             channel.clone(),
             "sess-1".into(),
+            Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
         ));
         let request = PermissionCheckRequest {
             tool_name: "Bash".into(),
@@ -306,5 +551,283 @@ mod tests {
         let decision = pending.await.unwrap().expect("decision");
         assert!(!decision.is_allow());
         assert_eq!(decision.reason.as_deref(), Some("cancelled by user"));
+    }
+
+    #[tokio::test]
+    async fn fs_capabilities_route_read_and_write_through_the_client() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities {
+            fs: crate::acp::types::AcpFsCapabilities {
+                read_text_file: true,
+                write_text_file: true,
+            },
+            ..Default::default()
+        }));
+        let host = Arc::new(AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            channel.clone(),
+            "sess-fs".into(),
+            capabilities,
+        ));
+
+        assert!(host.owns_tool("Read"));
+        assert!(host.owns_tool("write"));
+        assert!(!host.owns_tool("Bash"), "only fs tools are host-owned");
+
+        // Read: the client answers fs/read_text_file.
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move {
+                host.execute_tool(ToolExecuteRequest {
+                    turn_id: "t1".into(),
+                    tool_call_id: "c1".into(),
+                    tool_name: "Read".into(),
+                    arguments: json!({ "path": "src/a.txt" }),
+                })
+                .await
+            })
+        };
+        let id = match rx.recv().await.expect("one fs request") {
+            crate::acp::channel::AcpOutbound::Request(request) => {
+                assert_eq!(request.method, "fs/read_text_file");
+                assert_eq!(request.params.as_ref().unwrap()["path"], "src/a.txt");
+                request.id.unwrap().as_u64().unwrap()
+            }
+            other => panic!("unexpected outbound: {other:?}"),
+        };
+        channel.resolve(id, json!({ "content": "file body" })).await;
+        let response = pending.await.unwrap().unwrap();
+        assert_eq!(response.content, "file body");
+        assert!(!response.is_error);
+
+        // Write: the client answers fs/write_text_file.
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move {
+                host.execute_tool(ToolExecuteRequest {
+                    turn_id: "t1".into(),
+                    tool_call_id: "c2".into(),
+                    tool_name: "Write".into(),
+                    arguments: json!({ "path": "src/a.txt", "content": "new" }),
+                })
+                .await
+            })
+        };
+        let id = match rx.recv().await.expect("one fs request") {
+            crate::acp::channel::AcpOutbound::Request(request) => {
+                assert_eq!(request.method, "fs/write_text_file");
+                assert_eq!(request.params.as_ref().unwrap()["content"], "new");
+                request.id.unwrap().as_u64().unwrap()
+            }
+            other => panic!("unexpected outbound: {other:?}"),
+        };
+        channel.resolve(id, json!({})).await;
+        let response = pending.await.unwrap().unwrap();
+        assert!(!response.is_error);
+        assert!(response.content.contains("src/a.txt"));
+    }
+
+    #[test]
+    fn without_fs_capabilities_the_native_tools_stay_engine_owned() {
+        let host = AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            AcpChannel::new(),
+            "sess-native".into(),
+            Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
+        );
+        assert!(!host.owns_tool("Read"));
+        assert!(!host.owns_tool("Write"));
+        assert!(!host.owns_tool("Bash"));
+    }
+
+    #[tokio::test]
+    async fn terminal_capability_routes_bash_through_the_client() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities {
+            fs: Default::default(),
+            terminal: true,
+            ..Default::default()
+        }));
+        let host = Arc::new(AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            channel.clone(),
+            "sess-term".into(),
+            capabilities,
+        ));
+        assert!(host.owns_tool("Bash"));
+
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move {
+                host.execute_tool(ToolExecuteRequest {
+                    turn_id: "t".into(),
+                    tool_call_id: "c".into(),
+                    tool_name: "Bash".into(),
+                    arguments: json!({ "command": "echo hi" }),
+                })
+                .await
+            })
+        };
+
+        let mut methods = Vec::new();
+        for answer in [
+            json!({ "terminalId": "term-1" }),
+            json!({ "exitCode": 0 }),
+            json!({ "output": "hi\n" }),
+            json!({}),
+        ] {
+            let id = match rx.recv().await.expect("a terminal request") {
+                crate::acp::channel::AcpOutbound::Request(request) => {
+                    methods.push(request.method.clone());
+                    request.id.unwrap().as_u64().unwrap()
+                }
+                other => panic!("unexpected outbound: {other:?}"),
+            };
+            channel.resolve(id, answer).await;
+        }
+        assert_eq!(
+            methods,
+            vec![
+                "terminal/create",
+                "terminal/wait_for_exit",
+                "terminal/output",
+                "terminal/release",
+            ]
+        );
+
+        let response = pending.await.unwrap().unwrap();
+        assert_eq!(response.content, "hi\n");
+        assert!(!response.is_error);
+    }
+
+    fn ask_question_request() -> AskQuestionRequest {
+        AskQuestionRequest {
+            question_id: "qid".into(),
+            turn_id: "t".into(),
+            tool_call_id: "c".into(),
+            background: false,
+            timeout_ms: None,
+            questions: vec![crate::rpc::types::AskQuestionItem {
+                question: "Which approach?".into(),
+                header: Some("Approach".into()),
+                options: vec![
+                    crate::rpc::types::AskQuestionOption {
+                        label: "Fast".into(),
+                        description: None,
+                    },
+                    crate::rpc::types::AskQuestionOption {
+                        label: "Safe".into(),
+                        description: None,
+                    },
+                ],
+                multi_select: false,
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn elicitation_form_bridges_questions_to_the_client() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities {
+            elicitation: crate::acp::types::AcpElicitationCapabilities { form: true },
+            ..Default::default()
+        }));
+        let host = Arc::new(AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            channel.clone(),
+            "sess-q".into(),
+            capabilities,
+        ));
+
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move { host.ask_question(ask_question_request()).await })
+        };
+        let id = match rx.recv().await.expect("one elicitation request") {
+            crate::acp::channel::AcpOutbound::Request(request) => {
+                assert_eq!(request.method, "elicitation/create");
+                assert_eq!(request.params.as_ref().unwrap()["mode"], "form");
+                request.id.unwrap().as_u64().unwrap()
+            }
+            other => panic!("unexpected outbound: {other:?}"),
+        };
+        channel
+            .resolve(
+                id,
+                json!({ "action": "accept", "content": { "q0": "Fast" } }),
+            )
+            .await;
+        let response = pending.await.unwrap().unwrap();
+        assert_eq!(
+            response.answers.get("Which approach?"),
+            Some(&"Fast".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn without_elicitation_questions_use_request_permission() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default()));
+        let host = Arc::new(AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            channel.clone(),
+            "sess-q2".into(),
+            capabilities,
+        ));
+
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move { host.ask_question(ask_question_request()).await })
+        };
+        let id = match rx.recv().await.expect("one permission request") {
+            crate::acp::channel::AcpOutbound::Request(request) => {
+                assert_eq!(request.method, "session/request_permission");
+                let params = request.params.as_ref().unwrap();
+                assert_eq!(params["toolCall"]["title"], "AskUserQuestion");
+                assert_eq!(params["options"][0]["optionId"], "q0_opt_0");
+                request.id.unwrap().as_u64().unwrap()
+            }
+            other => panic!("unexpected outbound: {other:?}"),
+        };
+        channel
+            .resolve(
+                id,
+                json!({ "outcome": { "outcome": "selected", "optionId": "q0_opt_1" } }),
+            )
+            .await;
+        let response = pending.await.unwrap().unwrap();
+        assert_eq!(
+            response.answers.get("Which approach?"),
+            Some(&"Safe".to_string())
+        );
+
+        // A dismissed question resolves to the engine's canonical note.
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move { host.ask_question(ask_question_request()).await })
+        };
+        let id = match rx.recv().await.expect("one permission request") {
+            crate::acp::channel::AcpOutbound::Request(request) => {
+                request.id.unwrap().as_u64().unwrap()
+            }
+            other => panic!("unexpected outbound: {other:?}"),
+        };
+        channel
+            .resolve(id, json!({ "outcome": { "outcome": "cancelled" } }))
+            .await;
+        let response = pending.await.unwrap().unwrap();
+        assert!(response.answers.is_empty());
+        assert_eq!(
+            response.note.as_deref(),
+            Some("User dismissed the question without answering.")
+        );
     }
 }

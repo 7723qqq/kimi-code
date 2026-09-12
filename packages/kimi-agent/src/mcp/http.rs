@@ -177,7 +177,11 @@ pub(crate) mod test_helpers {
     /// The returned vector records every request in arrival order.
     pub async fn spawn_mock_http_server(
         mode: &'static str,
-    ) -> (String, Arc<Mutex<Vec<RecordedRequest>>>, oneshot::Sender<()>) {
+    ) -> (
+        String,
+        Arc<Mutex<Vec<RecordedRequest>>>,
+        oneshot::Sender<()>,
+    ) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}/mcp");

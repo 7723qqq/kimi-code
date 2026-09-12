@@ -403,8 +403,8 @@ mod tests {
 
     #[tokio::test]
     async fn start_ends_when_nothing_is_schedulable() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         // No entries: background task exits promptly without calling on_fire.
         let fired = Arc::new(AtomicBool::new(false));
@@ -416,7 +416,10 @@ mod tests {
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
-        assert!(!fired.load(Ordering::SeqCst), "callback must not be called when empty");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "callback must not be called when empty"
+        );
 
         // Only never-firing entries: background task exits promptly without calling on_fire.
         let fired = Arc::new(AtomicBool::new(false));
@@ -432,23 +435,26 @@ mod tests {
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
-        assert!(!fired.load(Ordering::SeqCst), "callback must not be called for never-firing");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "callback must not be called for never-firing"
+        );
 
         // Unparseable entries dropped at start: exits promptly without calling on_fire.
         let fired = Arc::new(AtomicBool::new(false));
         let fired_clone = fired.clone();
-        let handle = CronScheduler::start(
-            vec![entry("bad", "not a cron", "x", true)],
-            0,
-            move |_| {
+        let handle =
+            CronScheduler::start(vec![entry("bad", "not a cron", "x", true)], 0, move |_| {
                 fired_clone.store(true, Ordering::SeqCst);
-            },
-        );
+            });
         tokio::time::timeout(Duration::from_secs(5), handle)
             .await
             .expect("task should end promptly")
             .expect("task should not panic");
-        assert!(!fired.load(Ordering::SeqCst), "callback must not be called for unparseable");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "callback must not be called for unparseable"
+        );
     }
 
     #[test]

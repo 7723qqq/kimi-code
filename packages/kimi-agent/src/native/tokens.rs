@@ -134,12 +134,8 @@ pub fn estimate_tokens_for_messages_summary(
 ) -> usize {
     let mut total = 0usize;
     for (role, content, media_count, calls_json) in messages {
-        total += estimate_tokens_for_message_parts(
-            role,
-            content,
-            *media_count,
-            calls_json.as_deref(),
-        );
+        total +=
+            estimate_tokens_for_message_parts(role, content, *media_count, calls_json.as_deref());
     }
     total
 }
@@ -154,7 +150,6 @@ pub struct TokenAnchor {
 }
 
 /// 状态化 Token 锚点追踪器，对齐 TS TokenCountingAgentModel 的 measured+estimated 插值算法
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TokenAnchorTracker {
     anchors: Vec<TokenAnchor>,
@@ -167,6 +162,9 @@ impl Default for TokenAnchorTracker {
     }
 }
 
+// 刻意停靠（P? 移植自 TS，算法与测试齐备但尚未接线到引擎的 token 估算路径；
+// 原生引擎当前走自有估算，接线属于 token_counting.strategy 的工作）。
+#[allow(dead_code)]
 impl TokenAnchorTracker {
     pub fn new() -> Self {
         Self {
@@ -200,11 +198,15 @@ impl TokenAnchorTracker {
     }
 
     /// 基于历史锚点与待处理新增消息估算当前整体 Token 规模（对齐 TS measured+estimated）
-    pub fn estimate_with_pending(&self, total_messages_count: usize, pending_estimated_tokens: usize) -> usize {
-        if let Some(last) = self.anchors.last() {
-            if total_messages_count >= last.length {
-                return last.tokens + pending_estimated_tokens;
-            }
+    pub fn estimate_with_pending(
+        &self,
+        total_messages_count: usize,
+        pending_estimated_tokens: usize,
+    ) -> usize {
+        if let Some(last) = self.anchors.last()
+            && total_messages_count >= last.length
+        {
+            return last.tokens + pending_estimated_tokens;
         }
         self.current_tokens + pending_estimated_tokens
     }
@@ -511,7 +513,10 @@ mod tests {
             1, // 1 张图片
             None,
         );
-        assert_eq!(single_img_tokens, 2008, "Exact multimodal token calculation: 1 + 7 + 2000");
+        assert_eq!(
+            single_img_tokens, 2008,
+            "Exact multimodal token calculation: 1 + 7 + 2000"
+        );
 
         // Message 1: "user" (1) + "Hello" (2) = 3
         // Message 2: "assistant" (3) + "Sure" (1) + calls json '{"path":"test.rs"}' (18 ascii -> 5 tokens * 1.3 = 7) = 11
@@ -528,7 +533,10 @@ mod tests {
             ("user".to_string(), "Look at this".to_string(), 1, None),
         ];
         let total = estimate_tokens_for_messages_summary(&msgs);
-        assert_eq!(total, 2018, "Exact summary messages token count: 3 + 11 + 2004 = 2018");
+        assert_eq!(
+            total, 2018,
+            "Exact summary messages token count: 3 + 11 + 2004 = 2018"
+        );
     }
 
     #[test]

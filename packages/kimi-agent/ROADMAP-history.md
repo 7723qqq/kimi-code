@@ -4761,18 +4761,19 @@ prompt 路由 `POST /api/v1/sessions/:id/prompt` **还没接** `ServerEngine`（
    - `kimi-agent` 单元测试增至 1,195 项全绿，`cargo clippy --lib -- -D warnings` 保持 0 errors / 0 warnings；
    - `check:engine-zero-js-loop` 验证通过。
 
+## P163 — print 模式后台策略引擎侧落地（receipt 转移 / goal 自驱 / cron 触发） — ✅ 已完成（2026-09-11）
 
+将 `[background]` print 后台策略（`print_background_mode` / `print_wait_ceiling_s` / `print_max_turns`）从 v2 孤儿代码的"文档承诺"落为引擎行为：host 只解析取值并透传，napi 与 stdio 双通道一致。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+1. **settle 阶段与 receipt 转移（`src/session/mod.rs`）**：
+   - `PrintBackgroundMode`（`exit`/`drain`/`steer`，未知值→`exit`）与 `PrintBackgroundPolicy`（含 `from_wire` 构造器）；`SessionConfig`/`SessionContext` 增 `print_background` + `task_runner` + `print_run`（跨 turn 的 ceiling deadline 与 steer 预算）；
+   - pump 在 history fold 之前 drain 后台任务（期间 `active_turn_id` 仍占用，session 不读为 settled），`maybe_enqueue_print_followup` 在锁内按 v2 settle 顺序入队 follow-up turn（goal → cron → 任务通知），首个 follow-up **继承本 turn 的 receipt**——`prompt()` 的 promise 直到最后一轮 follow-up 结束才 resolve，host 零等待循环，且 settle 不 await turn outcome（泵是唯一 turn 执行者）故无死锁；
+   - `steer` 以 `TaskOrigin` 回灌任务完成通知（`render_task_notifications`），goal 以 `system_trigger(goal_continuation)` 回灌 `render_continuation`，cron 以文档化 `<cron-fire>` 信封 + `CronJobOrigin` 回灌；三者共享 ceiling + `print_max_turns` 预算，触顶经 `emit_event` 发协议 `WarningEvent`（napi TSFN 与 stdio `host/event` 双通道可达），镜像 v2 的 stderr 告警文案，取消则静默。
+2. **goal 自驱续跑**：turn loop 只发 `goal.continuation` telemetry，实测 node-sdk 与 TUI 均无消费者（v2 的 host 循环负责 re-prompt，native host 从未接线）——print run 自己承担该 turn；不 gate 在 mode 上（v2 的 goal wait 先于 mode 检查），仅 print 会话读取 goal 快照（交互会话零额外往返）。顺带修正 `run_turn.rs` 的失实注释。
+3. **cron 触发**：native 路径无任何 cron dispatcher（`cron.fired` 的生产方只在 web daemon 谱系），print run 自己读注册表（state bridge）、以引擎纯函数 `next_fire` 算 ceiling 内最早触发点、`tick` 到期 job、一次性任务触发后 best-effort 删除（对齐 tools.md 的自动删除承诺）；`KIMI_DISABLE_CRON=1` 遵守。范围边界：错过触发的 coalescing 与 7 天 stale 规则属长驻 daemon 语义，daemon 的防雷 jitter 未复刻。
+4. **双通道接线与契约**：`JsRunTurnParams` + `RunTurnParams` 各增 3 个 print 字段；`main.rs` stdio `session/create` 组装策略并取本 pipeline 的 runner（顺带修复既有 `crate::storage` 路径编译错误）；REPL 显式 `None`；`rust-loop.ts` hook 类型与 camelCase↔snake_case 映射、`rust-engine.ts` 组合 resolver、`wire-schema.ts` 出站 schema 补字段（`rust-loop.ts` 出站前经 `parseWireObject(runTurnParamsSchema)` 校验，缺字段会被静默丢弃）；`napi-contract.d.ts` 同步；changeset `native-print-background-policy.md`（minor）。
+5. **测试与验证**：
+   - 新增端到端测试：steer 回灌任务通知且 receipt 持到 follow-up 结束（`test_print_steer_feeds_task_notifications_back`）、goal 续跑 + `max_turns: 1` 预算封顶（`test_print_run_continues_active_goal`，用永不完成的 goal 验证预算兜底）、`<cron-fire>` 信封格式锚定（`test_render_cron_fire_matches_documented_envelope`）与通知渲染（`test_render_task_notifications`）、模式映射（`test_print_background_mode_from_wire`）；host 侧 `resolvePrintBackground` 优先级/边界用例；
+   - 修复既有测试缺陷：`native-LLM staleness guard` 30s 超时——连接拒绝属可重试 transport error，每步重试上限 3→10（0.24.2）后 10 次指数退避 ≈151s 必然超时；`driveGuardTurn` 限定 `maxAttempts: 1` 保留测试意图（断言选了哪条 transport 而非重试次数），该文件 31.4s → 3.66s；
+   - `cargo test --lib` 2,068 项全绿，`cargo check --features cli` 通过；`bun run typecheck` 全仓通过；`rust-loop.test.ts` 72 passed / 1 skipped。
+6. **print 模式超时默认落地（补全 docs 承诺，本批自审发现）**：docs 承诺 print 下 `[subagent].timeout_ms` / `[swarm].timeout_ms` / `[background].bash_task_timeout_s` 未显式设置时默认 `0`（"后台工作不被墙钟杀掉，只有模型能停"），实测三处均未实现——subagent 落 2h 默认、后台 Bash 落 600s、且 `SubagentManager::set_swarm_timeout_ms` 把显式 `0` 滤回 2h 默认（与消费者 `Some(0) => u64::MAX` 直接矛盾），`run_turn_rust` 还把显式 `0` 当未设置（同族 filter）。修复：`pipeline::print_timeout_default` 单点定义"未设置 + print → 0"，napi/main 两个接线点应用于 subagent / swarm / bash 三 knob；swarm filter 移除使显式 `0` 贯通；`cargo test --lib` 增至 2,070 项全绿（`print_timeout_default_applies_only_in_print_mode`、`test_swarm_timeout_zero_is_explicit_no_timeout`）。

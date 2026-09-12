@@ -43,7 +43,7 @@ Image and video files are sent to the model as multimodal content instead of tex
 - `description`: background task description; required when `run_in_background=true`
 - `disable_timeout`: whether to remove the timeout limit for background tasks
 
-Foreground mode blocks the current turn until the command completes or times out, and the TUI streams stdout and stderr into the running `Bash` tool card while the command is still active. By default, a foreground command that hits its timeout is not killed — it keeps running as a background task (bounded by the 600s default background timeout); to restore kill-on-timeout, set [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) to `false` under `[background]`. The 600s background default is configurable via [`bash_task_timeout_s`](../configuration/config-files.md#background) (`0` = no timeout) and defaults to no timeout in print mode (`kimi -p`). Background mode returns a task ID immediately and automatically notifies the Agent when the task finishes. stdin is always closed — interactive commands receive EOF immediately. A two-phase termination strategy (SIGTERM → 5-second grace period → SIGKILL) ensures reliable process cleanup when a task is stopped or hits its background timeout. On Windows, the shell is auto-detected (PowerShell 7 → Windows PowerShell → Git Bash or MSYS2 bash) and can be pinned with `KIMI_SHELL_PATH` or the `[shell] preference` config; bash invocations on Windows prepend `/usr/local/bin:/usr/bin:/bin` to `PATH` so MSYS2/Git Bash tools are always found.
+Foreground mode blocks the current turn until the command completes or times out, and the TUI streams stdout and stderr into the running `Bash` tool card while the command is still active. By default, a foreground command that hits its timeout is not killed — it keeps running as a background task (bounded by the 600s default background timeout); to restore kill-on-timeout, set [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) to `false` under `[background]`. The 600s background default is configurable via [`bash_task_timeout_s`](../configuration/config-files.md#background) (`0` = no timeout) and defaults to no timeout in print mode (`kimi -p`). Background mode returns a task ID immediately and automatically notifies the Agent when the task finishes. stdin is always closed — interactive commands receive EOF immediately. A two-phase termination strategy (SIGTERM → 5-second grace period → SIGKILL) ensures reliable process cleanup when a task is stopped or hits its background timeout. On Windows, the shell is auto-detected (PowerShell 7 → Windows PowerShell → Git Bash or MSYS2 bash) and can be pinned with `KIMI_SHELL_PATH` or the [`[shell] preference`](../configuration/config-files.md#shell) config; bash invocations on Windows prepend `/usr/local/bin:/usr/bin:/bin` to `PATH` so MSYS2/Git Bash tools are always found.
 
 ## Web Tools
 
@@ -76,6 +76,25 @@ Plan mode is a constrained working state: once entered, `Write` and `Edit` are r
 | `TodoList` | Auto-allow | Manage a task to-do list |
 
 **`TodoList`** maintains a visible subtask list across multi-step operations; state is stored within the Agent session. The `todos` parameter accepts an array where each item has a `title` and `status` (`pending` / `in_progress` / `done`). Omitting `todos` queries the current list; passing an empty array clears it.
+
+## Goal
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `CreateGoal` | Auto-allow | Start a goal — a persistent objective pursued across automatically continuing turns |
+| `GetGoal` | Auto-allow | Read the current goal, its status, and its budget/usage |
+| `UpdateGoal` | Auto-allow | Change the goal's status (for example pause, resume, or complete it) |
+| `SetGoalBudget` | Auto-allow | Set the goal's token, turn, and/or wall-clock budget |
+
+**`CreateGoal`** requires an `objective` and a concrete completion criterion. See [Goal mode](../guides/goals.md) for how a goal continues across turns and how its budgets are enforced.
+
+## Knowledge
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `Knowledge` | Auto-allow | Read from and write to the local knowledge base |
+
+**`Knowledge`** interacts with the local knowledge base — a structured store of durable project notes the Agent can recall across sessions.
 
 ## Collaboration Tools
 
@@ -135,6 +154,16 @@ To prevent all users from firing at the same time on the hour, the scheduler app
 **`CronList`** is a read-only tool that accepts no parameters. It returns one record per active task with fields: `id`, `cron`, `humanSchedule`, `nextFireAt`, `recurring`, `ageDays`, and `stale`. Records are separated by `---` and sorted by schedule time.
 
 **`CronDelete`** accepts a single `id`. For recurring tasks, all future fires stop immediately; for one-time tasks, the pending fire is cancelled. One-time tasks that have already fired are auto-deleted, so calling `CronDelete` on an already-fired one-time task returns `No cron job with id ...`. Deletion is irreversible — use `CronCreate` again to restore. `CronDelete` is also blocked in Plan mode.
+
+## Workflow
+
+Workflow tools run multi-phase agent orchestration — parallel and sequential subagent work driven by a workflow script.
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `Workflow` | Auto-allow | Run or manage a multi-phase agent workflow |
+
+**`Workflow`** takes an `operation`: `run` starts a workflow in the background and returns immediately with a `run_id` (pass `name` for a built-in or user workflow, or `script` for an inline script — mutually exclusive; `args` are passed through as the script's `args`), `list` enumerates the available workflows, `status` reports a run's current phase, agent count, and elapsed time, `wait` blocks until the run settles (optional `timeout_ms`), and `cancel` stops a running run. A completed `wait` returns the workflow's result. Nine built-in workflows ship with the CLI — `deep-research`, `code-review`, `test-generator`, `refactor-planner`, `bug-triage`, `pr-description`, `architecture-review`, `security-audit`, and `migration-planner` — and user workflows are read from `<KIMI_CODE_HOME>/workflows/<name>.js` (default `~/.kimi-code/workflows/`). Inline `script` execution uses an embedded JavaScript engine that is compiled in by default (the `workflow-js` build feature); a build without it still supports `list` / `status` / `wait` / `cancel` but rejects `run`. Each `agent()` call inside a workflow runs a foreground subagent under the caller's profile and model policy.
 
 ## GitHub
 

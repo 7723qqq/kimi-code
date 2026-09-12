@@ -36,6 +36,14 @@ pub trait HostCallbacks: Send + Sync {
         request: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>>;
 
+    /// Whether the host itself owns execution of this tool, so the engine must
+    /// route it to the host instead of running it natively. Default false; an
+    /// ACP client that virtualizes the filesystem sets this for `Read`/`Write`
+    /// when it advertises the `fs.readTextFile` / `fs.writeTextFile` capability.
+    fn owns_tool(&self, _tool_name: &str) -> bool {
+        false
+    }
+
     /// Ask the host whether a mutating tool call may execute natively. The
     /// host runs its full permission machinery (mode, rules, policies,
     /// interactive approval) and answers `allow` or `deny`. A deny verdict
@@ -607,6 +615,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -660,6 +669,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -669,7 +679,9 @@ impl HostCallbacks for NativeToolCallbacks {
             let sandbox_denial = if let Some(policy) = &this.sandbox_policy {
                 let tool_lower = request.tool_name.to_ascii_lowercase();
                 if tool_lower == "write" || tool_lower == "edit" {
-                    if let Some(target_path) = request.arguments.get("path").and_then(|v| v.as_str()) {
+                    if let Some(target_path) =
+                        request.arguments.get("path").and_then(|v| v.as_str())
+                    {
                         policy.sandbox_write_guard(target_path)
                     } else if policy.mode == crate::tools::sandbox::SandboxMode::ReadOnly {
                         policy.sandbox_write_guard("")
@@ -701,6 +713,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -752,6 +765,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -776,6 +790,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -802,6 +817,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
@@ -828,11 +844,34 @@ impl HostCallbacks for NativeToolCallbacks {
                     "note": null,
                 }));
                 return Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: reason,
                     is_error: true,
                     note: None,
                 });
+            }
+            // A host that virtualizes the filesystem (ACP clients advertising
+            // `fs.*`) owns Read/Write: after the veto/plan/permission/stale
+            // gates, run the tool through the host instead of the native
+            // sandbox. The completed host execution is observed so a later
+            // native Write does not trip the stale guard.
+            if this.inner.owns_tool(&request.tool_name) {
+                let response = this.inner.execute_tool(request.clone()).await?;
+                if let Some(gate) = &this.stale_guard {
+                    gate.observe(&request.tool_name, &request.arguments, response.is_error);
+                }
+                this.inner.emit_event(serde_json::json!({
+                    "type": "tool.native",
+                    "turn_id": request.turn_id,
+                    "tool_call_id": request.tool_call_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "content": response.content,
+                    "is_error": response.is_error,
+                    "note": response.note,
+                }));
+                return Ok(response);
             }
             // P53 checkpoint prepare (v2 `onWillExecuteTool` counterpart):
             // the engine is about to write these files — the host captures
@@ -933,6 +972,7 @@ impl HostCallbacks for NativeToolCallbacks {
                             .await;
                     }
                     let raw = ToolExecuteResponse {
+                        delivery: result.delivery,
                         stop_turn: result.stop_turn,
                         content: result.content,
                         is_error: result.is_error,
@@ -954,6 +994,7 @@ impl HostCallbacks for NativeToolCallbacks {
                                 },
                             );
                             ToolExecuteResponse {
+                                delivery: raw.delivery,
                                 stop_turn: raw.stop_turn,
                                 content: f.content,
                                 is_error: f.is_error,
@@ -1035,16 +1076,18 @@ impl HostCallbacks for NativeToolCallbacks {
                 filter.as_ref(),
                 toolset.secondary_model().map(|pool| pool.as_ref()),
             );
+            let mut seen: std::collections::HashSet<String> =
+                tools.iter().map(|t| t.name.clone()).collect();
             if let Ok(response) = inner.list_tools().await {
                 for tool in response.tools {
-                    if !tools.iter().any(|t| t.name == tool.name) {
+                    if seen.insert(tool.name.clone()) {
                         tools.push(tool);
                     }
                 }
             }
             if let Some(mcp) = mcp_mgr {
                 for tool in mcp.list_tool_infos().await {
-                    if !tools.iter().any(|t| t.name == tool.name) {
+                    if seen.insert(tool.name.clone()) {
                         tools.push(tool);
                     }
                 }
@@ -1132,6 +1175,10 @@ impl HostCallbacks for CountingCallbacks {
         self.inner.execute_tool(request)
     }
 
+    fn owns_tool(&self, tool_name: &str) -> bool {
+        self.inner.owns_tool(tool_name)
+    }
+
     fn check_permission(
         &self,
         request: PermissionCheckRequest,
@@ -1184,6 +1231,12 @@ impl HostCallbacks for CountingCallbacks {
         self.event_count.fetch_add(1, Ordering::Relaxed);
         if let Some(ref bus) = self.bus {
             bus.publish_json(event.clone());
+            // Web-vocabulary aliases ride the same lane (server-side only —
+            // a private bus has no listeners). The originals stay untouched:
+            // they are the TUI/napi transcript contract.
+            for alias in crate::server::web_events::web_event_aliases(&event) {
+                bus.publish_json(alias);
+            }
         }
         self.inner.emit_event(event);
     }
@@ -1228,6 +1281,10 @@ impl HostCallbacks for StateStoreCallbacks {
         request: ToolExecuteRequest,
     ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
         self.inner.execute_tool(request)
+    }
+
+    fn owns_tool(&self, tool_name: &str) -> bool {
+        self.inner.owns_tool(tool_name)
     }
 
     fn check_permission(
@@ -1348,7 +1405,17 @@ impl HostCallbacks for StateStoreCallbacks {
     }
 
     fn goal(&self) -> BoxFuture<'static, Result<Option<GoalContext>, String>> {
-        self.inner.goal()
+        let store = self.store.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            // The host owns the live goal on host-proxied transports; when it
+            // has none (standalone engine/REPL), the local state store is the
+            // authority, the same one the goal tools write through.
+            if let Ok(Some(goal)) = inner.goal().await {
+                return Ok(Some(goal));
+            }
+            Ok(store.goal_context())
+        })
     }
 
     fn auth_token(
@@ -1473,6 +1540,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
@@ -1561,6 +1629,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
@@ -1751,7 +1820,11 @@ mod tests {
             .unwrap();
 
         assert!(escape_res.is_error);
-        assert!(escape_res.content.contains("tower workers may only write inside their own worktree"));
+        assert!(
+            escape_res
+                .content
+                .contains("tower workers may only write inside their own worktree")
+        );
 
         // 2. 写工作区合法内部路径 -> 放行至权限/执行层
         let in_worktree_res = native
@@ -1769,7 +1842,11 @@ mod tests {
 
         // 不应触发 tower worktree 逃逸拦截
         assert!(!escape_res.content.contains("fn ok"));
-        assert!(!in_worktree_res.content.contains("tower workers may only write inside their own worktree"));
+        assert!(
+            !in_worktree_res
+                .content
+                .contains("tower workers may only write inside their own worktree")
+        );
     }
 
     #[tokio::test]
@@ -1778,7 +1855,8 @@ mod tests {
 
         // 1. ReadOnly 模式阻断 Write 与 Edit
         let mut callbacks_tuple = veto_setup(None, None);
-        callbacks_tuple.1.sandbox_policy = Some(SandboxExecutionPolicy::read_only("/workspace/root"));
+        callbacks_tuple.1.sandbox_policy =
+            Some(SandboxExecutionPolicy::read_only("/workspace/root"));
         let native = callbacks_tuple.1;
 
         let ro_res = native
@@ -1799,7 +1877,8 @@ mod tests {
 
         // 2. WorkspaceWrite 模式拦截工作区外部写
         let mut callbacks_tuple = veto_setup(None, None);
-        callbacks_tuple.1.sandbox_policy = Some(SandboxExecutionPolicy::workspace_write("/workspace/root"));
+        callbacks_tuple.1.sandbox_policy =
+            Some(SandboxExecutionPolicy::workspace_write("/workspace/root"));
         let native_ww = callbacks_tuple.1;
 
         let out_res = native_ww
@@ -1817,7 +1896,11 @@ mod tests {
             .unwrap();
 
         assert!(out_res.is_error);
-        assert!(out_res.content.contains("blocks writes outside the workspace root"));
+        assert!(
+            out_res
+                .content
+                .contains("blocks writes outside the workspace root")
+        );
 
         // 3. WorkspaceWrite 模式放行工作区内部写（进入权限层，不会被沙箱拒否）
         let in_res = native_ww
@@ -1833,7 +1916,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!in_res.content.contains("blocks writes outside the workspace root"));
+        assert!(
+            !in_res
+                .content
+                .contains("blocks writes outside the workspace root")
+        );
 
         // 4. 只读工具（如 Glob）在只读沙箱模式下不受写沙箱影响
         let glob_res = native
@@ -2089,6 +2176,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
@@ -2260,9 +2348,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_stale_guard_records_host_forwarded_reads() {
-        // A `region` Read falls back to the host (media pipeline); the gate
-        // must still record it so a later native Write to the same file
-        // passes.
+        // A binary Read is not decodable as text, so the native text read
+        // declines it and the host serves the call; the gate must still
+        // record it so a later native Write to the same file passes.
         let (dir, native, executed, _native_count, _events, _state_reads) = stale_gate_setup(
             PermissionDecision {
                 decision: "allow".into(),
@@ -2270,13 +2358,13 @@ mod tests {
             },
             Some(serde_json::json!({ "active": false })),
         );
-        std::fs::write(dir.path().join("media.txt"), "hello").unwrap();
+        std::fs::write(dir.path().join("blob.bin"), b"plain prefix\x00\x01").unwrap();
         let read = native
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Read".into(),
-                arguments: serde_json::json!({ "path": "media.txt", "region": {} }),
+                arguments: serde_json::json!({ "path": "blob.bin" }),
             })
             .await
             .unwrap();
@@ -2284,14 +2372,14 @@ mod tests {
         assert_eq!(
             executed.load(Ordering::Relaxed),
             1,
-            "the region read runs on the host"
+            "the binary read runs on the host"
         );
         let write = native
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),
                 tool_call_id: "c2".into(),
                 tool_name: "Write".into(),
-                arguments: serde_json::json!({ "path": "media.txt", "content": "x" }),
+                arguments: serde_json::json!({ "path": "blob.bin", "content": "x" }),
             })
             .await
             .unwrap();
@@ -2358,6 +2446,7 @@ mod tests {
             self.executed.fetch_add(1, Ordering::Relaxed);
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "host executed".into(),
                     is_error: false,
@@ -3332,7 +3421,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {        let tmp = tempfile::tempdir().unwrap();
+    async fn test_native_tool_callbacks_list_tools_merges_mcp_tools() {
+        let tmp = tempfile::tempdir().unwrap();
         let mcp_mgr = Arc::new(crate::mcp::McpManager::new());
         let mock_client = crate::mcp::McpClient::mock("test_server");
         mcp_mgr.add_client(mock_client).await;

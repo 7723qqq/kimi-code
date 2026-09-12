@@ -28,6 +28,11 @@ pub struct ProviderConfig {
     /// provider OAuth-authenticated even without a static key.
     #[serde(default)]
     pub oauth: Option<serde_json::Value>,
+    /// Extra HTTP headers sent with every request to this provider
+    /// (schema `providers.*.customHeaders`). Self-hosted gateways put their
+    /// auth/routing headers here; without it those deployments 401.
+    #[serde(rename = "custom_headers", alias = "customHeaders", default)]
+    pub custom_headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -36,29 +41,47 @@ pub struct ModelAliasConfig {
     pub provider: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(rename = "system_prompt", default)]
+    #[serde(rename = "system_prompt", alias = "systemPrompt", default)]
     pub system_prompt: Option<String>,
     /// Catalog fields the REST surface exposes (v2 `ModelRecord`).
-    #[serde(rename = "max_context_size", default)]
+    #[serde(rename = "max_context_size", alias = "maxContextSize", default)]
     pub max_context_size: Option<u32>,
-    #[serde(rename = "display_name", default)]
+    #[serde(rename = "display_name", alias = "displayName", default)]
     pub display_name: Option<String>,
     #[serde(default)]
     pub capabilities: Option<Vec<String>>,
-    #[serde(rename = "max_output_size", default)]
+    #[serde(rename = "max_output_size", alias = "maxOutputSize", default)]
     pub max_output_size: Option<u32>,
-    #[serde(rename = "support_efforts", default)]
+    #[serde(rename = "support_efforts", alias = "supportEfforts", default)]
     pub support_efforts: Option<Vec<String>>,
-    #[serde(rename = "default_effort", default)]
+    #[serde(rename = "default_effort", alias = "defaultEffort", default)]
     pub default_effort: Option<String>,
-    #[serde(rename = "adaptive_thinking", default)]
+    #[serde(rename = "adaptive_thinking", alias = "adaptiveThinking", default)]
     pub adaptive_thinking: Option<bool>,
     /// Per-model wire protocol override (v2 `ModelRecord.protocol`).
     #[serde(default)]
     pub protocol: Option<String>,
     /// Route anthropic-protocol models through the beta Messages API.
-    #[serde(rename = "beta_api", default)]
+    #[serde(rename = "beta_api", alias = "betaApi", default)]
     pub beta_api: Option<bool>,
+    /// Per-model endpoint override (schema `models.*.baseUrl`): a gateway
+    /// provider serving this alias over a different endpoint than the
+    /// provider default. Wins over the provider's `base_url`.
+    #[serde(rename = "base_url", alias = "baseUrl", default)]
+    pub base_url: Option<String>,
+    /// Declared prompt/input cap when below the total window (schema
+    /// `models.*.maxInputSize`).
+    #[serde(rename = "max_input_size", alias = "maxInputSize", default)]
+    pub max_input_size: Option<u32>,
+    /// The wire field carrying reasoning content for this model (schema
+    /// `models.*.reasoningKey`).
+    #[serde(rename = "reasoning_key", alias = "reasoningKey", default)]
+    pub reasoning_key: Option<String>,
+    /// The effort value that encodes "thinking off" on the wire (schema
+    /// `models.*.offEffort`): models whose default is to reason need it sent
+    /// instead of omitting the effort field.
+    #[serde(rename = "off_effort", alias = "offEffort", default)]
+    pub off_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -75,6 +98,31 @@ pub struct AgentConfig {
     pub rust_self_contained: Option<bool>,
     #[serde(default)]
     pub yolo: Option<bool>,
+    /// `[agent].plan_mode`: start turns in plan mode by default (schema).
+    #[serde(rename = "plan_mode", alias = "planMode", default)]
+    pub plan_mode: Option<bool>,
+}
+
+/// `[model_catalog]` section (schema `ModelCatalogConfig`): automatic
+/// provider-model discovery.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelCatalogConfig {
+    /// Interval (ms) between automatic provider-model refreshes. `0`/unset
+    /// disables the periodic refresh.
+    #[serde(rename = "refresh_interval_ms", alias = "refreshIntervalMs", default)]
+    pub refresh_interval_ms: Option<u64>,
+    /// Refresh once shortly after the daemon starts.
+    #[serde(rename = "refresh_on_start", alias = "refreshOnStart", default)]
+    pub refresh_on_start: Option<bool>,
+}
+
+/// `[shell]` section (v2 `configSection.ts`): pin the local command shell.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ShellConfig {
+    /// `auto` (default) | `bash` | `powershell` | `pwsh` | `cmd`. Any other
+    /// value falls back to auto-detection. `KIMI_SHELL_PATH` still wins.
+    #[serde(default)]
+    pub preference: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -83,6 +131,16 @@ pub struct PermissionRuleConfig {
     pub decision: Option<String>,
     #[serde(default)]
     pub pattern: Option<String>,
+    /// Why the rule exists (schema `permission.rules[].reason`): echoed in
+    /// the denial so the model and the UI can explain the refusal.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Rule origin (schema `permission.rules[].scope`, default `user`):
+    /// `turn-override` > `session-runtime` > `project` > `user`. The host
+    /// merges rules by scope before handing the engine a snapshot, so the
+    /// engine only carries the value through.
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -191,6 +249,16 @@ pub struct ResolvedWebService {
     pub custom_headers: HashMap<String, String>,
 }
 
+/// The `[image]` section (v2 `agent/media/configSection.ts`): the limits
+/// applied when the model reads an image for itself.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ImageConfig {
+    #[serde(rename = "read_byte_budget", alias = "readByteBudget", default)]
+    pub read_byte_budget: Option<u64>,
+    #[serde(rename = "max_edge_px", alias = "maxEdgePx", default)]
+    pub max_edge_px: Option<u32>,
+}
+
 /// The `[subagent]` section (v2 `session/subagent/configSection.ts`): the
 /// timeout one `Agent` subagent turn may run for, foreground and background.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -252,6 +320,57 @@ pub struct ThinkingConfig {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub keep: Option<String>,
+    /// The user's chosen reasoning effort (schema `thinking.effort`), sent as
+    /// `reasoning_effort` on providers that support it.
+    #[serde(default)]
+    pub effort: Option<String>,
+}
+
+/// One `[experimental]` flag value (schema `experimental`): flags are free
+/// booleans or strings, so the engine carries them verbatim and only the
+/// features that read them interpret the value.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ExperimentalValue {
+    Bool(bool),
+    String(String),
+}
+
+/// The `[background]` section (schema `background`): the knobs governing
+/// background task execution — how many may run at once, how long a shell
+/// task may live, and how it is torn down.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BackgroundConfig {
+    /// Concurrent running background tasks; further spawns are refused.
+    #[serde(rename = "max_running_tasks", alias = "maxRunningTasks", default)]
+    pub max_running_tasks: Option<u32>,
+    /// When a foreground Bash command times out, move it to the background
+    /// instead of killing it. Defaults to `true` when unset.
+    #[serde(
+        rename = "bash_auto_background_on_timeout",
+        alias = "bashAutoBackgroundOnTimeout",
+        default
+    )]
+    pub bash_auto_background_on_timeout: Option<bool>,
+    /// Default timeout (seconds) for background Bash tasks; `0` means no
+    /// timeout. Defaults to the tool's built-in 600s when unset.
+    #[serde(rename = "bash_task_timeout_s", alias = "bashTaskTimeoutS", default)]
+    pub bash_task_timeout_s: Option<u64>,
+    /// How long `stop` waits for a cooperative exit before the task is
+    /// considered killed. Defaults to 5s when unset.
+    #[serde(rename = "kill_grace_period_ms", alias = "killGracePeriodMs", default)]
+    pub kill_grace_period_ms: Option<u64>,
+}
+
+/// The global `[tools]` switch (schema `tools.enabled` / `tools.disabled`):
+/// an allowlist applied first, then a denylist, intersected with every
+/// agent's own tool policy.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ToolsConfig {
+    #[serde(default)]
+    pub enabled: Vec<String>,
+    #[serde(default)]
+    pub disabled: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -268,6 +387,9 @@ pub struct KimiConfig {
     pub models: HashMap<String, ModelAliasConfig>,
     #[serde(default)]
     pub agent: AgentConfig,
+    /// `[shell]` preference for the local command shell (v2 `configSection.ts`).
+    #[serde(default)]
+    pub shell: ShellConfig,
     /// Turn-loop limits (v2 `[loop_control]` section); see
     /// [`KimiConfig::resolve_max_attempts_per_step`].
     #[serde(rename = "loop_control", default)]
@@ -297,6 +419,10 @@ pub struct KimiConfig {
     /// [`KimiConfig::resolve_swarm_timeout_ms`].
     #[serde(default)]
     pub swarm: SwarmConfig,
+    /// Model-initiated image-read limits (v2 `[image]` section); see
+    /// [`KimiConfig::resolve_image_read_byte_budget`].
+    #[serde(default)]
+    pub image: ImageConfig,
     /// Subagent model pool (v2 `[secondary_model]` section); see
     /// [`KimiConfig::extract_secondary_model_pool`].
     #[serde(rename = "secondary_model", default)]
@@ -305,6 +431,54 @@ pub struct KimiConfig {
     /// executes the `PreToolUse` ones before native tool calls (G-6 #6).
     #[serde(default)]
     pub hooks: Vec<HookDef>,
+    /// Global tool switch (schema `[tools]`): applied to every agent in all
+    /// sessions. The host-driven paths get it through their own snapshot; the
+    /// file-reading entries (REPL / `--serve` / `--acp`) build it here.
+    #[serde(default)]
+    pub tools: ToolsConfig,
+    /// Background task knobs (schema `[background]`).
+    #[serde(default)]
+    pub background: BackgroundConfig,
+    /// Free-form feature flags (schema `[experimental]`).
+    #[serde(default)]
+    pub experimental: HashMap<String, ExperimentalValue>,
+    /// The default permission mode when `[permission].mode` is unset (schema
+    /// `default_permission_mode`); `[agent].yolo` still wins.
+    #[serde(
+        rename = "default_permission_mode",
+        alias = "defaultPermissionMode",
+        default
+    )]
+    pub default_permission_mode: Option<String>,
+    /// Top-level `yolo` (schema): the v1 flat form of `[agent].yolo`.
+    #[serde(default)]
+    pub yolo: Option<bool>,
+    /// Top-level `plan_mode` / `default_plan_mode` (schema): the initial plan
+    /// mode for a new session. `plan_mode` is the v1 flat name; the sectioned
+    /// `[agent].plan_mode` is preferred when both are present.
+    #[serde(rename = "plan_mode", alias = "planMode", default)]
+    pub plan_mode: Option<bool>,
+    #[serde(rename = "default_plan_mode", alias = "defaultPlanMode", default)]
+    pub default_plan_mode: Option<bool>,
+    /// `[model_catalog]` automatic provider-model refresh (schema).
+    #[serde(rename = "model_catalog", alias = "modelCatalog", default)]
+    pub model_catalog: Option<ModelCatalogConfig>,
+    /// Top-level telemetry switch (schema `telemetry`).
+    #[serde(default)]
+    pub telemetry: Option<bool>,
+    /// Extra directories scanned for skills (schema `extra_skill_dirs`) and
+    /// for agent definitions (schema `extra_agent_dirs`), plus the
+    /// "merge every discovered skill" switch.
+    #[serde(rename = "extra_skill_dirs", alias = "extraSkillDirs", default)]
+    pub extra_skill_dirs: Vec<String>,
+    #[serde(rename = "extra_agent_dirs", alias = "extraAgentDirs", default)]
+    pub extra_agent_dirs: Vec<String>,
+    #[serde(
+        rename = "merge_all_available_skills",
+        alias = "mergeAllAvailableSkills",
+        default
+    )]
+    pub merge_all_available_skills: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,8 +486,47 @@ pub struct ResolvedNativeLlm {
     pub protocol: String,
     pub base_url: String,
     pub api_key: String,
+    /// OAuth-managed auth: the provider name the transport asks for a bearer
+    /// token instead of using `api_key`. `None` when the provider carries a
+    /// static key.
+    #[serde(default)]
+    pub auth_provider: Option<String>,
     pub model: String,
     pub max_tokens: Option<u32>,
+    /// The alias's declared capabilities (`[models.<alias>].capabilities`),
+    /// when the file declares them. The image-read gate refuses only a
+    /// declared set that lacks `image_in`; `None`/empty stays unknown.
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    /// Extra HTTP headers from `[providers.*].custom_headers`.
+    #[serde(default)]
+    pub custom_headers: HashMap<String, String>,
+    /// Route an anthropic-protocol model through the beta Messages API
+    /// (`[models.<alias>].beta_api`).
+    #[serde(default)]
+    pub beta_api: bool,
+    /// The alias's own system prompt (`[models.<alias>].system_prompt`).
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Declared output cap (`[models.<alias>].max_output_size`).
+    #[serde(default)]
+    pub max_output_size: Option<u32>,
+    /// Declared input cap when below the window
+    /// (`[models.<alias>].max_input_size`).
+    #[serde(default)]
+    pub max_input_size: Option<u32>,
+    /// Explicit adaptive-thinking support, overriding the model-name version
+    /// inference (`[models.<alias>].adaptive_thinking`).
+    #[serde(default)]
+    pub adaptive_thinking: Option<bool>,
+    /// The wire field carrying reasoning content
+    /// (`[models.<alias>].reasoning_key`).
+    #[serde(default)]
+    pub reasoning_key: Option<String>,
+    /// The effort value that encodes "thinking off" on the wire
+    /// (`[models.<alias>].off_effort`).
+    #[serde(default)]
+    pub off_effort: Option<String>,
 }
 
 impl std::str::FromStr for KimiConfig {
@@ -401,28 +614,62 @@ impl KimiConfig {
         };
 
         let provider = self.providers.get(provider_name)?;
-        let raw_base_url = provider.base_url.as_deref()?;
-        let api_key = provider.api_key.as_deref()?;
+        let alias = self.models.get(model_key);
+        // A declared alias endpoint wins: gateway providers serve one alias
+        // over a different path than the provider default
+        // (schema `models.*.baseUrl`).
+        let raw_base_url = alias
+            .and_then(|alias| alias.base_url.as_deref())
+            .or(provider.base_url.as_deref())?;
+        let api_key = provider.api_key.clone().unwrap_or_default();
+        // A static key wins; an OAuth-bound provider (`[providers.*].oauth`)
+        // authenticates through the host token channel instead, so the static
+        // key is optional for it. A provider with neither cannot serve a
+        // request, so the model does not resolve.
+        let auth_provider = if !api_key.is_empty() {
+            None
+        } else if provider.oauth.is_some() {
+            Some(provider_name.to_string())
+        } else {
+            return None;
+        };
 
         let p_type = provider
             .provider_type
             .as_deref()
             .unwrap_or("openai")
             .to_lowercase();
-        let protocol = if p_type == "anthropic" {
-            "anthropic"
-        } else {
-            "openai"
+        // The alias declares its wire protocol (schema `models.*.protocol`:
+        // "anthropic" | "openai_responses"); the provider type is the
+        // fallback, and everything else is Chat Completions.
+        let protocol = match alias.and_then(|alias| alias.protocol.as_deref()) {
+            Some("anthropic") => "anthropic",
+            Some("openai_responses") => "openai_responses",
+            _ if p_type == "anthropic" => "anthropic",
+            _ => "openai",
         };
 
         let base_url = normalize_base_url(raw_base_url, protocol);
+        let capabilities = alias
+            .and_then(|alias| alias.capabilities.clone())
+            .filter(|caps| !caps.is_empty());
 
         Some(ResolvedNativeLlm {
             protocol: protocol.into(),
             base_url,
-            api_key: api_key.into(),
+            api_key,
+            auth_provider,
             model: wire_model.into(),
             max_tokens: provider.max_tokens,
+            capabilities,
+            custom_headers: provider.custom_headers.clone().unwrap_or_default(),
+            beta_api: alias.and_then(|alias| alias.beta_api).unwrap_or(false),
+            system_prompt: alias.and_then(|alias| alias.system_prompt.clone()),
+            max_output_size: alias.and_then(|alias| alias.max_output_size),
+            max_input_size: alias.and_then(|alias| alias.max_input_size),
+            adaptive_thinking: alias.and_then(|alias| alias.adaptive_thinking),
+            reasoning_key: alias.and_then(|alias| alias.reasoning_key.clone()),
+            off_effort: alias.and_then(|alias| alias.off_effort.clone()),
         })
     }
 
@@ -442,7 +689,10 @@ impl KimiConfig {
         };
         let force = section.force == Some(true);
         let table = section.models.as_ref();
-        let default_model = section.default_model.as_deref().or(section.model.as_deref());
+        let default_model = section
+            .default_model
+            .as_deref()
+            .or(section.model.as_deref());
 
         if force && table.is_some() {
             return Err(
@@ -532,7 +782,7 @@ impl KimiConfig {
     /// env `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` > deprecated
     /// `KIMI_LOOP_MAX_RETRIES_PER_STEP` > `[loop_control].max_attempts_per_step`
     /// > the deprecated `max_retries_per_step`. `None` keeps the engine
-    /// default (10), so an unset section changes nothing.
+    /// > default (10), so an unset section changes nothing.
     pub fn resolve_max_attempts_per_step(&self) -> Option<u32> {
         env_non_negative("KIMI_LOOP_MAX_ATTEMPTS_PER_STEP")
             .or_else(|| env_non_negative("KIMI_LOOP_MAX_RETRIES_PER_STEP"))
@@ -617,24 +867,110 @@ impl KimiConfig {
         env_non_negative_u64("KIMI_CODE_SWARM_TIMEOUT_MS").or(self.swarm.timeout_ms)
     }
 
+    /// Resolve the raw-byte budget for model-initiated image reads (v2
+    /// `resolveReadImageByteBudget`): env `KIMI_IMAGE_READ_BYTE_BUDGET` (a
+    /// positive integer) over `[image].read_byte_budget`. `None` keeps the
+    /// engine default (256KB).
+    pub fn resolve_image_read_byte_budget(&self) -> Option<u64> {
+        env_positive_u64("KIMI_IMAGE_READ_BYTE_BUDGET")
+            .or(self.image.read_byte_budget.filter(|value| *value > 0))
+    }
+
+    /// Resolve the longest-edge ceiling for model-initiated image reads (v2
+    /// `resolveMaxImageEdgePx`): env `KIMI_IMAGE_MAX_EDGE_PX` over
+    /// `[image].max_edge_px`. `None` keeps the engine default (2000px).
+    pub fn resolve_image_max_edge_px(&self) -> Option<u32> {
+        env_positive_u64("KIMI_IMAGE_MAX_EDGE_PX")
+            .and_then(|value| u32::try_from(value).ok())
+            .or(self.image.max_edge_px.filter(|value| *value > 0))
+    }
+
+    /// Resolve the concurrent-background-task cap: env
+    /// `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` over
+    /// `[background].max_running_tasks` (the env var has priority, and a
+    /// non-positive/invalid value is ignored). `None` keeps the engine
+    /// default (unlimited).
+    pub fn resolve_background_max_running_tasks(&self) -> Option<u32> {
+        env_positive_u64("KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS")
+            .and_then(|value| u32::try_from(value).ok())
+            .or(self.background.max_running_tasks.filter(|value| *value > 0))
+    }
+
+    /// Resolve the default timeout for background Bash tasks (schema
+    /// `[background].bash_task_timeout_s`). `None` keeps the tool's built-in
+    /// ceiling; `Some(0)` means "no timeout".
+    pub fn resolve_bash_task_timeout_s(&self) -> Option<u64> {
+        self.background.bash_task_timeout_s
+    }
+
+    /// The whole `[background]` section, normalized, for the entries that read
+    /// the file themselves and hand the knobs to one engine context
+    /// (`PipelineSpec`): the host-driven entries pass the equivalent values as
+    /// session params so every entry ends up with the same behavior.
+    ///
+    /// Each field is resolved as documented: `kill_grace_period_ms` and
+    /// `bash_auto_background_on_timeout` pass through (unset = built-in),
+    /// `max_running_tasks` honors `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS`,
+    /// and `bash_task_timeout_s` keeps `Some(0)` as "no timeout".
+    pub fn background_limits(&self) -> crate::storage::BackgroundLimits {
+        crate::storage::BackgroundLimits {
+            kill_grace_period_ms: self.background.kill_grace_period_ms,
+            max_running_tasks: self.resolve_background_max_running_tasks(),
+            bash_auto_background_on_timeout: self.background.bash_auto_background_on_timeout,
+            bash_task_timeout_s: self.resolve_bash_task_timeout_s(),
+        }
+    }
+
+    /// The user's `extra_skill_dirs` as paths (schema): relative entries
+    /// resolve against the current directory.
+    pub fn extra_skill_dirs_paths(&self) -> Vec<PathBuf> {
+        self.extra_skill_dirs
+            .iter()
+            .map(std::path::PathBuf::from)
+            .collect()
+    }
+
+    /// Resolve the thinking effort for the wire (schema `thinking.effort`,
+    /// stored globally rather than per model): the off-effort when the model
+    /// declares one and thinking is disabled, else the chosen effort.
+    pub fn resolve_effort(&self, model_off_effort: Option<&str>) -> Option<String> {
+        let enabled = self.thinking.enabled.unwrap_or(true);
+        if !enabled {
+            return model_off_effort.map(str::to_string);
+        }
+        self.thinking
+            .effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
     /// Build a [`PolicySnapshot`] from the configuration.
     pub fn build_policy_snapshot(&self, git_cwd: Option<PathBuf>) -> PolicySnapshot {
-        let mode = if self.agent.yolo == Some(true) {
+        // `[agent].yolo` (or the flat top-level `yolo`) wins, then
+        // `[permission].mode`, then the top-level `default_permission_mode`
+        // (schema); manual is the fallback.
+        let mode = if self.agent.yolo == Some(true) || self.yolo == Some(true) {
             PermissionMode::Yolo
-        } else if let Some(ref p) = self.permission {
-            match p.mode.as_deref() {
+        } else {
+            let declared = self
+                .permission
+                .as_ref()
+                .and_then(|p| p.mode.as_deref())
+                .or(self.default_permission_mode.as_deref());
+            match declared {
                 Some("yolo") => PermissionMode::Yolo,
                 Some("auto") => PermissionMode::Auto,
                 _ => PermissionMode::Manual,
             }
-        } else {
-            PermissionMode::Manual
         };
 
         let mut deny_rules = Vec::new();
         let mut ask_rules = Vec::new();
         let mut allow_rules = Vec::new();
 
+        let mut rule_reasons = std::collections::HashMap::new();
         if let Some(ref p) = self.permission
             && let Some(ref rules) = p.rules
         {
@@ -643,6 +979,14 @@ impl KimiConfig {
                     Some(p) => p.to_string(),
                     None => continue,
                 };
+                if let Some(why) = r
+                    .reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|why| !why.is_empty())
+                {
+                    rule_reasons.insert(pattern.clone(), why.to_string());
+                }
                 match r.decision.as_deref() {
                     Some("deny") => deny_rules.push(pattern),
                     Some("ask") => ask_rules.push(pattern),
@@ -652,6 +996,17 @@ impl KimiConfig {
             }
         }
 
+        // The global `[tools]` switch: an empty pair of lists constrains
+        // nothing, so it stays `None` and every tool survives.
+        let tools_filter = if self.tools.enabled.is_empty() && self.tools.disabled.is_empty() {
+            None
+        } else {
+            Some(crate::tools::tool_policy::ToolsFilter {
+                enabled: self.tools.enabled.clone(),
+                disabled: self.tools.disabled.clone(),
+            })
+        };
+
         PolicySnapshot {
             mode,
             deny_rules,
@@ -659,11 +1014,9 @@ impl KimiConfig {
             allow_rules,
             session_approvals: Vec::new(),
             git_cwd: git_cwd.map(|p| p.to_string_lossy().to_string()),
-            // The standalone loader has no global `[tools]` section; the
-            // host-driven paths (napi / standalone server) pass the resolved
-            // switch in through their own snapshot.
-            tools_filter: None,
+            tools_filter,
             pre_tool_hooks: self.hooks.clone(),
+            rule_reasons,
         }
     }
 }
@@ -743,6 +1096,7 @@ fn native_llm_config(
         thinking_budget: None,
         auth_provider: None,
         thinking_keep: thinking_keep.map(str::to_string),
+        beta_api: resolved.beta_api,
     };
     if let Some(effort) = effort
         && effort != "off"
@@ -782,6 +1136,12 @@ fn env_non_negative(name: &str) -> Option<u32> {
 /// The `u64` sibling of [`env_non_negative`] for millisecond timeouts.
 fn env_non_negative_u64(name: &str) -> Option<u64> {
     std::env::var(name).ok()?.trim().parse::<u64>().ok()
+}
+
+/// A positive integer environment variable (v2 `positiveInt`): zero and
+/// invalid values are ignored so the next source applies.
+fn env_positive_u64(name: &str) -> Option<u64> {
+    env_non_negative_u64(name).filter(|value| *value > 0)
 }
 
 #[cfg(test)]
@@ -851,6 +1211,83 @@ pattern = "Read(*)"
         assert_eq!(native_llm.api_key, "sk-ant-key");
     }
 
+    #[test]
+    fn oauth_bound_provider_resolves_without_a_static_key() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "managed"
+
+[providers.managed]
+type = "openai"
+base_url = "https://api.kimi.com/v1"
+oauth = { provider = "kimi" }
+
+[models.managed]
+provider = "managed"
+model = "kimi-k2-0711"
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(native.api_key, "");
+        assert_eq!(native.auth_provider.as_deref(), Some("managed"));
+    }
+
+    #[test]
+    fn provider_without_key_or_oauth_does_not_resolve() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "naked"
+
+[providers.naked]
+type = "openai"
+base_url = "https://api.example.com/v1"
+
+[models.naked]
+provider = "naked"
+model = "some-model"
+"#,
+        )
+        .unwrap();
+        assert!(config.extract_native_llm(None).is_none());
+    }
+
+    #[test]
+    fn top_level_yolo_resolves_to_yolo_mode() {
+        // v1 flat form.
+        let flat = KimiConfig::from_str("yolo = true\n").unwrap();
+        assert_eq!(flat.build_policy_snapshot(None).mode, PermissionMode::Yolo);
+        // The sectioned form keeps working.
+        let sectioned = KimiConfig::from_str("[agent]\nyolo = true\n").unwrap();
+        assert_eq!(
+            sectioned.build_policy_snapshot(None).mode,
+            PermissionMode::Yolo
+        );
+    }
+
+    #[test]
+    fn top_level_plan_mode_and_default_plan_mode_parse() {
+        let config = KimiConfig::from_str("plan_mode = true\ndefault_plan_mode = true\n").unwrap();
+        assert_eq!(config.plan_mode, Some(true));
+        assert_eq!(config.default_plan_mode, Some(true));
+        // camelCase aliases (the document schema's spelling).
+        let camel = KimiConfig::from_str("planMode = true\ndefaultPlanMode = true\n").unwrap();
+        assert_eq!(camel.plan_mode, Some(true));
+        assert_eq!(camel.default_plan_mode, Some(true));
+    }
+
+    #[test]
+    fn model_catalog_and_telemetry_parse() {
+        let config = KimiConfig::from_str(
+            "telemetry = true\n\n[model_catalog]\nrefresh_interval_ms = 3600000\nrefresh_on_start = true\n",
+        )
+        .unwrap();
+        assert_eq!(config.telemetry, Some(true));
+        let catalog = config.model_catalog.expect("model_catalog parsed");
+        assert_eq!(catalog.refresh_interval_ms, Some(3_600_000));
+        assert_eq!(catalog.refresh_on_start, Some(true));
+    }
+
     const POOL_CONFIG: &str = r#"
 default_model = "kimi-k2"
 
@@ -897,12 +1334,20 @@ default_effort = "high"
         assert_eq!(pool.default_model, "fast");
         assert_eq!(pool.caller_model_alias.as_deref(), Some("kimi-k2"));
 
-        let fast = pool.models.iter().find(|entry| entry.alias == "fast").unwrap();
+        let fast = pool
+            .models
+            .iter()
+            .find(|entry| entry.alias == "fast")
+            .unwrap();
         assert_eq!(fast.hint, "Cheap and quick.");
         assert_eq!(fast.llm.model, "kimi-k2-fast");
         assert_eq!(fast.llm.reasoning_effort.as_deref(), Some("high"));
 
-        let thinky = pool.models.iter().find(|entry| entry.alias == "thinky").unwrap();
+        let thinky = pool
+            .models
+            .iter()
+            .find(|entry| entry.alias == "thinky")
+            .unwrap();
         assert_eq!(thinky.llm.protocol, "anthropic");
         assert_eq!(thinky.llm.thinking_budget, Some(32000));
 
@@ -967,8 +1412,13 @@ default_model = "missing"
 "#
         ))
         .unwrap();
-        let error = unknown_default.extract_secondary_model_pool(None).unwrap_err();
-        assert!(error.contains("is not a [secondary_model.models] key"), "{error}");
+        let error = unknown_default
+            .extract_secondary_model_pool(None)
+            .unwrap_err();
+        assert!(
+            error.contains("is not a [secondary_model.models] key"),
+            "{error}"
+        );
 
         let force_with_table = KimiConfig::from_str(&format!(
             r#"{POOL_CONFIG}
@@ -981,7 +1431,9 @@ force = true
 "#
         ))
         .unwrap();
-        let error = force_with_table.extract_secondary_model_pool(None).unwrap_err();
+        let error = force_with_table
+            .extract_secondary_model_pool(None)
+            .unwrap_err();
         assert!(error.contains("force cannot be combined"), "{error}");
 
         let force_without_default = KimiConfig::from_str(&format!(
@@ -994,7 +1446,10 @@ force = true
         let error = force_without_default
             .extract_secondary_model_pool(None)
             .unwrap_err();
-        assert!(error.contains("required when [secondary_model].force is set"), "{error}");
+        assert!(
+            error.contains("required when [secondary_model].force is set"),
+            "{error}"
+        );
 
         let reserved = KimiConfig::from_str(&format!(
             r#"{POOL_CONFIG}
@@ -1356,6 +1811,345 @@ timeoutMs = 7000
     }
 
     #[test]
+    fn provider_custom_headers_reach_the_resolved_llm() {
+        // Self-hosted gateways carry their auth/routing in custom headers;
+        // without this the deployment 401s on every request.
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "gw"
+
+[providers.gw]
+type = "openai"
+base_url = "https://gw.internal/v1"
+api_key = "k"
+customHeaders = { "X-Gateway-Key" = "abc", "X-Tenant" = "t1" }
+
+[models.gw]
+provider = "gw"
+model = "gpt"
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(
+            native
+                .custom_headers
+                .get("X-Gateway-Key")
+                .map(String::as_str),
+            Some("abc")
+        );
+        assert_eq!(
+            native.custom_headers.get("X-Tenant").map(String::as_str),
+            Some("t1")
+        );
+
+        // Snake_case is the file contract; both spellings must parse.
+        let snake = KimiConfig::from_str(
+            r#"
+default_model = "gw"
+
+[providers.gw]
+type = "openai"
+base_url = "https://gw.internal/v1"
+api_key = "k"
+custom_headers = { "X-Gateway-Key" = "abc" }
+
+[models.gw]
+provider = "gw"
+model = "gpt"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            snake
+                .extract_native_llm(None)
+                .unwrap()
+                .custom_headers
+                .get("X-Gateway-Key")
+                .map(String::as_str),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn alias_base_url_and_protocol_override_the_provider() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "kimi"
+
+[providers.moonshot]
+type = "openai"
+base_url = "https://api.moonshot.ai/v1"
+api_key = "k"
+
+[models.kimi]
+provider = "moonshot"
+model = "kimi-k2"
+baseUrl = "https://gateway.example.com/v1"
+protocol = "anthropic"
+betaApi = true
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        // A declared alias endpoint wins over the provider default.
+        assert_eq!(native.base_url, "https://gateway.example.com/v1");
+        // The alias's wire protocol wins over the provider type.
+        assert_eq!(native.protocol, "anthropic");
+        assert!(native.beta_api);
+
+        // Without an alias override the provider decides, and the default is
+        // Chat Completions.
+        let plain = KimiConfig::from_str(
+            r#"
+default_model = "kimi"
+
+[providers.moonshot]
+type = "openai"
+base_url = "https://api.moonshot.ai/v1"
+api_key = "k"
+
+[models.kimi]
+provider = "moonshot"
+model = "kimi-k2"
+"#,
+        )
+        .unwrap();
+        let native = plain.extract_native_llm(None).unwrap();
+        assert_eq!(native.base_url, "https://api.moonshot.ai/v1");
+        assert_eq!(native.protocol, "openai");
+        assert!(!native.beta_api);
+    }
+
+    #[test]
+    fn tools_switch_and_effort_reach_the_engine() {
+        let config = KimiConfig::from_str(
+            r#"
+[tools]
+enabled = ["Read", "Bash", "mcp__github__*"]
+disabled = ["Write"]
+
+[thinking]
+effort = "high"
+"#,
+        )
+        .unwrap();
+        let snapshot = config.build_policy_snapshot(None);
+        let filter = snapshot
+            .tools_filter
+            .as_ref()
+            .expect("the [tools] switch must reach the snapshot");
+        assert!(filter.allows("Read"));
+        assert!(filter.allows("mcp__github__search"), "MCP names are globs");
+        assert!(!filter.allows("Write"));
+        // Thinking on: the chosen effort goes on the wire.
+        assert_eq!(config.resolve_effort(None).as_deref(), Some("high"));
+
+        // No switch at all leaves the filter unset (every tool survives).
+        let bare = KimiConfig::from_str("default_model = \"m\"\n").unwrap();
+        assert!(bare.build_policy_snapshot(None).tools_filter.is_none());
+        assert_eq!(bare.resolve_effort(None), None);
+    }
+
+    #[test]
+    fn thinking_off_sends_the_model_off_effort() {
+        // Models whose default is to reason need the "off" effort sent
+        // explicitly instead of an omitted field (schema `offEffort`).
+        let config = KimiConfig::from_str("[thinking]\nenabled = false\n").unwrap();
+        assert_eq!(config.resolve_effort(Some("none")).as_deref(), Some("none"));
+        assert_eq!(config.resolve_effort(None), None);
+
+        let on = KimiConfig::from_str("[thinking]\nenabled = true\neffort = \"low\"\n").unwrap();
+        assert_eq!(on.resolve_effort(Some("none")).as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn permission_rule_reasons_reach_the_denial() {
+        let config = KimiConfig::from_str(
+            r#"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(*.env)"
+reason = "secrets must never be written by the agent"
+scope = "project"
+"#,
+        )
+        .unwrap();
+        let snapshot = config.build_policy_snapshot(None);
+        assert_eq!(
+            snapshot
+                .rule_reasons
+                .get("Write(*.env)")
+                .map(String::as_str),
+            Some("secrets must never be written by the agent")
+        );
+        // The engine echoes it in the verdict.
+        let verdict = crate::permission::PermissionEngine::new(snapshot)
+            .evaluate("Write", &serde_json::json!({ "path": "prod.env" }));
+        assert!(
+            verdict
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("secrets must never be written by the agent"),
+            "{:?}",
+            verdict.reason
+        );
+    }
+
+    #[test]
+    fn experimental_flags_and_default_mode_parse() {
+        // `[experimental]` is a free boolean/string map: clients probe it to
+        // gate UI features, so the engine must carry it verbatim.
+        let config = KimiConfig::from_str(
+            r#"
+default_permission_mode = "auto"
+
+[experimental]
+"secondary-model" = true
+flavor = "canary"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.experimental.get("secondary-model"),
+            Some(&ExperimentalValue::Bool(true))
+        );
+        assert_eq!(
+            config.experimental.get("flavor"),
+            Some(&ExperimentalValue::String("canary".into()))
+        );
+        // `default_permission_mode` is the mode when `[permission].mode` is
+        // unset; `[permission].mode` still wins over it.
+        assert_eq!(
+            config.build_policy_snapshot(None).mode,
+            crate::permission::PermissionMode::Auto
+        );
+        let explicit = KimiConfig::from_str(
+            r#"
+default_permission_mode = "auto"
+
+[permission]
+mode = "manual"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit.build_policy_snapshot(None).mode,
+            crate::permission::PermissionMode::Manual
+        );
+    }
+
+    #[test]
+    fn extra_skill_dirs_are_scanned() {
+        let dir = std::env::temp_dir().join(format!("kimi-skills-{}", std::process::id()));
+        let skill = dir.join("my-extra-skill");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: my-extra-skill\ndescription: From an extra dir\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let config = KimiConfig::from_str(&format!(
+            "extra_skill_dirs = [\"{}\"]\n",
+            dir.to_string_lossy().replace('\\', "/")
+        ))
+        .unwrap();
+        let extra = config.extra_skill_dirs_paths();
+        assert_eq!(extra.len(), 1);
+
+        let found = crate::skills::scan_all_skills_with_extra(None, &extra)
+            .into_iter()
+            .any(|skill| skill.name == "my-extra-skill");
+        assert!(found, "extra_skill_dirs must feed the skill listing");
+
+        // And the prompt's skills section lists it, so the model can call it.
+        let section =
+            crate::prompt::skills_renderer::generate_skills_section_with_extra(None, &extra);
+        assert!(section.contains("my-extra-skill"), "{section}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_resolve_image_limits() {
+        let keys = ["KIMI_IMAGE_READ_BYTE_BUDGET", "KIMI_IMAGE_MAX_EDGE_PX"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let config = KimiConfig::from_str(
+            r#"
+[image]
+read_byte_budget = 131072
+maxEdgePx = 800
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.resolve_image_read_byte_budget(), Some(131072));
+        assert_eq!(config.resolve_image_max_edge_px(), Some(800));
+
+        // Env wins; zero and invalid values fall back to the file.
+        unsafe { std::env::set_var("KIMI_IMAGE_READ_BYTE_BUDGET", "65536") };
+        assert_eq!(config.resolve_image_read_byte_budget(), Some(65536));
+        unsafe { std::env::set_var("KIMI_IMAGE_READ_BYTE_BUDGET", "0") };
+        assert_eq!(config.resolve_image_read_byte_budget(), Some(131072));
+        unsafe { std::env::set_var("KIMI_IMAGE_READ_BYTE_BUDGET", "nope") };
+        assert_eq!(config.resolve_image_read_byte_budget(), Some(131072));
+        unsafe { std::env::remove_var("KIMI_IMAGE_READ_BYTE_BUDGET") };
+        unsafe { std::env::set_var("KIMI_IMAGE_MAX_EDGE_PX", "400") };
+        assert_eq!(config.resolve_image_max_edge_px(), Some(400));
+        unsafe { std::env::remove_var("KIMI_IMAGE_MAX_EDGE_PX") };
+
+        // An absent section keeps the engine defaults (None).
+        let absent = KimiConfig::from_str(SAMPLE_CONFIG).unwrap();
+        assert_eq!(absent.resolve_image_read_byte_budget(), None);
+        assert_eq!(absent.resolve_image_max_edge_px(), None);
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_native_llm_capabilities() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "kimi-k2"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-kimi-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.kimi-k2]
+provider = "kimi"
+model = "kimi-k2-0711"
+capabilities = ["thinking", "image_in"]
+"#,
+        )
+        .unwrap();
+        let llm = config.extract_native_llm(None).unwrap();
+        assert_eq!(
+            llm.capabilities.as_deref(),
+            Some(&["thinking".to_string(), "image_in".to_string()][..])
+        );
+
+        // No declared capabilities stays unknown (None) — the lenient default.
+        let bare = KimiConfig::from_str(SAMPLE_CONFIG).unwrap();
+        assert_eq!(bare.extract_native_llm(None).unwrap().capabilities, None);
+    }
+
+    #[test]
     fn test_resolve_thinking_keep() {
         let key = "KIMI_MODEL_THINKING_KEEP";
         let saved = std::env::var(key).ok();
@@ -1380,7 +2174,9 @@ keep = "off"
         .unwrap();
         assert_eq!(off.resolve_thinking_keep(), None);
         assert_eq!(
-            KimiConfig::from_str(SAMPLE_CONFIG).unwrap().resolve_thinking_keep(),
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .resolve_thinking_keep(),
             None
         );
 

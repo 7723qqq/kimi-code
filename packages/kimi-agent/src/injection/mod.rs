@@ -59,14 +59,15 @@ pub fn injection_message(text: String) -> LLMMessage {
 /// re-appended after.
 pub fn split_injections(messages: &mut Vec<LLMMessage>) -> Vec<LLMMessage> {
     let mut injections = Vec::new();
-    let mut i = 0;
-    while i < messages.len() {
-        if is_system_reminder(&messages[i].content) {
-            injections.push(messages.remove(i));
+    let mut kept = Vec::with_capacity(messages.len());
+    for message in messages.drain(..) {
+        if is_system_reminder(&message.content) {
+            injections.push(message);
         } else {
-            i += 1;
+            kept.push(message);
         }
     }
+    *messages = kept;
     injections
 }
 
@@ -125,10 +126,7 @@ impl InjectionRegistry {
     /// from history) so the baseline is not re-injected every turn.
     pub fn with_defaults(date_baseline: Option<String>) -> Self {
         let mut registry = Self::new();
-        registry.register(
-            "date_change",
-            Box::new(date_change_provider(date_baseline)),
-        );
+        registry.register("date_change", Box::new(date_change_provider(date_baseline)));
         registry.register(
             "agents_md",
             Box::new(agents_md_provider(std::env::current_dir().ok())),
@@ -256,7 +254,9 @@ impl Default for DateChangeTracker {
 /// Provider for the date-change reminder: injects the current date on the
 /// first pass of a turn unless a prior disclosure was already scanned from
 /// history, and re-injects whenever the date changes mid-turn.
-fn date_change_provider(baseline: Option<String>) -> impl FnMut(&InjectionContext) -> Option<String> {
+fn date_change_provider(
+    baseline: Option<String>,
+) -> impl FnMut(&InjectionContext) -> Option<String> {
     let mut tracker = DateChangeTracker::with_last_date(baseline);
     move |_ctx: &InjectionContext| tracker.step(&today_local())
 }
@@ -276,7 +276,7 @@ pub fn scan_date_baseline(messages: &[LLMMessage]) -> Option<String> {
     const MARKER: &str = "Today's date is";
     for message in messages.iter().rev() {
         let content = message.content.as_str();
-        let Some(mut at) = content.rfind(MARKER) else {
+        let Some(at) = content.rfind(MARKER) else {
             continue;
         };
         // The change text reads "Today's date is now <date>"; the baseline
@@ -312,13 +312,16 @@ pub fn find_agents_md(root: &Path) -> Option<PathBuf> {
 /// AGENTS.md instruction file that was not part of the injected instructions.
 /// `root` is `None` when the process working directory is unavailable.
 fn agents_md_provider(root: Option<PathBuf>) -> impl FnMut(&InjectionContext) -> Option<String> {
+    // Resolve the file once and cache the miss too: otherwise a workspace with
+    // no AGENTS.md would stat() two candidate paths on every step.
+    let mut resolved: Option<Option<PathBuf>> = None;
     let mut injected = false;
     move |_ctx: &InjectionContext| {
         if injected {
             return None;
         }
-        let root = root.as_deref()?;
-        let path = find_agents_md(root)?;
+        let path = resolved.get_or_insert_with(|| root.as_deref().and_then(find_agents_md));
+        let path = path.as_ref()?;
         injected = true;
         Some(format!(
             "The workspace root is covered by an AGENTS.md instruction file that was not \
@@ -367,19 +370,33 @@ mod tests {
     #[test]
     fn test_is_system_reminder_detection() {
         // Valid reminders
-        assert!(is_system_reminder("<system-reminder>\nhello\n</system-reminder>"));
-        assert!(is_system_reminder("<system-reminder>\nline1\nline2\n</system-reminder>"));
-        assert!(is_system_reminder("<system-reminder>\n\n</system-reminder>"));
+        assert!(is_system_reminder(
+            "<system-reminder>\nhello\n</system-reminder>"
+        ));
+        assert!(is_system_reminder(
+            "<system-reminder>\nline1\nline2\n</system-reminder>"
+        ));
+        assert!(is_system_reminder(
+            "<system-reminder>\n\n</system-reminder>"
+        ));
 
         // Invalid: missing tags or malformed delimiters
         assert!(!is_system_reminder("hello"));
         assert!(!is_system_reminder(""));
         assert!(!is_system_reminder("<system-reminder>\nhello"));
         assert!(!is_system_reminder("hello\n</system-reminder>"));
-        assert!(!is_system_reminder("<system-reminder>hello\n</system-reminder>"));
-        assert!(!is_system_reminder("<system-reminder>\nhello</system-reminder>"));
-        assert!(!is_system_reminder(" <system-reminder>\nhello\n</system-reminder>"));
-        assert!(!is_system_reminder("<system-reminder>\nhello\n</system-reminder> "));
+        assert!(!is_system_reminder(
+            "<system-reminder>hello\n</system-reminder>"
+        ));
+        assert!(!is_system_reminder(
+            "<system-reminder>\nhello</system-reminder>"
+        ));
+        assert!(!is_system_reminder(
+            " <system-reminder>\nhello\n</system-reminder>"
+        ));
+        assert!(!is_system_reminder(
+            "<system-reminder>\nhello\n</system-reminder> "
+        ));
     }
 
     #[test]
@@ -505,7 +522,10 @@ mod tests {
         registry.register(
             "first",
             Box::new(|ctx| {
-                assert!(ctx.injected.is_empty(), "first provider sees empty injected slice");
+                assert!(
+                    ctx.injected.is_empty(),
+                    "first provider sees empty injected slice"
+                );
                 Some("one".into())
             }),
         );
@@ -648,14 +668,20 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(scan_date_baseline(&[]), None);
-        assert_eq!(scan_date_baseline(&[msg(baseline)]), Some("2026-09-08".into()));
+        assert_eq!(
+            scan_date_baseline(&[msg(baseline)]),
+            Some("2026-09-08".into())
+        );
         // The latest disclosure wins, regardless of kind.
         assert_eq!(
             scan_date_baseline(&[msg(baseline), msg("unrelated"), msg(change)]),
             Some("2026-09-09".into())
         );
         // Non-date text with a coincidental prefix must not parse.
-        assert_eq!(scan_date_baseline(&[msg("Today's date is somewhere")]), None);
+        assert_eq!(
+            scan_date_baseline(&[msg("Today's date is somewhere")]),
+            None
+        );
     }
 
     #[test]
@@ -688,11 +714,13 @@ mod tests {
             "# Instructions"
         );
         assert_eq!(found_lower.parent().unwrap(), dir3.path());
-        assert!(found_lower
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .eq_ignore_ascii_case("agents.md"));
+        assert!(
+            found_lower
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("agents.md")
+        );
         #[cfg(not(windows))]
         assert_eq!(found_lower, lowercase);
 
@@ -739,9 +767,17 @@ mod tests {
         use crate::injection::goal_plan::InjectionRegistry as GoalPlanRegistry;
 
         let mut registry = InjectionRegistry::new();
-        GoalPlanRegistry::register(&mut registry, "gp_active", Box::new(|_| "goal content".into()));
+        GoalPlanRegistry::register(
+            &mut registry,
+            "gp_active",
+            Box::new(|_| "goal content".into()),
+        );
         GoalPlanRegistry::register(&mut registry, "gp_empty", Box::new(|_| "".into()));
-        GoalPlanRegistry::register(&mut registry, "gp_whitespace", Box::new(|_| "   \n\t ".into()));
+        GoalPlanRegistry::register(
+            &mut registry,
+            "gp_whitespace",
+            Box::new(|_| "   \n\t ".into()),
+        );
 
         let texts = registry.build_injections(true);
         assert_eq!(texts.len(), 1);

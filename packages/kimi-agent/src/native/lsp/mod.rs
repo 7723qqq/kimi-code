@@ -17,7 +17,9 @@ impl LanguageServerManager {
             "python" => "pyright",
             _ => return None,
         };
-        which(binary_name).ok().map(|p| p.to_string_lossy().to_string())
+        which(binary_name)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
     }
 
     /// 启动指定的语言服务器进程
@@ -107,10 +109,16 @@ impl LspClientSession {
     /// 从已启动的语言服务器子进程中接管标准输入输出构建会话
     pub fn from_child(mut child: Child) -> Result<Self, std::io::Error> {
         let stdin = child.stdin.take().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Failed to capture child stdin")
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "Failed to capture child stdin",
+            )
         })?;
         let stdout = child.stdout.take().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Failed to capture child stdout")
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "Failed to capture child stdout",
+            )
         })?;
 
         Ok(Self {
@@ -124,7 +132,11 @@ impl LspClientSession {
     }
 
     /// 发送单向通知（如 initialized, textDocument/didOpen 等，不带 id）
-    pub async fn send_notification(&mut self, method: &str, params: serde_json::Value) -> Result<(), std::io::Error> {
+    pub async fn send_notification(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<(), std::io::Error> {
         let payload = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -138,7 +150,11 @@ impl LspClientSession {
     }
 
     /// 发送带自增 ID 的请求并返回分配的请求 ID
-    pub async fn send_request(&mut self, method: &str, params: serde_json::Value) -> Result<i64, std::io::Error> {
+    pub async fn send_request(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<i64, std::io::Error> {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -162,7 +178,10 @@ impl LspClientSession {
         }
 
         let mut temp_buf = [0u8; 4096];
-        let bytes_read = self.stdout.read(&mut temp_buf).await
+        let bytes_read = self
+            .stdout
+            .read(&mut temp_buf)
+            .await
             .map_err(|e| format!("Failed to read from child stdout: {e}"))?;
 
         if bytes_read == 0 {
@@ -229,13 +248,16 @@ impl LspClientSession {
             }
         });
 
-        let req_id = self.send_request("initialize", params).await
+        let req_id = self
+            .send_request("initialize", params)
+            .await
             .map_err(|e| format!("Failed to send initialize request: {e}"))?;
 
         let response = self.wait_response(req_id, timeout).await?;
 
         // 收到 initialize 响应后，按照规范必须立即发送 initialized 通知完成握手
-        self.send_notification("initialized", serde_json::json!({})).await
+        self.send_notification("initialized", serde_json::json!({}))
+            .await
             .map_err(|e| format!("Failed to send initialized notification: {e}"))?;
 
         Ok(response)
@@ -279,7 +301,9 @@ impl LspClientSession {
             }
         });
 
-        let req_id = self.send_request("textDocument/definition", params).await
+        let req_id = self
+            .send_request("textDocument/definition", params)
+            .await
             .map_err(|e| format!("Failed to send definition request: {e}"))?;
 
         self.wait_response(req_id, timeout).await
@@ -308,7 +332,9 @@ impl LspClientSession {
             }
         });
 
-        let req_id = self.send_request("textDocument/references", params).await
+        let req_id = self
+            .send_request("textDocument/references", params)
+            .await
             .map_err(|e| format!("Failed to send references request: {e}"))?;
 
         self.wait_response(req_id, timeout).await
@@ -333,7 +359,9 @@ impl LspClientSession {
             }
         });
 
-        let req_id = self.send_request("textDocument/hover", params).await
+        let req_id = self
+            .send_request("textDocument/hover", params)
+            .await
             .map_err(|e| format!("Failed to send hover request: {e}"))?;
 
         self.wait_response(req_id, timeout).await
@@ -352,7 +380,9 @@ impl LspClientSession {
             }
         });
 
-        let req_id = self.send_request("textDocument/documentSymbol", params).await
+        let req_id = self
+            .send_request("textDocument/documentSymbol", params)
+            .await
             .map_err(|e| format!("Failed to send documentSymbol request: {e}"))?;
 
         self.wait_response(req_id, timeout).await
@@ -476,7 +506,9 @@ mod tests {
         });
         let encoded = LspFraming::encode(&req).expect("should encode references request");
         let mut buf = encoded;
-        let decoded = LspFraming::decode(&mut buf).expect("should decode").expect("some");
+        let decoded = LspFraming::decode(&mut buf)
+            .expect("should decode")
+            .expect("some");
         assert_eq!(decoded["method"], "textDocument/references");
         assert_eq!(decoded["id"], 101);
         assert_eq!(decoded["params"]["context"]["includeDeclaration"], true);
@@ -493,7 +525,9 @@ mod tests {
         });
         let encoded_hover = LspFraming::encode(&hover_req).expect("should encode hover request");
         let mut buf_hover = encoded_hover;
-        let decoded_hover = LspFraming::decode(&mut buf_hover).expect("should decode").expect("some");
+        let decoded_hover = LspFraming::decode(&mut buf_hover)
+            .expect("should decode")
+            .expect("some");
         assert_eq!(decoded_hover["method"], "textDocument/hover");
         assert_eq!(decoded_hover["id"], 102);
     }

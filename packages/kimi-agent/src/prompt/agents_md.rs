@@ -68,10 +68,7 @@ fn read_agent_file(path: &Path) -> Option<AgentFile> {
 }
 
 /// Load and aggregate all relevant AGENTS.md files for a workspace.
-pub fn load_agents_md(
-    workspace_root: &Path,
-    custom_brand_home: Option<&Path>,
-) -> LoadedAgentsMd {
+pub fn load_agents_md(workspace_root: &Path, custom_brand_home: Option<&Path>) -> LoadedAgentsMd {
     let mut discovered: Vec<AgentFile> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
@@ -246,7 +243,10 @@ mod tests {
         assert_eq!(loaded.paths, vec![expected_path.clone()]);
         assert_eq!(
             loaded.content,
-            format!("<!-- From: {} -->\nFallback lowercase config", expected_path)
+            format!(
+                "<!-- From: {} -->\nFallback lowercase config",
+                expected_path
+            )
         );
 
         // Deduplication test: when both .kimi-code/AGENTS.md and root AGENTS.md exist,
@@ -259,7 +259,10 @@ mod tests {
         assert_eq!(loaded2.paths, vec![expected_upper_path.clone()]);
         assert_eq!(
             loaded2.content,
-            format!("<!-- From: {} -->\nPrimary uppercase config", expected_upper_path)
+            format!(
+                "<!-- From: {} -->\nPrimary uppercase config",
+                expected_upper_path
+            )
         );
     }
 

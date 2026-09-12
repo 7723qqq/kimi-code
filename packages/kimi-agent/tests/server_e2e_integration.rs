@@ -28,6 +28,14 @@ async fn server_e2e_http_rest_full_roundtrip() {
 
     let client = reqwest::Client::new();
 
+    // Every response over the wire carries the kap-server envelope
+    // (`{ code, msg, data, request_id }`, see `serve_connection`); sections
+    // of this test predate that convention, so all reads go through this
+    // unwrap — which also tolerates handlers that reply pre-enveloped.
+    fn data(value: &Value) -> &Value {
+        value.get("data").unwrap_or(value)
+    }
+
     // 1. Health check
     let res = client
         .get(format!("{base_url}/api/v1/health"))
@@ -36,8 +44,9 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let body: Value = res.json().await.unwrap();
-    assert_eq!(body["status"], "ok");
-    assert_eq!(body["version"], "0.1.0");
+    let health = data(&body);
+    assert_eq!(health["status"], "ok");
+    assert_eq!(health["version"], "0.1.0");
 
     // 2. Meta check
     let res = client
@@ -47,8 +56,9 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let body: Value = res.json().await.unwrap();
-    assert_eq!(body["backend"], "rust");
-    assert_eq!(body["server_version"], "0.1.0");
+    let meta = data(&body);
+    assert_eq!(meta["backend"], "rust");
+    assert_eq!(meta["server_version"], "0.1.0");
 
     // 3. Workspace CRUD & Trust
     let res = client
@@ -62,7 +72,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 201);
     let ws_created: Value = res.json().await.unwrap();
-    let ws_id = ws_created["id"].as_str().unwrap().to_string();
+    let ws_id = data(&ws_created)["id"].as_str().unwrap().to_string();
 
     let res = client
         .get(format!("{base_url}/api/v1/workspaces"))
@@ -72,7 +82,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
     assert_eq!(res.status(), 200);
     let ws_list: Value = res.json().await.unwrap();
     assert!(
-        ws_list["items"]
+        data(&ws_list)["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -88,7 +98,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let trust_val: Value = res.json().await.unwrap();
-    assert_eq!(trust_val["trusted"], true);
+    assert_eq!(data(&trust_val)["trusted"], true);
 
     // 4. Session CRUD & Profile
     let res = client
@@ -102,7 +112,10 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 201);
     let sess_created: Value = res.json().await.unwrap();
-    let session_id = sess_created["sessionId"].as_str().unwrap().to_string();
+    let session_id = data(&sess_created)["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Session profile update
     let res = client
@@ -119,11 +132,12 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let prof_updated: Value = res.json().await.unwrap();
-    assert_eq!(prof_updated["session"]["title"], "Renamed E2E Session");
-    assert!(prof_updated["session"]["metadata"]["cwd"].is_string());
-    assert!(prof_updated["session"]["agent_config"]["model"].is_string());
-    assert!(prof_updated["session"]["usage"]["context_tokens"].is_number());
-    assert_eq!(prof_updated["agent_config"]["thinking"], "high");
+    let profile = data(&prof_updated);
+    assert_eq!(profile["session"]["title"], "Renamed E2E Session");
+    assert!(profile["session"]["metadata"]["cwd"].is_string());
+    assert!(profile["session"]["agent_config"]["model"].is_string());
+    assert!(profile["session"]["usage"]["context_tokens"].is_number());
+    assert_eq!(profile["agent_config"]["thinking"], "high");
 
     // 5. Interaction Question Flow (Engine registers -> HTTP client lists & resolves)
     let q_req = kimi_agent::rpc::types::AskQuestionRequest {
@@ -160,7 +174,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
     assert_eq!(res.status(), 200);
     let q_list: Value = res.json().await.unwrap();
     assert!(
-        q_list["items"]
+        data(&q_list)["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -204,7 +218,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
     assert_eq!(res.status(), 200);
     let app_list: Value = res.json().await.unwrap();
     assert!(
-        app_list["items"]
+        data(&app_list)["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -286,7 +300,9 @@ async fn server_e2e_http_rest_full_roundtrip() {
     assert_eq!(res.status(), 200);
     let trans_val: Value = res.json().await.unwrap();
     let trans_data = trans_val.get("data").unwrap_or(&trans_val);
-    assert_eq!(trans_data["sessionId"], session_id);
+    assert_eq!(trans_data["agent_id"], "main");
+    assert!(trans_data["items"].is_array());
+    assert!(trans_data["has_more"].is_boolean());
 
     let res = client
         .get(format!("{base_url}/api/v1/connections"))
@@ -368,17 +384,25 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let list_res: Value = res.json().await.unwrap();
-    assert!(list_res.get("items").or_else(|| list_res.get("entries")).is_some());
+    let list_data = data(&list_res);
+    assert!(
+        list_data
+            .get("items")
+            .or_else(|| list_data.get("entries"))
+            .is_some()
+    );
 
     // 6.8.3 git_status
     let res = client
-        .post(format!("{base_url}/api/v1/sessions/{session_id}/fs:git_status"))
+        .post(format!(
+            "{base_url}/api/v1/sessions/{session_id}/fs:git_status"
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
     let gs_res: Value = res.json().await.unwrap();
-    assert!(gs_res.get("entries").is_some());
+    assert!(data(&gs_res).get("entries").is_some());
 
     // 6.9 Native Terminal Lifecycle Endpoints
     let res = client
@@ -389,7 +413,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 201);
     let term_val: Value = res.json().await.unwrap();
-    let term_id = term_val["id"].as_str().unwrap();
+    let term_id = data(&term_val)["id"].as_str().unwrap();
 
     let res = client
         .get(format!("{base_url}/api/v1/sessions/{session_id}/terminals"))
@@ -398,16 +422,24 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let term_list: Value = res.json().await.unwrap();
-    assert!(term_list["items"].as_array().unwrap().iter().any(|t| t["id"] == term_id));
+    assert!(
+        data(&term_list)["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["id"] == term_id)
+    );
 
     let res = client
-        .post(format!("{base_url}/api/v1/sessions/{session_id}/terminals/{term_id}:close"))
+        .post(format!(
+            "{base_url}/api/v1/sessions/{session_id}/terminals/{term_id}:close"
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
     let term_close: Value = res.json().await.unwrap();
-    assert_eq!(term_close["closed"], true);
+    assert_eq!(data(&term_close)["closed"], true);
 
     // 7. Delete Session and Workspace
     let res = client

@@ -408,9 +408,15 @@ mod tests {
 
         let loaded = ServerAuth::load_or_create(&path).unwrap();
         let token = loaded.token().expect("token must be generated");
-        assert_eq!(token.len(), 43, "generated replacement token must be 43-char base64url");
+        assert_eq!(
+            token.len(),
+            43,
+            "generated replacement token must be 43-char base64url"
+        );
         assert!(
-            token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            token
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "token must be url-safe"
         );
         assert_ne!(token, "   ", "must not adopt the whitespace string");

@@ -26,6 +26,7 @@ pub const TOWER_MAIN_AGENT_ONLY: &str =
 
 fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: msg.into(),
         is_error: true,
@@ -35,6 +36,7 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
 
 fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: msg.into(),
         is_error: false,
@@ -289,7 +291,9 @@ pub async fn execute_tower_spawn(
     }
     impl TowerSlotGuard {
         fn acquire() -> Result<Self, String> {
-            TowerRateLimit::global().acquire().map(|()| Self { held: true })
+            TowerRateLimit::global()
+                .acquire()
+                .map(|()| Self { held: true })
         }
         fn disarm(mut self) {
             self.held = false;

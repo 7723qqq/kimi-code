@@ -110,6 +110,7 @@ timeout = 5
 | `thinking` | `table` | — | Thinking 模式默认参数 → [`thinking`](#thinking) |
 | `loop_control` | `table` | — | Agent 循环控制参数 → [`loop_control`](#loop-control) |
 | `background` | `table` | — | 后台任务运行参数 → [`background`](#background) |
+| `shell` | `table` | — | 本地命令 shell 偏好 → [`shell`](#shell) |
 | `tools` | `table` | — | 全局工具开关 → [`tools`](#tools) |
 | `image` | `table` | — | 图片压缩参数 → [`image`](#image) |
 | `services` | `table` | — | 内置外部服务配置 → [`services`](#services) |
@@ -362,6 +363,16 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 在 print 模式（`kimi -p "<prompt>"`）下，只要还有未决的后台任务，Kimi Code 在 main agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给 main agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），subagent 默认无超时（`[subagent] timeout_ms` 与 `[swarm] timeout_ms` 未显式设置时均为 `0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在 main agent 结束后立即退出。
 
+## `shell`
+
+`shell` 用于固定 `Bash` 工具本地执行命令所使用的解释器。Windows 上默认自动探测——PowerShell 7（`pwsh`）→ Windows PowerShell → Git Bash → `cmd`；其他平台为 `/bin/bash`。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `preference` | `"auto" \| "bash" \| "powershell" \| "pwsh" \| "cmd"` | `"auto"` | 命令使用哪种 shell。`auto` 按上述顺序自动探测；`bash` / `powershell` / `pwsh` / `cmd` 显式固定其一。其他值回退到 `auto` |
+
+`KIMI_SHELL_PATH` 的优先级高于 `[shell].preference`：设置后直接固定 shell 可执行文件（其文件名决定命令前缀）。`[shell].preference` 作用于负责 `Bash` 执行的 Rust 引擎。
+
 ## `subagent`
 
 `subagent` 控制 `Agent` 工具派生的 subagent 的运行方式。
@@ -438,12 +449,12 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 
 ## `image`
 
-`image` 控制图片发送给模型前的压缩行为，对所有图片入口生效（粘贴图片、`ReadMediaFile` 读图、MCP 工具结果里的图片等）。
+`image` 控制图片发送给模型前的压缩行为，对所有图片入口生效（粘贴图片、`Read` 读图、MCP 工具结果里的图片等）。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `max_edge_px` | `integer` | `2000` | 图片最长边上限（像素）。超过时按比例缩小到该值以内；调大可保留更多细节，代价是更大的请求体积 |
-| `read_byte_budget` | `integer` | `262144`（256 KB） | 模型自行读取的图片（`ReadMediaFile` 默认读取）的单图字节预算。会话中模型反复截图、读图时，累计请求体大小由它控制；细节可通过 `region` 参数按原图坐标全保真回读（`region` 与 `full_resolution` 不受此预算限制） |
+| `read_byte_budget` | `integer` | `262144`（256 KB） | 模型自行读取的图片（`Read` 读图）的单图字节预算。会话中模型反复截图、读图时，累计请求体大小由它控制；细节可通过 `region` 参数按原图坐标全保真回读（`region` 与 `full_resolution` 不受此预算限制） |
 
 `max_edge_px` 可被环境变量 `KIMI_IMAGE_MAX_EDGE_PX` 覆盖，`read_byte_budget` 可被 `KIMI_IMAGE_READ_BYTE_BUDGET` 覆盖，优先级均高于配置文件。
 

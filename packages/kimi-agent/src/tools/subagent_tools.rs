@@ -114,6 +114,7 @@ pub async fn execute_invoke_subagent(
             }
             Err(e) => {
                 return ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("Failed to invoke subagent: {e}"),
                     is_error: true,
@@ -124,6 +125,7 @@ pub async fn execute_invoke_subagent(
     }
 
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: serde_json::to_string_pretty(&serde_json::json!({
             "spawned": spawned_records,
@@ -151,6 +153,7 @@ pub async fn execute_manage_subagents(
         "list" => {
             let list = manager.list().await;
             ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: serde_json::to_string_pretty(&list).unwrap_or_default(),
                 is_error: false,
@@ -175,6 +178,7 @@ pub async fn execute_manage_subagents(
             }
 
             ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: serde_json::json!({ "killed": killed }).to_string(),
                 is_error: false,
@@ -182,6 +186,7 @@ pub async fn execute_manage_subagents(
             }
         }
         _ => ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: format!("Unsupported manage_subagents action: '{action}'"),
             is_error: true,
@@ -203,6 +208,7 @@ pub async fn execute_define_subagent(
         Some(n) => n.to_string(),
         None => {
             return ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "Missing required 'name' argument".into(),
                 is_error: true,
@@ -250,6 +256,7 @@ pub async fn execute_define_subagent(
         .await;
 
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: format!("Subagent '{name}' registered successfully."),
         is_error: false,
@@ -424,7 +431,7 @@ mod tests {
     async fn test_invoke_subagent_runs_real_turn_with_runtime() {
         let manager = Arc::new(SubagentManager::new());
         manager
-            .set_runtime(Arc::new(MockSubagentLlm), Arc::new(MockCallbacks))
+            .set_runtime(Arc::new(MockSubagentLlm), Arc::new(MockCallbacks), None)
             .await;
 
         let invoke_args = serde_json::json!({

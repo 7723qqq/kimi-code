@@ -197,7 +197,11 @@ impl StateStore {
     }
 
     /// Compute RFC 6902 JSON diff between current domain state and a new value.
-    pub fn diff_domain(&self, domain: &str, new_value: &Value) -> crate::session::patch::JsonPatchSet {
+    pub fn diff_domain(
+        &self,
+        domain: &str,
+        new_value: &Value,
+    ) -> crate::session::patch::JsonPatchSet {
         let current = self
             .read_domain(domain)
             .or_else(|| Self::default_value(domain))
@@ -1530,7 +1534,10 @@ mod tests {
     fn test_state_store_patch_and_diff_domain() {
         let (_tmp, store) = store();
         store
-            .write_domain("plan", &json!({ "active": true, "id": "p-1", "path": "/path/p-1.md" }))
+            .write_domain(
+                "plan",
+                &json!({ "active": true, "id": "p-1", "path": "/path/p-1.md" }),
+            )
             .unwrap();
 
         let diff = store.diff_domain(

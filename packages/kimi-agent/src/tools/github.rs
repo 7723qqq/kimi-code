@@ -2729,6 +2729,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -2738,6 +2739,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,

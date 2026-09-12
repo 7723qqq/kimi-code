@@ -8,8 +8,11 @@ import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-loc
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 import {
   buildPolicySnapshot,
+  PRINT_MAX_TURNS_DEFAULT,
+  PRINT_WAIT_CEILING_S_DEFAULT,
   resolveMaxAttemptsPerStep,
   resolveMaxStepsPerTurn,
+  resolvePrintBackground,
   resolveSecondaryModelPool,
 } from '#/native/native-llm-resolver';
 
@@ -504,6 +507,60 @@ max_steps_per_turn = 0
     vi.stubEnv('KIMI_LOOP_MAX_STEPS_PER_TURN', '0');
     expect(resolveMaxStepsPerTurn(config)).toBeUndefined();
     vi.unstubAllEnvs();
+  });
+
+  it('resolves the print background knobs it hands to the engine', () => {
+    vi.unstubAllEnvs();
+    const parse = (toml: string): ReturnType<typeof parseConfigString> =>
+      parseConfigString(toml, 'background-print.toml');
+
+    // Documented default: `kimi -p` stays alive for pending background work.
+    expect(resolvePrintBackground(parse(''))).toEqual({
+      mode: 'steer',
+      ceilingS: PRINT_WAIT_CEILING_S_DEFAULT,
+      maxTurns: PRINT_MAX_TURNS_DEFAULT,
+    });
+
+    // An explicit mode outranks the `keep_alive_on_exit` fallback.
+    expect(
+      resolvePrintBackground(
+        parse('[background]\nprint_background_mode = "exit"\nkeep_alive_on_exit = true\n'),
+      ).mode,
+    ).toBe('exit');
+
+    // `keep_alive_on_exit = false` is the field's own default, so it cannot be
+    // read as "exit"; the print default still applies.
+    expect(resolvePrintBackground(parse('[background]\nkeep_alive_on_exit = false\n')).mode).toBe(
+      'steer',
+    );
+    expect(resolvePrintBackground(parse('[background]\nkeep_alive_on_exit = true\n')).mode).toBe(
+      'drain',
+    );
+
+    // The env var outranks the config field (overrides.md), and an unknown
+    // value degrades to the documented default instead of failing the run.
+    vi.stubEnv('KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT', 'on');
+    expect(resolvePrintBackground(parse('')).mode).toBe('drain');
+    vi.stubEnv('KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT', 'off');
+    expect(
+      resolvePrintBackground(parse('[background]\nkeep_alive_on_exit = true\n')).mode,
+    ).toBe('steer');
+    vi.unstubAllEnvs();
+    expect(resolvePrintBackground({ background: { printBackgroundMode: 'wat' } }).mode).toBe('steer');
+
+    // The ceiling is a positive second count: `0` cannot mean "never wait".
+    expect(
+      resolvePrintBackground(parse('[background]\nprint_wait_ceiling_s = 3600\n')).ceilingS,
+    ).toBe(3600);
+    expect(resolvePrintBackground({ background: { printWaitCeilingS: 0 } }).ceilingS).toBe(
+      PRINT_WAIT_CEILING_S_DEFAULT,
+    );
+
+    // The steer budget is a positive turn count: `0` cannot mean "unlimited".
+    expect(resolvePrintBackground(parse('[background]\nprint_max_turns = 12\n')).maxTurns).toBe(12);
+    expect(resolvePrintBackground({ background: { printMaxTurns: 0 } }).maxTurns).toBe(
+      PRINT_MAX_TURNS_DEFAULT,
+    );
   });
 
   it('accepts camelCase aliases without keeping unknown fields in typed config', () => {

@@ -110,6 +110,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
 | `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop-control) |
 | `background` | `table` | — | Background task runtime parameters → [`background`](#background) |
+| `shell` | `table` | — | Local command shell preference → [`shell`](#shell) |
 | `tools` | `table` | — | Global tool switch → [`tools`](#tools) |
 | `image` | `table` | — | Image compression parameters → [`image`](#image) |
 | `services` | `table` | — | Built-in external service configuration → [`services`](#services) |
@@ -363,6 +364,16 @@ Retries only apply to transient failures — connection errors, timeouts, HTTP 4
 
 In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms` and `[swarm] timeout_ms` both default to `0` unless explicitly set), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
 
+## `shell`
+
+`shell` pins the command interpreter the `Bash` tool uses for local execution. On Windows the default is auto-detection — PowerShell 7 (`pwsh`) → Windows PowerShell → Git Bash → `cmd`; on other platforms it is `/bin/bash`.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `preference` | `"auto" \| "bash" \| "powershell" \| "pwsh" \| "cmd"` | `"auto"` | Which shell to run commands under. `auto` detects as described above; `bash` / `powershell` / `pwsh` / `cmd` pins one explicitly. Any other value falls back to `auto` |
+
+`KIMI_SHELL_PATH` takes higher priority than `[shell].preference`: when set, it pins the shell executable directly (its basename decides the command prefix). `[shell].preference` applies to the Rust engine, which owns `Bash` execution.
+
 ## `subagent`
 
 `subagent` controls how subagents spawned by the `Agent` tool run.
@@ -439,12 +450,12 @@ Like the `tools` / `disallowedTools` fields of an agent file, this section shape
 
 ## `image`
 
-`image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `ReadMediaFile` reads, images in MCP tool results, and so on).
+`image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `Read` image reads, images in MCP tool results, and so on).
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max_edge_px` | `integer` | `2000` | Longest-edge ceiling in pixels. Larger images are scaled down proportionally to fit; raising it preserves more detail at the cost of larger request bodies |
-| `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`ReadMediaFile` default reads). It bounds the accumulated request-body size when the model keeps screenshotting and reading images; fine detail stays reachable through the `region` parameter, which reads a crop back at full fidelity (`region` and `full_resolution` are not subject to this budget) |
+| `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`Read` image reads). It bounds the accumulated request-body size when the model keeps screenshotting and reading images; fine detail stays reachable through the `region` parameter, which reads a crop back at full fidelity (`region` and `full_resolution` are not subject to this budget) |
 
 `max_edge_px` can be overridden by the `KIMI_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `KIMI_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
 

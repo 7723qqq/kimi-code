@@ -234,7 +234,10 @@ mod tests {
     fn test_poll_action_classification() {
         let status = reqwest::StatusCode::BAD_REQUEST;
         assert_eq!(
-            poll_action(&serde_json::json!({ "error": "authorization_pending" }), status),
+            poll_action(
+                &serde_json::json!({ "error": "authorization_pending" }),
+                status
+            ),
             PollAction::Retry
         );
         assert_eq!(

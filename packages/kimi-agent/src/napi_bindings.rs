@@ -820,6 +820,58 @@ pub struct JsRunTurnParams {
     /// backend. When set, the native FetchURL tool tries this endpoint
     /// first and falls back to the direct fetch on failure (v2 semantics).
     pub web_fetch: Option<JsWebServiceConfig>,
+    /// Host-resolved `[image].read_byte_budget` (v2
+    /// `resolveReadImageByteBudget`). `None` keeps the 256KB default.
+    pub image_read_byte_budget: Option<i64>,
+    /// Host-resolved `[image].max_edge_px`. `None` keeps the 2000px default.
+    /// `i64` because napi cannot read JS numbers as `u32`.
+    pub image_max_edge_px: Option<i64>,
+    /// The session model's declared capabilities (`[models.<alias>]
+    /// .capabilities`). `None`/empty = unknown.
+    pub model_capabilities: Option<Vec<String>>,
+    /// Host-resolved `[background]` knobs (v2 `configSection.ts`). Absent
+    /// fields keep the engine default (5s stop grace / unlimited concurrency /
+    /// auto-background on / 600s background Bash timeout); `bash_task_timeout_s
+    /// = 0` means "no timeout". `i64` because napi cannot read JS numbers as
+    /// `u64`.
+    pub kill_grace_period_ms: Option<i64>,
+    pub max_running_tasks: Option<i64>,
+    pub bash_auto_background_on_timeout: Option<bool>,
+    pub bash_task_timeout_s: Option<i64>,
+    /// `[background].print_background_mode` — what a print-mode (`kimi -p`)
+    /// session does once its main turn ends with background tasks still
+    /// running: `exit` resolves the turn receipt at once, `drain` / `steer`
+    /// hold it until the task runner drains. Absent keeps the engine's
+    /// exit-on-turn-end default.
+    pub print_background_mode: Option<String>,
+    /// `[background].print_wait_ceiling_s`: wall-clock bound on that hold, in
+    /// seconds. Absent / non-positive keeps the documented default. `i64`
+    /// because napi cannot read JS numbers as `u64`.
+    pub print_wait_ceiling_s: Option<i64>,
+    /// `[background].print_max_turns`: cap on the steer turns the engine may
+    /// add for background completions. Absent / non-positive keeps the
+    /// documented default.
+    pub print_max_turns: Option<i64>,
+}
+
+/// Resolve the `[background]` print policy carried by the session params.
+///
+/// `None` (no `print_background_mode`) leaves the engine untouched: a turn
+/// receipt resolves when the turn ends, whatever the background tasks do.
+/// `i64` → `u64`/`u32` narrowing lives in
+/// [`crate::session::PrintBackgroundPolicy::from_wire`].
+fn print_background_policy(
+    params: &JsRunTurnParams,
+) -> Option<crate::session::PrintBackgroundPolicy> {
+    crate::session::PrintBackgroundPolicy::from_wire(
+        params.print_background_mode.as_deref(),
+        params
+            .print_wait_ceiling_s
+            .and_then(|ceiling| u64::try_from(ceiling).ok()),
+        params
+            .print_max_turns
+            .and_then(|max_turns| u32::try_from(max_turns).ok()),
+    )
 }
 
 /// MCP server configuration for pure-Rust MCP manager (P73).
@@ -921,6 +973,9 @@ pub struct JsNativeLlmConfig {
     /// edit on anthropic. Host filters off-values; absent = no keep on the
     /// wire.
     pub thinking_keep: Option<String>,
+    /// Route an anthropic-protocol model through the beta Messages API
+    /// (`POST {base}/messages?beta=true`); absent means the standard endpoint.
+    pub beta_api: Option<bool>,
 }
 
 /// One host-resolved `[services.moonshot_*]` entry (v2 `configSection.ts`):
@@ -1333,15 +1388,23 @@ async fn build_engine_pipeline(
         mcp_manager = Some(mgr);
     }
 
+    // `[subagent]`/`[background]` print defaults (docs config-files.md): an
+    // *unset* wall-clock timeout means "no timeout" in print mode — the
+    // settle phase waits for background work instead of the clock killing
+    // it. The settle policy itself rides the SessionConfig at session build.
+    let print_mode = print_background_policy(params).is_some();
+
     // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): the
     // process-wide manager carries it so the native `AgentSwarm` tool reads
-    // it at execution time. `try_from` drops negatives without wrapping; the
-    // manager itself drops zero.
-    SUBAGENT_MANAGER.set_swarm_timeout_ms(
+    // it at execution time. `try_from` drops negatives without wrapping;
+    // `0` rides through as "explicitly no timeout" (v2 `taskService` arms
+    // only when `timeoutMs > 0`).
+    SUBAGENT_MANAGER.set_swarm_timeout_ms(crate::pipeline::print_timeout_default(
         params
             .swarm_timeout_ms
             .and_then(|timeout| u64::try_from(timeout).ok()),
-    );
+        print_mode,
+    ));
 
     // Host-resolved `[services.moonshot_*]` backends (v2 `configSection.ts`):
     // the tools read the process-global seam at execution time. Always
@@ -1390,6 +1453,7 @@ async fn build_engine_pipeline(
             thinking_budget: cfg.thinking_budget,
             auth_provider: cfg.auth_provider.clone(),
             thinking_keep: cfg.thinking_keep.clone(),
+            beta_api: cfg.beta_api.unwrap_or(false),
         }),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools.unwrap_or(false),
@@ -1404,11 +1468,15 @@ async fn build_engine_pipeline(
             .and_then(|json| serde_json::from_str::<crate::permission::PolicySnapshot>(json).ok()),
         github_token: params.github_token.clone(),
         github_base_url: params.github_base_url.clone(),
-        // `0` from the host means "unset" here, not a zero-length budget.
-        subagent_timeout_ms: params
-            .subagent_timeout_ms
-            .filter(|timeout| *timeout > 0)
-            .map(|timeout| timeout as u64),
+        // `0` from the host means "no timeout" (v2 `taskService` arms only
+        // when `timeoutMs > 0`); an *unset* value defaults to no timeout in
+        // print mode (docs config-files.md), the 2h engine default otherwise.
+        subagent_timeout_ms: crate::pipeline::print_timeout_default(
+            params
+                .subagent_timeout_ms
+                .and_then(|timeout| u64::try_from(timeout).ok()),
+            print_mode,
+        ),
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
         todo_tool_veto: params.todo_tool_veto.clone(),
@@ -1421,10 +1489,32 @@ async fn build_engine_pipeline(
         }),
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
-        secondary_model: params
-            .secondary_model_json
-            .as_deref()
-            .and_then(|json| serde_json::from_str::<crate::rpc::types::SecondaryModelPool>(json).ok()),
+        secondary_model: params.secondary_model_json.as_deref().and_then(|json| {
+            serde_json::from_str::<crate::rpc::types::SecondaryModelPool>(json).ok()
+        }),
+        image_read_byte_budget: params
+            .image_read_byte_budget
+            .and_then(|value| u64::try_from(value).ok()),
+        image_max_edge_px: params
+            .image_max_edge_px
+            .and_then(|value| u32::try_from(value).ok()),
+        model_capabilities: params.model_capabilities.clone(),
+        skill_dirs: Vec::new(),
+        background: crate::storage::BackgroundLimits::from_wire(
+            params
+                .kill_grace_period_ms
+                .and_then(|value| u64::try_from(value).ok()),
+            params
+                .max_running_tasks
+                .and_then(|value| u64::try_from(value).ok()),
+            params.bash_auto_background_on_timeout,
+            crate::pipeline::print_timeout_default(
+                params
+                    .bash_task_timeout_s
+                    .and_then(|value| u64::try_from(value).ok()),
+                print_mode,
+            ),
+        ),
     };
 
     pipeline::build_engine_pipeline(
@@ -1882,6 +1972,8 @@ pub fn create_engine_session(
                 on_before_turn: None,
                 agent_cancel_slot: Some(agent_cancel_slot),
                 hook_guard: pipeline.hook_guard.clone(),
+                print_background: print_background_policy(&params),
+                task_runner: SUBAGENT_MANAGER.get_task_runner_sync(),
             })
             .await;
 

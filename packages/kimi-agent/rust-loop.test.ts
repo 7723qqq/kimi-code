@@ -1046,6 +1046,13 @@ describe('native-LLM staleness guard', () => {
     const input = {
       turnId: 1,
       signal: new AbortController().signal,
+      // A dead port is a transport error, which the native LLM classifies as
+      // retryable — with the default 10 attempts the exponential backoff runs
+      // ~2.5 minutes (changelog 0.24.2 raised the per-step budget from 3 to
+      // 10, silently blowing past this suite's 30s timeout). The tests assert
+      // *which transport* the engine picked, not that it retried, so one
+      // attempt is enough to fail fast against port 9.
+      maxAttempts: 1,
       llm: {
         modelAlias: opts.alias,
         modelId: opts.modelId,
@@ -2104,8 +2111,17 @@ describe('wire-schema', () => {
       rust_self_contained: false,
       policy_snapshot: { mode: 'manual', deny_rules: ['Write(*)'] },
       github_token: 'tok',
+      print_background_mode: 'steer',
+      print_wait_ceiling_s: 3600,
+      print_max_turns: 12,
     });
     expect(parsed.success).toBe(true);
+    // The print knobs must survive parsing (not be stripped as unknown keys):
+    // rust-loop sends them through `parseWireObject` on the way out, and a
+    // stripped field would silently disable the engine's print settle.
+    expect(parsed.data?.print_background_mode).toBe('steer');
+    expect(parsed.data?.print_wait_ceiling_s).toBe(3600);
+    expect(parsed.data?.print_max_turns).toBe(12);
   });
 
   it('rejects a mistyped run_turn request field', () => {

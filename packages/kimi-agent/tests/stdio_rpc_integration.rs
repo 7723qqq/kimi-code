@@ -451,9 +451,7 @@ fn stop_turn_from_host_ends_turn_after_one_step() {
                 return Err("timeout waiting for run_turn response".into());
             }
             buf.clear();
-            let n = stdout
-                .read_line(&mut buf)
-                .map_err(|e| e.to_string())?;
+            let n = stdout.read_line(&mut buf).map_err(|e| e.to_string())?;
             if n == 0 {
                 return Err("engine stdout closed early".into());
             }
@@ -1533,25 +1531,22 @@ fn run_turn_native_write_denied_after_external_modification() {
     );
 }
 
-/// A read the HOST served (region Read falls back for the media pipeline)
-/// must also clear a later native Write — the gate observes host-forwarded
+/// A read the HOST served (the native text read declines binary files) must
+/// also clear a later native Write — the gate observes host-forwarded
 /// executions.
 #[test]
 fn run_turn_native_host_read_clears_native_write() {
     let workspace = tempfile::tempdir().expect("unique workspace dir");
     let dir = workspace.path();
-    std::fs::write(dir.join("media.txt"), "hello").expect("seed file");
+    std::fs::write(dir.join("blob.bin"), b"plain prefix\x00\x01").expect("seed file");
 
     let observation = drive_native_turns(
         dir,
         &[TurnScript(vec![
-            vec![(
-                "read".into(),
-                serde_json::json!({"path": "media.txt", "region": {"x": 0}}),
-            )],
+            vec![("read".into(), serde_json::json!({"path": "blob.bin"}))],
             vec![(
                 "write".into(),
-                serde_json::json!({"path": "media.txt", "content": "updated"}),
+                serde_json::json!({"path": "blob.bin", "content": "updated"}),
             )],
             vec![],
         ])],
@@ -1570,10 +1565,10 @@ fn run_turn_native_host_read_clears_native_write() {
     assert_eq!(
         observation.execute_tool_requests.len(),
         1,
-        "the region read runs on the host"
+        "the binary read runs on the host"
     );
     assert_eq!(
-        std::fs::read_to_string(dir.join("media.txt")).unwrap(),
+        std::fs::read_to_string(dir.join("blob.bin")).unwrap(),
         "updated",
         "the write must land after the host-served read"
     );
@@ -1855,9 +1850,7 @@ fn session_generate_title_rejects_digest_source() {
             serde_json::json!({ "session_id": session_id, "source": "digest" }),
         )
         .expect("session/generate_title response within 10s");
-    let err = resp
-        .get("error")
-        .expect("digest source must be rejected");
+    let err = resp.get("error").expect("digest source must be rejected");
     assert!(
         err["message"].as_str().unwrap_or("").contains("digest"),
         "digest rejection message expected, got: {resp}"
@@ -1958,7 +1951,10 @@ fn session_background_task_stop_unknown_task_errors() {
         .expect("session/background_task_stop response within 10s");
     let err = resp.get("error").expect("unknown task must error");
     assert!(
-        err["message"].as_str().unwrap_or("").contains("Task not found"),
+        err["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Task not found"),
         "task-not-found message expected, got: {resp}"
     );
 

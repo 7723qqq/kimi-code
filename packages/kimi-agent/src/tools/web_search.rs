@@ -116,6 +116,7 @@ fn format_search_results(results: Vec<WebSearchResultEntry>) -> String {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,
@@ -188,6 +189,7 @@ async fn search_via_moonshot(
     };
     if results.is_empty() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "No search results found.".to_string(),
             is_error: false,
@@ -195,6 +197,7 @@ async fn search_via_moonshot(
         });
     }
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: format_search_results(results),
         is_error: false,
@@ -209,6 +212,7 @@ pub async fn execute_web_search(
     let query = args.get("query")?.as_str()?;
     if query.trim().is_empty() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "Query parameter cannot be empty".to_string(),
             is_error: true,
@@ -230,6 +234,7 @@ pub async fn execute_web_search(
         Ok(c) => c,
         Err(e) => {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!("Search failed: Failed to initialize HTTP client: {e}"),
                 is_error: true,
@@ -256,6 +261,7 @@ pub async fn execute_web_search(
                 format!("Search failed (network): {e}")
             };
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: msg,
                 is_error: true,
@@ -267,6 +273,7 @@ pub async fn execute_web_search(
     let status = response.status();
     if !status.is_success() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: format!("Search failed: DuckDuckGo search returned HTTP {status}"),
             is_error: true,
@@ -278,6 +285,7 @@ pub async fn execute_web_search(
         Ok(t) => t,
         Err(e) => {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!("Search failed: Failed to read response body: {e}"),
                 is_error: true,
@@ -290,6 +298,7 @@ pub async fn execute_web_search(
         Ok(res) => res,
         Err(e) => {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!("Search failed: {e}"),
                 is_error: true,
@@ -300,6 +309,7 @@ pub async fn execute_web_search(
 
     if results.is_empty() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "No search results found.".to_string(),
             is_error: false,
@@ -310,6 +320,7 @@ pub async fn execute_web_search(
     // One renderer for both paths (v2 formats in `webSearchTool`); DDG
     // entries carry no date, so no `Date:` line is emitted for them.
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: format_search_results(results),
         is_error: false,

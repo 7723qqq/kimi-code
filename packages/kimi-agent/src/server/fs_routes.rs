@@ -3,18 +3,15 @@
 //! Provides handlers for `fs:git_status`, `fs:diff`, `fs:stat`, `fs:stat_many`,
 //! `fs:mkdir`, `fs:list`, and `fs:read`, adhering to kap-server REST conventions.
 
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use serde_json::{Value, json};
 
 use crate::server::router::HttpResponse;
 use crate::session::sqlite_store::SqliteSessionStore;
 
 /// Resolve effective workspace root path for a given session.
-pub fn resolve_session_workdir(
-    store: &SqliteSessionStore,
-    session_id: &str,
-) -> Option<PathBuf> {
+pub fn resolve_session_workdir(store: &SqliteSessionStore, session_id: &str) -> Option<PathBuf> {
     let session = store.get_session(session_id).ok().flatten()?;
     if let Some(ref ws_id) = session.workspace_id
         && let Ok(Some(ws)) = store.get_workspace(ws_id)
@@ -31,16 +28,19 @@ pub fn resolve_session_workdir(
 
 /// Helper to sanitize and resolve a path relative to workspace root, preventing directory traversal escapes.
 pub fn resolve_safe_path(work_dir: &Path, rel_path: &str) -> Result<PathBuf, HttpResponse> {
-    let trimmed = rel_path.trim().trim_start_matches('/').trim_start_matches('\\');
+    let trimmed = rel_path
+        .trim()
+        .trim_start_matches('/')
+        .trim_start_matches('\\');
     let candidate = work_dir.join(trimmed);
     // If the path exists, canonicalize both and ensure work_dir prefix
     if candidate.exists() {
         let canon_work = work_dir.canonicalize().map_err(|e| {
             HttpResponse::internal_error(format!("Cannot canonicalize work dir: {e}"))
         })?;
-        let canon_cand = candidate.canonicalize().map_err(|e| {
-            HttpResponse::internal_error(format!("Cannot canonicalize path: {e}"))
-        })?;
+        let canon_cand = candidate
+            .canonicalize()
+            .map_err(|e| HttpResponse::internal_error(format!("Cannot canonicalize path: {e}")))?;
         if !canon_cand.starts_with(&canon_work) {
             return Err(HttpResponse::bad_request("Path escapes session workspace"));
         }
@@ -355,7 +355,10 @@ pub fn handle_mkdir(work_dir: &Path, body: &Value) -> HttpResponse {
         Some(p) if !p.trim().is_empty() => p.trim(),
         _ => return HttpResponse::bad_request("Field 'path' is required"),
     };
-    let recursive = body.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let recursive = body
+        .get("recursive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let target = match resolve_safe_path(work_dir, rel_path) {
         Ok(p) => p,
@@ -477,7 +480,10 @@ pub fn handle_read(work_dir: &Path, body: &Value) -> HttpResponse {
     }
 
     let offset = body.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let length = body.get("length").and_then(|v| v.as_u64()).unwrap_or(1_048_576) as usize;
+    let length = body
+        .get("length")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1_048_576) as usize;
 
     let content_bytes = match std::fs::read(&target) {
         Ok(b) => b,
@@ -520,7 +526,11 @@ pub fn handle_read(work_dir: &Path, body: &Value) -> HttpResponse {
 
 /// Handle `fs:search`.
 pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
-    let query = body.get("query").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let query = body
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
     let mut items = Vec::new();
@@ -549,7 +559,9 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
             .output();
 
         let q_lower = query.to_lowercase();
-        if let Ok(out) = git_ls && out.status.success() {
+        if let Ok(out) = git_ls
+            && out.status.success()
+        {
             let files_str = String::from_utf8_lossy(&out.stdout);
             for line in files_str.lines() {
                 let trimmed = line.trim();
@@ -584,7 +596,8 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
                         let path = entry.path();
                         if path.is_dir() {
                             let name = entry.file_name().to_string_lossy().to_string();
-                            if !name.starts_with('.') && name != "node_modules" && name != "target" {
+                            if !name.starts_with('.') && name != "node_modules" && name != "target"
+                            {
                                 stack.push(path);
                             }
                         } else if path.is_file() {
@@ -628,9 +641,15 @@ pub fn handle_grep(work_dir: &Path, body: &Value) -> HttpResponse {
         Some(p) if !p.is_empty() => p,
         _ => return HttpResponse::bad_request("Field 'pattern' is required"),
     };
-    let case_sensitive = body.get("case_sensitive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let case_sensitive = body
+        .get("case_sensitive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let is_regex = body.get("regex").and_then(|v| v.as_bool()).unwrap_or(false);
-    let max_files = body.get("max_files").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
+    let max_files = body
+        .get("max_files")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(200) as usize;
 
     let start_time = std::time::Instant::now();
 
@@ -656,7 +675,9 @@ pub fn handle_grep(work_dir: &Path, body: &Value) -> HttpResponse {
     let mut file_hits: HashMap<String, Vec<Value>> = HashMap::new();
     let mut files_scanned = 0;
 
-    if let Ok(out) = output && (out.status.success() || out.status.code() == Some(1)) {
+    if let Ok(out) = output
+        && (out.status.success() || out.status.code() == Some(1))
+    {
         let stdout_str = String::from_utf8_lossy(&out.stdout);
         for line in stdout_str.lines() {
             let parts: Vec<&str> = line.splitn(3, ':').collect();
@@ -687,7 +708,10 @@ pub fn handle_grep(work_dir: &Path, body: &Value) -> HttpResponse {
         })
         .collect();
     files.sort_by(|a, b| {
-        a["path"].as_str().unwrap_or("").cmp(b["path"].as_str().unwrap_or(""))
+        a["path"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["path"].as_str().unwrap_or(""))
     });
 
     let elapsed_ms = start_time.elapsed().as_millis() as usize;
@@ -803,7 +827,10 @@ mod tests {
         assert_eq!(list_many_res.status, 200);
         let list_many_json: Value = serde_json::from_slice(&list_many_res.body).unwrap();
         assert_eq!(
-            list_many_json["results"]["src/subdir"].as_array().unwrap().len(),
+            list_many_json["results"]["src/subdir"]
+                .as_array()
+                .unwrap()
+                .len(),
             1
         );
 
@@ -860,7 +887,13 @@ mod tests {
 
         // 12. read error cases
         assert_eq!(handle_read(root, &json!({})).status, 400);
-        assert_eq!(handle_read(root, &json!({ "path": "../outside.txt" })).status, 400);
-        assert_eq!(handle_read(root, &json!({ "path": "non-existent.txt" })).status, 404);
+        assert_eq!(
+            handle_read(root, &json!({ "path": "../outside.txt" })).status,
+            400
+        );
+        assert_eq!(
+            handle_read(root, &json!({ "path": "non-existent.txt" })).status,
+            404
+        );
     }
 }

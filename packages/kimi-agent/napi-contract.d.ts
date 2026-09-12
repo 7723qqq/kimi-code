@@ -270,6 +270,11 @@ export interface JsNativeLlmConfig {
    * wire.
    */
   thinkingKeep?: string
+  /**
+   * Route an anthropic-protocol model through the beta Messages API
+   * (`POST {base}/messages?beta=true`); absent means the standard endpoint.
+   */
+  betaApi?: boolean
 }
 
 export interface JsRunTurnParams {
@@ -335,6 +340,12 @@ export interface JsRunTurnParams {
   /** Optional JSON-serialized PolicySnapshot for local permission evaluation (P26 批 3). */
   policySnapshotJson?: string
   /**
+   * Optional JSON-serialized `[secondary_model]` subagent model pool: the
+   * default alias, `force`, and one resolved LLM config per pool entry.
+   * Absent = subagents inherit the caller's model.
+   */
+  secondaryModelJson?: string
+  /**
    * Host-resolved `[github]` config credentials for the native GitHub
    * tools (v2 `configSection.ts`). Env fallbacks are applied Rust-side
    * (v2 `envOverlay.ts` semantics: config wins, env fills the gap).
@@ -390,6 +401,52 @@ export interface JsRunTurnParams {
    * first and falls back to the direct fetch on failure (v2 semantics).
    */
   webFetch?: JsWebServiceConfig
+  /**
+   * Host-resolved `[image].read_byte_budget` (v2
+   * `resolveReadImageByteBudget`). `None` keeps the 256KB default.
+   */
+  imageReadByteBudget?: number
+  /**
+   * Host-resolved `[image].max_edge_px`. `None` keeps the 2000px default.
+   * `i64` because napi cannot read JS numbers as `u32`.
+   */
+  imageMaxEdgePx?: number
+  /**
+   * The session model's declared capabilities (`[models.<alias>]
+   * .capabilities`). `None`/empty = unknown.
+   */
+  modelCapabilities?: Array<string>
+  /**
+   * Host-resolved `[background]` knobs (v2 `configSection.ts`). Absent
+   * fields keep the engine default (5s stop grace / unlimited concurrency /
+   * auto-background on / 600s background Bash timeout); `bash_task_timeout_s
+   * = 0` means "no timeout". `i64` because napi cannot read JS numbers as
+   * `u64`.
+   */
+  killGracePeriodMs?: number
+  maxRunningTasks?: number
+  bashAutoBackgroundOnTimeout?: boolean
+  bashTaskTimeoutS?: number
+  /**
+   * `[background].print_background_mode` — what a print-mode (`kimi -p`)
+   * session does once its main turn ends with background tasks still
+   * running: `exit` resolves the turn receipt at once, `drain` / `steer`
+   * hold it until the task runner drains. Absent keeps the engine's
+   * exit-on-turn-end default.
+   */
+  printBackgroundMode?: string
+  /**
+   * `[background].print_wait_ceiling_s`: wall-clock bound on that hold, in
+   * seconds. Absent / non-positive keeps the documented default. `i64`
+   * because napi cannot read JS numbers as `u64`.
+   */
+  printWaitCeilingS?: number
+  /**
+   * `[background].print_max_turns`: cap on the steer turns the engine may
+   * add for background completions. Absent / non-positive keeps the
+   * documented default.
+   */
+  printMaxTurns?: number
 }
 
 export interface JsRunTurnResult {

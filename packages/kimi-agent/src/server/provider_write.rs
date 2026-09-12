@@ -117,9 +117,9 @@ pub struct ReplaceProviderForm {
 
 fn validate_provider_id(provider_id: &str) -> Result<(), WriteError> {
     let valid = !provider_id.is_empty()
-        && provider_id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_');
+        && provider_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
     if valid {
         Ok(())
     } else {
@@ -219,7 +219,9 @@ pub async fn create(
     )?;
 
     let mut guard = config_lock.lock().await;
-    let before = guard.clone().unwrap_or_else(|| effective_config(config_path));
+    let before = guard
+        .clone()
+        .unwrap_or_else(|| effective_config(config_path));
     if before.providers.contains_key(&form.id) {
         return Err(already_exists(&form.id));
     }
@@ -229,9 +231,11 @@ pub async fn create(
         .as_ref()
         .map(|model| format!("{}/{}", form.id, model));
     let seed_default = non_empty(before.default_model.as_deref()).is_none();
-    let seed_alias = default_model
-        .clone()
-        .or_else(|| form.models.first().map(|entry| format!("{}/{}", form.id, entry.model)));
+    let seed_alias = default_model.clone().or_else(|| {
+        form.models
+            .first()
+            .map(|entry| format!("{}/{}", form.id, entry.model))
+    });
 
     let updated = update_config(config_path, |document| {
         write_provider(
@@ -280,7 +284,9 @@ pub async fn replace(
     )?;
 
     let mut guard = config_lock.lock().await;
-    let before = guard.clone().unwrap_or_else(|| effective_config(config_path));
+    let before = guard
+        .clone()
+        .unwrap_or_else(|| effective_config(config_path));
     let Some(target) = before.providers.get(provider_id) else {
         return Err(not_found(provider_id));
     };
@@ -375,7 +381,9 @@ pub async fn delete(
     provider_id: &str,
 ) -> Result<Value, WriteError> {
     let mut guard = config_lock.lock().await;
-    let before = guard.clone().unwrap_or_else(|| effective_config(config_path));
+    let before = guard
+        .clone()
+        .unwrap_or_else(|| effective_config(config_path));
     let Some(target) = before.providers.get(provider_id) else {
         return Err(not_found(provider_id));
     };
@@ -469,7 +477,13 @@ mod tests {
             "default_model must be one of models"
         );
         assert!(
-            validate_form("openai", &[model("a", 1000)], None, Some("https://${HOST}/v1")).is_err()
+            validate_form(
+                "openai",
+                &[model("a", 1000)],
+                None,
+                Some("https://${HOST}/v1")
+            )
+            .is_err()
         );
         assert!(validate_form("openai", &[model("a", 1000)], Some("a"), None).is_ok());
     }

@@ -177,27 +177,20 @@ async fn confirm_and_exit(
         // Feedback-bearing reject: surface the user's free text so the
         // model can read it, and do NOT end the turn (v2
         // exitPlanModeReview.ts:122-140). Plan mode stays active.
-        Answer::Rejected(Some(feedback)) => ok_result(format!(
-            "User rejected the plan. Feedback:\n\n{feedback}"
-        )),
+        Answer::Rejected(Some(feedback)) => {
+            ok_result(format!("User rejected the plan. Feedback:\n\n{feedback}"))
+        }
         // Plain Reject click: end the turn, plan mode stays active (v2
         // exitPlanModeReview.ts:140-148).
         Answer::Rejected(None) => ExecutableToolResult {
+            delivery: None,
             stop_turn: true,
             ..err_result(PLAN_REJECTED_MESSAGE.into())
         },
         // "Reject and Exit": deactivate plan mode and end the turn (v2
         // exitPlanModeReview.ts:100-110).
         Answer::RejectAndExit => {
-            exit_plan(
-                callbacks,
-                turn_id,
-                tool_call_id,
-                path,
-                None,
-                true,
-            )
-            .await
+            exit_plan(callbacks, turn_id, tool_call_id, path, None, true).await
         }
         Answer::Revise => ok_result(PLAN_REVISE_MESSAGE.into()),
         Answer::Dismissed => ok_result(PLAN_APPROVAL_DISMISSED_MESSAGE.into()),
@@ -450,6 +443,7 @@ pub fn exit_plan_mode_tool_def() -> crate::turn_loop::types::ToolInfo {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -459,6 +453,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,

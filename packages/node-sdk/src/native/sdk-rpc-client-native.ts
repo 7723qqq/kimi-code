@@ -128,6 +128,11 @@ import {
   resolveMaxStepsPerTurn,
   resolveWebSearchService,
   resolveWebFetchService,
+  resolveImageReadByteBudget,
+  resolveImageMaxEdgePx,
+  resolveModelCapabilities,
+  resolveBackgroundLimits,
+  resolvePrintBackground,
   type JsNativeLlmConfig,
 } from './native-llm-resolver';
 
@@ -1094,6 +1099,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const maxSteps = resolveMaxStepsPerTurn(config);
     const webSearch = resolveWebSearchService(config);
     const webFetch = resolveWebFetchService(config);
+    const imageReadByteBudget = resolveImageReadByteBudget(config);
+    const imageMaxEdgePx = resolveImageMaxEdgePx(config);
+    const modelCapabilities = resolveModelCapabilities(config, meta.model);
+    const background = resolveBackgroundLimits(config);
+    // Print mode (`kimi -p`): the host resolves only which `[background]`
+    // values apply — the engine owns the settle behavior.
+    const printBackground = resolvePrintBackground(config);
     const authToken =
       nativeLlm?.authProvider === undefined
         ? undefined
@@ -1136,6 +1148,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       maxSteps: maxSteps ?? undefined,
       webSearch: webSearch ?? undefined,
       webFetch: webFetch ?? undefined,
+      imageReadByteBudget: imageReadByteBudget ?? undefined,
+      imageMaxEdgePx: imageMaxEdgePx ?? undefined,
+      modelCapabilities: modelCapabilities ?? undefined,
+      // `[background]` knobs: the engine applies them to its own task runner
+      // and Bash tool, so the file behaves the same on every entry point.
+      killGracePeriodMs: background?.killGracePeriodMs,
+      maxRunningTasks: background?.maxRunningTasks,
+      bashAutoBackgroundOnTimeout: background?.bashAutoBackgroundOnTimeout,
+      bashTaskTimeoutS: background?.bashTaskTimeoutS,
+      // Print-mode settle policy (`kimi -p`): the engine holds the turn
+      // receipt while the task runner drains.
+      printBackgroundMode: printBackground.mode,
+      printWaitCeilingS: printBackground.ceilingS,
+      printMaxTurns: printBackground.maxTurns,
       ...(githubCreds.githubToken ? { githubToken: githubCreds.githubToken } : {}),
       ...(githubCreds.githubBaseUrl ? { githubBaseUrl: githubCreds.githubBaseUrl } : {}),
       ...(nativeLlm ? { nativeLlm } : {}),

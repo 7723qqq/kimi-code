@@ -290,7 +290,10 @@ mod tests {
         for attempt in 1..=10 {
             let delay = retry_delay(attempt, &config);
             let ms = delay.as_millis() as u64;
-            assert!(ms >= 100, "attempt {attempt}: delay must respect 100ms floor");
+            assert!(
+                ms >= 100,
+                "attempt {attempt}: delay must respect 100ms floor"
+            );
             assert!(
                 ms <= 10000,
                 "attempt {attempt}: delay {ms} must not exceed max_delay + 25% jitter"

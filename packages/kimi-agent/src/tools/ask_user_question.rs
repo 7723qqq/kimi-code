@@ -20,7 +20,7 @@ use crate::turn_loop::types::ExecutableToolResult;
 
 /// v2 `QUESTION_DISMISSED_MESSAGE`: the note the model sees when the user
 /// closed the question without answering.
-const QUESTION_DISMISSED_MESSAGE: &str = "User dismissed the question without answering.";
+pub const QUESTION_DISMISSED_MESSAGE: &str = "User dismissed the question without answering.";
 
 /// v2 `QUESTION_UNSUPPORTED_FAILURE_MESSAGE`: returned when the connected
 /// host does not implement the interactive-question seam. The model must
@@ -218,6 +218,7 @@ pub fn ask_user_question_tool_def() -> crate::turn_loop::types::ToolInfo {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -227,6 +228,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,
@@ -506,7 +508,8 @@ mod tests {
         let (callbacks, _) = scripted(Err("connection reset".into()));
         let result = execute_ask_user_question(&callbacks, &sample_args()).await;
         assert!(!result.is_error);
-        let parsed: Value = serde_json::from_str(&result.content).expect("content must be valid JSON");
+        let parsed: Value =
+            serde_json::from_str(&result.content).expect("content must be valid JSON");
         assert_eq!(parsed["answers"], serde_json::json!({}));
         assert_eq!(parsed["note"], QUESTION_DISMISSED_MESSAGE);
     }

@@ -179,6 +179,12 @@ export interface NativeLlmDef {
    * context-management edit on anthropic. Absent = no keep on the wire.
    */
   thinking_keep?: string;
+  /**
+   * Route an anthropic-protocol model through the beta Messages API
+   * (`POST {base}/messages?beta=true`, `[models.<alias>].betaApi`). Absent
+   * means the standard endpoint.
+   */
+  beta_api?: boolean;
 }
 
 /** One host-resolved `[services.moonshot_*]` backend (v2 `configSection.ts`). */
@@ -259,6 +265,28 @@ export interface RustEngineOptions {
   /** Per-turn step cap; `undefined` keeps the engine's unbounded default. */
   getMaxStepsPerTurn?: () => number | undefined;
   getWebServices?: () => { webSearch?: WebServiceWire; webFetch?: WebServiceWire } | undefined;
+  /** Host-resolved `[image]` limits for model-initiated image reads. */
+  getImageLimits?: () => { readByteBudget?: number; maxEdgePx?: number } | undefined;
+  /**
+   * Host-resolved `[background]` knobs: the engine applies them to the task
+   * runner it builds and to the Bash tool (stop grace, concurrency cap,
+   * auto-background on timeout, background Bash timeout), and the print
+   * fields (`printBackgroundMode` / `printWaitCeilingS` / `printMaxTurns`)
+   * drive the engine's own print-mode settle (`kimi -p`).
+   */
+  getBackgroundLimits?: () =>
+    | {
+        killGracePeriodMs?: number;
+        maxRunningTasks?: number;
+        bashAutoBackgroundOnTimeout?: boolean;
+        bashTaskTimeoutS?: number;
+        printBackgroundMode?: string;
+        printWaitCeilingS?: number;
+        printMaxTurns?: number;
+      }
+    | undefined;
+  /** The session model's declared capabilities (`[models.<alias>].capabilities`). */
+  getModelCapabilities?: () => string[] | undefined;
   /**
    * Called once per completed turn with the result handed back to v2. The host
    * surfaces which transport actually ran the turn (`/status`); the adapter
@@ -327,6 +355,8 @@ export interface PolicySnapshot {
   allow_rules?: string[];
   session_approvals?: string[];
   git_cwd?: string;
+  /** Why each rule exists, keyed by its pattern: echoed in the denial. */
+  rule_reasons?: Record<string, string>;
 }
 
 /** A content block on the Rust wire (see `ContentBlock` in rpc/types.rs). */
@@ -1695,6 +1725,7 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
             thinking_budget: (nativeLlm as Record<string, unknown>)['thinkingBudget'] as number | undefined,
             auth_provider: (nativeLlm as Record<string, unknown>)['authProvider'] as string | undefined,
             thinking_keep: (nativeLlm as Record<string, unknown>)['thinkingKeep'] as string | undefined,
+            beta_api: (nativeLlm as Record<string, unknown>)['betaApi'] as boolean | undefined,
           },
     workspace_root: params['workspaceRoot'],
     native_tools: params['nativeTools'],
@@ -1730,6 +1761,16 @@ function toStdioSessionParams(params: Record<string, unknown>): Record<string, u
     max_attempts: params['maxAttempts'],
     web_search: toStdioWebService(params['webSearch']),
     web_fetch: toStdioWebService(params['webFetch']),
+    image_read_byte_budget: params['imageReadByteBudget'],
+    image_max_edge_px: params['imageMaxEdgePx'],
+    model_capabilities: params['modelCapabilities'],
+    kill_grace_period_ms: params['killGracePeriodMs'],
+    max_running_tasks: params['maxRunningTasks'],
+    bash_auto_background_on_timeout: params['bashAutoBackgroundOnTimeout'],
+    bash_task_timeout_s: params['bashTaskTimeoutS'],
+    print_background_mode: params['printBackgroundMode'],
+    print_wait_ceiling_s: params['printWaitCeilingS'],
+    print_max_turns: params['printMaxTurns'],
     agent_tool_veto: params['agentToolVeto'],
     tools_veto: params['toolsVeto'],
   };
@@ -2584,6 +2625,9 @@ export function createRunTurnOverride(
     const maxAttempts = input.maxAttempts ?? options?.getMaxAttemptsPerStep?.();
     const maxSteps = input.maxSteps ?? options?.getMaxStepsPerTurn?.();
     const webServices = options?.getWebServices?.();
+    const imageLimits = options?.getImageLimits?.();
+    const backgroundLimits = options?.getBackgroundLimits?.();
+    const modelCapabilities = options?.getModelCapabilities?.();
     const askUserQuestion = input.askUserQuestion?.bind(input) ?? options?.askUserQuestion;
     const stateRead = input.stateRead?.bind(input) ?? options?.stateRead;
     const stateWrite = input.stateWrite?.bind(input) ?? options?.stateWrite;
@@ -2688,6 +2732,7 @@ export function createRunTurnOverride(
                   thinkingBudget: nativeLlm.thinking_budget,
                   authProvider: nativeLlm.auth_provider,
                   thinkingKeep: nativeLlm.thinking_keep,
+                  betaApi: nativeLlm.beta_api,
                 },
           workspaceRoot,
           nativeTools,
@@ -2732,6 +2777,19 @@ export function createRunTurnOverride(
           maxAttempts,
           webSearch: webServices?.webSearch,
           webFetch: webServices?.webFetch,
+          imageReadByteBudget: imageLimits?.readByteBudget,
+          imageMaxEdgePx: imageLimits?.maxEdgePx,
+          modelCapabilities,
+          // `[background]`: the engine owns the task runner and the print
+          // settle, so the knobs ride the session params (env > config, see
+          // resolveBackgroundLimits / resolvePrintBackground).
+          killGracePeriodMs: backgroundLimits?.killGracePeriodMs,
+          maxRunningTasks: backgroundLimits?.maxRunningTasks,
+          bashAutoBackgroundOnTimeout: backgroundLimits?.bashAutoBackgroundOnTimeout,
+          bashTaskTimeoutS: backgroundLimits?.bashTaskTimeoutS,
+          printBackgroundMode: backgroundLimits?.printBackgroundMode,
+          printWaitCeilingS: backgroundLimits?.printWaitCeilingS,
+          printMaxTurns: backgroundLimits?.printMaxTurns,
           // P52 native-path vetoes (swarm Agent denial / btw full tool
           // denial): part of the session fingerprint, so an enter/exit
           // rebuilds the session and the engine sees the fresh reasons.

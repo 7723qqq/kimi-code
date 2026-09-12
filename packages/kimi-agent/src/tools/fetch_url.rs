@@ -111,6 +111,7 @@ async fn fetch_via_moonshot(
         return Err(());
     }
     Ok(Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: text,
         is_error: false,
@@ -125,6 +126,7 @@ pub async fn execute_fetch_url(
     let url_str = args.get("url")?.as_str()?;
     if url_str.trim().is_empty() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "URL parameter cannot be empty".to_string(),
             is_error: true,
@@ -148,6 +150,7 @@ pub async fn execute_fetch_url(
             Ok(p) => p,
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("Failed to fetch URL: Invalid URL: {e}"),
                     is_error: true,
@@ -160,6 +163,7 @@ pub async fn execute_fetch_url(
             Ok(a) => a,
             Err(err) => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("Failed to fetch URL: {err}"),
                     is_error: true,
@@ -172,6 +176,7 @@ pub async fn execute_fetch_url(
             Some(h) => h,
             None => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: "Failed to fetch URL: URL has no host".to_string(),
                     is_error: true,
@@ -195,6 +200,7 @@ pub async fn execute_fetch_url(
             Ok(c) => c,
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("Failed to initialize HTTP client: {e}"),
                     is_error: true,
@@ -207,6 +213,7 @@ pub async fn execute_fetch_url(
             Ok(r) => r,
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!(
                         "Failed to fetch URL due to network error: {current_url}. {e}"
@@ -221,6 +228,7 @@ pub async fn execute_fetch_url(
         if status.is_redirection() {
             if redirects >= MAX_REDIRECT_HOPS {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!(
                         "Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"
@@ -238,6 +246,7 @@ pub async fn execute_fetch_url(
                 Some(loc) => loc,
                 None => {
                     return Some(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: "Failed to fetch URL: Redirect without Location header"
                             .to_string(),
@@ -253,6 +262,7 @@ pub async fn execute_fetch_url(
                 }
                 Err(e) => {
                     return Some(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: format!("Failed to fetch URL: Invalid redirect URL: {e}"),
                         is_error: true,
@@ -268,6 +278,7 @@ pub async fn execute_fetch_url(
     let status = response.status();
     if !status.is_success() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: format!("Failed to fetch URL. Status: {status}."),
             is_error: true,
@@ -286,6 +297,7 @@ pub async fn execute_fetch_url(
         Ok(b) => b,
         Err(e) => {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!("Failed to read response body: {e}"),
                 is_error: true,
@@ -296,6 +308,7 @@ pub async fn execute_fetch_url(
 
     if bytes.is_empty() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "The response body is empty.".to_string(),
             is_error: false,
@@ -305,6 +318,7 @@ pub async fn execute_fetch_url(
 
     if bytes.len() > DEFAULT_MAX_BYTES {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: format!("Response body too large: exceeds limit ({DEFAULT_MAX_BYTES} bytes)."),
             is_error: true,
@@ -339,6 +353,7 @@ pub async fn execute_fetch_url(
     let formatted = format!("{note} {cite_reminder}\n\n{content}");
 
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: formatted,
         is_error: false,

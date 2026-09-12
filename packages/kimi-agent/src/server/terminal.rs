@@ -3,11 +3,11 @@
 //! Provides in-process shell terminal management adhering to the kap-server
 //! `/api/v1/sessions/:id/terminals` REST and WebSocket contract.
 
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::{RwLock, mpsc};
@@ -69,7 +69,9 @@ impl TerminalManager {
         }
         #[cfg(windows)]
         {
-            let ps_path = std::path::Path::new("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+            let ps_path = std::path::Path::new(
+                "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            );
             if ps_path.exists() {
                 return ps_path.to_string_lossy().to_string();
             }
@@ -119,7 +121,9 @@ impl TerminalManager {
             cmd.env("TERM", "xterm-256color");
         }
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn shell '{shell}': {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn shell '{shell}': {e}"))?;
         let child_pid = child.id();
 
         let mut child_stdin = child.stdin.take();
@@ -201,7 +205,9 @@ impl TerminalManager {
                                 "seq": out_seq,
                                 "data": text,
                             });
-                            hub_stdout.bus_for(&sid_stdout).publish(&EngineEvent::Custom(out_event));
+                            hub_stdout
+                                .bus_for(&sid_stdout)
+                                .publish(&EngineEvent::Custom(out_event));
                         }
                         Err(_) => break,
                     }
@@ -245,7 +251,9 @@ impl TerminalManager {
                                 "seq": out_seq,
                                 "data": text,
                             });
-                            hub_stderr.bus_for(&sid_stderr).publish(&EngineEvent::Custom(out_event));
+                            hub_stderr
+                                .bus_for(&sid_stderr)
+                                .publish(&EngineEvent::Custom(out_event));
                         }
                         Err(_) => break,
                     }
@@ -279,7 +287,9 @@ impl TerminalManager {
                 "terminal_id": tid_exit,
                 "payload": { "exit_code": exit_code },
             });
-            hub_exit.bus_for(&sid_exit).publish(&EngineEvent::Custom(exit_event));
+            hub_exit
+                .bus_for(&sid_exit)
+                .publish(&EngineEvent::Custom(exit_event));
         });
 
         Ok(descriptor)
@@ -306,9 +316,16 @@ impl TerminalManager {
     }
 
     /// Send input bytes to terminal stdin.
-    pub async fn write(&self, session_id: &str, terminal_id: &str, data: &[u8]) -> Result<(), String> {
+    pub async fn write(
+        &self,
+        session_id: &str,
+        terminal_id: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
         let lock = self.entries.read().await;
-        let entry = lock.get(terminal_id).ok_or_else(|| "Terminal not found".to_string())?;
+        let entry = lock
+            .get(terminal_id)
+            .ok_or_else(|| "Terminal not found".to_string())?;
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
         }
@@ -331,7 +348,9 @@ impl TerminalManager {
         rows: u32,
     ) -> Result<(), String> {
         let mut lock = self.entries.write().await;
-        let entry = lock.get_mut(terminal_id).ok_or_else(|| "Terminal not found".to_string())?;
+        let entry = lock
+            .get_mut(terminal_id)
+            .ok_or_else(|| "Terminal not found".to_string())?;
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
         }
@@ -343,15 +362,16 @@ impl TerminalManager {
     /// Close and kill a terminal process.
     pub async fn close(&self, session_id: &str, terminal_id: &str) -> Result<(), String> {
         let mut lock = self.entries.write().await;
-        let entry = lock.get_mut(terminal_id).ok_or_else(|| "Terminal not found".to_string())?;
+        let entry = lock
+            .get_mut(terminal_id)
+            .ok_or_else(|| "Terminal not found".to_string())?;
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
         }
         if entry.descriptor.status == "running" {
             entry.descriptor.status = "exited".to_string();
-            entry.descriptor.exited_at = Some(
-                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            );
+            entry.descriptor.exited_at =
+                Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
             entry.stdin_tx = None;
             if let Some(pid) = entry.child_pid {
                 #[cfg(windows)]
@@ -379,7 +399,9 @@ impl TerminalManager {
         since_seq: usize,
     ) -> Result<(Vec<String>, usize), String> {
         let lock = self.entries.read().await;
-        let entry = lock.get(terminal_id).ok_or_else(|| "Terminal not found".to_string())?;
+        let entry = lock
+            .get(terminal_id)
+            .ok_or_else(|| "Terminal not found".to_string())?;
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
         }
@@ -404,7 +426,10 @@ mod tests {
         let cwd = temp_dir.path().to_string_lossy().to_string();
 
         // 1. Create terminal
-        let desc = mgr.create("sess-1", &cwd, None, Some(80), Some(24)).await.unwrap();
+        let desc = mgr
+            .create("sess-1", &cwd, None, Some(80), Some(24))
+            .await
+            .unwrap();
         assert_eq!(desc.session_id, "sess-1");
         assert_eq!(desc.status, "running");
         assert_eq!(desc.cols, 80);
@@ -435,13 +460,23 @@ mod tests {
         assert_eq!(resized.rows, 30);
 
         // Resize non-existent returns error
-        assert_eq!(mgr.resize("sess-1", "term_none", 100, 20).await.unwrap_err(), "Terminal not found");
+        assert_eq!(
+            mgr.resize("sess-1", "term_none", 100, 20)
+                .await
+                .unwrap_err(),
+            "Terminal not found"
+        );
 
         // 5. Write input
-        mgr.write("sess-1", &desc.id, b"echo test\n").await.expect("terminal write must succeed");
+        mgr.write("sess-1", &desc.id, b"echo test\n")
+            .await
+            .expect("terminal write must succeed");
 
         // 6. Terminal output
-        let (frames, total) = mgr.output("sess-1", &desc.id, 0).await.expect("output query succeeds");
+        let (frames, total) = mgr
+            .output("sess-1", &desc.id, 0)
+            .await
+            .expect("output query succeeds");
         assert!(total >= frames.len());
 
         // Query beyond total frames returns empty slice
@@ -472,7 +507,12 @@ mod tests {
         assert!(!shell.trim().is_empty());
         #[cfg(windows)]
         {
-            assert!(shell.ends_with(".exe") || shell.contains("powershell") || shell.contains("cmd") || shell.contains("bash"));
+            assert!(
+                shell.ends_with(".exe")
+                    || shell.contains("powershell")
+                    || shell.contains("cmd")
+                    || shell.contains("bash")
+            );
         }
     }
 }

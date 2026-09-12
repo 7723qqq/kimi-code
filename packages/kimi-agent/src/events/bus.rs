@@ -78,6 +78,20 @@ impl EventBus {
         self.subscribers.read().unwrap().len()
     }
 
+    /// Subscriber counts for the debug reflection surface: the total, plus a
+    /// per-event-type breakdown of the filtered subscribers.
+    pub fn subscriber_snapshot(&self) -> (usize, std::collections::BTreeMap<String, usize>) {
+        let subs = self.subscribers.read().unwrap();
+        let mut per_type: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for sub in subs.iter() {
+            if let Some(ref filter) = sub.filter {
+                *per_type.entry(filter.clone()).or_insert(0) += 1;
+            }
+        }
+        (subs.len(), per_type)
+    }
+
     /// Publish an event to all matching subscribers.
     pub fn publish(&self, event: &EngineEvent) {
         let subs = self.subscribers.read().unwrap();

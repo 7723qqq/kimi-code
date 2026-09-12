@@ -1,4 +1,4 @@
-﻿/// Grep tool — content search via the `regex` crate.
+/// Grep tool — content search via the `regex` crate.
 ///
 /// Pure-Rust grep implementation. Supports regex patterns, case-insensitive
 /// search, context lines, output modes (content/files_with_matches/count),
@@ -11,8 +11,8 @@ use regex::RegexBuilder;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::native::file_type::is_sensitive_file;
@@ -267,12 +267,11 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
             if timed_out.load(Ordering::Relaxed) {
                 return ignore::WalkState::Quit;
             }
-            if let Some(d) = deadline {
-                if Instant::now() >= *d {
+            if let Some(d) = deadline
+                && Instant::now() >= *d {
                     timed_out.store(true, Ordering::Relaxed);
                     return ignore::WalkState::Quit;
                 }
-            }
 
             let entry = match entry {
                 Ok(e) => e,
@@ -293,11 +292,10 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
 
             let path = entry.path();
 
-            if let Some(matcher) = glob_filter {
-                if !matcher.is_match(path) {
+            if let Some(matcher) = glob_filter
+                && !matcher.is_match(path) {
                     return ignore::WalkState::Continue;
                 }
-            }
 
             if !file_type_globs.is_empty() && !file_type_globs.iter().any(|m| m.is_match(path)) {
                 return ignore::WalkState::Continue;

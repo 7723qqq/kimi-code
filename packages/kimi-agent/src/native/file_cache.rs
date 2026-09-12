@@ -1,4 +1,4 @@
-﻿/// In-memory file read-result cache keyed by the full read request
+/// In-memory file read-result cache keyed by the full read request
 /// `(path, line_offset, n_lines)` plus the file's invalidation metadata
 /// `(mtime, ctime, size)`.
 ///
@@ -26,7 +26,7 @@
 /// Windows std cannot expose a change time, so `ctime` is `None` and the
 /// `(mtime, size)` pair is used — acceptable because NTFS mtime already has
 /// sub-second granularity (coarse granularity is the FAT case ctime covers).
-use crate::native::read::{ReadResult, MAX_LINES};
+use crate::native::read::{MAX_LINES, ReadResult};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::sync::LazyLock;
@@ -157,10 +157,10 @@ impl FileReadCache {
                 // Clone the hit into owned data first so the `entries` borrow
                 // ends before `order` is mutated (LRU reordering).
                 let result = entry.result.clone();
-                if let Some(pos) = inner.order.iter().position(|k| *k == key) {
-                    if let Some(k) = inner.order.remove(pos) {
-                        inner.order.push_back(k);
-                    }
+                if let Some(pos) = inner.order.iter().position(|k| *k == key)
+                    && let Some(k) = inner.order.remove(pos)
+                {
+                    inner.order.push_back(k);
                 }
                 Some(result)
             }
@@ -204,10 +204,11 @@ impl FileReadCache {
             Err(_) => return,
         };
         // Evict the least-recently-used entry when at capacity.
-        if inner.entries.len() >= MAX_CACHE_ENTRIES && !inner.entries.contains_key(&key) {
-            if let Some(oldest) = inner.order.pop_front() {
-                inner.entries.remove(&oldest);
-            }
+        if inner.entries.len() >= MAX_CACHE_ENTRIES
+            && !inner.entries.contains_key(&key)
+            && let Some(oldest) = inner.order.pop_front()
+        {
+            inner.entries.remove(&oldest);
         }
         // Remove any stale position before pushing this key to the back.
         if let Some(pos) = inner.order.iter().position(|k| *k == key) {

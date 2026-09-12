@@ -126,7 +126,8 @@ pub type McpStatusListener = Box<dyn Fn(McpServerEntry) + Send + Sync>;
 
 /// Per-server registration options: visibility, enabled flag and timeouts.
 #[derive(Debug, Clone)]
-pub struct McpServerOptions {    pub enabled: bool,
+pub struct McpServerOptions {
+    pub enabled: bool,
     pub enabled_tools: Option<Vec<String>>,
     pub disabled_tools: Option<Vec<String>>,
     pub startup_timeout_ms: Option<u64>,
@@ -240,7 +241,10 @@ impl McpManager {
 
     /// Remove a status-change listener by token.
     pub fn unsubscribe_status(&self, sub: McpStatusSubscription) -> bool {
-        let mut listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
+        let mut listeners = self
+            .status_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(pos) = listeners.iter().position(|(id, _)| *id == sub) {
             let _ = listeners.swap_remove(pos);
             true
@@ -271,7 +275,10 @@ impl McpManager {
                 "mcp server unavailable"
             );
         }
-        let listeners = self.status_listeners.lock().unwrap_or_else(|e| e.into_inner());
+        let listeners = self
+            .status_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for (_, listener) in listeners.iter() {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 listener(entry.clone());
@@ -643,7 +650,10 @@ impl McpManager {
             },
             unknown => {
                 let mime = c.mime_type.as_deref().unwrap_or("");
-                format!("[MCP unknown content type={unknown} mime={mime} text=<{}>]", c.text.as_deref().unwrap_or(""))
+                format!(
+                    "[MCP unknown content type={unknown} mime={mime} text=<{}>]",
+                    c.text.as_deref().unwrap_or("")
+                )
             }
         }
     }
@@ -677,6 +687,7 @@ impl McpManager {
                     text_parts.push(Self::render_mcp_content(&c, NON_TEXT_PREVIEW_BYTES));
                 }
                 Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: text_parts.join("\n"),
                     is_error: res.is_error,
@@ -684,6 +695,7 @@ impl McpManager {
                 })
             }
             Err(e) => Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!("MCP execution error: {e}"),
                 is_error: true,
@@ -786,11 +798,14 @@ impl McpManager {
     /// `failed` (v2 `connectOne` catch branch + `shouldMarkNeedsAuth`).
     async fn mark_connect_failure(&self, name: &str, error: &str) {
         let oauth_installed = self.oauth_service().await.is_some();
-        let recipe = self.servers.read().await.get(name).map(|s| s.recipe.clone());
+        let recipe = self
+            .servers
+            .read()
+            .await
+            .get(name)
+            .map(|s| s.recipe.clone());
         let status = match recipe {
-            Some(recipe) if should_mark_needs_auth(&recipe, oauth_installed, error) => {
-                "needs-auth"
-            }
+            Some(recipe) if should_mark_needs_auth(&recipe, oauth_installed, error) => "needs-auth",
             _ => "failed",
         };
         if let Some(state) = self.servers.write().await.get_mut(name) {
@@ -997,7 +1012,13 @@ impl McpManager {
     }
 
     async fn reconnect_inner(&self, name: &str) -> Result<(), String> {
-        let Some(_recipe) = self.servers.read().await.get(name).map(|s| s.recipe.clone()) else {
+        let Some(_recipe) = self
+            .servers
+            .read()
+            .await
+            .get(name)
+            .map(|s| s.recipe.clone())
+        else {
             return Err(format!("MCP server '{name}' is not configured"));
         };
         // A disabled server must not be reconnected (v2 throws
@@ -1067,11 +1088,7 @@ fn to_public_entry(name: &str, state: &ServerState) -> McpServerEntry {
 /// of `failed` (v2 `shouldMarkNeedsAuth`, connection-manager.ts:383-393):
 /// only remote servers without a static credential participate in the OAuth
 /// flow, and only when the failure looks like a 401 / Unauthorized.
-fn should_mark_needs_auth(
-    recipe: &McpServerRecipe,
-    oauth_installed: bool,
-    error: &str,
-) -> bool {
+fn should_mark_needs_auth(recipe: &McpServerRecipe, oauth_installed: bool, error: &str) -> bool {
     if !oauth_installed {
         return false;
     }
@@ -1200,10 +1217,7 @@ mod tests {
 
         // 1. Call via plain alias
         let res_plain = manager
-            .call_tool(
-                "github_sample_tool",
-                &json!({ "query": "kimi" }),
-            )
+            .call_tool("github_sample_tool", &json!({ "query": "kimi" }))
             .await
             .expect("call_tool via plain alias failed");
 
@@ -1231,9 +1245,7 @@ mod tests {
         assert_eq!(res_namespaced.note.as_deref(), Some("mcp:github"));
 
         // 3. Call unknown tool returns None
-        let res_missing = manager
-            .call_tool("unknown_tool", &json!({}))
-            .await;
+        let res_missing = manager.call_tool("unknown_tool", &json!({})).await;
         assert!(res_missing.is_none());
     }
 
@@ -1312,7 +1324,10 @@ mod tests {
 
         // Call tool over SSE
         let res = manager
-            .call_tool("mcp__calc_server__calculate", &json!({ "expression": "10+32" }))
+            .call_tool(
+                "mcp__calc_server__calculate",
+                &json!({ "expression": "10+32" }),
+            )
             .await
             .expect("tool call failed");
 
@@ -1598,7 +1613,11 @@ mod tests {
         let manager = McpManager::new();
         manager.add_client(McpClient::mock("My Search")).await;
 
-        assert!(manager.handles("mcp__My_Search__My_Search_sample_tool").await);
+        assert!(
+            manager
+                .handles("mcp__My_Search__My_Search_sample_tool")
+                .await
+        );
         let infos = manager.list_tool_infos().await;
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].name, "mcp__My_Search__My_Search_sample_tool");
@@ -1640,7 +1659,11 @@ mod tests {
             .inspect_server("filtered")
             .await
             .expect("inspect failed");
-        assert_eq!(inspected.len(), 3, "inspection reports every advertised tool");
+        assert_eq!(
+            inspected.len(),
+            3,
+            "inspection reports every advertised tool"
+        );
     }
 
     /// A qualified tool name that duplicates another tool of the same server
@@ -1749,7 +1772,10 @@ mod tests {
         assert_eq!(entries[0].status, "failed");
         assert_eq!(entries[0].tool_count, 0);
         assert!(entries[0].tools.is_empty());
-        assert_eq!(entries[0].error.as_deref(), Some("server closed unexpectedly"));
+        assert_eq!(
+            entries[0].error.as_deref(),
+            Some("server closed unexpectedly")
+        );
     }
 
     /// A stdio child that dies after the handshake must flip the entry to
@@ -1762,8 +1788,11 @@ mod tests {
         let dir = std::env::temp_dir();
         let (cmd, args, script) = if cfg!(windows) {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
-            std::fs::write(&path, format!("@echo {init}\r\n@echo {list}\r\n@exit /b 0\r\n"))
-                .expect("write die script");
+            std::fs::write(
+                &path,
+                format!("@echo {init}\r\n@echo {list}\r\n@exit /b 0\r\n"),
+            )
+            .expect("write die script");
             (
                 "cmd",
                 vec!["/c".to_string(), path.to_string_lossy().into_owned()],
@@ -1780,10 +1809,10 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let recorder = std::sync::Mutex::new(Some(tx));
         manager.on_status_change(Box::new(move |entry| {
-            if entry.status == "failed" {
-                if let Some(tx) = recorder.lock().unwrap().take() {
-                    let _ = tx.send(entry);
-                }
+            if entry.status == "failed"
+                && let Some(tx) = recorder.lock().unwrap().take()
+            {
+                let _ = tx.send(entry);
             }
         }));
 
@@ -1876,14 +1905,15 @@ mod tests {
             .await
             .expect("mock server connects");
 
-        let entries = seen.lock().unwrap();
-        assert_eq!(entries.len(), 2, "pending then connected");
-        assert_eq!(entries[0].name, "mock");
-        assert_eq!(entries[0].status, "pending");
-        assert_eq!(entries[1].name, "mock");
-        assert_eq!(entries[1].status, "connected");
-        assert_eq!(entries[1].tool_count, 1);
-        drop(entries);
+        {
+            let entries = seen.lock().unwrap();
+            assert_eq!(entries.len(), 2, "pending then connected");
+            assert_eq!(entries[0].name, "mock");
+            assert_eq!(entries[0].status, "pending");
+            assert_eq!(entries[1].name, "mock");
+            assert_eq!(entries[1].status, "connected");
+            assert_eq!(entries[1].tool_count, 1);
+        }
 
         // Unsubscribing stops further notifications.
         assert!(manager.unsubscribe_status(sub));
@@ -1959,7 +1989,8 @@ mod tests {
     /// (v2 `HttpMcpClient`).
     #[tokio::test]
     async fn test_http_recipe_discovers_tools() {
-        let (url, _seen, _shutdown) = crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("json").await;
         let manager = McpManager::new();
         manager
             .configure(
@@ -2282,7 +2313,11 @@ mod tests {
         assert!(!should_mark_needs_auth(&with_bearer, true, "401"));
         // Remote without credentials + 401 / Unauthorized → needs-auth.
         assert!(should_mark_needs_auth(&http, true, "401"));
-        assert!(should_mark_needs_auth(&http, true, "UnauthorizedError: token expired"));
+        assert!(should_mark_needs_auth(
+            &http,
+            true,
+            "UnauthorizedError: token expired"
+        ));
         assert!(should_mark_needs_auth(&http, true, "HTTP 401 Unauthorized"));
         // Other failures stay failed.
         assert!(!should_mark_needs_auth(&http, true, "connection refused"));

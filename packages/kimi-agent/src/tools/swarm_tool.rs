@@ -26,10 +26,9 @@ use crate::turn_loop::types::{ExecutableToolResult, LoopTurnStopReason, ToolInfo
 /// The v2 default profile name (`DEFAULT_PROFILE_NAME`).
 const DEFAULT_SUBAGENT_TYPE: &str = "coder";
 
-/// The default foreground timeout (v2 `DEFAULT_SUBAGENT_TIMEOUT_MS`: 2h).
-const DEFAULT_SUBAGENT_TIMEOUT_MS: u64 = 2 * 60 * 60 * 1000;
 /// The swarm timeout default (v2 `DEFAULT_SWARM_TIMEOUT_MS`: 2h). Swarms
-/// resolve only this knob — never the subagent timeout.
+/// resolve only this knob — never the subagent timeout (whose default lives
+/// on `agent_tool::DEFAULT_SUBAGENT_TIMEOUT_MS`).
 const DEFAULT_SWARM_TIMEOUT_MS: u64 = 2 * 60 * 60 * 1000;
 
 /// Placeholder for subagent prompts (`PROMPT_TEMPLATE_PLACEHOLDER`).
@@ -243,6 +242,7 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
 
 fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: msg.into(),
         is_error: true,
@@ -252,6 +252,7 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
 
 fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: msg.into(),
         is_error: false,
@@ -479,13 +480,13 @@ pub async fn execute_agent_swarm(
     let parent_tool_call_id = tool_call_id.unwrap_or("swarm").to_string();
     // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): a dedicated
     // knob — unlike `Agent` turns, swarms never inherit the subagent
-    // timeout, so only the override (or the 2h swarm default) applies.
-    let timeout = Some(Duration::from_millis(
-        manager
-            .swarm_timeout_ms()
-            .filter(|t| *t > 0)
-            .unwrap_or(DEFAULT_SWARM_TIMEOUT_MS),
-    ));
+    // timeout. `0` = "no timeout armed" (v2 `taskService`), so it maps to
+    // the never-expiring sentinel rather than the 2h default.
+    let timeout = Some(Duration::from_millis(match manager.swarm_timeout_ms() {
+        Some(0) => u64::MAX,
+        Some(ms) => ms,
+        None => DEFAULT_SWARM_TIMEOUT_MS,
+    }));
 
     let batch_signal = AbortSignal::new();
     if let Some(parent) = parent_cancel {
@@ -608,7 +609,9 @@ pub fn agent_swarm_tool_def(
     let mut description = "Launch multiple subagents from one prompt template, existing agent resumes, or both. Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly `{{item}}`.".to_string();
     // v2 `buildSubagentModelDescriptions`: a forced pool exposes no choice,
     // so it appends neither the listing nor (below) the `model` parameter.
-    if let Some(pool) = pool && pool.exposes_choice() {
+    if let Some(pool) = pool
+        && pool.exposes_choice()
+    {
         description.push_str("\n\n");
         description.push_str(&pool.description());
     }
@@ -696,7 +699,11 @@ mod tests {
         }
 
         let offered = agent_swarm_tool_def(Some(&pool(false)));
-        assert!(offered.description.contains("Available models (pass via model):"));
+        assert!(
+            offered
+                .description
+                .contains("Available models (pass via model):")
+        );
         assert!(
             offered
                 .input_schema
@@ -706,7 +713,11 @@ mod tests {
         );
 
         let forced = agent_swarm_tool_def(Some(&pool(true)));
-        assert!(!forced.description.contains("Available models"), "{}", forced.description);
+        assert!(
+            !forced.description.contains("Available models"),
+            "{}",
+            forced.description
+        );
         assert!(
             forced
                 .input_schema
@@ -718,8 +729,7 @@ mod tests {
         let bare = agent_swarm_tool_def(None);
         assert!(!bare.description.contains("Available models"));
         assert!(
-            bare
-                .input_schema
+            bare.input_schema
                 .get("properties")
                 .and_then(|properties| properties.get("model"))
                 .is_none()
@@ -864,6 +874,7 @@ mod tests {
         ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
@@ -901,7 +912,7 @@ mod tests {
             model: None,
         })
         .await;
-        mgr.set_runtime(Arc::new(TestSummaryLlm), Arc::new(TestNoopCallbacks))
+        mgr.set_runtime(Arc::new(TestSummaryLlm), Arc::new(TestNoopCallbacks), None)
             .await;
         mgr
     }

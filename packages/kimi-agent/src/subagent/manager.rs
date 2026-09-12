@@ -44,17 +44,35 @@ impl ToolPolicyFilter {
         }
     }
 
-    pub fn allows(&self, tool_name: &str) -> bool {
-        if !self.allowlist.is_empty() {
-            return self
-                .allowlist
-                .iter()
-                .any(|allowed| allowed.eq_ignore_ascii_case(tool_name));
+    /// The allowlist-only form (v2 `resolveActiveToolNames`): evaluates a
+    /// profile's declared names against that same allowlist, for rendering
+    /// what the profile actually admits.
+    pub fn from_allowlist(tools: &[String]) -> Self {
+        Self {
+            allowlist: tools.to_vec(),
+            disallowed: Vec::new(),
         }
-        !self
-            .disallowed
-            .iter()
-            .any(|denied| denied.eq_ignore_ascii_case(tool_name))
+    }
+
+    /// Whether the profile admits `tool_name` (v2 `isToolActive`): an
+    /// explicit allowlist wins, otherwise every tool except the disallowed
+    /// names. Tool names are matched with the same source-dependent rule as
+    /// the global `[tools]` switch — MCP patterns are globs
+    /// (`mcp__*` / `mcp__github__*`), built-ins match exactly and
+    /// case-insensitively (the engine dispatches on the lowercase wire name
+    /// while profile tables spell them `Read`).
+    pub fn allows(&self, tool_name: &str) -> bool {
+        let matches = |pattern: &str| {
+            if pattern.starts_with("mcp__") {
+                crate::tools::tool_policy::matches_tool_pattern(pattern, tool_name)
+            } else {
+                pattern.eq_ignore_ascii_case(tool_name)
+            }
+        };
+        if !self.allowlist.is_empty() {
+            return self.allowlist.iter().any(|pattern| matches(pattern));
+        }
+        !self.disallowed.iter().any(|pattern| matches(pattern))
     }
 }
 
@@ -189,6 +207,9 @@ pub struct PersistentInstance {
 pub struct SubagentRuntime {
     pub llm: Arc<dyn crate::turn_loop::types::LLM>,
     pub callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    /// The parent session this runtime was built for, so background
+    /// subagent tasks attribute their lifecycle events to the right lane.
+    pub session_id: Option<String>,
 }
 
 pub struct SubagentManager {
@@ -494,12 +515,14 @@ worktree root the tower assigns you as your full authority scope.";
     /// Host-pushed `[swarm] timeout_ms` for the native `AgentSwarm` tool (v2
     /// `resolveSwarmTimeoutMs`). `None` clears the override so the swarm
     /// falls back to the 2h swarm default; swarms never inherit the
-    /// subagent timeout. Set per pipeline build.
+    /// subagent timeout. `Some(0)` means "explicitly no timeout" and rides
+    /// through — the tool maps it to the never-expiring sentinel (v2
+    /// `taskService` arms only when `timeoutMs > 0`). Set per pipeline build.
     pub fn set_swarm_timeout_ms(&self, timeout_ms: Option<u64>) {
         *self
             .swarm_timeout_ms
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = timeout_ms.filter(|timeout| *timeout > 0);
+            .unwrap_or_else(|e| e.into_inner()) = timeout_ms;
     }
 
     /// The host-resolved swarm timeout, if any. Read at `AgentSwarm` execution.
@@ -576,15 +599,8 @@ worktree root the tower assigns you as your full authority scope.";
     /// pool choice). The run paths prefer this over the session runtime LLM,
     /// so concurrent subagents can run on different models; unbound instances
     /// keep inheriting the session model.
-    pub async fn set_instance_llm(
-        &self,
-        id: &str,
-        llm: Arc<dyn crate::turn_loop::types::LLM>,
-    ) {
-        self.instance_llms
-            .write()
-            .await
-            .insert(id.to_string(), llm);
+    pub async fn set_instance_llm(&self, id: &str, llm: Arc<dyn crate::turn_loop::types::LLM>) {
+        self.instance_llms.write().await.insert(id.to_string(), llm);
     }
 
     async fn instance_llm(&self, id: &str) -> Option<Arc<dyn crate::turn_loop::types::LLM>> {
@@ -597,8 +613,13 @@ worktree root the tower assigns you as your full authority scope.";
         &self,
         llm: Arc<dyn crate::turn_loop::types::LLM>,
         callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+        session_id: Option<String>,
     ) {
-        *self.runtime.write().await = Some(Arc::new(SubagentRuntime { llm, callbacks }));
+        *self.runtime.write().await = Some(Arc::new(SubagentRuntime {
+            llm,
+            callbacks,
+            session_id,
+        }));
     }
 
     /// Current execution runtime, if injected.
@@ -723,6 +744,12 @@ worktree root the tower assigns you as your full authority scope.";
         };
 
         let runner = { self.task_runner.read().await.clone() };
+        let parent_session = self
+            .runtime
+            .read()
+            .await
+            .as_ref()
+            .and_then(|r| r.session_id.clone().filter(|session| !session.is_empty()));
 
         let subagent_run = async move {
             let turn_id = format!("subturn-{}", fastrand::u64(..));
@@ -781,7 +808,16 @@ worktree root the tower assigns you as your full authority scope.";
 
         if let Some(task_runner) = runner {
             let description = format!("Subagent {}: {}", role, prompt);
-            let _ = task_runner.spawn_task(id.clone(), description, subagent_run);
+            let _ = task_runner.spawn_task_with_meta(
+                crate::storage::TaskSpawnMeta {
+                    session_id: parent_session.as_deref(),
+                    kind: "subagent",
+                    subagent_type: Some(type_name),
+                },
+                id.clone(),
+                description,
+                subagent_run,
+            );
         } else {
             tokio::spawn(subagent_run);
         }
@@ -840,6 +876,7 @@ worktree root the tower assigns you as your full authority scope.";
             Some(llm) => Arc::new(SubagentRuntime {
                 llm,
                 callbacks: runtime.callbacks.clone(),
+                session_id: runtime.session_id.clone(),
             }),
             None => runtime,
         };
@@ -1007,7 +1044,9 @@ worktree root the tower assigns you as your full authority scope.";
                         role,
                         messages: p.messages.clone(),
                     }
-                } else if let Some(store) = self.session_store.read().await.as_ref() {
+                } else {
+                    let guard = self.session_store.read().await;
+                    let store = guard.as_ref()?;
                     // Cold recovery: restore from SQLite store (#3478)
                     if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
                         if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
@@ -1027,8 +1066,6 @@ worktree root the tower assigns you as your full authority scope.";
                     } else {
                         return None;
                     }
-                } else {
-                    return None;
                 }
             }
         };
@@ -1165,24 +1202,23 @@ worktree root the tower assigns you as your full authority scope.";
             return Some(inst.type_name.clone());
         }
         // Cold recovery check (#3478)
-        if let Some(store) = self.session_store.read().await.as_ref() {
-            if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
-                if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
-                    let profile_name = state.profile_name.clone();
-                    self.foreground_histories
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(
-                            id.to_string(),
-                            ForegroundResume {
-                                profile_name: state.profile_name,
-                                role: state.role,
-                                messages: state.messages,
-                            },
-                        );
-                    return Some(profile_name);
-                }
-            }
+        if let Some(store) = self.session_store.read().await.as_ref()
+            && let Ok(Some(val)) = store.get_state("subagent_resume", id)
+            && let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val)
+        {
+            let profile_name = state.profile_name.clone();
+            self.foreground_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    id.to_string(),
+                    ForegroundResume {
+                        profile_name: state.profile_name,
+                        role: state.role,
+                        messages: state.messages,
+                    },
+                );
+            return Some(profile_name);
         }
         None
     }
@@ -1202,14 +1238,12 @@ worktree root the tower assigns you as your full authority scope.";
             return Some(msgs);
         }
         // Cold recovery check (#3478)
-        if let Ok(guard) = self.session_store.try_read() {
-            if let Some(store) = guard.as_ref() {
-                if let Ok(Some(val)) = store.get_state("subagent_resume", id) {
-                    if let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val) {
-                        return Some(state.messages);
-                    }
-                }
-            }
+        if let Ok(guard) = self.session_store.try_read()
+            && let Some(store) = guard.as_ref()
+            && let Ok(Some(val)) = store.get_state("subagent_resume", id)
+            && let Ok(state) = serde_json::from_value::<SubagentPersistedState>(val)
+        {
+            return Some(state.messages);
         }
         None
     }
@@ -1234,18 +1268,18 @@ worktree root the tower assigns you as your full authority scope.";
                 },
             );
         // Persist to store if available (#3478)
-        if let Ok(guard) = self.session_store.try_read() {
-            if let Some(store) = guard.as_ref() {
-                let state = SubagentPersistedState {
-                    id: id.to_string(),
-                    profile_name: profile_name.to_string(),
-                    role: role.to_string(),
-                    messages,
-                    updated_at: chrono::Utc::now().timestamp_millis(),
-                };
-                if let Ok(val) = serde_json::to_value(&state) {
-                    let _ = store.put_state("subagent_resume", id, &val);
-                }
+        if let Ok(guard) = self.session_store.try_read()
+            && let Some(store) = guard.as_ref()
+        {
+            let state = SubagentPersistedState {
+                id: id.to_string(),
+                profile_name: profile_name.to_string(),
+                role: role.to_string(),
+                messages,
+                updated_at: chrono::Utc::now().timestamp_millis(),
+            };
+            if let Ok(val) = serde_json::to_value(&state) {
+                let _ = store.put_state("subagent_resume", id, &val);
             }
         }
     }
@@ -1613,6 +1647,20 @@ mod tests {
     use std::sync::atomic::AtomicU32;
     use tokio::sync::Notify;
 
+    /// The swarm timeout rides host values verbatim: `0` means "explicitly no
+    /// timeout" (the tool maps it to the never-expiring sentinel) and must not
+    /// be folded into the 2h default the way an unset value is.
+    #[test]
+    fn test_swarm_timeout_zero_is_explicit_no_timeout() {
+        let manager = SubagentManager::new();
+        manager.set_swarm_timeout_ms(Some(0));
+        assert_eq!(manager.swarm_timeout_ms(), Some(0));
+        manager.set_swarm_timeout_ms(Some(60_000));
+        assert_eq!(manager.swarm_timeout_ms(), Some(60_000));
+        manager.set_swarm_timeout_ms(None);
+        assert_eq!(manager.swarm_timeout_ms(), None);
+    }
+
     #[tokio::test]
     async fn test_subagent_lifecycle() {
         let manager = SubagentManager::new();
@@ -1756,7 +1804,9 @@ mod tests {
 
         let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::new(MockSubagentLlm);
         let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(MockCallbacks);
-        manager.set_runtime(llm.clone(), callbacks.clone()).await;
+        manager
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
 
         let runtime = manager.runtime().await.expect("runtime injected");
         assert!(Arc::ptr_eq(&runtime.llm, &llm));
@@ -1971,6 +2021,7 @@ mod tests {
         > {
             Box::pin(async {
                 Ok(crate::rpc::types::ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
@@ -2171,7 +2222,9 @@ mod tests {
         let manager = Arc::new(SubagentManager::new());
         let llm = Arc::new(MockSubagentLlm);
         let callbacks = Arc::new(MockCallbacks);
-        manager.set_runtime(llm.clone(), callbacks.clone()).await;
+        manager
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
 
         let id = manager
             .spawn_persistent("research", "Researcher", llm.clone(), callbacks.clone())
@@ -2197,7 +2250,9 @@ mod tests {
         let manager1 = Arc::new(SubagentManager::with_store(store.clone()));
         let llm = Arc::new(MockSubagentLlm);
         let callbacks = Arc::new(MockCallbacks);
-        manager1.set_runtime(llm.clone(), callbacks.clone()).await;
+        manager1
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
 
         let agent_id = "subagent-cold-1";
         let initial_msgs = vec![
@@ -2215,7 +2270,9 @@ mod tests {
 
         // Now simulate a full restart: create a new SubagentManager with no in-memory state
         let manager2 = Arc::new(SubagentManager::with_store(store.clone()));
-        manager2.set_runtime(llm.clone(), callbacks.clone()).await;
+        manager2
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
 
         // In-memory histories are empty in manager2
         assert_eq!(
@@ -2257,6 +2314,84 @@ mod tests {
         let wait_res = runner.wait(&id, 2000).await;
         assert!(matches!(
             wait_res,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
+    }
+
+    #[test]
+    fn profile_policy_matches_mcp_tool_names_as_globs() {
+        // v2 `isToolActive`: MCP names match their patterns as globs, while
+        // built-ins match exactly. The built-in profiles whitelist `mcp__*`,
+        // so a server-qualified MCP tool must survive that pattern.
+        let filter = ToolPolicyFilter::from_allowlist(&["mcp__*".to_string()]);
+        assert!(filter.allows("mcp__github__search"));
+        assert!(filter.allows("mcp__acme__do_thing"));
+        assert!(!filter.allows("Read"));
+
+        let scoped = ToolPolicyFilter::from_allowlist(&["Read".into(), "mcp__github__*".into()]);
+        assert!(scoped.allows("read"), "built-ins match case-insensitively");
+        assert!(scoped.allows("mcp__github__search"));
+        assert!(!scoped.allows("mcp__slack__post"));
+
+        // A denylist keeps built-ins unless named, and globs MCP names.
+        let denied = ToolPolicyFilter::from_definition(&SubagentDefinition {
+            name: "n".into(),
+            description: "d".into(),
+            system_prompt: "s".into(),
+            tools: Vec::new(),
+            disallowed_tools: vec!["mcp__slack__*".into()],
+            prompt_prefix: None,
+            summary_policy: None,
+            model: None,
+        });
+        assert!(!denied.allows("mcp__slack__post"));
+        assert!(denied.allows("mcp__github__search"));
+        assert!(denied.allows("Write"));
+    }
+
+    #[tokio::test]
+    async fn background_task_events_attribute_to_the_runtime_session() {
+        let manager = Arc::new(SubagentManager::new());
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        manager.set_task_runner(runner.clone()).await;
+        type RecordedEvents = Arc<std::sync::Mutex<Vec<(Option<String>, serde_json::Value)>>>;
+        let events: RecordedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+
+        manager
+            .set_runtime(
+                Arc::new(MockSubagentLlm),
+                Arc::new(OkToolCallbacks),
+                Some("sess-runtime".into()),
+            )
+            .await;
+        let id = manager
+            .spawn_and_run(
+                "research",
+                "Researcher",
+                "investigate",
+                Arc::new(MockSubagentLlm),
+                Arc::new(OkToolCallbacks),
+            )
+            .await
+            .unwrap();
+
+        // The creation event lands on the runtime's session lane, carrying
+        // the subagent identity.
+        let first = events.lock().unwrap()[0].clone();
+        assert_eq!(first.0.as_deref(), Some("sess-runtime"));
+        assert_eq!(first.1["type"], "event.task.created");
+        assert_eq!(first.1["task"]["id"], id);
+        assert_eq!(first.1["task"]["kind"], "subagent");
+        assert_eq!(first.1["task"]["session_id"], "sess-runtime");
+
+        assert!(matches!(
+            runner.wait(&id, 2000).await,
             crate::storage::TaskWaitResult::Completed(_)
         ));
     }

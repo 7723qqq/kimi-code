@@ -26,8 +26,8 @@ use kimi_agent::{
         },
     },
     session::{
-        Admission, EngineSession, GoalProvider, QuiescenceGuard, SessionConfig, ToolDefsProvider,
-        TurnOutcome, TurnRequest,
+        Admission, EngineSession, GoalProvider, PrintBackgroundPolicy, QuiescenceGuard,
+        SessionConfig, ToolDefsProvider, TurnOutcome, TurnRequest,
     },
     subagent::{ParentCancel, SubagentManager},
     turn_loop::{
@@ -109,7 +109,12 @@ async fn main() -> anyhow::Result<()> {
 
         let acp_server = if let Some(native) = config.extract_native_llm(cli.model.as_deref()) {
             let workspace = std::env::current_dir()?;
-            let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default(&workspace);
+            let system_prompt =
+                kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
+                    &workspace,
+                    config.extra_skill_dirs_paths(),
+                );
+            let model_capabilities = native.capabilities.clone();
             let spec = PipelineSpec {
                 system_prompt,
                 model_name: native.model.clone(),
@@ -120,17 +125,27 @@ async fn main() -> anyhow::Result<()> {
                     api_key: native.api_key,
                     model: native.model,
                     max_tokens: native.max_tokens,
-                    custom_headers: Default::default(),
-                    reasoning_effort: None,
+                    custom_headers: native.custom_headers,
+                    // `thinking.effort` is a global choice (schema); a model
+                    // that encodes "thinking off" as an effort value gets
+                    // that value instead of an omitted field.
+                    reasoning_effort: config.resolve_effort(native.off_effort.as_deref()),
                     thinking_budget: None,
-                    auth_provider: None,
+                    auth_provider: native.auth_provider.clone(),
                     thinking_keep: config.resolve_thinking_keep(),
+                    beta_api: native.beta_api,
                 }),
                 workspace_root: Some(workspace.display().to_string()),
                 native_tools: true,
                 rust_self_contained: true,
-                shell_path: None,
-                policy_snapshot: None,
+                shell_path: Some(
+                    kimi_agent::native::shell::resolve_shell(config.shell.preference.as_deref())
+                        .program,
+                ),
+                // ACP is a product entry like `--serve`: the user's `[permission]`
+                // rules and `[hooks]` must apply, otherwise an editor-driven session
+                // silently runs unguarded.
+                policy_snapshot: Some(config.build_policy_snapshot(Some(workspace.clone()))),
                 session_id: None,
                 secondary_model: config
                     .extract_secondary_model_pool(cli.model.as_deref())
@@ -145,6 +160,11 @@ async fn main() -> anyhow::Result<()> {
                 subagent_timeout_ms: None,
                 agent_tool_veto: None,
                 tools_veto: None,
+                image_read_byte_budget: config.resolve_image_read_byte_budget(),
+                image_max_edge_px: config.resolve_image_max_edge_px(),
+                model_capabilities,
+                skill_dirs: config.extra_skill_dirs_paths(),
+                background: config.background_limits(),
             };
             let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
             let engine = Arc::new(with_standalone_limits(
@@ -383,6 +403,16 @@ async fn main() -> anyhow::Result<()> {
                     on_before_turn: None,
                     agent_cancel_slot: Some(agent_cancel_slot),
                     hook_guard: pipeline.hook_guard.clone(),
+                    // `[background]` print policy: the host passes it only for
+                    // print runs, so every other entry keeps the engine's
+                    // exit-on-turn-end default. The settle waits on this
+                    // pipeline's own task runner.
+                    print_background: PrintBackgroundPolicy::from_wire(
+                        input.print_background_mode.as_deref(),
+                        input.print_wait_ceiling_s,
+                        input.print_max_turns,
+                    ),
+                    task_runner: subagent_manager.get_task_runner_sync(),
                 })
                 .await;
 
@@ -827,11 +857,14 @@ async fn main() -> anyhow::Result<()> {
                         types::JsonRpcError::internal_error(format!("Invalid params: {e}"))
                     })?;
                 let entry = session_entry(&input.session_id)?;
-                let runner = entry.subagent_manager.get_task_runner_sync().ok_or_else(|| {
-                    types::JsonRpcError::internal_error(
-                        "no background task runner is active for this session".to_string(),
-                    )
-                })?;
+                let runner = entry
+                    .subagent_manager
+                    .get_task_runner_sync()
+                    .ok_or_else(|| {
+                        types::JsonRpcError::internal_error(
+                            "no background task runner is active for this session".to_string(),
+                        )
+                    })?;
                 let wire = runner
                     .stop(&input.task_id, input.reason.as_deref())
                     .await
@@ -929,6 +962,10 @@ async fn build_engine_pipeline(
     parent_cancel: Option<ParentCancel>,
     parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
 ) -> Result<(EnginePipeline, Arc<SubagentManager>), types::JsonRpcError> {
+    // `[subagent]`/`[background]` print defaults (docs config-files.md): an
+    // *unset* wall-clock timeout means "no timeout" in print mode — the
+    // settle phase waits for background work instead of the clock killing it.
+    let print_mode = params.print_background_mode.is_some();
     let spec = PipelineSpec {
         system_prompt: params.system_prompt.clone(),
         model_name: params.model_name.clone(),
@@ -949,7 +986,10 @@ async fn build_engine_pipeline(
         policy_snapshot: params.policy_snapshot.clone(),
         github_token: params.github_token.clone(),
         github_base_url: params.github_base_url.clone(),
-        subagent_timeout_ms: params.subagent_timeout_ms,
+        subagent_timeout_ms: kimi_agent::pipeline::print_timeout_default(
+            params.subagent_timeout_ms,
+            print_mode,
+        ),
         agent_tool_veto: params.agent_tool_veto.clone(),
         tools_veto: params.tools_veto.clone(),
         todo_tool_veto: params.todo_tool_veto.clone(),
@@ -959,6 +999,16 @@ async fn build_engine_pipeline(
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
         secondary_model: params.secondary_model.clone(),
+        image_read_byte_budget: params.image_read_byte_budget,
+        image_max_edge_px: params.image_max_edge_px,
+        model_capabilities: params.model_capabilities.clone(),
+        skill_dirs: Vec::new(),
+        background: kimi_agent::storage::BackgroundLimits::from_wire(
+            params.kill_grace_period_ms,
+            params.max_running_tasks.map(u64::from),
+            params.bash_auto_background_on_timeout,
+            kimi_agent::pipeline::print_timeout_default(params.bash_task_timeout_s, print_mode),
+        ),
     };
 
     // Subagent manager for the native `Agent` tool (P46): one per pipeline (the
@@ -971,7 +1021,11 @@ async fn build_engine_pipeline(
         .await;
     // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): the manager
     // carries it so the native `AgentSwarm` tool reads it at execution time.
-    subagent_manager.set_swarm_timeout_ms(params.swarm_timeout_ms);
+    // `0` = explicitly no timeout; unset defaults to that in print mode.
+    subagent_manager.set_swarm_timeout_ms(kimi_agent::pipeline::print_timeout_default(
+        params.swarm_timeout_ms,
+        print_mode,
+    ));
     // Host-resolved `[services.moonshot_*]` backends (v2 `configSection.ts`).
     // Always installed — including `None` — so a backend resolved for one
     // session never leaks into a later pipeline that resolves none.
@@ -1100,7 +1154,11 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     })?;
 
     let workspace = std::env::current_dir()?;
-    let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default(&workspace);
+    let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
+        &workspace,
+        config.extra_skill_dirs_paths(),
+    );
+    let model_capabilities = native.capabilities.clone();
     let spec = PipelineSpec {
         system_prompt,
         model_name: native.model.clone(),
@@ -1111,11 +1169,12 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             api_key: native.api_key,
             model: native.model,
             max_tokens: native.max_tokens,
-            custom_headers: Default::default(),
-            reasoning_effort: None,
+            custom_headers: native.custom_headers,
+            reasoning_effort: config.resolve_effort(native.off_effort.as_deref()),
             thinking_budget: None,
-            auth_provider: None,
+            auth_provider: native.auth_provider.clone(),
             thinking_keep: config.resolve_thinking_keep(),
+            beta_api: native.beta_api,
         }),
         workspace_root: Some(workspace.display().to_string()),
         native_tools: true,
@@ -1123,7 +1182,9 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         // host-proxy leg here means a misconfiguration fails at startup rather
         // than mid-turn.
         rust_self_contained: true,
-        shell_path: None,
+        shell_path: Some(
+            kimi_agent::native::shell::resolve_shell(config.shell.preference.as_deref()).program,
+        ),
         policy_snapshot: Some(config.build_policy_snapshot(Some(workspace.clone()))),
         github_token: config.github.token.clone(),
         github_base_url: config.github.base_url.clone(),
@@ -1139,6 +1200,11 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         secondary_model: config
             .extract_secondary_model_pool(cli.model.as_deref())
             .map_err(|error| anyhow::anyhow!("{error}"))?,
+        image_read_byte_budget: config.resolve_image_read_byte_budget(),
+        image_max_edge_px: config.resolve_image_max_edge_px(),
+        model_capabilities,
+        skill_dirs: config.extra_skill_dirs_paths(),
+        background: config.background_limits(),
     };
 
     std::fs::create_dir_all(&cli.data_dir)?;
@@ -1162,6 +1228,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         .with_config(config.clone())
         .with_config_write_path(source.clone());
 
+    // `[mcp_servers]` from config.toml: the REPL connects them at startup;
+    // the daemon must too, or one file behaves differently per entry point.
+    server.mcp_manager().spawn_from_config(&config).await;
+
     let web_assets_dir = cli.web_assets.clone().or_else(|| {
         let candidates = [
             std::path::PathBuf::from("dist-web"),
@@ -1180,7 +1250,28 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         false
     };
 
-    let handle = kimi_agent::server::http::serve(&address, Arc::new(server)).await?;
+    // `[model_catalog]`: refresh provider models once on start and/or on an
+    // interval, through the same path as the manual `providers:refresh` route.
+    let model_catalog = config.model_catalog.clone().unwrap_or_default();
+    let server = Arc::new(server);
+    if model_catalog.refresh_on_start.unwrap_or(false) {
+        server.refresh_models("all", None).await;
+    }
+    if let Some(interval_ms) = model_catalog.refresh_interval_ms.filter(|ms| *ms > 0) {
+        let refresher = server.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+            // `interval` fires immediately; consume that tick so the periodic
+            // refresh starts one full interval from now.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                refresher.refresh_models("all", None).await;
+            }
+        });
+    }
+    let shutdown = server.shutdown_token();
+    let handle = kimi_agent::server::http::serve(&address, server).await?;
     let credential = match &token_path {
         Some(path) => format!("bearer token {path:?}"),
         None => "no credential (--no-auth)".into(),
@@ -1191,10 +1282,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         handle.local_addr
     );
 
-    // Park forever. Ctrl-C terminates the process; there is no graceful drain
-    // of in-flight turns yet, and no signal handler is installed on purpose
-    // rather than pretending to have one.
-    std::future::pending::<()>().await;
+    // Serve until `POST /api/v1/shutdown` stops the accept loop, or Ctrl-C
+    // terminates the process directly (no signal handler on purpose). In-flight
+    // connections finish on their own; there is no graceful turn drain yet.
+    shutdown.cancelled().await;
     Ok(())
 }
 

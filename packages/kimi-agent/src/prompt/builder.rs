@@ -8,11 +8,10 @@ use std::path::{Path, PathBuf};
 use super::agents_md::load_agents_md;
 use super::environment::{collect_environment, generate_cwd_listing};
 use super::profiles::ProfileCatalog;
-use super::skills_renderer::generate_skills_section;
+use super::skills_renderer::generate_skills_section_with_extra;
 
 pub const DEFAULT_PRODUCT_NAME: &str = "Kimi Code CLI";
-pub const DEFAULT_REPLY_STYLE_GUIDE: &str =
-    "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
+pub const DEFAULT_REPLY_STYLE_GUIDE: &str = "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
 
 pub const SYSTEM_PROMPT_TEMPLATE: &str = include_str!("./system.md");
 
@@ -29,6 +28,9 @@ pub struct SystemPromptBuilder {
     custom_skills_section: Option<String>,
     plugin_sections: Option<String>,
     additional_dirs: Vec<PathBuf>,
+    /// Extra skill scan roots (`extra_skill_dirs`): the listed skills must
+    /// match what the `Skill` tool can load.
+    skill_dirs: Vec<PathBuf>,
 }
 
 impl SystemPromptBuilder {
@@ -45,7 +47,15 @@ impl SystemPromptBuilder {
             custom_skills_section: None,
             plugin_sections: None,
             additional_dirs: Vec::new(),
+            skill_dirs: Vec::new(),
         }
+    }
+
+    /// Extra skill scan roots (schema `extra_skill_dirs`).
+    #[must_use]
+    pub fn with_skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.skill_dirs = dirs;
+        self
     }
 
     pub fn with_product_name(mut self, name: impl Into<String>) -> Self {
@@ -93,6 +103,17 @@ impl SystemPromptBuilder {
         Self::new(workspace_root).build()
     }
 
+    /// [`Self::build_default`] with extra skill scan roots (schema
+    /// `extra_skill_dirs`).
+    pub fn build_default_with_skill_dirs(
+        workspace_root: impl AsRef<Path>,
+        skill_dirs: Vec<PathBuf>,
+    ) -> String {
+        Self::new(workspace_root)
+            .with_skill_dirs(skill_dirs)
+            .build()
+    }
+
     /// Build the full system prompt string.
     pub fn build(self) -> String {
         // 1. Environment
@@ -117,7 +138,7 @@ impl SystemPromptBuilder {
         let skills_section = if let Some(custom) = self.custom_skills_section {
             custom
         } else {
-            generate_skills_section(Some(&self.workspace_root))
+            generate_skills_section_with_extra(Some(&self.workspace_root), &self.skill_dirs)
         };
 
         // 5. Additional directories
@@ -168,7 +189,10 @@ impl SystemPromptBuilder {
             ("${runtime_notes}", ""),
             ("${cwd}", env.cwd.as_str()),
             ("${cwd_listing}", env.cwd_listing.as_str()),
-            ("${additional_dirs_section}", additional_dirs_section.as_str()),
+            (
+                "${additional_dirs_section}",
+                additional_dirs_section.as_str(),
+            ),
             ("${agents_md}", agents_md.as_str()),
             ("${skills_section}", skills_section.as_str()),
             ("${plugin_sections}", plugin_sections.as_str()),
@@ -206,7 +230,9 @@ mod tests {
         );
 
         // Core header and identity
-        assert!(prompt.starts_with("You are Kimi Code CLI, an interactive general AI agent running on a user's computer."));
+        assert!(prompt.starts_with(
+            "You are Kimi Code CLI, an interactive general AI agent running on a user's computer."
+        ));
 
         // All required top-level section headings in sequence
         let sections = [
@@ -221,14 +247,19 @@ mod tests {
         ];
         let mut last_idx = 0;
         for sec in sections {
-            let idx = prompt.find(sec).unwrap_or_else(|| panic!("missing section heading: {sec}"));
+            let idx = prompt
+                .find(sec)
+                .unwrap_or_else(|| panic!("missing section heading: {sec}"));
             assert!(idx >= last_idx, "section {} appeared out of order", sec);
             last_idx = idx;
         }
 
         // Environment disclosure interpolation
         let normalized_cwd = temp.path().display().to_string().replace('\\', "/");
-        assert!(prompt.contains(&format!("The current working directory is `{}`", normalized_cwd)));
+        assert!(prompt.contains(&format!(
+            "The current working directory is `{}`",
+            normalized_cwd
+        )));
         assert!(prompt.contains("```\n(empty directory)\n```"));
 
         // By default with no additional dirs or plugins, those sections are omitted
@@ -284,7 +315,9 @@ mod tests {
             .build();
 
         assert!(prompt.starts_with("You are Kimi Native Agent, an interactive general AI agent"));
-        assert!(prompt.contains("the Bash tool executes commands using **bash (`/custom/bin/bash`)**"));
+        assert!(
+            prompt.contains("the Bash tool executes commands using **bash (`/custom/bin/bash`)**")
+        );
     }
 
     #[test]

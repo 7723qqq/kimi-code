@@ -97,7 +97,8 @@ mod tests {
 
         // Non-text content without text field
         let raw_binary = json!({ "type": "image" });
-        let bin_content: McpContent = serde_json::from_value(raw_binary).expect("deserialization failed");
+        let bin_content: McpContent =
+            serde_json::from_value(raw_binary).expect("deserialization failed");
         assert_eq!(bin_content.content_type, "image");
         assert_eq!(bin_content.text, None);
     }
@@ -110,17 +111,22 @@ mod tests {
             ],
             "isError": false
         });
-        let result: McpToolCallResult = serde_json::from_value(raw).expect("deserialization failed");
+        let result: McpToolCallResult =
+            serde_json::from_value(raw).expect("deserialization failed");
         assert!(!result.is_error);
         assert_eq!(result.content.len(), 1);
         assert_eq!(result.content[0].content_type, "text");
-        assert_eq!(result.content[0].text.as_deref(), Some("Execution successful"));
+        assert_eq!(
+            result.content[0].text.as_deref(),
+            Some("Execution successful")
+        );
 
         // When isError is omitted, default to false per MCP spec
         let raw_default = json!({
             "content": []
         });
-        let default_res: McpToolCallResult = serde_json::from_value(raw_default).expect("default failed");
+        let default_res: McpToolCallResult =
+            serde_json::from_value(raw_default).expect("default failed");
         assert!(!default_res.is_error);
         assert!(default_res.content.is_empty());
 
@@ -131,7 +137,8 @@ mod tests {
             ],
             "isError": true
         });
-        let err_res: McpToolCallResult = serde_json::from_value(raw_err).expect("error result failed");
+        let err_res: McpToolCallResult =
+            serde_json::from_value(raw_err).expect("error result failed");
         assert!(err_res.is_error);
         assert_eq!(err_res.content[0].text.as_deref(), Some("File not found"));
 

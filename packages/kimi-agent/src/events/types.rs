@@ -119,12 +119,17 @@ pub enum EngineEvent {
         error: String,
     },
     #[serde(rename = "session.meta.updated")]
-    SessionMetaUpdated {
-        session_id: String,
-        meta: Value,
-    },
-    #[serde(rename = "event.config.updated")]
-    ConfigUpdated {
+    SessionMetaUpdated { session_id: String, meta: Value },
+    /// A config mutation the server applied (kap-server `ConfigChangedEvent`,
+    /// wire name `event.config.changed`). The payload spells
+    /// `changed_fields` — snake_case, what kimi-web's mapper reads; kap-server's
+    /// own zod schema says `changedFields`, so the two TS sides disagree and the
+    /// live consumer wins.
+    #[serde(rename = "event.config.changed")]
+    ConfigChanged {
+        /// The config sections the mutation touched (kap-server `changedFields`).
+        changed_fields: Vec<String>,
+        /// The effective config after the mutation (kap-server `ConfigResponse`).
         config: Value,
     },
     #[serde(rename = "subagent.spawned")]
@@ -134,15 +139,9 @@ pub enum EngineEvent {
         profile_name: String,
     },
     #[serde(rename = "subagent.completed")]
-    SubagentCompleted {
-        agent_id: String,
-        summary: String,
-    },
+    SubagentCompleted { agent_id: String, summary: String },
     #[serde(rename = "subagent.failed")]
-    SubagentFailed {
-        agent_id: String,
-        error: String,
-    },
+    SubagentFailed { agent_id: String, error: String },
     #[serde(untagged)]
     Custom(Value),
 }
@@ -175,7 +174,7 @@ impl EngineEvent {
             EngineEvent::ToolCallCompleted { .. } => "tool.call.completed",
             EngineEvent::ToolCallFailed { .. } => "tool.call.failed",
             EngineEvent::SessionMetaUpdated { .. } => "session.meta.updated",
-            EngineEvent::ConfigUpdated { .. } => "event.config.updated",
+            EngineEvent::ConfigChanged { .. } => "event.config.changed",
             EngineEvent::SubagentSpawned { .. } => "subagent.spawned",
             EngineEvent::SubagentCompleted { .. } => "subagent.completed",
             EngineEvent::SubagentFailed { .. } => "subagent.failed",

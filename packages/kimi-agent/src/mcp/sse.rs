@@ -119,9 +119,7 @@ impl McpSseTransport {
             // unexpected-close reason (v2 `onerror` terminal path,
             // client-sse.ts:175-190).
             let reason = match last_error {
-                Some(e) => format!(
-                    "MCP SSE connection to \"{base_url}\" closed unexpectedly: {e}"
-                ),
+                Some(e) => format!("MCP SSE connection to \"{base_url}\" closed unexpectedly: {e}"),
                 None => format!("MCP SSE connection to \"{base_url}\" closed unexpectedly"),
             };
             crate::mcp::client::fire_or_buffer_unexpected_close(
@@ -335,10 +333,10 @@ pub(crate) mod test_helpers {
 
                                         let mut content_len = 0;
                                         for line in headers_str.lines() {
-                                            if let Some((k, v)) = line.split_once(':') {
-                                                if k.trim().eq_ignore_ascii_case("content-length") {
-                                                    content_len = v.trim().parse::<usize>().unwrap_or(0);
-                                                }
+                                            if let Some((k, v)) = line.split_once(':')
+                                                && k.trim().eq_ignore_ascii_case("content-length")
+                                            {
+                                                content_len = v.trim().parse::<usize>().unwrap_or(0);
                                             }
                                         }
                                         let body_start = pos + 4;

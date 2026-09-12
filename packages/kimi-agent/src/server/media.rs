@@ -61,7 +61,10 @@ mod tests {
         // Documents and text
         assert_eq!(mime_for_path(Path::new("doc.pdf")), "application/pdf");
         assert_eq!(mime_for_path(Path::new("payload.json")), "application/json");
-        assert_eq!(mime_for_path(Path::new("notes.txt")), "text/plain; charset=utf-8");
+        assert_eq!(
+            mime_for_path(Path::new("notes.txt")),
+            "text/plain; charset=utf-8"
+        );
 
         // Case-insensitivity
         assert_eq!(mime_for_path(Path::new("IMAGE.PNG")), "image/png");
@@ -69,9 +72,18 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("DATA.JSON")), "application/json");
 
         // Edge cases: dots, dotfiles, no extension, unknown extension
-        assert_eq!(mime_for_path(Path::new("complex.name.with.dots.png")), "image/png");
-        assert_eq!(mime_for_path(Path::new(".gitignore")), "application/octet-stream");
-        assert_eq!(mime_for_path(Path::new("LICENSE")), "application/octet-stream");
+        assert_eq!(
+            mime_for_path(Path::new("complex.name.with.dots.png")),
+            "image/png"
+        );
+        assert_eq!(
+            mime_for_path(Path::new(".gitignore")),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            mime_for_path(Path::new("LICENSE")),
+            "application/octet-stream"
+        );
         assert_eq!(
             mime_for_path(Path::new("unknown.bin")),
             "application/octet-stream"

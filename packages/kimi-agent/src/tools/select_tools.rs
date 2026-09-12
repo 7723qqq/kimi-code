@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -83,6 +83,7 @@ pub fn execute_select_tools(
             .collect(),
         None => {
             return ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "Invalid arguments: 'names' array is required.".into(),
                 is_error: true,
@@ -93,6 +94,7 @@ pub fn execute_select_tools(
 
     if names.is_empty() {
         return ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: "Invalid arguments: 'names' must contain at least one tool name.".into(),
             is_error: true,
@@ -123,6 +125,7 @@ pub fn execute_select_tools(
 
     let is_error = result.to_load.is_empty() && result.already_available.is_empty();
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: lines.join("\n"),
         is_error,
@@ -143,7 +146,10 @@ pub fn render_loadable_tools_announcement(added: &[String], removed: &[String]) 
     }
     let mut sections = Vec::new();
     if !added.is_empty() {
-        sections.push(format!("<tools_added>\n{}\n</tools_added>", added.join("\n")));
+        sections.push(format!(
+            "<tools_added>\n{}\n</tools_added>",
+            added.join("\n")
+        ));
     }
     if !removed.is_empty() {
         sections.push(format!(
@@ -222,17 +228,26 @@ mod tests {
         // 3. Only unknown tools -> is_error true with exact guidance
         let res3 = execute_select_tools(&json!({ "names": ["bogus"] }), &available, &mut loaded);
         assert!(res3.is_error);
-        assert_eq!(res3.content, "Unknown tool: bogus. Pick from the latest announced tools list.");
+        assert_eq!(
+            res3.content,
+            "Unknown tool: bogus. Pick from the latest announced tools list."
+        );
 
         // 4. Empty names array -> is_error true
         let res_empty = execute_select_tools(&json!({ "names": [] }), &available, &mut loaded);
         assert!(res_empty.is_error);
-        assert_eq!(res_empty.content, "Invalid arguments: 'names' must contain at least one tool name.");
+        assert_eq!(
+            res_empty.content,
+            "Invalid arguments: 'names' must contain at least one tool name."
+        );
 
         // 5. Missing names field -> is_error true
         let res_missing = execute_select_tools(&json!({}), &available, &mut loaded);
         assert!(res_missing.is_error);
-        assert_eq!(res_missing.content, "Invalid arguments: 'names' array is required.");
+        assert_eq!(
+            res_missing.content,
+            "Invalid arguments: 'names' array is required."
+        );
 
         // 6. not_loaded_tool_output exact wording match
         assert_eq!(

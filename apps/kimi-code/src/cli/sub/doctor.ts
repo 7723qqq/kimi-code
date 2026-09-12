@@ -131,8 +131,8 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
     validateConfigToml:
       deps?.validateConfigToml ??
       (async (text, filePath) => {
-        const { validateConfigTomlV2 } = await import('../v2/validate-config');
-        return validateConfigTomlV2(text, filePath);
+        const { validateConfigToml } = await import('../validate-config');
+        return validateConfigToml(text, filePath);
       }),
     detectV2Warning: deps?.detectV2Warning ?? (() => undefined),
   };

@@ -9,13 +9,11 @@ use crate::turn_loop::types::{LLMMessage, ToolCall};
 
 /// Synthetic tool output placed into an inherited conversation for tool calls
 /// that were still executing on the parent agent when the fork was created.
-pub const INHERITED_IN_FLIGHT_TOOL_OUTPUT: &str =
-    "This tool call was still executing when this conversation snapshot was inherited \
+pub const INHERITED_IN_FLIGHT_TOOL_OUTPUT: &str = "This tool call was still executing when this conversation snapshot was inherited \
 from the source agent, so its result is not part of this context. The outcome is \
 unknown — do not assume it succeeded or failed, and do not wait for it.";
 
-pub const FORK_WITH_RESUME_UNAVAILABLE: &str =
-    "A non-empty resume cannot be combined with fork.";
+pub const FORK_WITH_RESUME_UNAVAILABLE: &str = "A non-empty resume cannot be combined with fork.";
 pub const FORK_WITH_TYPE_UNAVAILABLE: &str =
     "subagent_type must match the caller's profile when fork is enabled.";
 pub const FORK_WITH_MODEL_UNAVAILABLE: &str =
@@ -116,7 +114,10 @@ mod tests {
 
     #[test]
     fn test_empty_history() {
-        assert_eq!(close_trailing_open_tool_exchange(&[]), Vec::<LLMMessage>::new());
+        assert_eq!(
+            close_trailing_open_tool_exchange(&[]),
+            Vec::<LLMMessage>::new()
+        );
     }
 
     #[test]

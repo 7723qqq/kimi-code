@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const DEFAULT_OAUTH_HOST: &str = "https://auth.kimi.com";
 const KIMI_CLIENT_ID: &str = "17e5f671-d194-4dfb-9706-5516cb48c098";
@@ -429,10 +429,7 @@ impl OAuthManager {
                         &[
                             ("client_id", KIMI_CLIENT_ID),
                             ("device_code", device_code.as_str()),
-                            (
-                                "grant_type",
-                                "urn:ietf:params:oauth:grant-type:device_code",
-                            ),
+                            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                         ],
                     )
                     .await
@@ -443,10 +440,20 @@ impl OAuthManager {
                             match Self::token_from_response(&data) {
                                 Ok(token) => {
                                     manager.save_token(&provider_owned, &token);
-                                    manager.finish_flow(&provider_owned, generation, "success", None);
+                                    manager.finish_flow(
+                                        &provider_owned,
+                                        generation,
+                                        "success",
+                                        None,
+                                    );
                                 }
                                 Err(e) => {
-                                    manager.finish_flow(&provider_owned, generation, "error", Some(&e));
+                                    manager.finish_flow(
+                                        &provider_owned,
+                                        generation,
+                                        "error",
+                                        Some(&e),
+                                    );
                                 }
                             }
                             return;
@@ -528,7 +535,13 @@ impl OAuthManager {
             .map(|s| s.generation)
     }
 
-    fn finish_flow(&self, provider: &str, generation: u64, status: &str, error_message: Option<&str>) {
+    fn finish_flow(
+        &self,
+        provider: &str,
+        generation: u64,
+        status: &str,
+        error_message: Option<&str>,
+    ) {
         let mut flows = self.inner.flows.lock().unwrap();
         let Some(state) = flows.get_mut(provider) else {
             return;
@@ -636,10 +649,10 @@ impl OAuthManager {
     async fn managed_get(&self, provider: &str, path: &str) -> Value {
         let Some(token) = self.load_usable_token(provider) else {
             // No usable token: try a refresh path only if credentials exist.
-            if let Some(stored) = self.load_token(provider) {
-                if let Ok(refreshed) = self.refresh_token(provider, &stored).await {
-                    return self.managed_get_with(provider, path, &refreshed).await;
-                }
+            if let Some(stored) = self.load_token(provider)
+                && let Ok(refreshed) = self.refresh_token(provider, &stored).await
+            {
+                return self.managed_get_with(provider, path, &refreshed).await;
             }
             return json!({ "authenticated": false, "provider": provider });
         };
@@ -664,13 +677,16 @@ impl OAuthManager {
                     response = self
                         .client
                         .get(&url)
-                        .header("Authorization", format!("Bearer {}", refreshed.access_token))
+                        .header(
+                            "Authorization",
+                            format!("Bearer {}", refreshed.access_token),
+                        )
                         .header("Accept", "application/json")
                         .send()
                         .await;
                 }
                 Err(e) => {
-                    return json!({ "authenticated": false, "provider": provider, "error": e })
+                    return json!({ "authenticated": false, "provider": provider, "error": e });
                 }
             }
         }
@@ -685,7 +701,9 @@ impl OAuthManager {
                 "provider": provider,
                 "error": format!("Managed API request failed (HTTP {})", res.status().as_u16()),
             }),
-            Err(e) => json!({ "authenticated": true, "provider": provider, "error": e.to_string() }),
+            Err(e) => {
+                json!({ "authenticated": true, "provider": provider, "error": e.to_string() })
+            }
         }
     }
 
@@ -811,8 +829,7 @@ content-length: {}
     }
 
     fn temp_credentials_dir(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("kimi-oauth-test-{tag}-{}", fastrand::u32(..)));
+        let dir = std::env::temp_dir().join(format!("kimi-oauth-test-{tag}-{}", fastrand::u32(..)));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -850,7 +867,10 @@ content-length: {}
         // The poller runs at interval=1s: authorization_pending twice, then
         // the token lands on the third poll.
         let status = wait_for_terminal_status(&manager, "kimi").await;
-        assert_eq!(status, "success", "flow must reach success via real exchange");
+        assert_eq!(
+            status, "success",
+            "flow must reach success via real exchange"
+        );
 
         // Token persisted to the credentials file in storage.ts wire format.
         let body = std::fs::read_to_string(dir.join("kimi.json")).expect("credentials file");
@@ -885,7 +905,10 @@ content-length: {}
         manager.clone().start_login("kimi", None).await;
         let status = wait_for_terminal_status(&manager, "kimi").await;
         assert_eq!(status, "denied");
-        assert!(!dir.join("kimi.json").exists(), "no token may be stored on denial");
+        assert!(
+            !dir.join("kimi.json").exists(),
+            "no token may be stored on denial"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -85,9 +85,41 @@ pub struct AcpInitializeParams {
     #[serde(rename = "protocolVersion", default)]
     pub protocol_version: Option<u32>,
     #[serde(rename = "clientCapabilities", default)]
-    pub client_capabilities: Option<Value>,
+    pub client_capabilities: Option<AcpClientCapabilities>,
     #[serde(rename = "clientInfo", default)]
     pub client_info: Option<AcpClientInfo>,
+}
+
+/// `InitializeRequest.clientCapabilities` — what the client can do for the
+/// agent (mirror of the spec's `ClientCapabilities`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpClientCapabilities {
+    #[serde(default)]
+    pub fs: AcpFsCapabilities,
+    /// Whether the client hosts a PTY the agent may drive.
+    #[serde(default)]
+    pub terminal: bool,
+    /// Elicitation surfaces the client supports (form mode drives native
+    /// ask-user questions via `elicitation/create`).
+    #[serde(default)]
+    pub elicitation: AcpElicitationCapabilities,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpFsCapabilities {
+    #[serde(default)]
+    pub read_text_file: bool,
+    #[serde(default)]
+    pub write_text_file: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpElicitationCapabilities {
+    #[serde(default)]
+    pub form: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,15 +199,18 @@ mod tests {
     fn test_initialize_params_parse_camel_case() {
         let params: AcpInitializeParams = serde_json::from_value(serde_json::json!({
             "protocolVersion": 1,
-            "clientCapabilities": { "fs": { "readTextFile": true } },
+            "clientCapabilities": {
+                "fs": { "readTextFile": true, "writeTextFile": false },
+                "terminal": true,
+            },
             "clientInfo": { "name": "zed", "version": "1.0.0" }
         }))
         .expect("ACP params must parse");
         assert_eq!(params.protocol_version, Some(1));
-        assert_eq!(
-            params.client_capabilities.as_ref().unwrap()["fs"]["readTextFile"],
-            true
-        );
+        let capabilities = params.client_capabilities.as_ref().unwrap();
+        assert!(capabilities.fs.read_text_file);
+        assert!(!capabilities.fs.write_text_file);
+        assert!(capabilities.terminal);
         assert_eq!(params.client_info.as_ref().unwrap().name, "zed");
     }
 }

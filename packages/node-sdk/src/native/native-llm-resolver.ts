@@ -28,6 +28,12 @@ export interface JsNativeLlmConfig {
    * context-management edit on anthropic. Only carried while thinking is on.
    */
   thinkingKeep?: string;
+  /**
+   * Route an anthropic-protocol model through the beta Messages API
+   * (`[models.<alias>].betaApi`): the transport posts to
+   * `/v1/messages?beta=true` instead of the standard endpoint.
+   */
+  betaApi?: boolean;
 }
 
 export interface PolicySnapshotDto {
@@ -86,11 +92,18 @@ export function resolveNativeLlmForAlias(
   if (!providerName) return undefined;
 
   const provider = config.providers?.[providerName];
-  if (!provider || !provider.baseUrl) return undefined;
+  // A declared alias endpoint wins: gateway providers serve one alias over a
+  // different path than the provider default (`[models.<alias>].baseUrl`).
+  const rawBaseUrl = modelConfig?.baseUrl ?? provider?.baseUrl;
+  if (!provider || !rawBaseUrl) return undefined;
 
   const typeStr = String(provider.type ?? '');
+  // The alias declares its own wire protocol (`[models.<alias>].protocol`:
+  // "anthropic" | "openai_responses"); the provider type is the fallback, and
+  // everything else is Chat Completions.
   const protocol =
-    typeStr === 'anthropic'
+    modelConfig?.protocol ??
+    (typeStr === 'anthropic'
       ? 'anthropic'
       : typeStr === 'google' || typeStr === 'gemini' || typeStr === 'google-genai'
         ? 'google'
@@ -98,7 +111,7 @@ export function resolveNativeLlmForAlias(
           ? 'openai_responses'
           : typeStr === 'openai' || typeStr === 'kimi'
             ? 'openai'
-            : undefined;
+            : undefined);
   if (!protocol) return undefined;
 
   // Static key or OAuth-managed auth (managed logins write `oauth` with an
@@ -153,7 +166,7 @@ export function resolveNativeLlmForAlias(
 
   return {
     protocol,
-    baseUrl: normalizeBaseUrl(protocol, provider.baseUrl),
+    baseUrl: normalizeBaseUrl(protocol, rawBaseUrl),
     apiKey,
     model,
     maxTokens: modelConfig?.maxOutputSize ?? provider.maxTokens,
@@ -162,6 +175,7 @@ export function resolveNativeLlmForAlias(
     thinkingBudget,
     authProvider: hasOAuth ? providerName : undefined,
     thinkingKeep: resolveThinkingKeep(config),
+    betaApi: modelConfig?.betaApi === true ? true : undefined,
   };
 }
 
@@ -247,6 +261,7 @@ function nativeLlmWire(config: JsNativeLlmConfig): Record<string, unknown> {
     thinking_budget: config.thinkingBudget,
     auth_provider: config.authProvider,
     thinking_keep: config.thinkingKeep,
+    beta_api: config.betaApi ?? false,
   };
 }
 
@@ -357,6 +372,11 @@ function nonNegativeInt(value: string | undefined): number | undefined {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+/** A config number that must be an integer ≥ `min` (otherwise `undefined`). */
+function integerAtLeast(value: number | undefined, min: number): number | undefined {
+  return value !== undefined && Number.isInteger(value) && value >= min ? value : undefined;
+}
+
 /** Per-subagent (`Agent`) timeout in ms; `0` = no timeout. */
 export function resolveSubagentTimeoutMs(config: {
   subagent?: { timeoutMs?: number };
@@ -424,6 +444,150 @@ export function resolveImageReadByteBudget(config: {
   image?: { readByteBudget?: number };
 }): number | undefined {
   return positiveInt(process.env['KIMI_IMAGE_READ_BYTE_BUDGET']) ?? config.image?.readByteBudget;
+}
+
+/** Longest-edge ceiling (px) for model-initiated image reads (env > config). */
+export function resolveImageMaxEdgePx(config: {
+  image?: { maxEdgePx?: number };
+}): number | undefined {
+  return positiveInt(process.env['KIMI_IMAGE_MAX_EDGE_PX']) ?? config.image?.maxEdgePx;
+}
+
+/** `[image]` limits for model-initiated reads, ready for the engine params. */
+export function resolveImageLimits(config: {
+  image?: { readByteBudget?: number; maxEdgePx?: number };
+}): { readByteBudget?: number; maxEdgePx?: number } | undefined {
+  const readByteBudget = resolveImageReadByteBudget(config);
+  const maxEdgePx = resolveImageMaxEdgePx(config);
+  if (readByteBudget === undefined && maxEdgePx === undefined) return undefined;
+  return { readByteBudget, maxEdgePx };
+}
+
+/** `[background]` knobs the Rust engine applies to its task runner + Bash tool. */
+export interface BackgroundLimits {
+  /** `[background].kill_grace_period_ms`: cooperative-stop grace. */
+  readonly killGracePeriodMs?: number;
+  /** `[background].max_running_tasks`: concurrent-task cap. */
+  readonly maxRunningTasks?: number;
+  /** `[background].bash_auto_background_on_timeout`. */
+  readonly bashAutoBackgroundOnTimeout?: boolean;
+  /** `[background].bash_task_timeout_s`; `0` means "no timeout". */
+  readonly bashTaskTimeoutS?: number;
+}
+
+/**
+ * `[background]` limits for the engine session params (the engine applies them
+ * to the task runner it builds). The concurrency cap honors
+ * `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` (env > config, matching the
+ * Rust-side `KimiConfig::resolve_background_max_running_tasks`); the rest pass
+ * through. A non-positive grace period or cap is not meaningful and resolves to
+ * `undefined` (engine default), while `bashTaskTimeoutS = 0` is kept — it means
+ * "no timeout", not "unset".
+ */
+export function resolveBackgroundLimits(config: {
+  background?: {
+    killGracePeriodMs?: number;
+    maxRunningTasks?: number;
+    bashAutoBackgroundOnTimeout?: boolean;
+    bashTaskTimeoutS?: number;
+  };
+}): BackgroundLimits | undefined {
+  const section = config.background;
+  const killGracePeriodMs = integerAtLeast(section?.killGracePeriodMs, 1);
+  const envCap = nonNegativeInt(process.env['KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS']);
+  const maxRunningTasks =
+    (envCap !== undefined && envCap > 0 ? envCap : undefined) ??
+    integerAtLeast(section?.maxRunningTasks, 1);
+  const bashTaskTimeoutS = integerAtLeast(section?.bashTaskTimeoutS, 0);
+  const bashAutoBackgroundOnTimeout = section?.bashAutoBackgroundOnTimeout;
+  if (
+    killGracePeriodMs === undefined &&
+    maxRunningTasks === undefined &&
+    bashTaskTimeoutS === undefined &&
+    bashAutoBackgroundOnTimeout === undefined
+  ) {
+    return undefined;
+  }
+  return { killGracePeriodMs, maxRunningTasks, bashAutoBackgroundOnTimeout, bashTaskTimeoutS };
+}
+
+/** `[background]` print knobs the engine settles a `kimi -p` session with. */
+export interface PrintBackgroundSettings {
+  /** `[background].print_background_mode`; the engine owns what it means. */
+  readonly mode: string;
+  /** `[background].print_wait_ceiling_s`: bound on the engine's settle wait. */
+  readonly ceilingS: number;
+  /** `[background].print_max_turns`: cap on the engine's steer turns. */
+  readonly maxTurns: number;
+}
+
+/**
+ * The documented `print_background_mode` values. The engine owns how each one
+ * behaves (`PrintBackgroundMode` in `kimi-agent/src/session/mod.rs`); the host
+ * only picks which one to hand over, so an unknown value degrades to the
+ * documented default rather than failing the run.
+ */
+const PRINT_BACKGROUND_MODES = ['exit', 'drain', 'steer'] as const;
+
+/** Documented default of `[background].print_wait_ceiling_s` (~24.8 days). */
+export const PRINT_WAIT_CEILING_S_DEFAULT = 2_147_483;
+
+/** Documented default of `[background].print_max_turns`. */
+export const PRINT_MAX_TURNS_DEFAULT = 100_000;
+
+/** Truthiness table of `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` (env-vars.md). */
+function envFlag(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return undefined;
+}
+
+/**
+ * `[background]` print knobs for the engine session params.
+ *
+ * The host resolves only *which* values apply — the engine owns what they do:
+ * it holds the turn receipt while the session's background tasks are still
+ * running (`settle_print_background`), so no host-side wait loop exists.
+ * Precedence (config-files.md § background): an explicit `print_background_mode`
+ * wins; otherwise `keep_alive_on_exit` — the env var first, then the config
+ * field — maps a truthy value to `"drain"`; anything else keeps the documented
+ * default `"steer"`, including an explicit `keep_alive_on_exit = false`, which
+ * is the field's own default and so cannot mean "exit".
+ */
+export function resolvePrintBackground(config: {
+  background?: {
+    printBackgroundMode?: string;
+    printWaitCeilingS?: number;
+    printMaxTurns?: number;
+    keepAliveOnExit?: boolean;
+  };
+}): PrintBackgroundSettings {
+  const section = config.background;
+  const declared = PRINT_BACKGROUND_MODES.find((mode) => mode === section?.printBackgroundMode);
+  const keepAlive =
+    envFlag(process.env['KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT']) ?? section?.keepAliveOnExit;
+  return {
+    mode: declared ?? (keepAlive === true ? 'drain' : 'steer'),
+    ceilingS: integerAtLeast(section?.printWaitCeilingS, 1) ?? PRINT_WAIT_CEILING_S_DEFAULT,
+    maxTurns: integerAtLeast(section?.printMaxTurns, 1) ?? PRINT_MAX_TURNS_DEFAULT,
+  };
+}
+
+/**
+ * The declared capabilities of one `[models]` alias (default: the config's
+ * default model). `undefined` means the file declares none — the engine
+ * treats the model as unknown and allows image reads.
+ */
+export function resolveModelCapabilities(
+  config: KimiConfig,
+  alias?: string,
+): string[] | undefined {
+  const key = alias ?? config.defaultModel;
+  if (key === undefined) return undefined;
+  const capabilities = config.models?.[key]?.capabilities;
+  return capabilities !== undefined && capabilities.length > 0 ? [...capabilities] : undefined;
 }
 
 /** One `[services.moonshot_*]` entry (base URL + credential + extra headers). */

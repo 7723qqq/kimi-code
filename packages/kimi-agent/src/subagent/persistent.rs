@@ -1,12 +1,10 @@
 //! 常驻多智能体生命周期与 Team 轮次协商编排器。
 
+use crate::native::event_store::{EventStore, RawWireEvent};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use std::time::Duration;
-#[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-use crate::native::event_store::{EventStore, RawWireEvent};
 
 /// 子代理初始化配置
 #[derive(Debug, Clone)]
@@ -26,8 +24,14 @@ pub struct SubagentHandle {
 
 impl SubagentHandle {
     /// 向常驻子代理发送驱动消息
-    pub async fn send_message(&self, message: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.tx.send(message.to_string()).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+    pub async fn send_message(
+        &self,
+        message: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.tx
+            .send(message.to_string())
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         Ok(())
     }
 
@@ -109,7 +113,7 @@ impl PersistentSubagentManager {
         &self,
         agents: &[SubagentHandle],
         initial_prompt: &str,
-        rounds: usize
+        rounds: usize,
     ) -> Vec<String> {
         let mut transcript = Vec::new();
         let mut current_input = initial_prompt.to_string();
@@ -118,7 +122,9 @@ impl PersistentSubagentManager {
             for agent in agents {
                 if agent.send_message(&current_input).await.is_ok() {
                     let poll_future = agent.poll_response();
-                    if let Ok(Some(reply)) = tokio::time::timeout(Duration::from_secs(15), poll_future).await {
+                    if let Ok(Some(reply)) =
+                        tokio::time::timeout(Duration::from_secs(15), poll_future).await
+                    {
                         current_input = reply.clone();
                         transcript.push(format!("{}: {}", agent.id, reply));
                     } else {
@@ -151,11 +157,17 @@ impl PersistentSubagentManager {
                 let prompt = format!("[Stage: {:?}] Current context: {}", stage, current_context);
                 if agent.send_message(&prompt).await.is_ok() {
                     let poll_future = agent.poll_response();
-                    if let Ok(Some(reply)) = tokio::time::timeout(Duration::from_secs(15), poll_future).await {
+                    if let Ok(Some(reply)) =
+                        tokio::time::timeout(Duration::from_secs(15), poll_future).await
+                    {
                         current_context = reply.clone();
                         debate_log.push((stage, agent.id.clone(), reply));
                     } else {
-                        debate_log.push((stage, agent.id.clone(), "[Timeout waiting for argument]".into()));
+                        debate_log.push((
+                            stage,
+                            agent.id.clone(),
+                            "[Timeout waiting for argument]".into(),
+                        ));
                     }
                 }
             }
@@ -169,7 +181,11 @@ impl PersistentSubagentManager {
         &self,
         agents: &[SubagentHandle],
         topic: &str,
-    ) -> (Vec<(DebateStage, String, String)>, ConsensusEvaluation, Vec<AgentMention>) {
+    ) -> (
+        Vec<(DebateStage, String, String)>,
+        ConsensusEvaluation,
+        Vec<AgentMention>,
+    ) {
         let logs = self.run_structured_debate(agents, topic).await;
         let mentions = extract_cross_references(&logs);
         let evaluation = evaluate_consensus(&logs);
@@ -228,11 +244,18 @@ impl PersistentSubagentManager {
 
                 if agent.send_message(&prompt).await.is_ok() {
                     let poll_future = agent.poll_response();
-                    if let Ok(Some(reply)) = tokio::time::timeout(Duration::from_secs(15), poll_future).await {
-                        transcript_so_far.push_str(&format!("\n[{:?}] {}: {}", stage, agent.id, reply));
+                    if let Ok(Some(reply)) =
+                        tokio::time::timeout(Duration::from_secs(15), poll_future).await
+                    {
+                        transcript_so_far
+                            .push_str(&format!("\n[{:?}] {}: {}", stage, agent.id, reply));
                         debate_log.push((stage, agent.id.clone(), reply));
                     } else {
-                        debate_log.push((stage, agent.id.clone(), "[Timeout waiting for argument]".into()));
+                        debate_log.push((
+                            stage,
+                            agent.id.clone(),
+                            "[Timeout waiting for argument]".into(),
+                        ));
                     }
                 }
             }
@@ -247,8 +270,14 @@ impl PersistentSubagentManager {
         agents: &[SubagentHandle],
         participants: &[DebateParticipant],
         topic: &str,
-    ) -> (Vec<(DebateStage, String, String)>, ConsensusEvaluation, Vec<AgentMention>) {
-        let logs = self.run_structured_debate_with_roles(agents, participants, topic).await;
+    ) -> (
+        Vec<(DebateStage, String, String)>,
+        ConsensusEvaluation,
+        Vec<AgentMention>,
+    ) {
+        let logs = self
+            .run_structured_debate_with_roles(agents, participants, topic)
+            .await;
         let mentions = extract_cross_references(&logs);
         let evaluation = evaluate_consensus(&logs);
         (logs, evaluation, mentions)
@@ -297,9 +326,7 @@ pub struct AgentMention {
 }
 
 /// 从辩论发言记录中提取跨智能体提及与引用
-pub fn extract_cross_references(
-    entries: &[(DebateStage, String, String)],
-) -> Vec<AgentMention> {
+pub fn extract_cross_references(entries: &[(DebateStage, String, String)]) -> Vec<AgentMention> {
     let mut mentions = Vec::new();
     let mut known_agents = std::collections::BTreeSet::new();
     for (_, agent, _) in entries {
@@ -337,9 +364,7 @@ pub fn extract_cross_references(
 }
 
 /// 评估辩论各阶段（重点为 Consensus 阶段）的共识度并提取结论
-pub fn evaluate_consensus(
-    entries: &[(DebateStage, String, String)],
-) -> ConsensusEvaluation {
+pub fn evaluate_consensus(entries: &[(DebateStage, String, String)]) -> ConsensusEvaluation {
     let consensus_entries: Vec<&(DebateStage, String, String)> = entries
         .iter()
         .filter(|(stage, _, _)| *stage == DebateStage::Consensus)
@@ -357,12 +382,35 @@ pub fn evaluate_consensus(
     let mut unresolved_conflicts = Vec::new();
 
     let agree_keywords = [
-        "agree", "concur", "consensus", "aligned", "common ground", "both", "accept",
-        "赞同", "达成共识", "一致认为", "认可", "共同", "同意",
+        "agree",
+        "concur",
+        "consensus",
+        "aligned",
+        "common ground",
+        "both",
+        "accept",
+        "赞同",
+        "达成共识",
+        "一致认为",
+        "认可",
+        "共同",
+        "同意",
     ];
     let conflict_keywords = [
-        "disagree", "differ", "conflict", "diverge", "however", "oppose", "objection",
-        "分歧", "不同意", "反对", "异议", "争论", "争议", "矛盾",
+        "disagree",
+        "differ",
+        "conflict",
+        "diverge",
+        "however",
+        "oppose",
+        "objection",
+        "分歧",
+        "不同意",
+        "反对",
+        "异议",
+        "争论",
+        "争议",
+        "矛盾",
     ];
 
     for (_, agent, text) in &target_entries {
@@ -435,7 +483,9 @@ mod tests {
             max_turns: 5,
         });
 
-        let transcript = manager.run_team_round_robin(&[a1, a2], "Start debate", 1).await;
+        let transcript = manager
+            .run_team_round_robin(&[a1, a2], "Start debate", 1)
+            .await;
         assert_eq!(transcript.len(), 2);
         assert!(transcript[0].starts_with("agent_alpha:"));
         assert!(transcript[1].starts_with("agent_beta:"));
@@ -458,7 +508,9 @@ mod tests {
             max_turns: 10,
         });
 
-        let logs = manager.run_structured_debate(&[d1, d2], "Rust vs TypeScript").await;
+        let logs = manager
+            .run_structured_debate(&[d1, d2], "Rust vs TypeScript")
+            .await;
         // 4个阶段 × 2个辩手 = 8条记录
         assert_eq!(logs.len(), 8);
         assert_eq!(logs[0].0, DebateStage::Opening);
@@ -513,15 +565,31 @@ mod tests {
         assert_eq!(logs[6].0, DebateStage::Consensus);
         assert!(eval.score >= 0.0);
         assert_eq!(mentions.len(), 6);
-        assert!(mentions.iter().any(|m| m.source_agent == "security" && m.target_agent == "architect"));
+        assert!(
+            mentions
+                .iter()
+                .any(|m| m.source_agent == "security" && m.target_agent == "architect")
+        );
     }
 
     #[test]
     fn test_extract_cross_references() {
         let entries = vec![
-            (DebateStage::Opening, "pro".into(), "I believe Rust is better".into()),
-            (DebateStage::FreeDebate, "con".into(), "Responding to @pro, I disagree strongly".into()),
-            (DebateStage::Closing, "pro".into(), "As mentioned by agent con, there are trade-offs".into()),
+            (
+                DebateStage::Opening,
+                "pro".into(),
+                "I believe Rust is better".into(),
+            ),
+            (
+                DebateStage::FreeDebate,
+                "con".into(),
+                "Responding to @pro, I disagree strongly".into(),
+            ),
+            (
+                DebateStage::Closing,
+                "pro".into(),
+                "As mentioned by agent con, there are trade-offs".into(),
+            ),
         ];
 
         let mentions = extract_cross_references(&entries);
@@ -545,7 +613,8 @@ mod tests {
         assert_eq!(eval.consensus_points.len(), 2);
         assert_eq!(eval.unresolved_conflicts.len(), 1);
 
-        let serialized = serde_json::to_string(&eval).expect("should serialize ConsensusEvaluation");
+        let serialized =
+            serde_json::to_string(&eval).expect("should serialize ConsensusEvaluation");
         assert!(serialized.contains("reached_consensus"));
     }
 }

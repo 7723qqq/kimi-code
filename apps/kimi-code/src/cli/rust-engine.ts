@@ -24,6 +24,10 @@ import {
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
   resolveThinkingKeep,
+  resolveImageLimits,
+  resolveModelCapabilities,
+  resolveBackgroundLimits,
+  resolvePrintBackground,
   resolveWebFetchService,
   resolveWebSearchService,
 } from '@moonshot-ai/kimi-code-sdk';
@@ -61,6 +65,8 @@ interface NativeLlmDef {
   auth_provider?: string;
   /** Moonshot preserved-thinking passthrough (`thinking.keep`). */
   thinking_keep?: string;
+  /** Route an anthropic-protocol model through the beta Messages API (`[models.<alias>].betaApi`). */
+  beta_api?: boolean;
 }
 
 /** A native-transport candidate: either a usable definition, or why it is not. */
@@ -211,6 +217,9 @@ function tryResolveNativeLlm(
     defaultEffort?: string;
     reasoningEffort?: string;
     maxTokens?: number;
+    protocol?: 'anthropic' | 'openai_responses';
+    baseUrl?: string;
+    betaApi?: boolean;
   },
 ): NativeLlmResolution {
   const provider = config.providers?.[providerName];
@@ -218,16 +227,21 @@ function tryResolveNativeLlm(
     return { reason: `provider "${providerName}" is not configured` };
   }
 
+  // The alias declares its own wire protocol (`[models.<alias>].protocol`:
+  // "anthropic" | "openai_responses"); the provider type is the fallback.
   const protocol =
-    provider.type === 'anthropic'
+    modelAliasConfig?.protocol ??
+    (provider.type === 'anthropic'
       ? 'anthropic'
-      : provider.type === 'google' || provider.type === 'gemini' || provider.type === 'google-genai'
+      : provider.type === 'google' ||
+          provider.type === 'gemini' ||
+          provider.type === 'google-genai'
         ? 'google'
         : provider.type === 'openai_responses' || provider.type === 'openai-responses'
           ? 'openai_responses'
           : provider.type === 'openai' || provider.type === 'kimi'
             ? 'openai'
-            : undefined;
+            : undefined);
   if (protocol === undefined) {
     return {
       reason: `provider "${providerName}" type "${provider.type ?? 'unknown'}" has no native transport`,
@@ -243,8 +257,12 @@ function tryResolveNativeLlm(
   }
   // OAuth-managed logins (managed Kimi) write the endpoint into the config;
   // a provider without either URL has no resolvable endpoint (e.g. Google
-  // OAuth, whose endpoint lives inside the GenAI SDK client).
-  if (!provider.baseUrl) {
+  // OAuth, whose endpoint lives inside the GenAI SDK client). A declared
+  // alias endpoint wins over the provider default
+  // (`[models.<alias>].baseUrl`): gateway providers serve one alias over a
+  // different path than the provider default.
+  const rawBaseUrl = modelAliasConfig?.baseUrl ?? provider.baseUrl;
+  if (!rawBaseUrl) {
     return {
       reason: `provider "${providerName}" has no baseUrl for the native transport`,
     };
@@ -302,7 +320,7 @@ function tryResolveNativeLlm(
   return {
     def: {
       protocol,
-      base_url: normalizeBaseUrl(protocol, provider.baseUrl),
+      base_url: normalizeBaseUrl(protocol, rawBaseUrl),
       api_key: staticKey,
       model,
       max_tokens: modelAliasConfig?.maxTokens ?? provider.maxTokens,
@@ -312,6 +330,8 @@ function tryResolveNativeLlm(
       auth_provider: hasOAuth ? providerName : undefined,
       // `[thinking] keep` is only injected while thinking is on (env-vars.md).
       thinking_keep: isThinkingDisabled ? undefined : resolveThinkingKeep(config),
+      // `[models.<alias>].betaApi`: only the anthropic transport consults it.
+      beta_api: modelAliasConfig?.betaApi === true ? true : undefined,
     },
   };
 }
@@ -409,6 +429,8 @@ async function resolveRustEngine(
   // An unreadable config cannot express an engine preference, so the gate
   // treats it as unset — and unset means the rust engine (below).
   const agentConfig = loaded.fileError === undefined ? loaded.config.agent : undefined;
+  const shellPreference =
+    loaded.fileError === undefined ? loaded.config.shell?.preference : undefined;
 
   // Engine gate — rust-only, no opt-out during the migration:
   // - agent.engine = "js"    → ignored (warned): the TS engine stays disabled.
@@ -451,6 +473,15 @@ async function resolveRustEngine(
     const envShell = process.env['KIMI_SHELL_PATH'];
     if (envShell !== undefined && envShell.length > 0) {
       shellPath = envShell;
+    } else if (
+      process.platform === 'win32' &&
+      (shellPreference === 'pwsh' ||
+        shellPreference === 'powershell' ||
+        shellPreference === 'cmd')
+    ) {
+      // `[shell].preference` pins a Windows shell; the Rust engine derives
+      // the command prefix from the executable's basename.
+      shellPath = `${shellPreference}.exe`;
     } else {
       const fsPromises = await import('node:fs/promises');
       if (process.platform === 'win32') {
@@ -559,6 +590,26 @@ async function resolveRustEngine(
       const webFetch = resolveWebFetchService(reloaded.config);
       if (webSearch === undefined && webFetch === undefined) return undefined;
       return { webSearch, webFetch };
+    },
+    getImageLimits: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveImageLimits(reloaded.config);
+    },
+    getBackgroundLimits: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      // `[background]` rides to the engine in one bundle: the task-runner
+      // knobs plus the print-mode settle policy the engine applies itself.
+      return {
+        ...resolveBackgroundLimits(reloaded.config),
+        ...resolvePrintBackground(reloaded.config),
+      };
+    },
+    getModelCapabilities: () => {
+      const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+      if (reloaded.fileError !== undefined) return undefined;
+      return resolveModelCapabilities(reloaded.config);
     },
     authToken: (request) => {
       const provider = authTokenFacade().resolveOAuthTokenProvider(request.provider);

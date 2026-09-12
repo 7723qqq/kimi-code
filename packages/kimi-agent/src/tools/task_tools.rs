@@ -603,13 +603,7 @@ Guidelines:
     }
 }
 
-/// Engine tool definition for TaskWait, mirroring v2 `WaitForTool` and
-/// `WaitForInputSchema` (with `task_id` required — the wire wait action
-/// always targets one task).
-pub fn task_wait_tool_def() -> crate::turn_loop::types::ToolInfo {
-    crate::turn_loop::types::ToolInfo {
-        name: "TaskWait".into(),
-        description: r#"Wait for background tasks to finish without ending the current turn.
+const TASK_WAIT_DESCRIPTION: &str = r#"Wait for background tasks to finish without ending the current turn.
 
 Use this when your next step depends on the result of a running background task (a sub-agent, a background bash command, or a background AskUserQuestion). The call suspends inside the current turn until the task finishes or the timeout elapses, then returns the outcome so you can keep working in the same turn. While waiting, no LLM requests are made.
 
@@ -621,8 +615,15 @@ Guidelines:
 - With `task_id`, the wait ends when that task finishes. An unknown `task_id` is an error; a task that has already finished returns immediately.
 - Waiting has no side effects on the waited tasks: TaskWait never stops a task, and interrupting the wait (for example, a user interruption) leaves every task running.
 - A finished task's result is delivered exactly once: tasks reported by TaskWait do not also produce an automatic completion notification.
-- You can only wait for background tasks started by this agent; task IDs belonging to other agents are unknown here."#
-            .into(),
+- You can only wait for background tasks started by this agent; task IDs belonging to other agents are unknown here."#;
+
+/// The `WaitFor` / `TaskWait` definition body, parameterized by the advertised
+/// name so the product tool (`WaitFor`, v2 `WaitForTool`) and the REPL-only
+/// `TaskWait` alias stay byte-identical apart from their own name.
+fn task_wait_def(name: &str) -> crate::turn_loop::types::ToolInfo {
+    crate::turn_loop::types::ToolInfo {
+        name: name.into(),
+        description: TASK_WAIT_DESCRIPTION.replace("TaskWait", name),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -643,8 +644,20 @@ Guidelines:
     }
 }
 
+/// Product-facing `WaitFor` tool definition (the main session tool table).
+pub fn wait_for_tool_def() -> crate::turn_loop::types::ToolInfo {
+    task_wait_def("WaitFor")
+}
+
+/// REPL-only `TaskWait` definition (kept distinct so the tool-name contract's
+/// `replOnlyNative` classification stays accurate).
+pub fn task_wait_tool_def() -> crate::turn_loop::types::ToolInfo {
+    task_wait_def("TaskWait")
+}
+
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -654,6 +667,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,

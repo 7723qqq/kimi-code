@@ -1054,7 +1054,7 @@ mod tests {
         tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // tag: Orientation
         tiff.extend_from_slice(&3u16.to_le_bytes()); // type: SHORT
         tiff.extend_from_slice(&1u32.to_le_bytes()); // count
-                                                     // SHORT value in the low 2 bytes of the 4-byte value field.
+        // SHORT value in the low 2 bytes of the 4-byte value field.
         tiff.extend_from_slice(&orientation.to_le_bytes());
         tiff.extend_from_slice(&[0u8, 0u8]); // pad to 4 bytes
         tiff.extend_from_slice(&0u32.to_le_bytes()); // next IFD offset (none)

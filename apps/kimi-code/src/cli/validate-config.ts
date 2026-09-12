@@ -1,21 +1,20 @@
 /**
- * V2 config.toml validation for `kimi doctor`.
- * Decoupled from agent-core-v2.
+ * config.toml validation for `kimi doctor`.
  */
 
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-export interface V2ConfigValidationIssue {
+export interface ConfigValidationIssue {
   readonly path: readonly (string | number)[];
   readonly message: string;
 }
 
-export class V2ConfigValidationError extends Error {
-  readonly details: { readonly validationIssues: readonly V2ConfigValidationIssue[] };
+export class ConfigValidationError extends Error {
+  readonly details: { readonly validationIssues: readonly ConfigValidationIssue[] };
 
-  constructor(issues: readonly V2ConfigValidationIssue[]) {
-    super('v2 config validation failed');
+  constructor(issues: readonly ConfigValidationIssue[]) {
+    super('config validation failed');
     this.details = { validationIssues: issues };
   }
 }
@@ -57,7 +56,7 @@ const modelSchema = z.object({
   protocol: z.string().optional(),
 }).passthrough();
 
-export function validateConfigTomlV2(
+export function validateConfigToml(
   text: string,
   filePath: string,
   getEnv: (name: string) => string | undefined = (name) => process.env[name],
@@ -75,7 +74,7 @@ export function validateConfigTomlV2(
     }
   }
 
-  const issues: V2ConfigValidationIssue[] = [];
+  const issues: ConfigValidationIssue[] = [];
   const unknownKeys: string[] = [];
 
   for (const [key, value] of Object.entries(data)) {
@@ -104,7 +103,7 @@ export function validateConfigTomlV2(
   }
 
   if (issues.length > 0) {
-    throw new V2ConfigValidationError(issues);
+    throw new ConfigValidationError(issues);
   }
 
   const warnings: string[] = [];
@@ -131,7 +130,7 @@ export function validateConfigTomlV2(
 
   if (unknownKeys.length > 0) {
     warnings.push(
-      `Unknown top-level ${unknownKeys.length === 1 ? 'key' : 'keys'} ignored by the v2 engine: ${unknownKeys.join(', ')}.`,
+      `Unknown top-level ${unknownKeys.length === 1 ? 'key' : 'keys'} ignored by the engine: ${unknownKeys.join(', ')}.`,
     );
   }
 

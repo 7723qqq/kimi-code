@@ -13,9 +13,17 @@ use std::time::Duration;
 use eventsource_stream::Eventsource as EvensourceExt;
 use futures_util::StreamExt;
 use reqwest::header::{
-    HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT,
+    AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT,
 };
 use serde_json::Value;
+
+/// Shared HTTP client: one connection pool and TLS session cache across every
+/// LLM stream request. The per-request deadline rides on the request builder.
+static HTTP_CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
+    reqwest::Client::builder()
+        .build()
+        .expect("build shared HTTP client")
+});
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,13 +141,9 @@ pub async fn run_llm_stream_with(
     }
 
     // Make the HTTP request
-    let client = reqwest::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
-
-    let response = client
+    let response = HTTP_CLIENT
         .post(&config.url)
+        .timeout(timeout)
         .headers(headers)
         .body(config.request_body.clone())
         .send()
@@ -238,10 +242,10 @@ pub async fn run_llm_stream_with(
 fn extract_in_band_error(event: &Value) -> Option<String> {
     let top_error = event.get("error");
     if let Some(err) = top_error.filter(|v| v.is_object()) {
-        if let Some(message) = err.get("message").and_then(|v| v.as_str()) {
-            if !message.is_empty() {
-                return Some(message.to_string());
-            }
+        if let Some(message) = err.get("message").and_then(|v| v.as_str())
+            && !message.is_empty()
+        {
+            return Some(message.to_string());
         }
         return Some(err.to_string());
     }
@@ -287,10 +291,10 @@ fn decode_openai_responses_event(
         }
 
         "response.created" | "response.in_progress" => {
-            if let Some(resp) = event.get("response") {
-                if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
-                    metadata.response_id = Some(id.to_string());
-                }
+            if let Some(resp) = event.get("response")
+                && let Some(id) = resp.get("id").and_then(|v| v.as_str())
+            {
+                metadata.response_id = Some(id.to_string());
             }
             vec![]
         }
@@ -469,14 +473,14 @@ fn decode_openai_legacy_event(event: &Value, metadata: &mut StreamMetadata) -> V
     let mut parts = Vec::new();
 
     // Text content delta
-    if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
-        if !content.is_empty() {
-            parts.push(StreamedPart {
-                part_type: "text".into(),
-                text: Some(content.to_string()),
-                ..Default::default()
-            });
-        }
+    if let Some(content) = delta.get("content").and_then(|v| v.as_str())
+        && !content.is_empty()
+    {
+        parts.push(StreamedPart {
+            part_type: "text".into(),
+            text: Some(content.to_string()),
+            ..Default::default()
+        });
     }
 
     // Tool calls delta
@@ -490,31 +494,31 @@ fn decode_openai_legacy_event(event: &Value, metadata: &mut StreamMetadata) -> V
                 let name = func.get("name").and_then(|v| v.as_str());
                 let arguments = func.get("arguments").and_then(|v| v.as_str());
 
-                if let Some(name) = name {
-                    if !name.is_empty() {
-                        // New tool call header
-                        parts.push(StreamedPart {
-                            part_type: "function".into(),
-                            id: tc_id.map(|s| s.to_string()),
-                            name: Some(name.to_string()),
-                            arguments: arguments.map(|s| s.to_string()),
-                            stream_index: index,
-                            ..Default::default()
-                        });
-                        continue;
-                    }
+                if let Some(name) = name
+                    && !name.is_empty()
+                {
+                    // New tool call header
+                    parts.push(StreamedPart {
+                        part_type: "function".into(),
+                        id: tc_id.map(|s| s.to_string()),
+                        name: Some(name.to_string()),
+                        arguments: arguments.map(|s| s.to_string()),
+                        stream_index: index,
+                        ..Default::default()
+                    });
+                    continue;
                 }
 
-                if let Some(args) = arguments {
-                    if !args.is_empty() {
-                        // Argument delta
-                        parts.push(StreamedPart {
-                            part_type: "tool_call_part".into(),
-                            arguments_part: Some(args.to_string()),
-                            stream_index: index,
-                            ..Default::default()
-                        });
-                    }
+                if let Some(args) = arguments
+                    && !args.is_empty()
+                {
+                    // Argument delta
+                    parts.push(StreamedPart {
+                        part_type: "tool_call_part".into(),
+                        arguments_part: Some(args.to_string()),
+                        stream_index: index,
+                        ..Default::default()
+                    });
                 }
             }
         }
@@ -673,10 +677,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                     metadata.input_tokens = input as u32;
                 }
             }
-            if let Some(delta) = event.get("delta") {
-                if let Some(reason) = delta.get("stop_reason").and_then(|v| v.as_str()) {
-                    metadata.finish_reason = Some(reason.to_string());
-                }
+            if let Some(delta) = event.get("delta")
+                && let Some(reason) = delta.get("stop_reason").and_then(|v| v.as_str())
+            {
+                metadata.finish_reason = Some(reason.to_string());
             }
             vec![]
         }

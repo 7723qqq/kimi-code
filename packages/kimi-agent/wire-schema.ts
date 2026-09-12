@@ -183,6 +183,11 @@ const nativeLlmConfig = z.object({
   thinking_budget: z.number().optional(),
   /** Moonshot preserved-thinking passthrough (`thinking.keep`). */
   thinking_keep: z.string().optional(),
+  /** OAuth-managed provider name (bearer fetched per request). */
+  auth_provider: z.string().optional(),
+  /** Route an anthropic model through the beta Messages API
+   *  (`[models.<alias>].betaApi`). */
+  beta_api: z.boolean().optional(),
 });
 
 /** One host-resolved `[services.moonshot_*]` backend (v2 `configSection.ts`). */
@@ -199,6 +204,9 @@ const policySnapshot = z.object({
   allow_rules: z.array(z.string()).optional(),
   session_approvals: z.array(z.string()).optional(),
   git_cwd: z.string().optional(),
+  // Why each configured rule exists, keyed by its pattern: echoed in the
+  // denial so a refusal can explain itself.
+  rule_reasons: z.record(z.string(), z.string()).optional(),
 });
 
 const telemetryContext = z.object({
@@ -263,6 +271,24 @@ export const runTurnParamsSchema = z.object({
   max_attempts: z.number().optional(),
   web_search: webServiceConfig.optional(),
   web_fetch: webServiceConfig.optional(),
+  image_read_byte_budget: z.number().optional(),
+  image_max_edge_px: z.number().optional(),
+  model_capabilities: z.array(z.string()).optional(),
+  /** `[background]` knobs, applied to the engine's task runner + Bash tool.
+   *  `bash_task_timeout_s = 0` means "no timeout". */
+  kill_grace_period_ms: z.number().optional(),
+  max_running_tasks: z.number().optional(),
+  bash_auto_background_on_timeout: z.boolean().optional(),
+  bash_task_timeout_s: z.number().optional(),
+  /** `[background]` print policy (`kimi -p`): what the engine does once the
+   *  main turn ends with background tasks still running — `exit` resolves
+   *  the receipt at once, `drain` / `steer` hold it until the runner drains
+   *  (and `steer` feeds completions back), bounded by `print_wait_ceiling_s`
+   *  seconds and `print_max_turns` triggered turns. Absent keeps the
+   *  engine's exit-on-turn-end default. */
+  print_background_mode: z.string().optional(),
+  print_wait_ceiling_s: z.number().optional(),
+  print_max_turns: z.number().optional(),
   /** P52 native-path vetoes: non-empty reason = the engine rejects the
    *  affected native executions with this text as the tool result. */
   agent_tool_veto: z.string().optional(),

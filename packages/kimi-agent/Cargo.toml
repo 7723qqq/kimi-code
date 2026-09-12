@@ -17,9 +17,14 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = ["napi"]
+default = ["napi", "workflow-js"]
 napi = ["dep:napi", "dep:napi-derive"]
 cli = []
+# The Workflow tool's embedded JS engine (QuickJS via rquickjs). On by default
+# so built-in workflow scripts run; `--no-default-features --features cli`
+# yields a pure-Rust build with no C dependency, where `run` reports the engine
+# is unavailable while `list`/`status`/`cancel` keep working.
+workflow-js = ["dep:rquickjs"]
 
 [dependencies]
 napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"], optional = true }
@@ -66,6 +71,7 @@ dialoguer = "0.11"
 which = "6.0"
 tower-lsp = "0.20"
 lsp-types = "0.95"
+rquickjs = { version = "0.9", features = ["full-async", "futures", "macro", "array-buffer"], optional = true }
 
 [build-dependencies]
 napi-build = "2"

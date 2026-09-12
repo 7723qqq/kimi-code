@@ -69,17 +69,16 @@ fn write_file_in_place(path: &str, content: &str, mode: WriteMode) -> WriteResul
     let file_path = Path::new(path);
 
     // Ensure parent directory exists.
-    if let Some(parent) = file_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(e) = ensure_parent_directory(parent) {
-                let kind = if e.starts_with("Parent path is not a directory") {
-                    "parent_not_dir"
-                } else {
-                    "io"
-                };
-                return WriteResult::err(kind, e);
-            }
-        }
+    if let Some(parent) = file_path.parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(e) = ensure_parent_directory(parent)
+    {
+        let kind = if e.starts_with("Parent path is not a directory") {
+            "parent_not_dir"
+        } else {
+            "io"
+        };
+        return WriteResult::err(kind, e);
     }
 
     // Open file with appropriate mode.
@@ -125,17 +124,16 @@ fn write_file_atomic(path: &str, content: &str) -> WriteResult {
     let file_path = Path::new(path);
 
     // Ensure parent directory exists.
-    if let Some(parent) = file_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(e) = ensure_parent_directory(parent) {
-                let kind = if e.starts_with("Parent path is not a directory") {
-                    "parent_not_dir"
-                } else {
-                    "io"
-                };
-                return WriteResult::err(kind, e);
-            }
-        }
+    if let Some(parent) = file_path.parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(e) = ensure_parent_directory(parent)
+    {
+        let kind = if e.starts_with("Parent path is not a directory") {
+            "parent_not_dir"
+        } else {
+            "io"
+        };
+        return WriteResult::err(kind, e);
     }
 
     // Preserve symlink and special-file semantics: atomic rename is only safe
@@ -425,10 +423,12 @@ mod tests {
         assert!(result.error.is_none());
 
         // The symlink itself must remain a symlink and the target must be updated.
-        assert!(fs::symlink_metadata(&link)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(fs::read_to_string(&target).unwrap(), "via link");
         assert_eq!(fs::read_to_string(&link).unwrap(), "via link");
     }

@@ -28,7 +28,9 @@ enum McpTransport {
     /// In-process stub used by the napi binding path and tests. Carries the
     /// advertised tools so tests can exercise discovery edge cases (e.g. tool
     /// name collisions) without spawning a real server.
-    Mock { tools: Vec<McpTool> },
+    Mock {
+        tools: Vec<McpTool>,
+    },
 }
 
 /// v2 `STDERR_BUFFER_CAPACITY` (client-stdio.ts:20): the last 4 KiB of the
@@ -150,8 +152,7 @@ impl McpClient {
         // Bridge the transport's unexpected-close signal into the client-level
         // slots so the manager's watch listener works uniformly across
         // transports (v2 `SseMcpClient.onUnexpectedClose`).
-        let unexpected_close: UnexpectedCloseListener =
-            Arc::new(Mutex::new(None));
+        let unexpected_close: UnexpectedCloseListener = Arc::new(Mutex::new(None));
         let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let client_unexpected = unexpected_close.clone();
         let client_pending = pending_close_reason.clone();
@@ -160,12 +161,8 @@ impl McpClient {
                 let client_unexpected = client_unexpected.clone();
                 let client_pending = client_pending.clone();
                 tokio::spawn(async move {
-                    fire_or_buffer_unexpected_close(
-                        &client_unexpected,
-                        &client_pending,
-                        reason,
-                    )
-                    .await;
+                    fire_or_buffer_unexpected_close(&client_unexpected, &client_pending, reason)
+                        .await;
                 });
             }))
             .await;
@@ -238,8 +235,7 @@ impl McpClient {
 
         // Unexpected-close callback slots, shared with the stdout task below
         // (v2 `unexpectedCloseListener` / `pendingUnexpectedClose`).
-        let unexpected_close: UnexpectedCloseListener =
-            Arc::new(Mutex::new(None));
+        let unexpected_close: UnexpectedCloseListener = Arc::new(Mutex::new(None));
         let pending_close_reason: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         // Drain the child's stderr into a bounded tail (v2 `BoundedTail`).
@@ -295,7 +291,9 @@ impl McpClient {
                 let buf = stderr_for_reason.lock().await;
                 String::from_utf8_lossy(&buf).into_owned()
             };
-            let mut parts = vec![format!("MCP server \"{name_for_reason}\" closed unexpectedly")];
+            let mut parts = vec![format!(
+                "MCP server \"{name_for_reason}\" closed unexpectedly"
+            )];
             if !stderr_tail.trim().is_empty() {
                 parts.push(format!("stderr: {}", stderr_tail.trim_end()));
             }
@@ -387,8 +385,7 @@ impl McpClient {
             let mut child = _process.lock().await;
             let _ = child.kill().await;
         }
-        self.closed
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn transport_type(&self) -> &'static str {
@@ -536,7 +533,10 @@ mod tests {
         let tools = client.list_tools().await.expect("list_tools failed");
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "github_sample_tool");
-        assert_eq!(tools[0].description.as_deref(), Some("Sample mock MCP tool"));
+        assert_eq!(
+            tools[0].description.as_deref(),
+            Some("Sample mock MCP tool")
+        );
         assert_eq!(
             tools[0].input_schema,
             json!({
@@ -548,10 +548,7 @@ mod tests {
         );
 
         let call_res = client
-            .call_tool(
-                "github_sample_tool",
-                &json!({ "query": "rust" }),
-            )
+            .call_tool("github_sample_tool", &json!({ "query": "rust" }))
             .await
             .expect("call_tool failed");
         assert!(!call_res.is_error);
@@ -602,7 +599,10 @@ mod tests {
             .await
             .expect("call_tool failed");
         assert!(err_call_res.is_error);
-        assert_eq!(err_call_res.content[0].text.as_deref(), Some("custom tool failure"));
+        assert_eq!(
+            err_call_res.content[0].text.as_deref(),
+            Some("custom tool failure")
+        );
 
         // 4. Call unknown tool triggering protocol-level JSON-RPC error
         let rpc_err = client
@@ -665,7 +665,8 @@ mod tests {
     /// answers `initialize` and then stays alive without answering anything
     /// else.
     #[tokio::test]
-    async fn test_tool_timeout_fails_the_call() {        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+    async fn test_tool_timeout_fails_the_call() {
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
         let dir = std::env::temp_dir();
         let (cmd, args, script) = if cfg!(windows) {
             let path = dir.join(format!("kimi_mcp_slow_{}.bat", std::process::id()));
@@ -725,15 +726,10 @@ mod tests {
         };
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        let client = McpClient::spawn_stdio(
-            "die_after_handshake",
-            cmd,
-            &arg_refs,
-            &HashMap::new(),
-            None,
-        )
-        .await
-        .expect("initialize handshake should succeed");
+        let client =
+            McpClient::spawn_stdio("die_after_handshake", cmd, &arg_refs, &HashMap::new(), None)
+                .await
+                .expect("initialize handshake should succeed");
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = std::sync::Mutex::new(Some(tx));
@@ -766,8 +762,11 @@ mod tests {
         let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
         let (cmd, args, script) = if cfg!(windows) {
             let script = dir.join("probe.bat");
-            std::fs::write(&script, format!("@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"))
-                .expect("write probe script");
+            std::fs::write(
+                &script,
+                format!("@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"),
+            )
+            .expect("write probe script");
             (
                 "cmd",
                 vec!["/c".to_string(), "probe.bat".to_string()],

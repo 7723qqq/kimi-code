@@ -90,6 +90,11 @@ pub struct PolicySnapshot {
     /// matching `Stop` hooks veto a clean text stop once per turn.
     #[serde(default)]
     pub pre_tool_hooks: Vec<HookDef>,
+    /// Why each configured rule exists, keyed by its pattern (v2
+    /// `permission.rules[].reason`): echoed in the denial so a refusal can
+    /// explain itself. Absent entries fall back to the pattern alone.
+    #[serde(default)]
+    pub rule_reasons: std::collections::HashMap<String, String>,
 }
 
 /// Verdict returned by the local permission engine.
@@ -275,7 +280,19 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Deny,
                 policy_name: "UserConfiguredDeny".into(),
-                reason: Some(format!("Denied by user rule: {rule}")),
+                // A declared reason explains the refusal (v2 `reason`).
+                reason: Some(
+                    match self
+                        .snapshot
+                        .rule_reasons
+                        .get(rule.as_str())
+                        .map(String::as_str)
+                        .filter(|r| !r.trim().is_empty())
+                    {
+                        Some(why) => format!("Denied by user rule: {}: {}", rule, why),
+                        None => format!("Denied by user rule: {rule}"),
+                    },
+                ),
             };
         }
 

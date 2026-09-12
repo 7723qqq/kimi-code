@@ -4,31 +4,59 @@
 //! 以及透过 sudo / doas / nohup / bash -c 等包装的高危破坏性指令。
 
 pub const SIMPLE_DANGEROUS_COMMANDS: &[&str] = &[
-    "shutdown", "halt", "poweroff", "reboot", "bcdedit", "diskpart",
-    "format", "restart-computer", "stop-computer", "mkfs", "wipefs",
+    "shutdown",
+    "halt",
+    "poweroff",
+    "reboot",
+    "bcdedit",
+    "diskpart",
+    "format",
+    "restart-computer",
+    "stop-computer",
+    "mkfs",
+    "wipefs",
 ];
 
 pub const PRIVILEGE_WRAPPERS: &[&str] = &["sudo", "doas"];
 
 pub const PRIVILEGE_VALUE_OPTIONS: &[&str] = &[
-    "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
-    "-C", "--close-from", "-T", "--command-timeout", "-U", "--other-user",
-    "-r", "--role", "-t", "--type",
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-h",
+    "--host",
+    "-p",
+    "--prompt",
+    "-C",
+    "--close-from",
+    "-T",
+    "--command-timeout",
+    "-U",
+    "--other-user",
+    "-r",
+    "--role",
+    "-t",
+    "--type",
 ];
 
-pub const LAUNCH_WRAPPERS: &[&str] = &[
-    "env", "command", "exec", "nohup", "builtin", "nice",
-];
+pub const LAUNCH_WRAPPERS: &[&str] = &["env", "command", "exec", "nohup", "builtin", "nice"];
 
 pub const WRAPPER_VALUE_OPTIONS: &[&str] = &[
-    "-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "-n", "--adjustment",
+    "-u",
+    "--unset",
+    "-C",
+    "--chdir",
+    "-S",
+    "--split-string",
+    "-a",
+    "-n",
+    "--adjustment",
 ];
 
 pub const NESTED_SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh", "ash"];
 
-pub const SYSTEMCTL_DANGEROUS_SUBCOMMANDS: &[&str] = &[
-    "poweroff", "reboot", "halt", "kexec",
-];
+pub const SYSTEMCTL_DANGEROUS_SUBCOMMANDS: &[&str] = &["poweroff", "reboot", "halt", "kexec"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DangerousVerdict {
@@ -97,7 +125,7 @@ fn split_pipeline_commands(cmd: &str) -> Vec<String> {
 /// 归一化命令名称：剥离路径前缀与 Windows .exe 后缀
 pub fn normalize_command_name(raw: &str) -> String {
     let mut name = raw;
-    if let Some(pos) = name.rfind(|c| c == '/' || c == '\\') {
+    if let Some(pos) = name.rfind(['/', '\\']) {
         name = &name[pos + 1..];
     }
     let mut lower = name.to_ascii_lowercase();
@@ -135,7 +163,9 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         if first == "systemctl" {
             for sub in &current_tokens[1..] {
                 let norm_sub = normalize_command_name(sub);
-                if !sub.starts_with('-') && SYSTEMCTL_DANGEROUS_SUBCOMMANDS.contains(&norm_sub.as_str()) {
+                if !sub.starts_with('-')
+                    && SYSTEMCTL_DANGEROUS_SUBCOMMANDS.contains(&norm_sub.as_str())
+                {
                     return DangerousVerdict::Dangerous(format!("systemctl {}", sub));
                 }
             }
@@ -144,14 +174,13 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         // 4. dd 物理存储设备覆写拦截
         if first == "dd" {
             for arg in &current_tokens[1..] {
-                if let Some(target) = arg.strip_prefix("of=") {
-                    if target.starts_with("/dev/sd")
+                if let Some(target) = arg.strip_prefix("of=")
+                    && (target.starts_with("/dev/sd")
                         || target.starts_with("/dev/nvme")
                         || target.starts_with("/dev/hd")
-                        || target == "/dev/sda"
-                    {
-                        return DangerousVerdict::Dangerous(format!("dd of={}", target));
-                    }
+                        || target == "/dev/sda")
+                {
+                    return DangerousVerdict::Dangerous(format!("dd of={}", target));
                 }
             }
         }
@@ -198,7 +227,8 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         }
 
         // 8. 递归剥离包装器 (sudo, doas, env, nohup, nice)
-        if PRIVILEGE_WRAPPERS.contains(&first.as_str()) || LAUNCH_WRAPPERS.contains(&first.as_str()) {
+        if PRIVILEGE_WRAPPERS.contains(&first.as_str()) || LAUNCH_WRAPPERS.contains(&first.as_str())
+        {
             let mut next_cmd_idx = 1;
             while next_cmd_idx < current_tokens.len() {
                 let opt = &current_tokens[next_cmd_idx];
@@ -207,7 +237,9 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
                     break;
                 }
                 if opt.starts_with('-') {
-                    if PRIVILEGE_VALUE_OPTIONS.contains(&opt.as_str()) || WRAPPER_VALUE_OPTIONS.contains(&opt.as_str()) {
+                    if PRIVILEGE_VALUE_OPTIONS.contains(&opt.as_str())
+                        || WRAPPER_VALUE_OPTIONS.contains(&opt.as_str())
+                    {
                         next_cmd_idx += 2;
                     } else {
                         next_cmd_idx += 1;
@@ -223,12 +255,11 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         }
 
         // 9. 递归分析嵌套 shell (bash -c "...")
-        if NESTED_SHELLS.contains(&first.as_str()) {
-            if let Some(pos) = current_tokens.iter().position(|t| t == "-c") {
-                if pos + 1 < current_tokens.len() {
-                    return analyze_bash_command(&current_tokens[pos + 1]);
-                }
-            }
+        if NESTED_SHELLS.contains(&first.as_str())
+            && let Some(pos) = current_tokens.iter().position(|t| t == "-c")
+            && pos + 1 < current_tokens.len()
+        {
+            return analyze_bash_command(&current_tokens[pos + 1]);
         }
 
         break;
@@ -347,7 +378,10 @@ mod tests {
         assert_eq!(analyze_bash_command("ls -la"), DangerousVerdict::Safe);
         assert_eq!(analyze_bash_command("git status"), DangerousVerdict::Safe);
         assert_eq!(analyze_bash_command("cargo check"), DangerousVerdict::Safe);
-        assert_eq!(analyze_bash_command("dd if=/dev/zero of=/dev/null bs=1M"), DangerousVerdict::Safe);
+        assert_eq!(
+            analyze_bash_command("dd if=/dev/zero of=/dev/null bs=1M"),
+            DangerousVerdict::Safe
+        );
         assert_eq!(analyze_bash_command("rm file.txt"), DangerousVerdict::Safe);
     }
 }

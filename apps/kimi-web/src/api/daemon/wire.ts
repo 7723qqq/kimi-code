@@ -954,3 +954,50 @@ export type WireEvent =
   | WireEventModelCatalogChanged
   // Unknown / future events
   | WireEventUnknown;
+
+type OnlyKnownWireEvent<T> = T extends { type: infer K }
+  ? string extends K
+    ? never
+    : T
+  : never;
+type KnownWireEvent = OnlyKnownWireEvent<WireEvent>;
+
+/**
+ * Runtime mirror of the `KnownWireEvent` type union — the concrete event names
+ * the client processes. Pinned against `packages/kimi-agent/ws-event-contract.json`
+ * (see `wire-contract.test.ts`) so the client and the Rust server stay aligned.
+ */
+export const WIRE_EVENT_TYPES = [
+  'event.session.created',
+  'event.session.updated',
+  'event.session.deleted',
+  'event.session.work_changed',
+  'event.session.status_changed',
+  'event.session.usage_updated',
+  'event.session.history_compacted',
+  'event.workspace.created',
+  'event.workspace.updated',
+  'event.workspace.deleted',
+  'event.message.created',
+  'event.message.updated',
+  'event.assistant.delta',
+  'event.assistant.tool_use_started',
+  'event.assistant.tool_use_delta',
+  'event.assistant.tool_use_completed',
+  'event.assistant.completed',
+  'event.tool.started',
+  'event.tool.output',
+  'event.tool.progress',
+  'event.tool.completed',
+  'event.approval.requested',
+  'event.approval.resolved',
+  'event.approval.expired',
+  'event.question.requested',
+  'event.question.answered',
+  'event.question.dismissed',
+  'event.task.created',
+  'event.task.progress',
+  'event.task.completed',
+  'event.config.changed',
+  'event.model_catalog.changed',
+] as const satisfies readonly KnownWireEvent['type'][];

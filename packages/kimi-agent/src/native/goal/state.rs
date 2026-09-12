@@ -56,7 +56,7 @@ impl GoalStatus {
     }
 
     /// Deserialize from the JSON-safe string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_wire(s: &str) -> Option<Self> {
         match s {
             "active" => Some(GoalStatus::Active),
             "paused" => Some(GoalStatus::Paused),
@@ -216,109 +216,109 @@ impl GoalState {
     /// returns `GoalIdMismatch`.
     pub fn apply_update(mut self, update: GoalUpdate) -> GoalUpdateOutcome {
         // Check expected_goal_id
-        if let Some(expected) = &update.expected_goal_id {
-            if expected != &self.goal_id {
-                return GoalUpdateOutcome::GoalIdMismatch {
-                    current: self.goal_id,
-                    expected: expected.clone(),
-                };
-            }
+        if let Some(expected) = &update.expected_goal_id
+            && expected != &self.goal_id
+        {
+            return GoalUpdateOutcome::GoalIdMismatch {
+                current: self.goal_id,
+                expected: expected.clone(),
+            };
         }
 
         let mut changed = false;
 
-        if let Some(objective) = update.objective {
-            if objective != self.objective {
-                self.objective = objective;
-                changed = true;
-            }
+        if let Some(objective) = update.objective
+            && objective != self.objective
+        {
+            self.objective = objective;
+            changed = true;
         }
-        if let Some(criterion) = update.completion_criterion {
-            if criterion != self.completion_criterion {
-                self.completion_criterion = criterion;
-                changed = true;
-            }
+        if let Some(criterion) = update.completion_criterion
+            && criterion != self.completion_criterion
+        {
+            self.completion_criterion = criterion;
+            changed = true;
         }
-        if let Some(status) = update.status {
-            if status != self.status {
-                // Validate transition
-                if !is_valid_transition(self.status, status) {
-                    return GoalUpdateOutcome::InvalidTransition {
-                        current: self.status,
-                        target: status,
-                    };
+        if let Some(status) = update.status
+            && status != self.status
+        {
+            // Validate transition
+            if !is_valid_transition(self.status, status) {
+                return GoalUpdateOutcome::InvalidTransition {
+                    current: self.status,
+                    target: status,
+                };
+            }
+            // On resume: reset blocked_streak and start wall clock
+            if status == GoalStatus::Active {
+                self.blocked_streak = 0;
+                self.wall_clock_resumed_at = Some(chrono_now_ms());
+                self.terminal_reason = None;
+            }
+            // On leaving active: fold elapsed wall-clock into wall_clock_ms
+            if self.status == GoalStatus::Active && status != GoalStatus::Active {
+                if let Some(resumed_at) = self.wall_clock_resumed_at {
+                    let elapsed = (chrono_now_ms() - resumed_at).max(0);
+                    self.wall_clock_ms += elapsed;
                 }
-                // On resume: reset blocked_streak and start wall clock
-                if status == GoalStatus::Active {
-                    self.blocked_streak = 0;
-                    self.wall_clock_resumed_at = Some(chrono_now_ms());
-                    self.terminal_reason = None;
-                }
-                // On leaving active: fold elapsed wall-clock into wall_clock_ms
-                if self.status == GoalStatus::Active && status != GoalStatus::Active {
-                    if let Some(resumed_at) = self.wall_clock_resumed_at {
-                        let elapsed = (chrono_now_ms() - resumed_at).max(0);
-                        self.wall_clock_ms += elapsed;
-                    }
-                    self.wall_clock_resumed_at = None;
-                }
-                self.status = status;
-                changed = true;
+                self.wall_clock_resumed_at = None;
             }
+            self.status = status;
+            changed = true;
         }
-        if let Some(token_budget) = update.token_budget {
-            if token_budget != self.token_budget {
-                self.token_budget = token_budget;
-                changed = true;
-            }
+        if let Some(token_budget) = update.token_budget
+            && token_budget != self.token_budget
+        {
+            self.token_budget = token_budget;
+            changed = true;
         }
-        if let Some(turn_budget) = update.turn_budget {
-            if turn_budget != self.turn_budget {
-                self.turn_budget = turn_budget;
-                changed = true;
-            }
+        if let Some(turn_budget) = update.turn_budget
+            && turn_budget != self.turn_budget
+        {
+            self.turn_budget = turn_budget;
+            changed = true;
         }
-        if let Some(wc_budget) = update.wall_clock_budget_ms {
-            if wc_budget != self.wall_clock_budget_ms {
-                self.wall_clock_budget_ms = wc_budget;
-                changed = true;
-            }
+        if let Some(wc_budget) = update.wall_clock_budget_ms
+            && wc_budget != self.wall_clock_budget_ms
+        {
+            self.wall_clock_budget_ms = wc_budget;
+            changed = true;
         }
-        if let Some(tokens_used) = update.tokens_used {
-            if tokens_used != self.tokens_used {
-                self.tokens_used = tokens_used;
-                changed = true;
-            }
+        if let Some(tokens_used) = update.tokens_used
+            && tokens_used != self.tokens_used
+        {
+            self.tokens_used = tokens_used;
+            changed = true;
         }
-        if let Some(turns_used) = update.turns_used {
-            if turns_used != self.turns_used {
-                self.turns_used = turns_used;
-                changed = true;
-            }
+        if let Some(turns_used) = update.turns_used
+            && turns_used != self.turns_used
+        {
+            self.turns_used = turns_used;
+            changed = true;
         }
-        if let Some(wall_clock_ms) = update.wall_clock_ms {
-            if wall_clock_ms != self.wall_clock_ms {
-                self.wall_clock_ms = wall_clock_ms;
-                changed = true;
-            }
+        if let Some(wall_clock_ms) = update.wall_clock_ms
+            && wall_clock_ms != self.wall_clock_ms
+        {
+            self.wall_clock_ms = wall_clock_ms;
+            changed = true;
         }
-        if let Some(streak) = update.blocked_streak {
-            if streak != self.blocked_streak {
-                self.blocked_streak = streak;
-                changed = true;
-            }
+        if let Some(streak) = update.blocked_streak
+            && streak != self.blocked_streak
+        {
+            self.blocked_streak = streak;
+            changed = true;
         }
-        if let Some(wall_clock) = update.wall_clock_resumed_at {
-            if wall_clock != self.wall_clock_resumed_at {
-                self.wall_clock_resumed_at = wall_clock;
-                changed = true;
-            }
+        if let Some(wall_clock) = update.wall_clock_resumed_at
+            && wall_clock != self.wall_clock_resumed_at
+        {
+            self.wall_clock_resumed_at = wall_clock;
+            changed = true;
         }
-        if let Some(reason) = update.terminal_reason {
-            if reason != self.terminal_reason {
-                self.terminal_reason = reason;
-                changed = true;
-            }
+        if let Some(reason) = update.terminal_reason
+            && reason != self.terminal_reason
+        {
+            self.terminal_reason = reason;
+            changed = true;
         }
 
         if changed {
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn test_goal_status_round_trip() {
         // Every variant serializes to a JSON-safe string and parses back to
-        // the same variant (as_str -> from_str is the identity).
+        // the same variant (as_str -> from_wire is the identity).
         for status in [
             GoalStatus::Active,
             GoalStatus::Paused,
@@ -462,7 +462,7 @@ mod tests {
             GoalStatus::BudgetLimited,
             GoalStatus::UsageLimited,
         ] {
-            assert_eq!(GoalStatus::from_str(status.as_str()), Some(status));
+            assert_eq!(GoalStatus::from_wire(status.as_str()), Some(status));
         }
     }
 
@@ -471,21 +471,21 @@ mod tests {
         // The camelCase strings are canonical; the snake_case forms are
         // accepted as aliases for backward compatibility.
         assert_eq!(
-            GoalStatus::from_str("budget_limited"),
+            GoalStatus::from_wire("budget_limited"),
             Some(GoalStatus::BudgetLimited)
         );
         assert_eq!(
-            GoalStatus::from_str("usage_limited"),
+            GoalStatus::from_wire("usage_limited"),
             Some(GoalStatus::UsageLimited)
         );
     }
 
     #[test]
     fn test_goal_status_invalid_string() {
-        assert_eq!(GoalStatus::from_str(""), None);
-        assert_eq!(GoalStatus::from_str("ACTIVE"), None);
-        assert_eq!(GoalStatus::from_str("active "), None);
-        assert_eq!(GoalStatus::from_str("unknown"), None);
+        assert_eq!(GoalStatus::from_wire(""), None);
+        assert_eq!(GoalStatus::from_wire("ACTIVE"), None);
+        assert_eq!(GoalStatus::from_wire("active "), None);
+        assert_eq!(GoalStatus::from_wire("unknown"), None);
     }
 
     #[test]

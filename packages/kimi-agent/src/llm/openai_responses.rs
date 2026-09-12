@@ -206,14 +206,8 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
         return TokenUsage::default();
     };
 
-    let raw_input = u
-        .get("input_tokens")
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
-    let output_tokens = u
-        .get("output_tokens")
-        .and_then(|x| x.as_u64())
-        .unwrap_or(0) as u32;
+    let raw_input = u.get("input_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let output_tokens = u.get("output_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
 
     let input_cache_read = u
         .get("input_tokens_details")

@@ -299,10 +299,7 @@ pub fn apply_op(target: &mut Value, op: &PatchOp) -> Result<Option<PatchOp>, Pat
 }
 
 /// Applies a sequence of patch operations to `target` and returns the Inverse PatchSet.
-pub fn apply_patch(
-    target: &mut Value,
-    patch: &JsonPatchSet,
-) -> Result<JsonPatchSet, PatchError> {
+pub fn apply_patch(target: &mut Value, patch: &JsonPatchSet) -> Result<JsonPatchSet, PatchError> {
     let mut inverse_ops = Vec::new();
     for op in &patch.ops {
         if let Some(inv) = apply_op(target, op)? {
@@ -486,7 +483,10 @@ mod tests {
         // Nested and array lookup
         assert_eq!(get_value_at(&doc, "/title").unwrap(), &json!("Kimi"));
         assert_eq!(get_value_at(&doc, "/items/1").unwrap(), &json!(20));
-        assert_eq!(get_value_at(&doc, "/nested/a~1b").unwrap(), &json!("escaped"));
+        assert_eq!(
+            get_value_at(&doc, "/nested/a~1b").unwrap(),
+            &json!("escaped")
+        );
         assert_eq!(get_value_at(&doc, "/nested/c~0d").unwrap(), &json!("tilde"));
 
         // Error cases
@@ -671,9 +671,7 @@ mod tests {
         assert_eq!(
             apply_patch(
                 &mut doc,
-                &JsonPatchSet::new(vec![PatchOp::Remove {
-                    path: "".into()
-                }])
+                &JsonPatchSet::new(vec![PatchOp::Remove { path: "".into() }])
             ),
             Err(PatchError::InvalidPointer(
                 "Cannot remove root element".into()

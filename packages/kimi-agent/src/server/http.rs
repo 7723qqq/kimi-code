@@ -111,19 +111,25 @@ pub async fn serve(addr: &str, server: Arc<HttpServer>) -> io::Result<ServerHand
     let listener = TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
+    let shutdown = server.shutdown_token();
     let task = tokio::spawn(async move {
         loop {
-            match listener.accept().await {
-                Ok((stream, _peer)) => {
-                    let server = server.clone();
-                    tokio::spawn(async move {
-                        let _ = serve_connection(stream, server).await;
-                    });
-                }
-                Err(error) => {
-                    // A failed accept (descriptor limit, peer gone mid-handshake)
-                    // is not fatal: keep listening.
-                    tracing::warn!(%error, "accept failed");
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                accepted = listener.accept() => {
+                    match accepted {
+                        Ok((stream, _peer)) => {
+                            let server = server.clone();
+                            tokio::spawn(async move {
+                                let _ = serve_connection(stream, server).await;
+                            });
+                        }
+                        Err(error) => {
+                            // A failed accept (descriptor limit, peer gone mid-handshake)
+                            // is not fatal: keep listening.
+                            tracing::warn!(%error, "accept failed");
+                        }
+                    }
                 }
             }
         }

@@ -17,9 +17,8 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/provider` | `/providers` | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
 | `/model` | — | Switch the LLM model used in the current session | Yes |
 | `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Hidden when the subagent model pool is disabled | Yes |
-| `/multi-llm` | `/multillm` | Configure MultiLLM concurrent providers (Rust engine) | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
-| `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
+| `/experiments` | `/experimental` | Open the experimental feature panel | No |
 | `/permission` | — | Select a permission mode | Yes |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
@@ -43,6 +42,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/copy` | — | Copy the last assistant message to the clipboard | No |
 | `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
 | `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
+| `/remote-control` | `/rc` | Open a remote-control tunnel for the current session. Requires the `remote-control` experimental flag | Yes |
 
 ## Modes & Run Control
 
@@ -53,10 +53,11 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
 | `/effort` | `/thinking` | Switch thinking effort | Yes |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
+| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | No |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/team <topic>` | — | Start a Team discussion among multiple agents | No |
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
+| `/tower [status\|teardown\|on\|off] \| <base-branch>` | — | Manage experimental Tower multi-workspace orchestration: enable/disable it, inspect its status, tear it down, or pick the base branch. Requires the `tower` experimental flag | Yes |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: warning

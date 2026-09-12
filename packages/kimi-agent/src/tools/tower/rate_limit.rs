@@ -62,20 +62,21 @@ impl TowerRateLimit {
 
     /// Process-wide global rate limiter (mirrors v2 LifecycleScope.App singleton).
     pub fn global() -> Arc<Self> {
-        static GLOBAL: LazyLock<Arc<TowerRateLimit>> = LazyLock::new(|| Arc::new(TowerRateLimit::new()));
+        static GLOBAL: LazyLock<Arc<TowerRateLimit>> =
+            LazyLock::new(|| Arc::new(TowerRateLimit::new()));
         GLOBAL.clone()
     }
 
     pub fn report_rate_limited(&self) {
         let now = now_ms();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if g.inflight > 0 {
-            if g.last_shrink_at.is_none()
-                || now.saturating_sub(g.last_shrink_at.unwrap_or(0)) >= RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS
-            {
-                g.capacity = g.capacity.saturating_sub(1).max(1);
-                g.last_shrink_at = Some(now);
-            }
+        if g.inflight > 0
+            && (g.last_shrink_at.is_none()
+                || now.saturating_sub(g.last_shrink_at.unwrap_or(0))
+                    >= RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS)
+        {
+            g.capacity = g.capacity.saturating_sub(1).max(1);
+            g.last_shrink_at = Some(now);
         }
         g.last_rate_limit_at = Some(now);
         g.blocked_until = Some(now + TOWER_SPAWN_PAUSE_MS);
@@ -102,7 +103,7 @@ impl TowerRateLimit {
         let now = now_ms();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         Self::maybe_recover(&mut g, now);
-        g.capacity.min(TOWER_MAX_BUDGET).max(1)
+        g.capacity.clamp(1, TOWER_MAX_BUDGET)
     }
 
     pub fn acquire(&self) -> Result<(), String> {
@@ -119,7 +120,7 @@ impl TowerRateLimit {
             g.blocked_until = None;
         }
         Self::maybe_recover(&mut g, now);
-        let budget = g.capacity.min(TOWER_MAX_BUDGET).max(1);
+        let budget = g.capacity.clamp(1, TOWER_MAX_BUDGET);
         if g.inflight >= budget {
             return Err(format!(
                 "tower concurrency budget exhausted ({}/{} agents running). \
@@ -140,7 +141,7 @@ impl TowerRateLimit {
         let now = now_ms();
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         Self::maybe_recover(&mut g, now);
-        let budget = g.capacity.min(TOWER_MAX_BUDGET).max(1);
+        let budget = g.capacity.clamp(1, TOWER_MAX_BUDGET);
         TowerRateLimitSnapshot {
             budget,
             inflight: g.inflight,

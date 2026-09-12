@@ -734,6 +734,9 @@ export function bootstrap(
     trace: () => {},
     open: async () => {},
     onDidChange: () => ({ dispose: () => {} }),
+    // `/meta` 的 features 列表（registerApiV1Routes.getFeatures）在 v2 删除后
+    // 读这个方法：原生引擎没有 fiber unit，空列表即"无 feature"。
+    units: () => [],
     snapshot: () => ({}),
     listRecent: async () => ({ items: [], nextCursor: undefined }),
     status: () => ({ state: 'ready', generation: 1 }),

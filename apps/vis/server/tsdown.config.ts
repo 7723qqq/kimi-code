@@ -10,7 +10,6 @@ export default defineConfig({
   plugins: [rawTextPlugin()],
   deps: {
     neverBundle: ['@moonshot-ai/kosong'],
-    alwaysBundle: [/^@moonshot-ai\/agent-core-v2/],
   },
   // dts generation is slow by design; silence the rolldown plugin-timings diagnostic.
   checks: { pluginTimings: false },

@@ -145,21 +145,27 @@ struct Envelope<'a> {
     payload: Value,
 }
 
-/// One lane event, wrapped the way kap-server's `EventEnvelope` delivers it:
-/// the name at the top level and the body under `payload`.
+/// Encode one lane event into the kap-server envelope. Identifiers are passed
+/// explicitly so the hub can cache the bytes per event and hand the same
+/// buffer to every connection instead of re-serializing per subscriber.
 ///
 /// `seq` is consecutive within `(session_id, epoch)`, so a client that reconnects
 /// can tell a continued stream from a restarted one. `volatile` and `offset` are
 /// kap-server's transcript-frame fields and are absent here because this server
 /// has no transcript stream to carry them.
-pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Error> {
-    let mut payload = serde_json::to_value(&event.event)?;
-    let mut kind = event.event.event_type().to_string();
+pub fn encode_envelope(
+    session_id: &str,
+    epoch: &str,
+    seq: u64,
+    event: &crate::events::EngineEvent,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut payload = serde_json::to_value(event)?;
+    let mut kind = event.event_type().to_string();
 
     // Terminal frames are contract-shaped top-level controls
     // (ws-control.ts:418-441), not wrapped Custom events: the payload narrows
     // to the contract's `data` / `exit_code` field.
-    if let crate::events::EngineEvent::Custom(value) = &event.event {
+    if let crate::events::EngineEvent::Custom(value) = event {
         let inner = value.get("type").and_then(Value::as_str).unwrap_or("");
         match inner {
             "terminal_output" => {
@@ -168,14 +174,17 @@ pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Err
             }
             "terminal_exit" => {
                 kind = inner.to_string();
-                payload = value.get("payload").cloned().unwrap_or(serde_json::json!({}));
+                payload = value
+                    .get("payload")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
             }
             _ => {}
         }
     }
 
     // Map legacy coarse-grained LlmDelta into standard frontend typewriter streaming events
-    if let crate::events::EngineEvent::LlmDelta { turn_id, part, .. } = &event.event {
+    if let crate::events::EngineEvent::LlmDelta { turn_id, part, .. } = event {
         if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
             kind = "assistant.delta".into();
             payload = serde_json::json!({
@@ -204,12 +213,17 @@ pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Err
 
     serde_json::to_vec(&Envelope {
         kind: &kind,
-        seq: event.seq,
-        epoch: &event.epoch,
-        session_id: &event.session_id,
+        seq,
+        epoch,
+        session_id,
         timestamp: timestamp(),
         payload,
     })
+}
+
+/// Convenience wrapper for callers that already hold a [`SequencedEvent`].
+pub fn event_envelope(event: &SequencedEvent) -> Result<Vec<u8>, serde_json::Error> {
+    encode_envelope(&event.session_id, &event.epoch, event.seq, &event.event)
 }
 
 /// The `client_hello` ack body with session subscription outcomes and cursors.
@@ -253,6 +267,54 @@ pub fn unsubscribe_ack(
     })
 }
 
+/// The `subscribe_v2` / `unsubscribe_v2` ack body: which agents were attached
+/// or detached, and whether the session exists.
+pub fn subscribe_v2_ack(session_id: &str, agents: &[String], not_found: bool) -> Value {
+    serde_json::json!({
+        "session_id": session_id,
+        "agents": agents,
+        "not_found": not_found,
+    })
+}
+
+/// A `transcript.reset` baseline frame (one per attached agent): the caller
+/// supplies the reconstructed `AgentTranscriptSnapshot`.
+pub fn transcript_reset_frame(
+    session_id: &str,
+    agent_id: &str,
+    snapshot: Value,
+) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&serde_json::json!({
+        "type": "transcript.reset",
+        "session_id": session_id,
+        "timestamp": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        "payload": {
+            "agent_id": agent_id,
+            "snapshot": snapshot,
+            "has_more_older": false,
+        },
+    }))
+}
+
+/// A `transcript.ops` incremental frame (one op batch for one agent).
+pub fn transcript_ops_frame(
+    session_id: &str,
+    agent_id: &str,
+    ops: Value,
+    seq: u64,
+) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&serde_json::json!({
+        "type": "transcript.ops",
+        "session_id": session_id,
+        "timestamp": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        "payload": {
+            "agent_id": agent_id,
+            "ops": ops,
+            "seq": seq,
+        },
+    }))
+}
+
 /// A cursor specification presented in inbound subscription frames.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursorSpec {
@@ -281,6 +343,22 @@ pub enum Inbound {
     Unsubscribe {
         id: String,
         session_ids: Vec<String>,
+    },
+    /// Subscribe to per-agent transcript streams for one session (the
+    /// `subscribe_v2` control frame). `transcript` maps an agent id (or `*`)
+    /// to a grade (`off` / `turn` / `block` / `delta`).
+    SubscribeV2 {
+        id: String,
+        session_id: String,
+        transcript: HashMap<String, String>,
+        transcript_since: HashMap<String, u64>,
+    },
+    /// Detach transcript streams; omitting `agent_ids` detaches the whole
+    /// session.
+    UnsubscribeV2 {
+        id: String,
+        session_id: String,
+        agent_ids: Vec<String>,
     },
     /// Submit a prompt to drive an engine turn over WebSocket.
     Prompt {
@@ -419,6 +497,56 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
             let payload = frame.get("payload").and_then(Value::as_object);
             let session_ids = parse_string_array(payload, "session_ids");
             Inbound::Unsubscribe { id, session_ids }
+        }
+        Some("subscribe_v2") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let transcript = payload
+                .and_then(|p| p.get("transcript"))
+                .and_then(Value::as_object)
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(key, value)| {
+                            value.as_str().map(|grade| (key.clone(), grade.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let transcript_since = payload
+                .and_then(|p| p.get("transcript_since"))
+                .and_then(Value::as_object)
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(key, value)| value.as_u64().map(|seq| (key.clone(), seq)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Inbound::SubscribeV2 {
+                id,
+                session_id,
+                transcript,
+                transcript_since,
+            }
+        }
+        Some("unsubscribe_v2") => {
+            let id = request_id(&frame);
+            let payload = frame.get("payload").and_then(Value::as_object);
+            let session_id = payload
+                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let agent_ids = parse_string_array(payload, "agent_ids");
+            Inbound::UnsubscribeV2 {
+                id,
+                session_id,
+                agent_ids,
+            }
         }
         Some("prompt") => {
             let id = request_id(&frame);
@@ -676,15 +804,15 @@ mod tests {
     fn a_lane_event_becomes_kap_servers_envelope() {
         use crate::events::EngineEvent;
 
-        let event = SequencedEvent {
-            session_id: std::sync::Arc::from("sess-1"),
-            epoch: std::sync::Arc::from("epoch-2"),
-            seq: 7,
-            event: EngineEvent::LlmStepBegin {
+        let event = SequencedEvent::new(
+            std::sync::Arc::from("sess-1"),
+            std::sync::Arc::from("epoch-2"),
+            7,
+            EngineEvent::LlmStepBegin {
                 turn_id: "turn-9".into(),
                 step: 3,
             },
-        };
+        );
         let frame: Value = serde_json::from_slice(&event_envelope(&event).unwrap()).unwrap();
 
         assert_eq!(frame["type"], "llm.step.begin");
@@ -704,16 +832,16 @@ mod tests {
         use crate::events::EngineEvent;
 
         // 1. Native AssistantDelta
-        let event_native = SequencedEvent {
-            session_id: std::sync::Arc::from("sess-delta"),
-            epoch: std::sync::Arc::from("epoch-1"),
-            seq: 1,
-            event: EngineEvent::AssistantDelta {
+        let event_native = SequencedEvent::new(
+            std::sync::Arc::from("sess-delta"),
+            std::sync::Arc::from("epoch-1"),
+            1,
+            EngineEvent::AssistantDelta {
                 agent_id: "main".into(),
                 turn_id: 2,
                 delta: "Hello world".into(),
             },
-        };
+        );
         let frame1: Value =
             serde_json::from_slice(&event_envelope(&event_native).unwrap()).unwrap();
         assert_eq!(frame1["type"], "assistant.delta");
@@ -721,16 +849,16 @@ mod tests {
         assert_eq!(frame1["payload"]["agent_id"], "main");
 
         // 2. Transformed LlmDelta text
-        let event_transformed = SequencedEvent {
-            session_id: std::sync::Arc::from("sess-delta"),
-            epoch: std::sync::Arc::from("epoch-1"),
-            seq: 2,
-            event: EngineEvent::LlmDelta {
+        let event_transformed = SequencedEvent::new(
+            std::sync::Arc::from("sess-delta"),
+            std::sync::Arc::from("epoch-1"),
+            2,
+            EngineEvent::LlmDelta {
                 turn_id: "2".into(),
                 step: 1,
                 part: serde_json::json!({ "text": " Streaming chunk" }),
             },
-        };
+        );
         let frame2: Value =
             serde_json::from_slice(&event_envelope(&event_transformed).unwrap()).unwrap();
         assert_eq!(frame2["type"], "assistant.delta");
@@ -738,16 +866,16 @@ mod tests {
         assert_eq!(frame2["payload"]["turnId"], 2);
 
         // 3. Transformed ThinkingDelta
-        let event_thinking = SequencedEvent {
-            session_id: std::sync::Arc::from("sess-delta"),
-            epoch: std::sync::Arc::from("epoch-1"),
-            seq: 3,
-            event: EngineEvent::LlmDelta {
+        let event_thinking = SequencedEvent::new(
+            std::sync::Arc::from("sess-delta"),
+            std::sync::Arc::from("epoch-1"),
+            3,
+            EngineEvent::LlmDelta {
                 turn_id: "2".into(),
                 step: 1,
                 part: serde_json::json!({ "thinking": "Let me consider..." }),
             },
-        };
+        );
         let frame3: Value =
             serde_json::from_slice(&event_envelope(&event_thinking).unwrap()).unwrap();
         assert_eq!(frame3["type"], "thinking.delta");
@@ -774,6 +902,27 @@ mod tests {
             Inbound::Unsubscribe {
                 id: "u1".into(),
                 session_ids: vec!["sess-a".into()],
+            }
+        );
+        assert_eq!(
+            parse_inbound(
+                br#"{"type":"subscribe_v2","id":"v1","payload":{"session_id":"sess-a","transcript":{"*":"block"},"transcript_since":{"main":3}}}"#
+            ),
+            Inbound::SubscribeV2 {
+                id: "v1".into(),
+                session_id: "sess-a".into(),
+                transcript: HashMap::from([("*".to_string(), "block".to_string())]),
+                transcript_since: HashMap::from([("main".to_string(), 3)]),
+            }
+        );
+        assert_eq!(
+            parse_inbound(
+                br#"{"type":"unsubscribe_v2","id":"v2","payload":{"session_id":"sess-a","agent_ids":["main"]}}"#
+            ),
+            Inbound::UnsubscribeV2 {
+                id: "v2".into(),
+                session_id: "sess-a".into(),
+                agent_ids: vec!["main".into()],
             }
         );
         assert_eq!(
@@ -895,34 +1044,24 @@ mod tests {
     fn test_ack_payload_constructors() {
         // 1. client_hello_ack
         let mut cursors = HashMap::new();
-        cursors.insert("s1".into(), serde_json::json!({ "seq": 10, "epoch": "ep1" }));
-        let val_hello = client_hello_ack(
-            &["s1".into()],
-            &["s2".into()],
-            &cursors,
+        cursors.insert(
+            "s1".into(),
+            serde_json::json!({ "seq": 10, "epoch": "ep1" }),
         );
+        let val_hello = client_hello_ack(&["s1".into()], &["s2".into()], &cursors);
         assert_eq!(val_hello["accepted_subscriptions"], json!(["s1"]));
         assert_eq!(val_hello["resync_required"], json!(["s2"]));
         assert_eq!(val_hello["cursors"]["s1"]["seq"], 10);
 
         // 2. subscribe_ack
-        let val_sub = subscribe_ack(
-            &["s1".into()],
-            &["missing".into()],
-            &[],
-            &cursors,
-        );
+        let val_sub = subscribe_ack(&["s1".into()], &["missing".into()], &[], &cursors);
         assert_eq!(val_sub["accepted"], json!(["s1"]));
         assert_eq!(val_sub["not_found"], json!(["missing"]));
         assert_eq!(val_sub["resync_required"], json!([]));
         assert_eq!(val_sub["cursors"]["s1"]["seq"], 10);
 
         // 3. unsubscribe_ack
-        let val_unsub = unsubscribe_ack(
-            &["s1".into()],
-            &["s_err".into()],
-            &[],
-        );
+        let val_unsub = unsubscribe_ack(&["s1".into()], &["s_err".into()], &[]);
         assert_eq!(val_unsub["accepted"], json!(["s1"]));
         assert_eq!(val_unsub["not_found"], json!(["s_err"]));
         assert_eq!(val_unsub["resync_required"], json!([]));
@@ -973,37 +1112,61 @@ mod tests {
     /// terminal_output / terminal_exit frames (ws-control.ts:418-441).
     #[test]
     fn terminal_custom_events_map_to_contract_frames() {
-        let out = SequencedEvent {
-            seq: 7,
-            epoch: "e".into(),
-            session_id: "s1".into(),
-            event: crate::events::EngineEvent::Custom(json!({
+        let out = SequencedEvent::new(
+            "s1".into(),
+            "e".into(),
+            7,
+            crate::events::EngineEvent::Custom(json!({
                 "type": "terminal_output",
                 "session_id": "s1",
                 "terminal_id": "t1",
                 "seq": 3,
                 "data": "hello"
             })),
-        };
+        );
         let frame: Value = serde_json::from_slice(&event_envelope(&out).unwrap()).unwrap();
         assert_eq!(frame["type"], "terminal_output");
         assert_eq!(frame["seq"], 7);
         assert_eq!(frame["payload"]["data"], "hello");
-        assert!(frame["payload"].get("type").is_none(), "payload narrows to the contract field");
+        assert!(
+            frame["payload"].get("type").is_none(),
+            "payload narrows to the contract field"
+        );
 
-        let exit = SequencedEvent {
-            seq: 8,
-            epoch: "e".into(),
-            session_id: "s1".into(),
-            event: crate::events::EngineEvent::Custom(json!({
+        let exit = SequencedEvent::new(
+            "s1".into(),
+            "e".into(),
+            8,
+            crate::events::EngineEvent::Custom(json!({
                 "type": "terminal_exit",
                 "session_id": "s1",
                 "terminal_id": "t1",
                 "payload": { "exit_code": 0 }
             })),
-        };
+        );
         let frame: Value = serde_json::from_slice(&event_envelope(&exit).unwrap()).unwrap();
         assert_eq!(frame["type"], "terminal_exit");
         assert_eq!(frame["payload"]["exit_code"], 0);
+    }
+
+    #[test]
+    fn transcript_frames_carry_the_agent_and_snapshot() {
+        let reset: Value = serde_json::from_slice(
+            &transcript_reset_frame("sess-a", "main", serde_json::json!({ "items": [] })).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(reset["type"], "transcript.reset");
+        assert_eq!(reset["session_id"], "sess-a");
+        assert_eq!(reset["payload"]["agent_id"], "main");
+        assert_eq!(reset["payload"]["has_more_older"], false);
+        assert_eq!(reset["payload"]["snapshot"]["items"], serde_json::json!([]));
+
+        let ops: Value = serde_json::from_slice(
+            &transcript_ops_frame("sess-a", "main", serde_json::json!([]), 7).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ops["type"], "transcript.ops");
+        assert_eq!(ops["payload"]["agent_id"], "main");
+        assert_eq!(ops["payload"]["seq"], 7);
     }
 }

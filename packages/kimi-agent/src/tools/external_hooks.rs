@@ -35,11 +35,44 @@ const ERRORED: &str = "Permission hook errored while running";
 /// snapshot and runs the matching ones before a native tool call.
 pub struct HookGuard {
     hooks: Vec<HookDef>,
+    /// The hook matchers, compiled once at construction: an empty pattern
+    /// matches everything, an invalid one never matches (v2 `matchHooks.ts`).
+    /// Compiling per tool call would re-parse every hook's regex every time.
+    matchers: Vec<Matcher>,
+}
+
+enum Matcher {
+    All,
+    Regex(regex::Regex),
+    Never,
+}
+
+impl Matcher {
+    fn matches(&self, target: &str) -> bool {
+        match self {
+            Matcher::All => true,
+            Matcher::Regex(re) => re.is_match(target),
+            Matcher::Never => false,
+        }
+    }
 }
 
 impl HookGuard {
     pub fn new(hooks: Vec<HookDef>) -> Self {
-        Self { hooks }
+        let matchers = hooks
+            .iter()
+            .map(|hook| {
+                if hook.matcher.is_empty() {
+                    Matcher::All
+                } else {
+                    match regex::Regex::new(&hook.matcher) {
+                        Ok(re) => Matcher::Regex(re),
+                        Err(_) => Matcher::Never,
+                    }
+                }
+            })
+            .collect();
+        Self { hooks, matchers }
     }
 
     /// Hooks matching an event + tool-name target, deduped by command
@@ -47,11 +80,11 @@ impl HookGuard {
     fn matched_hooks(&self, event: &str, target: &str) -> Vec<HookDef> {
         let mut matched: Vec<HookDef> = Vec::new();
         let mut seen_commands = std::collections::HashSet::new();
-        for hook in &self.hooks {
+        for (hook, matcher) in self.hooks.iter().zip(self.matchers.iter()) {
             if hook.event != event {
                 continue;
             }
-            if !matcher_matches(&hook.matcher, target) {
+            if !matcher.matches(target) {
                 continue;
             }
             // v2 dedupes by command within a single trigger.
@@ -112,7 +145,7 @@ impl HookGuard {
             "error": if is_error { Some(content) } else { None },
         });
         // Fire-and-forget: spawn matching hooks concurrently
-        spawn_hooks(matched, payload);
+        spawn_hooks("PostToolUse", matched, payload);
     }
 
     /// Notify user-configured `UserPromptSubmit` hooks (v2
@@ -131,7 +164,7 @@ impl HookGuard {
             "turn_id": turn_id,
             "prompt": prompt,
         });
-        spawn_hooks(matched, payload);
+        spawn_hooks("UserPromptSubmit", matched, payload);
     }
 
     /// Notify user-configured `PreCompact` hooks (v2
@@ -151,7 +184,21 @@ impl HookGuard {
             "turn_id": turn_id,
             "message_count": message_count,
         });
-        spawn_hooks(matched, payload);
+        spawn_hooks("PreCompact", matched, payload);
+    }
+
+    /// Notify user-configured `SessionStart` / `SessionEnd` hooks (v2
+    /// `sessionExternalHooksService.triggerSessionStart/End`). Observational:
+    /// v2 fires these through `runner.trigger` and discards the verdicts —
+    /// a hook can log but cannot block the lifecycle transition.
+    /// `matcher` is the create source (`startup` | `resume`; `fork` never
+    /// triggers upstream) or the close reason (`exit` | `archive`).
+    pub async fn notify_session_lifecycle(&self, event: &str, matcher: &str, payload: Value) {
+        let matched = self.matched_hooks(event, matcher);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(event, matched, payload);
     }
 
     /// Run matching `Stop` hooks when a turn is about to end (v2
@@ -189,10 +236,15 @@ impl HookGuard {
 }
 
 /// Fire-and-forget hook executions sharing one payload: observe-only
-/// notifies whose outcome the turn never reads.
-fn spawn_hooks(matched: Vec<HookDef>, payload: Value) {
+/// notifies whose outcome the turn never reads. The payload gains the
+/// `hook_event_name` field (v2 `toHookInputData` always carries it, and
+/// hook scripts commonly switch on it).
+fn spawn_hooks(event: &str, matched: Vec<HookDef>, payload: Value) {
     for hook in matched {
-        let p = payload.clone();
+        let mut p = payload.clone();
+        if let Some(obj) = p.as_object_mut() {
+            obj.insert("hook_event_name".into(), Value::String(event.to_string()));
+        }
         tokio::spawn(async move {
             let _ = run_pre_tool_use_hook(&hook, &p).await;
         });
@@ -208,19 +260,6 @@ fn spawn_hooks(matched: Vec<HookDef>, payload: Value) {
 /// the v2 `Blocked by {event} hook` default.
 async fn run_stop_hook(hook: &HookDef, payload: &Value) -> Option<String> {
     run_hook_with_denial(hook, payload, "Stop").await
-}
-
-/// The hook matcher: a regex tested against the tool name; an empty pattern
-/// matches everything; an invalid regex is silently skipped (v2
-/// `matchHooks.ts`).
-fn matcher_matches(pattern: &str, tool_name: &str) -> bool {
-    if pattern.is_empty() {
-        return true;
-    }
-    match regex::Regex::new(pattern) {
-        Ok(re) => re.is_match(tool_name),
-        Err(_) => false,
-    }
 }
 
 /// The snake_case stdin payload (v2 `runPreToolUse` → `toHookInputData`):
@@ -370,8 +409,9 @@ fn spawn_hook_command(
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         // v2 `windowsHide: true` — hook shells must not flash a console window.
+        // (tokio's `Command` carries an inherent `creation_flags` on Windows;
+        // the std `CommandExt` trait is not involved.)
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     #[cfg(unix)]
@@ -693,20 +733,23 @@ mod tests {
 
     #[tokio::test]
     async fn commands_dedupe_accounts_for_cwd() {
-        let dir = tempfile::tempdir().unwrap();
-        if skip_if_path_has_spaces(dir.path()) {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir_a.path()) || skip_if_path_has_spaces(dir_b.path()) {
             return;
         }
-        let marker = dir.path().join("marker.txt");
-        let command = format!("echo 1 >> {}", marker.to_string_lossy());
         // Same command, different cwd: v2 dedups on cwd + command, so both run.
+        // Each hook writes a marker relative to its own cwd so the two runs
+        // never contend on one file (Windows `cmd >>` seeks instead of
+        // appending atomically).
+        let command = "echo 1 >> marker.txt".to_string();
         let guard = HookGuard::new(vec![
             HookDef {
                 event: "PreToolUse".into(),
                 matcher: String::new(),
                 command: command.clone(),
                 timeout: None,
-                cwd: None,
+                cwd: Some(dir_a.path().to_string_lossy().to_string()),
                 env: None,
             },
             HookDef {
@@ -714,17 +757,15 @@ mod tests {
                 matcher: String::new(),
                 command,
                 timeout: None,
-                cwd: Some(dir.path().to_string_lossy().to_string()),
+                cwd: Some(dir_b.path().to_string_lossy().to_string()),
                 env: None,
             },
         ]);
         let _ = guard.denial(&request("Write")).await;
-        let runs = std::fs::read_to_string(&marker).unwrap_or_default();
-        assert_eq!(
-            runs.lines().count(),
-            2,
-            "same command in different cwds must run once each"
-        );
+        let runs_a = std::fs::read_to_string(dir_a.path().join("marker.txt")).unwrap_or_default();
+        let runs_b = std::fs::read_to_string(dir_b.path().join("marker.txt")).unwrap_or_default();
+        assert_eq!(runs_a.lines().count(), 1, "first cwd runs once");
+        assert_eq!(runs_b.lines().count(), 1, "second cwd runs once");
     }
 
     #[tokio::test]
@@ -799,6 +840,99 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         };
         assert!(content.contains("done"));
+    }
+
+    /// A command that copies its stdin payload to a file (`more` reads the
+    /// pipe to EOF on cmd; `cat` elsewhere), so the test can assert on the
+    /// exact JSON the hook received.
+    fn capture_stdin_command(target: &std::path::Path) -> String {
+        if cfg!(windows) {
+            format!("more > {}", target.to_string_lossy())
+        } else {
+            format!("cat > {}", target.to_string_lossy())
+        }
+    }
+
+    /// Wait for a fire-and-forget hook to finish writing its capture file.
+    async fn wait_for_capture(path: &std::path::Path) -> String {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            if !content.is_empty() || std::time::Instant::now() >= deadline {
+                return content;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn session_start_matches_on_the_create_source_and_carries_the_event_name() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let captured = dir.path().join("session-start.json");
+        let guard = HookGuard::new(vec![hook(
+            "SessionStart",
+            "startup",
+            &capture_stdin_command(&captured),
+        )]);
+
+        // A `resume` session does not match a `startup` hook: no file.
+        guard
+            .notify_session_lifecycle(
+                "SessionStart",
+                "resume",
+                json!({ "source": "resume", "session_title": "" }),
+            )
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(
+            !captured.exists(),
+            "the resume source must not match a startup hook"
+        );
+
+        // The `startup` source matches, and the stdin payload carries the
+        // v2 `hook_event_name` + `source` fields.
+        guard
+            .notify_session_lifecycle(
+                "SessionStart",
+                "startup",
+                json!({ "source": "startup", "session_title": "" }),
+            )
+            .await;
+        let payload: Value = serde_json::from_str(&wait_for_capture(&captured).await)
+            .expect("the hook received a JSON payload");
+        assert_eq!(payload["hook_event_name"], "SessionStart");
+        assert_eq!(payload["source"], "startup");
+    }
+
+    #[tokio::test]
+    async fn session_end_hooks_fire_observationally() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let captured = dir.path().join("session-end.json");
+        // SessionEnd is observational: even an exit-2 hook must not block
+        // the caller (the notify resolves and the reason is dropped).
+        let veto = hook("SessionEnd", "archive", exit_two_with_stderr());
+        let guard = HookGuard::new(vec![
+            veto,
+            hook("SessionEnd", "archive", &capture_stdin_command(&captured)),
+        ]);
+        guard
+            .notify_session_lifecycle(
+                "SessionEnd",
+                "archive",
+                json!({ "reason": "archive", "session_title": "" }),
+            )
+            .await;
+
+        let payload: Value = serde_json::from_str(&wait_for_capture(&captured).await)
+            .expect("the hook received a JSON payload");
+        assert_eq!(payload["hook_event_name"], "SessionEnd");
+        assert_eq!(payload["reason"], "archive");
     }
 
     /// A command that writes plain text to stdout and exits 0 — v2 allows

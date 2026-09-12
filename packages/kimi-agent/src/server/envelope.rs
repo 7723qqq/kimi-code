@@ -29,6 +29,8 @@ pub mod error_codes {
 
     pub const SESSION_BUSY: u32 = 40901;
     pub const APPROVAL_ALREADY_RESOLVED: u32 = 40902;
+    pub const PROMPT_ALREADY_COMPLETED: u32 = 40903;
+    pub const PROMPT_ID_CONFLICT: u32 = 40904;
     pub const QUESTION_DISMISSED: u32 = 40909;
     pub const PROVIDER_ALREADY_EXISTS: u32 = 40921;
 
@@ -82,9 +84,9 @@ pub fn envelope_response(
         headers,
         body: raw,
     } = response;
-    let is_json = headers
-        .iter()
-        .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("json"));
+    let is_json = headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("json")
+    });
     if !is_json {
         return crate::server::router::HttpResponse {
             status,
@@ -130,9 +132,11 @@ pub fn envelope_response(
 }
 
 fn is_envelope(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|object| ["code", "msg", "data"].iter().all(|key| object.contains_key(*key)))
+    value.as_object().is_some_and(|object| {
+        ["code", "msg", "data"]
+            .iter()
+            .all(|key| object.contains_key(*key))
+    })
 }
 
 /// The closest kap-server code for a status the dispatcher did not annotate.
@@ -167,7 +171,8 @@ mod tests {
     #[test]
     fn envelope_response_wraps_errors_with_mapped_codes() {
         let response = HttpResponse::json(404, &json!({ "error": "Not Found" }));
-        let body: Value = serde_json::from_slice(&envelope_response("req_2", response).body).unwrap();
+        let body: Value =
+            serde_json::from_slice(&envelope_response("req_2", response).body).unwrap();
         assert_eq!(body["code"], error_codes::SESSION_NOT_FOUND);
         assert_eq!(body["msg"], "Not Found");
         assert!(body["data"].is_null());
@@ -184,9 +189,11 @@ mod tests {
 
     #[test]
     fn envelope_response_keeps_headers_and_passes_existing_envelopes() {
-        let response =
-            HttpResponse::json(401, &json!({ "code": 40101, "msg": "Unauthorized", "data": null }))
-                .with_header("WWW-Authenticate", "Bearer realm=\"kimi-code\"");
+        let response = HttpResponse::json(
+            401,
+            &json!({ "code": 40101, "msg": "Unauthorized", "data": null }),
+        )
+        .with_header("WWW-Authenticate", "Bearer realm=\"kimi-code\"");
         let wrapped = envelope_response("req_7", response);
         assert_eq!(wrapped.status, 401);
         assert_eq!(

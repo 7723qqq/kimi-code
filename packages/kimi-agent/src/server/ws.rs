@@ -2,7 +2,7 @@
 //!
 //! Scope of this module is the **transport**: handshake, framing, control
 //! frames, and fragmentation. On top of it it speaks the kap-server `/api/v1/ws`
-//! **control** vocabulary — [`ws_protocol`] for the frame shapes, sent and read
+//! **control** vocabulary —[`ws_protocol`] for the frame shapes, sent and read
 //! here: the `server_hello` greeting, the `ping` heartbeat, the `ack` that
 //! answers a `client_hello`, and the `40112` refusal of a bad credential in one.
 //! The subscription layer (`subscribe` / per-session `seq` / `resync_required`)
@@ -19,21 +19,23 @@
 //! peer desynchronize the parser:
 //!
 //! - client frames **must** be masked, server frames **never** are (§5.1);
-//! - RSV bits must be zero — no extension is negotiated (§5.2);
-//! - control frames must not be fragmented and must carry ≤ 125 bytes (§5.5);
+//! - RSV bits must be zero —no extension is negotiated (§5.2);
+//! - control frames must not be fragmented and must carry ≤125 bytes (§5.5);
 //! - a 64-bit length must fit the configured cap, and only after a `FIN` may a
 //!   new data frame start (§5.4);
-//! - `Close` payloads are empty or ≥ 2 bytes with a code sendable by a peer.
+//! - `Close` payloads are empty or ≥2 bytes with a code sendable by a peer.
 
+use crate::server::hub::SequencedEvent;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
-use crate::server::hub::SequencedEvent;
 use std::time::Duration;
 
 use crate::server::auth::ServerAuth;
 use crate::server::hub::{EventHub, HubClosed, SUBSCRIBER_QUEUE_DEPTH};
 use crate::server::router::HttpRequest;
+use crate::server::transcript::grade::{TranscriptGrade, filter_ops_for_grade};
+use crate::server::transcript::project::TranscriptProjector;
 use crate::server::ws_protocol::{self, Inbound};
 use base64::prelude::*;
 use serde_json::json;
@@ -41,6 +43,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
+
+/// One attached live transcript stream for a connection (`subscribe_v2`).
+///
+/// The projector folds every engine event for the session into transcript ops;
+/// the grade gates which ops reach the client.
+struct TranscriptSubscription {
+    agent_id: String,
+    grade: TranscriptGrade,
+    projector: TranscriptProjector,
+    /// Monotonic batch seq for the `transcript.ops` frames on this agent.
+    seq: u64,
+}
 
 /// The magic value RFC 6455 §1.3 concatenates with the client key before SHA-1.
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -164,33 +178,35 @@ fn gather_replay_events(
     sid: &str,
     since_seq: u64,
     epoch: &Arc<str>,
-) -> Vec<SequencedEvent> {
+) -> Vec<Arc<SequencedEvent>> {
     let mut replay_events = hub.replay_for(sid, since_seq);
     if let Some(st) = store {
         let min_hub_seq = replay_events.first().map(|e| e.seq).unwrap_or(u64::MAX);
-        if min_hub_seq > since_seq + 1 {
-            if let Ok(records) = st.get_wire_events(sid, since_seq, 500) {
-                let stored_events: Vec<SequencedEvent> = records
-                    .into_iter()
-                    .map(|rec| SequencedEvent {
-                        session_id: Arc::from(rec.session_id.as_str()),
-                        epoch: Arc::clone(epoch),
-                        seq: rec.seq,
-                        event: crate::events::EngineEvent::Custom(rec.payload),
-                    })
-                    .collect();
-                if replay_events.is_empty() {
-                    replay_events = stored_events;
-                } else {
-                    let mut combined = Vec::new();
-                    for se in stored_events {
-                        if se.seq < min_hub_seq {
-                            combined.push(se);
-                        }
+        if min_hub_seq > since_seq + 1
+            && let Ok(records) = st.get_wire_events(sid, since_seq, 500)
+        {
+            let stored_events: Vec<Arc<SequencedEvent>> = records
+                .into_iter()
+                .map(|rec| {
+                    Arc::new(SequencedEvent::new(
+                        Arc::from(rec.session_id.as_str()),
+                        Arc::clone(epoch),
+                        rec.seq,
+                        crate::events::EngineEvent::Custom(rec.payload),
+                    ))
+                })
+                .collect();
+            if replay_events.is_empty() {
+                replay_events = stored_events;
+            } else {
+                let mut combined = Vec::new();
+                for se in stored_events {
+                    if se.seq < min_hub_seq {
+                        combined.push(se);
                     }
-                    combined.extend(replay_events);
-                    replay_events = combined;
                 }
+                combined.extend(replay_events);
+                replay_events = combined;
             }
         }
     }
@@ -217,7 +233,7 @@ pub struct WsOptions<'a> {
 /// the hub ends.
 ///
 /// `leftover` holds bytes the HTTP reader already pulled off the socket past the
-/// handshake — a client may coalesce the handshake and its first frame into one
+/// handshake —a client may coalesce the handshake and its first frame into one
 /// packet, and dropping them would desynchronize the framing parser.
 ///
 /// Inbound data frames are read as [`ws_protocol`] control frames. Subscription
@@ -243,11 +259,13 @@ pub async fn serve_ws(
         .headers
         .get("sec-websocket-key")
         .ok_or(WsError::Proto("missing Sec-WebSocket-Key"))?;
+    let remote_address = stream.peer_addr().ok().map(|addr| addr.to_string());
+    let user_agent = request.headers.get("user-agent").cloned();
     let (read_half, mut writer) = tokio::io::split(stream);
     // Attach before the 101 goes out: once the client sees the handshake it may
     // legitimately expect every event from that moment on, and attaching after
     // the write opens a window where a published event reaches nobody.
-    let mut subscription = hub.attach();
+    let mut subscription = hub.attach_from(remote_address, user_agent);
     writer
         .write_all(&handshake_response(key, selected_protocol.as_deref()))
         .await?;
@@ -263,6 +281,8 @@ pub async fn serve_ws(
     // mode (for backwards compatibility with transport tests before client_hello).
     // Once client_hello or subscribe is received, it becomes Some(set).
     let mut subscriptions: Option<HashSet<String>> = None;
+    // Live transcript streams (`subscribe_v2`), keyed by session id.
+    let mut transcripts: HashMap<String, TranscriptSubscription> = HashMap::new();
 
     // Highest sequence number delivered per session to this connection,
     // ensuring monotonic delivery and preventing replay/live duplicate events.
@@ -273,7 +293,7 @@ pub async fn serve_ws(
     let mut watched_paths: HashMap<String, HashSet<String>> = HashMap::new();
 
     // Frame decoding lives in its own task so the main loop can await events and
-    // inbound frames without cancelling a half-read frame — `read_frame` is not
+    // inbound frames without cancelling a half-read frame —`read_frame` is not
     // cancel-safe, and losing its partial state would desynchronize the socket.
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<Result<Frame, WsError>>(32);
     let reader = tokio::spawn(async move {
@@ -347,7 +367,7 @@ pub async fn serve_ws(
                             return Err(WsError::Proto("data frame while fragmented"));
                         }
                         if frame.is_final {
-                            if handle_inbound(
+                            let close = handle_inbound(
                                 frame.opcode,
                                 &frame.payload,
                                 auth,
@@ -358,11 +378,16 @@ pub async fn serve_ws(
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
+                                &mut transcripts,
                                 &mut delivered_seq,
                                 &mut watched_paths,
                             )
-                            .await?
-                            {
+                            .await?;
+                            if let Some(set) = &subscriptions {
+                                subscription.mark_client_hello();
+                                subscription.set_subscriptions(set);
+                            }
+                            if close {
                                 reader.abort();
                                 return Ok(());
                             }
@@ -383,7 +408,7 @@ pub async fn serve_ws(
                         }
                         buffered.extend_from_slice(&frame.payload);
                         if frame.is_final {
-                            if handle_inbound(
+                            let close = handle_inbound(
                                 opcode,
                                 &buffered,
                                 auth,
@@ -394,11 +419,16 @@ pub async fn serve_ws(
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
+                                &mut transcripts,
                                 &mut delivered_seq,
                                 &mut watched_paths,
                             )
-                            .await?
-                            {
+                            .await?;
+                            if let Some(set) = &subscriptions {
+                                subscription.mark_client_hello();
+                                subscription.set_subscriptions(set);
+                            }
+                            if close {
                                 reader.abort();
                                 return Ok(());
                             }
@@ -435,8 +465,26 @@ pub async fn serve_ws(
                             let last = delivered_seq.entry(sid.to_string()).or_insert(0);
                             if event.seq > *last {
                                 *last = event.seq;
-                                let payload = ws_protocol::event_envelope(&event)?;
+                                let payload = event.envelope();
                                 write_frame(&mut writer, OP_TEXT, &payload).await?;
+                            }
+                            // Live transcript ops for a `subscribe_v2` agent:
+                            // fold the event, gate by grade, emit a batch.
+                            if let Some(sub) = transcripts.get_mut(sid) {
+                                let ops = sub.projector.apply_event(&event.event);
+                                let admitted = filter_ops_for_grade(sub.grade, &ops);
+                                if !admitted.is_empty() {
+                                    sub.seq += 1;
+                                    let ops_value = serde_json::to_value(&admitted)
+                                        .unwrap_or(serde_json::Value::Null);
+                                    let frame = ws_protocol::transcript_ops_frame(
+                                        sid,
+                                        &sub.agent_id,
+                                        ops_value,
+                                        sub.seq,
+                                    )?;
+                                    write_frame(&mut writer, OP_TEXT, &frame).await?;
+                                }
                             }
                         }
                     }
@@ -475,6 +523,7 @@ async fn handle_inbound(
     async_frame_tx: &mpsc::Sender<Vec<u8>>,
     writer: &mut WriteHalf<TcpStream>,
     subscriptions: &mut Option<HashSet<String>>,
+    transcripts: &mut HashMap<String, TranscriptSubscription>,
     delivered_seq: &mut HashMap<String, u64>,
     watched_paths: &mut HashMap<String, HashSet<String>>,
 ) -> Result<bool, WsError> {
@@ -516,8 +565,7 @@ async fn handle_inbound(
             let set = subscriptions.get_or_insert_with(HashSet::new);
             for sid in req_subs {
                 let exists = if let Some(st) = &store {
-                    st.get_session(&sid).ok().flatten().is_some()
-                        || hub.lane_session_ids().contains(&sid)
+                    st.get_session(&sid).ok().flatten().is_some() || hub.lane_exists(&sid)
                 } else {
                     true
                 };
@@ -543,7 +591,8 @@ async fn handle_inbound(
                     }
 
                     let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
-                    all_replay_events.extend(gather_replay_events(&hub, store, &sid, since_seq, &epoch));
+                    all_replay_events
+                        .extend(gather_replay_events(hub, store, &sid, since_seq, &epoch));
                 }
             }
 
@@ -556,7 +605,7 @@ async fn handle_inbound(
                 let last = delivered_seq.entry(re.session_id.to_string()).or_insert(0);
                 if re.seq > *last {
                     *last = re.seq;
-                    let payload = ws_protocol::event_envelope(&re)?;
+                    let payload = re.envelope();
                     write_frame(writer, OP_TEXT, &payload).await?;
                 }
             }
@@ -576,8 +625,7 @@ async fn handle_inbound(
             let set = subscriptions.get_or_insert_with(HashSet::new);
             for sid in session_ids {
                 let exists = if let Some(st) = &store {
-                    st.get_session(&sid).ok().flatten().is_some()
-                        || hub.lane_session_ids().contains(&sid)
+                    st.get_session(&sid).ok().flatten().is_some() || hub.lane_exists(&sid)
                 } else {
                     true
                 };
@@ -603,7 +651,8 @@ async fn handle_inbound(
                     }
 
                     let since_seq = cursors.get(&sid).map(|c| c.seq).unwrap_or(0);
-                    all_replay_events.extend(gather_replay_events(&hub, store, &sid, since_seq, &epoch));
+                    all_replay_events
+                        .extend(gather_replay_events(hub, store, &sid, since_seq, &epoch));
                 } else {
                     not_found.push(sid);
                 }
@@ -622,7 +671,7 @@ async fn handle_inbound(
                 let last = delivered_seq.entry(re.session_id.to_string()).or_insert(0);
                 if re.seq > *last {
                     *last = re.seq;
-                    let payload = ws_protocol::event_envelope(&re)?;
+                    let payload = re.envelope();
                     write_frame(writer, OP_TEXT, &payload).await?;
                 }
             }
@@ -643,6 +692,102 @@ async fn handle_inbound(
             let ack_payload = ws_protocol::unsubscribe_ack(&accepted, &not_found, &resync_required);
             let acceptance = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
             write_frame(writer, OP_TEXT, &acceptance).await?;
+            Ok(false)
+        }
+        Inbound::SubscribeV2 {
+            id,
+            session_id,
+            transcript,
+            transcript_since: _,
+        } => {
+            let exists = if let Some(st) = &store {
+                st.get_session(&session_id).ok().flatten().is_some() || hub.lane_exists(&session_id)
+            } else {
+                true
+            };
+            if !exists {
+                let ack_payload = ws_protocol::subscribe_v2_ack(&session_id, &[], true);
+                let ack = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+                write_frame(writer, OP_TEXT, &ack).await?;
+                return Ok(false);
+            }
+
+            subscriptions
+                .get_or_insert_with(HashSet::new)
+                .insert(session_id.clone());
+            if let Some(st) = &store {
+                let latest = st.latest_wire_event_seq(&session_id).unwrap_or(0);
+                hub.ensure_lane_with_initial_seq(&session_id, latest);
+            } else {
+                hub.ensure_lane_cursor(&session_id);
+            }
+
+            // Agents with a non-`off` grade (`*` means the main agent): attach a
+            // live transcript stream per agent and seed its grade.
+            let mut agents: Vec<String> = Vec::new();
+            for (agent, grade) in &transcript {
+                let grade = match grade.as_str() {
+                    "delta" => TranscriptGrade::Delta,
+                    "block" => TranscriptGrade::Block,
+                    "turn" => TranscriptGrade::Turn,
+                    _ => continue,
+                };
+                let agent_id = if agent == "*" {
+                    "main".to_string()
+                } else {
+                    agent.clone()
+                };
+                agents.push(agent_id.clone());
+                transcripts.insert(
+                    session_id.clone(),
+                    TranscriptSubscription {
+                        agent_id,
+                        grade,
+                        projector: TranscriptProjector::new(),
+                        seq: 0,
+                    },
+                );
+            }
+            let ack_payload = ws_protocol::subscribe_v2_ack(&session_id, &agents, false);
+            let ack = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+            write_frame(writer, OP_TEXT, &ack).await?;
+
+            // Baseline `transcript.reset` per attached agent, reconstructed
+            // from the persisted conversation.
+            if let Some(st) = &store {
+                let history = st.load_session_history(&session_id).unwrap_or_default();
+                let items = crate::server::transcript::build_items(&history);
+                let snapshot = json!({
+                    "items": items,
+                    "tasks": [],
+                    "interactions": [],
+                    "attachments": [],
+                    "todos": [],
+                    "prompts": [],
+                    "meta": {},
+                });
+                for agent in &agents {
+                    let frame =
+                        ws_protocol::transcript_reset_frame(&session_id, agent, snapshot.clone())?;
+                    write_frame(writer, OP_TEXT, &frame).await?;
+                }
+            }
+            Ok(false)
+        }
+        Inbound::UnsubscribeV2 {
+            id,
+            session_id,
+            agent_ids,
+        } => {
+            if agent_ids.is_empty()
+                && let Some(set) = subscriptions.as_mut()
+            {
+                set.remove(&session_id);
+            }
+            transcripts.remove(&session_id);
+            let ack_payload = ws_protocol::subscribe_v2_ack(&session_id, &agent_ids, false);
+            let ack = ws_protocol::ack(&id, ws_protocol::ACK_OK, "success", ack_payload)?;
+            write_frame(writer, OP_TEXT, &ack).await?;
             Ok(false)
         }
         Inbound::Prompt {
@@ -774,11 +919,7 @@ async fn handle_inbound(
             }
 
             let (frames, _total) = tm
-                .output(
-                    &session_id,
-                    &terminal_id,
-                    since_seq.unwrap_or(0) as usize,
-                )
+                .output(&session_id, &terminal_id, since_seq.unwrap_or(0) as usize)
                 .await
                 .unwrap_or_default();
             let replayed = frames.len();
@@ -1112,20 +1253,22 @@ async fn write_frame(
     payload: &[u8],
 ) -> Result<(), WsError> {
     let len = payload.len();
-    let mut head = vec![0x80 | opcode];
+    // Build head+payload in one buffer and issue a single write: two writes per
+    // frame doubles the syscalls on the per-token broadcast path.
+    let mut frame = Vec::with_capacity(len + 10);
+    frame.push(0x80 | opcode);
     if len <= 125 {
-        head.push(len as u8);
+        frame.push(len as u8);
     } else if len <= u16::MAX as usize {
-        head.push(126);
-        head.extend_from_slice(&(len as u16).to_be_bytes());
+        frame.push(126);
+        frame.extend_from_slice(&(len as u16).to_be_bytes());
     } else {
-        head.push(127);
-        head.extend_from_slice(&(len as u64).to_be_bytes());
+        frame.push(127);
+        frame.extend_from_slice(&(len as u64).to_be_bytes());
     }
     // Server-to-client frames must be unmasked: no mask bit, no mask key.
-    writer.write_all(&head).await?;
-    writer.write_all(payload).await?;
-    writer.flush().await?;
+    frame.extend_from_slice(payload);
+    writer.write_all(&frame).await?;
     Ok(())
 }
 
@@ -1488,7 +1631,7 @@ mod tests {
         let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
         let (mut client, _, handle) = connect_upgraded(&server, "abc").await;
 
-        // 0x81 with the mask bit clear — a conforming server must not read it.
+        // 0x81 with the mask bit clear —a conforming server must not read it.
         read_server_hello(&mut client).await;
         client.write_all(&[0x81, 0x00]).await.unwrap();
         let mut reply = [0_u8; 8];
@@ -1551,9 +1694,19 @@ mod tests {
         let id = hello["payload"]["ws_connection_id"]
             .as_str()
             .expect("an id to correlate logs by");
-        assert!(id.starts_with("ws-"), "ws_connection_id must start with ws- prefix: {id}");
-        assert_eq!(id.len(), 19, "ws_connection_id must be 19 chars (ws- + 16 hex): {id}");
-        assert!(id[3..].chars().all(|c| c.is_ascii_hexdigit()), "ws_connection_id suffix must be hex: {id}");
+        assert!(
+            id.starts_with("ws-"),
+            "ws_connection_id must start with ws- prefix: {id}"
+        );
+        assert_eq!(
+            id.len(),
+            19,
+            "ws_connection_id must be 19 chars (ws- + 16 hex): {id}"
+        );
+        assert!(
+            id[3..].chars().all(|c| c.is_ascii_hexdigit()),
+            "ws_connection_id suffix must be hex: {id}"
+        );
         assert_eq!(
             hello["payload"]["heartbeat_ms"], 10_000,
             "kap-server's default period is what a client is told"
@@ -1960,7 +2113,10 @@ mod tests {
         // 6. Missing terminal returns 40414 error ack
         let missing_req =
             br#"{"type":"terminal_attach","id":"ta-err","payload":{"session_id":"sess-term","terminal_id":"no-such-term"}}"#;
-        client.write_all(&masked_frame(OP_TEXT, missing_req)).await.unwrap();
+        client
+            .write_all(&masked_frame(OP_TEXT, missing_req))
+            .await
+            .unwrap();
         let ack = read_ack(&mut client).await;
         assert_eq!(ack["type"], "ack");
         assert_eq!(ack["id"], "ta-err");
@@ -1973,28 +2129,37 @@ mod tests {
     async fn subscribe_replays_history_from_persistent_wire_events() {
         let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
         let sid = "sess-replay-cold";
-        server.store_arc().create_session(sid, Some("Cold Replay")).unwrap();
+        server
+            .store_arc()
+            .create_session(sid, Some("Cold Replay"))
+            .unwrap();
 
         // Pre-populate SQLite wire_events directly (simulating persistent state before connection)
-        server.store_arc().append_wire_event(&crate::native::event_store::RawWireEvent {
-            id: "cold-evt-1".into(),
-            session_id: sid.into(),
-            event_type: "turn.started".into(),
-            payload: json!({ "type": "turn.started", "turn_id": "turn-100", "step": 1 }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 1000,
-        }).unwrap();
+        server
+            .store_arc()
+            .append_wire_event(&crate::native::event_store::RawWireEvent {
+                id: "cold-evt-1".into(),
+                session_id: sid.into(),
+                event_type: "turn.started".into(),
+                payload: json!({ "type": "turn.started", "turn_id": "turn-100", "step": 1 }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1000,
+            })
+            .unwrap();
 
-        server.store_arc().append_wire_event(&crate::native::event_store::RawWireEvent {
-            id: "cold-evt-2".into(),
-            session_id: sid.into(),
-            event_type: "turn.ended".into(),
-            payload: json!({ "type": "turn.ended", "turn_id": "turn-100", "step": 2 }),
-            is_checkpoint: true,
-            is_compaction: false,
-            created_at: 2000,
-        }).unwrap();
+        server
+            .store_arc()
+            .append_wire_event(&crate::native::event_store::RawWireEvent {
+                id: "cold-evt-2".into(),
+                session_id: sid.into(),
+                event_type: "turn.ended".into(),
+                payload: json!({ "type": "turn.ended", "turn_id": "turn-100", "step": 2 }),
+                is_checkpoint: true,
+                is_compaction: false,
+                created_at: 2000,
+            })
+            .unwrap();
 
         let (mut client, _, handle) = connect_upgraded(&server, "key-cold-replay").await;
         read_server_hello(&mut client).await;
@@ -2003,24 +2168,86 @@ mod tests {
         let sub_frame = format!(
             r#"{{"type":"subscribe","id":"sub-cold","payload":{{"session_ids":["{sid}"],"cursors":{{"{sid}":{{"seq":0}}}}}}}}"#
         );
-        client.write_all(&masked_frame(OP_TEXT, sub_frame.as_bytes())).await.unwrap();
+        client
+            .write_all(&masked_frame(OP_TEXT, sub_frame.as_bytes()))
+            .await
+            .unwrap();
 
-        let ack: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        let ack: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
         assert_eq!(ack["type"], "ack");
         assert_eq!(ack["id"], "sub-cold");
         assert_eq!(ack["code"], 0);
         assert_eq!(ack["payload"]["cursors"][sid]["seq"], 2);
 
         // Client must receive the 2 replayed events from persistent wire_events
-        let ev1: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        let ev1: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
         assert_eq!(ev1["session_id"], sid);
         assert_eq!(ev1["seq"], 1);
         assert_eq!(ev1["type"], "turn.started");
 
-        let ev2: serde_json::Value = serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        let ev2: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
         assert_eq!(ev2["session_id"], sid);
         assert_eq!(ev2["seq"], 2);
         assert_eq!(ev2["type"], "turn.ended");
+
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn subscribe_v2_streams_live_transcript_ops() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let sid = "sess-live-transcript";
+        server
+            .store_arc()
+            .create_session(sid, Some("Live Transcript"))
+            .unwrap();
+
+        let (mut client, _, handle) = connect_upgraded(&server, "key-live-tx").await;
+        read_server_hello(&mut client).await;
+
+        let sub = format!(
+            r#"{{"type":"subscribe_v2","id":"sv2","payload":{{"session_id":"{sid}","transcript":{{"*":"delta"}}}}}}"#
+        );
+        client
+            .write_all(&masked_frame(OP_TEXT, sub.as_bytes()))
+            .await
+            .unwrap();
+
+        let ack: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["id"], "sv2");
+
+        // Baseline reset for the attached agent.
+        let reset: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(reset["type"], "transcript.reset");
+        assert_eq!(reset["payload"]["agent_id"], "main");
+
+        server
+            .hub()
+            .bus_for(sid)
+            .publish(&EngineEvent::TurnStarted {
+                agent_id: "main".into(),
+                turn_id: 0,
+                prompt: Some("hi".into()),
+            });
+
+        // The event envelope is forwarded first, then the transcript ops batch.
+        let envelope: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(envelope["type"], "turn.started");
+
+        let ops: serde_json::Value =
+            serde_json::from_str(&read_text_frame(&mut client).await).unwrap();
+        assert_eq!(ops["type"], "transcript.ops");
+        assert_eq!(ops["payload"]["agent_id"], "main");
+        assert_eq!(ops["payload"]["seq"], 1);
+        assert_eq!(ops["payload"]["ops"][0]["op"], "turn.upsert");
+        assert_eq!(ops["payload"]["ops"][0]["turn"]["turnId"], "t0");
 
         handle.shutdown();
     }

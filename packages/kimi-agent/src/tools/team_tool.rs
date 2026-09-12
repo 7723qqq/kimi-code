@@ -31,6 +31,7 @@ pub async fn execute_team(
         Some(t) if !t.is_empty() => t.to_string(),
         _ => {
             return ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "Invalid Team arguments: `topic` is required.".into(),
                 is_error: true,
@@ -42,6 +43,7 @@ pub async fn execute_team(
         Some(arr) if !arr.is_empty() => arr,
         _ => {
             return ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "Invalid Team arguments: `participants` must be a non-empty array.".into(),
                 is_error: true,
@@ -53,7 +55,7 @@ pub async fn execute_team(
     let runtime = match subagent_manager.runtime().await {
         Some(r) => r,
         None => {
-            return ExecutableToolResult {
+            return ExecutableToolResult { delivery: None,
                 stop_turn: false,
                 content: "Team tool requires an injected subagent runtime (llm + callbacks); the host did not provide one.".into(),
                 is_error: true,
@@ -79,6 +81,7 @@ pub async fn execute_team(
                     Some(n) => n.to_string(),
                     None => {
                         return ExecutableToolResult {
+                            delivery: None,
                             stop_turn: false,
                             content:
                                 "Invalid Team arguments: each participant needs `profile_name`."
@@ -122,6 +125,7 @@ pub async fn execute_team(
             let mut coordinator = StructuredDebateCoordinator::new(host, None);
             let result = coordinator.debate(&options, &cancelled).await;
             ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format_debate_result(&result),
                 is_error: false,
@@ -135,6 +139,7 @@ pub async fn execute_team(
                     Some(n) => n.to_string(),
                     None => {
                         return ExecutableToolResult {
+                            delivery: None,
                             stop_turn: false,
                             content:
                                 "Invalid Team arguments: each participant needs `profile_name`."
@@ -177,6 +182,7 @@ pub async fn execute_team(
             let mut coordinator = TeamCoordinator::new(host, None);
             let result = coordinator.discuss(&options, &cancelled).await;
             ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format_discussion_result(&result),
                 is_error: false,
@@ -237,10 +243,7 @@ mod tests {
             def.input_schema["properties"]["mode"]["enum"],
             serde_json::json!(["discussion", "debate"])
         );
-        assert_eq!(
-            def.input_schema["properties"]["topic"]["type"],
-            "string"
-        );
+        assert_eq!(def.input_schema["properties"]["topic"]["type"], "string");
         assert_eq!(
             def.input_schema["properties"]["participants"]["type"],
             "array"
@@ -294,12 +297,8 @@ mod tests {
         );
 
         // Missing participants field
-        let res_missing = execute_team(
-            &manager,
-            &serde_json::json!({ "topic": "hello" }),
-            None,
-        )
-        .await;
+        let res_missing =
+            execute_team(&manager, &serde_json::json!({ "topic": "hello" }), None).await;
         assert!(res_missing.is_error);
         assert_eq!(
             res_missing.content,
@@ -326,10 +325,25 @@ mod tests {
 
         struct DummyLlm;
         impl crate::turn_loop::types::LLM for DummyLlm {
-            fn system_prompt(&self) -> &str { "p" }
-            fn model_name(&self) -> &str { "m" }
-            fn is_retryable_error(&self, _: &str) -> bool { false }
-            fn chat(&self, _: crate::turn_loop::types::LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<crate::turn_loop::types::LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+            fn system_prompt(&self) -> &str {
+                "p"
+            }
+            fn model_name(&self) -> &str {
+                "m"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _: crate::turn_loop::types::LLMChatParams,
+            ) -> crate::rpc::types::BoxFuture<
+                '_,
+                Result<
+                    crate::turn_loop::types::LLMChatResponse,
+                    Box<dyn std::error::Error + Send + Sync>,
+                >,
+            > {
                 Box::pin(async {
                     Ok(crate::turn_loop::types::LLMChatResponse {
                         content: "ok".into(),
@@ -343,17 +357,37 @@ mod tests {
         }
         struct DummyCallbacks;
         impl crate::callbacks::HostCallbacks for DummyCallbacks {
-            fn llm_chat(&self, _: crate::rpc::types::LlmChatRequest) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>> {
+            fn llm_chat(
+                &self,
+                _: crate::rpc::types::LlmChatRequest,
+            ) -> crate::rpc::types::BoxFuture<
+                'static,
+                Result<crate::rpc::types::LlmChatResponse, String>,
+            > {
                 Box::pin(async { Err("no".into()) })
             }
-            fn execute_tool(&self, _: crate::rpc::types::ToolExecuteRequest) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>> {
+            fn execute_tool(
+                &self,
+                _: crate::rpc::types::ToolExecuteRequest,
+            ) -> crate::rpc::types::BoxFuture<
+                'static,
+                Result<crate::rpc::types::ToolExecuteResponse, String>,
+            > {
                 Box::pin(async { Err("no".into()) })
             }
-            fn check_permission(&self, _: crate::rpc::types::PermissionCheckRequest) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::PermissionDecision, String>> {
+            fn check_permission(
+                &self,
+                _: crate::rpc::types::PermissionCheckRequest,
+            ) -> crate::rpc::types::BoxFuture<
+                'static,
+                Result<crate::rpc::types::PermissionDecision, String>,
+            > {
                 Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
             }
         }
-        manager.set_runtime(Arc::new(DummyLlm), Arc::new(DummyCallbacks)).await;
+        manager
+            .set_runtime(Arc::new(DummyLlm), Arc::new(DummyCallbacks), None)
+            .await;
 
         // Discussion mode participant missing profile_name
         let res_disc = execute_team(

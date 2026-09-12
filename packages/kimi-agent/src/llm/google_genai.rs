@@ -54,9 +54,8 @@ pub fn build_request_full(
                     // accepts the echoed function call (v2
                     // google-genai.ts:274-276).
                     if let Some(extras) = &tc.extras
-                        && let Some(sig) = extras
-                            .get("thought_signature_b64")
-                            .and_then(|s| s.as_str())
+                        && let Some(sig) =
+                            extras.get("thought_signature_b64").and_then(|s| s.as_str())
                     {
                         fc["functionCall"]["thought_signature"] = json!(sig);
                     }
@@ -66,12 +65,14 @@ pub fn build_request_full(
             }
             "tool" => {
                 let call_id = m.tool_call_id.as_deref().unwrap_or_default();
-                let tool_name = tool_name_by_id.get(call_id).cloned().unwrap_or_else(|| {
-                    fallback_tool_name_from_id(call_id)
-                });
+                let tool_name = tool_name_by_id
+                    .get(call_id)
+                    .cloned()
+                    .unwrap_or_else(|| fallback_tool_name_from_id(call_id));
 
                 // Gemini 强制要求 functionResponse.response 必须为 JSON Object
-                let response_obj = if let Ok(Value::Object(map)) = serde_json::from_str(&m.content) {
+                let response_obj = if let Ok(Value::Object(map)) = serde_json::from_str(&m.content)
+                {
                     Value::Object(map)
                 } else {
                     json!({ "output": m.content })
@@ -678,7 +679,10 @@ mod tests {
         });
         let parsed = parse_response(&resp).unwrap();
         assert_eq!(parsed.tool_calls.len(), 1);
-        let extras = parsed.tool_calls[0].extras.as_ref().expect("extras captured");
+        let extras = parsed.tool_calls[0]
+            .extras
+            .as_ref()
+            .expect("extras captured");
         assert_eq!(extras["thought_signature_b64"], "sig-b64");
 
         let messages = vec![WireMessage::assistant_tool_calls(

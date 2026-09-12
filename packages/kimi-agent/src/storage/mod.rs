@@ -14,4 +14,6 @@ pub mod task_runner;
 pub use paths::engine_state_dir;
 pub use session_store::{SessionRecord, SessionStore, SessionSummary};
 pub use state_store::{StateStore, StateWriteOutcome};
-pub use task_runner::{TaskRunner, TaskStatus, TaskWaitResult};
+pub use task_runner::{
+    BackgroundLimits, TaskNotification, TaskRunner, TaskSpawnMeta, TaskStatus, TaskWaitResult,
+};

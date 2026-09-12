@@ -1,11 +1,10 @@
 /**
- * Output rendering for `kimi -p` (print mode), driven by the native v2 runner
- * (`run-prompt.ts` delegates to `v2/run-v2-print.ts`).
+ * Output rendering for `kimi -p` (print mode), driven by the native Rust
+ * runner (`run-prompt.ts` delegates to `run-native-print.ts`).
  *
- * The runner feeds the writer classes from the main agent's native `IEventBus`
- * (whose `DomainEvent` payloads are already v1-protocol-shaped). Keeping the
- * writers here lets the v2 runner reuse them without re-implementing
- * rendering.
+ * The runner feeds the writer classes from the engine's event stream (whose
+ * `DomainEvent` payloads are already v1-protocol-shaped). Keeping the writers
+ * here lets the runner reuse them without re-implementing rendering.
  */
 
 import { t } from '#/i18n';
@@ -13,10 +12,9 @@ import { t } from '#/i18n';
 import type { PromptOutputFormat } from './options';
 
 /**
- * Structural hook-result shape the renderer reads. Both the v1 SDK
- * `HookResultEvent` and the v2 native `hook.result` `DomainEvent` satisfy it,
- * so the renderer stays engine-agnostic without depending on either event
- * definition.
+ * Structural hook-result shape the renderer reads. The engine's `hook.result`
+ * `DomainEvent` satisfies it, so the renderer stays engine-agnostic without
+ * depending on the event definition.
  */
 interface HookResultEventLike {
   readonly hookEvent: string;

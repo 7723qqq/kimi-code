@@ -1,4 +1,4 @@
-﻿/// Read tool — reads a text file with line numbers, respecting MAX_LINES,
+/// Read tool — reads a text file with line numbers, respecting MAX_LINES,
 /// MAX_LINE_LENGTH, and MAX_BYTES limits. Supports forward reading and
 /// tail reading (negative line_offset). UTF-16 LE/BE text (BOM or zero-byte
 /// parity) and GBK/GB18030 / near-UTF-8 payloads are transcoded natively via
@@ -8,11 +8,13 @@
 /// Mirrors `packages/agent-core-v2/src/agent/tools/os/read/read.ts` and
 /// `packages/agent-core-v2/src/agent/tools/os/read/readTool.ts`.
 use crate::native::encoding::{
-    decode_gbk, decode_utf8_lenient, decode_utf_text, detect_legacy_text_encoding,
-    detect_text_encoding, LegacyTextEncoding, UtfTextEncoding, TRANSCODE_MAX_BYTES,
+    LegacyTextEncoding, TRANSCODE_MAX_BYTES, UtfTextEncoding, decode_gbk, decode_utf_text,
+    decode_utf8_lenient, detect_legacy_text_encoding, detect_text_encoding,
 };
-use crate::native::file_type::{detect_file_type, FileKind, MEDIA_SNIFF_BYTES};
-use crate::native::line_endings::{make_carriage_returns_visible, LineEndingFlags, LineEndingStyle};
+use crate::native::file_type::{FileKind, MEDIA_SNIFF_BYTES, detect_file_type};
+use crate::native::line_endings::{
+    LineEndingFlags, LineEndingStyle, make_carriage_returns_visible,
+};
 use napi_derive::napi;
 use std::collections::VecDeque;
 use std::fs::File;
@@ -885,9 +887,11 @@ mod tests {
             n_lines: Some(10),
         });
         assert!(result.error.is_none());
-        assert!(result
-            .content
-            .contains("Line 5 exceeds the total number of lines (2)"));
+        assert!(
+            result
+                .content
+                .contains("Line 5 exceeds the total number of lines (2)")
+        );
         assert!(result.content.starts_with("<system>"));
     }
 
@@ -1001,10 +1005,12 @@ mod tests {
         let f = write_temp(&[0xff; 8]);
         let result = read(f.path().to_str().unwrap().to_string());
         assert_eq!(result.error_kind.as_deref(), Some("invalid_utf8"));
-        assert!(result
-            .error
-            .unwrap()
-            .contains("not valid UTF-8, UTF-16, or GBK/GB18030 text"));
+        assert!(
+            result
+                .error
+                .unwrap()
+                .contains("not valid UTF-8, UTF-16, or GBK/GB18030 text")
+        );
 
         // Success carries no kind.
         let f = write_temp(b"hello\n");

@@ -34,6 +34,7 @@ pub mod tool_result_truncation;
 pub mod tools;
 pub mod turn_events;
 pub mod turn_loop;
+pub mod workflow;
 
 use crate::native::event_store::{EventStore, RawWireEvent};
 use crate::native::permission_engine::PermissionEngine;
@@ -91,9 +92,15 @@ pub fn event_store_message_to_llm(msg: crate::native::event_store::Message) -> L
     }
 }
 
-/// 纯原生环境下的宿主回调桩（将权限评估直接导向原生 PermissionEngine）
+/// 纯原生环境下的宿主回调（将权限评估直接导向原生 PermissionEngine，
+/// 状态桥接直接落地到本地 StateStore）
 struct NativeHostCallbacks {
     permission: Arc<PermissionEngine>,
+    /// The local state store backing the state bridge (todo / plan / goal …).
+    /// `None` when the engine was built without a workspace store: those
+    /// tools then report the standard "host does not support" error instead
+    /// of failing with a confusing message.
+    state: Option<Arc<crate::storage::StateStore>>,
 }
 
 impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
@@ -154,6 +161,69 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
             }
         })
     }
+
+    /// The state bridge, served from the local store: the todo / plan / goal
+    /// / task tools read and write their domains here instead of round-tripping
+    /// through a host that does not exist on this path.
+    fn state_read(
+        &self,
+        request: crate::rpc::types::StateReadRequest,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::StateReadResponse, String>>
+    {
+        let state = self.state.clone();
+        Box::pin(async move {
+            let Some(state) = state else {
+                return Err("host does not support state bridge".into());
+            };
+            let value = state.read_state(&request.domain, &request.key)?;
+            Ok(crate::rpc::types::StateReadResponse { value })
+        })
+    }
+
+    fn state_write(
+        &self,
+        request: crate::rpc::types::StateWriteRequest,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::StateWriteResponse, String>>
+    {
+        let state = self.state.clone();
+        Box::pin(async move {
+            let Some(state) = state else {
+                return Err("host does not support state bridge".into());
+            };
+            let outcome = state.apply_write(&request.domain, &request.value)?;
+            state.write_domain(&request.domain, &outcome.stored)?;
+            Ok(crate::rpc::types::StateWriteResponse {
+                ok: true,
+                value: outcome.response,
+            })
+        })
+    }
+
+    /// Goal budgeting reads the local store, so goal-aware turns work without
+    /// a host (`host/goal` has no counterpart on this path).
+    fn goal(
+        &self,
+    ) -> crate::rpc::types::BoxFuture<
+        'static,
+        Result<Option<crate::turn_loop::types::GoalContext>, String>,
+    > {
+        let state = self.state.clone();
+        Box::pin(async move {
+            let Some(state) = state else {
+                return Err("host does not support goal".into());
+            };
+            Ok(state.goal_context())
+        })
+    }
+
+    /// This path has no host tool table of its own; the engine's table (plus
+    /// MCP, when a manager is attached) is assembled by the toolset layer.
+    fn list_tools(
+        &self,
+    ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ListToolsResponse, String>>
+    {
+        Box::pin(async { Ok(crate::rpc::types::ListToolsResponse { tools: Vec::new() }) })
+    }
 }
 
 use crate::engine::EngineConfig;
@@ -163,6 +233,18 @@ pub struct KimiEngine {
     store: Arc<dyn EventStore>,
     permission: Arc<PermissionEngine>,
     engine_config: EngineConfig,
+    /// Local state store: backs the state bridge (todo / plan / goal) and the
+    /// `host/goal` seam so those tools work without a host.
+    state: Option<Arc<crate::storage::StateStore>>,
+    /// MCP servers, when the embedder connected any: their tools join the
+    /// advertised table and become callable through the toolset.
+    mcp: Option<Arc<crate::mcp::McpManager>>,
+    /// Subagent roster: without it the advertised `Agent` / `AgentSwarm`
+    /// tools can only fail.
+    subagents: Arc<crate::subagent::SubagentManager>,
+    /// User-configured external hooks (`[hooks]`), run by the PreToolUse
+    /// gate when present.
+    hooks: Vec<crate::permission::HookDef>,
 }
 
 impl KimiEngine {
@@ -172,12 +254,45 @@ impl KimiEngine {
             store,
             permission,
             engine_config: EngineConfig::default(),
+            state: None,
+            mcp: None,
+            subagents: Arc::new(crate::subagent::SubagentManager::new()),
+            hooks: Vec::new(),
         }
+    }
+
+    /// Attach the user's external hooks (PreToolUse gate).
+    #[must_use]
+    pub fn with_hooks(mut self, hooks: Vec<crate::permission::HookDef>) -> Self {
+        self.hooks = hooks;
+        self
     }
 
     /// 设置引擎执行配置（如 Token 预算上限）
     pub fn with_engine_config(mut self, config: EngineConfig) -> Self {
         self.engine_config = config;
+        self
+    }
+
+    /// Attach a local state store: enables the state-bridge tools (todo,
+    /// plan, goal) that otherwise report "host does not support".
+    #[must_use]
+    pub fn with_state_store(mut self, state: Arc<crate::storage::StateStore>) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    /// Attach connected MCP servers; their tools are advertised and callable.
+    #[must_use]
+    pub fn with_mcp_manager(mut self, mcp: Arc<crate::mcp::McpManager>) -> Self {
+        self.mcp = Some(mcp);
+        self
+    }
+
+    /// Attach a subagent roster (sharing its runtime / task runner).
+    #[must_use]
+    pub fn with_subagents(mut self, subagents: Arc<crate::subagent::SubagentManager>) -> Self {
+        self.subagents = subagents;
         self
     }
 
@@ -275,6 +390,7 @@ impl KimiEngine {
         let base_callbacks: Arc<dyn crate::callbacks::HostCallbacks> =
             Arc::new(NativeHostCallbacks {
                 permission: self.permission.clone(),
+                state: self.state.clone(),
             });
 
         let workspace_str = self
@@ -282,20 +398,42 @@ impl KimiEngine {
             .workspace_root()
             .to_string_lossy()
             .to_string();
-        let tool_defs = crate::tools::core_tool_defs::core_tool_defs();
         let callbacks =
             if let Some(toolset) = crate::tools::NativeToolset::new(&workspace_str, None) {
-                let toolset = Arc::new(toolset.with_callbacks(base_callbacks.clone()));
+                // The capabilities this path advertises must be the ones it
+                // can actually execute: subagents and MCP are attached here,
+                // otherwise `Agent` / `mcp__*` would be dead entries.
+                let mut toolset = toolset
+                    .with_subagents(self.subagents.clone())
+                    .with_callbacks(base_callbacks.clone());
+                if let Some(mcp) = self.mcp.clone() {
+                    toolset = toolset.with_mcp(mcp);
+                }
+                let toolset = Arc::new(toolset);
                 Arc::new(crate::callbacks::NativeToolCallbacks {
                     inner: base_callbacks.clone(),
                     toolset,
                     native_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
                     truncator: None,
+                    // The blind-write gate (G-6 #3): without it a
+                    // pure-native run could overwrite a file it never read.
+                    // The plan / goal / permission guards stay off — they
+                    // need a `PolicySnapshot` this path does not carry.
                     permission_engine: None,
                     plan_guard: None,
-                    stale_guard: None,
-                    goal_guard: None,
-                    hook_guard: None,
+                    stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
+                        self.permission.workspace_root().to_path_buf(),
+                    )))),
+                    goal_guard: Some(Arc::new(crate::tools::goal_guard::GoalGuard::new(
+                        None, false,
+                    ))),
+                    hook_guard: if self.hooks.is_empty() {
+                        None
+                    } else {
+                        Some(Arc::new(crate::tools::external_hooks::HookGuard::new(
+                            self.hooks.clone(),
+                        )))
+                    },
                     agent_tool_veto: None,
                     tools_veto: None,
                     todo_tool_veto: None,
@@ -305,6 +443,14 @@ impl KimiEngine {
             } else {
                 base_callbacks
             };
+
+        // The advertised table is the callbacks layer's aggregate — the
+        // engine's own tools plus MCP when a manager is attached — not just
+        // the core file tools, so the model sees what it can actually call.
+        let tool_defs = match callbacks.list_tools().await {
+            Ok(response) if !response.tools.is_empty() => response.tools,
+            _ => crate::tools::core_tool_defs::core_tool_defs(),
+        };
 
         let input = crate::turn_loop::types::RunTurnInput {
             max_attempts: None,
@@ -368,8 +514,128 @@ impl KimiEngine {
 #[cfg(test)]
 mod engine_tests {
     use super::*;
+    use crate::callbacks::HostCallbacks;
     use crate::native::event_store::SqliteEventStore;
     use std::path::PathBuf;
+
+    /// A pure-native run must not advertise capabilities it cannot execute:
+    /// the state bridge serves the todo domain from the local store, and MCP
+    /// tools join the advertised table when a manager is attached.
+    #[tokio::test]
+    async fn native_host_callbacks_serve_the_state_bridge() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(crate::storage::StateStore::for_workspace(dir.path()).unwrap());
+        let root = PathBuf::from(dir.path());
+        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let callbacks = NativeHostCallbacks {
+            permission,
+            state: Some(state.clone()),
+        };
+
+        // A todo write round-trips through the local store.
+        let written = callbacks
+            .state_write(crate::rpc::types::StateWriteRequest {
+                domain: "todo".into(),
+                key: "todo".into(),
+                value: serde_json::json!([
+                    { "title": "wire the state bridge", "status": "in_progress" }
+                ]),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+                undoable: false,
+            })
+            .await
+            .expect("the state bridge writes locally");
+        assert!(written.ok);
+
+        let read = callbacks
+            .state_read(crate::rpc::types::StateReadRequest {
+                domain: "todo".into(),
+                key: "todo".into(),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            })
+            .await
+            .expect("the state bridge reads locally");
+        assert!(
+            serde_json::to_string(&read.value)
+                .unwrap()
+                .contains("wire the state bridge"),
+            "{:?}",
+            read.value
+        );
+
+        // Without a store the seam reports the standard error rather than a
+        // confusing "tool not available".
+        let bare = NativeHostCallbacks {
+            permission: Arc::new(PermissionEngine::new(&root, None).unwrap()),
+            state: None,
+        };
+        let err = bare
+            .state_read(crate::rpc::types::StateReadRequest {
+                domain: "todo".into(),
+                key: "todo".into(),
+                turn_id: String::new(),
+                tool_call_id: String::new(),
+            })
+            .await
+            .expect_err("no store means no state bridge");
+        assert!(err.contains("state bridge"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn mcp_tools_join_the_pure_native_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = PathBuf::from(dir.path());
+        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let mcp = Arc::new(crate::mcp::McpManager::new());
+        mcp.add_client(crate::mcp::McpClient::mock("acme")).await;
+
+        let engine = KimiEngine::new(
+            Arc::new(SqliteEventStore::new_in_memory().unwrap()),
+            permission.clone(),
+        )
+        .with_mcp_manager(mcp.clone());
+
+        // The advertised table comes from the callbacks layer, which merges
+        // the engine's tools with MCP — `core_tool_defs` alone would hide
+        // every `mcp__` tool.
+        let toolset = Arc::new(
+            crate::tools::NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_mcp(mcp)
+                .with_subagents(engine.subagents.clone()),
+        );
+        let callbacks = crate::callbacks::NativeToolCallbacks {
+            inner: Arc::new(NativeHostCallbacks {
+                permission,
+                state: None,
+            }),
+            toolset,
+            native_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: None,
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            sandbox_policy: None,
+        };
+        let tools = callbacks
+            .list_tools()
+            .await
+            .expect("the aggregate table resolves")
+            .tools;
+        assert!(
+            tools.iter().any(|tool| tool.name.starts_with("mcp__")),
+            "MCP tools must be advertised: {:?}",
+            tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+        );
+    }
 
     #[tokio::test]
     async fn test_kimi_engine_run_once_flow() {

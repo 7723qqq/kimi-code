@@ -57,7 +57,9 @@ pub async fn start_btw(
 
     // Prepare forked history with closed unclosed tool calls and appended side reminder
     let mut initial_messages = crate::subagent::close_trailing_open_tool_exchange(history);
-    initial_messages.push(crate::injection::injection_message(SIDE_QUESTION_SYSTEM_REMINDER.to_string()));
+    initial_messages.push(crate::injection::injection_message(
+        SIDE_QUESTION_SYSTEM_REMINDER.to_string(),
+    ));
 
     // Seed the conversation history so resume / foreground turn picks it up
     manager.set_foreground_history(&agent_id, "btw", "side-channel", initial_messages);
@@ -72,6 +74,7 @@ pub fn check_btw_tool_denial(caller_agent_id: Option<&str>) -> Option<Executable
         && (caller.starts_with("agent-btw-") || caller == "btw")
     {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: TOOL_CALL_DISABLED_MESSAGE.into(),
             is_error: true,
@@ -100,7 +103,11 @@ mod tests {
         assert_eq!(seeded.len(), 3);
         assert_eq!(seeded[0].content, "how does auth work?");
         assert_eq!(seeded[1].content, "it uses bearer tokens");
-        assert!(seeded[2].content.contains("This is a side-channel conversation"));
+        assert!(
+            seeded[2]
+                .content
+                .contains("This is a side-channel conversation")
+        );
     }
 
     #[test]
@@ -139,7 +146,11 @@ mod tests {
 
         let agent_id = start_btw(&manager, &history).await.unwrap();
         let seeded = manager.get_foreground_history(&agent_id).unwrap();
-        assert_eq!(seeded.len(), 4, "Must close in-flight tool call and append side reminder");
+        assert_eq!(
+            seeded.len(),
+            4,
+            "Must close in-flight tool call and append side reminder"
+        );
 
         assert_eq!(seeded[0].role, "user");
         assert_eq!(seeded[0].content, "check the config");
@@ -149,10 +160,17 @@ mod tests {
 
         assert_eq!(seeded[2].role, "tool");
         assert_eq!(seeded[2].tool_call_id.as_deref(), Some("call-read-pending"));
-        assert_eq!(seeded[2].content, crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT);
+        assert_eq!(
+            seeded[2].content,
+            crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT
+        );
 
         assert_eq!(seeded[3].role, "user");
-        assert!(seeded[3].content.contains("This is a side-channel conversation with the user"));
+        assert!(
+            seeded[3]
+                .content
+                .contains("This is a side-channel conversation with the user")
+        );
         assert!(seeded[3].content.contains("Do not call any tools"));
     }
 
@@ -167,27 +185,38 @@ mod tests {
 
         let tools_to_test = [
             ("Read", serde_json::json!({ "path": "any.txt" })),
-            ("Write", serde_json::json!({ "path": "any.txt", "content": "hi" })),
-            ("Edit", serde_json::json!({ "path": "any.txt", "old_string": "a", "new_string": "b" })),
+            (
+                "Write",
+                serde_json::json!({ "path": "any.txt", "content": "hi" }),
+            ),
+            (
+                "Edit",
+                serde_json::json!({ "path": "any.txt", "old_string": "a", "new_string": "b" }),
+            ),
             ("Bash", serde_json::json!({ "command": "echo hi" })),
             ("Grep", serde_json::json!({ "pattern": "test" })),
             ("Glob", serde_json::json!({ "pattern": "*.rs" })),
-            ("FetchURL", serde_json::json!({ "url": "https://example.com" })),
+            (
+                "FetchURL",
+                serde_json::json!({ "url": "https://example.com" }),
+            ),
         ];
 
         for (name, args) in tools_to_test {
             let res = toolset
                 .execute_tool_streaming(None, name, &args, None)
                 .await;
-            assert!(res.is_some(), "Tool {name} should be handled and intercepted");
+            assert!(
+                res.is_some(),
+                "Tool {name} should be handled and intercepted"
+            );
             let outcome = res.unwrap();
             assert!(
                 outcome.is_error,
                 "Tool {name} must be rejected as an error for BTW caller"
             );
             assert_eq!(
-                outcome.content,
-                TOOL_CALL_DISABLED_MESSAGE,
+                outcome.content, TOOL_CALL_DISABLED_MESSAGE,
                 "Tool {name} must produce exact TOOL_CALL_DISABLED_MESSAGE rejection"
             );
         }

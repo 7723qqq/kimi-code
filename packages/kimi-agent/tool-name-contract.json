@@ -23,6 +23,7 @@
     "TaskOutput",
     "TaskStop",
     "Skill",
+    "Workflow",
     "Agent",
     "AgentSwarm",
     "WaitFor",
@@ -38,9 +39,7 @@
     "TowerMission",
     "TowerStatus"
   ],
-  "v2Host": [
-    "select_tools"
-  ],
+  "v2Host": [],
   "replOnlyNative": [
     "invoke_subagent",
     "manage_subagents",
@@ -48,7 +47,8 @@
     "TaskWait",
     "list_directory",
     "Knowledge",
-    "Team"
+    "Team",
+    "select_tools"
   ],
   "unloadedInV2": [],
   "v2Github": [

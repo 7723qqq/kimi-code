@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 
+use crate::turn_loop::types::ToolDelivery;
+
 /// A boxed future type alias for async handlers.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -514,6 +516,14 @@ pub struct NativeLlmConfig {
     /// the wire.
     #[serde(default)]
     pub thinking_keep: Option<String>,
+    /// Route an anthropic-protocol model through the **beta** Messages API
+    /// (`POST {base}/messages?beta=true`) instead of the standard endpoint
+    /// (`[models.<alias>].beta_api`). Beta features then travel in the request
+    /// body's `betas` field rather than the `anthropic-beta` header. Kimi's
+    /// anthropic-compatible endpoint is served behind the beta API, so its
+    /// managed aliases declare this. Ignored for non-anthropic protocols.
+    #[serde(default)]
+    pub beta_api: bool,
 }
 
 /// One `[secondary_model.models]` pool entry: the alias the model passes via
@@ -570,6 +580,7 @@ impl std::fmt::Debug for NativeLlmConfig {
             .field("reasoning_effort", &self.reasoning_effort)
             .field("thinking_budget", &self.thinking_budget)
             .field("auth_provider", &self.auth_provider)
+            .field("beta_api", &self.beta_api)
             .finish()
     }
 }
@@ -664,6 +675,19 @@ pub struct RunTurnParams {
     /// first and falls back to the direct fetch on failure (v2 semantics).
     #[serde(default)]
     pub web_fetch: Option<WebServiceConfig>,
+    /// Host-resolved `[image].read_byte_budget` (v2
+    /// `resolveReadImageByteBudget`): raw-byte budget for model-initiated
+    /// image reads. `None` keeps the 256KB default.
+    #[serde(default)]
+    pub image_read_byte_budget: Option<u64>,
+    /// Host-resolved `[image].max_edge_px` for model-initiated image reads.
+    /// `None` keeps the 2000px default.
+    #[serde(default)]
+    pub image_max_edge_px: Option<u32>,
+    /// The session model's declared capabilities (`[models.<alias>]
+    /// .capabilities`). `None`/empty = unknown, and image reads are allowed.
+    #[serde(default)]
+    pub model_capabilities: Option<Vec<String>>,
     /// P52 native-path vetoes: non-empty reason = the engine rejects the
     /// affected native executions with this text as the tool result.
     /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
@@ -688,6 +712,39 @@ pub struct RunTurnParams {
     /// keeps the v2 default (subagents inherit the caller's model).
     #[serde(default)]
     pub secondary_model: Option<SecondaryModelPool>,
+    /// Host-resolved `[background]` knobs (v2 `configSection.ts`): the
+    /// cooperative-stop grace and the concurrent-task cap for this turn's task
+    /// runner. Absent fields keep the engine default (5s / unlimited).
+    #[serde(default)]
+    pub kill_grace_period_ms: Option<u64>,
+    #[serde(default)]
+    pub max_running_tasks: Option<u32>,
+    /// `[background].bash_auto_background_on_timeout`: a timed-out foreground
+    /// Bash call migrates to the background instead of being killed. Absent
+    /// keeps the built-in `true`.
+    #[serde(default)]
+    pub bash_auto_background_on_timeout: Option<bool>,
+    /// `[background].bash_task_timeout_s`: default timeout (seconds) for
+    /// background Bash tasks. Absent keeps the built-in 600s; `0` means "no
+    /// timeout".
+    #[serde(default)]
+    pub bash_task_timeout_s: Option<u64>,
+    /// `[background].print_background_mode` — what a print-mode (`kimi -p`)
+    /// session does once its main turn ends with background tasks still
+    /// running. Absent keeps the engine's exit-on-turn-end default, so every
+    /// non-print entry is unaffected.
+    #[serde(default)]
+    pub print_background_mode: Option<String>,
+    /// `[background].print_wait_ceiling_s`: wall-clock bound on the run's
+    /// whole settle phase (seconds). Absent / `0` keeps the documented
+    /// default.
+    #[serde(default)]
+    pub print_wait_ceiling_s: Option<u64>,
+    /// `[background].print_max_turns`: cap on the steer turns the engine may
+    /// add for background completions. Absent / `0` keeps the documented
+    /// default.
+    #[serde(default)]
+    pub print_max_turns: Option<u32>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -966,6 +1023,11 @@ pub struct ToolExecuteResponse {
     /// omit the field wire-compatible.
     #[serde(default)]
     pub stop_turn: bool,
+    /// Rich content the tool wants delivered to the model as a follow-up
+    /// `user` message (see [`crate::turn_loop::types::ToolDelivery`]). Native
+    /// tools carry it through this bridge; hosts that produce none omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<ToolDelivery>,
 }
 
 /// Token usage tracking.
@@ -1245,6 +1307,7 @@ mod tests {
             })
         );
         let exec_resp = ToolExecuteResponse {
+            delivery: None,
             stop_turn: false,
             content: "out".into(),
             is_error: false,
@@ -1479,6 +1542,7 @@ mod tests {
     #[test]
     fn test_tool_execute_response_roundtrip() {
         let resp = ToolExecuteResponse {
+            delivery: None,
             stop_turn: false,
             content: "file content here".to_string(),
             is_error: false,
@@ -1501,6 +1565,7 @@ mod tests {
     #[test]
     fn test_tool_execute_response_error() {
         let resp = ToolExecuteResponse {
+            delivery: None,
             stop_turn: false,
             content: "File not found".to_string(),
             is_error: true,

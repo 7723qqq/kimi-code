@@ -269,7 +269,11 @@ mod tests {
 
         assert_eq!(first.await.unwrap().as_deref(), Some("shared"));
         assert_eq!(second.await.unwrap().as_deref(), Some("shared"));
-        assert_eq!(hits.load(Ordering::SeqCst), 1, "refresh must be single-flight");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "refresh must be single-flight"
+        );
     }
 
     /// A refresh without a refresh token or endpoint fails closed.

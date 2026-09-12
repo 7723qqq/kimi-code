@@ -102,6 +102,140 @@ impl AcpChannel {
         }
     }
 
+    // ── Reverse RPC: agent → client (fs / terminal) ─────────────────────
+    //
+    // These mirror the ACP spec's client-side methods. They are thin wrappers
+    // over [`Self::request`]; the caller decides whether the client advertised
+    // the matching capability (see `AcpClientCapabilities`).
+
+    /// `fs/read_text_file`: the client reads the file on the agent's behalf.
+    pub async fn read_text_file(&self, session_id: &str, path: &str) -> Result<String, String> {
+        let result = self
+            .request(
+                "fs/read_text_file",
+                serde_json::json!({ "sessionId": session_id, "path": path }),
+            )
+            .await?;
+        result
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "fs/read_text_file: response is missing `content`".to_string())
+    }
+
+    /// `fs/write_text_file`: the client writes the file on the agent's behalf.
+    pub async fn write_text_file(
+        &self,
+        session_id: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        self.request(
+            "fs/write_text_file",
+            serde_json::json!({
+                "sessionId": session_id,
+                "path": path,
+                "content": content,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// `terminal/create`: the client spawns the terminal and returns its id.
+    pub async fn create_terminal(
+        &self,
+        session_id: &str,
+        command: &str,
+        args: &[String],
+        cwd: Option<&str>,
+    ) -> Result<String, String> {
+        let result = self
+            .request(
+                "terminal/create",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "command": command,
+                    "args": args,
+                    "cwd": cwd,
+                }),
+            )
+            .await?;
+        result
+            .get("terminalId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "terminal/create: response is missing `terminalId`".to_string())
+    }
+
+    /// `terminal/output`: the terminal's buffered output so far.
+    pub async fn terminal_output(
+        &self,
+        session_id: &str,
+        terminal_id: &str,
+    ) -> Result<String, String> {
+        let result = self
+            .request(
+                "terminal/output",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "terminalId": terminal_id,
+                }),
+            )
+            .await?;
+        Ok(result
+            .get("output")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string())
+    }
+
+    /// `terminal/wait_for_exit`: blocks until the terminal exits.
+    pub async fn wait_for_terminal_exit(
+        &self,
+        session_id: &str,
+        terminal_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        self.request(
+            "terminal/wait_for_exit",
+            serde_json::json!({
+                "sessionId": session_id,
+                "terminalId": terminal_id,
+            }),
+        )
+        .await
+    }
+
+    /// `terminal/kill`: terminate the terminal's command.
+    pub async fn kill_terminal(&self, session_id: &str, terminal_id: &str) -> Result<(), String> {
+        self.request(
+            "terminal/kill",
+            serde_json::json!({
+                "sessionId": session_id,
+                "terminalId": terminal_id,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// `terminal/release`: let the client reclaim the terminal.
+    pub async fn release_terminal(
+        &self,
+        session_id: &str,
+        terminal_id: &str,
+    ) -> Result<(), String> {
+        self.request(
+            "terminal/release",
+            serde_json::json!({
+                "sessionId": session_id,
+                "terminalId": terminal_id,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// Extract the id of a client response line (`{"id":N,"result"|"error":…}`).
     pub fn response_id(value: &serde_json::Value) -> Option<u64> {
         if value.get("method").is_some() {
@@ -138,9 +272,14 @@ mod tests {
             AcpOutbound::Request(request) => request.id.unwrap().as_u64().unwrap(),
             other => panic!("unexpected message: {other:?}"),
         };
-        assert!(channel
-            .resolve(id, serde_json::json!({ "outcome": { "outcome": "cancelled" } }))
-            .await);
+        assert!(
+            channel
+                .resolve(
+                    id,
+                    serde_json::json!({ "outcome": { "outcome": "cancelled" } })
+                )
+                .await
+        );
 
         let answer = pending.await.unwrap().expect("request resolves");
         assert_eq!(answer["outcome"]["outcome"], "cancelled");
@@ -171,5 +310,76 @@ mod tests {
             AcpChannel::response_id(&serde_json::json!({ "method": "session/cancel" })),
             None
         );
+    }
+
+    async fn answer_next(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<AcpOutbound>,
+        channel: &AcpChannel,
+        answer: serde_json::Value,
+    ) -> (String, serde_json::Value) {
+        let outbound = rx.recv().await.expect("one outbound request");
+        match outbound {
+            AcpOutbound::Request(request) => {
+                let id = request.id.unwrap().as_u64().unwrap();
+                assert!(channel.resolve(id, answer).await);
+                (request.method, request.params.unwrap_or_default())
+            }
+            other => panic!("unexpected message: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_text_file_reverse_rpc() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let pending = {
+            let channel = channel.clone();
+            tokio::spawn(async move { channel.read_text_file("s1", "/work/a.txt").await })
+        };
+        let (method, params) =
+            answer_next(&mut rx, &channel, serde_json::json!({ "content": "alpha" })).await;
+        assert_eq!(method, "fs/read_text_file");
+        assert_eq!(params["sessionId"], "s1");
+        assert_eq!(params["path"], "/work/a.txt");
+        assert_eq!(pending.await.unwrap().unwrap(), "alpha");
+    }
+
+    #[tokio::test]
+    async fn test_create_terminal_reverse_rpc() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let pending = {
+            let channel = channel.clone();
+            tokio::spawn(async move {
+                channel
+                    .create_terminal("s1", "bash", &["-lc".to_string(), "ls".to_string()], None)
+                    .await
+            })
+        };
+        let (method, params) = answer_next(
+            &mut rx,
+            &channel,
+            serde_json::json!({ "terminalId": "term-7" }),
+        )
+        .await;
+        assert_eq!(method, "terminal/create");
+        assert_eq!(params["command"], "bash");
+        assert_eq!(params["args"][1], "ls");
+        assert_eq!(pending.await.unwrap().unwrap(), "term-7");
+    }
+
+    #[tokio::test]
+    async fn test_read_text_file_requires_content() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let pending = {
+            let channel = channel.clone();
+            tokio::spawn(async move { channel.read_text_file("s1", "a").await })
+        };
+        answer_next(&mut rx, &channel, serde_json::json!({})).await;
+        assert!(pending.await.unwrap().is_err());
     }
 }

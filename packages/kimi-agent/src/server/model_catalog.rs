@@ -23,7 +23,11 @@ pub(crate) fn non_empty(value: Option<&str>) -> Option<&str> {
 /// known set. A missing type defaults to `openai`, like the catalog's own
 /// `type ?? 'openai'`.
 fn protocol_for(provider_type: Option<&str>) -> Option<&'static str> {
-    match provider_type.unwrap_or("openai").to_ascii_lowercase().as_str() {
+    match provider_type
+        .unwrap_or("openai")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "kimi" | "openai" | "openai_responses" => Some("openai"),
         "anthropic" => Some("anthropic"),
         "google-genai" | "vertexai" => Some("google-genai"),
@@ -310,10 +314,7 @@ max_context_size = 200000
         assert_eq!(signed_in["managed_provider"]["status"], "authenticated");
 
         let signed_out = auth_summary(&config(), &|_| false);
-        assert_eq!(
-            signed_out["managed_provider"]["status"],
-            "unauthenticated"
-        );
+        assert_eq!(signed_out["managed_provider"]["status"], "unauthenticated");
     }
 
     #[test]
@@ -328,7 +329,10 @@ api_key = "sk-test"
         )
         .unwrap();
         assert_eq!(auth_summary(&dangling, &|_| false)["models_ready"], false);
-        assert_eq!(auth_summary(&dangling, &|_| false)["managed_provider"], json!(null));
+        assert_eq!(
+            auth_summary(&dangling, &|_| false)["managed_provider"],
+            json!(null)
+        );
 
         // A model whose provider is missing is not ready either.
         let provider_missing = KimiConfig::from_str(

@@ -96,6 +96,29 @@ Once a subagent is running, leave that scope to it: do not redo its searches or 
 /// resume surface. The optional `model` parameter is added only when a
 /// `[secondary_model]` pool advertises a choice; without one the parameter is
 /// not advertised, matching v2's `stripSubagentModelParameter`.
+/// The v2 `resolveActiveToolNames` listing for one profile: `all` when no
+/// allowlist is declared, `none` when the allowlist admits nothing, else the
+/// comma-separated names (MCP globs included verbatim — `mcp__*` reads as
+/// "every MCP tool").
+fn profile_tools_listing(profile: &crate::prompt::profiles::AgentProfile) -> String {
+    if profile.tools.is_empty() {
+        return "all".to_string();
+    }
+    let active: Vec<&str> = profile
+        .tools
+        .iter()
+        .filter(|name| {
+            crate::subagent::manager::ToolPolicyFilter::from_allowlist(&profile.tools).allows(name)
+        })
+        .map(|name| name.as_str())
+        .collect();
+    if active.is_empty() {
+        "none".to_string()
+    } else {
+        active.join(", ")
+    }
+}
+
 pub fn agent_tool_def(
     pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> crate::turn_loop::types::ToolInfo {
@@ -103,6 +126,10 @@ pub fn agent_tool_def(
     let mut available = String::new();
     for profile in catalog.list() {
         available.push_str(&format!("- {}: {}\n", profile.name, profile.description));
+        // v2 `buildSubagentTypeDescriptions` / `resolveActiveToolNames`: the
+        // listing advertises each type's tool scope so the model can pick a
+        // subagent by what it is actually allowed to do.
+        available.push_str(&format!("  Tools: {}\n", profile_tools_listing(profile)));
     }
     let mut description = format!(
         "{AGENT_TOOL_DESCRIPTION}\n\nAvailable agent types:\n{}",
@@ -110,7 +137,9 @@ pub fn agent_tool_def(
     );
     // v2 `buildSubagentModelDescriptions`: a forced pool exposes no choice,
     // so it appends neither the listing nor (below) the `model` parameter.
-    if let Some(pool) = pool && pool.exposes_choice() {
+    if let Some(pool) = pool
+        && pool.exposes_choice()
+    {
         description.push_str("\n\n");
         description.push_str(&pool.description());
     }
@@ -282,9 +311,13 @@ async fn execute_resume(
         false,
     );
 
-    let timeout = timeout_ms
-        .filter(|t| *t > 0)
-        .unwrap_or(DEFAULT_SUBAGENT_TIMEOUT_MS);
+    // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
+    // explicit `0` means "no timeout", not the 2h default.
+    let timeout = match timeout_ms {
+        Some(0) => u64::MAX,
+        Some(ms) => ms,
+        None => DEFAULT_SUBAGENT_TIMEOUT_MS,
+    };
     let run = tokio::time::timeout(
         std::time::Duration::from_millis(timeout),
         manager.resume_foreground_turn(resume_id, &prompt, parent_cancel),
@@ -364,6 +397,7 @@ async fn execute_resume(
         }
     };
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error,
@@ -410,6 +444,7 @@ pub async fn execute_agent(
                 Ok(binding) => Some(binding.llm),
                 Err(message) => {
                     return Some(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: message,
                         is_error: true,
@@ -425,6 +460,7 @@ pub async fn execute_agent(
                 )
             {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: message,
                     is_error: true,
@@ -450,6 +486,7 @@ pub async fn execute_agent(
             None,
         ) {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: err.to_string(),
                 is_error: true,
@@ -555,7 +592,23 @@ pub async fn execute_agent(
         };
 
         if let Some(runner) = task_runner {
-            let _ = runner.spawn_task(agent_id.clone(), task_desc, bg_future);
+            // Session attribution rides the runtime the pipeline built for
+            // this turn — background task events land on the right lane.
+            let session_id = manager
+                .runtime()
+                .await
+                .and_then(|r| r.session_id.clone())
+                .filter(|session| !session.is_empty());
+            let _ = runner.spawn_task_with_meta(
+                crate::storage::TaskSpawnMeta {
+                    session_id: session_id.as_deref(),
+                    kind: "subagent",
+                    subagent_type: Some(&profile_name),
+                },
+                agent_id.clone(),
+                task_desc,
+                bg_future,
+            );
         } else {
             tokio::spawn(async move {
                 let _ = bg_future.await;
@@ -582,6 +635,7 @@ pub async fn execute_agent(
         ]
         .join("\n");
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content,
             is_error: false,
@@ -608,9 +662,13 @@ pub async fn execute_agent(
         false,
     );
 
-    let timeout = timeout_ms
-        .filter(|t| *t > 0)
-        .unwrap_or(DEFAULT_SUBAGENT_TIMEOUT_MS);
+    // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
+    // explicit `0` means "no timeout", not the 2h default.
+    let timeout = match timeout_ms {
+        Some(0) => u64::MAX,
+        Some(ms) => ms,
+        None => DEFAULT_SUBAGENT_TIMEOUT_MS,
+    };
 
     let run = tokio::time::timeout(
         std::time::Duration::from_millis(timeout),
@@ -684,6 +742,7 @@ pub async fn execute_agent(
         }
     };
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error,
@@ -785,6 +844,7 @@ mod tests {
         ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
             Box::pin(async {
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
@@ -821,7 +881,9 @@ mod tests {
 
     async fn manager_with(llm: Arc<dyn LLM>) -> Arc<SubagentManager> {
         let manager = Arc::new(SubagentManager::new());
-        manager.set_runtime(llm, Arc::new(NoopCallbacks)).await;
+        manager
+            .set_runtime(llm, Arc::new(NoopCallbacks), None)
+            .await;
         manager
     }
 
@@ -1130,8 +1192,8 @@ mod tests {
                 None,
                 None,
                 None,
-            None,
-        )
+                None,
+            )
             .await
             .is_none(),
             "unknown resume ids must fall back to the host"
@@ -1158,6 +1220,61 @@ mod tests {
         assert!(result.content.contains("status: failed"));
         assert!(result.content.contains("Agent timed out after 300 ms."));
         assert!(result.content.contains("resume_hint:"));
+    }
+
+    /// An LLM that stalls briefly before answering, so a `timeout_ms` of
+    /// `0` misread as "expire immediately" would fail the turn.
+    struct SleepyLlm;
+    impl LLM for SleepyLlm {
+        fn system_prompt(&self) -> &str {
+            "test"
+        }
+        fn model_name(&self) -> &str {
+            "sleepy-llm"
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<TurnChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            Box::pin(async {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                Ok(TurnChatResponse {
+                    content: "finished after the stall".into(),
+                    thinking: vec![],
+                    tool_calls: vec![],
+                    finish_reason: Some("stop".into()),
+                    usage: TokenUsage::default(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn zero_timeout_means_no_timeout() {
+        // v2 `taskService` arms the timeout only when `timeoutMs > 0`:
+        // an explicit `0` disables it (it must neither expire immediately
+        // nor fold into the 2h default's timeout error path).
+        let manager = manager_with(Arc::new(SleepyLlm)).await;
+        let result = execute_agent(
+            &manager,
+            &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
+            Some(0),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("the run completes");
+        assert!(
+            !result.is_error,
+            "timeout 0 must not kill the run: {}",
+            result.content
+        );
+        assert!(result.content.contains("finished after the stall"));
     }
 
     #[tokio::test]
@@ -1269,7 +1386,7 @@ mod tests {
             self.messages_sent
                 .lock()
                 .unwrap()
-                .push(params.messages.clone());
+                .push(params.messages.to_vec());
             if let Some(last_user) = params
                 .messages
                 .iter()
@@ -1350,7 +1467,7 @@ mod tests {
         callbacks: Arc<dyn HostCallbacks>,
     ) -> Arc<SubagentManager> {
         let manager = Arc::new(SubagentManager::new());
-        manager.set_runtime(llm, callbacks).await;
+        manager.set_runtime(llm, callbacks, None).await;
         manager
     }
 
@@ -1561,8 +1678,8 @@ mod tests {
                     None,
                     None,
                     Some("call-1"),
-            None,
-        )
+                    None,
+                )
                 .await
             })
             .await;
@@ -1707,8 +1824,8 @@ mod tests {
 
     // ── [secondary_model] pool ─────────────────────────────────────────────
 
-    use crate::subagent::secondary::{SecondaryModelRuntime, PRIMARY_MODEL_CHOICE};
     use crate::rpc::types::{SecondaryModelEntry, SecondaryModelPool};
+    use crate::subagent::secondary::{PRIMARY_MODEL_CHOICE, SecondaryModelRuntime};
 
     /// Build a pool runtime whose `strong` alias binds `alias_llm`.
     fn pool_runtime(alias_llm: Arc<RecordingPromptLlm>, force: bool) -> SecondaryModelRuntime {
@@ -1724,9 +1841,12 @@ mod tests {
         };
         SecondaryModelRuntime::new(
             config,
-            [("strong".to_string(), alias_llm as Arc<dyn crate::turn_loop::types::LLM>)]
-                .into_iter()
-                .collect(),
+            [(
+                "strong".to_string(),
+                alias_llm as Arc<dyn crate::turn_loop::types::LLM>,
+            )]
+            .into_iter()
+            .collect(),
         )
     }
 
@@ -1782,7 +1902,11 @@ mod tests {
         .expect("primary runs natively");
 
         assert!(!result.is_error, "{}", result.content);
-        assert_eq!(session_llm.call_count(), 1, "primary bound the session model");
+        assert_eq!(
+            session_llm.call_count(),
+            1,
+            "primary bound the session model"
+        );
         assert_eq!(alias_llm.call_count(), 0);
     }
 
@@ -1809,8 +1933,16 @@ mod tests {
         .expect("invalid aliases resolve to an error result, not a host fallback");
 
         assert!(result.is_error);
-        assert!(result.content.contains("Invalid model \"nope\""), "{}", result.content);
-        assert!(result.content.contains("strong, primary"), "{}", result.content);
+        assert!(
+            result.content.contains("Invalid model \"nope\""),
+            "{}",
+            result.content
+        );
+        assert!(
+            result.content.contains("strong, primary"),
+            "{}",
+            result.content
+        );
         assert_eq!(session_llm.call_count(), 0, "no turn ran");
     }
 
@@ -1837,7 +1969,11 @@ mod tests {
         .expect("force rejections are error results");
 
         assert!(result.is_error);
-        assert!(result.content.contains("[secondary_model].force"), "{}", result.content);
+        assert!(
+            result.content.contains("[secondary_model].force"),
+            "{}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -1892,14 +2028,89 @@ mod tests {
         .expect("primary without a pool inherits the caller's model");
 
         assert!(!result.is_error, "{}", result.content);
-        assert_eq!(session_llm.call_count(), 1, "the session model served the turn");
+        assert_eq!(
+            session_llm.call_count(),
+            1,
+            "the session model served the turn"
+        );
+    }
+
+    #[test]
+    fn agent_def_lists_each_type_tool_scope() {
+        // v2 `buildSubagentTypeDescriptions` + `resolveActiveToolNames`: the
+        // model picks a subagent by what it is allowed to do, so every
+        // advertised type carries its tool scope (MCP globs included).
+        let def = agent_tool_def(None);
+        let listing = def
+            .description
+            .split("Available agent types:")
+            .nth(1)
+            .expect("the description advertises the available types");
+        for line in listing.lines() {
+            if !line.starts_with("- ") {
+                continue;
+            }
+            let name = line
+                .trim_start_matches("- ")
+                .split(':')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let catalog = crate::prompt::profiles::ProfileCatalog::with_builtins();
+            let profile = catalog
+                .list()
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("advertised type {name} has no profile"));
+            let expected = format!("  Tools: {}", profile_tools_listing(profile));
+            assert!(
+                def.description.contains(&format!("- {name}")),
+                "type {name} must be advertised"
+            );
+            assert!(
+                def.description.contains(&expected),
+                "type {name} must advertise its tool scope: {expected}\n{}",
+                def.description
+            );
+        }
+        // The built-in `explore` profile advertises its read-only scope.
+        let explore_scope = listing
+            .lines()
+            .skip_while(|line| !line.starts_with("- explore"))
+            .nth(1)
+            .unwrap_or_default()
+            .to_string();
+        assert!(explore_scope.starts_with("  Tools: "), "{explore_scope}");
+    }
+
+    #[test]
+    fn profile_tools_listing_matches_v2_wording() {
+        let profile = crate::prompt::profiles::AgentProfile {
+            name: "t".into(),
+            description: "d".into(),
+            role_additional: String::new(),
+            tools: vec!["Read".into(), "mcp__*".into()],
+        };
+        assert_eq!(profile_tools_listing(&profile), "Read, mcp__*");
+        let unrestricted = crate::prompt::profiles::AgentProfile {
+            name: "t".into(),
+            description: "d".into(),
+            role_additional: String::new(),
+            tools: vec![],
+        };
+        assert_eq!(profile_tools_listing(&unrestricted), "all");
     }
 
     #[test]
     fn agent_def_advertises_the_pool_only_when_a_choice_is_offered() {
         let llm = Arc::new(RecordingPromptLlm::new(vec![]));
         let offered = agent_tool_def(Some(&pool_runtime(llm.clone(), false)));
-        assert!(offered.description.contains("Available models (pass via model):"));
+        assert!(
+            offered
+                .description
+                .contains("Available models (pass via model):")
+        );
         assert!(
             offered
                 .input_schema
@@ -1909,7 +2120,11 @@ mod tests {
         );
 
         let forced = agent_tool_def(Some(&pool_runtime(llm, true)));
-        assert!(!forced.description.contains("Available models"), "{}", forced.description);
+        assert!(
+            !forced.description.contains("Available models"),
+            "{}",
+            forced.description
+        );
         assert!(
             forced
                 .input_schema

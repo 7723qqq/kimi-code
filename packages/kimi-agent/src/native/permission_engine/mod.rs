@@ -1,17 +1,17 @@
 //! 权限策略判定引擎。
-//! 
+//!
 //! 实现工具调用权限决策流程，支持读取 `.kimi/permissions.json` 规则，
 //! 并在非自动批准模式下支持终端交互式确认。
 
 pub mod dangerous_command;
 
+use dangerous_command::{DangerousVerdict, analyze_bash_command};
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use serde::{Deserialize, Serialize};
-use dangerous_command::{analyze_bash_command, DangerousVerdict};
 
 /// 权限判定决议
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,17 +55,16 @@ impl SessionApprovalHistory {
     /// 检查是否在本次会话中已有批准历史
     pub fn is_approved(&self, tool_name: &str, path: Option<&Path>) -> bool {
         let tool_lower = tool_name.to_lowercase();
-        if let Some(p) = path {
-            if let Ok(set) = self.approved_targets.read() {
-                if set.contains(&(tool_lower.clone(), p.to_path_buf())) {
-                    return true;
-                }
-            }
+        if let Some(p) = path
+            && let Ok(set) = self.approved_targets.read()
+            && set.contains(&(tool_lower.clone(), p.to_path_buf()))
+        {
+            return true;
         }
-        if let Ok(set) = self.approved_tools.read() {
-            if set.contains(&tool_lower) {
-                return true;
-            }
+        if let Ok(set) = self.approved_tools.read()
+            && set.contains(&tool_lower)
+        {
+            return true;
         }
         false
     }
@@ -91,7 +90,10 @@ pub struct PermissionEngine {
 
 impl PermissionEngine {
     /// 构造权限引擎，并载入工作区配置
-    pub fn new<P: AsRef<Path>>(workspace_root: P, config_path: Option<P>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new<P: AsRef<Path>>(
+        workspace_root: P,
+        config_path: Option<P>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let config: PermissionConfig = if let Some(path) = config_path {
             if path.as_ref().exists() {
                 let content = fs::read_to_string(path)?;
@@ -132,9 +134,16 @@ impl PermissionEngine {
     }
 
     /// 严格按照策略链顺序评估工具调用
-    pub fn evaluate_tool_call(&self, tool_name: &str, target_path: Option<&Path>) -> PermissionDecision {
+    pub fn evaluate_tool_call(
+        &self,
+        tool_name: &str,
+        target_path: Option<&Path>,
+    ) -> PermissionDecision {
         // 1. 优先检查环境变量覆盖
-        if std::env::var("KIMI_AUTO_APPROVE").map(|v| v == "1" || v == "true").unwrap_or(false) {
+        if std::env::var("KIMI_AUTO_APPROVE")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+        {
             return PermissionDecision::Allow;
         }
 
@@ -196,7 +205,10 @@ impl PermissionEngine {
         }
 
         // 2. 检查环境变量自动放行覆盖（非高危指令）
-        if std::env::var("KIMI_AUTO_APPROVE").map(|v| v == "1" || v == "true").unwrap_or(false) {
+        if std::env::var("KIMI_AUTO_APPROVE")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+        {
             return PermissionDecision::Allow;
         }
 
@@ -251,7 +263,8 @@ mod tests {
     #[test]
     fn test_git_config_write_denied() {
         let root = PathBuf::from("G:/kimi/kimi-code");
-        let engine = PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
+        let engine =
+            PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
 
         let git_config_path = root.join(".git").join("config");
         let verdict = engine.evaluate_tool_call("write", Some(&git_config_path));
@@ -264,63 +277,109 @@ mod tests {
     #[test]
     fn test_yolo_mode_refuses_dangerous_reboot() {
         let root = PathBuf::from("G:/kimi/kimi-code");
-        let mut engine = PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
+        let mut engine =
+            PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
         engine.config.yolo_mode = true;
 
         // 常规安全命令在 Yolo 下直接放行
-        assert_eq!(engine.evaluate_bash_command("git status"), PermissionDecision::Allow);
-        assert_eq!(engine.evaluate_bash_command("cargo check"), PermissionDecision::Allow);
+        assert_eq!(
+            engine.evaluate_bash_command("git status"),
+            PermissionDecision::Allow
+        );
+        assert_eq!(
+            engine.evaluate_bash_command("cargo check"),
+            PermissionDecision::Allow
+        );
 
         // 断言：高危系统命令在 Yolo 模式下依然返回 AskUser 进行人工确认
-        assert_eq!(engine.evaluate_bash_command("sudo reboot"), PermissionDecision::AskUser);
-        assert_eq!(engine.evaluate_bash_command("shutdown -h now"), PermissionDecision::AskUser);
-        assert_eq!(engine.evaluate_bash_command("format C: /q"), PermissionDecision::AskUser);
+        assert_eq!(
+            engine.evaluate_bash_command("sudo reboot"),
+            PermissionDecision::AskUser
+        );
+        assert_eq!(
+            engine.evaluate_bash_command("shutdown -h now"),
+            PermissionDecision::AskUser
+        );
+        assert_eq!(
+            engine.evaluate_bash_command("format C: /q"),
+            PermissionDecision::AskUser
+        );
     }
 
     #[test]
     fn test_sensitive_file_read_ask_and_write_deny() {
         let root = PathBuf::from("G:/kimi/kimi-code");
-        let engine = PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
+        let engine =
+            PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
 
         // 1. .env.example 白名单豁免，read 正常允许
         let example_path = root.join(".env.example");
-        assert_eq!(engine.evaluate_tool_call("read", Some(&example_path)), PermissionDecision::Allow);
+        assert_eq!(
+            engine.evaluate_tool_call("read", Some(&example_path)),
+            PermissionDecision::Allow
+        );
 
         // 2. .env 敏感文件读取必须拦截为 AskUser
         let env_path = root.join(".env");
-        assert_eq!(engine.evaluate_tool_call("read", Some(&env_path)), PermissionDecision::AskUser);
+        assert_eq!(
+            engine.evaluate_tool_call("read", Some(&env_path)),
+            PermissionDecision::AskUser
+        );
 
         // 3. .env 敏感文件写入强制拦截为 Deny
-        assert_eq!(engine.evaluate_tool_call("write", Some(&env_path)), PermissionDecision::Deny);
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&env_path)),
+            PermissionDecision::Deny
+        );
     }
 
     #[test]
     fn test_session_approval_history_memory() {
         let root = PathBuf::from("G:/kimi/kimi-code");
-        let engine = PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
+        let engine =
+            PermissionEngine::new(&root, None).expect("PermissionEngine should initialize");
 
         let target_file = root.join("src").join("index.ts");
 
         // 初始状态下，write 操作需要 AskUser
-        assert_eq!(engine.evaluate_tool_call("write", Some(&target_file)), PermissionDecision::AskUser);
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&target_file)),
+            PermissionDecision::AskUser
+        );
 
         // 模拟用户在当前会话中批准该路径的 write 操作
-        engine.approval_history().record_approval("write", Some(&target_file));
+        engine
+            .approval_history()
+            .record_approval("write", Some(&target_file));
 
         // 再次评估相同工具和路径，应当自动通过会话记忆放行
-        assert_eq!(engine.evaluate_tool_call("write", Some(&target_file)), PermissionDecision::Allow);
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&target_file)),
+            PermissionDecision::Allow
+        );
 
         // 评估未批准的其他路径，依然需要 AskUser
         let other_file = root.join("src").join("other.ts");
-        assert_eq!(engine.evaluate_tool_call("write", Some(&other_file)), PermissionDecision::AskUser);
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&other_file)),
+            PermissionDecision::AskUser
+        );
 
         // 会话记忆无法绕过安全底线：如敏感文件 write 依然被 Deny
         let env_path = root.join(".env");
-        engine.approval_history().record_approval("write", Some(&env_path));
-        assert_eq!(engine.evaluate_tool_call("write", Some(&env_path)), PermissionDecision::Deny);
+        engine
+            .approval_history()
+            .record_approval("write", Some(&env_path));
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&env_path)),
+            PermissionDecision::Deny
+        );
 
         // 清空会话记忆后，再次变为 AskUser
         engine.approval_history().clear();
-        assert_eq!(engine.evaluate_tool_call("write", Some(&target_file)), PermissionDecision::AskUser);
+        assert_eq!(
+            engine.evaluate_tool_call("write", Some(&target_file)),
+            PermissionDecision::AskUser
+        );
     }
 }

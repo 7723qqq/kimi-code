@@ -7,20 +7,25 @@
 //! the engine and the [`ServerAuth`] credential and hands them to
 //! [`http::serve`].
 //!
-//! What is still missing before this replaces `packages/kap-server`'s `/api/v1`:
+//! What is still missing before this fully replaces `packages/kap-server`'s
+//! `/api/v1`:
 //!
-//! - the WebSocket connection fans out events but speaks no kap-server
-//!   `/api/v1/ws` message schema, so a client written against that schema cannot
-//!   drive it;
-//! - JSON responses carry the kap-server `{code, msg, data, request_id}`
-//!   envelope (wrapped in `http::serve_connection`), but several routes still
-//!   serve reduced data (files upload, transcript L1/L2, prompts) and provider
-//!   model refresh (`providers:refresh`) is not implemented.
+//! - the `subscribe_v2` transcript stream carries the baseline reset plus live
+//!   ops projected from engine events and filtered by the subscribed grade
+//!   (`off`/`turn`/`block`/`delta`); the REST catch-up
+//!   (`GET .../transcript/ops`) serves an authoritative `reset` batch;
+//! - the prompt-queue surface is real: `/sessions/{id}/prompts` admits one
+//!   active prompt per session with the rest queued FIFO, `:steer` moves queued
+//!   prompts into the running turn, and `:abort` settles the active prompt;
+//! - the `/api/v1/debug/*` reflection surface (`channels`, `tree`, `graph`,
+//!   `subscriptions`, `cascade`) is backed by the live store / hub / engine —
+//!   the scope and DI shapes are mapped from those, not a v2 DI ledger.
 //!
 //! `kimi-agent --serve` is the active `/api/v1` surface; the deprecated
 //! `packages/kap-server` remains only as the fallback for installations
 //! without the native binary.
 
+pub mod activity;
 pub mod auth;
 pub mod debug;
 pub mod engine;
@@ -31,14 +36,18 @@ pub mod http;
 pub mod hub;
 pub mod interaction;
 pub mod media;
+pub mod message_events;
 pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
+pub mod prompt_queue;
 pub mod provider_refresh;
 pub mod provider_write;
 pub mod router;
 pub mod static_files;
 pub mod terminal;
+pub mod transcript;
+pub mod web_events;
 pub mod ws;
 pub mod ws_protocol;
 
@@ -74,6 +83,9 @@ pub struct HttpServer {
     interaction_manager: Arc<interaction::InteractionManager>,
     plugin_manager: Arc<plugins::PluginManager>,
     oauth_manager: Arc<oauth::OAuthManager>,
+    /// The per-session active/queued prompt state machine behind
+    /// `/sessions/{id}/prompts`.
+    prompt_queue: Arc<prompt_queue::PromptQueue>,
     config_override: Arc<Mutex<Option<crate::config::KimiConfig>>>,
     /// The `config.toml` the write routes mutate: the file the server loaded,
     /// or discovery when unset (unset in tests via
@@ -83,6 +95,9 @@ pub struct HttpServer {
     file_store: files::FileStore,
     terminal_manager: Arc<terminal::TerminalManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
+    /// Cancelled by `POST /api/v1/shutdown`; the `http::serve` accept loop
+    /// selects on it so the request actually stops the server.
+    shutdown: tokio_util::sync::CancellationToken,
 }
 
 impl HttpServer {
@@ -98,6 +113,15 @@ impl HttpServer {
     /// [`http::serve`] refuses a non-loopback bind while it is in effect.
     pub fn with_hub(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> Self {
         let task_runner = Arc::new(TaskRunner::new(None));
+        // Background task lifecycle fans out to the task's session lane (or
+        // `global` for tasks without a session), both vocabularies.
+        let task_event_hub = hub.clone();
+        task_runner.set_event_sink(Arc::new(move |session, event| {
+            let lane = session.unwrap_or("global").to_string();
+            task_event_hub
+                .bus_for(&lane)
+                .publish(&crate::events::EngineEvent::Custom(event));
+        }));
         let store_persister = store.clone();
         hub.set_persister(Arc::new(
             move |seq_ev: &crate::server::hub::SequencedEvent| {
@@ -105,18 +129,17 @@ impl HttpServer {
                 let event_type = seq_ev.event.event_type().to_string();
                 let is_checkpoint = event_type == "turn.ended" || event_type == "checkpoint";
                 let is_compaction = event_type == "context.compaction";
-                let payload =
-                    serde_json::to_value(&seq_ev.event).unwrap_or(serde_json::Value::Null);
-                let raw = crate::native::event_store::RawWireEvent {
-                    id: format!("wevt-{}", fastrand::u64(..)),
-                    session_id: seq_ev.session_id.to_string(),
-                    event_type,
-                    payload,
+                let payload_json =
+                    serde_json::to_string(&seq_ev.event).unwrap_or_else(|_| "null".to_string());
+                let _ = store_persister.append_wire_event_json(
+                    &format!("wevt-{}", fastrand::u64(..)),
+                    &seq_ev.session_id,
+                    &event_type,
+                    &payload_json,
                     is_checkpoint,
                     is_compaction,
-                    created_at: now,
-                };
-                let _ = store_persister.append_wire_event(&raw);
+                    now,
+                );
             },
         ));
 
@@ -138,6 +161,7 @@ impl HttpServer {
             ),
             plugin_manager: Arc::new(plugins::PluginManager::new(store)),
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
+            prompt_queue: Arc::new(prompt_queue::PromptQueue::new()),
             config_override: Arc::new(Mutex::new(None)),
             config_write_path: std::sync::Mutex::new(None),
             file_store: files::FileStore::new(),
@@ -145,7 +169,19 @@ impl HttpServer {
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
             ),
+            shutdown: tokio_util::sync::CancellationToken::new(),
         }
+    }
+
+    /// Signal the accept loop (and `--serve`) to stop. In-flight connections
+    /// finish on their own; only new accepts stop.
+    pub fn request_shutdown(&self) {
+        self.shutdown.cancel();
+    }
+
+    /// A token that resolves when the server has been asked to shut down.
+    pub fn shutdown_token(&self) -> tokio_util::sync::CancellationToken {
+        self.shutdown.clone()
     }
 
     pub fn subagent_manager(&self) -> Arc<crate::subagent::SubagentManager> {
@@ -168,6 +204,12 @@ impl HttpServer {
     /// provider writes agree with the engine (the `--serve` path).
     #[must_use]
     pub fn with_config(mut self, config: crate::config::KimiConfig) -> Self {
+        // `[background]` knobs apply to the daemon's own task runner too, so
+        // the same file behaves the same on every entry point.
+        self.task_runner.apply_background_limits(
+            config.background.kill_grace_period_ms,
+            config.resolve_background_max_running_tasks(),
+        );
         self.config_override = Arc::new(Mutex::new(Some(config)));
         self
     }
@@ -311,6 +353,10 @@ impl HttpServer {
         if engine.interaction_manager().is_none() {
             engine.set_interaction_manager(self.interaction_manager.clone());
         }
+        // Let the engine's OAuth-bound providers fetch tokens from the same
+        // store the login/usage routes drive.
+        engine.set_oauth_manager(self.oauth_manager.clone());
+        engine.set_config_source(self.config_override.clone());
         self.subagent_manager = engine.subagent_manager();
         self.subagent_manager
             .set_task_runner_sync(self.task_runner.clone());
@@ -371,9 +417,87 @@ impl HttpServer {
             })
     }
 
+    /// Publish `event.config.changed` after a config mutation the route layer
+    /// applied (provider CRUD / refresh): the Web client folds the payload's
+    /// config instead of re-fetching. Best-effort —the mutation already
+    /// landed, so this only costs the push when the payload build fails.
+    /// Refresh provider models and publish the config/catalog change events.
+    /// Shared by the manual `providers:refresh*` routes and the
+    /// `[model_catalog]` auto-refresh (`refresh_on_start` / interval).
+    pub async fn refresh_models(&self, scope: &str, provider_id: Option<&str>) -> Value {
+        let result = crate::server::provider_refresh::refresh(
+            &self.config_override,
+            self.config_write_path().as_deref(),
+            &self.oauth_manager,
+            scope,
+            provider_id,
+        )
+        .await;
+        self.publish_config_changed(&["providers", "models"]).await;
+        self.publish_model_catalog_changed(&result);
+        result
+    }
+
+    async fn publish_config_changed(&self, changed_fields: &[&str]) {
+        let config = self.config().await;
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::ConfigChanged {
+                changed_fields: changed_fields.iter().map(|s| (*s).to_string()).collect(),
+                config: format_config_response(&config),
+            });
+    }
+
+    /// Publish `event.model_catalog.changed` after a provider refresh: the Web
+    /// client refreshes its provider/model caches from the per-provider diff
+    /// (`{changed, unchanged, failed}` —the refresh result's own shape).
+    fn publish_model_catalog_changed(&self, result: &Value) {
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::Custom(json!({
+                "type": "event.model_catalog.changed",
+                "changed": result.get("changed").cloned().unwrap_or_else(|| json!([])),
+                "unchanged": result.get("unchanged").cloned().unwrap_or_else(|| json!([])),
+                "failed": result.get("failed").cloned().unwrap_or_else(|| json!([])),
+            })));
+    }
+
     /// The fan-out handle connections attach to and turns publish through.
     pub fn hub(&self) -> Arc<EventHub> {
         self.hub.clone()
+    }
+
+    /// Admit a prompt and, when it becomes active, drive its turn in the
+    /// background. Used by the steer path to run prompts that could not attach
+    /// to a running turn instead of dropping them.
+    fn run_or_queue_prompt(
+        &self,
+        engine: &Arc<ServerEngine>,
+        session_id: &str,
+        item: Value,
+        prompt: String,
+        blocks: Vec<crate::rpc::types::ContentBlock>,
+    ) {
+        let (_item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
+        let Some(run) = run else {
+            return;
+        };
+        let queue = self.prompt_queue.clone();
+        let store = self.store_arc();
+        let hub = self.hub.clone();
+        let session_id = session_id.to_string();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            crate::server::prompt_queue::run_prompt_loop(
+                Some(engine),
+                store,
+                queue,
+                hub,
+                session_id,
+                run,
+            )
+            .await;
+        });
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
@@ -418,6 +542,329 @@ fn extract_session_action<'a>(path: &'a str, action: &str) -> Option<&'a str> {
     None
 }
 
+fn extract_session_subaction<'a>(path: &'a str, action: &str, sub: &str) -> Option<&'a str> {
+    let suffix = format!("/{action}/{sub}");
+    let rest = path.strip_prefix("/api/v1/sessions/")?;
+    let id = rest.strip_suffix(&suffix)?;
+    if id.is_empty() || id.contains('/') || id.contains(':') {
+        return None;
+    }
+    Some(id)
+}
+
+fn infer_media_type(path: &Path) -> String {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        "pdf" => "application/pdf",
+        "txt" | "md" => "text/plain",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+fn media_block_from_bytes(
+    name: &str,
+    media_type: &str,
+    bytes: &[u8],
+    kind_hint: &str,
+) -> crate::rpc::types::ContentBlock {
+    use crate::rpc::types::ContentBlock;
+    use base64::Engine as _;
+    let media_type = if media_type.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        media_type.to_string()
+    };
+    if media_type.starts_with("image/") || kind_hint == "image" {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        return ContentBlock::Image {
+            media_type,
+            data: encoded,
+        };
+    }
+    if media_type.starts_with("audio/") || kind_hint == "audio" {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        return ContentBlock::AudioUrl {
+            url: format!("data:{media_type};base64,{encoded}"),
+            id: None,
+        };
+    }
+    if media_type.starts_with("video/") || kind_hint == "video" {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        return ContentBlock::VideoUrl {
+            url: format!("data:{media_type};base64,{encoded}"),
+            id: None,
+        };
+    }
+    ContentBlock::Text {
+        text: format!(
+            "[Attached file: {name} ({media_type}, {} bytes)]",
+            bytes.len()
+        ),
+    }
+}
+
+fn file_block_from_store(
+    store: &crate::server::files::FileStore,
+    file_id: &str,
+    kind_hint: &str,
+) -> Result<crate::rpc::types::ContentBlock, String> {
+    let (meta, path) = store.get(file_id).map_err(|error| error.2.to_string())?;
+    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+    let media_type = if meta.media_type.is_empty() {
+        infer_media_type(&path)
+    } else {
+        meta.media_type.clone()
+    };
+    Ok(media_block_from_bytes(
+        &meta.name,
+        &media_type,
+        &bytes,
+        kind_hint,
+    ))
+}
+
+/// Convert a protocol `MessageContent[]` prompt submission into the engine's
+/// `(text, media blocks)` pair. Media parts are resolved from the local file
+/// store (uploaded `f_` blobs) or read in place from a server-local path.
+/// Persist a prompt submission's profile options into the session's
+/// `agent_config` and `metadata` — the state the turn loop reads (`metadata`
+/// for permission mode, `agent_config` for model / thinking / disabled tools).
+/// Rejects an unknown `permission_mode`.
+fn apply_prompt_submission_options(
+    server: &HttpServer,
+    session_id: &str,
+    body: &Value,
+) -> Result<(), String> {
+    let mut agent_config = server
+        .store()
+        .get_state("agent_config", session_id)
+        .ok()
+        .flatten()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
+    {
+        let config = agent_config.as_object_mut().unwrap();
+        for key in [
+            "model",
+            "thinking",
+            "profile",
+            "goal_objective",
+            "goal_control",
+        ] {
+            if let Some(value) = body
+                .get(key)
+                .and_then(|v| v.as_str())
+                .filter(|value| !value.is_empty())
+            {
+                config.insert(key.to_string(), json!(value));
+            }
+        }
+        if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool()) {
+            config.insert("plan_mode".to_string(), json!(plan_mode));
+        }
+        if let Some(swarm_mode) = body.get("swarm_mode").and_then(|v| v.as_bool()) {
+            config.insert("swarm_mode".to_string(), json!(swarm_mode));
+        }
+        if let Some(disabled) = body.get("disabled_tools").and_then(|v| v.as_array()) {
+            config.insert("disabled_tools".to_string(), Value::Array(disabled.clone()));
+        }
+    }
+    let _ = server
+        .store()
+        .put_state("agent_config", session_id, &agent_config);
+
+    let mut metadata = server
+        .store()
+        .get_state("metadata", session_id)
+        .ok()
+        .flatten()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
+    {
+        let meta = metadata.as_object_mut().unwrap();
+        if let Some(extra) = body.get("metadata").and_then(|v| v.as_object()) {
+            for (key, value) in extra {
+                meta.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(mode) = body.get("permission_mode").and_then(|v| v.as_str()) {
+            if !matches!(mode, "manual" | "yolo" | "auto") {
+                return Err(format!("invalid permission_mode: {mode}"));
+            }
+            meta.insert("permission_mode".to_string(), json!(mode));
+        }
+    }
+    let _ = server.store().put_state("metadata", session_id, &metadata);
+
+    // Plan mode is workspace-scoped state the plan guard reads; activate or
+    // clear it so the submitted `plan_mode` takes effect on the turn.
+    if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool())
+        && let Some(work_dir) = fs_routes::resolve_session_workdir(server.store(), session_id)
+        && let Ok(state) = crate::storage::StateStore::for_workspace(&work_dir)
+    {
+        let _ = state.write_domain("plan", &json!({ "active": plan_mode }));
+    }
+    Ok(())
+}
+
+fn prompt_content_to_blocks(
+    content: &[Value],
+    files: &crate::server::files::FileStore,
+) -> Result<(String, Vec<crate::rpc::types::ContentBlock>), String> {
+    use crate::rpc::types::ContentBlock;
+    let mut texts: Vec<String> = Vec::new();
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    for part in content {
+        match part
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+        {
+            "text" => {
+                if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                    texts.push(text.to_string());
+                }
+            }
+            "image" | "video" | "audio" => {
+                let kind = part
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("image");
+                let Some(source) = part.get("source") else {
+                    continue;
+                };
+                let source_kind = source
+                    .get("kind")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                match source_kind {
+                    "url" => {
+                        if let Some(url) = source.get("url").and_then(|value| value.as_str()) {
+                            blocks.push(match kind {
+                                "image" => ContentBlock::ImageUrl {
+                                    url: url.to_string(),
+                                },
+                                "audio" => ContentBlock::AudioUrl {
+                                    url: url.to_string(),
+                                    id: None,
+                                },
+                                _ => ContentBlock::VideoUrl {
+                                    url: url.to_string(),
+                                    id: None,
+                                },
+                            });
+                        }
+                    }
+                    "base64" => {
+                        let media_type = source
+                            .get("media_type")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("application/octet-stream");
+                        let data = source
+                            .get("data")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
+                        if kind == "image" {
+                            blocks.push(ContentBlock::Image {
+                                media_type: media_type.to_string(),
+                                data: data.to_string(),
+                            });
+                        } else {
+                            let url = format!("data:{media_type};base64,{data}");
+                            blocks.push(if kind == "audio" {
+                                ContentBlock::AudioUrl { url, id: None }
+                            } else {
+                                ContentBlock::VideoUrl { url, id: None }
+                            });
+                        }
+                    }
+                    "file" | "session_media" => {
+                        let file_id = source
+                            .get("file_id")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
+                        blocks.push(file_block_from_store(files, file_id, kind)?);
+                    }
+                    "path" => {
+                        let path = source
+                            .get("path")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
+                        let path = Path::new(path);
+                        let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+                        let name = path
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("attachment");
+                        let media_type = infer_media_type(path);
+                        blocks.push(media_block_from_bytes(name, &media_type, &bytes, kind));
+                    }
+                    _ => {}
+                }
+            }
+            "file" => {
+                let name = part.get("name").and_then(|value| value.as_str());
+                let media_type = part
+                    .get("media_type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                if let Some(file_id) = part.get("file_id").and_then(|value| value.as_str()) {
+                    match file_block_from_store(files, file_id, "") {
+                        Ok(block) => blocks.push(block),
+                        Err(error) => {
+                            if let Some(name) = name {
+                                blocks.push(ContentBlock::Text {
+                                    text: format!("[Attached file: {name} ({media_type})]"),
+                                });
+                            } else {
+                                return Err(error);
+                            }
+                        }
+                    }
+                } else if let Some(path) = part.get("path").and_then(|value| value.as_str()) {
+                    let path = Path::new(path);
+                    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+                    let file_name = name.unwrap_or_else(|| {
+                        path.file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("attachment")
+                    });
+                    let resolved_type = if media_type.is_empty() {
+                        infer_media_type(path)
+                    } else {
+                        media_type.to_string()
+                    };
+                    blocks.push(media_block_from_bytes(
+                        file_name,
+                        &resolved_type,
+                        &bytes,
+                        "",
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((texts.join(""), blocks))
+}
+
 fn extract_session_fs_action(path: &str) -> Option<(&str, &str)> {
     let rest = path
         .strip_prefix("/api/v1/sessions/")
@@ -449,6 +896,7 @@ fn format_config_response(cfg: &crate::config::KimiConfig) -> Value {
         .clone()
         .unwrap_or_else(|| "kimi-latest".into());
     let yolo = cfg.agent.yolo.unwrap_or(false)
+        || cfg.yolo.unwrap_or(false)
         || cfg
             .permission
             .as_ref()
@@ -489,6 +937,22 @@ fn format_config_response(cfg: &crate::config::KimiConfig) -> Value {
     json!({
         "default_model": default_model,
         "yolo": yolo,
+        "plan_mode": cfg.plan_mode.or(cfg.agent.plan_mode).unwrap_or(false),
+        "default_plan_mode": cfg.default_plan_mode.unwrap_or(false),
+        "default_permission_mode": cfg.default_permission_mode,
+        "telemetry": cfg.telemetry.unwrap_or(false),
+        "model_catalog": {
+            "refresh_interval_ms": cfg
+                .model_catalog
+                .as_ref()
+                .and_then(|m| m.refresh_interval_ms)
+                .unwrap_or(0),
+            "refresh_on_start": cfg
+                .model_catalog
+                .as_ref()
+                .and_then(|m| m.refresh_on_start)
+                .unwrap_or(false),
+        },
         "providers": providers_json,
         "models": models_json,
         "services": {},
@@ -610,7 +1074,7 @@ fn format_wire_session(
         },
         "permission_rules": [],
         "message_count": message_count,
-        "last_seq": 1
+        "last_seq": store.latest_wire_event_seq(session_id).unwrap_or(0)
     })
 }
 
@@ -639,18 +1103,20 @@ impl HttpServer {
         }
 
         // Debug RPC and reflection surface for kimi-inspect
-        if path.starts_with("/api/v1/debug") {
-            if let Some(resp) = debug::handle_debug_route(self, req).await {
-                return resp;
-            }
+        if path.starts_with("/api/v1/debug")
+            && let Some(resp) = debug::handle_debug_route(self, req).await
+        {
+            return resp;
         }
 
         let resp = match (method.as_str(), path) {
-            ("GET", "/api/v1/health") | ("GET", "/health") | ("GET", "/healthz") => HttpResponse::ok(&json!({
-                "status": "ok",
-                "version": env!("CARGO_PKG_VERSION"),
-                "engine": "kimi-agent-rust",
-            })),
+            ("GET", "/api/v1/health") | ("GET", "/health") | ("GET", "/healthz") => {
+                HttpResponse::ok(&json!({
+                    "status": "ok",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "engine": "kimi-agent-rust",
+                }))
+            }
             ("GET", "/api/v1/meta") => {
                 let dangerous_bypass_auth = self.auth.is_disabled();
                 HttpResponse::ok(&json!({
@@ -670,7 +1136,9 @@ impl HttpServer {
                     "dangerous_bypass_auth": dangerous_bypass_auth,
                     "backend": "rust",
                     "web_title": "Kimi Code",
-                    "experimental_flags": {},
+                    // The user's `[experimental]` flags, not a constant:
+                    // clients probe these to gate UI features.
+                    "experimental_flags": self.config().await.experimental,
                 }))
             }
             ("GET", "/api/v1/config") => {
@@ -706,6 +1174,14 @@ impl HttpServer {
                 }
                 if let Some(yolo) = body.get("yolo").and_then(|v| v.as_bool()) {
                     config.agent.yolo = Some(yolo);
+                }
+                if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool()) {
+                    config.plan_mode = Some(plan_mode);
+                }
+                if let Some(default_plan_mode) =
+                    body.get("default_plan_mode").and_then(|v| v.as_bool())
+                {
+                    config.default_plan_mode = Some(default_plan_mode);
                 }
                 *self.config_override.lock().await = Some(config.clone());
                 HttpResponse::ok(&format_config_response(&config))
@@ -755,25 +1231,34 @@ impl HttpServer {
                 ]
             })),
             ("GET", "/api/v1/connections") => {
-                let subscriber_count = self.hub.subscriber_count();
-                let connections: Vec<Value> = (0..subscriber_count)
-                    .map(|i| {
+                let connections: Vec<Value> = self
+                    .hub
+                    .connections()
+                    .into_iter()
+                    .map(|conn| {
+                        let connected_at =
+                            chrono::DateTime::from_timestamp_millis(conn.connected_at as i64)
+                                .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                                .unwrap_or_else(|| self.started_at.clone());
                         json!({
-                            "id": format!("conn_{i}"),
-                            "connected_at": self.started_at,
-                            "remote_address": "127.0.0.1",
-                            "user_agent": "kimi-client",
-                            "has_client_hello": true,
-                            "subscriptions": []
+                            "id": format!("conn_{}", conn.id),
+                            "connected_at": connected_at,
+                            "remote_address": conn.remote_address,
+                            "user_agent": conn.user_agent,
+                            "has_client_hello": conn.has_client_hello,
+                            "subscriptions": conn.subscriptions,
                         })
                     })
                     .collect();
                 HttpResponse::ok(&json!({ "connections": connections }))
             }
-            ("POST", "/api/v1/shutdown") => HttpResponse::ok(&json!({
-                "status": "shutting_down",
-                "message": "Kimi agent native server is shutting down"
-            })),
+            ("POST", "/api/v1/shutdown") => {
+                self.request_shutdown();
+                HttpResponse::ok(&json!({
+                    "status": "shutting_down",
+                    "message": "Kimi agent native server is shutting down"
+                }))
+            }
             ("GET", "/api/v1/models") | ("GET", "/api/v1/model-catalog") => {
                 let config = self.config().await;
                 HttpResponse::ok(&crate::server::model_catalog::models(&config))
@@ -807,32 +1292,21 @@ impl HttpServer {
                 )
                 .await
                 {
-                    Ok(item) => HttpResponse::json(201, &item),
+                    Ok(item) => {
+                        self.publish_config_changed(&["providers"]).await;
+                        HttpResponse::json(201, &item)
+                    }
                     Err((status, code, message)) => {
                         HttpResponse::json(status, &json!({ "code": code, "msg": message }))
                     }
                 }
             }
             ("POST", "/api/v1/providers:refresh") => {
-                let result = crate::server::provider_refresh::refresh(
-                    &self.config_override,
-                    self.config_write_path().as_deref(),
-                    &self.oauth_manager,
-                    "all",
-                    None,
-                )
-                .await;
+                let result = self.refresh_models("all", None).await;
                 HttpResponse::ok(&result)
             }
             ("POST", "/api/v1/providers:refresh_oauth") => {
-                let result = crate::server::provider_refresh::refresh(
-                    &self.config_override,
-                    self.config_write_path().as_deref(),
-                    &self.oauth_manager,
-                    "oauth",
-                    None,
-                )
-                .await;
+                let result = self.refresh_models("oauth", None).await;
                 HttpResponse::ok(&result)
             }
             ("POST", p) if p.starts_with("/api/v1/providers/") && p.ends_with(":refresh") => {
@@ -840,14 +1314,7 @@ impl HttpServer {
                     p.trim_start_matches("/api/v1/providers/")
                         .trim_end_matches(":refresh"),
                 );
-                let result = crate::server::provider_refresh::refresh(
-                    &self.config_override,
-                    self.config_write_path().as_deref(),
-                    &self.oauth_manager,
-                    "all",
-                    Some(&provider_id),
-                )
-                .await;
+                let result = self.refresh_models("all", Some(&provider_id)).await;
                 HttpResponse::ok(&result)
             }
             ("GET", p)
@@ -897,7 +1364,10 @@ impl HttpServer {
                 )
                 .await
                 {
-                    Ok(item) => HttpResponse::ok(&item),
+                    Ok(item) => {
+                        self.publish_config_changed(&["providers"]).await;
+                        HttpResponse::ok(&item)
+                    }
                     Err((status, code, message)) => {
                         HttpResponse::json(status, &json!({ "code": code, "msg": message }))
                     }
@@ -914,7 +1384,10 @@ impl HttpServer {
                 )
                 .await
                 {
-                    Ok(item) => HttpResponse::ok(&item),
+                    Ok(item) => {
+                        self.publish_config_changed(&["providers"]).await;
+                        HttpResponse::ok(&item)
+                    }
                     Err((status, code, message)) => {
                         HttpResponse::json(status, &json!({ "code": code, "msg": message }))
                     }
@@ -1044,7 +1517,24 @@ impl HttpServer {
                 *self.config_override.lock().await = Some(config);
                 HttpResponse::ok(&json!({ "model": model_id }))
             }
-            ("GET", "/api/v1/prompts") => HttpResponse::ok(&json!({ "items": [] })),
+            ("GET", "/api/v1/prompts") => {
+                // The live prompt queue is per session; the collection route
+                // reports every session's active + queued prompts with the
+                // owning session id attached.
+                let mut items: Vec<Value> = Vec::new();
+                for session in self.store.list_sessions().unwrap_or_default() {
+                    let (active, queued) = self.prompt_queue.snapshot(&session.session_id);
+                    if let Some(mut active) = active {
+                        active["session_id"] = json!(session.session_id);
+                        items.push(active);
+                    }
+                    for mut queued in queued {
+                        queued["session_id"] = json!(session.session_id);
+                        items.push(queued);
+                    }
+                }
+                HttpResponse::ok(&json!({ "items": items }))
+            }
             ("POST", "/api/v1/prompts") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
@@ -1099,21 +1589,27 @@ impl HttpServer {
                             }
                         };
                         let total = bytes.len() as u64;
-                        let mut response = match req
+                        let response = match req
                             .header("range")
                             .and_then(|header| crate::server::files::parse_range(header, total))
                         {
                             Some((start, end)) => {
                                 let slice = bytes[start as usize..=end as usize].to_vec();
                                 HttpResponse::bytes(206, meta.media_type.clone(), slice)
-                                    .with_header("content-range", format!("bytes {start}-{end}/{total}"))
+                                    .with_header(
+                                        "content-range",
+                                        format!("bytes {start}-{end}/{total}"),
+                                    )
                             }
                             None => HttpResponse::bytes(200, meta.media_type.clone(), bytes),
                         };
                         response
                             .with_header(
                                 "content-disposition",
-                                crate::server::files::content_disposition(&meta.name, &meta.media_type),
+                                crate::server::files::content_disposition(
+                                    &meta.name,
+                                    &meta.media_type,
+                                ),
                             )
                             .with_header("accept-ranges", "bytes")
                             .with_header("etag", format!("\"{}-{total}\"", meta.id))
@@ -1136,9 +1632,25 @@ impl HttpServer {
             }
             ("GET", "/api/v2/sessions") => {
                 let sessions = self.store.list_sessions().unwrap_or_default();
+                let engine = self.engine.as_ref();
                 let items: Vec<Value> = sessions
                     .into_iter()
                     .map(|s| {
+                        let busy = engine.map(|e| e.is_busy(&s.session_id)).unwrap_or(false);
+                        let has_prompt = self
+                            .store
+                            .load_session_history(&s.session_id)
+                            .map(|history| !history.is_empty())
+                            .unwrap_or(false);
+                        let model = self
+                            .store
+                            .get_state("agent_config", &s.session_id)
+                            .ok()
+                            .flatten()
+                            .and_then(|c| {
+                                c.get("model").and_then(|m| m.as_str()).map(str::to_string)
+                            })
+                            .or_else(|| engine.map(|e| e.model_name().to_string()));
                         json!({
                             "session_id": s.session_id,
                             "title": s.title,
@@ -1148,11 +1660,11 @@ impl HttpServer {
                             "workspace_id": s.workspace_id,
                             "meta": {
                                 "session_id": s.session_id,
-                                "has_prompt": true
+                                "has_prompt": has_prompt
                             },
                             "activity": {
-                                "status": "idle",
-                                "model": Value::Null
+                                "status": if busy { "busy" } else { "idle" },
+                                "model": model
                             }
                         })
                     })
@@ -1213,16 +1725,24 @@ impl HttpServer {
             }
             // On-demand reconnect for a configured server (v2
             // `reconnectAndJoin` surface): truthful failed/connected status.
-            ("POST", p) if p.starts_with("/api/v1/mcp/servers/") && p.ends_with(":reconnect") => {
+            ("POST", p)
+                if p.starts_with("/api/v1/mcp/servers/")
+                    && (p.ends_with(":reconnect") || p.ends_with(":restart")) =>
+            {
                 let name = p
                     .strip_prefix("/api/v1/mcp/servers/")
-                    .and_then(|rest| rest.strip_suffix(":reconnect"))
+                    .and_then(|rest| {
+                        rest.strip_suffix(":reconnect")
+                            .or_else(|| rest.strip_suffix(":restart"))
+                    })
                     .unwrap_or_default();
                 match self.mcp_manager.reconnect(name).await {
                     Ok(()) => {
                         let servers = self.mcp_manager.server_entries().await;
                         let entry = servers.iter().find(|s| s.name == name);
-                        HttpResponse::ok(&json!({ "reconnected": true, "server": entry }))
+                        HttpResponse::ok(
+                            &json!({ "reconnected": true, "restarting": true, "server": entry }),
+                        )
                     }
                     Err(e) => HttpResponse::internal_error(e),
                 }
@@ -1236,7 +1756,26 @@ impl HttpServer {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("test-server");
-                HttpResponse::ok(&json!({ "ok": true, "name": name, "connected": true }))
+                // Report the real status of the named configured server rather
+                // than a fabricated success.
+                let entries = self.mcp_manager.server_entries().await;
+                match entries.iter().find(|entry| entry.name == name) {
+                    Some(entry) => HttpResponse::ok(&json!({
+                        "ok": entry.status == "connected",
+                        "name": name,
+                        "connected": entry.status == "connected",
+                        "transport": entry.transport,
+                        "status": entry.status,
+                        "tool_count": entry.tool_count,
+                        "error": entry.error,
+                    })),
+                    None => HttpResponse::ok(&json!({
+                        "ok": false,
+                        "name": name,
+                        "connected": false,
+                        "status": "not_found",
+                    })),
+                }
             }
             ("POST", "/api/v1/mcp/servers:inspect") | ("POST", "/api/v2/mcp/servers:inspect") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -1676,7 +2215,8 @@ impl HttpServer {
                 }))
             }
             ("GET", "/api/v1/skills") => {
-                let skills = crate::skills::scan_all_skills(None);
+                let extra = self.config().await.extra_skill_dirs_paths();
+                let skills = crate::skills::scan_all_skills_with_extra(None, &extra);
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
             ("POST", "/api/v1/acp") => {
@@ -1873,7 +2413,8 @@ impl HttpServer {
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
                 let root_path = std::path::PathBuf::from(&ws.root);
-                let skills = crate::skills::scan_all_skills(Some(&root_path));
+                let extra = self.config().await.extra_skill_dirs_paths();
+                let skills = crate::skills::scan_all_skills_with_extra(Some(&root_path), &extra);
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
             ("GET", p) if p.starts_with("/api/v1/workspaces/") && p.ends_with("/plugins") => {
@@ -2253,11 +2794,44 @@ impl HttpServer {
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
-                HttpResponse::ok(&json!({
-                    "status": "initiated",
-                    "sessionId": session_id,
-                    "prompt": crate::prompt::DEFAULT_INIT_PROMPT
-                }))
+                let prompt = crate::prompt::DEFAULT_INIT_PROMPT;
+                let Some(engine) = self.engine.as_ref() else {
+                    // No engine attached: still hand back the analyzed prompt so
+                    // a caller can run it elsewhere.
+                    return HttpResponse::ok(&json!({
+                        "status": "initiated",
+                        "sessionId": session_id,
+                        "prompt": prompt,
+                    }));
+                };
+                let history = match self.store.load_session_history(session_id) {
+                    Ok(messages) => messages,
+                    Err(error) => return HttpResponse::internal_error(error.to_string()),
+                };
+                let turn_number = match self.store.next_turn_number(session_id) {
+                    Ok(number) => number,
+                    Err(error) => return HttpResponse::internal_error(error.to_string()),
+                };
+                match engine
+                    .run_turn(session_id, turn_number, history, prompt)
+                    .await
+                {
+                    Ok(report) => HttpResponse::ok(&json!({
+                        "status": "completed",
+                        "sessionId": session_id,
+                        "turnId": report.turn_id,
+                        "turnNumber": turn_number,
+                        "stopReason": report.stop_reason,
+                        "content": report.reply,
+                        "steps": report.steps,
+                        "llmTransport": report.llm_transport,
+                        "eventsEmitted": report.events_emitted,
+                        "nativeToolCalls": report.native_tool_calls,
+                        "usage": report.usage,
+                        "prompt": prompt,
+                    })),
+                    Err(error) => HttpResponse::internal_error(error.to_string()),
+                }
             }
             ("GET", p) if extract_session_action(p, "status").is_some() => {
                 let session_id = extract_session_action(p, "status").unwrap();
@@ -2370,31 +2944,148 @@ impl HttpServer {
                     "pending_questions": questions
                 }))
             }
+            ("GET", p) if extract_session_subaction(p, "transcript", "ops").is_some() => {
+                let session_id = extract_session_subaction(p, "transcript", "ops").unwrap();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let agent_id = req
+                    .query_param("agent_id")
+                    .unwrap_or_else(|| "main".to_string());
+                let since_seq = req
+                    .query_param("since_seq")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let latest_seq = self.store.latest_wire_event_seq(session_id).unwrap_or(0);
+                // `complete` mirrors the transcript contract: the persisted
+                // journal covers the cursor only once it holds events; an empty
+                // journal signals the caller to do a full refresh instead.
+                let complete = latest_seq > 0 && since_seq <= latest_seq;
+                let batches: Vec<Value> = if latest_seq > since_seq {
+                    let history = self
+                        .store
+                        .load_session_history(session_id)
+                        .unwrap_or_default();
+                    let items = crate::server::transcript::build_items(&history);
+                    let snapshot = json!({
+                        "items": items,
+                        "tasks": [],
+                        "interactions": [],
+                        "attachments": [],
+                        "todos": [],
+                        "prompts": [],
+                        "meta": {},
+                    });
+                    // A single idempotent `reset` op rebuilds the client from the
+                    // authoritative snapshot —correct for any lag, at the cost
+                    // of not being a minimal delta.
+                    vec![json!({
+                        "seq": latest_seq,
+                        "ops": [{
+                            "op": "reset",
+                            "agentId": agent_id,
+                            "snapshot": snapshot,
+                        }],
+                    })]
+                } else {
+                    Vec::new()
+                };
+                HttpResponse::ok(&json!({
+                    "agent_id": agent_id,
+                    "batches": batches,
+                    "latest_seq": latest_seq,
+                    "complete": complete,
+                }))
+            }
+            ("GET", p) if extract_session_subaction(p, "transcript", "user-messages").is_some() => {
+                let session_id =
+                    extract_session_subaction(p, "transcript", "user-messages").unwrap();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let agent_id = req
+                    .query_param("agent_id")
+                    .unwrap_or_else(|| "main".to_string());
+                let history = self
+                    .store
+                    .load_session_history(session_id)
+                    .unwrap_or_default();
+                let items = crate::server::transcript::build_items(&history);
+                let messages = crate::server::transcript::project_user_messages(&items);
+                HttpResponse::ok(&json!({
+                    "agents": [{
+                        "agent_id": agent_id,
+                        "messages": messages,
+                        "attachments": [],
+                    }],
+                }))
+            }
+            ("GET", p) if extract_session_subaction(p, "transcript", "plan").is_some() => {
+                let session_id = extract_session_subaction(p, "transcript", "plan").unwrap();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let agent_id = req
+                    .query_param("agent_id")
+                    .unwrap_or_else(|| "main".to_string());
+                let tool_call_id = req.query_param("tool_call_id");
+                let history = self
+                    .store
+                    .load_session_history(session_id)
+                    .unwrap_or_default();
+                let items = crate::server::transcript::build_items(&history);
+                let plans =
+                    crate::server::transcript::project_plans(&items, tool_call_id.as_deref());
+                if tool_call_id.is_some() && plans.is_empty() {
+                    let requested = tool_call_id.unwrap_or_default();
+                    return HttpResponse::json(
+                        404,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::SESSION_NOT_FOUND,
+                            "msg": format!("no ExitPlanMode tool call found for tool_call_id: {requested}"),
+                        }),
+                    );
+                }
+                HttpResponse::ok(&json!({ "agent_id": agent_id, "plans": plans }))
+            }
             ("GET", p) if extract_session_action(p, "transcript").is_some() => {
                 let session_id = extract_session_action(p, "transcript").unwrap();
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
+                let agent_id = req
+                    .query_param("agent_id")
+                    .unwrap_or_else(|| "main".to_string());
                 let history = self
                     .store
                     .load_session_history(session_id)
                     .unwrap_or_default();
-                let turns: Vec<Value> = history.chunks(2).enumerate().map(|(idx, chunk)| {
-                    let user_msg = chunk.first();
-                    let assistant_msg = chunk.get(1);
-                    json!({
-                        "turn": idx + 1,
-                        "user": user_msg.map(|m| &m.content).unwrap_or(&String::new()),
-                        "assistant": assistant_msg.map(|m| &m.content).unwrap_or(&String::new()),
-                        "state": "completed"
-                    })
-                }).collect();
-
+                let items = crate::server::transcript::build_items(&history);
+                let page = crate::server::transcript::TurnPageQuery {
+                    before_turn: req.query_param("before_turn"),
+                    after_turn: req.query_param("after_turn"),
+                    page_size: req
+                        .query_param("page_size")
+                        .and_then(|value| value.parse::<usize>().ok())
+                        .unwrap_or(crate::server::transcript::DEFAULT_PAGE_SIZE),
+                };
+                let (page_items, has_more) =
+                    crate::server::transcript::paginate_turns(&items, &page);
                 HttpResponse::ok(&json!({
-                    "sessionId": session_id,
-                    "agentId": "main",
-                    "turns": turns,
-                    "has_more": false
+                    "agent_id": agent_id,
+                    "items": page_items,
+                    "has_more": has_more,
+                    "tasks": [],
+                    "interactions": [],
+                    "attachments": [],
+                    "todos": [],
+                    "prompts": [],
+                    "meta": {},
+                    "agents": [{
+                        "agentId": agent_id,
+                        "type": if agent_id == "main" { "main" } else { "sub" },
+                    }],
+                    "pending_interactions": [],
                 }))
             }
             ("POST", p) if extract_session_action(p, "abort").is_some() => {
@@ -2551,6 +3242,17 @@ impl HttpServer {
                                 "tokensAfter": report.tokens_after,
                                 "keptUserMessageCount": report.kept_user_message_count,
                             })));
+                        // Web-vocabulary alias (`event.session.history_compacted`):
+                        // the journal seq and summary message id are not tracked
+                        // on this path, so the cut is reported without them.
+                        self.hub
+                            .bus_for(session_id)
+                            .publish(&crate::events::EngineEvent::Custom(json!({
+                                "type": "event.session.history_compacted",
+                                "before_seq": Value::Null,
+                                "reason": "manual",
+                                "summary_message_id": Value::Null,
+                            })));
                         HttpResponse::ok(&json!({
                             "compacted": true,
                             "removed": report.removed,
@@ -2629,7 +3331,7 @@ impl HttpServer {
                         }))
                     }
                     // Crossing the compaction boundary is a client error, not
-                    // a database failure — surface the refusal verbatim.
+                    // a database failure —surface the refusal verbatim.
                     Err(e) if e.contains("undo refused") => HttpResponse::bad_request(e),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
@@ -2704,7 +3406,8 @@ impl HttpServer {
                 } else {
                     None
                 };
-                let skills = crate::skills::scan_all_skills(ws_root.as_deref());
+                let extra = self.config().await.extra_skill_dirs_paths();
+                let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
                 HttpResponse::ok(&json!({
                     "sessionId": session_id,
                     "skills": skills,
@@ -2891,6 +3594,14 @@ impl HttpServer {
                     .as_ref()
                     .map(|e| e.model_name())
                     .unwrap_or("kimi-latest");
+                let default_plan_mode = {
+                    let cfg = self.config().await;
+                    cfg.agent
+                        .plan_mode
+                        .or(cfg.plan_mode)
+                        .or(cfg.default_plan_mode)
+                        .unwrap_or(false)
+                };
                 let agent_config = self
                     .store
                     .get_state("agent_config", session_id)
@@ -2900,7 +3611,7 @@ impl HttpServer {
                             "model": active_model,
                             "thinking": "medium",
                             "permission_mode": "auto",
-                            "plan_mode": false,
+                            "plan_mode": default_plan_mode,
                         })
                     });
                 let wire_session = format_wire_session(&session, &self.store, self.engine.as_ref());
@@ -2964,6 +3675,14 @@ impl HttpServer {
                 self.hub
                     .bus_for(session_id)
                     .publish(&crate::events::EngineEvent::Custom(meta_event));
+
+                // The profile write may have changed model / thinking /
+                // permission mode / plan mode; refresh the status fact the
+                // Web client's status bar folds. The dedup inside the engine
+                // keeps an unchanged payload silent.
+                if let Some(engine) = self.engine.as_ref() {
+                    engine.publish_status_updated(session_id).await;
+                }
 
                 let wire_session =
                     format_wire_session(&updated_session, &self.store, self.engine.as_ref());
@@ -3356,7 +4075,7 @@ impl HttpServer {
             ("GET", p) if extract_session_action(p, "events").is_some() => {
                 let session_id = extract_session_action(p, "events").unwrap();
                 let exists = self.store.get_session(session_id).ok().flatten().is_some()
-                    || self.hub.lane_session_ids().iter().any(|s| s == session_id);
+                    || self.hub.lane_exists(session_id);
                 if !exists {
                     return HttpResponse::not_found();
                 }
@@ -3390,7 +4109,7 @@ impl HttpServer {
             ("GET", p) if extract_session_action(p, "projection").is_some() => {
                 let session_id = extract_session_action(p, "projection").unwrap();
                 let exists = self.store.get_session(session_id).ok().flatten().is_some()
-                    || self.hub.lane_session_ids().iter().any(|s| s == session_id);
+                    || self.hub.lane_exists(session_id);
                 if !exists {
                     return HttpResponse::not_found();
                 }
@@ -3403,7 +4122,12 @@ impl HttpServer {
                 }
             }
 
-            ("GET", p) if p.starts_with("/api/v1/sessions/") && !p.ends_with("/prompt") => {
+            ("GET", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.strip_prefix("/api/v1/sessions/")
+                        .is_some_and(|rest| !rest.contains('/'))
+                    && !p.ends_with("/prompt") =>
+            {
                 let session_id = p.strip_prefix("/api/v1/sessions/").unwrap_or_default();
                 if session_id.is_empty() || session_id.contains('/') || session_id.contains(':') {
                     return HttpResponse::not_found();
@@ -3433,6 +4157,20 @@ impl HttpServer {
                 match self.store.delete_session(session_id) {
                     Ok(true) => {
                         self.interaction_manager.cancel_session(session_id);
+                        // v2 `sessionExternalHooksService.triggerSessionEnd`:
+                        // deleting the session archives it —the close
+                        // reason is `archive` (REPL exit is `exit`).
+                        // Observational: the deletion proceeds regardless.
+                        let guard = crate::tools::external_hooks::HookGuard::new(
+                            self.config().await.hooks.clone(),
+                        );
+                        guard
+                            .notify_session_lifecycle(
+                                "SessionEnd",
+                                "archive",
+                                json!({ "reason": "archive", "session_title": "" }),
+                            )
+                            .await;
                         let del_event = json!({
                             "type": "event.session.deleted",
                             "sessionId": session_id,
@@ -3547,6 +4285,24 @@ impl HttpServer {
                             .bus_for(&session_id)
                             .publish(&crate::events::EngineEvent::Custom(event));
 
+                        // v2 `sessionExternalHooksService.triggerSessionStart`:
+                        // SessionStart hooks fire on creation (source
+                        // `startup`; the fork route never triggers one
+                        // upstream). Observational only.
+                        let guard = crate::tools::external_hooks::HookGuard::new(
+                            self.config().await.hooks.clone(),
+                        );
+                        guard
+                            .notify_session_lifecycle(
+                                "SessionStart",
+                                "startup",
+                                json!({
+                                    "source": "startup",
+                                    "session_title": title.unwrap_or(""),
+                                }),
+                            )
+                            .await;
+
                         HttpResponse::json(
                             201,
                             &json!({
@@ -3558,6 +4314,359 @@ impl HttpServer {
                     }
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
+            }
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompts") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let (active, queued) = self.prompt_queue.snapshot(session_id);
+                HttpResponse::ok(&json!({ "active": active, "queued": queued }))
+            }
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompts:steer") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                // Contract shape: `{ prompt_ids: [...] }`. A legacy `{ prompt }`
+                // string steers one fresh message without a queued record.
+                let ids: Vec<String> = body
+                    .get("prompt_ids")
+                    .and_then(|value| value.as_array())
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(|id| id.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if ids.is_empty() {
+                    let prompt = body
+                        .get("prompt")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                    if prompt.is_empty() {
+                        return HttpResponse::bad_request("prompt_ids must not be empty");
+                    }
+                    let Some(engine) = self.engine.as_ref() else {
+                        return HttpResponse::json(
+                            503,
+                            &json!({ "error": "no engine configured for this server" }),
+                        );
+                    };
+                    let steered_id = format!("prompt-{}", fastrand::u64(..));
+                    let accepted = engine.enqueue_steer(
+                        session_id,
+                        crate::turn_loop::types::LLMMessage::user(prompt),
+                    );
+                    return if accepted {
+                        HttpResponse::ok(&json!({ "steered": true, "prompt_ids": [steered_id] }))
+                    } else {
+                        HttpResponse::json(
+                            404,
+                            &json!({
+                                "code": crate::server::envelope::error_codes::PROMPT_NOT_FOUND,
+                                "msg": "no active turn to steer",
+                            }),
+                        )
+                    };
+                }
+                if !ids
+                    .iter()
+                    .all(|id| self.prompt_queue.contains(session_id, id))
+                {
+                    return HttpResponse::json(
+                        404,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::PROMPT_NOT_FOUND,
+                            "msg": "no queued prompt with the requested id",
+                        }),
+                    );
+                }
+                let Some(engine) = self.engine.as_ref() else {
+                    return HttpResponse::json(
+                        503,
+                        &json!({ "error": "no engine configured for this server" }),
+                    );
+                };
+                let mut steered_items: Vec<Value> = Vec::new();
+                let mut unsteered = Vec::new();
+                for (item, prompt, blocks) in self.prompt_queue.take_queued(session_id, &ids) {
+                    let message = crate::turn_loop::types::LLMMessage {
+                        role: "user".to_string(),
+                        content: prompt.clone(),
+                        blocks: blocks.clone(),
+                        tool_calls: Vec::new(),
+                        tool_call_id: None,
+                    };
+                    if engine.enqueue_steer(session_id, message) {
+                        steered_items.push(item);
+                    } else {
+                        unsteered.push((item, prompt, blocks));
+                    }
+                }
+                if !steered_items.is_empty() {
+                    let active_prompt_id = self
+                        .prompt_queue
+                        .active_item(session_id)
+                        .and_then(|item| item["prompt_id"].as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    let prompt_ids: Vec<String> = steered_items
+                        .iter()
+                        .map(|item| item["prompt_id"].as_str().unwrap_or_default().to_string())
+                        .collect();
+                    let content: Vec<Value> = steered_items
+                        .iter()
+                        .filter_map(|item| item.get("content").cloned())
+                        .collect();
+                    crate::server::prompt_queue::publish_prompt_event(
+                        &self.hub,
+                        session_id,
+                        json!({
+                            "type": "prompt.steered",
+                            "agentId": "main",
+                            "sessionId": session_id,
+                            "activePromptId": active_prompt_id,
+                            "promptIds": prompt_ids,
+                            "content": content,
+                            "steeredAt": chrono::Utc::now().to_rfc3339(),
+                        }),
+                    );
+                }
+                // A steer that found no running turn must not drop the prompt:
+                // run it (or queue behind whatever is actually active).
+                for (item, prompt, blocks) in unsteered {
+                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks);
+                }
+                HttpResponse::ok(&json!({ "steered": true, "prompt_ids": ids }))
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/prompts/")
+                    && p.ends_with(":steer") =>
+            {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 7 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let prompt_id = segments[6].trim_end_matches(":steer").to_string();
+                let Some(engine) = self.engine.as_ref() else {
+                    return HttpResponse::json(
+                        503,
+                        &json!({ "error": "no engine configured for this server" }),
+                    );
+                };
+                if !self.prompt_queue.contains(session_id, &prompt_id) {
+                    return HttpResponse::json(
+                        404,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::PROMPT_NOT_FOUND,
+                            "msg": "no prompt with the requested id",
+                        }),
+                    );
+                }
+                let active_prompt_id = self
+                    .prompt_queue
+                    .active_item(session_id)
+                    .and_then(|item| item["prompt_id"].as_str().map(str::to_string))
+                    .unwrap_or_default();
+                let mut unsteered = Vec::new();
+                for (item, prompt, blocks) in self
+                    .prompt_queue
+                    .take_queued(session_id, std::slice::from_ref(&prompt_id))
+                {
+                    let message = crate::turn_loop::types::LLMMessage {
+                        role: "user".to_string(),
+                        content: prompt.clone(),
+                        blocks: blocks.clone(),
+                        tool_calls: Vec::new(),
+                        tool_call_id: None,
+                    };
+                    if engine.enqueue_steer(session_id, message) {
+                        crate::server::prompt_queue::publish_prompt_event(
+                            &self.hub,
+                            session_id,
+                            json!({
+                                "type": "prompt.steered",
+                                "agentId": "main",
+                                "sessionId": session_id,
+                                "activePromptId": active_prompt_id,
+                                "promptIds": [prompt_id],
+                                "content": item.get("content").cloned().unwrap_or(Value::Null),
+                                "steeredAt": chrono::Utc::now().to_rfc3339(),
+                            }),
+                        );
+                    } else {
+                        unsteered.push((item, prompt, blocks));
+                    }
+                }
+                for (item, prompt, blocks) in unsteered {
+                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks);
+                }
+                HttpResponse::ok(&json!({ "steered": true, "prompt_ids": [prompt_id] }))
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/prompts/")
+                    && p.ends_with(":abort") =>
+            {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 7 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let prompt_id = segments[6].trim_end_matches(":abort");
+                // An unknown / already-settled prompt is an idempotent no-op,
+                // reported with the dedicated code rather than a false success.
+                if !self.prompt_queue.contains(session_id, prompt_id) {
+                    return HttpResponse::json(
+                        409,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::PROMPT_ALREADY_COMPLETED,
+                            "msg": "prompt already completed",
+                            "data": { "aborted": false },
+                        }),
+                    );
+                }
+                let aborted = self
+                    .engine
+                    .as_ref()
+                    .map(|engine| engine.cancel_turn(session_id))
+                    .unwrap_or(false);
+                crate::server::prompt_queue::publish_prompt_event(
+                    &self.hub,
+                    session_id,
+                    json!({
+                        "type": "prompt.aborted",
+                        "agentId": "main",
+                        "sessionId": session_id,
+                        "promptId": prompt_id,
+                        "abortedAt": chrono::Utc::now().to_rfc3339(),
+                    }),
+                );
+                HttpResponse::ok(&json!({ "aborted": aborted }))
+            }
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompts") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 6 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let content = body
+                    .get("content")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let (mut prompt, blocks) =
+                    match prompt_content_to_blocks(&content, &self.file_store) {
+                        Ok(parsed) => parsed,
+                        Err(error) => return HttpResponse::bad_request(error),
+                    };
+                if prompt.is_empty() {
+                    prompt = body
+                        .get("prompt")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                }
+                if prompt.is_empty() && blocks.is_empty() {
+                    return HttpResponse::bad_request("prompt content is empty");
+                }
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                if let Err(error) = apply_prompt_submission_options(self, session_id, &body) {
+                    return HttpResponse::bad_request(error);
+                }
+                let Some(engine) = self.engine.clone() else {
+                    return HttpResponse::json(
+                        503,
+                        &json!({ "error": "no engine configured for this server" }),
+                    );
+                };
+                let prompt_id = body
+                    .get("prompt_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("prompt-{}", fastrand::u64(..)));
+                if self.prompt_queue.contains(session_id, &prompt_id) {
+                    return HttpResponse::json(
+                        409,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::PROMPT_ID_CONFLICT,
+                            "msg": "prompt_id already exists",
+                        }),
+                    );
+                }
+                let wire_content = if content.is_empty() {
+                    json!([{ "type": "text", "text": prompt }])
+                } else {
+                    Value::Array(content)
+                };
+                // The item carries no status; `admit` stamps it (`running` when
+                // it starts a turn, `queued` behind the active prompt).
+                let item = json!({
+                    "prompt_id": prompt_id.clone(),
+                    "user_message_id": format!("msg-{prompt_id}"),
+                    "content": wire_content,
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                });
+                let (item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
+                crate::server::prompt_queue::publish_prompt_event(
+                    &self.hub,
+                    session_id,
+                    json!({
+                        "type": "prompt.submitted",
+                        "promptId": item.get("prompt_id").cloned().unwrap_or(Value::Null),
+                        "userMessageId": item
+                            .get("user_message_id")
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        "status": item.get("status").cloned().unwrap_or(Value::Null),
+                        "content": item.get("content").cloned().unwrap_or_else(|| json!([])),
+                        "createdAt": item.get("created_at").cloned().unwrap_or(Value::Null),
+                    }),
+                );
+                if let Some(run) = run {
+                    let queue = self.prompt_queue.clone();
+                    let store = self.store_arc();
+                    let hub = self.hub.clone();
+                    let session_id = session_id.to_string();
+                    tokio::spawn(async move {
+                        crate::server::prompt_queue::run_prompt_loop(
+                            Some(engine),
+                            store,
+                            queue,
+                            hub,
+                            session_id,
+                            run,
+                        )
+                        .await;
+                    });
+                }
+                HttpResponse::ok(&item)
             }
             ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompt") => {
                 let segments: Vec<&str> = p.split('/').collect();
@@ -3592,6 +4701,19 @@ impl HttpServer {
                     .unwrap_or(false);
                 if !known {
                     return HttpResponse::not_found();
+                }
+
+                // The synchronous single-prompt route refuses to start a second
+                // concurrent turn; queued prompts go through `/prompts`.
+                if self.prompt_queue.active_item(session_id).is_some() || engine.is_busy(session_id)
+                {
+                    return HttpResponse::json(
+                        409,
+                        &json!({
+                            "code": crate::server::envelope::error_codes::SESSION_BUSY,
+                            "msg": "session is already running a turn",
+                        }),
+                    );
                 }
 
                 let history = match self.store.load_session_history(session_id) {
@@ -3718,10 +4840,10 @@ impl HttpServer {
             Err(e) => return HttpResponse::bad_request(format!("Failed to apply patch: {e}")),
         };
 
-        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str()) {
-            if session.title.as_deref() != Some(new_title) {
-                let _ = self.store.update_session_title(session_id, Some(new_title));
-            }
+        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str())
+            && session.title.as_deref() != Some(new_title)
+        {
+            let _ = self.store.update_session_title(session_id, Some(new_title));
         }
         if let Some(new_meta) = current_wire.get("metadata") {
             let _ = self.store.put_state("metadata", session_id, new_meta);
@@ -3951,6 +5073,11 @@ mod tests {
                 caller_agent_id: None,
                 session_id: None,
                 secondary_model: None,
+                image_read_byte_budget: None,
+                image_max_edge_px: None,
+                model_capabilities: None,
+                skill_dirs: Vec::new(),
+                background: crate::storage::BackgroundLimits::default(),
             },
             hub,
             store,
@@ -3991,7 +5118,7 @@ mod tests {
         let server = server.with_engine(engine_without_a_model(store, hub));
 
         // No providers and no native_llm: the pipeline refuses to build, which
-        // must surface as a server error naming the cause — not a fake 200.
+        // must surface as a server error naming the cause —not a fake 200.
         let response = prompt(&server, &sid).await;
         let body = String::from_utf8_lossy(&response.body).into_owned();
         assert_eq!(response.status, 500, "{body}");
@@ -4216,6 +5343,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_route_cancels_the_serve_token() {
+        let server = HttpServer::in_memory().unwrap();
+        let token = server.shutdown_token();
+        assert!(!token.is_cancelled());
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/shutdown".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        assert!(
+            token.is_cancelled(),
+            "POST /shutdown must stop the accept loop"
+        );
+    }
+
+    #[tokio::test]
     async fn test_http_meta_and_config_endpoints() {
         let server = HttpServer::in_memory().unwrap();
 
@@ -4252,6 +5401,11 @@ mod tests {
         assert!(val_cfg["default_model"].is_string());
         assert!(val_cfg["providers"].is_object());
         assert!(val_cfg["models"].is_object());
+        assert!(val_cfg["yolo"].is_boolean());
+        assert!(val_cfg["plan_mode"].is_boolean());
+        assert!(val_cfg["default_plan_mode"].is_boolean());
+        assert!(val_cfg["telemetry"].is_boolean());
+        assert!(val_cfg["model_catalog"].is_object());
 
         // 3. Config POST update
         let res_post_cfg = server
@@ -5017,6 +6171,112 @@ max_context_size = 128000
     }
 
     #[tokio::test]
+    async fn prompt_queue_routes_reflect_state() {
+        let server = HttpServer::in_memory().unwrap();
+        server.store().create_session("sess-pq", None).unwrap();
+
+        // Idle session: no active prompt and an empty queue.
+        let list = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-pq/prompts".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(list.status, 200);
+        let list_body: Value = serde_json::from_slice(&list.body).unwrap();
+        assert!(list_body["active"].is_null());
+        assert_eq!(list_body["queued"], json!([]));
+
+        // Steering an unknown prompt id is PROMPT_NOT_FOUND, not a fake success.
+        let steer = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-pq/prompts:steer".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "prompt_ids": ["nope"] })).unwrap(),
+            })
+            .await;
+        assert_eq!(steer.status, 404);
+
+        // Aborting an unknown prompt is the idempotent 40903 code.
+        let abort = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-pq/prompts/nope:abort".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let abort_body: Value = serde_json::from_slice(&abort.body).unwrap();
+        assert_eq!(abort_body["code"], 40903);
+    }
+
+    #[tokio::test]
+    async fn prompt_submission_options_persist_to_session_profile() {
+        let server = HttpServer::in_memory().unwrap();
+        server.store().create_session("sess-opt", None).unwrap();
+        let body = json!({
+            "content": [{ "type": "text", "text": "hi" }],
+            "model": "alias-2",
+            "thinking": "high",
+            "permission_mode": "yolo",
+            "plan_mode": true,
+            "disabled_tools": ["Bash"],
+            "profile": "coder",
+            "metadata": { "title": "T" },
+        });
+        apply_prompt_submission_options(&server, "sess-opt", &body).unwrap();
+
+        let config = server
+            .store()
+            .get_state("agent_config", "sess-opt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(config["model"], "alias-2");
+        assert_eq!(config["thinking"], "high");
+        assert_eq!(config["plan_mode"], true);
+        assert_eq!(config["disabled_tools"], json!(["Bash"]));
+        assert_eq!(config["profile"], "coder");
+
+        let metadata = server
+            .store()
+            .get_state("metadata", "sess-opt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(metadata["permission_mode"], "yolo");
+        assert_eq!(metadata["title"], "T");
+
+        // An unknown permission mode is rejected before any turn runs.
+        let bad = json!({
+            "content": [{ "type": "text", "text": "x" }],
+            "permission_mode": "nope",
+        });
+        assert!(apply_prompt_submission_options(&server, "sess-opt", &bad).is_err());
+    }
+
+    #[tokio::test]
+    async fn prompt_plan_mode_activates_workspace_plan_state() {
+        let dir = std::env::temp_dir().join(format!("kimi-plan-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let server = HttpServer::in_memory().unwrap();
+        server.store().create_session("sess-plan", None).unwrap();
+        let body = json!({
+            "content": [{ "type": "text", "text": "plan it" }],
+            "plan_mode": true,
+            "metadata": { "cwd": dir.to_string_lossy() },
+        });
+        apply_prompt_submission_options(&server, "sess-plan", &body).unwrap();
+
+        let state = crate::storage::StateStore::for_workspace(&dir).unwrap();
+        assert_eq!(state.read_domain("plan").unwrap()["active"], true);
+    }
+
+    #[tokio::test]
     async fn test_http_provider_crud_writes_config() {
         let dir = std::env::temp_dir().join(format!("kimi-provider-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
@@ -5120,7 +6380,10 @@ max_context_size = 128000
         let text = std::fs::read_to_string(&config_path).unwrap();
         assert!(text.contains("[providers.kimi-code-2]"), "{text}");
         assert!(!text.contains("[providers.kimi-code]"), "{text}");
-        assert!(text.contains("default_model = \"kimi-code-2/k3\""), "{text}");
+        assert!(
+            text.contains("default_model = \"kimi-code-2/k3\""),
+            "{text}"
+        );
         assert!(!text.contains("kimi-code/fast"), "{text}");
 
         // 6. OAuth-managed providers refuse writes; delete cleans aliases.
@@ -5153,7 +6416,10 @@ max_context_size = 128000
         // pointer is the user's setting and stays, matching kap-server.
         assert!(!text.contains("[providers.kimi-code-2]"), "{text}");
         assert!(!text.contains("[models.\"kimi-code-2/k3\"]"), "{text}");
-        assert!(text.contains("default_model = \"kimi-code-2/k3\""), "{text}");
+        assert!(
+            text.contains("default_model = \"kimi-code-2/k3\""),
+            "{text}"
+        );
         assert!(text.contains("[providers.openai]"), "{text}");
 
         // 7. Validation failures carry the kap-server validation code.
@@ -5169,6 +6435,75 @@ max_context_size = 128000
         assert_eq!(body["code"], 40001);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn provider_create_publishes_config_changed_on_the_global_lane() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"\"\n").unwrap();
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        let mut sub = server.hub().attach();
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/providers".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "id": "kimi-code",
+                    "type": "openai",
+                    "api_key": "sk-test",
+                    "base_url": "https://example.test/v1",
+                    "default_model": "k3",
+                    "models": [{ "model": "k3", "max_context_size": 200000 }]
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 201);
+
+        let ev = sub.recv().await.unwrap();
+        assert_eq!(&*ev.session_id, "global");
+        assert_eq!(ev.event.event_type(), "event.config.changed");
+        let crate::events::EngineEvent::ConfigChanged {
+            changed_fields,
+            config,
+        } = &ev.event
+        else {
+            panic!("expected ConfigChanged, got {:?}", ev.event);
+        };
+        assert_eq!(changed_fields, &vec!["providers".to_string()]);
+        // The payload carries the post-write config, so the client can fold
+        // it instead of re-fetching.
+        assert_eq!(config["providers"]["kimi-code"]["type"], "openai");
+        assert_eq!(config["default_model"], "kimi-code/k3");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn model_catalog_changed_publishes_on_the_global_lane() {
+        let server = HttpServer::in_memory().unwrap();
+        let mut sub = server.hub().attach();
+        server.publish_model_catalog_changed(&json!({
+            "changed": [{ "provider_id": "kimi-code", "provider_name": "Kimi Code", "added": 2, "removed": 1 }],
+            "unchanged": ["other"],
+            "failed": [],
+        }));
+
+        let ev = sub.recv().await.unwrap();
+        assert_eq!(&*ev.session_id, "global");
+        assert_eq!(ev.event.event_type(), "event.model_catalog.changed");
+        let crate::events::EngineEvent::Custom(value) = &ev.event else {
+            panic!("expected Custom event");
+        };
+        assert_eq!(value["changed"][0]["added"], 2);
+        assert_eq!(value["unchanged"][0], "other");
+        assert!(value["failed"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -5203,7 +6538,8 @@ max_context_size = 128000
         });
 
         // Cached OAuth credential the refresh authenticates with.
-        let credentials = std::env::temp_dir().join(format!("kimi-refresh-creds-{}", fastrand::u64(..)));
+        let credentials =
+            std::env::temp_dir().join(format!("kimi-refresh-creds-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&credentials).unwrap();
         std::fs::write(
             credentials.join("kimi.json"),
@@ -5252,9 +6588,7 @@ max_context_size = 128000
 
         // 1. A targeted refresh discovers both models and writes the aliases.
         let res = server
-            .handle_request(&request(
-                "/api/v1/providers/managed%3Akimi-code:refresh",
-            ))
+            .handle_request(&request("/api/v1/providers/managed%3Akimi-code:refresh"))
             .await;
         assert_eq!(res.status, 200);
         let result: Value = serde_json::from_slice(&res.body).unwrap();
@@ -5269,9 +6603,7 @@ max_context_size = 128000
 
         // 2. The same payload again is a no-op.
         let res = server
-            .handle_request(&request(
-                "/api/v1/providers/managed%3Akimi-code:refresh",
-            ))
+            .handle_request(&request("/api/v1/providers/managed%3Akimi-code:refresh"))
             .await;
         let result: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(result["unchanged"], json!(["managed:kimi-code"]));
@@ -6666,7 +7998,7 @@ max_context_size = 128000
         let ev1 = sub.recv().await.unwrap();
         assert_eq!(&*ev1.session_id, "global");
         assert_eq!(ev1.event.event_type(), "event.workspace.created");
-        if let crate::events::EngineEvent::Custom(v) = ev1.event {
+        if let crate::events::EngineEvent::Custom(v) = &ev1.event {
             assert_eq!(v["workspace"]["root"], "/tmp/test-lifecycle-ws");
         } else {
             panic!("Expected EngineEvent::Custom for event.workspace.created");
@@ -6687,7 +8019,7 @@ max_context_size = 128000
         let ev2 = sub.recv().await.unwrap();
         assert_eq!(&*ev2.session_id, "global");
         assert_eq!(ev2.event.event_type(), "event.workspace.deleted");
-        if let crate::events::EngineEvent::Custom(v) = ev2.event {
+        if let crate::events::EngineEvent::Custom(v) = &ev2.event {
             assert_eq!(v["workspace_id"], ws_id);
             assert_eq!(v["root"], "/tmp/test-lifecycle-ws");
         } else {
@@ -6714,7 +8046,7 @@ max_context_size = 128000
         let ev3 = sub.recv().await.unwrap();
         assert_eq!(&*ev3.session_id, &session_id);
         assert_eq!(ev3.event.event_type(), "event.session.created");
-        if let crate::events::EngineEvent::Custom(v) = ev3.event {
+        if let crate::events::EngineEvent::Custom(v) = &ev3.event {
             assert_eq!(v["sessionId"], session_id);
             assert_eq!(v["session"]["title"], "Lifecycle Session");
         } else {
@@ -6739,7 +8071,7 @@ max_context_size = 128000
         let ev4 = sub.recv().await.unwrap();
         assert_eq!(&*ev4.session_id, &session_id);
         assert_eq!(ev4.event.event_type(), "session.meta.updated");
-        if let crate::events::EngineEvent::Custom(v) = ev4.event {
+        if let crate::events::EngineEvent::Custom(v) = &ev4.event {
             assert_eq!(v["sessionId"], session_id);
             assert_eq!(v["title"], "Renamed Lifecycle Session");
         } else {
@@ -6761,7 +8093,7 @@ max_context_size = 128000
         let ev5 = sub.recv().await.unwrap();
         assert_eq!(&*ev5.session_id, "global");
         assert_eq!(ev5.event.event_type(), "event.session.deleted");
-        if let crate::events::EngineEvent::Custom(v) = ev5.event {
+        if let crate::events::EngineEvent::Custom(v) = &ev5.event {
             assert_eq!(v["sessionId"], session_id);
         } else {
             panic!("Expected EngineEvent::Custom for event.session.deleted");
@@ -7234,13 +8566,13 @@ max_context_size = 128000
     }
 
     /// `POST :undo` with `revert_files` reverts the workspace files of the
-    /// turns it actually removed — the file history is keyed by turn *number*,
+    /// turns it actually removed —the file history is keyed by turn *number*,
     /// so passing the undo *count* used to restore the wrong turn.
     #[tokio::test]
     async fn test_http_undo_reverts_files_of_the_undone_turn() {
         let temp = tempfile::tempdir().unwrap();
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
-        let mut server = HttpServer::new(store.clone());
+        let server = HttpServer::new(store.clone());
         let sid = "sess-undo-files";
         store.create_session(sid, None).unwrap();
         store
@@ -7304,8 +8636,8 @@ max_context_size = 128000
                     &format!("t{i}"),
                     i,
                     &[
-                        crate::turn_loop::types::LLMMessage::user(&format!("u{i} {filler}")),
-                        crate::turn_loop::types::LLMMessage::assistant(&format!("a{i} {filler}")),
+                        crate::turn_loop::types::LLMMessage::user(format!("u{i} {filler}")),
+                        crate::turn_loop::types::LLMMessage::assistant(format!("a{i} {filler}")),
                     ],
                     None,
                 )
@@ -7555,5 +8887,169 @@ max_context_size = 128000
         assert_eq!(msgs_after.len(), 1);
         assert_eq!(msgs_after[0]["role"], "system");
         assert_eq!(msgs_after[0]["content"], "Paris geography summary");
+    }
+
+    #[tokio::test]
+    async fn test_http_transcript_routes() {
+        let server = HttpServer::in_memory().unwrap();
+        let sid = "sess-transcript";
+        server
+            .store
+            .create_session(sid, Some("Transcript"))
+            .unwrap();
+
+        let mut assistant = crate::turn_loop::types::LLMMessage::new("assistant", "hello");
+        assistant.tool_calls = vec![crate::turn_loop::types::ToolCall {
+            id: "c1".into(),
+            name: "ExitPlanMode".into(),
+            arguments: json!({}),
+            extras: None,
+        }];
+        let mut tool = crate::turn_loop::types::LLMMessage::new(
+            "tool",
+            "Plan saved to: /tmp/plan.md\n## Approved Plan:\ndo the thing",
+        );
+        tool.tool_call_id = Some("c1".into());
+        let messages = vec![
+            crate::turn_loop::types::LLMMessage::new("user", "start the work"),
+            assistant,
+            tool,
+        ];
+        server
+            .store
+            .save_turn(sid, "turn-1", 1, &messages, None)
+            .unwrap();
+
+        let transcript = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/transcript"),
+                query: Some("agent_id=main".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(transcript.status, 200);
+        let val: Value = serde_json::from_slice(&transcript.body).unwrap();
+        assert_eq!(val["agent_id"], "main");
+        assert_eq!(val["items"].as_array().unwrap().len(), 1);
+        assert_eq!(val["items"][0]["prompt"], "start the work");
+        assert_eq!(val["items"][0]["steps"][0]["frames"][1]["state"], "done");
+
+        let user_messages = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/transcript/user-messages"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(user_messages.status, 200);
+        let um: Value = serde_json::from_slice(&user_messages.body).unwrap();
+        assert_eq!(um["agents"][0]["messages"][0]["prompt"], "start the work");
+
+        let plan = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/transcript/plan"),
+                query: Some("agent_id=main&tool_call_id=c1".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(plan.status, 200);
+        let plan_val: Value = serde_json::from_slice(&plan.body).unwrap();
+        assert_eq!(plan_val["plans"].as_array().unwrap().len(), 1);
+        assert_eq!(plan_val["plans"][0]["path"], "/tmp/plan.md");
+
+        let ops = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/transcript/ops"),
+                query: Some("agent_id=main&since_seq=0".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(ops.status, 200);
+        let ops_val: Value = serde_json::from_slice(&ops.body).unwrap();
+        assert_eq!(ops_val["complete"], false);
+
+        // With a persisted journal the catch-up serves an idempotent reset
+        // batch instead of falling back to a full refresh.
+        server
+            .hub()
+            .bus_for(sid)
+            .publish(&crate::events::EngineEvent::LlmStepBegin {
+                turn_id: "turn-1".into(),
+                step: 1,
+            });
+        let ops_after = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/transcript/ops"),
+                query: Some("agent_id=main&since_seq=0".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let ops_after_val: Value = serde_json::from_slice(&ops_after.body).unwrap();
+        assert_eq!(ops_after_val["complete"], true);
+        assert_eq!(ops_after_val["batches"][0]["ops"][0]["op"], "reset");
+        assert!(
+            ops_after_val["batches"][0]["seq"].as_u64().unwrap() > 0,
+            "batch carries the journal seq"
+        );
+    }
+
+    #[test]
+    fn prompt_content_maps_uploaded_files_to_media_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        let png = files
+            .save("photo.png", "image/png", None, &[0x89, 0x50, 0x4e, 0x47])
+            .unwrap();
+        let pdf = files
+            .save("doc.pdf", "application/pdf", None, b"%PDF-1.4")
+            .unwrap();
+
+        let content = vec![
+            json!({ "type": "text", "text": "look at this" }),
+            json!({ "type": "image", "source": { "kind": "file", "file_id": png.id } }),
+            json!({
+                "type": "file",
+                "file_id": pdf.id,
+                "name": "doc.pdf",
+                "media_type": "application/pdf",
+                "size": 8,
+            }),
+        ];
+        let (prompt, blocks) = prompt_content_to_blocks(&content, &files).unwrap();
+        assert_eq!(prompt, "look at this");
+        assert_eq!(blocks.len(), 2);
+        match &blocks[0] {
+            crate::rpc::types::ContentBlock::Image { media_type, data } => {
+                assert_eq!(media_type, "image/png");
+                assert_eq!(data, "iVBORw==");
+            }
+            other => panic!("expected image block, got {other:?}"),
+        }
+        match &blocks[1] {
+            crate::rpc::types::ContentBlock::Text { text } => {
+                assert!(text.contains("doc.pdf"));
+                assert!(text.contains("application/pdf"));
+            }
+            other => panic!("expected text fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prompt_content_rejects_an_unknown_file_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        let content =
+            vec![json!({ "type": "image", "source": { "kind": "file", "file_id": "f_missing" } })];
+        assert!(prompt_content_to_blocks(&content, &files).is_err());
     }
 }

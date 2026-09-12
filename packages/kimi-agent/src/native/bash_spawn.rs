@@ -1,4 +1,4 @@
-﻿//! Managed bash processes — spawn / wait / kill / dispose lifecycle.
+//! Managed bash processes — spawn / wait / kill / dispose lifecycle.
 //!
 //! Implements the `nativeBashSpawn` family: a process is spawned from a full
 //! argv (no shell detection — the caller passes the shell as `argv[0]`), its
@@ -204,21 +204,21 @@ fn watch_process(
         }
         let now = Instant::now();
         if !timed_out {
-            if let Some(d) = deadline {
-                if now >= d {
-                    timed_out = true;
-                    kill_managed(id);
-                    post_kill_deadline = Some(now + POST_KILL_EXIT_GRACE);
-                }
+            if let Some(d) = deadline
+                && now >= d
+            {
+                timed_out = true;
+                kill_managed(id);
+                post_kill_deadline = Some(now + POST_KILL_EXIT_GRACE);
             }
-        } else if let Some(kd) = post_kill_deadline {
-            if now >= kd {
-                break BashExitOutcome {
-                    exit_code: -1,
-                    timed_out: true,
-                    error: Some("process did not exit after kill".to_string()),
-                };
-            }
+        } else if let Some(kd) = post_kill_deadline
+            && now >= kd
+        {
+            break BashExitOutcome {
+                exit_code: -1,
+                timed_out: true,
+                error: Some("process did not exit after kill".to_string()),
+            };
         }
         std::thread::sleep(POLL_INTERVAL);
     };
@@ -463,10 +463,12 @@ mod tests {
             .iter()
             .position(|e| e.kind == BashSpawnEventKind::Exit)
             .expect("exit event must be emitted");
-        assert!(events[..exit_pos]
-            .iter()
-            .any(|e| e.kind == BashSpawnEventKind::Stdout
-                && e.data.as_deref().unwrap_or("").contains("hello")));
+        assert!(
+            events[..exit_pos]
+                .iter()
+                .any(|e| e.kind == BashSpawnEventKind::Stdout
+                    && e.data.as_deref().unwrap_or("").contains("hello"))
+        );
 
         let exit = events[exit_pos].clone();
         assert_eq!(exit.exit_code, Some(0));
@@ -549,9 +551,11 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         assert!(kill_managed(id));
         let events = collector.wait_exit(Duration::from_secs(10));
-        assert!(events
-            .iter()
-            .any(|e| e.kind == BashSpawnEventKind::Exit && e.exit_code.is_some()));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == BashSpawnEventKind::Exit && e.exit_code.is_some())
+        );
         assert!(dispose_managed(id));
     }
 

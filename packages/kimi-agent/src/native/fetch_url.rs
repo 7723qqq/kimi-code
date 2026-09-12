@@ -100,15 +100,14 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
                 let status = resp.status();
 
                 // Check content-length before reading body
-                if let Some(cl) = resp.header("content-length") {
-                    if let Ok(len) = cl.parse::<usize>() {
-                        if len > config.max_bytes {
-                            return Err(format!(
-                                "Response body too large: {len} bytes exceeds limit ({} bytes).",
-                                config.max_bytes
-                            ));
-                        }
-                    }
+                if let Some(cl) = resp.header("content-length")
+                    && let Ok(len) = cl.parse::<usize>()
+                    && len > config.max_bytes
+                {
+                    return Err(format!(
+                        "Response body too large: {len} bytes exceeds limit ({} bytes).",
+                        config.max_bytes
+                    ));
                 }
 
                 // Extract content type before consuming the response
@@ -207,7 +206,7 @@ fn validate_url(url_str: &str, allow_private: bool, pinned: &PinnedHosts) -> Res
         scheme => {
             return Err(format!(
                 "Unsupported scheme \"{scheme}\" — only http(s) allowed."
-            ))
+            ));
         }
     }
 

@@ -1,4 +1,4 @@
-﻿//! Context compaction strategy — decides when and how much to compact.
+//! Context compaction strategy — decides when and how much to compact.
 //!
 //! Mirrors `packages/agent-core-v2/src/agent/fullCompaction/strategy.ts` so the
 //! TS and Rust layers cannot drift on the windowing algorithm. The TS side
@@ -303,8 +303,10 @@ pub fn select_compaction_user_messages(
             tail_remaining -= m.tokens;
             head_end_exclusive = i;
         } else {
-            let kept =
-                crate::native::tokens::truncate_text_to_tokens_from_end(&m.text, tail_remaining as usize);
+            let kept = crate::native::tokens::truncate_text_to_tokens_from_end(
+                &m.text,
+                tail_remaining as usize,
+            );
             if !kept.is_empty() {
                 head_end_exclusive = i;
                 tail_truncate_chars = Some(kept.len() as u32);
@@ -351,7 +353,8 @@ pub fn select_compaction_user_messages(
             head_remaining -= m.tokens;
             head_indices.push(i);
         } else {
-            let kept = crate::native::tokens::truncate_text_to_tokens(&m.text, head_remaining as usize);
+            let kept =
+                crate::native::tokens::truncate_text_to_tokens(&m.text, head_remaining as usize);
             if !kept.is_empty() {
                 head_truncate_chars = Some(kept.len() as u32);
                 head_indices.push(i);

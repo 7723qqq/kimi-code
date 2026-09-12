@@ -1,10 +1,10 @@
 pub mod loop_fold;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use parking_lot::Mutex;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawWireEvent {
@@ -82,7 +82,7 @@ impl SqliteEventStore {
                 created_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_session_seq ON wire_events(session_id, seq);
-            "#
+            "#,
         )?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -104,7 +104,7 @@ impl SqliteEventStore {
                 created_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_session_seq ON wire_events(session_id, seq);
-            "#
+            "#,
         )?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -130,7 +130,10 @@ fn extract_content_text(payload: &serde_json::Value, field: &str) -> Option<Stri
                     if !buf.is_empty() {
                         buf.push('\n');
                     }
-                    buf.push_str(&format!("[Image: {}]", img.get("url").and_then(|u| u.as_str()).unwrap_or("inline")));
+                    buf.push_str(&format!(
+                        "[Image: {}]",
+                        img.get("url").and_then(|u| u.as_str()).unwrap_or("inline")
+                    ));
                 }
             }
             if !buf.is_empty() {
@@ -142,7 +145,7 @@ fn extract_content_text(payload: &serde_json::Value, field: &str) -> Option<Stri
             return Some(val.to_string());
         }
     }
-None
+    None
 }
 
 /// 从 payload 中提取多模态内容块（wire JSON 数组），缺失或非数组时返回空数组。
@@ -184,14 +187,13 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     // 步骤 A：收集所有 Assistant 中声明过的合法 tool_call_id
     let mut declared_tool_call_ids = std::collections::HashSet::new();
     for msg in &messages {
-        if msg.role == MessageRole::Assistant {
-            if let Some(ref calls) = msg.tool_calls {
-                if let Some(calls_arr) = calls.as_array() {
-                    for c in calls_arr {
-                        if let Some(id) = c.get("id").and_then(|i| i.as_str()) {
-                            declared_tool_call_ids.insert(id.to_string());
-                        }
-                    }
+        if msg.role == MessageRole::Assistant
+            && let Some(ref calls) = msg.tool_calls
+            && let Some(calls_arr) = calls.as_array()
+        {
+            for c in calls_arr {
+                if let Some(id) = c.get("id").and_then(|i| i.as_str()) {
+                    declared_tool_call_ids.insert(id.to_string());
                 }
             }
         }
@@ -216,14 +218,15 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     // 步骤 C：连续 Assistant 消息合并（Anthropic 强制交替校验）
     let mut merged_assistants: Vec<Message> = Vec::new();
     for msg in filtered_tools {
-        if msg.role == MessageRole::Assistant && msg.tool_calls.is_none() {
-            if let Some(last) = merged_assistants.last_mut() {
-                if last.role == MessageRole::Assistant && last.tool_calls.is_none() {
-                    last.content.push_str("\n\n");
-                    last.content.push_str(&msg.content);
-                    continue;
-                }
-            }
+        if msg.role == MessageRole::Assistant
+            && msg.tool_calls.is_none()
+            && let Some(last) = merged_assistants.last_mut()
+            && last.role == MessageRole::Assistant
+            && last.tool_calls.is_none()
+        {
+            last.content.push_str("\n\n");
+            last.content.push_str(&msg.content);
+            continue;
         }
         merged_assistants.push(msg);
     }
@@ -232,13 +235,14 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     let mut cleaned_leading = merged_assistants;
     let has_user = cleaned_leading.iter().any(|m| m.role == MessageRole::User);
     if has_user {
-        while let Some(first) = cleaned_leading.first() {
-            if first.role == MessageRole::Tool || (first.role == MessageRole::Assistant && first.tool_calls.is_none()) {
-                cleaned_leading.remove(0);
-            } else {
-                break;
-            }
-        }
+        let leading = cleaned_leading
+            .iter()
+            .take_while(|m| {
+                m.role == MessageRole::Tool
+                    || (m.role == MessageRole::Assistant && m.tool_calls.is_none())
+            })
+            .count();
+        cleaned_leading.drain(..leading);
     }
 
     // 步骤 E：图片多模态降级：仅保留最近 3 处内联图片，更早的图片降级为 [Image (stripped): ...]
@@ -264,7 +268,9 @@ where
     let mut pending_tool_calls: Vec<String> = Vec::new();
     let mut deferred_messages: Vec<Message> = Vec::new();
 
-    let flush_hanging_tools = |msgs: &mut Vec<Message>, pending: &mut Vec<String>, deferred: &mut Vec<Message>| {
+    let flush_hanging_tools = |msgs: &mut Vec<Message>,
+                               pending: &mut Vec<String>,
+                               deferred: &mut Vec<Message>| {
         if !pending.is_empty() {
             for call_id in pending.drain(..) {
                 msgs.push(Message {
@@ -332,31 +338,38 @@ where
             "message.assistant" => {
                 // 若上一轮仍有未决悬挂工具，先强制合成修复
                 if !pending_tool_calls.is_empty() {
-                    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+                    flush_hanging_tools(
+                        &mut messages,
+                        &mut pending_tool_calls,
+                        &mut deferred_messages,
+                    );
                 }
 
                 let raw_text = extract_content_text(payload, "content").unwrap_or_default();
                 let text = strip_think_blocks(&raw_text);
                 let tool_calls = payload.get("tool_calls").cloned();
-                let is_partial = payload.get("partial").and_then(|p| p.as_bool()).unwrap_or(false);
+                let is_partial = payload
+                    .get("partial")
+                    .and_then(|p| p.as_bool())
+                    .unwrap_or(false);
 
-                if is_partial {
-                    if let Some(last) = messages.last_mut() {
-                        if last.role == MessageRole::Assistant && last.tool_calls.is_none() {
-                            last.content.push_str(&text);
-                            continue;
-                        }
-                    }
+                if is_partial
+                    && let Some(last) = messages.last_mut()
+                    && last.role == MessageRole::Assistant
+                    && last.tool_calls.is_none()
+                {
+                    last.content.push_str(&text);
+                    continue;
                 }
 
                 if !text.is_empty() || tool_calls.is_some() {
                     // 提取本条 Assistant 发起的工具调用 ID 列表
-                    if let Some(ref calls) = tool_calls {
-                        if let Some(calls_arr) = calls.as_array() {
-                            for c in calls_arr {
-                                if let Some(call_id) = c.get("id").and_then(|id| id.as_str()) {
-                                    pending_tool_calls.push(call_id.to_string());
-                                }
+                    if let Some(ref calls) = tool_calls
+                        && let Some(calls_arr) = calls.as_array()
+                    {
+                        for c in calls_arr {
+                            if let Some(call_id) = c.get("id").and_then(|id| id.as_str()) {
+                                pending_tool_calls.push(call_id.to_string());
                             }
                         }
                     }
@@ -371,16 +384,19 @@ where
                 }
             }
             "tool.result" => {
-                let mut tool_call_id = payload.get("tool_call_id").and_then(|id| id.as_str()).map(String::from);
+                let mut tool_call_id = payload
+                    .get("tool_call_id")
+                    .and_then(|id| id.as_str())
+                    .map(String::from);
                 let content = extract_content_text(payload, "output").unwrap_or_default();
 
                 // FIFO 核销：若未传 tool_call_id，从 pending_tool_calls 队首弹出核销
                 if tool_call_id.is_none() && !pending_tool_calls.is_empty() {
                     tool_call_id = Some(pending_tool_calls.remove(0));
-                } else if let Some(ref id) = tool_call_id {
-                    if let Some(pos) = pending_tool_calls.iter().position(|x| x == id) {
-                        pending_tool_calls.remove(pos);
-                    }
+                } else if let Some(ref id) = tool_call_id
+                    && let Some(pos) = pending_tool_calls.iter().position(|x| x == id)
+                {
+                    pending_tool_calls.remove(pos);
                 }
 
                 messages.push(Message {
@@ -398,7 +414,11 @@ where
             }
             "step.begin" => {
                 if !pending_tool_calls.is_empty() {
-                    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+                    flush_hanging_tools(
+                        &mut messages,
+                        &mut pending_tool_calls,
+                        &mut deferred_messages,
+                    );
                 }
                 messages.push(Message {
                     role: MessageRole::Assistant,
@@ -409,47 +429,57 @@ where
                 });
             }
             "content.part" => {
-                if let Some(text) = payload.get("text").and_then(|t| t.as_str()) {
-                    if let Some(last) = messages.last_mut() {
-                        if last.role == MessageRole::Assistant {
-                            last.content.push_str(text);
-                        }
-                    }
+                if let Some(text) = payload.get("text").and_then(|t| t.as_str())
+                    && let Some(last) = messages.last_mut()
+                    && last.role == MessageRole::Assistant
+                {
+                    last.content.push_str(text);
                 }
             }
             "tool.call" => {
-                let call_id = payload.get("tool_call_id").and_then(|i| i.as_str()).unwrap_or("call").to_string();
-                let name = payload.get("name").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
-                let args = payload.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+                let call_id = payload
+                    .get("tool_call_id")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or("call")
+                    .to_string();
+                let name = payload
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("tool")
+                    .to_string();
+                let args = payload
+                    .get("arguments")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("{}");
                 pending_tool_calls.push(call_id.clone());
-                if let Some(last) = messages.last_mut() {
-                    if last.role == MessageRole::Assistant {
-                        let call_obj = serde_json::json!({
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": args,
-                            }
-                        });
-                        if let Some(ref mut arr) = last.tool_calls.as_mut().and_then(|v| v.as_array_mut()) {
-                            arr.push(call_obj);
+                if let Some(last) = messages.last_mut()
+                    && last.role == MessageRole::Assistant
+                {
+                    let call_obj = serde_json::json!({
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": args,
                         }
+                    });
+                    if let Some(ref mut arr) =
+                        last.tool_calls.as_mut().and_then(|v| v.as_array_mut())
+                    {
+                        arr.push(call_obj);
                     }
                 }
             }
             "step.end" => {
                 let finish_reason = payload.get("finish_reason").and_then(|r| r.as_str());
-                if finish_reason != Some("interrupted") && finish_reason != Some("error") {
-                    if let Some(last) = messages.last_mut() {
-                        if last.role == MessageRole::Assistant {
-                            if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array()) {
-                                if arr.is_empty() {
-                                    last.tool_calls = None;
-                                }
-                            }
-                        }
-                    }
+                if finish_reason != Some("interrupted")
+                    && finish_reason != Some("error")
+                    && let Some(last) = messages.last_mut()
+                    && last.role == MessageRole::Assistant
+                    && let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array())
+                    && arr.is_empty()
+                {
+                    last.tool_calls = None;
                 }
             }
             _ => {}
@@ -457,7 +487,11 @@ where
     }
 
     // 3. 循环结束：若末尾存在未决悬挂工具（如进程崩溃或取消），自动合成修复
-    flush_hanging_tools(&mut messages, &mut pending_tool_calls, &mut deferred_messages);
+    flush_hanging_tools(
+        &mut messages,
+        &mut pending_tool_calls,
+        &mut deferred_messages,
+    );
 
     Ok(sanitize_and_repair_projection(messages))
 }
@@ -485,7 +519,9 @@ impl EventStore for SqliteEventStore {
     fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 ORDER BY seq ASC"
+            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
+             AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
+             ORDER BY seq ASC"
         )?;
 
         let mut raw_rows = Vec::new();
@@ -527,15 +563,18 @@ impl EventStore for SqliteEventStore {
         let tx = conn.transaction()?;
 
         // 查找最近一个检查点
-        let last_checkpoint: Option<(i64, bool)> = tx.query_row(
-            "SELECT seq, is_compaction FROM wire_events 
+        let last_checkpoint: Option<(i64, bool)> = tx
+            .query_row(
+                "SELECT seq, is_compaction FROM wire_events 
              WHERE session_id = ?1 AND is_checkpoint = 1 
              ORDER BY seq DESC LIMIT 1",
-            params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
 
-        let (target_seq, is_compaction) = last_checkpoint.ok_or(EventStoreError::CheckpointNotFound)?;
+        let (target_seq, is_compaction) =
+            last_checkpoint.ok_or(EventStoreError::CheckpointNotFound)?;
 
         // 按协议阻断：跨越压缩边界时拒绝执行回滚
         if is_compaction {
@@ -562,26 +601,30 @@ mod tests {
         let session = "test_session_1";
 
         // 用户提问
-        store.append_event(&RawWireEvent {
-            id: "evt_1".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "Hello Rust" }),
-            is_checkpoint: true,
-            is_compaction: false,
-            created_at: 1000,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_1".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "Hello Rust" }),
+                is_checkpoint: true,
+                is_compaction: false,
+                created_at: 1000,
+            })
+            .unwrap();
 
         // 助手回复
-        store.append_event(&RawWireEvent {
-            id: "evt_2".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({ "content": "Hi there!" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 1001,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_2".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({ "content": "Hi there!" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1001,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 2);
@@ -589,7 +632,9 @@ mod tests {
         assert_eq!(msgs[1].role, MessageRole::Assistant);
 
         // 触发压缩
-        store.checkpoint_compress(session, "Prior context summary").unwrap();
+        store
+            .checkpoint_compress(session, "Prior context summary")
+            .unwrap();
 
         let msgs_after_compaction = store.fold_projection(session).unwrap();
         assert_eq!(msgs_after_compaction.len(), 1);
@@ -598,7 +643,10 @@ mod tests {
 
         // 验证跨越压缩边界时拒绝 Undo 回滚
         let undo_res = store.undo_to_last_checkpoint(session);
-        assert!(matches!(undo_res, Err(EventStoreError::UndoCompactionBoundary)));
+        assert!(matches!(
+            undo_res,
+            Err(EventStoreError::UndoCompactionBoundary)
+        ));
     }
 
     #[test]
@@ -607,54 +655,62 @@ mod tests {
         let session = "test_session_deferral";
 
         // 1. Assistant 发出两个 tool calls
-        store.append_event(&RawWireEvent {
-            id: "evt_1".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({
-                "content": "Calling tools",
-                "tool_calls": [
-                    { "id": "call_a", "function": { "name": "read" } },
-                    { "id": "call_b", "function": { "name": "grep" } }
-                ]
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 100,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_1".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({
+                    "content": "Calling tools",
+                    "tool_calls": [
+                        { "id": "call_a", "function": { "name": "read" } },
+                        { "id": "call_b", "function": { "name": "grep" } }
+                    ]
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 100,
+            })
+            .unwrap();
 
         // 2. 中途插入用户消息（或系统注入提示）
-        store.append_event(&RawWireEvent {
-            id: "evt_2".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "Interrupted prompt" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 101,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_2".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "Interrupted prompt" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 101,
+            })
+            .unwrap();
 
         // 3. 第一个工具结果返回
-        store.append_event(&RawWireEvent {
-            id: "evt_3".into(),
-            session_id: session.into(),
-            event_type: "tool.result".into(),
-            payload: serde_json::json!({ "tool_call_id": "call_a", "output": "output a" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 102,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_3".into(),
+                session_id: session.into(),
+                event_type: "tool.result".into(),
+                payload: serde_json::json!({ "tool_call_id": "call_a", "output": "output a" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 102,
+            })
+            .unwrap();
 
         // 4. 第二个工具结果返回
-        store.append_event(&RawWireEvent {
-            id: "evt_4".into(),
-            session_id: session.into(),
-            event_type: "tool.result".into(),
-            payload: serde_json::json!({ "tool_call_id": "call_b", "output": "output b" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 103,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_4".into(),
+                session_id: session.into(),
+                event_type: "tool.result".into(),
+                payload: serde_json::json!({ "tool_call_id": "call_b", "output": "output b" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 103,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 4);
@@ -674,20 +730,22 @@ mod tests {
         let session = "test_session_hanging";
 
         // 1. Assistant 发出 tool call 但发生意外未决
-        store.append_event(&RawWireEvent {
-            id: "evt_1".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({
-                "content": "Executing hanging tool",
-                "tool_calls": [
-                    { "id": "call_hang", "function": { "name": "bash" } }
-                ]
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 200,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_1".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({
+                    "content": "Executing hanging tool",
+                    "tool_calls": [
+                        { "id": "call_hang", "function": { "name": "bash" } }
+                    ]
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 200,
+            })
+            .unwrap();
 
         // 2. 直接结束或下一轮输入
         let msgs = store.fold_projection(session).unwrap();
@@ -705,15 +763,17 @@ mod tests {
         let session = "test_multimodal";
 
         // 1. 系统提示词事件
-        store.append_event(&RawWireEvent {
-            id: "evt_sys".into(),
-            session_id: session.into(),
-            event_type: "message.system".into(),
-            payload: serde_json::json!({ "content": "You are Kimi Code CLI." }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 10,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_sys".into(),
+                session_id: session.into(),
+                event_type: "message.system".into(),
+                payload: serde_json::json!({ "content": "You are Kimi Code CLI." }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 10,
+            })
+            .unwrap();
 
         // 2. 多模态用户输入（含文本与图片数组）
         store.append_event(&RawWireEvent {
@@ -750,7 +810,11 @@ mod tests {
         assert_eq!(msgs[0].content, "You are Kimi Code CLI.");
         assert_eq!(msgs[1].role, MessageRole::User);
         assert!(msgs[1].content.contains("Describe this image"));
-        assert!(msgs[1].content.contains("[Image: data:image/png;base64,mock]"));
+        assert!(
+            msgs[1]
+                .content
+                .contains("[Image: data:image/png;base64,mock]")
+        );
         assert_eq!(msgs[2].role, MessageRole::Assistant);
         // 验证 think 标签已剥离，仅保留文本内容
         assert_eq!(msgs[2].content, "This is a test diagram.");
@@ -765,28 +829,32 @@ mod tests {
             { "type": "text", "text": "Summarize this" },
             { "type": "image_url", "url": "https://example.com/img.png" }
         ]);
-        store.append_event(&RawWireEvent {
-            id: "evt_bu".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "Summarize this", "blocks": blocks_user }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 1,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_bu".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "Summarize this", "blocks": blocks_user }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1,
+            })
+            .unwrap();
 
         let blocks_asst = serde_json::json!([
             { "type": "think", "think": "reasoning", "encrypted": "sig" }
         ]);
-        store.append_event(&RawWireEvent {
-            id: "evt_ba".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({ "content": "done", "blocks": blocks_asst }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 2,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_ba".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({ "content": "done", "blocks": blocks_asst }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 2,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 2);
@@ -794,15 +862,17 @@ mod tests {
         assert_eq!(msgs[1].blocks, blocks_asst);
 
         // 无 blocks 的消息折叠后为空数组而非 null
-        store.append_event(&RawWireEvent {
-            id: "evt_plain".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "plain text message" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 3,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_plain".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "plain text message" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 3,
+            })
+            .unwrap();
         let msgs2 = store.fold_projection(session).unwrap();
         let plain = msgs2.last().unwrap();
         assert_eq!(plain.blocks, serde_json::json!([]));
@@ -814,33 +884,37 @@ mod tests {
         let session = "test_fifo_id";
 
         // Assistant 发起工具调用 call_1
-        store.append_event(&RawWireEvent {
-            id: "evt_1".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({
-                "content": "Running command",
-                "tool_calls": [
-                    { "id": "call_1", "function": { "name": "bash" } }
-                ]
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 30,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_1".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({
+                    "content": "Running command",
+                    "tool_calls": [
+                        { "id": "call_1", "function": { "name": "bash" } }
+                    ]
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 30,
+            })
+            .unwrap();
 
         // 工具结果返回时丢失了 tool_call_id 字段
-        store.append_event(&RawWireEvent {
-            id: "evt_2".into(),
-            session_id: session.into(),
-            event_type: "tool.result".into(),
-            payload: serde_json::json!({
-                "output": "command success"
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 31,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_2".into(),
+                session_id: session.into(),
+                event_type: "tool.result".into(),
+                payload: serde_json::json!({
+                    "output": "command success"
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 31,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 2);
@@ -856,26 +930,30 @@ mod tests {
         let session = "test_repair_rules";
 
         // 1. 注入一条孤立的开头 Assistant 消息（比如截断残留）
-        store.append_event(&RawWireEvent {
-            id: "evt_leading_bad".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({ "content": "I am an orphan leading assistant" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 1,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_leading_bad".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({ "content": "I am an orphan leading assistant" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1,
+            })
+            .unwrap();
 
         // 2. 正确的 User 消息
-        store.append_event(&RawWireEvent {
-            id: "evt_user_1".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "Real first user message" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 2,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_user_1".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "Real first user message" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 2,
+            })
+            .unwrap();
 
         // 3. 注入一条未声明任何 call_id 的孤儿 Tool.result
         store.append_event(&RawWireEvent {
@@ -889,25 +967,29 @@ mod tests {
         }).unwrap();
 
         // 4. 连续两条 Assistant 消息（无 tool_calls）
-        store.append_event(&RawWireEvent {
-            id: "evt_asst_1".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({ "content": "Part 1 of response." }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 4,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_asst_1".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({ "content": "Part 1 of response." }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 4,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_asst_2".into(),
-            session_id: session.into(),
-            event_type: "message.assistant".into(),
-            payload: serde_json::json!({ "content": "Part 2 of response." }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 5,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_asst_2".into(),
+                session_id: session.into(),
+                event_type: "message.assistant".into(),
+                payload: serde_json::json!({ "content": "Part 2 of response." }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 5,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         // 1. 首条孤立 Assistant 消息被清理，首条消息对齐为 User
@@ -915,7 +997,11 @@ mod tests {
         assert_eq!(msgs[0].content, "Real first user message");
 
         // 2. 未匹配对应调用 ID 的孤立 Tool 消息被丢弃
-        assert!(!msgs.iter().any(|m| m.tool_call_id.as_deref() == Some("ghost_call_999")));
+        assert!(
+            !msgs
+                .iter()
+                .any(|m| m.tool_call_id.as_deref() == Some("ghost_call_999"))
+        );
 
         // 3. 连续的 Assistant 消息被合并为单条
         assert_eq!(msgs.len(), 2);
@@ -929,72 +1015,84 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_streamed_events";
 
-        store.append_event(&RawWireEvent {
-            id: "evt_u".into(),
-            session_id: session.into(),
-            event_type: "message.user".into(),
-            payload: serde_json::json!({ "content": "Check weather" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 10,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_u".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "Check weather" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 10,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_sb".into(),
-            session_id: session.into(),
-            event_type: "step.begin".into(),
-            payload: serde_json::json!({ "uuid": "step_stream_1" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 11,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_sb".into(),
+                session_id: session.into(),
+                event_type: "step.begin".into(),
+                payload: serde_json::json!({ "uuid": "step_stream_1" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 11,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_cp".into(),
-            session_id: session.into(),
-            event_type: "content.part".into(),
-            payload: serde_json::json!({ "text": "Checking " }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 12,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_cp".into(),
+                session_id: session.into(),
+                event_type: "content.part".into(),
+                payload: serde_json::json!({ "text": "Checking " }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 12,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_tc".into(),
-            session_id: session.into(),
-            event_type: "tool.call".into(),
-            payload: serde_json::json!({
-                "tool_call_id": "call_weather_1",
-                "name": "get_weather",
-                "arguments": "{\"city\":\"Beijing\"}"
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 13,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_tc".into(),
+                session_id: session.into(),
+                event_type: "tool.call".into(),
+                payload: serde_json::json!({
+                    "tool_call_id": "call_weather_1",
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Beijing\"}"
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 13,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_tr".into(),
-            session_id: session.into(),
-            event_type: "tool.result".into(),
-            payload: serde_json::json!({
-                "tool_call_id": "call_weather_1",
-                "output": "Sunny, 25C"
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 14,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_tr".into(),
+                session_id: session.into(),
+                event_type: "tool.result".into(),
+                payload: serde_json::json!({
+                    "tool_call_id": "call_weather_1",
+                    "output": "Sunny, 25C"
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 14,
+            })
+            .unwrap();
 
-        store.append_event(&RawWireEvent {
-            id: "evt_se".into(),
-            session_id: session.into(),
-            event_type: "step.end".into(),
-            payload: serde_json::json!({ "finish_reason": "stop" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 15,
-        }).unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_se".into(),
+                session_id: session.into(),
+                event_type: "step.end".into(),
+                payload: serde_json::json!({ "finish_reason": "stop" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 15,
+            })
+            .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 3);

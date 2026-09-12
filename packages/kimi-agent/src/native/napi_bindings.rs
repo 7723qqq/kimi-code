@@ -1,4 +1,4 @@
-﻿/// NAPI bindings — exposes all native tools to Node.js.
+/// NAPI bindings — exposes all native tools to Node.js.
 ///
 /// This module defines the `#[napi]` functions that TypeScript calls.
 /// Each function wraps the corresponding Rust implementation.
@@ -8,12 +8,12 @@ use crate::native::compaction::{self, CompactionConfigMeta, CompactionMessageMet
 use crate::native::edit::{self, EditResult};
 use crate::native::escape;
 use crate::native::glob::{self, MAX_MATCHES};
-use crate::native::grep::{self, GrepConfig, GrepResult, OutputMode, DEFAULT_HEAD_LIMIT};
+use crate::native::grep::{self, DEFAULT_HEAD_LIMIT, GrepConfig, GrepResult, OutputMode};
 use crate::native::image_compress;
 use crate::native::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::native::output_truncate;
 use crate::native::permission;
-use crate::native::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINES, MAX_LINE_LENGTH};
+use crate::native::read::{self, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES, ReadConfig, ReadResult};
 use crate::native::tool_access::{self, ToolAccessMeta};
 use crate::native::tool_naming;
 use crate::native::translation::{self, CachedTranslator};
@@ -169,10 +169,10 @@ pub async fn native_read(
 
     // Cache successful reads (put() re-checks the metadata snapshot and skips
     // caching when the file changed during the read).
-    if result.error.is_none() {
-        if let Some(pre) = pre_read {
-            crate::native::file_cache::FILE_CACHE.put(path, line_offset, n_lines, result.clone(), pre);
-        }
+    if result.error.is_none()
+        && let Some(pre) = pre_read
+    {
+        crate::native::file_cache::FILE_CACHE.put(path, line_offset, n_lines, result.clone(), pre);
     }
 
     result
@@ -562,6 +562,7 @@ pub const BASH_MAX_TIMEOUT: u32 = MAX_TIMEOUT_S as u32;
 /// @param path - Directory to list. Defaults to current directory.
 /// @param collapse_hidden_dirs - If true, skip listing children of hidden directories.
 /// @returns ListDirectoryResult with output string and optional error.
+#[allow(dead_code)]
 #[napi]
 pub fn native_list_directory(
     path: Option<String>,
@@ -1187,7 +1188,7 @@ fn parse_goal(v: &serde_json::Value) -> Result<state::GoalState, String> {
         completion_criterion: v
             .get("completionCriterion")
             .and_then(|x| x.as_str().map(|s| s.to_string())),
-        status: state::GoalStatus::from_str(status_str)
+        status: state::GoalStatus::from_wire(status_str)
             .ok_or_else(|| format!("invalid status: {status_str}"))?,
         token_budget: v.get("tokenBudget").and_then(|x| x.as_i64()),
         turn_budget: v.get("turnBudget").and_then(|x| x.as_i64()),
@@ -1218,7 +1219,7 @@ fn parse_update(v: &serde_json::Value) -> Result<state::GoalUpdate, String> {
         status: v
             .get("status")
             .and_then(|x| x.as_str())
-            .and_then(state::GoalStatus::from_str),
+            .and_then(state::GoalStatus::from_wire),
         token_budget: match v.get("tokenBudget") {
             Some(val) if val.is_null() => Some(None),
             Some(val) => Some(val.as_i64()),

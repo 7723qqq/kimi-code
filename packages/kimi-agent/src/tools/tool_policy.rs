@@ -73,8 +73,9 @@ impl ToolsFilter {
 
 /// `mcp__` patterns match as globs (`*` matches any run of characters);
 /// every other name matches exactly and case-sensitively, mirroring the
-/// v2 global tool switch.
-fn matches_tool_pattern(pattern: &str, name: &str) -> bool {
+/// v2 global tool switch. Shared with the per-profile policy (v2
+/// `isToolActive`), which applies the same source-dependent rule.
+pub fn matches_tool_pattern(pattern: &str, name: &str) -> bool {
     if !pattern.starts_with("mcp__") || !pattern.contains('*') {
         return pattern == name;
     }
@@ -145,10 +146,11 @@ pub fn native_tool_defs(
     defs.push(crate::tools::task_tools::task_list_tool_def());
     defs.push(crate::tools::task_tools::task_output_tool_def());
     defs.push(crate::tools::task_tools::task_stop_tool_def());
-    defs.push(crate::tools::task_tools::task_wait_tool_def());
+    defs.push(crate::tools::task_tools::wait_for_tool_def());
     defs.push(crate::tools::skill::skill_tool_def());
     defs.push(crate::tools::knowledge_tool::knowledge_tool_def());
     defs.push(crate::tools::team_tool::team_tool_def());
+    defs.push(crate::tools::workflow::workflow_tool_def());
     if github_available {
         defs.extend(crate::tools::github::github_tool_defs());
     }
@@ -195,8 +197,14 @@ mod tests {
             disabled: vec!["read".into(), "Bash(rm -rf*)".into()],
         };
         assert!(filter.allows("Read"), "built-ins are case-sensitive");
-        assert!(filter.allows("Bash"), "argument patterns do not match names");
-        assert!(filter.allows("mcp__github__read"), "non-mcp patterns do not glob");
+        assert!(
+            filter.allows("Bash"),
+            "argument patterns do not match names"
+        );
+        assert!(
+            filter.allows("mcp__github__read"),
+            "non-mcp patterns do not glob"
+        );
         assert!(!filter.allows("read"));
     }
 
@@ -208,7 +216,10 @@ mod tests {
         };
         assert!(!filter.allows("mcp__github__search"));
         assert!(filter.allows("mcp__slack__search"));
-        assert!(filter.allows("mcp__github"), "glob requires the tool segment");
+        assert!(
+            filter.allows("mcp__github"),
+            "glob requires the tool segment"
+        );
 
         let bare = ToolsFilter {
             enabled: Vec::new(),
@@ -272,12 +283,16 @@ mod tests {
             "TaskList",
             "TaskOutput",
             "TaskStop",
-            "TaskWait",
+            "WaitFor",
             "Skill",
             "Knowledge",
             "Team",
+            "Workflow",
         ] {
-            assert!(names.contains(&expected), "missing tool definition: {expected}");
+            assert!(
+                names.contains(&expected),
+                "missing tool definition: {expected}"
+            );
         }
         assert!(!names.contains(&"TowerInit"), "tower tools are gated");
         assert!(

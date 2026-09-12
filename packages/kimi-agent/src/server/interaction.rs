@@ -40,9 +40,64 @@ pub struct InteractionManager {
     questions: Mutex<HashMap<String, ActiveQuestion>>,
     approvals: Mutex<HashMap<String, ActiveApproval>>,
     hub: Mutex<Option<Arc<crate::server::hub::EventHub>>>,
+    /// Optional activity notifier: an interaction starting or stopping to
+    /// block the session moves the engine's `awaiting_approval` phase. The
+    /// engine installs it whenever a manager attaches (it owns the activity
+    /// registry), so the closure never captures the manager back.
+    activity_notifier: Mutex<Option<crate::server::activity::ActivityNotifier>>,
 }
 
+/// One interaction lifecycle signal for the activity tracker.
+/// Re-exported from [`crate::server::activity`], where the phase fold lives.
+pub use crate::server::activity::ActivitySignal;
+
+/// How long a pending approval may sit unanswered before it expires (v2
+/// surfaced expiry as `event.approval.expired`; the blocked call is denied).
+const APPROVAL_TTL_MS: i64 = 10 * 60 * 1000;
+
 impl InteractionManager {
+    /// Deny and retire every approval older than [`APPROVAL_TTL_MS`],
+    /// announcing each as `event.approval.expired`. Swept lazily on the
+    /// approval access paths — an unanswered approval cannot leak forever.
+    fn sweep_expired_approvals(&self) {
+        self.sweep_expired_before(chrono::Utc::now());
+    }
+
+    fn sweep_expired_before(&self, now: chrono::DateTime<chrono::Utc>) {
+        let expired: Vec<(String, ActiveApproval)> = {
+            let mut lock = self.approvals.lock().unwrap();
+            let stale: Vec<String> = lock
+                .iter()
+                .filter(|(_, a)| {
+                    chrono::DateTime::parse_from_rfc3339(&a.created_at_iso)
+                        .map(|created| {
+                            (now - created.with_timezone(&chrono::Utc)).num_milliseconds()
+                                > APPROVAL_TTL_MS
+                        })
+                        .unwrap_or(false)
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            stale
+                .into_iter()
+                .filter_map(|id| lock.remove(&id).map(|a| (id, a)))
+                .collect()
+        };
+        for (id, a) in expired {
+            let _ = a.tx.send(PermissionDecision::deny(
+                "Approval request expired before it was answered.".to_string(),
+            ));
+            self.publish_event(
+                &a.session_id,
+                crate::events::EngineEvent::Custom(json!({
+                    "type": "event.approval.expired",
+                    "approval_id": id,
+                })),
+            );
+            self.notify_activity(&a.session_id, ActivitySignal::Resolved);
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -63,6 +118,19 @@ impl InteractionManager {
         }
     }
 
+    /// Install the activity notifier (the engine does this when a manager
+    /// attaches). See [`ActivitySignal`].
+    pub fn set_activity_notifier(&self, notifier: crate::server::activity::ActivityNotifier) {
+        *self.activity_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    /// Fire the activity notifier, if one is installed.
+    fn notify_activity(&self, session_id: &str, signal: ActivitySignal) {
+        if let Some(notifier) = self.activity_notifier.lock().unwrap().as_ref() {
+            notifier(session_id, signal);
+        }
+    }
+
     /// Register a pending interactive question from the engine turn loop.
     pub fn register_question(
         &self,
@@ -77,7 +145,7 @@ impl InteractionManager {
             session_id: session_id.to_string(),
             turn_id: req.turn_id.clone(),
             tool_call_id: req.tool_call_id.clone(),
-            questions: req.questions,
+            questions: req.questions.clone(),
             created_at_iso: now_iso.clone(),
             tx,
         };
@@ -87,15 +155,44 @@ impl InteractionManager {
             lock.insert(qid.clone(), active);
         }
 
+        // kimi-web vocabulary (`event.question.requested`): the question
+        // blocks the session until answered or dismissed.
+        let wire_questions: Vec<Value> = req
+            .questions
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| {
+                let options: Vec<Value> = item
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(oidx, opt)| {
+                        json!({
+                            "id": format!("opt_{oidx}"),
+                            "label": opt.label,
+                            "description": opt.description,
+                        })
+                    })
+                    .collect();
+                json!({
+                    "id": format!("q_{idx}"),
+                    "question": item.question,
+                    "header": item.header,
+                    "options": options,
+                    "multi_select": item.multi_select,
+                })
+            })
+            .collect();
         self.publish_event(
             session_id,
             crate::events::EngineEvent::Custom(json!({
-                "type": "question.asked",
-                "questionId": qid,
-                "sessionId": session_id,
-                "turnId": req.turn_id,
-                "toolCallId": req.tool_call_id,
-                "createdAt": now_iso,
+                "type": "event.question.requested",
+                "question_id": qid,
+                "session_id": session_id,
+                "turn_id": req.turn_id,
+                "tool_call_id": req.tool_call_id,
+                "questions": wire_questions,
+                "created_at": now_iso,
             })),
         );
         self.publish_event(
@@ -103,6 +200,13 @@ impl InteractionManager {
             crate::events::EngineEvent::SessionStatusChanged {
                 status: "awaiting_question".into(),
                 previous_status: "running".into(),
+            },
+        );
+        self.notify_activity(
+            session_id,
+            ActivitySignal::Pending {
+                approval_id: qid,
+                tool_call_id: req.tool_call_id,
             },
         );
 
@@ -161,6 +265,33 @@ impl InteractionManager {
         items
     }
 
+    /// The interaction kind currently blocking the session, in the
+    /// kap-server `SessionPendingInteraction` vocabulary: `question` wins
+    /// over `approval` (a turn waits on at most one at a time), and `None`
+    /// means the session is not blocked on the engine. `work_changed`
+    /// reads this so the Web client's badge follows the real state.
+    pub fn pending_interaction_kind(&self, session_id: &str) -> Option<&'static str> {
+        if self
+            .questions
+            .lock()
+            .unwrap()
+            .values()
+            .any(|q| q.session_id == session_id)
+        {
+            return Some("question");
+        }
+        if self
+            .approvals
+            .lock()
+            .unwrap()
+            .values()
+            .any(|a| a.session_id == session_id)
+        {
+            return Some("approval");
+        }
+        None
+    }
+
     /// Resolve a pending question with human answers.
     pub fn resolve_question(
         &self,
@@ -183,10 +314,9 @@ impl InteractionManager {
             self.publish_event(
                 &q.session_id,
                 crate::events::EngineEvent::Custom(json!({
-                    "type": "question.resolved",
-                    "questionId": question_id,
-                    "sessionId": q.session_id,
-                    "method": resp.method,
+                    "type": "event.question.answered",
+                    "question_id": question_id,
+                    "resolved_at": chrono::Utc::now().to_rfc3339(),
                 })),
             );
             self.publish_event(
@@ -196,6 +326,7 @@ impl InteractionManager {
                     previous_status: "awaiting_question".into(),
                 },
             );
+            self.notify_activity(&q.session_id, ActivitySignal::Resolved);
             let _ = q.tx.send(resp);
             true
         } else {
@@ -220,10 +351,9 @@ impl InteractionManager {
             self.publish_event(
                 &q.session_id,
                 crate::events::EngineEvent::Custom(json!({
-                    "type": "question.dismissed",
-                    "questionId": question_id,
-                    "sessionId": q.session_id,
-                    "note": resp.note,
+                    "type": "event.question.dismissed",
+                    "question_id": question_id,
+                    "dismissed_at": chrono::Utc::now().to_rfc3339(),
                 })),
             );
             self.publish_event(
@@ -233,6 +363,7 @@ impl InteractionManager {
                     previous_status: "awaiting_question".into(),
                 },
             );
+            self.notify_activity(&q.session_id, ActivitySignal::Resolved);
             let _ = q.tx.send(resp);
             true
         } else {
@@ -247,6 +378,7 @@ impl InteractionManager {
         req: PermissionCheckRequest,
         action: &str,
     ) -> (String, oneshot::Receiver<PermissionDecision>) {
+        self.sweep_expired_approvals();
         let (tx, rx) = oneshot::channel();
         let approval_id = format!("appr_{}", fastrand::u64(..));
         let now_iso = chrono::Utc::now().to_rfc3339();
@@ -266,17 +398,20 @@ impl InteractionManager {
             lock.insert(approval_id.clone(), active);
         }
 
+        // kimi-web vocabulary (`event.approval.requested`): the shape the
+        // Web client's `toAppApprovalRequest` folds (snake_case, with the
+        // display form of the tool input).
         self.publish_event(
             session_id,
             crate::events::EngineEvent::Custom(json!({
-                "type": "approval.requested",
-                "approvalId": approval_id,
-                "sessionId": session_id,
-                "toolName": req.tool_name,
-                "toolCallId": req.tool_call_id,
+                "type": "event.approval.requested",
+                "approval_id": approval_id,
+                "session_id": session_id,
+                "tool_call_id": req.tool_call_id,
+                "tool_name": req.tool_name,
                 "action": action,
-                "arguments": req.arguments,
-                "createdAt": now_iso,
+                "tool_input_display": req.arguments,
+                "created_at": now_iso,
             })),
         );
         self.publish_event(
@@ -286,12 +421,20 @@ impl InteractionManager {
                 previous_status: "running".into(),
             },
         );
+        self.notify_activity(
+            session_id,
+            ActivitySignal::Pending {
+                approval_id: approval_id.clone(),
+                tool_call_id: req.tool_call_id,
+            },
+        );
 
         (approval_id, rx)
     }
 
     /// List all currently pending tool approvals for a session.
     pub fn list_approvals(&self, session_id: &str) -> Vec<Value> {
+        self.sweep_expired_approvals();
         let lock = self.approvals.lock().unwrap();
         let mut items = Vec::new();
         for (aid, a) in lock.iter() {
@@ -338,12 +481,10 @@ impl InteractionManager {
             self.publish_event(
                 &a.session_id,
                 crate::events::EngineEvent::Custom(json!({
-                    "type": "approval.resolved",
-                    "approvalId": approval_id,
-                    "sessionId": a.session_id,
-                    "allowed": allowed,
+                    "type": "event.approval.resolved",
+                    "approval_id": approval_id,
                     "decision": decision.decision,
-                    "reason": decision.reason,
+                    "resolved_at": chrono::Utc::now().to_rfc3339(),
                 })),
             );
             self.publish_event(
@@ -353,6 +494,7 @@ impl InteractionManager {
                     previous_status: "awaiting_approval".into(),
                 },
             );
+            self.notify_activity(&a.session_id, ActivitySignal::Resolved);
             let _ = a.tx.send(decision);
             true
         } else {
@@ -455,6 +597,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_activity_notifier_fires_on_block_and_resolve() {
+        use std::sync::Mutex as StdMutex;
+
+        let manager = InteractionManager::new();
+        let signals: Arc<StdMutex<Vec<(String, String)>>> = Arc::new(StdMutex::new(Vec::new()));
+        let sink = signals.clone();
+        manager.set_activity_notifier(Arc::new(move |session_id, signal| {
+            let kind = match signal {
+                ActivitySignal::Pending { .. } => "pending",
+                ActivitySignal::Resolved => "resolved",
+            };
+            sink.lock()
+                .unwrap()
+                .push((session_id.to_string(), kind.into()));
+        }));
+
+        let mut rx = manager.register_question(
+            "sess-sig",
+            AskQuestionRequest {
+                question_id: "q_sig".into(),
+                turn_id: "turn-sig".into(),
+                tool_call_id: "call_sig".into(),
+                background: false,
+                timeout_ms: None,
+                questions: vec![],
+            },
+        );
+        assert!(manager.resolve_question("q_sig", HashMap::new(), None));
+        assert!(rx.try_recv().is_ok());
+
+        let (approval_id, mut approval_rx) = manager.register_approval(
+            "sess-sig",
+            PermissionCheckRequest {
+                tool_name: "Bash".into(),
+                tool_call_id: "call_bash_sig".into(),
+                arguments: serde_json::json!({ "command": "ls" }),
+            },
+            "Run test command",
+        );
+        assert!(manager.resolve_approval(&approval_id, true, None));
+        assert!(approval_rx.try_recv().is_ok());
+
+        let recorded = signals.lock().unwrap().clone();
+        assert_eq!(
+            recorded,
+            vec![
+                ("sess-sig".into(), "pending".into()),
+                ("sess-sig".into(), "resolved".into()),
+                ("sess-sig".into(), "pending".into()),
+                ("sess-sig".into(), "resolved".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_interaction_kind_tracks_questions_and_approvals() {
+        let manager = InteractionManager::new();
+        assert_eq!(manager.pending_interaction_kind("sess-1"), None);
+
+        let mut rx = manager.register_question(
+            "sess-1",
+            AskQuestionRequest {
+                question_id: "q_kind".into(),
+                turn_id: "turn-kind".into(),
+                tool_call_id: "call_kind".into(),
+                background: false,
+                timeout_ms: None,
+                questions: vec![AskQuestionItem {
+                    question: "Proceed?".into(),
+                    header: None,
+                    options: vec![AskQuestionOption {
+                        label: "Yes".into(),
+                        description: None,
+                    }],
+                    multi_select: false,
+                }],
+            },
+        );
+        assert_eq!(manager.pending_interaction_kind("sess-1"), Some("question"));
+        // Another session is not blocked by this one's question.
+        assert_eq!(manager.pending_interaction_kind("sess-2"), None);
+
+        assert!(manager.resolve_question("q_kind", HashMap::new(), None));
+        assert_eq!(manager.pending_interaction_kind("sess-1"), None);
+        assert!(rx.try_recv().is_ok());
+
+        let (approval_id, mut approval_rx) = manager.register_approval(
+            "sess-1",
+            PermissionCheckRequest {
+                tool_name: "Bash".into(),
+                tool_call_id: "call_bash_kind".into(),
+                arguments: serde_json::json!({ "command": "ls" }),
+            },
+            "Run test command",
+        );
+        assert_eq!(manager.pending_interaction_kind("sess-1"), Some("approval"));
+        assert!(manager.resolve_approval(&approval_id, true, None));
+        assert_eq!(manager.pending_interaction_kind("sess-1"), None);
+        assert!(approval_rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
     async fn test_question_dismissal() {
         let hub = Arc::new(crate::server::hub::EventHub::new());
         let manager = InteractionManager::new().with_hub(hub.clone());
@@ -488,12 +732,13 @@ mod tests {
 
         // Verify dismissal event broadcast
         let ev_dismissed = sub.recv().await.unwrap();
-        assert_eq!(ev_dismissed.event.event_type(), "question.dismissed");
-        assert_eq!(ev_dismissed.event.to_json()["type"], "question.dismissed");
+        assert_eq!(ev_dismissed.event.event_type(), "event.question.dismissed");
         assert_eq!(
-            ev_dismissed.event.to_json()["note"],
-            "User dismissed the question without answering."
+            ev_dismissed.event.to_json()["type"],
+            "event.question.dismissed"
         );
+        assert_eq!(ev_dismissed.event.to_json()["question_id"], "q_to_dismiss");
+        assert!(ev_dismissed.event.to_json()["dismissed_at"].is_string());
 
         let ev_status = sub.recv().await.unwrap();
         assert_eq!(ev_status.event.event_type(), "event.session.status_changed");
@@ -615,7 +860,8 @@ mod tests {
 
         let mut sub = hub.attach();
 
-        // 1. Register question -> broadcasts question.asked & awaiting_question
+        // 1. Register question -> broadcasts event.question.requested &
+        // awaiting_question
         let q_req = AskQuestionRequest {
             question_id: "q_hub_1".into(),
             turn_id: "turn-1".into(),
@@ -627,18 +873,18 @@ mod tests {
         let _rx_q = manager.register_question("sess-hub", q_req);
 
         let ev1 = sub.recv().await.unwrap();
-        assert_eq!(ev1.event.event_type(), "question.asked");
-        assert_eq!(ev1.event.to_json()["type"], "question.asked");
+        assert_eq!(ev1.event.event_type(), "event.question.requested");
+        assert_eq!(ev1.event.to_json()["type"], "event.question.requested");
 
         let ev2 = sub.recv().await.unwrap();
         assert_eq!(ev2.event.event_type(), "event.session.status_changed");
 
-        // 2. Resolve question -> broadcasts question.resolved & running
+        // 2. Resolve question -> broadcasts event.question.answered & running
         assert!(manager.resolve_question("q_hub_1", HashMap::new(), None));
 
         let ev3 = sub.recv().await.unwrap();
-        assert_eq!(ev3.event.event_type(), "question.resolved");
-        assert_eq!(ev3.event.to_json()["type"], "question.resolved");
+        assert_eq!(ev3.event.event_type(), "event.question.answered");
+        assert_eq!(ev3.event.to_json()["type"], "event.question.answered");
 
         let ev4 = sub.recv().await.unwrap();
         assert_eq!(ev4.event.event_type(), "event.session.status_changed");

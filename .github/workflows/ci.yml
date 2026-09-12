@@ -191,6 +191,9 @@ jobs:
       # (agent-core-v2 / kimi-native-tools / klient / acp-server) may be
       # referenced from manifests, imports, tsconfigs, flake.nix, or CI.
       - run: bun scripts/check-no-legacy-engine.mjs
+      # Rust engine <-> TS interface parity: REST endpoints, WS events, tool
+      # names and napi exports must agree across the two sides.
+      - run: bun scripts/scan-parity.mjs
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
       - run: bun scripts/check-locale-keys.mjs

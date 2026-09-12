@@ -43,7 +43,7 @@
 - `description`：后台任务描述，`run_in_background=true` 时必填
 - `disable_timeout`：后台任务是否取消超时限制
 
-前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#background) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台自动探测 Shell（PowerShell 7 → Windows PowerShell → Git Bash 或 MSYS2 bash），可用 `KIMI_SHELL_PATH` 或 `[shell] preference` 配置固定；Windows 上的 bash 调用会在 `PATH` 前注入 `/usr/local/bin:/usr/bin:/bin`，确保 MSYS2/Git Bash 工具始终可用。
+前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#background) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台自动探测 Shell（PowerShell 7 → Windows PowerShell → Git Bash 或 MSYS2 bash），可用 `KIMI_SHELL_PATH` 或 [`[shell] preference`](../configuration/config-files.md#shell) 配置固定；Windows 上的 bash 调用会在 `PATH` 前注入 `/usr/local/bin:/usr/bin:/bin`，确保 MSYS2/Git Bash 工具始终可用。
 
 ## 网络类
 
@@ -76,6 +76,25 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 | `TodoList` | 自动放行 | 管理任务待办列表 |
 
 **`TodoList`** 在多步骤操作中维护一份可见的子任务列表，状态存储在 Agent 会话内。`todos` 参数接受一个数组，每项含 `title` 和 `status`（`pending` / `in_progress` / `done`）；省略 `todos` 则仅查询当前列表，传入空数组则清空列表。
+
+## Goal
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `CreateGoal` | 自动放行 | 创建目标——一个在自动续跑的轮次中持续推进的持久目标 |
+| `GetGoal` | 自动放行 | 读取当前目标及其状态与预算/用量 |
+| `UpdateGoal` | 自动放行 | 修改目标状态（如暂停、恢复或标记完成） |
+| `SetGoalBudget` | 自动放行 | 设置目标的 token / 轮次 / 墙钟预算 |
+
+**`CreateGoal`** 需要 `objective` 与一个具体的完成判据。目标如何跨轮次续跑、预算如何强制执行，见[目标模式](../guides/goals.md)。
+
+## Knowledge
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `Knowledge` | 自动放行 | 读写本地知识库 |
+
+**`Knowledge`** 与本地知识库交互——一个结构化的持久项目笔记存储，Agent 可跨会话回忆。
 
 ## 协作类
 
@@ -135,6 +154,16 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 **`CronList`** 是只读工具，不接受任何参数。为每个生效中的任务返回一条记录，字段包括 `id`、`cron`、`humanSchedule`、`nextFireAt`、`recurring`、`ageDays` 和 `stale`。记录用 `---` 分隔，按调度时间排列。
 
 **`CronDelete`** 只接受一个 `id`。对周期任务，未来所有触发立即停止；对一次性任务，挂起的那次触发会被取消。已触发的一次性任务会自动删除，因此对已触发过的一次性任务调用 `CronDelete` 会返回 `No cron job with id ...`。删除不可撤销，需要还原时只能再次 `CronCreate`。`CronDelete` 在 Plan 模式下同样会被拦截。
+
+## Workflow
+
+Workflow 工具用于运行多阶段的 Agent 编排——由工作流脚本驱动的并行与串行子代理工作。
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `Workflow` | 自动放行 | 运行或管理多阶段 Agent 工作流 |
+
+**`Workflow`** 接受一个 `operation`：`run` 在后台启动工作流并立即返回 `run_id`（用 `name` 指定内置或用户工作流，或用 `script` 传内联脚本，两者互斥；`args` 会作为脚本的 `args` 透传）；`list` 列出可用工作流；`status` 报告某次运行的当前阶段、Agent 数与耗时；`wait` 阻塞直到运行结束（可选 `timeout_ms`）；`cancel` 停止正在运行的运行。`wait` 在完成时会返回工作流结果。CLI 内置九个工作流——`deep-research`、`code-review`、`test-generator`、`refactor-planner`、`bug-triage`、`pr-description`、`architecture-review`、`security-audit` 与 `migration-planner`；用户工作流从 `<KIMI_CODE_HOME>/workflows/<name>.js` 读取（默认 `~/.kimi-code/workflows/`）。内联 `script` 的执行依赖内嵌 JavaScript 引擎，默认编入（`workflow-js` 构建特性）；未编入该引擎的构建仍支持 `list` / `status` / `wait` / `cancel`，但会拒绝 `run`。工作流内每次 `agent()` 调用都会按调用方的 profile 与模型策略运行一个前台子代理。
 
 ## GitHub
 

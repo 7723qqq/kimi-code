@@ -3,11 +3,10 @@
 //! Groups discovered skills by scope (Project, User, Built-in) and formats
 //! them into Markdown following product conventions.
 
+use crate::skills::{SkillDescriptor, scan_all_skills_with_extra};
 use std::path::Path;
-use crate::skills::{SkillDescriptor, scan_all_skills};
 
-pub const SKILLS_SECTION_PROSE: &str =
-    "Skills are reusable, composable capabilities that enhance your abilities. Each skill is either a self-contained directory with a `SKILL.md` file or a standalone `.md` file that contains instructions, examples, and/or reference material.\n\n\
+pub const SKILLS_SECTION_PROSE: &str = "Skills are reusable, composable capabilities that enhance your abilities. Each skill is either a self-contained directory with a `SKILL.md` file or a standalone `.md` file that contains instructions, examples, and/or reference material.\n\n\
 Identify the skills relevant to your current task and read the skill file for its instructions; only read further skill details when needed, to conserve the context window.\n\n\
 ## Available skills\n\n\
 Skills are grouped by scope (`Project`, `User`, `Extra`, `Built-in`) so you can tell where each came from. When the user refers to \"the skill in this project\" or \"the user-scope skill\", use the scope heading to disambiguate. When multiple scopes define a skill with the same name, the more specific scope takes precedence: **Project overrides User overrides Extra overrides Built-in**.\n\n\
@@ -65,7 +64,16 @@ pub fn render_skills_markdown(skills: &[SkillDescriptor]) -> String {
 
 /// Helper that scans skills for the given workspace and renders the Markdown block.
 pub fn generate_skills_section(workspace_root: Option<&Path>) -> String {
-    let skills = scan_all_skills(workspace_root);
+    generate_skills_section_with_extra(workspace_root, &[])
+}
+
+/// [`generate_skills_section`] plus the user's `extra_skill_dirs`
+/// (schema): the prompt must list what `Skill` can actually load.
+pub fn generate_skills_section_with_extra(
+    workspace_root: Option<&Path>,
+    extra_dirs: &[std::path::PathBuf],
+) -> String {
+    let skills = scan_all_skills_with_extra(workspace_root, extra_dirs);
     render_skills_markdown(&skills)
 }
 
@@ -152,15 +160,21 @@ mod tests {
         assert!(md.contains("## Available skills"));
 
         // Verify Project section and entry format
-        assert!(md.contains("### Project\n- proj-tool: Project analysis\n  Path: G:/ws/skills/proj-tool\n"));
+        assert!(md.contains(
+            "### Project\n- proj-tool: Project analysis\n  Path: G:/ws/skills/proj-tool\n"
+        ));
         assert!(!md.contains("secret-tool"));
         assert!(!md.contains("Should not appear"));
 
         // Verify User section
-        assert!(md.contains("### User\n- user-helper: User automation\n  Path: C:/Users/name/.skills/user-helper\n"));
+        assert!(md.contains(
+            "### User\n- user-helper: User automation\n  Path: C:/Users/name/.skills/user-helper\n"
+        ));
 
         // Verify Built-in section with description fallback
-        assert!(md.contains("### Built-in\n- builtin-exec: No description provided.\n  Path: builtin://exec\n"));
+        assert!(md.contains(
+            "### Built-in\n- builtin-exec: No description provided.\n  Path: builtin://exec\n"
+        ));
 
         // Verify Extra section
         assert!(md.contains("### Extra\n- plugin-custom: External plugin skill\n  Path: plugins/marketplace/custom\n"));
@@ -169,23 +183,30 @@ mod tests {
     #[test]
     fn test_render_skills_omits_empty_groups() {
         // Only User skills provided
-        let skills = vec![
-            SkillDescriptor {
-                name: "only-user".into(),
-                description: "Solo user skill".into(),
-                source: "user".into(),
-                path: "path/user".into(),
-                disable_model_invocation: false,
-            },
-        ];
+        let skills = vec![SkillDescriptor {
+            name: "only-user".into(),
+            description: "Solo user skill".into(),
+            source: "user".into(),
+            path: "path/user".into(),
+            disable_model_invocation: false,
+        }];
 
         let md = render_skills_markdown(&skills);
         assert!(md.contains("### User"));
         assert!(md.contains("- only-user: Solo user skill\n  Path: path/user\n"));
 
         // Empty groups must not be rendered
-        assert!(!md.contains("### Project"), "empty Project group must not be rendered");
-        assert!(!md.contains("### Built-in"), "empty Built-in group must not be rendered");
-        assert!(!md.contains("### Extra"), "empty Extra group must not be rendered");
+        assert!(
+            !md.contains("### Project"),
+            "empty Project group must not be rendered"
+        );
+        assert!(
+            !md.contains("### Built-in"),
+            "empty Built-in group must not be rendered"
+        );
+        assert!(
+            !md.contains("### Extra"),
+            "empty Extra group must not be rendered"
+        );
     }
 }

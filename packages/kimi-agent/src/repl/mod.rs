@@ -327,9 +327,12 @@ pub async fn start_repl(
     mcp_manager.spawn_from_config(&config).await;
 
     // Background task runner: task stop/wait delegate to real execution.
-    let task_runner = Arc::new(crate::storage::task_runner::TaskRunner::for_workspace(
-        &workspace,
-    )?);
+    let task_runner = Arc::new(
+        crate::storage::task_runner::TaskRunner::for_workspace(&workspace)?.with_background_limits(
+            config.background.kill_grace_period_ms,
+            config.resolve_background_max_running_tasks(),
+        ),
+    );
     subagent_manager.set_task_runner_sync(task_runner.clone());
 
     // Cron scheduler: fire entries from the local cron state. Fired prompts
@@ -376,13 +379,14 @@ pub async fn start_repl(
             protocol: native_llm_def.protocol,
             base_url: native_llm_def.base_url,
             api_key: native_llm_def.api_key,
-            model: native_llm_def.model,
+            model: native_llm_def.model.clone(),
             max_tokens: native_llm_def.max_tokens,
-            custom_headers: HashMap::new(),
-            reasoning_effort: None,
+            custom_headers: native_llm_def.custom_headers,
+            reasoning_effort: config.resolve_effort(native_llm_def.off_effort.as_deref()),
             thinking_budget: None,
             auth_provider: None,
-            thinking_keep: None,
+            thinking_keep: config.resolve_thinking_keep(),
+            beta_api: native_llm_def.beta_api,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));
@@ -432,11 +436,44 @@ pub async fn start_repl(
         token: config.github.token.clone(),
         base_url: config.github.base_url.clone(),
     };
+    // `[secondary_model]` pool: the REPL resolves it itself (the host-driven
+    // paths get it from the host), so `Agent(model=…)` works here too.
+    let secondary_model = match config.extract_secondary_model_pool(current_model.as_deref()) {
+        Ok(Some(pool)) => {
+            let mut llms: std::collections::HashMap<String, Arc<dyn crate::turn_loop::types::LLM>> =
+                std::collections::HashMap::new();
+            for entry in &pool.models {
+                llms.insert(
+                    entry.alias.clone(),
+                    Arc::new(NativeHttpLlm::new(
+                        entry.llm.clone(),
+                        "You are Kimi, a helpful agentic coding assistant.".to_string(),
+                    )),
+                );
+            }
+            Some(Arc::new(
+                crate::subagent::secondary::SecondaryModelRuntime::new(pool, llms),
+            ))
+        }
+        Ok(None) => None,
+        Err(error) => {
+            eprintln!("[Warning] ignoring [secondary_model]: {error}");
+            None
+        }
+    };
     let toolset = Arc::new(
         NativeToolset::new(&workspace_str, None)
             .unwrap_or_else(|| panic!("Invalid workspace root: {}", workspace.display()))
             .with_subagents(subagent_manager.clone())
             .with_agent_context(config.resolve_subagent_timeout_ms(), None)
+            .with_secondary_model(secondary_model)
+            .with_image_limits(
+                config.resolve_image_read_byte_budget(),
+                config.resolve_image_max_edge_px(),
+            )
+            .with_bash_auto_background(config.background.bash_auto_background_on_timeout)
+            .with_bash_task_timeout(config.resolve_bash_task_timeout_s())
+            .with_model_capabilities(native_llm_def.capabilities.clone())
             .with_mcp(mcp_manager.clone())
             .with_callbacks(base_callbacks.clone())
             .with_github_credentials(github_credentials.clone()),
@@ -478,7 +515,7 @@ pub async fn start_repl(
         sandbox_policy: None,
     });
     subagent_manager
-        .set_runtime(llm.clone(), tool_callbacks.clone())
+        .set_runtime(llm.clone(), tool_callbacks.clone(), None)
         .await;
 
     // Build the EngineSession — owns turn lifecycle for the loop.
@@ -489,8 +526,11 @@ pub async fn start_repl(
     let session_config = crate::session::SessionConfig {
         llm: llm.clone(),
         callbacks: tool_callbacks.clone(),
-        max_steps: 25,
-        max_attempts: None,
+        // `[loop_control]` applies to the REPL too — the same config file
+        // must behave the same on every entry point (`--serve` / `--acp`
+        // resolve these through `with_standalone_limits`).
+        max_steps: config.resolve_max_steps_per_turn().unwrap_or(25),
+        max_attempts: config.resolve_max_attempts_per_step(),
         max_context_tokens: None,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
@@ -509,9 +549,28 @@ pub async fn start_repl(
         // REPL spawns subagents through its own invoke_subagent family; the
         // foreground `Agent` context has no session cancel slot to consult.
         agent_cancel_slot: None,
-        hook_guard: Some(hook_guard),
+        hook_guard: Some(hook_guard.clone()),
+        // Print mode (`kimi -p`) only: an interactive session's turn receipt
+        // must never wait on background tasks.
+        print_background: None,
+        task_runner: None,
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;
+
+    // v2 `sessionExternalHooksService.triggerSessionStart`: the SessionStart
+    // hooks fire when the session comes up (observational — verdicts are
+    // dropped), matching on the create source.
+    hook_guard
+        .notify_session_lifecycle(
+            "SessionStart",
+            "startup",
+            serde_json::json!({
+                "source": "startup",
+                "session_title": "",
+                "model": native_llm_def.model,
+            }),
+        )
+        .await;
 
     loop {
         ui::render_prompt();
@@ -609,6 +668,19 @@ pub async fn start_repl(
                                     id,
                                     engine_session.history_len()
                                 );
+                                // A resumed session is a fresh SessionStart
+                                // with the `resume` source (v2 lifecycle).
+                                hook_guard
+                                    .notify_session_lifecycle(
+                                        "SessionStart",
+                                        "resume",
+                                        serde_json::json!({
+                                            "source": "resume",
+                                            "session_title": "",
+                                            "model": native_llm_def.model,
+                                        }),
+                                    )
+                                    .await;
                             }
                             Err(e) => eprintln!("[Error loading session]: {e}"),
                         }
@@ -622,6 +694,17 @@ pub async fn start_repl(
                     engine_session.clear_history();
                     total_usage = TokenUsage::default();
                     println!("Started new session: {current_session_id}");
+                    hook_guard
+                        .notify_session_lifecycle(
+                            "SessionStart",
+                            "startup",
+                            serde_json::json!({
+                                "source": "startup",
+                                "session_title": "",
+                                "model": native_llm_def.model,
+                            }),
+                        )
+                        .await;
                     continue;
                 }
                 "/undo" => {
@@ -728,6 +811,16 @@ pub async fn start_repl(
             }
         }
     }
+
+    // v2 `sessionExternalHooksService.triggerSessionEnd`: the REPL exit is
+    // the close reason `exit` (archival happens on the server's DELETE).
+    hook_guard
+        .notify_session_lifecycle(
+            "SessionEnd",
+            "exit",
+            serde_json::json!({ "reason": "exit", "session_title": "" }),
+        )
+        .await;
 
     Ok(())
 }

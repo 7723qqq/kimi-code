@@ -51,6 +51,7 @@
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
     "check:no-legacy-engine": "bun scripts/check-no-legacy-engine.mjs",
+    "check:parity": "bun scripts/scan-parity.mjs",
     "changeset": "changeset",
     "version": "changeset version",
     "version:release": "changeset version",

@@ -127,7 +127,10 @@ impl SecondaryModelRuntime {
                     self.config.default_model
                 ));
             }
-            return Ok(self.bind(self.config.default_model.as_str(), SubagentModelSource::Forced)?);
+            return self.bind(
+                self.config.default_model.as_str(),
+                SubagentModelSource::Forced,
+            );
         }
         if requested == Some(PRIMARY_MODEL_CHOICE) {
             return Ok(SubagentBinding {
@@ -271,7 +274,9 @@ mod tests {
     #[test]
     fn primary_binds_the_session_llm() {
         let pool = pool_runtime();
-        let binding = pool.resolve(&session_llm(), Some(PRIMARY_MODEL_CHOICE)).unwrap();
+        let binding = pool
+            .resolve(&session_llm(), Some(PRIMARY_MODEL_CHOICE))
+            .unwrap();
         assert_eq!(binding.source, SubagentModelSource::PrimaryOverride);
         assert_eq!(binding.llm.model_name(), "primary-llm");
     }
@@ -322,10 +327,17 @@ mod tests {
         pool.config.caller_model_alias = Some("strong".into());
         let description = pool.description();
         assert!(description.contains("- fast [default]"), "{description}");
-        assert!(description.contains("- strong [main model]"), "{description}");
+        assert!(
+            description.contains("- strong [main model]"),
+            "{description}"
+        );
         assert!(description.contains("- primary (strong)"), "{description}");
-        let default_line = description.find("- fast [default]").expect("default line listed");
-        let main_line = description.find("- strong [main model]").expect("main line listed");
+        let default_line = description
+            .find("- fast [default]")
+            .expect("default line listed");
+        let main_line = description
+            .find("- strong [main model]")
+            .expect("main line listed");
         assert!(default_line < main_line, "{description}");
     }
 
@@ -334,7 +346,10 @@ mod tests {
         assert!(SecondaryModelRuntime::resolve_without_pool(None).is_ok());
         assert!(SecondaryModelRuntime::resolve_without_pool(Some(PRIMARY_MODEL_CHOICE)).is_ok());
         let error = SecondaryModelRuntime::resolve_without_pool(Some("fast")).unwrap_err();
-        assert!(error.contains("no [secondary_model.models] pool"), "{error}");
+        assert!(
+            error.contains("no [secondary_model.models] pool"),
+            "{error}"
+        );
         assert!(error.contains("primary"), "{error}");
     }
 }

@@ -109,10 +109,12 @@ fn render_update_goal(value: &Value, status: &str) -> ExecutableToolResult {
         // v2 updateGoalTool.ts:63-75 — markComplete/markBlocked success sets
         // stopTurn: true so the engine ends the turn as completed.
         "complete" => ExecutableToolResult {
+            delivery: None,
             stop_turn: true,
             ..ok_result(goal_completion_summary_prompt(&goal))
         },
         _ => ExecutableToolResult {
+            delivery: None,
             stop_turn: true,
             ..ok_result(goal_blocked_reason_prompt(&goal))
         },
@@ -198,6 +200,7 @@ fn render_set_goal_budget(
         // v2 setGoalBudgetTool.ts:65-73 — stopTurn only when the snapshot
         // reports overBudget after the write.
         ExecutableToolResult {
+            delivery: None,
             stop_turn: true,
             ..ok_result(format!(
                 "{set_message} The goal has already reached this budget and will stop now."
@@ -267,6 +270,7 @@ fn map_state_error(error: String) -> ExecutableToolResult {
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -276,6 +280,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,

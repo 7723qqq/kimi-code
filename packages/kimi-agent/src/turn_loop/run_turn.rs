@@ -38,16 +38,19 @@ struct CallbackStateSnapshot {
 
 impl CallbackStateSnapshot {
     async fn refresh(&self, callbacks: &dyn HostCallbacks) {
-        for (domain, slot) in [("goal", &self.goal), ("plan", &self.plan)] {
-            let request = crate::rpc::types::StateReadRequest {
+        // The two domains are independent host round-trips; issue them
+        // concurrently so the step pays one latency instead of two.
+        let read = |domain: &str| {
+            callbacks.state_read(crate::rpc::types::StateReadRequest {
                 domain: domain.to_string(),
                 key: domain.to_string(),
                 turn_id: String::new(),
                 tool_call_id: String::new(),
-            };
-            let value = callbacks.state_read(request).await.ok().map(|r| r.value);
-            *slot.lock().unwrap_or_else(|e| e.into_inner()) = value;
-        }
+            })
+        };
+        let (goal, plan) = futures_util::future::join(read("goal"), read("plan")).await;
+        *self.goal.lock().unwrap_or_else(|e| e.into_inner()) = goal.ok().map(|r| r.value);
+        *self.plan.lock().unwrap_or_else(|e| e.into_inner()) = plan.ok().map(|r| r.value);
     }
 }
 
@@ -59,6 +62,44 @@ impl crate::injection::goal_plan::StateStore for CallbackStateSnapshot {
             _ => return None,
         };
         slot.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// Incremental estimate of the current history's token cost.
+///
+/// The per-step compaction check needs the history's token count; rescanning
+/// (and re-serializing every tool call in) the whole history each step is
+/// O(n²) over a turn. Between compactions the injection-free history only
+/// grows, so this caches the running total and adds only the newly appended
+/// tail. Any in-place prefix rewrite (goal steering, compaction) invalidates
+/// the cache so the next `sync` recomputes from scratch.
+#[derive(Default)]
+struct ContextTokens {
+    tokens: u32,
+    len: usize,
+    stale: bool,
+}
+
+impl ContextTokens {
+    /// Re-sync against the current injection-free history.
+    fn sync(&mut self, messages: &[LLMMessage]) {
+        if self.stale || messages.len() < self.len {
+            self.tokens = crate::compaction::estimate_messages_tokens(messages);
+            self.len = messages.len();
+            self.stale = false;
+        } else if messages.len() > self.len {
+            self.tokens += crate::compaction::estimate_messages_tokens(&messages[self.len..]);
+            self.len = messages.len();
+        }
+    }
+
+    fn tokens(&self) -> u32 {
+        self.tokens
+    }
+
+    /// The cached prefix was rewritten in place; force a full recompute.
+    fn invalidate(&mut self) {
+        self.stale = true;
     }
 }
 
@@ -163,10 +204,11 @@ pub fn run_turn_with_telemetry<'a>(
                 }
                 // Goal-mode continuation (v2 `launchContinuationTurn`):
                 // a successful goal turn enqueues another turn so the goal
-                // progresses past a single model response. v2 enqueues a
-                // `ContinuationStepRequest` on the loop; the engine
-                // surfaces this as a `goal.continuation` telemetry event the
-                // host watches to re-prompt (SDK / REPL wire the loop).
+                // progresses past a single model response. v2 enqueued a
+                // `ContinuationStepRequest` on the loop; the engine surfaces
+                // the decision as `goal.continuation` telemetry, and the
+                // print settle (session/mod.rs) turns it into the follow-up
+                // turn itself — no native host re-prompts on the event.
                 if reason == "completed"
                     && let Some(goal) = goal_for_continuation.as_ref()
                     && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
@@ -274,7 +316,7 @@ fn latest_user_text(user_messages: &[LLMMessage]) -> String {
 /// stale injections afterwards.
 fn strip_rebuilt_system_message(messages: Vec<LLMMessage>) -> Vec<LLMMessage> {
     debug_assert!(
-        messages.first().map_or(true, |m| m.role == "system"),
+        messages.first().is_none_or(|m| m.role == "system"),
         "turn head must be the rebuilt system message"
     );
     messages.into_iter().skip(1).collect()
@@ -443,9 +485,7 @@ pub(crate) struct TurnCancellation {
 }
 
 impl TurnCancellation {
-    pub(crate) fn from_flag(
-        flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    ) -> Self {
+    pub(crate) fn from_flag(flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Self {
         let token = tokio_util::sync::CancellationToken::new();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         if let Some(flag) = flag {
@@ -535,6 +575,10 @@ pub fn run_turn<'a>(
             ..Default::default()
         }];
         messages.extend(user_messages);
+
+        // Running token estimate for the injection-free history (see
+        // [`ContextTokens`]).
+        let mut context_tokens = ContextTokens::default();
 
         // Retry configuration for LLM calls within this turn. The attempt
         // count is host-configurable (v2 `loopControl.maxAttemptsPerStep`);
@@ -661,6 +705,7 @@ pub fn run_turn<'a>(
                 let steering =
                     render_goal_steering(goal, turn_tokens, turns_this_turn, turn_wall_clock_ms);
                 messages[0].content = format!("{}\n\n{}", input.llm.system_prompt(), steering);
+                context_tokens.invalidate();
             }
 
             // ── Cancellation check ────────────────────────────────────────
@@ -699,15 +744,17 @@ pub fn run_turn<'a>(
             // are pulled out before compacting and re-appended after, so
             // reminders survive the windowing.
             let injections = crate::injection::split_injections(&mut messages);
-            let compacted = crate::compaction::compact_messages_with_summary(
+            context_tokens.sync(&messages);
+            if let Some(compacted) = crate::compaction::compact_messages_with_summary_at(
                 &messages,
+                context_tokens.tokens(),
                 &compaction_config,
                 input.llm,
                 None,
                 Some(turn_cancel.token()),
             )
-            .await;
-            if compacted.len() != messages.len() {
+            .await
+            {
                 tracing::debug!(
                     turn_id = %turn_id,
                     step = step_num,
@@ -721,8 +768,9 @@ pub fn run_turn<'a>(
                 if let Some(ref guard) = hook_guard {
                     guard.notify_pre_compact(&turn_id, messages.len()).await;
                 }
+                context_tokens.invalidate();
+                messages = compacted;
             }
-            messages = compacted;
             messages.extend(injections);
 
             // ── Injection pass ───────────────────────────────────────────
@@ -758,15 +806,17 @@ pub fn run_turn<'a>(
 
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
+            let telemetry = |event: serde_json::Value| callbacks.telemetry(event);
             let step_result = match execute_loop_step_with_retry(
                 &turn_id,
                 step_num,
                 input.llm,
-                messages.clone(),
+                &messages,
                 input.tools,
-                step_tool_defs.clone(),
+                &step_tool_defs,
                 &retry_config,
                 Some(turn_cancel.token()),
+                Some(&telemetry),
             )
             .await
             {
@@ -820,16 +870,18 @@ pub fn run_turn<'a>(
                                 "recovered from context overflow via emergency compaction"
                             );
                             messages = force_compacted;
+                            context_tokens.invalidate();
                             messages.extend(injections);
                             match execute_loop_step_with_retry(
                                 &turn_id,
                                 step_num,
                                 input.llm,
-                                messages.clone(),
+                                &messages,
                                 input.tools,
-                                step_tool_defs,
+                                &step_tool_defs,
                                 &retry_config,
                                 Some(turn_cancel.token()),
+                                Some(&telemetry),
                             )
                             .await
                             {
@@ -973,7 +1025,7 @@ pub fn run_turn<'a>(
                                 if let Some(original) = dup_source {
                                     let shared = dedupe_cells[original]
                                         .get_or_init(|| async {
-                                            ExecutableToolResult {
+                                            ExecutableToolResult { delivery: None,
                                                 stop_turn: false,
                                                 content: "Tool call deduplicated but original result was lost".into(),
                                                 is_error: true,
@@ -994,19 +1046,57 @@ pub fn run_turn<'a>(
                                 // becomes the same error result the
                                 // scheduler would synthesize for it.
                                 let execute = async {
+                                    // The tool-call lifecycle: `tool.native`
+                                    // only reports the outcome, so a consumer
+                                    // could never tell that a call had
+                                    // started (or how long it ran). A
+                                    // deduplicated repeat never reaches here
+                                    // — it shares the original's cell.
+                                    callbacks.emit_event(serde_json::json!({
+                                        "type": "tool.call.started",
+                                        "turn_id": turn_id,
+                                        "tool_call_id": tc.id,
+                                        "tool_name": tc.name,
+                                        "args": tc.arguments,
+                                    }));
                                     match callbacks.execute_tool(req).await {
-                                        Ok(response) => ExecutableToolResult {
-                                            stop_turn: response.stop_turn,
-                                            content: response.content,
-                                            is_error: response.is_error,
-                                            note: response.note,
-                                        },
-                                        Err(e) => ExecutableToolResult {
-                                            stop_turn: false,
-                                            content: format!("Tool execution error: {e}"),
-                                            is_error: true,
-                                            note: None,
-                                        },
+                                        Ok(response) => {
+                                            callbacks.emit_event(serde_json::json!({
+                                                "type": if response.is_error {
+                                                    "tool.call.failed"
+                                                } else {
+                                                    "tool.call.completed"
+                                                },
+                                                "turn_id": turn_id,
+                                                "tool_call_id": tc.id,
+                                                "tool_name": tc.name,
+                                                "is_error": response.is_error,
+                                            }));
+                                            ExecutableToolResult {
+                                                delivery: response.delivery,
+                                                stop_turn: response.stop_turn,
+                                                content: response.content,
+                                                is_error: response.is_error,
+                                                note: response.note,
+                                            }
+                                        }
+                                        Err(e) => {
+                                            callbacks.emit_event(serde_json::json!({
+                                                "type": "tool.call.failed",
+                                                "turn_id": turn_id,
+                                                "tool_call_id": tc.id,
+                                                "tool_name": tc.name,
+                                                "is_error": true,
+                                                "error": e,
+                                            }));
+                                            ExecutableToolResult {
+                                                delivery: None,
+                                                stop_turn: false,
+                                                content: format!("Tool execution error: {e}"),
+                                                is_error: true,
+                                                note: None,
+                                            }
+                                        }
                                     }
                                 };
                                 match index {
@@ -1092,6 +1182,24 @@ pub fn run_turn<'a>(
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
                         });
+                        // Rich content the tool delivers (an image the model
+                        // asked to read): a follow-up user message right after
+                        // the tool result, the same shape a pasted image takes.
+                        // A same-step repeat shares the original's result —
+                        // and its delivery — so only the original emits it.
+                        let is_repeat = dedupe_plan.original_of.get(i).is_some_and(|o| *o != i);
+                        if !is_repeat
+                            && let Some(delivery) = tr.delivery.as_ref()
+                            && !delivery.blocks.is_empty()
+                        {
+                            messages.push(LLMMessage {
+                                role: "user".into(),
+                                content: String::new(),
+                                blocks: delivery.blocks.clone(),
+                                tool_calls: Vec::new(),
+                                tool_call_id: None,
+                            });
+                        }
                     }
 
                     // v2 `executeStepTools` stopTurn (loopService.ts:2117-2119):
@@ -1129,11 +1237,12 @@ Deliver your final response as text now. Further tool calls are refused.",
                             &turn_id,
                             steps,
                             input.llm,
-                            messages.clone(),
+                            &messages,
                             input.tools,
-                            Vec::new(),
+                            &[],
                             &retry_config,
                             Some(turn_cancel.token()),
+                            Some(&telemetry),
                         )
                         .await;
 
@@ -1703,6 +1812,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -1734,6 +1844,89 @@ mod tests {
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxSteps));
         assert_eq!(turn.steps, 2);
+    }
+
+    /// `tool.native` only reports the outcome, so a consumer could never
+    /// tell that a call had started: the lifecycle events bracket every
+    /// execution, including the transport-error path.
+    #[tokio::test]
+    async fn test_tool_call_lifecycle_events_bracket_execution() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-lifecycle".into(),
+                name: "WebSearch".into(),
+                arguments: serde_json::json!({ "query": "x" }),
+                extras: None,
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            turn_id: "test-tool-call-lifecycle".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 1,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+        };
+
+        let _ = run_turn(input, &callbacks).await;
+        let types: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| {
+                event
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        assert!(
+            types.iter().any(|t| t == "tool.call.started"),
+            "a started event must bracket the call: {types:?}"
+        );
+        assert!(
+            types.iter().any(|t| t == "tool.call.completed"),
+            "a completed event must close the call: {types:?}"
+        );
+        // The call id ties the pair to the same tool call.
+        let started = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|event| event.get("type").and_then(|t| t.as_str()) == Some("tool.call.started"))
+            .cloned()
+            .unwrap();
+        assert_eq!(started["tool_call_id"], "tc-lifecycle");
+        assert_eq!(started["tool_name"], "WebSearch");
     }
 
     /// A provider `content_filter` finish on the final step must surface
@@ -2148,6 +2341,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -2245,6 +2439,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -2307,7 +2502,7 @@ mod tests {
             ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
             {
                 let call = self.call.fetch_add(1, Ordering::SeqCst);
-                self.requests.lock().unwrap().push(params.messages.clone());
+                self.requests.lock().unwrap().push(params.messages.to_vec());
                 Box::pin(async move {
                     if call == 0 {
                         Ok(LLMChatResponse {
@@ -2342,6 +2537,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -2457,6 +2653,7 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -2570,6 +2767,7 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -2651,6 +2849,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -3322,6 +3521,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,
@@ -3385,6 +3585,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: true,
                     content: "goal reached".into(),
                     is_error: false,
@@ -3593,6 +3794,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "ok".into(),
                     is_error: false,
@@ -3757,7 +3959,7 @@ mod tests {
             {
                 let captured = self.captured.clone();
                 Box::pin(async move {
-                    *captured.lock().unwrap() = params.messages.clone();
+                    *captured.lock().unwrap() = params.messages.to_vec();
                     Ok(LLMChatResponse {
                         content: String::new(),
                         thinking: vec![],
@@ -3866,7 +4068,7 @@ mod tests {
             {
                 let captured = self.captured.clone();
                 Box::pin(async move {
-                    *captured.lock().unwrap() = params.messages.clone();
+                    *captured.lock().unwrap() = params.messages.to_vec();
                     Ok(LLMChatResponse {
                         content: String::new(),
                         thinking: vec![],
@@ -4177,6 +4379,7 @@ mod tests {
         RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
             Box::pin(async move {
                 let resp = ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: "stub".into(),
                     is_error: false,

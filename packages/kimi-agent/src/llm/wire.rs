@@ -17,7 +17,11 @@ pub enum StreamDelta {
 
 impl StreamDelta {
     /// The transcript part this delta becomes on the host boundary.
-    pub fn to_part(&self) -> serde_json::Value {
+    ///
+    /// Consumes the delta so its text moves into the value; the streaming
+    /// path is per-token, so cloning the chunk here doubles the text
+    /// allocations for the whole response.
+    pub fn to_part(self) -> serde_json::Value {
         match self {
             StreamDelta::Text(text) => serde_json::json!({ "type": "text", "text": text }),
             StreamDelta::Think(think) => serde_json::json!({ "type": "think", "think": think }),

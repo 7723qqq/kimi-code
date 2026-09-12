@@ -27,8 +27,8 @@ use crate::callbacks::HostCallbacks;
 use crate::mcp::manager::McpManager;
 use crate::pipeline::{PipelineHost, PipelineSpec, build_engine_pipeline};
 use crate::rpc::types::{
-    AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
-    PermissionCheckRequest, PermissionDecision, TokenUsage, ToolExecuteRequest,
+    AskQuestionRequest, AskQuestionResponse, BoxFuture, ContentBlock, LlmChatRequest,
+    LlmChatResponse, PermissionCheckRequest, PermissionDecision, TokenUsage, ToolExecuteRequest,
     ToolExecuteResponse,
 };
 use crate::server::hub::EventHub;
@@ -44,6 +44,8 @@ use crate::turn_loop::types::{LLM, LLMMessage, RunTurnInput};
 pub struct ServerHost {
     interaction_manager: Option<Arc<InteractionManager>>,
     session_id: Option<String>,
+    /// OAuth-managed token source for `auth_provider`-configured transports.
+    oauth: Option<Arc<crate::server::oauth::OAuthManager>>,
 }
 
 impl ServerHost {
@@ -51,6 +53,7 @@ impl ServerHost {
         Self {
             interaction_manager: None,
             session_id: None,
+            oauth: None,
         }
     }
 
@@ -58,11 +61,33 @@ impl ServerHost {
         Self {
             interaction_manager: Some(manager),
             session_id: Some(session_id),
+            oauth: None,
         }
+    }
+
+    /// Attach the OAuth token source so an OAuth-only provider
+    /// (`[providers.*].oauth`, no static key) can fetch a bearer token.
+    #[must_use]
+    pub fn with_oauth(mut self, oauth: Option<Arc<crate::server::oauth::OAuthManager>>) -> Self {
+        self.oauth = oauth;
+        self
     }
 }
 
 impl HostCallbacks for ServerHost {
+    /// OAuth-managed bearer token for `auth_provider`-configured transports.
+    /// `managed_access_token` already refreshes an expired token and retries
+    /// once on the host's 401/403 path, so `force` needs no separate handling.
+    fn auth_token(
+        &self,
+        _provider: String,
+        _force: bool,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        match self.oauth.clone() {
+            Some(oauth) => Box::pin(async move { oauth.managed_access_token().await }),
+            None => Box::pin(async { Err("host does not support oauth token fetch".into()) }),
+        }
+    }
     /// The host-proxy LLM leg. Only reachable if a pipeline was built without
     /// `providers` or `native_llm`, which [`ServerEngine`] refuses up front.
     fn llm_chat(
@@ -210,9 +235,27 @@ pub struct ServerEngine {
     mcp_manager: Mutex<Option<Arc<McpManager>>>,
     interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
     subagent_manager: Arc<SubagentManager>,
+    /// OAuth token source for OAuth-bound providers; `None` until the server
+    /// attaches one (see [`Self::set_oauth_manager`]).
+    oauth_manager: Mutex<Option<Arc<crate::server::oauth::OAuthManager>>>,
+    /// Per-session steering prompts queued while a turn is running; the turn
+    /// drains them at each step head (`SteerQueueCallbacks::drain_steers`).
+    steer_queues: Mutex<HashMap<String, Arc<Mutex<Vec<LLMMessage>>>>>,
+    /// The server's live config handle, so a session model override can be
+    /// re-resolved to its provider (base URL / key) rather than only renaming
+    /// the model on the engine's base transport.
+    config_source: Mutex<Option<Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>>>,
     /// Optional per-session host factory; non-HTTP hosts (ACP) install one to
     /// answer permission checks through their own transport.
     host_factory: Mutex<Option<HostFactory>>,
+    /// Last published `agent.status.updated` payload hash per session, so a
+    /// re-publish with unchanged state stays silent (kap-server dedups its
+    /// legacy status the same way, by snapshot equality).
+    status_hashes: Mutex<HashMap<String, u64>>,
+    /// Per-session activity trackers (the `agent.status.updated` phase
+    /// machine), shared with the interaction manager so a pending
+    /// approval/question moves the phase too.
+    activity_registry: Arc<crate::server::activity::ActivityRegistry>,
 }
 
 /// Builds the host callbacks for one session.
@@ -222,6 +265,9 @@ impl ServerEngine {
     pub fn new(spec: PipelineSpec, hub: Arc<EventHub>, store: Arc<SqliteSessionStore>) -> Self {
         Self {
             spec,
+            activity_registry: Arc::new(crate::server::activity::ActivityRegistry::new(
+                hub.clone(),
+            )),
             hub,
             store: store.clone(),
             max_steps: 32,
@@ -230,7 +276,11 @@ impl ServerEngine {
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
             subagent_manager: Arc::new(SubagentManager::with_store(store)),
+            oauth_manager: Mutex::new(None),
+            steer_queues: Mutex::new(HashMap::new()),
+            config_source: Mutex::new(None),
             host_factory: Mutex::new(None),
+            status_hashes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -243,6 +293,102 @@ impl ServerEngine {
         self.host_factory
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Attach the OAuth token source so OAuth-bound providers can fetch bearer
+    /// tokens on this engine's turns.
+    pub fn set_oauth_manager(&self, manager: Arc<crate::server::oauth::OAuthManager>) {
+        *self.oauth_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(manager);
+    }
+
+    /// Attach the server's config handle so per-session model overrides resolve
+    /// to the right provider (base URL / key / protocol), not just a renamed
+    /// model on the engine's base transport.
+    pub fn set_config_source(
+        &self,
+        source: Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>,
+    ) {
+        *self.config_source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+    }
+
+    fn config_source(&self) -> Option<Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>> {
+        self.config_source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Build the native transport config for a model alias from the live
+    /// config. `None` when the alias cannot be resolved (no provider / key).
+    async fn resolved_native_llm(&self, model: &str) -> Option<crate::rpc::types::NativeLlmConfig> {
+        let source = self.config_source()?;
+        let config = {
+            let guard = source.lock().await;
+            guard.clone()
+        }
+        .unwrap_or_else(|| {
+            crate::config::KimiConfig::discover()
+                .map(|(config, _)| config)
+                .unwrap_or_default()
+        });
+        let native = config.extract_native_llm(Some(model))?;
+        Some(crate::rpc::types::NativeLlmConfig {
+            protocol: native.protocol,
+            base_url: native.base_url,
+            api_key: native.api_key,
+            model: native.model,
+            max_tokens: native.max_tokens,
+            custom_headers: native.custom_headers,
+            reasoning_effort: config.resolve_effort(native.off_effort.as_deref()),
+            thinking_budget: None,
+            auth_provider: native.auth_provider.clone(),
+            thinking_keep: config.resolve_thinking_keep(),
+            beta_api: native.beta_api,
+        })
+    }
+
+    fn oauth_manager(&self) -> Option<Arc<crate::server::oauth::OAuthManager>> {
+        self.oauth_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Whether a turn is currently executing for `session_id`.
+    pub fn is_turn_active(&self, session_id: &str) -> bool {
+        self.active_turns.lock().unwrap().contains_key(session_id)
+    }
+
+    /// Queue a steering prompt for `session_id`'s active turn. Returns `false`
+    /// when no turn is running, so the caller can answer "nothing to steer"
+    /// rather than park the message until some later turn.
+    pub fn enqueue_steer(&self, session_id: &str, message: LLMMessage) -> bool {
+        if !self.is_turn_active(session_id) {
+            return false;
+        }
+        self.steer_queue(session_id)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(message);
+        true
+    }
+
+    /// Number of steering prompts currently queued for `session_id`.
+    pub fn queued_steer_count(&self, session_id: &str) -> usize {
+        self.steer_queues
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .map(|queue| queue.lock().unwrap_or_else(|e| e.into_inner()).len())
+            .unwrap_or(0)
+    }
+
+    fn steer_queue(&self, session_id: &str) -> Arc<Mutex<Vec<LLMMessage>>> {
+        let mut queues = self.steer_queues.lock().unwrap_or_else(|e| e.into_inner());
+        queues
+            .entry(session_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
             .clone()
     }
 
@@ -269,14 +415,26 @@ impl ServerEngine {
     }
 
     pub fn with_interaction_manager(self, manager: Arc<InteractionManager>) -> Self {
-        *self
-            .interaction_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(manager);
+        self.set_interaction_manager(manager);
         self
     }
 
     pub fn set_interaction_manager(&self, manager: Arc<InteractionManager>) {
+        // Interaction blocks move the session's activity phase; the registry
+        // is engine-owned, so the notifier is (re)installed on every attach.
+        let registry = self.activity_registry.clone();
+        manager.set_activity_notifier(Arc::new(move |session_id, signal| {
+            let tracker = registry.tracker(session_id);
+            match signal {
+                crate::server::interaction::ActivitySignal::Pending {
+                    approval_id,
+                    tool_call_id,
+                } => tracker.awaiting(&approval_id, &tool_call_id),
+                crate::server::interaction::ActivitySignal::Resolved => {
+                    tracker.interaction_resolved()
+                }
+            }
+        }));
         *self
             .interaction_manager
             .lock()
@@ -348,6 +506,107 @@ impl ServerEngine {
         }
     }
 
+    /// Publish the `event.session.work_changed` fact the Web client folds
+    /// into its live session state (kap-server `SessionWorkChangedEvent`):
+    /// the busy flip a turn start/end produces plus the interaction, if any,
+    /// currently blocking the session. Without it the WebSocket stream never
+    /// tells a client the session went busy or idle.
+    fn publish_work_changed(&self, session_id: &str, busy: bool, last_turn_reason: Option<&str>) {
+        let pending_interaction = self
+            .interaction_manager()
+            .and_then(|mgr| mgr.pending_interaction_kind(session_id))
+            .unwrap_or("none")
+            .to_string();
+        self.hub
+            .bus_for(session_id)
+            .publish(&crate::events::EngineEvent::SessionWorkChanged {
+                busy,
+                main_turn_active: busy,
+                pending_interaction,
+                last_turn_reason: last_turn_reason.map(str::to_string),
+            });
+    }
+
+    /// Publish the `agent.status.updated` fact the Web client's status bar
+    /// folds (kap-server `AgentStatusUpdatedEvent`): the session's model,
+    /// thinking effort, permission mode, plan mode and context-token estimate.
+    ///
+    /// The payload keys are camelCase exactly as the kimi-web projector reads
+    /// them (`p?.model`, `p?.contextTokens`, …) — unlike the `event.*` family,
+    /// whose payloads are snake_case. A publish whose payload is byte-identical
+    /// to the session's last one is dropped, mirroring the broadcaster's
+    /// snapshot dedup.
+    pub async fn publish_status_updated(&self, session_id: &str) {
+        let payload = self.status_payload(session_id);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&payload.to_string(), &mut hasher);
+        let hash = std::hash::Hasher::finish(&hasher);
+        {
+            let mut hashes = self.status_hashes.lock().unwrap();
+            if hashes.get(session_id) == Some(&hash) {
+                return;
+            }
+            hashes.insert(session_id.to_string(), hash);
+        }
+        self.hub
+            .bus_for(session_id)
+            .publish(&crate::events::EngineEvent::Custom(payload));
+    }
+
+    /// Assemble the status snapshot from every state source the client folds:
+    /// `agent_config` (model / thinking / permission / plan mode) and the
+    /// session history (context-token estimate, the same `len() / 4` budget
+    /// `format_wire_session` reports). `maxContextTokens` needs the model
+    /// catalog the engine does not hold, so it stays the caller's addition.
+    fn status_payload(&self, session_id: &str) -> serde_json::Value {
+        let agent_config = self
+            .store
+            .get_state("agent_config", session_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let metadata = self
+            .store
+            .get_state("metadata", session_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let history = self
+            .store
+            .load_session_history(session_id)
+            .unwrap_or_default();
+        let context_tokens: usize = history.iter().map(|m| m.content.len() / 4).sum();
+
+        let mut payload = serde_json::json!({
+            "type": "agent.status.updated",
+            "model": agent_config
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or(self.spec.model_name.as_str()),
+            "contextTokens": context_tokens,
+        });
+        let object = payload.as_object_mut().unwrap_or_else(|| {
+            panic!("status payload is always an object");
+        });
+        if let Some(thinking) = agent_config.get("thinking").and_then(|v| v.as_str()) {
+            object.insert("thinkingEffort".into(), serde_json::json!(thinking));
+        }
+        // The permission mode has two homes: `agent_config` (the profile
+        // route writes it) and `metadata` (the engine's per-turn mode
+        // resolution reads it). Either source wins over silence.
+        let permission = agent_config
+            .get("permission_mode")
+            .and_then(|v| v.as_str())
+            .or_else(|| metadata.get("permission_mode").and_then(|v| v.as_str()));
+        if let Some(permission) = permission {
+            object.insert("permission".into(), serde_json::json!(permission));
+        }
+        if let Some(plan_mode) = agent_config.get("plan_mode").and_then(|v| v.as_bool()) {
+            object.insert("planMode".into(), serde_json::json!(plan_mode));
+        }
+        payload
+    }
+
     /// Build an engine context for one turn and run it.
     ///
     /// The pipeline is rebuilt per turn, as the legacy stdio entry does: the
@@ -360,6 +619,20 @@ impl ServerEngine {
         turn_number: u32,
         history: Vec<LLMMessage>,
         prompt: &str,
+    ) -> Result<TurnReport, EngineError> {
+        self.run_turn_with_media(session_id, turn_number, history, prompt, Vec::new())
+            .await
+    }
+
+    /// Run a turn whose opening user message carries media content blocks
+    /// (prompt attachments resolved from the local file store).
+    pub async fn run_turn_with_media(
+        &self,
+        session_id: &str,
+        turn_number: u32,
+        history: Vec<LLMMessage>,
+        prompt: &str,
+        media: Vec<ContentBlock>,
     ) -> Result<TurnReport, EngineError> {
         // A self-contained engine must refuse the host-proxy fallback rather
         // than reach ServerHost.llm_chat and fail mid-turn.
@@ -389,23 +662,53 @@ impl ServerEngine {
                 .starts_with("You are kimi-agent, running as a standalone service."))
             && let Some(ref ws) = self.spec.workspace_root
         {
-            session_system_prompt = crate::prompt::SystemPromptBuilder::build_default(ws);
+            session_system_prompt =
+                crate::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
+                    ws,
+                    self.spec.skill_dirs.clone(),
+                );
         }
 
-        let spec = PipelineSpec {
+        let mut spec = PipelineSpec {
             rust_self_contained: true,
             policy_snapshot: Some(policy_snapshot),
             session_id: Some(session_id.to_string()),
             system_prompt: session_system_prompt,
             ..clone_spec(&self.spec)
         };
+        // The session's persisted profile (`agent_config`) overrides the
+        // engine-wide spec for this turn: the REST prompt/profile surface
+        // writes model / thinking / disabled-tools there and the standalone
+        // server has no host to re-resolve per-turn params.
+        let session_profile = self
+            .store
+            .get_state("agent_config", session_id)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        // A session model override re-resolves to its provider first, so a
+        // cross-provider alias picks up the right base URL / key; the
+        // field-level overrides below then win for model / thinking / tools.
+        if let Some(model) = session_profile
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|model| !model.is_empty())
+            && let Some(native) = self.resolved_native_llm(model).await
+        {
+            spec.model_name = model.to_string();
+            spec.native_llm = Some(native);
+        }
+        apply_session_overrides(&mut spec, &session_profile);
         let host_callbacks: Arc<dyn HostCallbacks> = match self.host_factory() {
             Some(factory) => factory(session_id),
             None => {
                 if let Some(mgr) = self.interaction_manager() {
-                    Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
+                    Arc::new(
+                        ServerHost::with_interaction(mgr, session_id.to_string())
+                            .with_oauth(self.oauth_manager()),
+                    )
                 } else {
-                    Arc::new(ServerHost::standalone())
+                    Arc::new(ServerHost::standalone().with_oauth(self.oauth_manager()))
                 }
             }
         };
@@ -454,6 +757,7 @@ impl ServerEngine {
             turn_number,
             history,
             prompt,
+            media,
         )
         .await
     }
@@ -472,9 +776,12 @@ impl ServerEngine {
         prompt: &str,
     ) -> Result<TurnReport, EngineError> {
         let callbacks: Arc<dyn HostCallbacks> = if let Some(mgr) = self.interaction_manager() {
-            Arc::new(ServerHost::with_interaction(mgr, session_id.to_string()))
+            Arc::new(
+                ServerHost::with_interaction(mgr, session_id.to_string())
+                    .with_oauth(self.oauth_manager()),
+            )
         } else {
-            Arc::new(ServerHost::standalone())
+            Arc::new(ServerHost::standalone().with_oauth(self.oauth_manager()))
         };
         self.execute(
             llm,
@@ -484,10 +791,12 @@ impl ServerEngine {
             turn_number,
             history,
             prompt,
+            Vec::new(),
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute(
         &self,
         llm: &dyn LLM,
@@ -497,6 +806,7 @@ impl ServerEngine {
         turn_number: u32,
         history: Vec<LLMMessage>,
         prompt: &str,
+        media: Vec<ContentBlock>,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -504,6 +814,39 @@ impl ServerEngine {
             let mut turns = self.active_turns.lock().unwrap();
             turns.insert(session_id.to_string(), Arc::clone(&cancel));
         }
+        self.publish_work_changed(session_id, true, None);
+        self.publish_status_updated(session_id).await;
+        // The activity phase machine follows the turn from here: running →
+        // streaming / tool_call / retrying (via the callback decorator) →
+        // ended or interrupted.
+        let activity = self.activity_registry.tracker(session_id);
+        activity.turn_started(turn_number);
+        // Innermost decorator: drains this session's steering queue at every
+        // step head, so a `POST /prompts:steer` lands in the running turn.
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(crate::session::SteerQueueCallbacks::new(
+            callbacks.clone(),
+            self.steer_queue(session_id),
+        ));
+        // Outermost decorator: every step boundary, streaming delta and tool
+        // execution the turn produces moves the session's activity phase
+        // before the underlying chain sees the event.
+        let callbacks: Arc<dyn HostCallbacks> =
+            Arc::new(crate::server::activity::ActivityCallbacks {
+                inner: callbacks.clone(),
+                tracker: activity.clone(),
+            });
+        // Outermost of all: the turn's prompt and every step's assistant
+        // output get message identities (`event.message.created` /
+        // `event.assistant.delta` / `event.message.updated`), the vocabulary
+        // the Web client's transcript folds.
+        let callbacks: Arc<dyn HostCallbacks> =
+            Arc::new(crate::server::message_events::MessageCallbacks::new(
+                callbacks.clone(),
+                session_id,
+                self.hub.clone(),
+                turn_number,
+                prompt,
+            ));
         struct ActiveGuard<'a> {
             engine: &'a ServerEngine,
             session_id: String,
@@ -512,6 +855,13 @@ impl ServerEngine {
             fn drop(&mut self) {
                 let mut turns = self.engine.active_turns.lock().unwrap();
                 turns.remove(&self.session_id);
+                drop(turns);
+                let mut queues = self
+                    .engine
+                    .steer_queues
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                queues.remove(&self.session_id);
             }
         }
         let _guard = ActiveGuard {
@@ -520,9 +870,17 @@ impl ServerEngine {
         };
 
         let mut messages = history;
-        messages.push(LLMMessage::user(prompt));
+        let user_message = LLMMessage {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+            blocks: media,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        };
+        messages.push(user_message.clone());
         let input_len = messages.len();
 
+        let goal = callbacks.goal().await.ok().flatten();
         let input = RunTurnInput {
             max_attempts: self.max_attempts,
             turn_id: turn_id.clone(),
@@ -532,14 +890,33 @@ impl ServerEngine {
             tool_defs: vec![],
             max_steps: self.max_steps,
             max_context_tokens: None,
-            goal: None,
+            goal,
             cancellation: Some(cancel),
             hook_guard,
         };
 
-        let result = run_turn_continued(input, callbacks)
-            .await
-            .map_err(|error| EngineError::Turn(error.to_string()))?;
+        // Flatten the loop error before any later await: `Box<dyn StdError>`
+        // is not `Send`, and the spawned turn future must stay `Send`.
+        let turn = match run_turn_continued(input, &callbacks).await {
+            Ok(result) => Ok(result),
+            Err(error) => Err(error.to_string()),
+        };
+        let result = match turn {
+            Ok(result) => {
+                let reason = work_turn_reason(&result.stop_reason);
+                self.publish_work_changed(session_id, false, Some(reason));
+                result
+            }
+            Err(error) => {
+                self.publish_work_changed(session_id, false, Some("failed"));
+                self.publish_status_updated(session_id).await;
+                activity.interrupted(
+                    crate::server::activity::InterruptReason::Error,
+                    Some(error.clone()),
+                );
+                return Err(EngineError::Turn(error));
+            }
+        };
 
         // The loop returns system (index 0) + everything it was handed + what it
         // appended, so adopting `messages[1..]` would rewrite the carried
@@ -554,7 +931,7 @@ impl ServerEngine {
         // tag from the injection registry; until then they land in history.
         let mut transcript =
             Vec::with_capacity(1 + result.messages.len().saturating_sub(input_len));
-        transcript.push(LLMMessage::user(prompt));
+        transcript.push(user_message);
         transcript.extend(result.messages.iter().skip(1 + input_len).cloned());
         self.store
             .save_turn(
@@ -565,6 +942,47 @@ impl ServerEngine {
                 Some(&result.usage),
             )
             .map_err(EngineError::Store)?;
+
+        // Report the status only after the turn is durable: the snapshot
+        // reads the session history, so it must see this turn's context
+        // growth. Before persistence the payload is identical to the turn
+        // start's and the dedup would swallow it.
+        self.publish_status_updated(session_id).await;
+
+        // Live token accounting for the Web client (kap-server
+        // `event.session.usage_updated`): the turn's counters ride as the
+        // delta, and the usage snapshot carries the same context estimate
+        // the wire session reports (session totals are not persisted here
+        // yet, so the client folds the deltas).
+        let session_history = self
+            .store
+            .load_session_history(session_id)
+            .unwrap_or_default();
+        let context_tokens = (session_history
+            .iter()
+            .map(|m| m.content.len())
+            .sum::<usize>()
+            / 4) as u64;
+        self.hub
+            .bus_for(session_id)
+            .publish(&crate::events::EngineEvent::Custom(serde_json::json!({
+                "type": "event.session.usage_updated",
+                "usage": {
+                    "input_tokens": result.usage.input_tokens,
+                    "output_tokens": result.usage.output_tokens,
+                    "cache_read_tokens": result.usage.input_cache_read,
+                    "cache_creation_tokens": result.usage.input_cache_creation,
+                    "context_tokens": context_tokens,
+                    "turn_count": turn_number,
+                },
+                "delta": {
+                    "input_tokens": result.usage.input_tokens,
+                    "output_tokens": result.usage.output_tokens,
+                    "cache_read_tokens": result.usage.input_cache_read,
+                    "cache_creation_tokens": result.usage.input_cache_creation,
+                },
+            })));
+        activity.turn_ended(work_turn_reason(&result.stop_reason));
 
         let reply = transcript
             .iter()
@@ -583,6 +1001,74 @@ impl ServerEngine {
             llm_transport: result.llm_transport,
             native_tool_calls: result.native_tool_calls,
         })
+    }
+}
+
+/// Map the loop's stop reason onto the three `last_turn_reason` values the
+/// kap-server contract allows ('completed' | 'cancelled' | 'failed').
+/// `MaxSteps` and `Filtered` are failed turns (ROADMAP §2.5), `Aborted` is a
+/// cancellation, everything else completed.
+fn work_turn_reason(reason: &crate::turn_loop::types::LoopTurnStopReason) -> &'static str {
+    use crate::turn_loop::types::LoopTurnStopReason::*;
+    match reason {
+        Aborted => "cancelled",
+        MaxSteps | Filtered => "failed",
+        EndTurn | MaxTokens | Paused | Unknown | BudgetLimited | RepeatBreaker => "completed",
+    }
+}
+
+/// Overlay a session's persisted profile (`agent_config`) onto the engine's
+/// base spec for one turn. Model switching is alias-level: the transport
+/// (base URL / key) stays the engine's, so an alias on a different provider is
+/// not re-resolved here.
+fn apply_session_overrides(spec: &mut PipelineSpec, profile: &serde_json::Value) {
+    if let Some(model) = profile
+        .get("model")
+        .and_then(|v| v.as_str())
+        .filter(|model| !model.is_empty())
+    {
+        spec.model_name = model.to_string();
+        if let Some(native) = spec.native_llm.as_mut() {
+            native.model = model.to_string();
+        }
+    }
+    if let Some(effort) = profile
+        .get("thinking")
+        .and_then(|v| v.as_str())
+        .filter(|effort| !effort.is_empty())
+        && let Some(native) = spec.native_llm.as_mut()
+    {
+        native.reasoning_effort = Some(effort.to_string());
+    }
+    let disabled: Vec<String> = profile
+        .get("disabled_tools")
+        .and_then(|v| v.as_array())
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !disabled.is_empty() {
+        let snapshot = spec
+            .policy_snapshot
+            .get_or_insert_with(crate::permission::PolicySnapshot::default);
+        match snapshot.tools_filter.as_mut() {
+            Some(filter) => {
+                for name in disabled {
+                    if !filter.disabled.contains(&name) {
+                        filter.disabled.push(name);
+                    }
+                }
+            }
+            None => {
+                snapshot.tools_filter = Some(crate::tools::tool_policy::ToolsFilter {
+                    enabled: Vec::new(),
+                    disabled,
+                });
+            }
+        }
     }
 }
 
@@ -619,6 +1105,11 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         secondary_model: spec.secondary_model.clone(),
         caller_agent_id: spec.caller_agent_id.clone(),
         session_id: spec.session_id.clone(),
+        image_read_byte_budget: spec.image_read_byte_budget,
+        image_max_edge_px: spec.image_max_edge_px,
+        model_capabilities: spec.model_capabilities.clone(),
+        skill_dirs: spec.skill_dirs.clone(),
+        background: spec.background,
     }
 }
 
@@ -651,6 +1142,11 @@ mod tests {
             caller_agent_id: None,
             session_id: None,
             secondary_model: None,
+            image_read_byte_budget: None,
+            image_max_edge_px: None,
+            model_capabilities: None,
+            skill_dirs: Vec::new(),
+            background: crate::storage::BackgroundLimits::default(),
         }
     }
 
@@ -660,6 +1156,80 @@ mod tests {
             Arc::new(EventHub::new()),
             Arc::new(SqliteSessionStore::in_memory().unwrap()),
         )
+    }
+
+    #[test]
+    fn session_profile_overrides_spec_for_the_turn() {
+        let mut spec = spec();
+        spec.native_llm = Some(crate::rpc::types::NativeLlmConfig {
+            model: "base".into(),
+            reasoning_effort: Some("low".into()),
+            ..Default::default()
+        });
+        let profile = serde_json::json!({
+            "model": "alias-2",
+            "thinking": "high",
+            "disabled_tools": ["Bash", "Write"],
+        });
+        apply_session_overrides(&mut spec, &profile);
+        assert_eq!(spec.model_name, "alias-2");
+        assert_eq!(spec.native_llm.as_ref().unwrap().model, "alias-2");
+        assert_eq!(
+            spec.native_llm
+                .as_ref()
+                .unwrap()
+                .reasoning_effort
+                .as_deref(),
+            Some("high")
+        );
+        let filter = spec
+            .policy_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.tools_filter.as_ref())
+            .expect("tools filter");
+        assert!(filter.disabled.contains(&"Bash".to_string()));
+        assert!(filter.disabled.contains(&"Write".to_string()));
+    }
+
+    #[test]
+    fn empty_session_profile_leaves_spec_untouched() {
+        let mut spec = spec();
+        spec.native_llm = Some(crate::rpc::types::NativeLlmConfig {
+            model: "base".into(),
+            ..Default::default()
+        });
+        apply_session_overrides(&mut spec, &serde_json::json!({}));
+        assert_eq!(spec.model_name, "test-model");
+        assert_eq!(spec.native_llm.as_ref().unwrap().model, "base");
+        assert!(spec.policy_snapshot.is_none());
+    }
+
+    #[tokio::test]
+    async fn session_model_resolves_cross_provider_from_config() {
+        let engine = engine();
+        let config: crate::config::KimiConfig = r#"
+default_model = "alias-2"
+
+[providers.acme]
+type = "openai"
+api_key = "k"
+base_url = "https://api.example.test/v1"
+
+[models.alias-2]
+provider = "acme"
+model = "gpt-x"
+"#
+        .parse()
+        .expect("parse config");
+        engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+
+        let native = engine
+            .resolved_native_llm("alias-2")
+            .await
+            .expect("alias resolves to its provider");
+        assert_eq!(native.base_url, "https://api.example.test/v1");
+        assert_eq!(native.model, "gpt-x");
+        assert_eq!(native.api_key, "k");
     }
 
     struct ScriptedLlm;
@@ -842,6 +1412,157 @@ mod tests {
 
         // The prompt is appended after the history, so the loop sees both.
         assert_eq!(report.steps, 1);
+    }
+
+    #[tokio::test]
+    async fn a_turn_publishes_work_changed_busy_then_idle() {
+        let engine = engine();
+        engine
+            .store()
+            .create_session("sess-wc", Some("work changed test"))
+            .unwrap();
+        let mut sub = engine.hub().attach();
+
+        let report = engine
+            .run_turn_on(&ScriptedLlm, "sess-wc", 1, Vec::new(), "hello")
+            .await
+            .expect("scripted turn");
+        assert_eq!(report.stop_reason, "EndTurn");
+
+        // The turn boundary now publishes three facts in a fixed order — the
+        // work_changed busy flip, the deduped status snapshot and the
+        // activity phase — at start and again at end. Every recv is bounded
+        // so a regression fails instead of hanging the suite.
+        async fn next_event(
+            sub: &mut crate::server::hub::WsSubscription,
+        ) -> std::sync::Arc<crate::server::hub::SequencedEvent> {
+            tokio::time::timeout(std::time::Duration::from_secs(5), sub.recv())
+                .await
+                .expect("event within 5s")
+                .expect("hub open")
+        }
+        let events: Vec<std::sync::Arc<crate::server::hub::SequencedEvent>> = {
+            let mut collected = Vec::new();
+            for _ in 0..8 {
+                collected.push(next_event(&mut sub).await);
+            }
+            collected
+        };
+        let sequence: Vec<String> = events
+            .iter()
+            .map(|e| e.event.event_type().to_string())
+            .collect();
+        assert_eq!(
+            sequence,
+            vec![
+                "event.session.work_changed",  // busy=true
+                "agent.status.updated",        // snapshot (first for the session)
+                "agent.status.updated",        // phase: running
+                "event.message.created",       // the user prompt
+                "event.session.work_changed",  // busy=false
+                "agent.status.updated",        // snapshot (context grew)
+                "event.session.usage_updated", // live token accounting
+                "agent.status.updated",        // phase: ended
+            ]
+        );
+
+        let crate::events::EngineEvent::SessionWorkChanged {
+            busy,
+            main_turn_active,
+            pending_interaction,
+            last_turn_reason,
+        } = &events[0].event
+        else {
+            panic!("expected work_changed, got {:?}", events[0].event);
+        };
+        assert!(*busy);
+        assert!(*main_turn_active);
+        assert_eq!(pending_interaction, "none");
+        assert!(last_turn_reason.is_none());
+
+        let crate::events::EngineEvent::Custom(start_phase) = &events[2].event else {
+            panic!("expected the running phase, got {:?}", events[2].event);
+        };
+        assert_eq!(start_phase["phase"]["kind"], "running");
+
+        let crate::events::EngineEvent::Custom(end_phase) = &events[7].event else {
+            panic!("expected the ended phase, got {:?}", events[7].event);
+        };
+        assert_eq!(end_phase["phase"]["kind"], "ended");
+        assert_eq!(end_phase["phase"]["reason"], "completed");
+
+        let crate::events::EngineEvent::SessionWorkChanged {
+            busy,
+            last_turn_reason,
+            ..
+        } = &events[4].event
+        else {
+            panic!("expected work_changed, got {:?}", events[4].event);
+        };
+        assert!(!busy);
+        assert_eq!(last_turn_reason.as_deref(), Some("completed"));
+    }
+
+    #[tokio::test]
+    async fn status_updated_folds_agent_config_and_context_then_dedups() {
+        let engine = engine();
+        engine
+            .store()
+            .create_session("sess-status", Some("status test"))
+            .unwrap();
+        engine
+            .store
+            .put_state(
+                "agent_config",
+                "sess-status",
+                &serde_json::json!({
+                    "model": "k3-test",
+                    "thinking": "high",
+                    "permission_mode": "manual",
+                    "plan_mode": true,
+                }),
+            )
+            .unwrap();
+        // Four content bytes → the same `len() / 4` estimate the wire session
+        // reports, so the assertion pins the exact budget.
+        engine
+            .store
+            .save_turn(
+                "sess-status",
+                "turn-status",
+                1,
+                &[LLMMessage::user("abcd")],
+                None,
+            )
+            .unwrap();
+        let mut sub = engine.hub().attach();
+
+        engine.publish_status_updated("sess-status").await;
+        let event = sub.recv().await.unwrap();
+        assert_eq!(&*event.session_id, "sess-status");
+        assert_eq!(event.event.event_type(), "agent.status.updated");
+        let crate::events::EngineEvent::Custom(payload) = &event.event else {
+            panic!("expected a Custom status payload");
+        };
+        assert_eq!(payload["model"], "k3-test");
+        assert_eq!(payload["thinkingEffort"], "high");
+        assert_eq!(payload["permission"], "manual");
+        assert_eq!(payload["planMode"], true);
+        assert_eq!(payload["contextTokens"], 1);
+
+        // An unchanged state re-publish is dropped by the snapshot dedup.
+        engine.publish_status_updated("sess-status").await;
+        let next = tokio::time::timeout(std::time::Duration::from_millis(50), sub.recv()).await;
+        assert!(next.is_err(), "dedup must swallow the identical payload");
+    }
+
+    #[test]
+    fn work_turn_reason_maps_the_loop_vocabulary() {
+        use crate::turn_loop::types::LoopTurnStopReason;
+        assert_eq!(work_turn_reason(&LoopTurnStopReason::EndTurn), "completed");
+        assert_eq!(work_turn_reason(&LoopTurnStopReason::MaxSteps), "failed");
+        assert_eq!(work_turn_reason(&LoopTurnStopReason::Filtered), "failed");
+        assert_eq!(work_turn_reason(&LoopTurnStopReason::Aborted), "cancelled");
     }
 
     #[test]

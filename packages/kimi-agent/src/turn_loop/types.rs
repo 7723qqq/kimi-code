@@ -3,6 +3,8 @@
 //! These correspond to the types in
 //! `packages/agent-core-v2/src/agent/loop/loop.ts`.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::rpc::types::TokenUsage;
@@ -104,10 +106,14 @@ pub trait LLM: Send + Sync {
 }
 
 /// Parameters for an LLM chat call.
+///
+/// The history and tool table are shared behind `Arc` so the racing multi-LLM
+/// path and the retry loop can clone the params without deep-copying the whole
+/// conversation on every attempt.
 #[derive(Debug, Clone)]
 pub struct LLMChatParams {
-    pub messages: Vec<LLMMessage>,
-    pub tools: Vec<ToolInfo>,
+    pub messages: Arc<[LLMMessage]>,
+    pub tools: Arc<[ToolInfo]>,
     /// Cooperative cancellation for the in-flight request — the Rust
     /// counterpart of v2's `AbortSignal` threaded through kosong's generate
     /// (generate.ts:107-295). Firing aborts the request send and the SSE
@@ -233,6 +239,16 @@ pub struct ToolExecContext {
     pub tool_call_id: String,
 }
 
+/// Media (or rich content) a tool attaches to its result. The turn loop
+/// appends it as a follow-up `user` message right after the tool message:
+/// content parts on a tool message are rejected by OpenAI-compatible APIs, so
+/// an image the model asked to read reaches the conversation the same way a
+/// user-pasted image does (v2 `ToolDelivery`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDelivery {
+    pub blocks: Vec<ContentBlock>,
+}
+
 /// The result of a tool execution.
 #[derive(Debug, Clone)]
 pub struct ExecutableToolResult {
@@ -242,6 +258,9 @@ pub struct ExecutableToolResult {
     /// Host-notice annotation (e.g. Read's `<system>…</system>` summary).
     /// `None` when the tool produces none.
     pub note: Option<String>,
+    /// Rich content delivered to the model as a follow-up user message
+    /// (see [`ToolDelivery`]). `None` for every text-only tool.
+    pub delivery: Option<ToolDelivery>,
 }
 
 /// Error result from tool resolution.
@@ -293,7 +312,7 @@ impl ToolResourceAccess {
 
     fn normalize_path(path: &str) -> String {
         let normalized = path.replace('\\', "/");
-        let folded = normalized.to_lowercase();
+        let folded = normalized.to_ascii_lowercase();
         if folded.len() > 1 && folded.ends_with('/') {
             folded[..folded.len() - 1].to_string()
         } else {

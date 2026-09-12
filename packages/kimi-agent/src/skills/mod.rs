@@ -168,6 +168,16 @@ pub fn builtin_skills() -> Vec<SkillDescriptor> {
 /// Scan all skills available to the given workspace root, merged with user-level
 /// and builtin skills following Project > User > Builtin priority.
 pub fn scan_all_skills(workspace_root: Option<&Path>) -> Vec<SkillDescriptor> {
+    scan_all_skills_with_extra(workspace_root, &[])
+}
+
+/// [`scan_all_skills`] plus the user's `extra_skill_dirs` (schema): those
+/// are scanned as project-level skills, after the conventional project
+/// directories and before the user/home ones.
+pub fn scan_all_skills_with_extra(
+    workspace_root: Option<&Path>,
+    extra_dirs: &[PathBuf],
+) -> Vec<SkillDescriptor> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
 
@@ -185,6 +195,11 @@ pub fn scan_all_skills(workspace_root: Option<&Path>) -> Vec<SkillDescriptor> {
             &mut out,
             &mut seen,
         );
+    }
+
+    // 1b. `extra_skill_dirs`: additional scan roots the user declared.
+    for dir in extra_dirs {
+        scan_directory(dir, "project", &mut out, &mut seen);
     }
 
     // 2. User skills

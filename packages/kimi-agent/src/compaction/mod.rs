@@ -152,7 +152,10 @@ pub fn compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> V
 
 /// Unconditionally compact `messages` if a safe split point exists, bypassing the
 /// `should_compact` threshold estimate. Used for runtime context overflow recovery.
-pub fn force_compact_messages(messages: &[LLMMessage], config: &CompactionConfig) -> Vec<LLMMessage> {
+pub fn force_compact_messages(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+) -> Vec<LLMMessage> {
     apply_compaction(messages, compute_compact_count(messages, config))
 }
 
@@ -244,10 +247,7 @@ original messages in the conversation history, so it must be self-contained.";
 /// carries the omitted conversation as a flat `role: content` transcript,
 /// prefixed by the optional instruction. Tool calls are serialized inline so
 /// the summarizer can see what was done.
-fn summarization_prompt(
-    omitted: &[LLMMessage],
-    instruction: Option<&str>,
-) -> Vec<LLMMessage> {
+fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Vec<LLMMessage> {
     let mut transcript = String::new();
     for m in omitted {
         if !transcript.is_empty() {
@@ -257,11 +257,7 @@ fn summarization_prompt(
         transcript.push_str(": ");
         transcript.push_str(&m.content);
         for call in &m.tool_calls {
-            transcript.push_str(&format!(
-                " [tool_call: {}({})]",
-                call.name,
-                call.arguments
-            ));
+            transcript.push_str(&format!(" [tool_call: {}({})]", call.name, call.arguments));
         }
     }
 
@@ -293,15 +289,16 @@ pub async fn summarize_with_llm(
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Option<String> {
-    let prompt = summarization_prompt(omitted, instruction);
+    let prompt: std::sync::Arc<[LLMMessage]> =
+        std::sync::Arc::from(summarization_prompt(omitted, instruction));
     let retry_config = RetryConfig::default();
     let infinite = crate::turn_loop::retry::infinite_retry_enabled();
     let mut attempt: u32 = 0;
     loop {
         attempt += 1;
         let params = LLMChatParams {
-            messages: prompt.clone(),
-            tools: Vec::new(),
+            messages: std::sync::Arc::clone(&prompt),
+            tools: std::sync::Arc::from(Vec::new()),
             cancel: cancel.cloned(),
         };
         match llm.chat(params).await {
@@ -404,18 +401,42 @@ pub async fn force_compact_messages_manual_with_summary(
 /// Threshold-gated compaction with a real LLM summary.
 ///
 /// Like [`compact_messages`] but uses [`force_compact_messages_with_summary`]
-/// when the trigger fires.
+/// when the trigger fires. Returns `None` when the trigger did not fire, so
+/// the common no-compaction path allocates nothing instead of cloning the
+/// whole history.
 pub async fn compact_messages_with_summary(
     messages: &[LLMMessage],
     config: &CompactionConfig,
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Vec<LLMMessage> {
-    if !should_compact(estimate_messages_tokens(messages), config) {
-        return messages.to_vec();
+) -> Option<Vec<LLMMessage>> {
+    compact_messages_with_summary_at(
+        messages,
+        estimate_messages_tokens(messages),
+        config,
+        llm,
+        instruction,
+        cancel,
+    )
+    .await
+}
+
+/// [`compact_messages_with_summary`] with a caller-supplied token estimate, so
+/// an incremental estimator can pass the running total instead of forcing a
+/// full rescan here.
+pub async fn compact_messages_with_summary_at(
+    messages: &[LLMMessage],
+    used_tokens: u32,
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+    cancel: Option<&CancellationToken>,
+) -> Option<Vec<LLMMessage>> {
+    if !should_compact(used_tokens, config) {
+        return None;
     }
-    force_compact_messages_with_summary(messages, config, llm, instruction, cancel).await
+    Some(force_compact_messages_with_summary(messages, config, llm, instruction, cancel).await)
 }
 
 /// Project `count` leading messages into a summary, keeping the system
@@ -618,13 +639,31 @@ mod tests {
             assert_eq!(act.role, exp.role, "role mismatch at index {i}");
             assert_eq!(act.content, exp.content, "content mismatch at index {i}");
             assert_eq!(act.blocks, exp.blocks, "blocks mismatch at index {i}");
-            assert_eq!(act.tool_calls.len(), exp.tool_calls.len(), "tool_calls count mismatch at index {i}");
-            for (tc_idx, (tc_act, tc_exp)) in act.tool_calls.iter().zip(exp.tool_calls.iter()).enumerate() {
-                assert_eq!(tc_act.id, tc_exp.id, "tool_call id mismatch at msg {i} tc {tc_idx}");
-                assert_eq!(tc_act.name, tc_exp.name, "tool_call name mismatch at msg {i} tc {tc_idx}");
-                assert_eq!(tc_act.arguments, tc_exp.arguments, "tool_call args mismatch at msg {i} tc {tc_idx}");
+            assert_eq!(
+                act.tool_calls.len(),
+                exp.tool_calls.len(),
+                "tool_calls count mismatch at index {i}"
+            );
+            for (tc_idx, (tc_act, tc_exp)) in
+                act.tool_calls.iter().zip(exp.tool_calls.iter()).enumerate()
+            {
+                assert_eq!(
+                    tc_act.id, tc_exp.id,
+                    "tool_call id mismatch at msg {i} tc {tc_idx}"
+                );
+                assert_eq!(
+                    tc_act.name, tc_exp.name,
+                    "tool_call name mismatch at msg {i} tc {tc_idx}"
+                );
+                assert_eq!(
+                    tc_act.arguments, tc_exp.arguments,
+                    "tool_call args mismatch at msg {i} tc {tc_idx}"
+                );
             }
-            assert_eq!(act.tool_call_id, exp.tool_call_id, "tool_call_id mismatch at index {i}");
+            assert_eq!(
+                act.tool_call_id, exp.tool_call_id,
+                "tool_call_id mismatch at index {i}"
+            );
         }
     }
 
@@ -650,7 +689,10 @@ mod tests {
 
         // Boundary windows
         assert_eq!(config_for_window(Some(1)).max_context_tokens, 1);
-        assert_eq!(config_for_window(Some(u32::MAX)).max_context_tokens, u32::MAX);
+        assert_eq!(
+            config_for_window(Some(u32::MAX)).max_context_tokens,
+            u32::MAX
+        );
     }
 
     #[test]
@@ -759,7 +801,9 @@ mod tests {
 
         // Additive combination: content + text block + think block + image block
         let mut m_combo = msg("user", "abcd"); // 1 token
-        m_combo.blocks.push(ContentBlock::Text { text: "efgh".into() }); // 1 token
+        m_combo.blocks.push(ContentBlock::Text {
+            text: "efgh".into(),
+        }); // 1 token
         m_combo.blocks.push(ContentBlock::Think {
             think: "ijkl".into(), // 1 token
             encrypted: None,
@@ -775,12 +819,17 @@ mod tests {
         let mut m = msg("assistant", "hello world!"); // 12 chars -> 3 tokens
         // tool_call 1: name "read" (4 chars -> 1 token), args {"path":"/a.txt"} (17 chars -> 5 tokens -> ceil(5*1.3) = 7 tokens)
         // Subtotal = 1 + 7 = 8 tokens.
-        m.tool_calls.push(tool_call("tc1", "read", serde_json::json!({ "path": "/a.txt" })));
+        m.tool_calls.push(tool_call(
+            "tc1",
+            "read",
+            serde_json::json!({ "path": "/a.txt" }),
+        ));
         assert_eq!(estimate_message_tokens(&m), 3 + 8);
 
         // tool_call 2: name "bash" (4 chars -> 1 token), args {"cmd":"ls"} (10 chars -> 3 tokens -> ceil(3*1.3) = 4 tokens)
         // Subtotal = 1 + 4 = 5 tokens.
-        m.tool_calls.push(tool_call("tc2", "bash", serde_json::json!({ "cmd": "ls" })));
+        m.tool_calls
+            .push(tool_call("tc2", "bash", serde_json::json!({ "cmd": "ls" })));
         assert_eq!(estimate_message_tokens(&m), 3 + 8 + 5);
 
         // Tool result message with tool_call_id
@@ -826,8 +875,10 @@ mod tests {
     #[test]
     fn test_should_compact_all_threshold_and_boundary_conditions() {
         // Zero context window: never compacts
-        let mut zero_cfg = CompactionConfig::default();
-        zero_cfg.max_context_tokens = 0;
+        let zero_cfg = CompactionConfig {
+            max_context_tokens: 0,
+            ..Default::default()
+        };
         assert!(!should_compact(0, &zero_cfg));
         assert!(!should_compact(100_000, &zero_cfg));
 
@@ -845,7 +896,7 @@ mod tests {
         // reserved_context_size boundary (triggers before trigger_ratio)
         let reserved_cfg = CompactionConfig {
             max_context_tokens: 100_000,
-            trigger_ratio: 0.90, // 90,000 threshold
+            trigger_ratio: 0.90,           // 90,000 threshold
             reserved_context_size: 20_000, // triggers at 80,000 (100k - 20k)
             ..Default::default()
         };
@@ -913,7 +964,10 @@ mod tests {
         };
 
         let count = compute_compact_count(&messages, &config);
-        assert_eq!(count, 5, "compacts messages 0..5 (system + 4 conversation messages)");
+        assert_eq!(
+            count, 5,
+            "compacts messages 0..5 (system + 4 conversation messages)"
+        );
 
         let compacted = compact_messages(&messages, &config);
         let expected = vec![
@@ -937,7 +991,10 @@ mod tests {
             messages.push(msg(role, &format!("msg-{:012}", i)));
         }
         assert_eq!(estimate_messages_tokens(&messages), 844);
-        assert!(!should_compact(estimate_messages_tokens(&messages), &config));
+        assert!(!should_compact(
+            estimate_messages_tokens(&messages),
+            &config
+        ));
         assert_messages_eq(&compact_messages(&messages, &config), &messages);
 
         // Add 2 more messages: 213 messages * 4 tokens = 852 tokens >= 850 threshold -> triggers compaction.
@@ -952,7 +1009,10 @@ mod tests {
         assert_eq!(compacted.len(), messages.len() - count as usize + 2);
         assert_messages_eq(&compacted[0..1], &messages[0..1]);
         assert_eq!(compacted[1].role, "user");
-        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+        assert_eq!(
+            compacted[1].content,
+            summary_placeholder(count as usize - 1)
+        );
         assert_messages_eq(&compacted[2..], &messages[count as usize..]);
     }
 
@@ -989,7 +1049,10 @@ mod tests {
             max_recent_size_ratio: 0.5,
         };
         let count_a = compute_compact_count(&messages, &config_a);
-        assert_eq!(count_a, 7, "compacts up to index 7 (sys + u1 + a1 + u2 + a2 + r1 + r2)");
+        assert_eq!(
+            count_a, 7,
+            "compacts up to index 7 (sys + u1 + a1 + u2 + a2 + r1 + r2)"
+        );
         let compacted_a = compact_messages(&messages, &config_a);
         let expected_a = vec![
             msg("system", "sys"),
@@ -1033,7 +1096,8 @@ mod tests {
 
         // 3. Never split after assistant with pending tool calls
         let mut a = msg("assistant", "a");
-        a.tool_calls.push(tool_call("t1", "read", serde_json::json!({})));
+        a.tool_calls
+            .push(tool_call("t1", "read", serde_json::json!({})));
         let msgs = vec![a, msg("user", "u")];
         assert!(!can_split_after(&msgs, 0));
 
@@ -1048,7 +1112,10 @@ mod tests {
             tool_call("t2", "write", serde_json::json!({})),
         ];
         let msgs = vec![a, msg("tool", "r1"), msg("user", "u")];
-        assert!(!can_split_after(&msgs, 1), "cannot split after partial tool exchange");
+        assert!(
+            !can_split_after(&msgs, 1),
+            "cannot split after partial tool exchange"
+        );
 
         // 6. Resolved tool exchange in prefix: 2 calls and 2 results
         let mut a = msg("assistant", "a");
@@ -1057,7 +1124,10 @@ mod tests {
             tool_call("t2", "write", serde_json::json!({})),
         ];
         let msgs = vec![a, msg("tool", "r1"), msg("tool", "r2"), msg("user", "u")];
-        assert!(can_split_after(&msgs, 2), "safe to split after fully satisfied tool exchange");
+        assert!(
+            can_split_after(&msgs, 2),
+            "safe to split after fully satisfied tool exchange"
+        );
 
         // 7. Clean assistant -> user boundary
         let msgs = vec![msg("assistant", "a"), msg("user", "u")];
@@ -1079,7 +1149,10 @@ mod tests {
     #[test]
     fn test_prefix_ends_with_open_tool_exchange_direct() {
         // Non-tool message returns false immediately
-        assert!(!prefix_ends_with_open_tool_exchange(&[msg("assistant", "a")], 0));
+        assert!(!prefix_ends_with_open_tool_exchange(
+            &[msg("assistant", "a")],
+            0
+        ));
         assert!(!prefix_ends_with_open_tool_exchange(&[], 0));
 
         // 2 calls, 1 result -> open (true)
@@ -1109,12 +1182,7 @@ mod tests {
             tool_call("2", "read", serde_json::json!({})),
             tool_call("3", "read", serde_json::json!({})),
         ];
-        let msgs = vec![
-            a_first,
-            msg("tool", "r1"),
-            a_second,
-            msg("tool", "r2"),
-        ];
+        let msgs = vec![a_first, msg("tool", "r1"), a_second, msg("tool", "r2")];
         assert!(prefix_ends_with_open_tool_exchange(&msgs, 3));
 
         // Tool preceded by user (no assistant) -> returns false
@@ -1136,14 +1204,14 @@ mod tests {
 
         // 8 messages, each 4 chars = 1 token
         let messages = vec![
-            msg("system", "s000"), // 1 token
-            msg("user", "u001"),   // 1 token
+            msg("system", "s000"),    // 1 token
+            msg("user", "u001"),      // 1 token
             msg("assistant", "a002"), // 1 token (can split after index 2)
-            msg("user", "u003"),   // 1 token
+            msg("user", "u003"),      // 1 token
             msg("assistant", "a004"), // 1 token (can split after index 4)
-            msg("user", "u005"),   // 1 token
+            msg("user", "u005"),      // 1 token
             msg("assistant", "a006"), // 1 token (can split after index 6)
-            msg("user", "u007"),   // 1 token
+            msg("user", "u007"),      // 1 token
         ];
 
         // Candidate count 7 has 7 tokens > max_context_tokens 5.
@@ -1438,7 +1506,10 @@ mod tests {
                 .rev()
                 .find(|m| m.role == "user")
                 .map(|m| m.content.clone());
-            *self.last_user_content.lock().unwrap_or_else(|e| e.into_inner()) = user_content;
+            *self
+                .last_user_content
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = user_content;
             Box::pin(async move {
                 if fails {
                     Err("summarizer unavailable".into())
@@ -1509,10 +1580,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_summarization_prompt_includes_instruction_and_transcript() {
-        let omitted = vec![
-            msg("user", "hello"),
-            msg("assistant", "hi there"),
-        ];
+        let omitted = vec![msg("user", "hello"), msg("assistant", "hi there")];
         let prompt = summarization_prompt(&omitted, Some("Custom instruction."));
         assert_eq!(prompt.len(), 2);
         assert_eq!(prompt[0].role, "system");
@@ -1537,7 +1605,9 @@ mod tests {
         let prompt = summarization_prompt(&omitted, None);
         assert_eq!(prompt.len(), 2);
         assert!(
-            prompt[1].content.contains(DEFAULT_SUMMARIZATION_INSTRUCTION),
+            prompt[1]
+                .content
+                .contains(DEFAULT_SUMMARIZATION_INSTRUCTION),
             "user message must contain the default instruction"
         );
         assert!(
@@ -1549,7 +1619,8 @@ mod tests {
     #[tokio::test]
     async fn test_summarization_prompt_serializes_tool_calls() {
         let mut m = msg("assistant", "running tools");
-        m.tool_calls.push(tool_call("t1", "read", serde_json::json!({ "path": "/a" })));
+        m.tool_calls
+            .push(tool_call("t1", "read", serde_json::json!({ "path": "/a" })));
         let omitted = vec![m];
         let prompt = summarization_prompt(&omitted, None);
         assert!(
@@ -1582,7 +1653,10 @@ mod tests {
         let compacted =
             force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
         let count = compute_compact_count(&messages, &config);
-        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+        assert_eq!(
+            compacted[1].content,
+            summary_placeholder(count as usize - 1)
+        );
     }
 
     #[tokio::test]
@@ -1593,7 +1667,10 @@ mod tests {
         let compacted =
             force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
         let count = compute_compact_count(&messages, &config);
-        assert_eq!(compacted[1].content, summary_placeholder(count as usize - 1));
+        assert_eq!(
+            compacted[1].content,
+            summary_placeholder(count as usize - 1)
+        );
     }
 
     #[tokio::test]
@@ -1612,7 +1689,7 @@ mod tests {
         let config = small_config(100_000);
         let llm = SummarizerMockLlm::ok("unused");
         let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None).await;
-        assert_messages_eq(&compacted, &messages);
+        assert!(compacted.is_none(), "below threshold must be a no-op");
     }
 
     #[tokio::test]
@@ -1620,7 +1697,9 @@ mod tests {
         let messages = compactable_messages();
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("Real summary.");
-        let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None).await;
+        let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None)
+            .await
+            .expect("above threshold must compact");
         assert_ne!(compacted.len(), messages.len());
         assert_eq!(compacted[1].content, "Real summary.");
     }
@@ -1637,7 +1716,8 @@ mod tests {
             Some("Focus on user goals."),
             None,
         )
-        .await;
+        .await
+        .expect("above threshold must compact");
         assert_eq!(compacted[1].content, "Instruction-aware summary.");
         assert!(
             llm.last_user_content().contains("Focus on user goals."),
@@ -1688,7 +1768,11 @@ mod tests {
         let compacted =
             force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None).await;
         assert_messages_eq(&compacted, &messages);
-        assert_eq!(llm.call_count(), 0, "no summary call for a no-op compaction");
+        assert_eq!(
+            llm.call_count(),
+            0,
+            "no summary call for a no-op compaction"
+        );
     }
 
     #[tokio::test]

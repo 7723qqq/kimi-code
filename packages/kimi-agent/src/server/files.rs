@@ -99,10 +99,7 @@ impl FileStore {
 
     fn paths(&self) -> Option<(PathBuf, PathBuf)> {
         let root = self.root.as_ref()?;
-        Some((
-            root.join("files"),
-            root.join("file").join("index.json"),
-        ))
+        Some((root.join("files"), root.join("file").join("index.json")))
     }
 
     fn read_index(index_path: &Path) -> Vec<FileMeta> {
@@ -163,8 +160,9 @@ impl FileStore {
         expires_in_sec: Option<u64>,
         bytes: &[u8],
     ) -> Result<FileMeta, FileError> {
-        let (blob_dir, index_path) =
-            self.paths().ok_or_else(|| internal("cannot resolve the file store location"))?;
+        let (blob_dir, index_path) = self
+            .paths()
+            .ok_or_else(|| internal("cannot resolve the file store location"))?;
         let id = new_file_id();
         std::fs::create_dir_all(&blob_dir)
             .map_err(|error| internal(format!("cannot create {}: {error}", blob_dir.display())))?;
@@ -209,8 +207,9 @@ impl FileStore {
 
     /// Every live entry, pruning expired ones first.
     pub fn list(&self) -> Result<Vec<FileMeta>, FileError> {
-        let (blob_dir, index_path) =
-            self.paths().ok_or_else(|| internal("cannot resolve the file store location"))?;
+        let (blob_dir, index_path) = self
+            .paths()
+            .ok_or_else(|| internal("cannot resolve the file store location"))?;
         let mut metas = Self::read_index(&index_path);
         if Self::prune(&blob_dir, &mut metas) {
             Self::write_index(&index_path, &metas).map_err(internal)?;
@@ -223,8 +222,9 @@ impl FileStore {
         if !is_file_id(file_id) {
             return Err(not_found(file_id));
         }
-        let (blob_dir, index_path) =
-            self.paths().ok_or_else(|| internal("cannot resolve the file store location"))?;
+        let (blob_dir, index_path) = self
+            .paths()
+            .ok_or_else(|| internal("cannot resolve the file store location"))?;
         let mut metas = Self::read_index(&index_path);
         let mut dirty = Self::prune(&blob_dir, &mut metas);
         let blob = blob_dir.join(file_id);
@@ -285,7 +285,10 @@ pub struct MultipartPart {
 
 /// Extract the boundary from a `multipart/form-data` content type.
 pub fn boundary_of(content_type: &str) -> Option<String> {
-    if !content_type.to_ascii_lowercase().starts_with("multipart/form-data") {
+    if !content_type
+        .to_ascii_lowercase()
+        .starts_with("multipart/form-data")
+    {
         return None;
     }
     for parameter in content_type.split(';').skip(1) {
@@ -484,7 +487,9 @@ mod tests {
     #[test]
     fn saves_lists_and_deletes_files() {
         let store = temp_store("crud");
-        let meta = store.save("note.txt", "text/plain", None, b"hello").unwrap();
+        let meta = store
+            .save("note.txt", "text/plain", None, b"hello")
+            .unwrap();
         assert!(is_file_id(&meta.id));
         assert_eq!(meta.size, 5);
         assert_eq!(meta.name, "note.txt");
@@ -558,7 +563,9 @@ mod tests {
         let boundary = "boundary-42";
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"name\"\r\n\r\nMy image\r\n");
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"name\"\r\n\r\nMy image\r\n",
+        );
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         body.extend_from_slice(
             b"Content-Disposition: form-data; name=\"file\"; filename=\"photo.png\"\r\n",
@@ -572,7 +579,7 @@ mod tests {
         assert_eq!(meta["name"], "My image");
         assert_eq!(meta["media_type"], "image/png");
         assert_eq!(meta["size"], 7);
-        assert_eq!(meta["id"].as_str().unwrap().starts_with("f_"), true);
+        assert!(meta["id"].as_str().unwrap().starts_with("f_"));
 
         // A non-multipart request is a validation failure.
         let error = upload(&store, "application/json", b"{}").unwrap_err();
@@ -602,6 +609,9 @@ mod tests {
             content_disposition("notes.txt", "text/plain"),
             "attachment; filename=\"notes.txt\""
         );
-        assert_eq!(content_disposition("weird\"name", "text/plain"), "attachment");
+        assert_eq!(
+            content_disposition("weird\"name", "text/plain"),
+            "attachment"
+        );
     }
 }

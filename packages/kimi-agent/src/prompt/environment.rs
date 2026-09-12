@@ -5,8 +5,7 @@
 
 use std::path::Path;
 
-pub const WINDOWS_NOTES: &str =
-    "IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.";
+pub const WINDOWS_NOTES: &str = "IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.";
 
 /// Captured environment details for prompt interpolation.
 #[derive(Debug, Clone)]
@@ -112,10 +111,7 @@ pub fn generate_cwd_listing(work_dir: &Path, collapse_hidden: bool) -> String {
 }
 
 /// Gather complete environment information for the target workspace.
-pub fn collect_environment(
-    workspace_root: &Path,
-    override_shell: Option<&str>,
-) -> EnvironmentInfo {
+pub fn collect_environment(workspace_root: &Path, override_shell: Option<&str>) -> EnvironmentInfo {
     let os = detect_os();
     let (shell_name, shell_path) = detect_shell(override_shell);
     let cwd = workspace_root.display().to_string().replace('\\', "/");

@@ -110,10 +110,34 @@ impl NativeHttpLlm {
         self
     }
 
+    /// Moonshot preserved-thinking keep is active (`[thinking] keep` /
+    /// `KIMI_MODEL_THINKING_KEEP`); the host filters off-values, so any value
+    /// here reaches the wire.
+    fn thinking_keep_active(&self) -> bool {
+        self.config
+            .thinking_keep
+            .as_deref()
+            .is_some_and(|keep| !keep.is_empty())
+    }
+
+    /// Whether anthropic requests take the **beta** Messages API
+    /// (`POST {base}/messages?beta=true`). Enabling keep routes there as well
+    /// — `clear_thinking_20251015` is honored only on the beta API — which is
+    /// the same override the host provider applies in `withThinkingKeep`.
+    fn beta_messages_api(&self) -> bool {
+        self.config.beta_api || self.thinking_keep_active()
+    }
+
     fn endpoint(&self) -> String {
         let base = self.config.base_url.trim_end_matches('/');
         match self.config.protocol.as_str() {
-            "anthropic" => format!("{base}/messages"),
+            "anthropic" => {
+                if self.beta_messages_api() {
+                    format!("{base}/messages?beta=true")
+                } else {
+                    format!("{base}/messages")
+                }
+            }
             "openai_responses" | "openai-responses" => format!("{base}/responses"),
             "google" | "google-genai" | "gemini" => {
                 format!(
@@ -125,7 +149,7 @@ impl NativeHttpLlm {
         }
     }
 
-    fn emit_delta(&self, delta: &StreamDelta) {
+    fn emit_delta(&self, delta: StreamDelta) {
         if let Some(ref sink) = self.sink {
             sink(serde_json::json!({
                 "type": "llm.delta",
@@ -258,7 +282,7 @@ impl NativeHttpLlm {
                 break;
             }
             if let Some(delta) = acc.feed(&value) {
-                self.emit_delta(&delta);
+                self.emit_delta(delta);
             }
         }
 
@@ -312,13 +336,10 @@ impl NativeHttpLlm {
                 .header("x-api-key", token)
                 .header("anthropic-version", "2023-06-01");
             // Preserved thinking rides the beta Messages API
-            // (`context-management-2025-06-27`), mirroring the host provider.
-            if self
-                .config
-                .thinking_keep
-                .as_deref()
-                .is_some_and(|keep| !keep.is_empty())
-            {
+            // (`context-management-2025-06-27`), mirroring the host provider;
+            // `endpoint()` switches the URL to `?beta=true` for the same
+            // reason.
+            if self.thinking_keep_active() {
                 req = req.header("anthropic-beta", "context-management-2025-06-27");
             }
         } else {
@@ -565,6 +586,7 @@ mod tests {
             thinking_budget: None,
             auth_provider: None,
             thinking_keep: None,
+            beta_api: false,
         }
     }
 
@@ -700,8 +722,8 @@ mod tests {
         let result = llm
             .chat(LLMChatParams {
                 cancel: None,
-                messages: vec![],
-                tools: vec![],
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
             })
             .await;
         assert!(result.is_err());
@@ -747,12 +769,12 @@ mod tests {
             chat_llm
                 .chat(LLMChatParams {
                     cancel: Some(chat_token),
-                    messages: vec![crate::turn_loop::types::LLMMessage {
+                    messages: Arc::from(vec![crate::turn_loop::types::LLMMessage {
                         role: "user".into(),
                         content: "hi".into(),
                         ..Default::default()
-                    }],
-                    tools: vec![],
+                    }]),
+                    tools: Arc::from(Vec::new()),
                 })
                 .await
         });
@@ -822,8 +844,8 @@ mod tests {
         let result = llm
             .chat(LLMChatParams {
                 cancel: None,
-                messages: vec![],
-                tools: vec![],
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
             })
             .await;
         assert!(
@@ -878,8 +900,8 @@ mod tests {
         let result = llm
             .chat(LLMChatParams {
                 cancel: None,
-                messages: vec![],
-                tools: vec![],
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
             })
             .await;
         let msg = result.err().unwrap().to_string();

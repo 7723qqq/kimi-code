@@ -105,6 +105,24 @@ pub struct PipelineSpec {
     /// section is configured and the experimental flag enables it. `None`
     /// keeps the v2 default: subagents inherit the caller's model.
     pub secondary_model: Option<crate::rpc::types::SecondaryModelPool>,
+    /// `[image].read_byte_budget` (v2 `resolveReadImageByteBudget`): raw-byte
+    /// budget for model-initiated image reads. `None` keeps the 256KB default.
+    pub image_read_byte_budget: Option<u64>,
+    /// `[image].max_edge_px` for model-initiated image reads. `None` keeps
+    /// the 2000px default.
+    pub image_max_edge_px: Option<u32>,
+    /// The session model's declared capabilities (`[models.<alias>]
+    /// .capabilities`); `None` = unknown, and image reads are allowed.
+    pub model_capabilities: Option<Vec<String>>,
+    /// Extra skill scan roots (`extra_skill_dirs`) for the system prompt's
+    /// skills section.
+    pub skill_dirs: Vec<std::path::PathBuf>,
+    /// `[background]` knobs for this context's own task runner and Bash tool:
+    /// cooperative-stop grace, concurrent-task cap, auto-background on
+    /// timeout, and the background Bash timeout. Every field is optional —
+    /// `None` keeps the engine default — so an unconfigured file behaves
+    /// exactly as before.
+    pub background: crate::storage::BackgroundLimits,
 }
 
 /// The two per-entry policies the chain must not decide on its own.
@@ -145,6 +163,16 @@ impl std::fmt::Display for PipelineError {
 }
 
 impl std::error::Error for PipelineError {}
+
+/// `[subagent]` / `[background]` print defaults (docs `config-files.md`): in
+/// print mode (`kimi -p`) an *unset* wall-clock timeout means "no timeout" —
+/// background work is not killed by the clock there (the settle phase waits
+/// for it instead); only the model stops it. An explicit value always wins,
+/// including `0`, which every timeout consumer treats as "never arm".
+#[must_use]
+pub fn print_timeout_default(timeout: Option<u64>, print_mode: bool) -> Option<u64> {
+    timeout.or_else(|| print_mode.then_some(0))
+}
 
 /// Build the callback chain and the LLM for one engine context.
 pub async fn build_engine_pipeline(
@@ -243,6 +271,10 @@ pub async fn build_engine_pipeline(
                         .with_subagents(subagent_manager.clone())
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
                         .with_parent_cancel_slot_if(parent_cancel_slot)
+                        .with_image_limits(spec.image_read_byte_budget, spec.image_max_edge_px)
+                        .with_model_capabilities(spec.model_capabilities.clone())
+                        .with_bash_auto_background(spec.background.bash_auto_background_on_timeout)
+                        .with_bash_task_timeout(spec.background.bash_task_timeout_s)
                         .with_callbacks(base_callbacks.clone())
                         .with_tools_filter(
                             spec.policy_snapshot
@@ -268,13 +300,12 @@ pub async fn build_engine_pipeline(
                             .models
                             .iter()
                             .map(|entry| {
-                                let llm: Arc<dyn crate::turn_loop::types::LLM> = Arc::from(
-                                    build_native_llm(
+                                let llm: Arc<dyn crate::turn_loop::types::LLM> =
+                                    Arc::from(build_native_llm(
                                         &entry.llm,
                                         &spec.system_prompt,
                                         &base_callbacks,
-                                    ),
-                                );
+                                    ));
                                 (entry.alias.clone(), llm)
                             })
                             .collect();
@@ -288,6 +319,13 @@ pub async fn build_engine_pipeline(
                         toolset = toolset.with_mcp(manager);
                     }
                     if let Some(ref runner) = task_runner {
+                        // `[background]` knobs: the pipeline builds its own
+                        // runner per context, so the limits are applied here
+                        // rather than at construction.
+                        runner.apply_background_limits(
+                            spec.background.kill_grace_period_ms,
+                            spec.background.max_running_tasks,
+                        );
                         toolset = toolset.with_task_runner(runner.clone());
                         subagent_manager.set_task_runner_sync(runner.clone());
                     }
@@ -386,31 +424,31 @@ pub async fn build_engine_pipeline(
     // Subagent execution runtime (P46): spawned subagent turns run with this
     // pipeline's llm + callback chain.
     subagent_manager
-        .set_runtime(llm.clone(), callbacks.clone())
+        .set_runtime(llm.clone(), callbacks.clone(), spec.session_id.clone())
         .await;
 
-/// Build a native HTTP LLM for one `NativeLlmConfig`: the single place the
-/// session model and every `[secondary_model]` pool alias go through, so the
-/// event sink and OAuth token plumbing cannot drift between them.
-fn build_native_llm(
-    cfg: &NativeLlmConfig,
-    system_prompt: &str,
-    callbacks: &Arc<dyn HostCallbacks>,
-) -> Box<dyn crate::turn_loop::types::LLM> {
-    let sink_callbacks = callbacks.clone();
-    let mut llm = NativeHttpLlm::new(cfg.clone(), system_prompt.to_string())
-        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-    if cfg.auth_provider.is_some() {
-        let auth_callbacks = callbacks.clone();
-        let provider_name = cfg.auth_provider.clone().unwrap_or_default();
-        llm = llm.with_auth_provider(Arc::new(move |force| {
-            let cb = auth_callbacks.clone();
-            let provider = provider_name.clone();
-            Box::pin(async move { cb.auth_token(provider, force).await })
-        }));
+    /// Build a native HTTP LLM for one `NativeLlmConfig`: the single place the
+    /// session model and every `[secondary_model]` pool alias go through, so the
+    /// event sink and OAuth token plumbing cannot drift between them.
+    fn build_native_llm(
+        cfg: &NativeLlmConfig,
+        system_prompt: &str,
+        callbacks: &Arc<dyn HostCallbacks>,
+    ) -> Box<dyn crate::turn_loop::types::LLM> {
+        let sink_callbacks = callbacks.clone();
+        let mut llm = NativeHttpLlm::new(cfg.clone(), system_prompt.to_string())
+            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+        if cfg.auth_provider.is_some() {
+            let auth_callbacks = callbacks.clone();
+            let provider_name = cfg.auth_provider.clone().unwrap_or_default();
+            llm = llm.with_auth_provider(Arc::new(move |force| {
+                let cb = auth_callbacks.clone();
+                let provider = provider_name.clone();
+                Box::pin(async move { cb.auth_token(provider, force).await })
+            }));
+        }
+        Box::new(llm)
     }
-    Box::new(llm)
-}
 
     Ok(EnginePipeline {
         llm,
@@ -474,6 +512,7 @@ mod tests {
             Box::pin(async move {
                 calls.lock().unwrap().push(format!("execute_tool:{tool}"));
                 Ok(ToolExecuteResponse {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("{tool} ran on the host"),
                     is_error: false,
@@ -493,6 +532,21 @@ mod tests {
                 })
             })
         }
+    }
+
+    /// The print timeout default: an explicit value (including `0` = "never
+    /// arm") always wins; the print-mode unset resolves to "no timeout" while
+    /// interactive mode keeps each knob's own engine default.
+    #[test]
+    fn print_timeout_default_applies_only_in_print_mode() {
+        assert_eq!(print_timeout_default(Some(3_600), true), Some(3_600));
+        assert_eq!(print_timeout_default(Some(0), true), Some(0));
+        assert_eq!(
+            print_timeout_default(Some(7_200_000), false),
+            Some(7_200_000)
+        );
+        assert_eq!(print_timeout_default(None, true), Some(0));
+        assert_eq!(print_timeout_default(None, false), None);
     }
 
     fn spec() -> PipelineSpec {
@@ -518,6 +572,11 @@ mod tests {
             caller_agent_id: None,
             session_id: None,
             secondary_model: None,
+            image_read_byte_budget: None,
+            image_max_edge_px: None,
+            model_capabilities: None,
+            skill_dirs: Vec::new(),
+            background: crate::storage::BackgroundLimits::default(),
         }
     }
 

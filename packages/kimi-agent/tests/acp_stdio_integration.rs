@@ -170,7 +170,7 @@ fn acp_initialize_returns_spec_handshake() {
     assert_eq!(result["agentCapabilities"]["loadSession"], true);
     assert_eq!(result["authMethods"][0]["id"], "login");
     assert_eq!(result["authMethods"][0]["type"], "terminal");
-    assert_eq!(result["agentInfo"]["name"], "kimi-agent-rust");
+    assert_eq!(result["agentInfo"]["name"], "Kimi Code CLI");
 }
 
 /// A notification must not produce an output line: the next line on stdout is
@@ -181,7 +181,10 @@ fn acp_notification_is_not_answered_on_stdio() {
         return;
     };
     client
-        .notify("session/cancel", serde_json::json!({ "sessionId": "sess-1" }))
+        .notify(
+            "session/cancel",
+            serde_json::json!({ "sessionId": "sess-1" }),
+        )
         .expect("cancel notification must be accepted");
 
     let id = client.next_id.fetch_add(1, Ordering::SeqCst);
@@ -394,7 +397,13 @@ fn acp_resume_and_fork_on_stdio() {
         .as_str()
         .expect("forked session id");
     assert_ne!(forked, session_id);
-    assert_eq!(response["result"]["modes"]["availableModes"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        response["result"]["modes"]["availableModes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 }
 
 #[test]

@@ -24,7 +24,7 @@ pub fn detect_file_type(path: &Path, header: &[u8]) -> FileKind {
             // Image extensions
             "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "svg" | "tiff" | "tif"
             | "avif" | "heic" | "heif" | "raw" | "cr2" | "nef" | "arw" | "dng" | "psd" | "ai" => {
-                return FileKind::Image
+                return FileKind::Image;
             }
             // Video extensions
             "mp4" | "webm" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "m4v" | "mpg" | "mpeg"

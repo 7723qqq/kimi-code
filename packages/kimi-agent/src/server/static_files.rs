@@ -119,7 +119,10 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("font.woff")), "font/woff");
         assert_eq!(mime_for_path(Path::new("font.woff2")), "font/woff2");
         assert_eq!(mime_for_path(Path::new("font.ttf")), "font/ttf");
-        assert_eq!(mime_for_path(Path::new("license.txt")), "text/plain; charset=utf-8");
+        assert_eq!(
+            mime_for_path(Path::new("license.txt")),
+            "text/plain; charset=utf-8"
+        );
         assert_eq!(
             mime_for_path(Path::new("data.bin")),
             "application/octet-stream"
@@ -176,7 +179,10 @@ mod tests {
 
         // 4. Traversal attack variations return 404
         assert_eq!(serve_static_file(dir.path(), "/../secret.txt").status, 404);
-        assert_eq!(serve_static_file(dir.path(), "/assets/../../secret.txt").status, 404);
+        assert_eq!(
+            serve_static_file(dir.path(), "/assets/../../secret.txt").status,
+            404
+        );
         assert_eq!(serve_static_file(dir.path(), "/..").status, 404);
 
         // 5. Missing asset under /api does NOT fallback to index.html

@@ -34,9 +34,9 @@
 //! This is a deliberate divergence from the TS behaviour, not parity with it;
 //! see ROADMAP P77.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use tokio::sync::{mpsc, watch};
 
@@ -65,7 +65,10 @@ pub enum HubClosed {
 }
 
 /// One event as it reaches a connection: numbered by the lane it came from.
-#[derive(Debug, Clone)]
+///
+/// Cloned around the fan-out as `Arc<SequencedEvent>`, so a subscriber pays a
+/// refcount bump, not a deep copy of the event body.
+#[derive(Debug)]
 pub struct SequencedEvent {
     pub session_id: Arc<str>,
     /// Identity of the lane that produced this, so a client can tell a resumed
@@ -74,6 +77,39 @@ pub struct SequencedEvent {
     /// Consecutive within `(session_id, epoch)`, starting at 1.
     pub seq: u64,
     pub event: EngineEvent,
+    /// WS envelope bytes, encoded lazily once (on the first subscriber that
+    /// needs them) and shared by every connection and replay thereafter.
+    envelope: OnceLock<Arc<[u8]>>,
+}
+
+impl SequencedEvent {
+    pub fn new(session_id: Arc<str>, epoch: Arc<str>, seq: u64, event: EngineEvent) -> Self {
+        Self {
+            session_id,
+            epoch,
+            seq,
+            event,
+            envelope: OnceLock::new(),
+        }
+    }
+
+    /// The encoded envelope, computed on first use and cached for the life of
+    /// the event so the per-subscriber fan-out never re-serializes it.
+    pub fn envelope(&self) -> Arc<[u8]> {
+        self.envelope
+            .get_or_init(|| {
+                match crate::server::ws_protocol::encode_envelope(
+                    &self.session_id,
+                    &self.epoch,
+                    self.seq,
+                    &self.event,
+                ) {
+                    Ok(bytes) => Arc::from(bytes.into_boxed_slice()),
+                    Err(_) => Arc::from(Vec::<u8>::new()),
+                }
+            })
+            .clone()
+    }
 }
 
 /// A session's bus plus the numbering that travels with it.
@@ -88,7 +124,7 @@ struct Lane {
     /// so its cursor starts as far back as the ring still reaches; until a
     /// persistent journal exists it is the only replay source, which is also
     /// why the lanes themselves are never evicted.
-    history: Mutex<VecDeque<SequencedEvent>>,
+    history: Mutex<VecDeque<Arc<SequencedEvent>>>,
     /// `publish` only takes the bus's *read* lock, so two concurrent publishers on
     /// one session could each take a number and then deliver out of order. Taking
     /// this around the stamp-and-forward step is what makes `seq` mean what it
@@ -99,8 +135,24 @@ struct Lane {
 /// One connection's inbound queue, written by every lane it can see.
 struct Slot {
     id: u64,
-    sender: mpsc::Sender<SequencedEvent>,
+    sender: mpsc::Sender<Arc<SequencedEvent>>,
     state: watch::Sender<u8>,
+    remote_address: Option<String>,
+    user_agent: Option<String>,
+    connected_at: u64,
+    client_hello: Arc<AtomicBool>,
+    subscriptions: Arc<Mutex<HashSet<String>>>,
+}
+
+/// Live-connection metadata for `GET /api/v1/connections`.
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    pub id: u64,
+    pub remote_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub connected_at: u64,
+    pub has_client_hello: bool,
+    pub subscriptions: Vec<String>,
 }
 
 type Slots = Arc<RwLock<Vec<Arc<Slot>>>>;
@@ -175,14 +227,14 @@ impl EventHub {
         lane.bus.subscribe(move |event| {
             let _ordered = forward.order.lock().unwrap();
             let seq = forward.next_seq.fetch_add(1, Ordering::Relaxed) + 1;
-            let sequenced = SequencedEvent {
-                session_id: Arc::clone(&forward.session_id),
-                epoch: Arc::clone(&forward.epoch),
+            let sequenced = Arc::new(SequencedEvent::new(
+                Arc::clone(&forward.session_id),
+                Arc::clone(&forward.epoch),
                 seq,
-                event: event.clone(),
-            };
+                event.clone(),
+            ));
             let mut history = forward.history.lock().unwrap();
-            history.push_back(sequenced.clone());
+            history.push_back(Arc::clone(&sequenced));
             if history.len() > LANE_HISTORY_CAP {
                 history.pop_front();
             }
@@ -197,7 +249,11 @@ impl EventHub {
     }
 
     /// Ensure a lane exists and ensure its sequence number is at least `initial_seq`.
-    pub fn ensure_lane_with_initial_seq(&self, session_id: &str, initial_seq: u64) -> (u64, Arc<str>) {
+    pub fn ensure_lane_with_initial_seq(
+        &self,
+        session_id: &str,
+        initial_seq: u64,
+    ) -> (u64, Arc<str>) {
         let _bus = self.bus_for(session_id);
         let lanes = self.lanes.read().unwrap();
         let lane = lanes.get(session_id).expect("lane was just ensured");
@@ -215,6 +271,12 @@ impl EventHub {
         let mut ids: Vec<String> = self.lanes.read().unwrap().keys().cloned().collect();
         ids.sort();
         ids
+    }
+
+    /// Whether a lane exists for `session_id` — a plain map lookup, for callers
+    /// that would otherwise clone and sort every lane id just to test membership.
+    pub fn lane_exists(&self, session_id: &str) -> bool {
+        self.lanes.read().unwrap().contains_key(session_id)
     }
 
     /// How many lanes have been opened, for observability.
@@ -245,7 +307,7 @@ impl EventHub {
     }
 
     /// Replay buffered events for a session with seq > `since_seq`.
-    pub fn replay_for(&self, session_id: &str, since_seq: u64) -> Vec<SequencedEvent> {
+    pub fn replay_for(&self, session_id: &str, since_seq: u64) -> Vec<Arc<SequencedEvent>> {
         let lanes = self.lanes.read().unwrap();
         let Some(lane) = lanes.get(session_id) else {
             return Vec::new();
@@ -268,9 +330,21 @@ impl EventHub {
     /// concurrent publish can neither duplicate an event (in history and in
     /// the queue) nor drop one (in neither).
     pub fn attach(&self) -> WsSubscription {
+        self.attach_from(None, None)
+    }
+
+    /// Like [`Self::attach`], recording the peer address and `User-Agent` for
+    /// the `GET /api/v1/connections` introspection surface.
+    pub fn attach_from(
+        &self,
+        remote_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> WsSubscription {
         let (sender, receiver) = mpsc::channel(SUBSCRIBER_QUEUE_DEPTH);
         let (state_sender, state) = watch::channel(STATE_OPEN);
         let id = self.next_slot_id.fetch_add(1, Ordering::Relaxed);
+        let client_hello = Arc::new(AtomicBool::new(false));
+        let subscriptions = Arc::new(Mutex::new(HashSet::new()));
 
         // Register the slot *before* snapshotting lane history. A lane created
         // (or an event published) between the snapshot and the registration
@@ -283,6 +357,11 @@ impl EventHub {
             id,
             sender,
             state: state_sender,
+            remote_address,
+            user_agent,
+            connected_at: chrono::Utc::now().timestamp_millis() as u64,
+            client_hello: Arc::clone(&client_hello),
+            subscriptions: Arc::clone(&subscriptions),
         }));
 
         let lanes: Vec<Arc<Lane>> = {
@@ -307,7 +386,32 @@ impl EventHub {
             state,
             replay,
             delivered: HashMap::new(),
+            client_hello,
+            subscriptions,
         }
+    }
+
+    /// Live connection metadata for `GET /api/v1/connections`.
+    pub fn connections(&self) -> Vec<ConnectionInfo> {
+        self.slots
+            .read()
+            .unwrap()
+            .iter()
+            .map(|slot| ConnectionInfo {
+                id: slot.id,
+                remote_address: slot.remote_address.clone(),
+                user_agent: slot.user_agent.clone(),
+                connected_at: slot.connected_at,
+                has_client_hello: slot.client_hello.load(Ordering::Relaxed),
+                subscriptions: slot
+                    .subscriptions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .cloned()
+                    .collect(),
+            })
+            .collect()
     }
 
     /// Live connection count, for observability and for proving a closed
@@ -322,9 +426,9 @@ fn new_epoch() -> String {
 }
 
 /// Hand one event to every live connection, never blocking.
-fn deliver(slots: &Slots, event: SequencedEvent) {
+fn deliver(slots: &Slots, event: Arc<SequencedEvent>) {
     for slot in slots.read().unwrap().iter() {
-        if slot.sender.try_send(event.clone()).is_ok() {
+        if slot.sender.try_send(Arc::clone(&event)).is_ok() {
             continue;
         }
         // Distinguish a full queue (peer too slow) from a dropped receiver (our
@@ -343,19 +447,34 @@ fn deliver(slots: &Slots, event: SequencedEvent) {
 pub struct WsSubscription {
     slots: Slots,
     id: u64,
-    receiver: mpsc::Receiver<SequencedEvent>,
+    receiver: mpsc::Receiver<Arc<SequencedEvent>>,
     state: watch::Receiver<u8>,
     /// Lane history snapshotted at attach time, handed over before the live
     /// queue. Because the slot is registered before the snapshot, an event
     /// published during the snapshot can sit in both this buffer and the live
     /// queue; `delivered` de-duplicates it.
-    replay: VecDeque<SequencedEvent>,
+    replay: VecDeque<Arc<SequencedEvent>>,
     /// Per `(session_id, epoch)` high-water mark of seqs already handed to the
     /// caller, so the replay/live overlap yields each event exactly once.
     delivered: HashMap<(Arc<str>, Arc<str>), u64>,
+    /// Shared with the connection's slot: whether `client_hello` completed.
+    client_hello: Arc<AtomicBool>,
+    /// Shared with the connection's slot: the session ids it is subscribed to.
+    subscriptions: Arc<Mutex<HashSet<String>>>,
 }
 
 impl WsSubscription {
+    /// Record that the client completed its `client_hello` handshake.
+    pub fn mark_client_hello(&self) {
+        self.client_hello.store(true, Ordering::Relaxed);
+    }
+
+    /// Replace the connection's visible subscription set (`GET /connections`).
+    pub fn set_subscriptions(&self, ids: &HashSet<String>) {
+        let mut set = self.subscriptions.lock().unwrap_or_else(|e| e.into_inner());
+        *set = ids.clone();
+    }
+
     /// Next event, or why the stream ended.
     ///
     /// Replayed lane history is handed over first, then events already
@@ -363,7 +482,7 @@ impl WsSubscription {
     /// contiguous prefix and then the close — rather than losing a prefix it
     /// could have used. Cancel-safe: waiting is all it does, so it can sit in
     /// a `select!` arm alongside socket reads.
-    pub async fn recv(&mut self) -> Result<SequencedEvent, HubClosed> {
+    pub async fn recv(&mut self) -> Result<Arc<SequencedEvent>, HubClosed> {
         loop {
             // Replay the snapshotted history first, then the live queue. An
             // event published while attach() was snapshotting can appear in
@@ -472,6 +591,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn connections_report_metadata_and_subscriptions() {
+        let hub = EventHub::new();
+        let sub = hub.attach_from(Some("10.0.0.5:1234".into()), Some("test-agent".into()));
+        let conns = hub.connections();
+        assert_eq!(conns.len(), 1);
+        assert_eq!(conns[0].remote_address.as_deref(), Some("10.0.0.5:1234"));
+        assert_eq!(conns[0].user_agent.as_deref(), Some("test-agent"));
+        assert!(!conns[0].has_client_hello);
+        assert!(conns[0].subscriptions.is_empty());
+
+        sub.mark_client_hello();
+        sub.set_subscriptions(&HashSet::from(["sess-1".to_string()]));
+        let conns = hub.connections();
+        assert!(conns[0].has_client_hello);
+        assert_eq!(conns[0].subscriptions, vec!["sess-1".to_string()]);
+    }
+
+    #[tokio::test]
     async fn each_subscriber_sees_the_same_events_with_the_same_numbers() {
         let hub = EventHub::new();
         let mut first = hub.attach();
@@ -488,10 +625,10 @@ mod tests {
             assert_eq!(a.seq, expected, "seq must not depend on the reader");
             assert_eq!(b.seq, expected);
             assert_eq!(a.epoch, b.epoch);
-            let EngineEvent::LlmStepBegin { step, .. } = a.event else {
+            let EngineEvent::LlmStepBegin { step, .. } = &a.event else {
                 panic!("wrong variant on first subscriber");
             };
-            assert_eq!(u64::from(step), expected);
+            assert_eq!(u64::from(*step), expected);
         }
     }
 
@@ -636,11 +773,13 @@ mod tests {
     #[test]
     fn mark_delivered_filters_the_replay_live_overlap_by_high_water_seq() {
         let mut delivered = HashMap::new();
-        let event = |seq: u64| SequencedEvent {
-            session_id: Arc::from("sess-1"),
-            epoch: Arc::from("epoch-a"),
-            seq,
-            event: step_event(seq as u32),
+        let event = |seq: u64| {
+            SequencedEvent::new(
+                Arc::from("sess-1"),
+                Arc::from("epoch-a"),
+                seq,
+                step_event(seq as u32),
+            )
         };
         assert!(mark_delivered(&mut delivered, &event(1)));
         assert!(mark_delivered(&mut delivered, &event(2)));
@@ -649,12 +788,8 @@ mod tests {
         assert!(!mark_delivered(&mut delivered, &event(2)));
         assert!(mark_delivered(&mut delivered, &event(3)));
         // A different lane's stream is numbered independently.
-        let other = SequencedEvent {
-            session_id: Arc::from("sess-2"),
-            epoch: Arc::from("epoch-b"),
-            seq: 1,
-            event: step_event(1),
-        };
+        let other =
+            SequencedEvent::new(Arc::from("sess-2"), Arc::from("epoch-b"), 1, step_event(1));
         assert!(mark_delivered(&mut delivered, &other));
     }
 

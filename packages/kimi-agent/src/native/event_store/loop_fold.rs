@@ -3,11 +3,10 @@
 //! 负责消费底层事件流（step.begin, content.part, tool.call, tool.result, step.end），
 //! 严格维护开放步生命周期、Vacuous 空内容丢弃、Tool 紧随保序与悬挂中断自愈。
 
-use std::collections::HashSet;
 use super::{Message, MessageRole};
+use std::collections::HashSet;
 
-pub const TOOL_INTERRUPTED_ON_RESUME_OUTPUT: &str =
-    "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.";
+pub const TOOL_INTERRUPTED_ON_RESUME_OUTPUT: &str = "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.";
 
 /// 录制的单步循环底层事件定义（对齐 TS LoopRecordedEvent）
 #[derive(Debug, Clone)]
@@ -82,51 +81,51 @@ impl LoopEventFoldSink for VectorFoldSink {
     }
 
     fn append_open_content(&mut self, text: &str) {
-        if let Some(last) = self.messages.last_mut() {
-            if last.role == MessageRole::Assistant {
-                last.content.push_str(text);
-            }
+        if let Some(last) = self.messages.last_mut()
+            && last.role == MessageRole::Assistant
+        {
+            last.content.push_str(text);
         }
     }
 
     fn append_open_tool_call(&mut self, tool_call_id: String, name: String, args: Option<String>) {
-        if let Some(last) = self.messages.last_mut() {
-            if last.role == MessageRole::Assistant {
-                let call_obj = serde_json::json!({
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "arguments": args.unwrap_or_else(|| "{}".to_string()),
-                    }
-                });
-                if let Some(ref mut arr) = last.tool_calls.as_mut().and_then(|v| v.as_array_mut()) {
-                    arr.push(call_obj);
+        if let Some(last) = self.messages.last_mut()
+            && last.role == MessageRole::Assistant
+        {
+            let call_obj = serde_json::json!({
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": args.unwrap_or_else(|| "{}".to_string()),
                 }
+            });
+            if let Some(ref mut arr) = last.tool_calls.as_mut().and_then(|v| v.as_array_mut()) {
+                arr.push(call_obj);
             }
         }
     }
 
     fn drop_open_assistant(&mut self) {
         if self.has_open_assistant {
-            if let Some(last) = self.messages.last() {
-                if last.role == MessageRole::Assistant {
-                    self.messages.pop();
-                }
+            if let Some(last) = self.messages.last()
+                && last.role == MessageRole::Assistant
+            {
+                self.messages.pop();
             }
             self.has_open_assistant = false;
         }
     }
 
     fn seal_open_assistant(&mut self) {
-        if let Some(last) = self.messages.last_mut() {
-            if last.role == MessageRole::Assistant {
-                // 如果没有任何 tool_calls，将字段重置为 None
-                if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array()) {
-                    if arr.is_empty() {
-                        last.tool_calls = None;
-                    }
-                }
+        if let Some(last) = self.messages.last_mut()
+            && last.role == MessageRole::Assistant
+        {
+            // 如果没有任何 tool_calls，将字段重置为 None
+            if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array())
+                && arr.is_empty()
+            {
+                last.tool_calls = None;
             }
         }
         self.has_open_assistant = false;
@@ -244,30 +243,45 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
             }
             LoopRecordedEvent::StepEnd { finish_reason, .. } => {
                 // 对齐 TS 第 155 行：interrupted 或 error 时保留 openStepUuid，等待后续恢复，不触发结算
-                if let Some(ref r) = finish_reason {
-                    if r == "interrupted" || r == "error" {
-                        return;
-                    }
+                if let Some(ref r) = finish_reason
+                    && (r == "interrupted" || r == "error")
+                {
+                    return;
                 }
                 self.settle_open();
                 self.flush_deferred();
             }
-            LoopRecordedEvent::ContentPart { step_uuid, text, is_vacuous } => {
+            LoopRecordedEvent::ContentPart {
+                step_uuid,
+                text,
+                is_vacuous,
+            } => {
                 if !self.accepts_open_step(&step_uuid) {
                     return;
                 }
                 self.sink.append_open_content(&text);
                 self.open_vacuous = self.open_vacuous && is_vacuous;
             }
-            LoopRecordedEvent::ToolCall { step_uuid, tool_call_id, name, arguments } => {
+            LoopRecordedEvent::ToolCall {
+                step_uuid,
+                tool_call_id,
+                name,
+                arguments,
+            } => {
                 if !self.accepts_open_step(&step_uuid) {
                     return;
                 }
-                self.sink.append_open_tool_call(tool_call_id.clone(), name, arguments);
+                self.sink
+                    .append_open_tool_call(tool_call_id.clone(), name, arguments);
                 self.pending.insert(tool_call_id);
                 self.open_has_tool_calls = true;
             }
-            LoopRecordedEvent::ToolResult { tool_call_id, output, is_error, .. } => {
+            LoopRecordedEvent::ToolResult {
+                tool_call_id,
+                output,
+                is_error,
+                ..
+            } => {
                 if !self.pending.remove(&tool_call_id) {
                     return;
                 }

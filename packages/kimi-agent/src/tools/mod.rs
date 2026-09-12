@@ -70,6 +70,14 @@ const GLOB_MAX_RESULTS: usize = 500;
 
 /// Hard wall-clock cap for native Bash (host may configure less).
 const BASH_MAX_SECONDS: u64 = 300;
+/// Default timeout for a background Bash task when neither
+/// `[background].bash_task_timeout_s` nor the call's own `timeout` sets one.
+/// A foreground command that migrates to the background on timeout is
+/// re-armed with the same bound.
+const BASH_TASK_DEFAULT_TIMEOUT_S: u64 = 600;
+/// Ceiling for a background Bash task's timeout (`[background]
+/// bash_task_timeout_s` and per-call `timeout` are both clamped to it).
+const BASH_TASK_MAX_SECONDS: u64 = 86_400;
 /// P57: minimum spacing between `tool.native.progress` events (one event
 /// per interval; intervening chunks are dropped from the UI stream only —
 /// the final result always carries the full output).
@@ -97,6 +105,7 @@ pub mod lsp_tool;
 pub mod memory_paths;
 pub mod moonshot_service;
 pub mod plan_mode;
+pub mod read_media;
 pub mod sandbox;
 pub mod select_tools;
 pub mod skill;
@@ -112,6 +121,7 @@ pub mod tool_dedupe;
 pub mod tool_policy;
 pub mod tower;
 pub mod web_search;
+pub mod workflow;
 
 mod grep_types;
 
@@ -182,6 +192,7 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "skill",
     "knowledge",
     "team",
+    "workflow",
     "agent",
     "agentswarm",
     "agent_swarm",
@@ -209,6 +220,10 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "tower_mission",
     "towerstatus",
     "tower_status",
+    // Progressive tool disclosure: native in this fork (v2 kept it on the
+    // host); without the entry the dedup guard would let a repeated call
+    // re-execute instead of replaying the cached announcement.
+    "select_tools",
 ];
 
 /// The static half of [`NativeToolset::handles`] without an instance: the
@@ -280,6 +295,25 @@ pub struct NativeToolset {
     /// `[secondary_model]`: the subagent model pool the `Agent` / `AgentSwarm`
     /// tools advertise and bind. `None` = subagents inherit the caller's model.
     secondary_model: Option<std::sync::Arc<crate::subagent::secondary::SecondaryModelRuntime>>,
+    /// `[image].read_byte_budget` (v2 `resolveReadImageByteBudget`) for
+    /// model-initiated image reads; `None` keeps the 256KB default.
+    image_read_byte_budget: Option<u64>,
+    /// `[image].max_edge_px` for model-initiated image reads; `None` keeps
+    /// the 2000px default.
+    image_max_edge_px: Option<u32>,
+    /// The session model's declared capabilities. `None`/empty means unknown,
+    /// and an image read is allowed (v2 `isUnknownCapability`); a declared
+    /// set without `image_in` refuses it.
+    model_capabilities: Option<Vec<String>>,
+    /// `[background].bash_auto_background_on_timeout`: migrate a timed-out
+    /// foreground Bash call to the background instead of killing it.
+    /// Defaults to `true`.
+    bash_auto_background: bool,
+    /// `[background].bash_task_timeout_s`: default timeout for background
+    /// Bash tasks (also re-arms a foreground command migrated to the
+    /// background on timeout). `None` keeps the built-in 600s; `Some(0)`
+    /// means "no timeout".
+    bash_task_timeout_s: Option<u64>,
 }
 
 /// Bundle the native file-history recorder needs: the store handle plus
@@ -315,7 +349,6 @@ pub fn scope_turn_id<F: FnOnce() -> R, R>(turn_id: usize, f: F) -> R {
         }
     }
     TURN_ID.with(|cell| {
-        let prev = *cell.borrow();
         *cell.borrow_mut() = turn_id;
         let _restore = Restore(cell.borrow_mut());
         f()
@@ -332,14 +365,14 @@ impl NativeToolset {
             return None;
         }
         let shell = if cfg!(windows) {
-            // Windows without an explicit Git Bash path: Bash stays with the
-            // host, which locates Git Bash and would otherwise diverge.
+            // Windows without an explicit shell path resolves the `[shell]`
+            // preference / auto-detected shell (pwsh → powershell → Git Bash →
+            // cmd), mirroring the v2 native bash engine.
             shell_path
                 .map(str::to_string)
                 .filter(|s| !s.trim().is_empty())
+                .or_else(|| Some(crate::native::shell::resolve_shell(None).program))
         } else {
-            // POSIX hosts always have /bin/sh-family shells on PATH; the
-            // host default is /bin/bash.
             Some(
                 shell_path
                     .filter(|s| !s.trim().is_empty())
@@ -363,7 +396,83 @@ impl NativeToolset {
             file_history: None,
             tools_filter: None,
             secondary_model: None,
+            image_read_byte_budget: None,
+            image_max_edge_px: None,
+            model_capabilities: None,
+            bash_auto_background: true,
+            bash_task_timeout_s: None,
         })
+    }
+
+    /// Apply the host-resolved `[image]` limits for model-initiated reads
+    /// (v2 `resolveReadImageByteBudget` / `resolveMaxImageEdgePx`).
+    pub fn with_image_limits(
+        mut self,
+        read_byte_budget: Option<u64>,
+        max_edge_px: Option<u32>,
+    ) -> Self {
+        self.image_read_byte_budget = read_byte_budget;
+        self.image_max_edge_px = max_edge_px;
+        self
+    }
+
+    /// Apply the session model's declared capabilities (v2 model catalog
+    /// `capabilities`); an empty/`None` set stays unknown.
+    pub fn with_model_capabilities(mut self, capabilities: Option<Vec<String>>) -> Self {
+        self.model_capabilities = capabilities.filter(|caps| !caps.is_empty());
+        self
+    }
+
+    /// `[background].bash_auto_background_on_timeout`: whether a timed-out
+    /// foreground Bash call migrates to the background. `None` keeps the
+    /// default (`true`).
+    #[must_use]
+    pub fn with_bash_auto_background(mut self, auto_background: Option<bool>) -> Self {
+        self.bash_auto_background = auto_background.unwrap_or(true);
+        self
+    }
+
+    /// `[background].bash_task_timeout_s`: the default timeout for background
+    /// Bash tasks. `None` keeps the built-in 600s; `Some(0)` means "no
+    /// timeout".
+    #[must_use]
+    pub fn with_bash_task_timeout(mut self, timeout_s: Option<u64>) -> Self {
+        self.bash_task_timeout_s = timeout_s;
+        self
+    }
+
+    /// The effective bound for a background Bash task: the call's own
+    /// `timeout` wins over `[background].bash_task_timeout_s`, which wins over
+    /// the built-in 600s. `disable_timeout` and a resolved `0` mean "no
+    /// timeout"; anything else is clamped to 24h.
+    fn background_bash_timeout(&self, args: &Value) -> Option<Duration> {
+        if args
+            .get("disable_timeout")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let seconds = args
+            .get("timeout")
+            .and_then(Value::as_u64)
+            .or(self.bash_task_timeout_s)
+            .unwrap_or(BASH_TASK_DEFAULT_TIMEOUT_S);
+        if seconds == 0 {
+            return None;
+        }
+        Some(Duration::from_secs(seconds.min(BASH_TASK_MAX_SECONDS)))
+    }
+
+    fn read_media_limits(&self) -> read_media::ReadMediaLimits {
+        read_media::ReadMediaLimits {
+            read_byte_budget: self.image_read_byte_budget,
+            max_edge_px: self.image_max_edge_px,
+            image_in: self
+                .model_capabilities
+                .as_deref()
+                .map(|caps| caps.iter().any(|cap| cap == "image_in")),
+        }
     }
 
     /// Attach a TaskRunner for native background tasks and inspection.
@@ -532,7 +641,9 @@ impl NativeToolset {
     /// sandbox. `None` means "not handled here — send it to the host".
     pub fn execute(&self, tool_name: &str, args: &Value) -> Option<ExecutableToolResult> {
         match tool_name.to_ascii_lowercase().as_str() {
-            "read" => Self::read(&self.root, args),
+            "read" => self
+                .read_media(args)
+                .or_else(|| Self::read(&self.root, args)),
             "grep" => Self::grep(&self.root, args),
             "glob" => Self::glob(&self.root, args),
             "listdirectory" | "list_directory" => {
@@ -602,6 +713,7 @@ impl NativeToolset {
             && filter.blocks_call(tool_name)
         {
             return Some(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: format!(
                     "Tool '{tool_name}' is disabled by the [tools] configuration and cannot run."
@@ -613,6 +725,13 @@ impl NativeToolset {
 
         match tool_name.to_ascii_lowercase().as_str() {
             "read" => {
+                // An image read is delivered to the model as media (v2
+                // `executeMediaRead`), `region` / `full_resolution` included.
+                // Text files and plain binary reads fall through to the text
+                // read.
+                if let Some(result) = self.read_media_on_blocking_pool(args).await {
+                    return Some(result);
+                }
                 self.run_readonly_file_tool_on_blocking_pool(args, Self::read)
                     .await
             }
@@ -750,6 +869,32 @@ impl NativeToolset {
                 .await
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
+            "workflow" => {
+                let home = crate::workflow::kimi_home();
+                let host: Option<std::sync::Arc<dyn crate::workflow::WorkflowHost>> =
+                    self.subagent_manager.clone().map(|manager| {
+                        std::sync::Arc::new(crate::workflow::host::SubagentWorkflowHost::new(
+                            manager,
+                            self.root.clone(),
+                            home.clone(),
+                        ))
+                            as std::sync::Arc<dyn crate::workflow::WorkflowHost>
+                    });
+                let outcome = crate::tools::workflow::run_workflow_tool(
+                    crate::workflow::global_service(),
+                    host,
+                    home.as_deref(),
+                    args,
+                )
+                .await;
+                Some(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: outcome.stop_turn,
+                    content: outcome.content,
+                    is_error: outcome.is_error,
+                    note: None,
+                })
+            }
             "towerinit" | "tower_init" => {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
@@ -888,6 +1033,41 @@ impl NativeToolset {
         }
     }
 
+    /// The native Read media path (v2 `executeMediaRead`): an image the model
+    /// asked to read is delivered to the conversation as media, honoring
+    /// `region` and `full_resolution`. `None` = not a media read (a text file
+    /// without those args), so the caller runs the text read instead.
+    fn read_media(&self, args: &Value) -> Option<ExecutableToolResult> {
+        let request = match read_media::ReadMediaRequest::from_args(args) {
+            Ok(request) => request,
+            Err(message) => return Some(err_result(message)),
+        };
+        let path = args.get("path")?.as_str()?;
+        let resolved = Self::resolve(&self.root, path)?;
+        read_media::read_image_media(&resolved, &request, &self.read_media_limits())
+    }
+
+    /// [`Self::read_media`] on the blocking pool: decoding, cropping and
+    /// re-encoding a large image would otherwise pin the tokio workers that
+    /// carry the LLM streams, bash output pumps and steer queue.
+    async fn read_media_on_blocking_pool(&self, args: &Value) -> Option<ExecutableToolResult> {
+        let request = match read_media::ReadMediaRequest::from_args(args) {
+            Ok(request) => request,
+            Err(message) => return Some(err_result(message)),
+        };
+        let path = args.get("path")?.as_str()?;
+        let resolved = Self::resolve(&self.root, path)?;
+        let limits = self.read_media_limits();
+        match tokio::task::spawn_blocking(move || {
+            read_media::read_image_media(&resolved, &request, &limits)
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => blocking_pool_failure(false, error.to_string()),
+        }
+    }
+
     async fn spawn_file_tool(
         root: PathBuf,
         args: Value,
@@ -982,8 +1162,9 @@ impl NativeToolset {
 
     fn read(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
-        // Image crop / full-resolution rendering lives on the host (media
-        // pipeline) — never half-handle it here.
+        // The dispatcher's media path owns `region` / `full_resolution` and
+        // is consulted before every call that reaches this text read; decline
+        // them here anyway so a direct caller cannot half-handle an image.
         if args.get("region").is_some_and(|v| !v.is_null())
             || args
                 .get("full_resolution")
@@ -1473,7 +1654,7 @@ impl NativeToolset {
 
     /// Record a successful mutating-file change into the session file-history
     /// table when a recorder is installed (v2 `fileHistoryService.onWillExecuteTool`
-    /// + post-image diff). Reads `turn_id` from the `TURN_ID` task-local so
+    /// plus post-image diff). Reads `turn_id` from the `TURN_ID` task-local so
     /// multi-turn pipelines attribute changes per turn. A failure to record
     /// never affects the tool result — the change itself already landed.
     fn record_file_history(resolved: &Path, before: Option<&str>, after: Option<&str>) {
@@ -1616,39 +1797,132 @@ impl NativeToolset {
                     .unwrap_or(command)
                     .to_string();
                 let shell_cmd = self.shell.as_ref()?.clone();
+                let shell_args =
+                    crate::native::shell::ShellFlavor::from_path(&shell_cmd).args_prefix();
                 let cmd_str = command.to_string();
                 let work_dir = working_dir.clone();
+                // `[background].bash_task_timeout_s` (per-call `timeout` wins,
+                // `disable_timeout` opts out).
+                let bg_timeout = self.background_bash_timeout(args);
+                let progress_runner = runner.clone();
+                let progress_task_id = task_id.clone();
 
                 let bg_fut = async move {
-                    let output = tokio::process::Command::new(&shell_cmd)
-                        .arg("-c")
-                        .arg(&cmd_str)
+                    use tokio::io::AsyncReadExt;
+                    let mut cmd = tokio::process::Command::new(&shell_cmd);
+                    for arg in &shell_args {
+                        cmd.arg(arg);
+                    }
+                    cmd.arg(&cmd_str)
                         .current_dir(&work_dir)
                         .env("NO_COLOR", "1")
                         .env("TERM", "dumb")
                         .env("GIT_TERMINAL_PROMPT", "0")
                         .env("SHELL", &shell_cmd)
                         .stdin(std::process::Stdio::null())
-                        .output()
-                        .await;
-                    match output {
-                        Ok(out) => {
-                            let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
-                            let err = String::from_utf8_lossy(&out.stderr);
-                            if !err.trim().is_empty() {
-                                if !s.is_empty() && !s.ends_with('\n') {
-                                    s.push('\n');
-                                }
-                                s.push_str(err.trim_end());
-                            }
-                            s
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        // Killing on drop takes the process down if this future
+                        // is abandoned.
+                        .kill_on_drop(true);
+                    let mut child = match cmd.spawn() {
+                        Ok(child) => child,
+                        Err(e) => return format!("Command execution failed: {e}"),
+                    };
+                    let mut stdout_pipe = child.stdout.take();
+                    let mut stderr_pipe = child.stderr.take();
+                    // Stream output and report it as `event.task.progress`, so
+                    // the Web task card updates live instead of only at settle.
+                    // Throttled the same way foreground Bash is.
+                    let last_emit = std::sync::Mutex::new(
+                        std::time::Instant::now() - Duration::from_millis(PROGRESS_MIN_INTERVAL_MS),
+                    );
+                    let emit = |stream: &str, chunk: &[u8]| {
+                        let Ok(mut last) = last_emit.lock() else {
+                            return;
+                        };
+                        if last.elapsed().as_millis() >= PROGRESS_MIN_INTERVAL_MS as u128 {
+                            *last = std::time::Instant::now();
+                            progress_runner.emit_progress(
+                                &progress_task_id,
+                                &String::from_utf8_lossy(chunk),
+                                stream,
+                            );
                         }
-                        Err(e) => format!("Command execution failed: {e}"),
+                    };
+                    let collect = async {
+                        tokio::join!(
+                            async {
+                                let mut buf = Vec::new();
+                                if let Some(pipe) = stdout_pipe.as_mut() {
+                                    let mut chunk = [0u8; 8192];
+                                    loop {
+                                        match pipe.read(&mut chunk).await {
+                                            Ok(0) | Err(_) => break,
+                                            Ok(n) => {
+                                                emit("stdout", &chunk[..n]);
+                                                buf.extend_from_slice(&chunk[..n]);
+                                            }
+                                        }
+                                    }
+                                }
+                                buf
+                            },
+                            async {
+                                let mut buf = Vec::new();
+                                if let Some(pipe) = stderr_pipe.as_mut() {
+                                    let mut chunk = [0u8; 8192];
+                                    loop {
+                                        match pipe.read(&mut chunk).await {
+                                            Ok(0) | Err(_) => break,
+                                            Ok(n) => {
+                                                emit("stderr", &chunk[..n]);
+                                                buf.extend_from_slice(&chunk[..n]);
+                                            }
+                                        }
+                                    }
+                                }
+                                buf
+                            },
+                            child.wait(),
+                        )
+                    };
+                    let (out, err, _status) = match bg_timeout {
+                        Some(limit) => match tokio::time::timeout(limit, collect).await {
+                            Ok(result) => result,
+                            Err(_) => {
+                                let _ = child.kill().await;
+                                let _ = child.wait().await;
+                                return format!(
+                                    "Background command timed out after {}s and was stopped.",
+                                    limit.as_secs()
+                                );
+                            }
+                        },
+                        None => collect.await,
+                    };
+                    let mut s = String::from_utf8_lossy(&out).into_owned();
+                    let err_text = String::from_utf8_lossy(&err);
+                    if !err_text.trim().is_empty() {
+                        if !s.is_empty() && !s.ends_with('\n') {
+                            s.push('\n');
+                        }
+                        s.push_str(err_text.trim_end());
                     }
+                    s
                 };
 
                 if runner
-                    .spawn_task(task_id.clone(), desc.clone(), bg_fut)
+                    .spawn_task_with_meta(
+                        crate::storage::TaskSpawnMeta {
+                            session_id: self.session_id.as_deref(),
+                            kind: "bash",
+                            subagent_type: None,
+                        },
+                        task_id.clone(),
+                        desc.clone(),
+                        bg_fut,
+                    )
                     .is_ok()
                 {
                     return Some(ok_result(format!(
@@ -1673,8 +1947,11 @@ impl NativeToolset {
         let shell = self.shell.as_ref()?;
         // Mirror the host's non-interactive env: colors and prompts corrupt
         // output parsing, and git must never hang on a credential prompt.
-        let mut child = tokio::process::Command::new(shell)
-            .arg("-c")
+        let mut command_builder = tokio::process::Command::new(shell);
+        for arg in crate::native::shell::ShellFlavor::from_path(shell).args_prefix() {
+            command_builder.arg(arg);
+        }
+        let mut child = command_builder
             .arg(command)
             .current_dir(&working_dir)
             .env("NO_COLOR", "1")
@@ -1754,14 +2031,49 @@ impl NativeToolset {
             Ok((out, err, Ok(status))) => (out, err, status.code().unwrap_or(-1)),
             // timeout or wait failure: if TaskRunner is available, migrate to background task!
             _ => {
-                if let Some(runner) = &self.task_runner {
+                // `[background].bash_auto_background_on_timeout` (default
+                // on): a timed-out foreground command migrates to the
+                // background; when the user turns it off the command is
+                // killed instead.
+                if self.bash_auto_background
+                    && let Some(runner) = &self.task_runner
+                {
                     let task_id = format!("task_{}", fastrand::u64(..));
                     let desc = format!("Timed out: {command}");
+                    // The migrated task is re-armed with the *background*
+                    // bounds (600s unless the call or
+                    // `[background].bash_task_timeout_s` says otherwise) — the
+                    // 60s/300s foreground budget was computed separately.
+                    let bg_timeout = self.background_bash_timeout(args);
                     let bg_fut = async move {
-                        let _ = child.wait().await;
-                        "Background command execution finished".to_string()
+                        match bg_timeout {
+                            Some(limit) => match tokio::time::timeout(limit, child.wait()).await {
+                                Ok(_) => "Background command execution finished".to_string(),
+                                Err(_) => {
+                                    let _ = child.kill().await;
+                                    let _ = child.wait().await;
+                                    format!(
+                                        "Background command timed out after {}s and was stopped.",
+                                        limit.as_secs()
+                                    )
+                                }
+                            },
+                            None => {
+                                let _ = child.wait().await;
+                                "Background command execution finished".to_string()
+                            }
+                        }
                     };
-                    let _ = runner.spawn_task(task_id.clone(), desc, bg_fut);
+                    let _ = runner.spawn_task_with_meta(
+                        crate::storage::TaskSpawnMeta {
+                            session_id: self.session_id.as_deref(),
+                            kind: "bash",
+                            subagent_type: None,
+                        },
+                        task_id.clone(),
+                        desc,
+                        bg_fut,
+                    );
                     return Some(ok_result(format!(
                         "Command timed out after {}s and was moved to the background (task_id: {task_id}).\nUse TaskList to check status or TaskOutput to view output.",
                         timeout_s
@@ -2508,6 +2820,7 @@ fn blocking_pool_failure(mutating: bool, message: String) -> Option<ExecutableTo
 
 fn ok_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: false,
@@ -2517,6 +2830,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
 
 fn err_result(content: String) -> ExecutableToolResult {
     ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content,
         is_error: true,
@@ -2666,15 +2980,90 @@ mod tests {
     }
 
     #[test]
-    fn read_image_region_args_fall_back() {
+    fn read_region_on_a_text_file_is_refused() {
         let (_dir, ts) = setup();
-        assert!(
-            ts.execute(
+        let result = ts
+            .execute(
                 "Read",
-                &json!({ "path": "a.txt", "region": { "x": 0, "y": 0, "width": 1, "height": 1 } })
+                &json!({ "path": "a.txt", "region": { "x": 0, "y": 0, "width": 1, "height": 1 } }),
             )
-            .is_none()
+            .expect("the media path owns an explicit region call");
+        assert!(result.is_error);
+        assert!(result.content.contains("is a text file"));
+    }
+
+    #[test]
+    fn read_crops_an_image_region() {
+        let (dir, ts) = setup();
+        let mut image = image::RgbaImage::new(200, 120);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            *pixel = image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]);
+        }
+        let mut png = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut png, image::ImageFormat::Png)
+            .expect("encode png");
+        std::fs::write(dir.path().join("shot.png"), png.into_inner()).unwrap();
+
+        let result = ts
+            .execute(
+                "Read",
+                &json!({
+                    "path": "shot.png",
+                    "region": { "x": 10, "y": 20, "width": 40, "height": 30 }
+                }),
+            )
+            .expect("media result");
+        assert!(!result.is_error, "content: {}", result.content);
+        let note = result.note.expect("note");
+        assert!(
+            note.contains("Showing region (x=10, y=20, width=40, height=30)"),
+            "note: {note}"
         );
+        let delivery = result.delivery.expect("delivery");
+        assert!(matches!(
+            delivery.blocks.as_slice(),
+            [crate::rpc::types::ContentBlock::Image { .. }]
+        ));
+    }
+
+    #[test]
+    fn read_full_resolution_sends_the_original_bytes() {
+        let (dir, ts) = setup();
+        let bytes = {
+            let mut image = image::RgbaImage::new(48, 48);
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                *pixel = image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]);
+            }
+            let mut png = std::io::Cursor::new(Vec::new());
+            image
+                .write_to(&mut png, image::ImageFormat::Png)
+                .expect("encode png");
+            png.into_inner()
+        };
+        std::fs::write(dir.path().join("shot.png"), &bytes).unwrap();
+
+        let result = ts
+            .execute(
+                "Read",
+                &json!({ "path": "shot.png", "full_resolution": true }),
+            )
+            .expect("media result");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result
+                .note
+                .expect("note")
+                .contains("Shown at native resolution; no downscaling applied.")
+        );
+        let delivery = result.delivery.expect("delivery");
+        match &delivery.blocks[0] {
+            crate::rpc::types::ContentBlock::Image { data, .. } => {
+                use base64::prelude::*;
+                assert_eq!(*data, BASE64_STANDARD.encode(&bytes));
+            }
+            other => panic!("expected an image block, got {other:?}"),
+        }
     }
 
     #[test]
@@ -2736,6 +3125,66 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn background_bash_timeout_follows_call_then_config() {
+        let (_dir, ts) = setup();
+        // Built-in default when neither the config nor the call sets one.
+        assert_eq!(
+            ts.background_bash_timeout(&json!({})),
+            Some(Duration::from_secs(BASH_TASK_DEFAULT_TIMEOUT_S))
+        );
+        // `[background].bash_task_timeout_s` wins over the built-in...
+        let configured = ts.with_bash_task_timeout(Some(1200));
+        assert_eq!(
+            configured.background_bash_timeout(&json!({})),
+            Some(Duration::from_secs(1200))
+        );
+        // ...and the call's own `timeout` wins over the config.
+        assert_eq!(
+            configured.background_bash_timeout(&json!({ "timeout": 30 })),
+            Some(Duration::from_secs(30))
+        );
+        // `0` from either source means "no timeout".
+        assert_eq!(
+            configured.background_bash_timeout(&json!({ "timeout": 0 })),
+            None
+        );
+        let (_dir2, unset) = setup();
+        assert_eq!(
+            unset
+                .with_bash_task_timeout(Some(0))
+                .background_bash_timeout(&json!({})),
+            None
+        );
+        // `disable_timeout` is an explicit opt-out.
+        assert_eq!(
+            configured.background_bash_timeout(&json!({ "timeout": 30, "disable_timeout": true })),
+            None
+        );
+        // The 24h ceiling clamps both sources.
+        assert_eq!(
+            configured.background_bash_timeout(&json!({ "timeout": BASH_TASK_MAX_SECONDS + 1 })),
+            Some(Duration::from_secs(BASH_TASK_MAX_SECONDS))
+        );
+        let clamped = configured.with_bash_task_timeout(Some(BASH_TASK_MAX_SECONDS + 1));
+        assert_eq!(
+            clamped.background_bash_timeout(&json!({})),
+            Some(Duration::from_secs(BASH_TASK_MAX_SECONDS))
+        );
+    }
+
+    #[test]
+    fn bash_auto_background_defaults_on_and_is_overridable() {
+        let (_dir, ts) = setup();
+        assert!(ts.bash_auto_background);
+        // Unset keeps the default; an explicit value overrides it.
+        let unset = ts.with_bash_auto_background(None);
+        assert!(unset.bash_auto_background);
+        // The builder consumes `self`, so rebind for the second override.
+        let off = unset.with_bash_auto_background(Some(false));
+        assert!(!off.bash_auto_background);
     }
 
     #[test]
@@ -4626,5 +5075,27 @@ m2
             wait_res,
             crate::storage::TaskWaitResult::Completed(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn workflow_tool_lists_without_a_subagent_runtime() {
+        let (_dir, toolset) = setup();
+        assert!(toolset.handles("Workflow"), "Workflow is a native tool");
+        let result = toolset
+            .execute_tool("Workflow", &serde_json::json!({ "operation": "list" }))
+            .await
+            .expect("Workflow is handled natively");
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("deep-research"));
+
+        let run = toolset
+            .execute_tool(
+                "Workflow",
+                &serde_json::json!({ "operation": "run", "script": "return 1;" }),
+            )
+            .await
+            .expect("Workflow is handled natively");
+        assert!(run.is_error);
+        assert!(run.content.contains("no subagent runtime"));
     }
 }

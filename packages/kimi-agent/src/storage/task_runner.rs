@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -48,7 +48,8 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
-    fn as_str(&self) -> &'static str {
+    /// The v2 task-domain wire string (`running` / `completed` / `killed`).
+    pub fn as_str(&self) -> &'static str {
         match self {
             TaskStatus::Running => "running",
             TaskStatus::Completed => "completed",
@@ -70,6 +71,17 @@ pub enum TaskWaitResult {
     NotFound,
 }
 
+/// Spawn context a caller can attach: which session the task belongs to and
+/// what kind of work it is, so the lifecycle events reach the right lane with
+/// the Web vocabulary's task shapes.
+#[derive(Debug, Clone, Default)]
+pub struct TaskSpawnMeta<'a> {
+    pub session_id: Option<&'a str>,
+    /// `subagent` | `bash` | `tool` (kimi-web `WireTask.kind`).
+    pub kind: &'a str,
+    pub subagent_type: Option<&'a str>,
+}
+
 /// One registered background task.
 struct TaskEntry {
     id: String,
@@ -79,6 +91,11 @@ struct TaskEntry {
     ended_at: Option<u64>,
     stop_reason: Option<String>,
     output: Option<String>,
+    /// Which session spawned the task (`event.task.*` lane routing).
+    session_id: Option<String>,
+    /// `subagent` | `bash` | `tool`.
+    kind: String,
+    subagent_type: Option<String>,
     /// Cooperative cancellation flag, set by `stop()`; the spawned
     /// wrapper checks it at the task's next yield point.
     cancel: Arc<AtomicBool>,
@@ -89,6 +106,53 @@ struct TaskEntry {
     done: Shared<BoxFuture<'static, ()>>,
     /// The spawned tokio task.
     handle: Option<JoinHandle<()>>,
+}
+
+/// The lifecycle sink signature: the task's session (for lane routing; `None`
+/// means the `global` lane) and the event payload.
+pub type TaskEventSink = Arc<dyn Fn(Option<&str>, Value) + Send + Sync>;
+
+/// The `[background]` knobs one engine context applies to its own task runner
+/// and Bash tool. Every field is optional: `None` keeps the built-in behavior
+/// (5s stop grace / unlimited concurrency / auto-background on / 600s
+/// background Bash timeout), so an unconfigured file behaves exactly as
+/// before.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BackgroundLimits {
+    /// `kill_grace_period_ms`: how long `stop` waits for a cooperative exit.
+    pub kill_grace_period_ms: Option<u64>,
+    /// `max_running_tasks`: cap on concurrently running tasks; `Some(0)` (and
+    /// `None`) mean unlimited.
+    pub max_running_tasks: Option<u32>,
+    /// `bash_auto_background_on_timeout`: migrate a timed-out foreground Bash
+    /// call to the background instead of killing it.
+    pub bash_auto_background_on_timeout: Option<bool>,
+    /// `bash_task_timeout_s`: default timeout for background Bash tasks;
+    /// `Some(0)` means "no timeout".
+    pub bash_task_timeout_s: Option<u64>,
+}
+
+impl BackgroundLimits {
+    /// Build from host-resolved wire values (the session params of the napi /
+    /// stdio entries). A non-positive grace period or concurrency cap is not
+    /// meaningful and is treated as unset; `bash_task_timeout_s` keeps `0`,
+    /// which is a real value meaning "no timeout".
+    #[must_use]
+    pub fn from_wire(
+        kill_grace_period_ms: Option<u64>,
+        max_running_tasks: Option<u64>,
+        bash_auto_background_on_timeout: Option<bool>,
+        bash_task_timeout_s: Option<u64>,
+    ) -> Self {
+        Self {
+            kill_grace_period_ms: kill_grace_period_ms.filter(|value| *value > 0),
+            max_running_tasks: max_running_tasks
+                .filter(|value| *value > 0)
+                .and_then(|value| u32::try_from(value).ok()),
+            bash_auto_background_on_timeout,
+            bash_task_timeout_s,
+        }
+    }
 }
 
 /// Local background task runner: a registry of spawned tasks plus their
@@ -106,6 +170,19 @@ pub struct TaskRunner {
     /// conversation input; the runner itself does not inject — v2
     /// wires the dispatcher, repl, and host to consume.
     pending_notifications: Mutex<Vec<TaskNotification>>,
+    /// Optional lifecycle sink (the server's hub): fired as
+    /// `event.task.created` / `background.task.started` on spawn and
+    /// `event.task.completed` / `background.task.terminated` on settle, with
+    /// the task's session for lane routing. Absent = purely local runner.
+    event_sink: Mutex<Option<TaskEventSink>>,
+    /// How long [`Self::stop`] waits for a cooperative exit
+    /// (`[background].kill_grace_period_ms`); defaults to [`STOP_GRACE`].
+    /// Mutable so a shared runner can pick the value up after construction
+    /// (the daemon receives its config after the runner exists).
+    kill_grace: Mutex<Duration>,
+    /// Cap on concurrently running tasks
+    /// (`[background].max_running_tasks`); `0` is unlimited.
+    max_running: AtomicUsize,
 }
 
 /// A task completion event queued by [`TaskRunner::settle_task`] and
@@ -132,6 +209,74 @@ impl TaskRunner {
             persist_lock: Mutex::new(()),
             store,
             pending_notifications: Mutex::new(Vec::new()),
+            event_sink: Mutex::new(None),
+            kill_grace: Mutex::new(STOP_GRACE),
+            max_running: AtomicUsize::new(0),
+        }
+    }
+
+    /// Apply the `[background]` knobs: the cooperative-stop grace period and
+    /// the cap on concurrently running tasks. Unset values keep the
+    /// built-in behavior (5s / unlimited).
+    #[must_use]
+    pub fn with_background_limits(
+        self,
+        kill_grace_period_ms: Option<u64>,
+        max_running_tasks: Option<u32>,
+    ) -> Self {
+        self.apply_background_limits(kill_grace_period_ms, max_running_tasks);
+        self
+    }
+
+    /// [`Self::with_background_limits`] on a shared runner: the daemon
+    /// resolves its config after the runner was built.
+    pub fn apply_background_limits(
+        &self,
+        kill_grace_period_ms: Option<u64>,
+        max_running_tasks: Option<u32>,
+    ) {
+        if let Some(ms) = kill_grace_period_ms.filter(|ms| *ms > 0) {
+            *self.kill_grace.lock().unwrap() = Duration::from_millis(ms);
+        }
+        if let Some(Ok(cap)) = max_running_tasks
+            .filter(|cap| *cap > 0)
+            .map(usize::try_from)
+        {
+            self.max_running.store(cap, Ordering::Relaxed);
+        }
+    }
+
+    /// Install the lifecycle event sink (the server does this once, fanning
+    /// out to the task's session lane — or `global` when the task has none).
+    pub fn set_event_sink(&self, sink: TaskEventSink) {
+        *self.event_sink.lock().unwrap() = Some(sink);
+    }
+
+    /// Emit one live output chunk for a running task on its session lane
+    /// (`event.task.progress`). A no-op for an unknown task or when no sink is
+    /// wired, so a streaming caller can report unconditionally.
+    pub fn emit_progress(&self, task_id: &str, output_chunk: &str, stream: &str) {
+        let session = {
+            let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
+            match tasks.get(task_id) {
+                Some(entry) => entry.session_id.clone(),
+                None => return,
+            }
+        };
+        self.fire_event(
+            session.as_deref(),
+            serde_json::json!({
+                "type": "event.task.progress",
+                "task_id": task_id,
+                "output_chunk": output_chunk,
+                "stream": stream,
+            }),
+        );
+    }
+
+    fn fire_event(&self, session_id: Option<&str>, event: Value) {
+        if let Some(sink) = self.event_sink.lock().unwrap().as_ref() {
+            sink(session_id, event);
         }
     }
 
@@ -155,9 +300,47 @@ impl TaskRunner {
     where
         F: Future<Output = String> + Send + 'static,
     {
+        self.spawn_task_with_meta(
+            TaskSpawnMeta {
+                session_id: None,
+                kind: "tool",
+                subagent_type: None,
+            },
+            id,
+            description,
+            future,
+        )
+    }
+
+    /// [`Self::spawn_task`] with spawn context: the task's session (event
+    /// lane routing) and work kind (the Web task vocabulary's shapes).
+    pub fn spawn_task_with_meta<F>(
+        self: &Arc<Self>,
+        meta: TaskSpawnMeta<'_>,
+        id: String,
+        description: String,
+        future: F,
+    ) -> Result<(), String>
+    where
+        F: Future<Output = String> + Send + 'static,
+    {
         let mut tasks = self.tasks.lock().unwrap();
         if tasks.contains_key(&id) {
             return Err(format!("task already exists: {id}"));
+        }
+        // `[background].max_running_tasks`: refuse rather than queue, so the
+        // caller sees the limit immediately (v2 `TASK_LIMIT_EXCEEDED`).
+        let cap = self.max_running.load(Ordering::Relaxed);
+        if cap > 0 {
+            let running = tasks
+                .values()
+                .filter(|entry| entry.status == TaskStatus::Running)
+                .count();
+            if running >= cap {
+                return Err(format!(
+                    "Too many background tasks are already running (limit {cap})."
+                ));
+            }
         }
         let (done_tx, done_rx) = oneshot::channel::<()>();
         let done: Shared<BoxFuture<'static, ()>> = Box::pin(async move {
@@ -165,14 +348,18 @@ impl TaskRunner {
         })
         .boxed()
         .shared();
+        let started_at = now_ms();
         let entry = TaskEntry {
             id: id.clone(),
-            description,
-            started_at: now_ms(),
+            description: description.clone(),
+            started_at,
             status: TaskStatus::Running,
             ended_at: None,
             stop_reason: None,
             output: None,
+            session_id: meta.session_id.map(str::to_string),
+            kind: meta.kind.to_string(),
+            subagent_type: meta.subagent_type.map(str::to_string),
             cancel: Arc::new(AtomicBool::new(false)),
             cancel_notify: Arc::new(Notify::new()),
             done,
@@ -181,6 +368,9 @@ impl TaskRunner {
         self.persist_wire(&self.entry_wire(&entry));
         let cancel = Arc::clone(&entry.cancel);
         let cancel_notify = Arc::clone(&entry.cancel_notify);
+        let spawn_session = entry.session_id.clone();
+        let spawn_kind = entry.kind.clone();
+        let spawn_subagent_type = entry.subagent_type.clone();
         tasks.insert(id.clone(), entry);
         let runner = Arc::clone(self);
         let task_id = id.clone();
@@ -202,7 +392,55 @@ impl TaskRunner {
             let _ = done_tx.send(());
         });
         tasks.get_mut(&id).unwrap().handle = Some(handle);
+        drop(tasks);
+
+        // Announce the task in both vocabularies the Web client consumes:
+        // the protocol shape (mappers `event.task.created`) and the legacy
+        // agent-event name (projector allowlist).
+        let session = spawn_session.as_deref();
+        self.fire_event(
+            session,
+            serde_json::json!({
+                "type": "event.task.created",
+                "task": {
+                    "id": id,
+                    "session_id": session,
+                    "kind": spawn_kind,
+                    "description": description,
+                    "status": "running",
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                    "started_at": chrono::Utc::now().to_rfc3339(),
+                    "subagent_type": spawn_subagent_type,
+                    "run_in_background": true,
+                },
+            }),
+        );
+        self.fire_event(
+            session,
+            serde_json::json!({
+                "type": "background.task.started",
+                "task_id": id,
+                "description": description,
+            }),
+        );
         Ok(())
+    }
+
+    /// Ids of the tasks still `running`, oldest first.
+    ///
+    /// The print-mode settle loop (`session/mod.rs`) polls this until the
+    /// list drains or its ceiling elapses: the runner owns no completion
+    /// signal a caller can await on, so a poll is the only way to observe
+    /// "the background work finished".
+    pub fn running_ids(&self) -> Vec<String> {
+        let tasks = self.tasks.lock().unwrap();
+        let mut running: Vec<(&u64, &String)> = tasks
+            .values()
+            .filter(|entry| entry.status == TaskStatus::Running)
+            .map(|entry| (&entry.started_at, &entry.id))
+            .collect();
+        running.sort_by_key(|(started_at, _)| **started_at);
+        running.into_iter().map(|(_, id)| id.clone()).collect()
     }
 
     /// The output snapshot of a settled task; `None` while the task is
@@ -248,7 +486,8 @@ impl TaskRunner {
             entry.cancel_notify.notify_waiters();
             entry.done.clone()
         };
-        let _ = tokio::time::timeout(STOP_GRACE, done).await;
+        let grace = *self.kill_grace.lock().unwrap();
+        let _ = tokio::time::timeout(grace, done).await;
         let tasks = self.tasks.lock().unwrap();
         let entry = tasks.get(id).unwrap();
         Ok(self.entry_wire(entry))
@@ -324,7 +563,7 @@ impl TaskRunner {
         output: Option<String>,
         stop_reason: Option<String>,
     ) {
-        let (description, ended_at, output_preview, wire) = {
+        let (description, ended_at, output_preview, wire, session_id, kind, output_bytes) = {
             let mut tasks = self.tasks.lock().unwrap();
             let Some(entry) = tasks.get_mut(id) else {
                 return;
@@ -339,7 +578,15 @@ impl TaskRunner {
             let preview = entry.output.as_deref().and_then(truncate_preview);
             let description = entry.description.clone();
             let wire = self.entry_wire(entry);
-            (description, ended_at, preview, wire)
+            (
+                description,
+                ended_at,
+                preview,
+                wire,
+                entry.session_id.clone(),
+                entry.kind.clone(),
+                entry.output.as_ref().map(|o| o.len()),
+            )
         };
         if let Some(output) = wire.get("output").and_then(|v| v.as_str())
             && let Some(store) = &self.store
@@ -357,9 +604,30 @@ impl TaskRunner {
                 task_id: id.to_string(),
                 description,
                 status,
-                output_preview,
+                output_preview: output_preview.clone(),
                 ended_at,
             });
+        // Terminal facts, both vocabularies (mappers + projector).
+        let session = session_id.as_deref();
+        self.fire_event(
+            session,
+            serde_json::json!({
+                "type": "event.task.completed",
+                "task_id": id,
+                "status": status.as_str(),
+                "output_preview": output_preview,
+                "output_bytes": output_bytes,
+            }),
+        );
+        self.fire_event(
+            session,
+            serde_json::json!({
+                "type": "background.task.terminated",
+                "task_id": id,
+                "status": status.as_str(),
+                "kind": kind,
+            }),
+        );
     }
 
     /// Drain pending completion notifications. The runner retains nothing
@@ -483,6 +751,9 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Captured sink events: `(session lane, payload)` pairs.
+    type CapturedEvents = Arc<std::sync::Mutex<Vec<(Option<String>, Value)>>>;
+
     fn runner() -> (TempDir, Arc<TaskRunner>) {
         let tmp = TempDir::new().unwrap();
         let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
@@ -496,6 +767,203 @@ mod tests {
             .unwrap()
             .read_domain("task")
             .unwrap_or(Value::Array(vec![]))
+    }
+
+    #[test]
+    fn background_limits_from_wire_drops_only_meaningless_zeroes() {
+        // Unset wire values keep every built-in.
+        assert_eq!(
+            BackgroundLimits::from_wire(None, None, None, None),
+            BackgroundLimits::default()
+        );
+        // A zero grace period / concurrency cap is not meaningful (JSON has no
+        // way to say "unset"), so it falls back to the built-in...
+        assert_eq!(
+            BackgroundLimits::from_wire(Some(0), Some(0), None, None),
+            BackgroundLimits::default()
+        );
+        // ...but `bash_task_timeout_s = 0` is a real value meaning "no
+        // timeout", and a concurrency cap wider than `u32` is discarded.
+        let limits = BackgroundLimits::from_wire(
+            Some(250),
+            Some(u64::from(u32::MAX) + 1),
+            Some(false),
+            Some(0),
+        );
+        assert_eq!(
+            limits,
+            BackgroundLimits {
+                kill_grace_period_ms: Some(250),
+                max_running_tasks: None,
+                bash_auto_background_on_timeout: Some(false),
+                bash_task_timeout_s: Some(0),
+            }
+        );
+        // A cap that fits is carried through.
+        assert_eq!(
+            BackgroundLimits::from_wire(None, Some(4), None, None).max_running_tasks,
+            Some(4)
+        );
+    }
+
+    #[tokio::test]
+    async fn lifecycle_events_carry_the_session_and_both_vocabularies() {
+        let (_tmp, runner) = runner();
+        let events: CapturedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-9"),
+                    kind: "subagent",
+                    subagent_type: Some("research"),
+                },
+                "task-ev".into(),
+                "Subagent research: investigate".into(),
+                async { "done".to_string() },
+            )
+            .unwrap();
+
+        // Spawn announces created + started on the task's session lane.
+        let (created_session, created) = events.lock().unwrap()[0].clone();
+        assert_eq!(created_session.as_deref(), Some("sess-9"));
+        assert_eq!(created["type"], "event.task.created");
+        assert_eq!(created["task"]["id"], "task-ev");
+        assert_eq!(created["task"]["session_id"], "sess-9");
+        assert_eq!(created["task"]["kind"], "subagent");
+        assert_eq!(created["task"]["status"], "running");
+        assert_eq!(created["task"]["subagent_type"], "research");
+        assert_eq!(created["task"]["run_in_background"], true);
+        let (started_session, started) = events.lock().unwrap()[1].clone();
+        assert_eq!(started_session.as_deref(), Some("sess-9"));
+        assert_eq!(started["type"], "background.task.started");
+        assert_eq!(started["task_id"], "task-ev");
+
+        // Settling announces completed + terminated with the output facts.
+        assert!(
+            matches!(
+                runner.wait("task-ev", 2000).await,
+                TaskWaitResult::Completed(_)
+            ),
+            "the task must settle for the assertion below"
+        );
+        {
+            let lock = events.lock().unwrap();
+            let completed = &lock[2].1;
+            assert_eq!(completed["type"], "event.task.completed");
+            assert_eq!(completed["task_id"], "task-ev");
+            assert_eq!(completed["status"], "completed");
+            assert_eq!(completed["output_preview"], "done");
+            assert_eq!(completed["output_bytes"], 4);
+            let terminated = &lock[3].1;
+            assert_eq!(terminated["type"], "background.task.terminated");
+            assert_eq!(terminated["task_id"], "task-ev");
+            assert_eq!(terminated["status"], "completed");
+        }
+    }
+
+    #[tokio::test]
+    async fn emit_progress_reports_on_the_running_tasks_lane() {
+        let (_tmp, runner) = runner();
+        let events: CapturedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-prog"),
+                    kind: "bash",
+                    subagent_type: None,
+                },
+                "task-prog".into(),
+                "background job".into(),
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    "done".to_string()
+                },
+            )
+            .unwrap();
+
+        // An unknown task id is a silent no-op.
+        runner.emit_progress("missing", "ignored", "stdout");
+        runner.emit_progress("task-prog", "hello ", "stdout");
+
+        assert!(matches!(
+            runner.wait("task-prog", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+
+        let lock = events.lock().unwrap();
+        let progress: Vec<_> = lock
+            .iter()
+            .filter(|(_, event)| event["type"] == "event.task.progress")
+            .collect();
+        assert_eq!(progress.len(), 1, "unknown task must not emit");
+        assert_eq!(progress[0].0.as_deref(), Some("sess-prog"));
+        assert_eq!(progress[0].1["task_id"], "task-prog");
+        assert_eq!(progress[0].1["output_chunk"], "hello ");
+        assert_eq!(progress[0].1["stream"], "stdout");
+    }
+
+    #[tokio::test]
+    async fn background_limits_cap_concurrent_tasks() {
+        // `[background].max_running_tasks`: the cap refuses a spawn rather
+        // than queueing it, and frees up once a task settles.
+        let runner = Arc::new(TaskRunner::new(None).with_background_limits(None, Some(1)));
+        // A oneshot (not a Notify): the release must not race the task's
+        // first poll, or the wait never ends.
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        runner
+            .spawn_task("t1".into(), "first".into(), async move {
+                let _ = held.await;
+                "done".to_string()
+            })
+            .unwrap();
+
+        let err = runner
+            .spawn_task("t2".into(), "second".into(), async { "x".to_string() })
+            .expect_err("the cap is one running task");
+        assert!(err.contains("Too many background tasks"), "{err}");
+
+        let _ = release.send(());
+        assert!(matches!(
+            runner.wait("t1", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+        runner
+            .spawn_task("t3".into(), "third".into(), async { "x".to_string() })
+            .expect("the slot frees up when the task settles");
+    }
+
+    #[tokio::test]
+    async fn metaless_spawns_route_to_the_global_lane() {
+        let (_tmp, runner) = runner();
+        let events: CapturedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+
+        runner
+            .spawn_task("task-none".into(), "bash".into(), async { "x".to_string() })
+            .unwrap();
+        let (session, created) = events.lock().unwrap()[0].clone();
+        assert_eq!(session, None, "no meta → no session → global lane");
+        assert_eq!(created["task"]["session_id"], Value::Null);
+        assert_eq!(created["task"]["kind"], "tool");
     }
 
     #[tokio::test]

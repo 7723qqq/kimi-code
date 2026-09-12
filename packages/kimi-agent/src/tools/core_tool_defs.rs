@@ -6,6 +6,8 @@
 //! constants) and schemas are the v2 `toInputJsonSchema` output of the zod
 //! input schemas.
 
+use std::sync::OnceLock;
+
 use serde_json::json;
 
 use crate::turn_loop::types::ToolInfo;
@@ -162,7 +164,15 @@ fn glob_description() -> String {
 
 /// Tool definitions for the core native tools, so the model can discover
 /// and call them (used by the standalone REPL).
+/// All core native tool definitions. Built once and cached: the agent rebuilds
+/// its tool table every step, and these schemas are static, so re-running the
+/// `json!` construction each time is pure waste.
 pub fn core_tool_defs() -> Vec<ToolInfo> {
+    static CACHE: OnceLock<Vec<ToolInfo>> = OnceLock::new();
+    CACHE.get_or_init(build_core_tool_defs).clone()
+}
+
+fn build_core_tool_defs() -> Vec<ToolInfo> {
     vec![
         ToolInfo {
             name: "Read".into(),

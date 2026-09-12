@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::native::event_store::{
@@ -336,6 +336,7 @@ impl SqliteSessionStore {
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_wire_session_seq ON wire_events(session_id, seq);
+            CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id, id);
             ",
         )?;
 
@@ -370,10 +371,7 @@ impl SqliteSessionStore {
             );
         }
         if !session_columns.contains("parent_session_id") {
-            let _ = conn.execute(
-                "ALTER TABLE sessions ADD COLUMN parent_session_id TEXT",
-                [],
-            );
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT", []);
         }
 
         Ok(Self {
@@ -750,7 +748,9 @@ impl SqliteSessionStore {
         session_id: &str,
         source: Option<&str>,
     ) -> Result<Option<String>, String> {
-        let history = self.load_session_history(session_id).map_err(|e| e.to_string())?;
+        let history = self
+            .load_session_history(session_id)
+            .map_err(|e| e.to_string())?;
         derive_session_title(&history, source)
     }
 
@@ -895,7 +895,9 @@ impl SqliteSessionStore {
         session_id: &str,
         instruction: Option<&str>,
     ) -> Result<CompactionReport, String> {
-        let history = self.load_session_history(session_id).map_err(|e| e.to_string())?;
+        let history = self
+            .load_session_history(session_id)
+            .map_err(|e| e.to_string())?;
         if history.len() <= 2 {
             return Ok(CompactionReport::skipped());
         }
@@ -917,7 +919,10 @@ impl SqliteSessionStore {
         };
         self.save_checkpoint(
             session_id,
-            &format!("compaction-{session_id}-{}", chrono::Utc::now().timestamp_millis()),
+            &format!(
+                "compaction-{session_id}-{}",
+                chrono::Utc::now().timestamp_millis()
+            ),
             "compaction-boundary",
             &json!({
                 "messages_before": report.messages_before,
@@ -978,10 +983,11 @@ impl SqliteSessionStore {
         messages: &[LLMMessage],
         usage: Option<&TokenUsage>,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
+        let tx = conn.transaction()?;
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO sessions (session_id, title, created_at, updated_at)
              VALUES (?1, NULL, ?2, ?2)
              ON CONFLICT(session_id) DO UPDATE SET updated_at = ?2",
@@ -990,7 +996,7 @@ impl SqliteSessionStore {
 
         let usage_json = usage.map(|u| serde_json::to_string(u).unwrap_or_default());
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO turns (turn_id, session_id, turn_number, status, started_at, completed_at, usage)
              VALUES (?1, ?2, ?3, 'completed', ?4, ?4, ?5)
              ON CONFLICT(turn_id) DO UPDATE SET
@@ -1000,21 +1006,23 @@ impl SqliteSessionStore {
             params![turn_id, session_id, turn_number, now, usage_json],
         )?;
 
-        for m in messages {
-            let tool_calls_json = if m.tool_calls.is_empty() {
-                None
-            } else {
-                serde_json::to_string(&m.tool_calls).ok()
-            };
-            let blocks_json = if m.blocks.is_empty() {
-                None
-            } else {
-                serde_json::to_string(&m.blocks).ok()
-            };
-            conn.execute(
+        {
+            let mut insert_message = tx.prepare(
                 "INSERT INTO messages (session_id, turn_id, role, content, tool_calls, tool_call_id, blocks, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
+            )?;
+            for m in messages {
+                let tool_calls_json = if m.tool_calls.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&m.tool_calls).ok()
+                };
+                let blocks_json = if m.blocks.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&m.blocks).ok()
+                };
+                insert_message.execute(params![
                     session_id,
                     turn_id,
                     m.role,
@@ -1023,10 +1031,11 @@ impl SqliteSessionStore {
                     m.tool_call_id,
                     blocks_json,
                     now
-                ],
-            )?;
+                ])?;
+            }
         }
 
+        tx.commit()?;
         Ok(())
     }
 
@@ -1114,7 +1123,8 @@ impl SqliteSessionStore {
             .unwrap_or(Value::Null);
         let inverse = crate::session::patch::apply_patch(&mut val, patch)
             .map_err(|e| format!("failed to apply patch to {domain}/{key}: {e}"))?;
-        self.put_state(domain, key, &val).map_err(|e| e.to_string())?;
+        self.put_state(domain, key, &val)
+            .map_err(|e| e.to_string())?;
         Ok((val, inverse))
     }
 
@@ -1447,19 +1457,44 @@ impl SqliteSessionStore {
 
     /// Append a raw wire event to the `wire_events` table and return its auto-increment sequence number.
     pub fn append_wire_event(&self, event: &RawWireEvent) -> Result<u64, EventStoreError> {
+        let payload_json = serde_json::to_string(&event.payload)?;
+        self.append_wire_event_json(
+            &event.id,
+            &event.session_id,
+            &event.event_type,
+            &payload_json,
+            event.is_checkpoint,
+            event.is_compaction,
+            event.created_at,
+        )
+    }
+
+    /// Append a wire event whose payload is already serialized. The per-event
+    /// persistence path serializes the event once for the record, so this entry
+    /// point avoids a second `Value` round-trip inside the store.
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_wire_event_json(
+        &self,
+        id: &str,
+        session_id: &str,
+        event_type: &str,
+        payload_json: &str,
+        is_checkpoint: bool,
+        is_compaction: bool,
+        created_at: i64,
+    ) -> Result<u64, EventStoreError> {
         let conn = self.conn.lock().unwrap();
-        let payload_str = serde_json::to_string(&event.payload)?;
         conn.execute(
             "INSERT INTO wire_events (id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
-                event.id,
-                event.session_id,
-                event.event_type,
-                payload_str,
-                event.is_checkpoint,
-                event.is_compaction,
-                event.created_at
+                id,
+                session_id,
+                event_type,
+                payload_json,
+                is_checkpoint,
+                is_compaction,
+                created_at
             ],
         )?;
         Ok(conn.last_insert_rowid() as u64)
@@ -1524,7 +1559,9 @@ impl SqliteSessionStore {
     pub fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 ORDER BY seq ASC",
+            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
+             AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
+             ORDER BY seq ASC",
         )?;
         let mut raw_rows = Vec::new();
         let mut rows = stmt.query(params![session_id])?;
@@ -1543,7 +1580,11 @@ impl SqliteSessionStore {
     }
 
     /// Compress conversation context by inserting a compaction checkpoint boundary event.
-    pub fn checkpoint_compress(&self, session_id: &str, summary: &str) -> Result<(), EventStoreError> {
+    pub fn checkpoint_compress(
+        &self,
+        session_id: &str,
+        summary: &str,
+    ) -> Result<(), EventStoreError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1806,7 +1847,10 @@ mod tests {
             "Bad",
             &serde_json::json!({}),
         );
-        assert!(bad_chk.is_err(), "foreign key constraint must reject non-existent session");
+        assert!(
+            bad_chk.is_err(),
+            "foreign key constraint must reject non-existent session"
+        );
     }
 
     #[test]
@@ -2074,13 +2118,7 @@ mod tests {
 
         // Add second turn and export again
         store
-            .save_turn(
-                "sess-exp",
-                "turn-2",
-                2,
-                &[LLMMessage::user("turn 2")],
-                None,
-            )
+            .save_turn("sess-exp", "turn-2", 2, &[LLMMessage::user("turn 2")], None)
             .unwrap();
         let export2 = store.export_session("sess-exp").unwrap().unwrap();
         assert_eq!(export2.turns_count, 2);
@@ -2197,7 +2235,11 @@ mod tests {
         let hits_title = store
             .search_messages("Refactoring", None, None, 10)
             .unwrap();
-        assert_eq!(hits_title.len(), 2, "both messages in sess-1 match session title");
+        assert_eq!(
+            hits_title.len(),
+            2,
+            "both messages in sess-1 match session title"
+        );
         assert_eq!(hits_title[0].session_title, "Refactoring Core");
         assert_eq!(hits_title[1].session_title, "Refactoring Core");
 
@@ -2221,9 +2263,24 @@ mod tests {
         assert_eq!(hits_sess2[0].session_id, "sess-2");
 
         // 5. Query edge cases
-        assert!(store.search_messages("", None, None, 10).unwrap().is_empty());
-        assert!(store.search_messages("   \t ", None, None, 10).unwrap().is_empty());
-        assert!(store.search_messages("nonexistent query", None, None, 10).unwrap().is_empty());
+        assert!(
+            store
+                .search_messages("", None, None, 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .search_messages("   \t ", None, None, 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .search_messages("nonexistent query", None, None, 10)
+                .unwrap()
+                .is_empty()
+        );
 
         // 6. Search with limit
         let limited = store.search_messages("the", None, None, 1).unwrap();
@@ -2232,15 +2289,11 @@ mod tests {
         // 7. Snippet extraction with query in middle of long string
         let long_text = "start_prefix ".repeat(15) + "CRITICAL_KEYWORD" + &" end_suffix".repeat(15);
         store
-            .save_turn(
-                "sess-1",
-                "t3",
-                2,
-                &[LLMMessage::user(&long_text)],
-                None,
-            )
+            .save_turn("sess-1", "t3", 2, &[LLMMessage::user(&long_text)], None)
             .unwrap();
-        let snippet_hits = store.search_messages("CRITICAL_KEYWORD", None, None, 1).unwrap();
+        let snippet_hits = store
+            .search_messages("CRITICAL_KEYWORD", None, None, 1)
+            .unwrap();
         assert_eq!(snippet_hits.len(), 1);
         assert!(snippet_hits[0].snippet.starts_with("..."));
         assert!(snippet_hits[0].snippet.ends_with("..."));
@@ -2253,7 +2306,9 @@ mod tests {
     #[test]
     fn test_file_history_crud_and_diff() {
         let store = SqliteSessionStore::in_memory().unwrap();
-        store.create_session("sess-fh", Some("File History Test")).unwrap();
+        store
+            .create_session("sess-fh", Some("File History Test"))
+            .unwrap();
 
         // Direct test of compute_line_diff logic
         assert_eq!(
@@ -2361,7 +2416,12 @@ mod tests {
             .get_file_history_content("sess-fh", 2, "src/main.rs", "start")
             .unwrap()
             .unwrap();
-        assert!(start_content.content.unwrap().contains("println!(\"hello\")"));
+        assert!(
+            start_content
+                .content
+                .unwrap()
+                .contains("println!(\"hello\")")
+        );
 
         let end_content = store
             .get_file_history_content("sess-fh", 2, "src/main.rs", "end")
@@ -2398,7 +2458,10 @@ mod tests {
             .revert_turn_file_changes("sess-revert", 1, temp_ws.path())
             .unwrap();
         assert_eq!(reverted, vec!["src/main.rs"]);
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "original code");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "original code"
+        );
     }
 
     /// `plan_undo_turns` reports the newest turn numbers first and refuses a
@@ -2434,25 +2497,13 @@ mod tests {
 
         // After turn 1, next is 2
         store
-            .save_turn(
-                "sess-seq",
-                "t1",
-                1,
-                &[LLMMessage::user("first")],
-                None,
-            )
+            .save_turn("sess-seq", "t1", 1, &[LLMMessage::user("first")], None)
             .unwrap();
         assert_eq!(store.next_turn_number("sess-seq").unwrap(), 2);
 
         // After jump to turn 5, next is 6
         store
-            .save_turn(
-                "sess-seq",
-                "t5",
-                5,
-                &[LLMMessage::user("fifth")],
-                None,
-            )
+            .save_turn("sess-seq", "t5", 5, &[LLMMessage::user("fifth")], None)
             .unwrap();
         assert_eq!(store.next_turn_number("sess-seq").unwrap(), 6);
     }
@@ -2513,8 +2564,8 @@ mod tests {
                     &format!("t{i}"),
                     i,
                     &[
-                        LLMMessage::user(&format!("User message {i}")),
-                        LLMMessage::assistant(&format!("Assistant message {i}")),
+                        LLMMessage::user(format!("User message {i}")),
+                        LLMMessage::assistant(format!("Assistant message {i}")),
                     ],
                     None,
                 )
@@ -2523,7 +2574,9 @@ mod tests {
         let pre_len = store.load_session_history("sess-compact").unwrap().len();
         assert!(pre_len >= 29);
 
-        let report = store.compact_session("sess-compact", Some("keep decisions")).unwrap();
+        let report = store
+            .compact_session("sess-compact", Some("keep decisions"))
+            .unwrap();
         let removed = report.removed;
         assert!(removed > 0);
         assert_eq!(report.messages_before, pre_len);
@@ -2559,18 +2612,10 @@ mod tests {
     #[test]
     fn test_delete_session_cascades() {
         let store = SqliteSessionStore::in_memory().unwrap();
-        store
-            .create_session("sess-del", Some("To Delete"))
-            .unwrap();
+        store.create_session("sess-del", Some("To Delete")).unwrap();
 
         store
-            .save_turn(
-                "sess-del",
-                "t1",
-                1,
-                &[LLMMessage::user("hello")],
-                None,
-            )
+            .save_turn("sess-del", "t1", 1, &[LLMMessage::user("hello")], None)
             .unwrap();
 
         store
@@ -2583,13 +2628,7 @@ mod tests {
             .unwrap();
 
         store
-            .record_file_change(
-                "sess-del",
-                1,
-                "file.rs",
-                None,
-                Some("code"),
-            )
+            .record_file_change("sess-del", 1, "file.rs", None, Some("code"))
             .unwrap();
 
         // Delete session
@@ -2647,28 +2686,36 @@ mod tests {
     #[test]
     fn test_undo_turns_transactional_integrity() {
         let store = SqliteSessionStore::in_memory().unwrap();
-        store.create_session("sess-undo", Some("Undo Test")).unwrap();
+        store
+            .create_session("sess-undo", Some("Undo Test"))
+            .unwrap();
 
         // Save Turn 1
         let msgs_t1 = vec![
             LLMMessage::user("prompt 1"),
             LLMMessage::assistant("reply 1"),
         ];
-        store.save_turn("sess-undo", "t1", 1, &msgs_t1, None).unwrap();
+        store
+            .save_turn("sess-undo", "t1", 1, &msgs_t1, None)
+            .unwrap();
 
         // Save Turn 2
         let msgs_t2 = vec![
             LLMMessage::user("prompt 2"),
             LLMMessage::assistant("reply 2"),
         ];
-        store.save_turn("sess-undo", "t2", 2, &msgs_t2, None).unwrap();
+        store
+            .save_turn("sess-undo", "t2", 2, &msgs_t2, None)
+            .unwrap();
 
         // Save Turn 3
         let msgs_t3 = vec![
             LLMMessage::user("prompt 3"),
             LLMMessage::assistant("reply 3"),
         ];
-        store.save_turn("sess-undo", "t3", 3, &msgs_t3, None).unwrap();
+        store
+            .save_turn("sess-undo", "t3", 3, &msgs_t3, None)
+            .unwrap();
 
         let history_before = store.load_session_history("sess-undo").unwrap();
         assert_eq!(history_before.len(), 6);
@@ -2714,12 +2761,16 @@ mod tests {
             .unwrap();
         assert!(!diff.is_empty());
 
-        let (patched, inverse) = store.patch_state("metadata", "sess-patch-1", &diff).unwrap();
+        let (patched, inverse) = store
+            .patch_state("metadata", "sess-patch-1", &diff)
+            .unwrap();
         assert_eq!(patched["theme"], "light");
         assert_eq!(patched["fontSize"], 16);
 
         // Revert using inverse patch
-        let (reverted, _) = store.patch_state("metadata", "sess-patch-1", &inverse).unwrap();
+        let (reverted, _) = store
+            .patch_state("metadata", "sess-patch-1", &inverse)
+            .unwrap();
         assert_eq!(reverted["theme"], "dark");
         assert_eq!(reverted["fontSize"], 14);
     }
@@ -2727,52 +2778,60 @@ mod tests {
     #[test]
     fn test_sqlite_event_store_append_query_fold_undo() {
         let store = SqliteSessionStore::in_memory().unwrap();
-        store.create_session("sess-evt-test", Some("Event Test")).unwrap();
+        store
+            .create_session("sess-evt-test", Some("Event Test"))
+            .unwrap();
 
         // 1. Append user message event
-        let seq1 = store.append_wire_event(&RawWireEvent {
-            id: "evt-1".into(),
-            session_id: "sess-evt-test".into(),
-            event_type: "message.user".into(),
-            payload: json!({ "content": "Calculate 2+2" }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 1000,
-        }).unwrap();
+        let seq1 = store
+            .append_wire_event(&RawWireEvent {
+                id: "evt-1".into(),
+                session_id: "sess-evt-test".into(),
+                event_type: "message.user".into(),
+                payload: json!({ "content": "Calculate 2+2" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1000,
+            })
+            .unwrap();
         assert_eq!(seq1, 1);
 
         // 2. Append assistant tool call event
-        let seq2 = store.append_wire_event(&RawWireEvent {
-            id: "evt-2".into(),
-            session_id: "sess-evt-test".into(),
-            event_type: "message.assistant".into(),
-            payload: json!({
-                "content": "Let me calculate that.",
-                "tool_calls": [{
-                    "id": "call_calc_1",
-                    "type": "function",
-                    "function": { "name": "calc", "arguments": "{\"expr\": \"2+2\"}" }
-                }]
-            }),
-            is_checkpoint: true,
-            is_compaction: false,
-            created_at: 2000,
-        }).unwrap();
+        let seq2 = store
+            .append_wire_event(&RawWireEvent {
+                id: "evt-2".into(),
+                session_id: "sess-evt-test".into(),
+                event_type: "message.assistant".into(),
+                payload: json!({
+                    "content": "Let me calculate that.",
+                    "tool_calls": [{
+                        "id": "call_calc_1",
+                        "type": "function",
+                        "function": { "name": "calc", "arguments": "{\"expr\": \"2+2\"}" }
+                    }]
+                }),
+                is_checkpoint: true,
+                is_compaction: false,
+                created_at: 2000,
+            })
+            .unwrap();
         assert_eq!(seq2, 2);
 
         // 3. Append tool result event
-        let seq3 = store.append_wire_event(&RawWireEvent {
-            id: "evt-3".into(),
-            session_id: "sess-evt-test".into(),
-            event_type: "tool.result".into(),
-            payload: json!({
-                "tool_call_id": "call_calc_1",
-                "output": "4"
-            }),
-            is_checkpoint: false,
-            is_compaction: false,
-            created_at: 3000,
-        }).unwrap();
+        let seq3 = store
+            .append_wire_event(&RawWireEvent {
+                id: "evt-3".into(),
+                session_id: "sess-evt-test".into(),
+                event_type: "tool.result".into(),
+                payload: json!({
+                    "tool_call_id": "call_calc_1",
+                    "output": "4"
+                }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 3000,
+            })
+            .unwrap();
         assert_eq!(seq3, 3);
 
         // Verify count and latest sequence
@@ -2795,7 +2854,10 @@ mod tests {
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].role, crate::native::event_store::MessageRole::User);
         assert_eq!(msgs[0].content, "Calculate 2+2");
-        assert_eq!(msgs[1].role, crate::native::event_store::MessageRole::Assistant);
+        assert_eq!(
+            msgs[1].role,
+            crate::native::event_store::MessageRole::Assistant
+        );
         assert_eq!(msgs[1].content, "Let me calculate that.");
         assert!(msgs[1].tool_calls.is_some());
         assert_eq!(msgs[2].role, crate::native::event_store::MessageRole::Tool);
@@ -2809,13 +2871,21 @@ mod tests {
 
         let msgs_after_undo = store.fold_projection("sess-evt-test").unwrap();
         assert_eq!(msgs_after_undo.len(), 1);
-        assert_eq!(msgs_after_undo[0].role, crate::native::event_store::MessageRole::User);
+        assert_eq!(
+            msgs_after_undo[0].role,
+            crate::native::event_store::MessageRole::User
+        );
 
         // Verify compaction boundary
-        store.checkpoint_compress("sess-evt-test", "Historical math summary").unwrap();
+        store
+            .checkpoint_compress("sess-evt-test", "Historical math summary")
+            .unwrap();
         let msgs_compacted = store.fold_projection("sess-evt-test").unwrap();
         assert_eq!(msgs_compacted.len(), 1);
-        assert_eq!(msgs_compacted[0].role, crate::native::event_store::MessageRole::System);
+        assert_eq!(
+            msgs_compacted[0].role,
+            crate::native::event_store::MessageRole::System
+        );
         assert_eq!(msgs_compacted[0].content, "Historical math summary");
 
         // Undoing across compaction boundary must return UndoCompactionBoundary error

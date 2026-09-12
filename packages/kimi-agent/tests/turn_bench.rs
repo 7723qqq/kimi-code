@@ -35,6 +35,10 @@ const FILE_SIZE_BYTES: usize = 4096;
 /// `max_steps` steps.
 struct BenchLlm {
     paths: Vec<String>,
+    /// Monotonic step counter folded into the tool arguments so the engine's
+    /// cross-step repeat breaker (12-repeat force stop) never fires and the
+    /// loop runs the full step budget.
+    seq: AtomicU32,
 }
 
 impl LLM for BenchLlm {
@@ -52,14 +56,15 @@ impl LLM for BenchLlm {
         &self,
         _: LLMChatParams,
     ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let calls: Vec<ToolCall> = self
             .paths
             .iter()
             .enumerate()
             .map(|(i, path)| ToolCall {
-                id: format!("call-{i}"),
+                id: format!("call-{seq}-{i}"),
                 name: "read".into(),
-                arguments: serde_json::json!({ "path": path }),
+                arguments: serde_json::json!({ "path": path, "_bench_step": seq }),
                 extras: None,
             })
             .collect();
@@ -102,6 +107,7 @@ impl HostCallbacks for InstantHost {
                 is_error: false,
                 note: None,
                 stop_turn: false,
+                delivery: None,
             })
         })
     }
@@ -178,6 +184,7 @@ fn report(name: &str, elapsed: Duration, steps: u32, calls: u32) {
 async fn bench_step_throughput(paths: &[String], label: &str) {
     let llm = BenchLlm {
         paths: paths.to_vec(),
+        seq: AtomicU32::new(0),
     };
     let host: Arc<dyn HostCallbacks> = Arc::new(InstantHost {
         calls: AtomicU32::new(0),
@@ -205,6 +212,7 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
     let paths = make_sandbox(dir, 8);
     let llm = BenchLlm {
         paths: paths.clone(),
+        seq: AtomicU32::new(0),
     };
 
     // Host dispatch floor: same turns as the throughput bench, already run

@@ -1,11 +1,8 @@
 /**
- * Minimal harness/session surface consumed by `kimi -p` (print mode).
+ * Print-mode harness/session surface consumed by `kimi -p`.
  *
- * The v2 print driver (`cli/v2/run-v2-print.ts`) talks to agent-core-v2's
- * native DI services directly, so the print-mode path no longer goes through a
- * `PromptHarness`-shaped SDK session. This module keeps the type-level view of
- * that surface for reference; new print-mode code should target the native
- * `ISessionScopeHandle` / `IAgentScopeHandle` interfaces instead.
+ * Print mode drives the native Rust engine through the SDK session, so this
+ * module keeps the type-level view of the session surface the print path uses.
  */
 
 import type {

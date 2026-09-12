@@ -1,6 +1,6 @@
 /**
  * Real CLI consumer-path integration: `maybeLoadRustEngine` is the function
- * `apps/kimi-code/src/cli/{run-shell,run-v2-print}.ts` call to wire the Rust
+ * `apps/kimi-code/src/cli/{run-shell,run-native-print}.ts` call to wire the Rust
  * engine into the loop. This test builds a temp config that selects
  * `agent.engine = "rust"` from the user's own default provider, drives one
  * turn, and asserts a result comes back through the full consumer wiring

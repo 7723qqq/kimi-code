@@ -170,8 +170,14 @@ mod tests {
         assert_eq!(SandboxMode::parse("off"), SandboxMode::Off);
         assert_eq!(SandboxMode::parse("read-only"), SandboxMode::ReadOnly);
         assert_eq!(SandboxMode::parse("readonly"), SandboxMode::ReadOnly);
-        assert_eq!(SandboxMode::parse("workspace-write"), SandboxMode::WorkspaceWrite);
-        assert_eq!(SandboxMode::parse("workspacewrite"), SandboxMode::WorkspaceWrite);
+        assert_eq!(
+            SandboxMode::parse("workspace-write"),
+            SandboxMode::WorkspaceWrite
+        );
+        assert_eq!(
+            SandboxMode::parse("workspacewrite"),
+            SandboxMode::WorkspaceWrite
+        );
         assert_eq!(SandboxMode::parse("unknown"), SandboxMode::Off);
     }
 
@@ -179,50 +185,80 @@ mod tests {
     fn test_sandbox_write_guard_modes() {
         let root = "/home/user/project";
         let off_policy = SandboxExecutionPolicy::off(root);
-        assert!(off_policy.sandbox_write_guard("/home/user/project/file.txt").is_none());
+        assert!(
+            off_policy
+                .sandbox_write_guard("/home/user/project/file.txt")
+                .is_none()
+        );
         assert!(off_policy.sandbox_write_guard("/etc/passwd").is_none());
 
         let ro_policy = SandboxExecutionPolicy::read_only(root);
         let ro_err = ro_policy.sandbox_write_guard("/home/user/project/file.txt");
         assert_eq!(
             ro_err.as_deref(),
-            Some("Sandbox mode \"read-only\" blocks writes to the filesystem. Set `[sandbox] mode = \"off\"` (or \"workspace-write\") to allow writes.")
+            Some(
+                "Sandbox mode \"read-only\" blocks writes to the filesystem. Set `[sandbox] mode = \"off\"` (or \"workspace-write\") to allow writes."
+            )
         );
 
         let ww_policy = SandboxExecutionPolicy::workspace_write(root);
-        assert!(ww_policy.sandbox_write_guard("/home/user/project/file.txt").is_none());
-        assert!(ww_policy.sandbox_write_guard("/home/user/project/sub/file.txt").is_none());
+        assert!(
+            ww_policy
+                .sandbox_write_guard("/home/user/project/file.txt")
+                .is_none()
+        );
+        assert!(
+            ww_policy
+                .sandbox_write_guard("/home/user/project/sub/file.txt")
+                .is_none()
+        );
 
         let out_err = ww_policy.sandbox_write_guard("/etc/passwd");
         assert_eq!(
             out_err.as_deref(),
-            Some("Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/etc/passwd\" is outside it.")
+            Some(
+                "Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/etc/passwd\" is outside it."
+            )
         );
 
         // Sibling dir check
         let sibling_err = ww_policy.sandbox_write_guard("/home/user/project2/file.txt");
         assert_eq!(
             sibling_err.as_deref(),
-            Some("Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/home/user/project2/file.txt\" is outside it.")
+            Some(
+                "Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/home/user/project2/file.txt\" is outside it."
+            )
         );
 
         // Path traversal / escape check
         let traversal_err = ww_policy.sandbox_write_guard("/home/user/project/../sibling.txt");
         assert_eq!(
             traversal_err.as_deref(),
-            Some("Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/home/user/project/../sibling.txt\" is outside it.")
+            Some(
+                "Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"/home/user/project\". Target path \"/home/user/project/../sibling.txt\" is outside it."
+            )
         );
     }
 
     #[test]
     fn test_windows_drive_case_normalization() {
         let ww_policy = SandboxExecutionPolicy::workspace_write("C:/workspace/root");
-        assert!(ww_policy.sandbox_write_guard("c:/workspace/root/src/main.rs").is_none());
-        assert!(ww_policy.sandbox_write_guard("C:\\workspace\\root\\src\\lib.rs").is_none());
+        assert!(
+            ww_policy
+                .sandbox_write_guard("c:/workspace/root/src/main.rs")
+                .is_none()
+        );
+        assert!(
+            ww_policy
+                .sandbox_write_guard("C:\\workspace\\root\\src\\lib.rs")
+                .is_none()
+        );
         let d_err = ww_policy.sandbox_write_guard("D:/other/file.txt");
         assert_eq!(
             d_err.as_deref(),
-            Some("Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"C:/workspace/root\". Target path \"D:/other/file.txt\" is outside it.")
+            Some(
+                "Sandbox mode \"workspace-write\" blocks writes outside the workspace root \"C:/workspace/root\". Target path \"D:/other/file.txt\" is outside it."
+            )
         );
     }
 }

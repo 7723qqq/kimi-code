@@ -389,7 +389,7 @@ type = "kimi"
     expect(stderr.join('')).toBe('');
     const out = stdout.join('');
     expect(out).toContain(`OK config.toml  ${join(dir, 'config.toml')}`);
-    expect(out).toContain('Unknown top-level key ignored by the v2 engine: providrs.');
+    expect(out).toContain('Unknown top-level key ignored by the engine: providrs.');
   });
 
   it('reports TOML syntax errors with line and column', async () => {

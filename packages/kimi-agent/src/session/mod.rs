@@ -196,7 +196,110 @@ pub struct SessionConfig {
     /// Turn-lifecycle hook dispatch (`UserPromptSubmit` / `PreCompact` /
     /// `Stop`); `None` skips those dispatches.
     pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
+    /// Print-mode (`kimi -p`) background policy the host resolved from
+    /// `[background]`. `None` keeps the engine default: a turn receipt
+    /// resolves as soon as the turn ends, whatever the background tasks do.
+    pub print_background: Option<PrintBackgroundPolicy>,
+    /// The process-wide task runner the print settle waits on. `None` outside
+    /// a wired pipeline, where the wait is a no-op.
+    pub task_runner: Option<Arc<crate::storage::TaskRunner>>,
 }
+
+/// What a print-mode (`kimi -p`) session does once its main turn ends while
+/// background tasks are still running (`[background].print_background_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrintBackgroundMode {
+    /// Exit as soon as the turn ends, leaving pending tasks behind.
+    Exit,
+    /// Keep the session open until the runner's tasks reach a terminal state.
+    Drain,
+    /// Like [`Self::Drain`]; the host additionally feeds the completions back
+    /// as a further turn.
+    Steer,
+}
+
+impl PrintBackgroundMode {
+    /// Wire string (`exit` / `drain` / `steer`). An unknown value resolves to
+    /// [`Self::Exit`] so a typo cannot silently stall a run behind the
+    /// ceiling.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "drain" => Self::Drain,
+            "steer" => Self::Steer,
+            _ => Self::Exit,
+        }
+    }
+
+    /// Whether the session holds its turn receipt until the runner drains.
+    #[must_use]
+    pub fn waits(&self) -> bool {
+        matches!(self, Self::Drain | Self::Steer)
+    }
+}
+
+/// The `[background]` print policy the host passed with the session.
+#[derive(Debug, Clone, Copy)]
+pub struct PrintBackgroundPolicy {
+    pub mode: PrintBackgroundMode,
+    /// Wall-clock ceiling for the run's whole settle phase (drain + steer
+    /// turns), in seconds.
+    pub ceiling_s: u64,
+    /// Cap on the steer turns the engine may add for background completions
+    /// (`[background].print_max_turns`).
+    pub max_turns: u32,
+}
+
+/// Ceiling used when the host passes none: the documented
+/// `print_wait_ceiling_s` default (~24.8 days), i.e. effectively unbounded.
+pub const PRINT_WAIT_CEILING_S_DEFAULT: u64 = 2_147_483;
+
+/// Steer-turn budget used when the host passes none: the documented
+/// `print_max_turns` default.
+pub const PRINT_MAX_TURNS_DEFAULT: u32 = 100_000;
+
+impl PrintBackgroundPolicy {
+    /// From the raw knobs the host resolved (`print_background_mode` /
+    /// `print_wait_ceiling_s` / `print_max_turns`). `None` (no mode) keeps the
+    /// engine's exit-on-turn-end default, so non-print entries are unaffected;
+    /// a non-positive bound keeps the documented default, since `0` cannot
+    /// mean "never wait".
+    #[must_use]
+    pub fn from_wire(
+        mode: Option<&str>,
+        ceiling_s: Option<u64>,
+        max_turns: Option<u32>,
+    ) -> Option<Self> {
+        Some(Self {
+            mode: PrintBackgroundMode::from_wire(mode?),
+            ceiling_s: ceiling_s
+                .filter(|ceiling| *ceiling > 0)
+                .unwrap_or(PRINT_WAIT_CEILING_S_DEFAULT),
+            max_turns: max_turns
+                .filter(|max_turns| *max_turns > 0)
+                .unwrap_or(PRINT_MAX_TURNS_DEFAULT),
+        })
+    }
+}
+
+/// Cross-turn budget of one print run's settle phase. The ceiling deadline and
+/// the steer-turn count span every turn of the run — `[background]` bounds the
+/// run, not each turn's share of it.
+#[derive(Default)]
+struct PrintRunState {
+    /// Wall-clock deadline, anchored at the first settle of the run.
+    deadline: Option<std::time::Instant>,
+    /// Steer turns enqueued so far.
+    steer_turns: usize,
+}
+
+/// How often the settle loop re-checks the runner. The interval only bounds
+/// how late a drain is noticed, never how long a wait may run.
+const PRINT_SETTLE_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How long after a cron's fire time the settle still accepts it (v2
+/// `CRON_FIRE_GRACE_MS`): the wake is never exactly on the minute.
+const CRON_FIRE_GRACE_MS: i64 = 2_000;
 
 struct PendingTurn {
     turn_id: u64,
@@ -266,6 +369,12 @@ struct SessionContext {
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Turn-lifecycle hook dispatch; see [`SessionConfig::hook_guard`].
     hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
+    /// Print-mode background policy; see [`SessionConfig::print_background`].
+    print_background: Option<PrintBackgroundPolicy>,
+    /// The runner the print settle polls; see [`SessionConfig::task_runner`].
+    task_runner: Option<Arc<crate::storage::TaskRunner>>,
+    /// Cross-turn settle budget of the current print run; see [`PrintRunState`].
+    print_run: std::sync::Mutex<PrintRunState>,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -312,6 +421,9 @@ impl EngineSession {
             max_context_tokens: config.max_context_tokens,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
             hook_guard: config.hook_guard.clone(),
+            print_background: config.print_background,
+            task_runner: config.task_runner.clone(),
+            print_run: std::sync::Mutex::new(PrintRunState::default()),
         });
         let wakeup = Arc::new(Notify::new());
         let callbacks = ctx.callbacks.clone();
@@ -728,7 +840,9 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
         // history — re-folding the history would duplicate it from the third
         // turn on.
         let history_len = history.len();
-        let entry_outcome = entry.outcome.take();
+        // `mut`: a print steer turn can inherit it — the receipt rides along
+        // to the follow-up turn instead of resolving here.
+        let mut entry_outcome = entry.outcome.take();
         let PendingTurn {
             turn_id,
             prompt,
@@ -750,7 +864,51 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
         });
         ctx.callbacks
             .turn_event(TurnEvent::Started { turn_id, origin });
+        // Kept past the move into `run_session_turn` so the print settle can
+        // observe a cancel that arrives while it holds the receipt.
+        let turn_cancel = cancel.clone();
         let outcome = run_session_turn(&ctx, turn_id, prompt, cancel, history).await;
+        // Captured before the print settle: a drain can hold the receipt for a
+        // long time and must not inflate the turn's own reported duration.
+        let turn_duration_ms = started.elapsed().as_millis() as u64;
+
+        // `[background]` print policy (`kimi -p`): drain the session's
+        // background tasks while the turn slot is still held, so the session
+        // never reads as settled mid-drain and the follow-up decisions below
+        // see the final task state. Resolving the receipt is what ends the
+        // host's `prompt()`, so holding it here is what keeps the host free
+        // of a settle loop of its own.
+        let mut print_warnings = Vec::new();
+        if outcome.is_ok() && !settle_print_background(&ctx, &turn_cancel).await {
+            // Cut short by the ceiling (a cancel stays silent — the host asked
+            // for it): v2 warned before finishing.
+            if !turn_cancel.load(Ordering::SeqCst)
+                && let Some(policy) = ctx.print_background
+            {
+                print_warnings.push(settle_warning(
+                    "print.settle_ceiling",
+                    format!(
+                        "print settle ceiling reached ({}s), finishing",
+                        policy.ceiling_s
+                    ),
+                ));
+            }
+        }
+        // Follow-up producers, in v2's settle order (goal → cron → tasks) and
+        // only for print runs: interactive sessions keep their per-turn
+        // round-trips unchanged.
+        let mut goal_continuation = None;
+        let mut cron_followups = Vec::new();
+        if outcome.is_ok() && ctx.print_background.is_some() {
+            // `goal.continuation`: the turn loop renders the follow-up prompt
+            // and reports it as telemetry, but no host consumes that event —
+            // v2's host loop did the re-prompting and the native host never
+            // wired it. A print run therefore owes the turn itself.
+            goal_continuation = pending_goal_continuation(&ctx, &outcome).await;
+            if goal_continuation.is_none() {
+                cron_followups = pending_cron_followups(&ctx, &turn_cancel).await;
+            }
+        }
 
         // Fold the turn's final messages into the session history (system
         // message excluded — run_turn rebuilds it per turn), release the
@@ -781,6 +939,15 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
                     stop_reason: Some("failed".into()),
                 });
             }
+            // `steer` / goal / cron: hand what the model is still owed back as
+            // follow-up turns, before the idle gate below sees an empty queue.
+            print_warnings.extend(maybe_enqueue_print_followup(
+                &ctx,
+                &mut core,
+                &mut entry_outcome,
+                goal_continuation,
+                cron_followups,
+            ));
             // Wake `settled()` waiters when nothing else is queued (M1c).
             maybe_settle_locked(&mut core);
             std::mem::take(&mut core.steer_waiters)
@@ -792,15 +959,18 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
                 turn_id,
                 reason: end_reason_of(&result.stop_reason),
                 error: turn_end_error_payload(&result.stop_reason, result.steps),
-                duration_ms: Some(started.elapsed().as_millis() as u64),
+                duration_ms: Some(turn_duration_ms),
             });
         } else if let Err(e) = &outcome {
             ctx.callbacks.turn_event(TurnEvent::Ended {
                 turn_id,
                 reason: TurnEndReason::Failed,
                 error: Some(serde_json::Value::String(e.clone())),
-                duration_ms: Some(started.elapsed().as_millis() as u64),
+                duration_ms: Some(turn_duration_ms),
             });
+        }
+        for warning in print_warnings {
+            ctx.callbacks.emit_event(warning);
         }
         if let Some(tx) = entry_outcome {
             let _ = tx.send(outcome.clone());
@@ -809,6 +979,445 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
             let _ = receipt.send(outcome.clone());
         }
     }
+}
+
+/// Hold a print-mode session open after a turn while background tasks are still
+/// running, bounded by the run's `[background].print_wait_ceiling_s`.
+///
+/// Runs while the finished turn's slot is still held, before the history fold:
+/// the session therefore never reads as settled mid-drain, and the follow-up
+/// decision that follows sees the final task state. Returns whether the drain
+/// completed — `false` means the ceiling (or a cancel) cut it short with tasks
+/// still running. A no-op for `exit`, for an absent policy, and when the
+/// process has no task runner wired.
+async fn settle_print_background(ctx: &SessionContext, cancel: &AtomicBool) -> bool {
+    let Some(policy) = ctx.print_background else {
+        return true;
+    };
+    if !policy.mode.waits() {
+        return true;
+    }
+    let Some(runner) = &ctx.task_runner else {
+        return true;
+    };
+    // One deadline for the whole run, anchored at the first settle: v2's
+    // ceiling bounds the entire settle phase (drain + steer turns), not each
+    // turn's share of it.
+    let deadline = {
+        let mut state = ctx.print_run.lock().unwrap_or_else(|e| e.into_inner());
+        *state.deadline.get_or_insert_with(|| {
+            std::time::Instant::now() + std::time::Duration::from_secs(policy.ceiling_s)
+        })
+    };
+    loop {
+        // A cancelled turn ends the wait too: the host asked to stop, so
+        // holding its receipt longer would only delay the stop.
+        if cancel.load(Ordering::SeqCst) {
+            return false;
+        }
+        if runner.running_ids().is_empty() {
+            return true;
+        }
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return false;
+        };
+        tokio::time::sleep(remaining.min(PRINT_SETTLE_POLL)).await;
+    }
+}
+
+/// The goal continuation a print run owes the model after a completed turn,
+/// or `None`.
+///
+/// The turn loop renders the follow-up prompt and reports it as
+/// `goal.continuation` telemetry, but no host consumes that event — v2's host
+/// loop did the re-prompting and the native host never wired it. A print run
+/// therefore owes the turn itself. Only a turn that *completed* with a still
+/// `Active` goal continues: a failed turn surfaces through the receipt
+/// instead, the way v2's `PrintSteeredTurnFailedError` did. Read before the
+/// core lock because the provider is async.
+async fn pending_goal_continuation(
+    ctx: &SessionContext,
+    outcome: &Result<TurnOutcome, String>,
+) -> Option<String> {
+    let Ok(TurnOutcome::Ran(result)) = outcome else {
+        return None;
+    };
+    if end_reason_of(&result.stop_reason) != TurnEndReason::Completed {
+        return None;
+    }
+    let goal = (ctx.goal.as_ref()?)().await?;
+    if !goal.status.is_active() {
+        return None;
+    }
+    Some(crate::native::goal::steering::render_continuation(
+        &goal.objective,
+        goal.tokens_used,
+        goal.token_budget,
+    ))
+}
+
+/// The cron jobs a print run owes the model, due within the run's remaining
+/// ceiling, as `(prompt, origin)` pairs.
+///
+/// The native host has no cron dispatcher — `cron.fired` has producers only in
+/// the daemon lineage, and the cron tools merely read and write the host's
+/// registry — so a print run owns the firing itself: it sleeps until the
+/// earliest fire within the ceiling, renders the fired prompts in the
+/// documented `<cron-fire>` envelope (docs/reference/tools.md), and deletes
+/// one-shot jobs from the registry after firing. Jobs whose fire time already
+/// passed are the daemon's missed-fire territory (coalescing) and stay out of
+/// scope; `KIMI_DISABLE_CRON=1` disables the whole feature.
+async fn pending_cron_followups(
+    ctx: &SessionContext,
+    cancel: &AtomicBool,
+) -> Vec<(String, serde_json::Value)> {
+    if crate::turn_loop::retry::parse_truthy_env("KIMI_DISABLE_CRON") {
+        return Vec::new();
+    }
+    let Some(policy) = ctx.print_background else {
+        return Vec::new();
+    };
+    // One deadline for the whole run (shared with the drain; see
+    // `settle_print_background`). No point sleeping for a fire the budget
+    // will not allow.
+    let deadline = {
+        let mut state = ctx.print_run.lock().unwrap_or_else(|e| e.into_inner());
+        *state.deadline.get_or_insert_with(|| {
+            std::time::Instant::now() + std::time::Duration::from_secs(policy.ceiling_s)
+        })
+    };
+    let Some(tasks) = read_cron_registry(ctx).await else {
+        return Vec::new();
+    };
+    if tasks.is_empty() {
+        return Vec::new();
+    }
+    let scheduler = crate::cron::scheduler::CronScheduler::new(tasks, local_utc_offset_minutes());
+    let now = now_ms_epoch();
+    let Some(fire_at) = scheduler.next_fire_at(now) else {
+        return Vec::new();
+    };
+    // A fire past the ceiling will never run inside this run: leave it for
+    // whatever ticks the registry next.
+    let remaining_ms = deadline
+        .checked_duration_since(std::time::Instant::now())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    if fire_at - now > remaining_ms {
+        return Vec::new();
+    }
+
+    // Sleep until the fire (plus a small grace so a just-due job is caught),
+    // in poll-sized chunks so a cancel is observed promptly.
+    let wake_at = fire_at + CRON_FIRE_GRACE_MS;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Vec::new();
+        }
+        let now = now_ms_epoch();
+        if now >= wake_at {
+            break;
+        }
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return Vec::new();
+        };
+        let until_wake = std::time::Duration::from_millis(
+            (wake_at - now).min(remaining.as_millis() as i64) as u64,
+        );
+        tokio::time::sleep(
+            until_wake
+                .min(PRINT_SETTLE_POLL)
+                .max(std::time::Duration::from_millis(1)),
+        )
+        .await;
+    }
+
+    // Fresh registry: jobs may have appeared or vanished while waiting.
+    let Some(tasks) = read_cron_registry(ctx).await else {
+        return Vec::new();
+    };
+    let mut scheduler =
+        crate::cron::scheduler::CronScheduler::new(tasks, local_utc_offset_minutes());
+    let fired = scheduler.tick(fire_at - CRON_FIRE_GRACE_MS, now_ms_epoch());
+    let mut followups = Vec::with_capacity(fired.len());
+    for entry in fired {
+        // One-shot jobs auto-delete after firing (docs/reference/tools.md);
+        // best-effort — the host owns the registry and may reject.
+        if !entry.recurring {
+            let _ = ctx
+                .callbacks
+                .state_write(crate::rpc::types::StateWriteRequest {
+                    domain: "cron".into(),
+                    key: "cron".into(),
+                    value: serde_json::json!({ "action": "delete", "id": entry.id }),
+                    undoable: false,
+                    turn_id: String::new(),
+                    tool_call_id: String::new(),
+                })
+                .await;
+        }
+        followups.push((render_cron_fire(&entry), cron_fire_origin(&entry)));
+    }
+    followups
+}
+
+/// The host's cron registry, as scheduler entries. `None` on an unwired state
+/// bridge; entries missing `id` / `cron` / `prompt` are skipped (the create
+/// path validates before storing, so this is defensive only).
+async fn read_cron_registry(
+    ctx: &SessionContext,
+) -> Option<Vec<crate::cron::scheduler::CronEntry>> {
+    let response = ctx
+        .callbacks
+        .state_read(crate::rpc::types::StateReadRequest {
+            domain: "cron".into(),
+            key: "cron".into(),
+            turn_id: String::new(),
+            tool_call_id: String::new(),
+        })
+        .await
+        .ok()?;
+    Some(
+        response
+            .value
+            .as_array()?
+            .iter()
+            .filter_map(|task| {
+                Some(crate::cron::scheduler::CronEntry {
+                    id: task.get("id")?.as_str()?.to_string(),
+                    cron: task.get("cron")?.as_str()?.to_string(),
+                    prompt: task.get("prompt")?.as_str()?.to_string(),
+                    recurring: task
+                        .get("recurring")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// The documented `<cron-fire>` envelope (docs/reference/tools.md): the fired
+/// prompt wrapped in attributes the renderers strip before display. One fire
+/// per tick here, so `coalescedCount` is always 1 and `stale` never applies
+/// (the 7-day stale rule belongs to the long-lived daemon).
+fn render_cron_fire(entry: &crate::cron::scheduler::CronEntry) -> String {
+    format!(
+        "<cron-fire jobId=\"{}\" cron=\"{}\" recurring=\"{}\" coalescedCount=\"1\" stale=\"false\">\n<prompt>\n{}\n</prompt>\n</cron-fire>",
+        entry.id, entry.cron, entry.recurring, entry.prompt
+    )
+}
+
+/// `CronJobOrigin` (protocol `events.ts`) — the transcript folds these as
+/// cron cards rather than user prompts, exactly what a daemon-fired turn
+/// looked like.
+fn cron_fire_origin(entry: &crate::cron::scheduler::CronEntry) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "cron_job",
+        "jobId": entry.id,
+        "cron": entry.cron,
+        "recurring": entry.recurring,
+        "coalescedCount": 1,
+        "stale": false,
+    })
+}
+
+/// A `WarningEvent` (protocol `events.ts`) for a print run's settle-side
+/// warnings; the host renders it wherever its own warnings go.
+fn settle_warning(code: &str, message: String) -> serde_json::Value {
+    serde_json::json!({ "type": "warning", "message": message, "code": code })
+}
+
+/// The process's local UTC offset in minutes east of UTC — the cron module's
+/// `tz_offset_minutes`. std has no local-time API; chrono reads the system
+/// zone on every platform the crate builds for.
+fn local_utc_offset_minutes() -> i32 {
+    // `DateTime::offset()` is inherent on chrono's `DateTime<Local>` — no
+    // trait import needed.
+    chrono::Local::now().offset().local_minus_utc() / 60
+}
+
+fn now_ms_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Enqueue the print run's follow-up turns, if the model is owed any, and
+/// return the settle warnings the host should see.
+///
+/// Called under the core lock, before the idle gate: follow-up turns enter
+/// `pending` first, so `settled()` waiters and session teardown see a session
+/// that is still working. The first follow-up turn inherits the finished
+/// turn's receipt (`entry_outcome`), which is what keeps the host's `prompt()`
+/// pending until the last follow-up has run — the host stays free of any wait
+/// loop.
+///
+/// Priority follows v2's settle order: the goal continuation, then due cron
+/// jobs, then completed background tasks (only in `steer` mode — `drain`
+/// waits without feeding back). A pending notification keeps for the
+/// follow-up turn's own settle round. Notifications are consumed only once
+/// their turn is actually admitted, so a budgeted-out run leaves them queued
+/// rather than dropping them silently.
+fn maybe_enqueue_print_followup(
+    ctx: &SessionContext,
+    core: &mut Core,
+    entry_outcome: &mut Option<oneshot::Sender<Result<TurnOutcome, String>>>,
+    goal_continuation: Option<String>,
+    cron_followups: Vec<(String, serde_json::Value)>,
+) -> Vec<serde_json::Value> {
+    let Some(policy) = ctx.print_background else {
+        return Vec::new();
+    };
+
+    // Is the model owed anything? The budget warnings only fire when a
+    // pending follow-up is actually refused.
+    let tasks_pending = policy.mode == PrintBackgroundMode::Steer
+        && ctx
+            .task_runner
+            .as_ref()
+            .is_some_and(|runner| runner.pending_notification_count() > 0);
+    if goal_continuation.is_none() && cron_followups.is_empty() && !tasks_pending {
+        return Vec::new();
+    }
+
+    // One ceiling and one turn budget for the whole run: v2 bounded the goal,
+    // cron, and task turns of a settle phase alike, and `print_max_turns` is
+    // documented as the cap on *triggered* turns, not per producer.
+    let mut state = ctx.print_run.lock().unwrap_or_else(|e| e.into_inner());
+    let deadline = state.deadline.get_or_insert_with(|| {
+        std::time::Instant::now() + std::time::Duration::from_secs(policy.ceiling_s)
+    });
+    let mut warnings = Vec::new();
+    if std::time::Instant::now() >= *deadline {
+        warnings.push(settle_warning(
+            "print.settle_ceiling",
+            format!(
+                "print settle ceiling reached ({}s), finishing",
+                policy.ceiling_s
+            ),
+        ));
+        return warnings;
+    }
+    if state.steer_turns >= policy.max_turns as usize {
+        warnings.push(settle_warning(
+            "print.settle_max_turns",
+            format!(
+                "print steer max turns reached ({}), finishing",
+                policy.max_turns
+            ),
+        ));
+        return warnings;
+    }
+
+    if let Some(text) = goal_continuation {
+        state.steer_turns += 1;
+        enqueue_print_followup_turn(
+            core,
+            entry_outcome,
+            text,
+            // `SystemTriggerOrigin(name: goal_continuation)`: the transcript
+            // folds these as their own turn-opening system trigger, exactly
+            // what a v2 goal continuation looked like.
+            serde_json::json!({ "kind": "system_trigger", "name": "goal_continuation" }),
+        );
+        return warnings;
+    }
+
+    let mut enqueued = false;
+    for (text, origin) in cron_followups {
+        if state.steer_turns >= policy.max_turns as usize {
+            break;
+        }
+        state.steer_turns += 1;
+        enqueue_print_followup_turn(core, entry_outcome, text, origin);
+        enqueued = true;
+    }
+    if enqueued {
+        return warnings;
+    }
+
+    if policy.mode != PrintBackgroundMode::Steer {
+        return warnings;
+    }
+    let Some(runner) = &ctx.task_runner else {
+        return warnings;
+    };
+    if runner.pending_notification_count() == 0 {
+        return warnings;
+    }
+    let notifications = runner.take_pending_notifications();
+    let Some(first) = notifications.first() else {
+        return warnings;
+    };
+    state.steer_turns += 1;
+    let text = render_task_notifications(&notifications);
+    enqueue_print_followup_turn(
+        core,
+        entry_outcome,
+        text,
+        // `TaskOrigin` (protocol `events.ts`): the transcript folds these as
+        // task-notification turns instead of user prompts. The first task
+        // names the turn; the rest ride in the prompt text.
+        serde_json::json!({
+            "kind": "task",
+            "taskId": first.task_id,
+            "status": first.status.as_str(),
+            "notificationId": format!("{}-{}", first.task_id, first.ended_at),
+        }),
+    );
+    warnings
+}
+
+/// Push the follow-up turn: the model sees the rendered text as a user
+/// message, the host sees the same text echoed as the `turn.prompt` input, and
+/// the finished turn's receipt rides along so `prompt()` resolves only when
+/// this turn ends.
+fn enqueue_print_followup_turn(
+    core: &mut Core,
+    entry_outcome: &mut Option<oneshot::Sender<Result<TurnOutcome, String>>>,
+    text: String,
+    origin: serde_json::Value,
+) {
+    let turn_id = core.next_turn_id;
+    core.next_turn_id += 1;
+    core.pending.push(PendingTurn {
+        turn_id,
+        prompt: LLMMessage {
+            role: "user".to_string(),
+            content: text.clone(),
+            ..LLMMessage::default()
+        },
+        // The `ContentPart[]` echo the host renders for `turn.prompt`; a
+        // single text part is the whole story here.
+        input: serde_json::json!([{ "type": "text", "text": text }]),
+        origin,
+        cancel: Arc::new(AtomicBool::new(false)),
+        outcome: entry_outcome.take(),
+    });
+}
+
+/// The user-role text a steer turn hands the model: one block per completed
+/// background task, plus its output preview when the runner kept one.
+fn render_task_notifications(notifications: &[crate::storage::TaskNotification]) -> String {
+    notifications
+        .iter()
+        .map(|notification| {
+            let mut block = format!(
+                "Background task {} ({}) finished: {}",
+                notification.task_id,
+                notification.status.as_str(),
+                notification.description
+            );
+            if let Some(preview) = &notification.output_preview {
+                block.push('\n');
+                block.push_str(preview);
+            }
+            block
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Map the engine's step-level stop reason onto v2's four-value turn end
@@ -887,9 +1496,18 @@ async fn run_session_turn(
 /// `drain_steers` seam the turn loop already consumes (native transports
 /// only — in host-proxy mode the host owns steering). Everything else
 /// delegates unchanged.
-struct SteerQueueCallbacks {
+pub(crate) struct SteerQueueCallbacks {
     inner: Arc<dyn HostCallbacks>,
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+}
+
+impl SteerQueueCallbacks {
+    pub(crate) fn new(
+        inner: Arc<dyn HostCallbacks>,
+        steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+    ) -> Self {
+        Self { inner, steer_queue }
+    }
 }
 
 impl HostCallbacks for SteerQueueCallbacks {
@@ -1065,7 +1683,7 @@ mod tests {
             self.requests
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .push(params.messages);
+                .push(params.messages.to_vec());
             Box::pin(async move {
                 if let Some(rx) = gate.and_then(|g| g) {
                     let _ = rx.await;
@@ -1138,6 +1756,8 @@ mod tests {
             on_before_turn: None,
             agent_cancel_slot: None,
             hook_guard: None,
+            print_background: None,
+            task_runner: None,
         };
         EngineSession::new(config).await
     }
@@ -1150,6 +1770,231 @@ mod tests {
             tokio::task::yield_now().await;
         }
         panic!("condition not met after yield loop");
+    }
+
+    /// `[background].print_background_mode` wire mapping: only `drain` /
+    /// `steer` hold a turn receipt, and an unrecognised mode must resolve to
+    /// `exit` so a typo cannot stall a run behind the ceiling.
+    #[test]
+    fn test_print_background_mode_from_wire() {
+        assert_eq!(
+            PrintBackgroundMode::from_wire("drain"),
+            PrintBackgroundMode::Drain
+        );
+        assert_eq!(
+            PrintBackgroundMode::from_wire("steer"),
+            PrintBackgroundMode::Steer
+        );
+        assert_eq!(
+            PrintBackgroundMode::from_wire("exit"),
+            PrintBackgroundMode::Exit
+        );
+        assert_eq!(
+            PrintBackgroundMode::from_wire("wat"),
+            PrintBackgroundMode::Exit
+        );
+        assert!(PrintBackgroundMode::Drain.waits());
+        assert!(PrintBackgroundMode::Steer.waits());
+        assert!(!PrintBackgroundMode::Exit.waits());
+    }
+
+    /// The steer prompt the engine hands the model: one block per completed
+    /// task, with the output preview attached when the runner kept one.
+    #[test]
+    fn test_render_task_notifications() {
+        use crate::storage::{TaskNotification, TaskStatus};
+        let rendered = render_task_notifications(&[
+            TaskNotification {
+                task_id: 't'.to_string(),
+                description: "run the test suite".into(),
+                status: TaskStatus::Completed,
+                output_preview: Some("42 passing".into()),
+                ended_at: 100,
+            },
+            TaskNotification {
+                task_id: "t2".into(),
+                description: "stop me".into(),
+                status: TaskStatus::Killed,
+                output_preview: None,
+                ended_at: 200,
+            },
+        ]);
+        assert_eq!(
+            rendered,
+            "Background task t (completed) finished: run the test suite\n42 passing\n\n\
+             Background task t2 (killed) finished: stop me"
+        );
+    }
+
+    /// `steer`: a completed background task is fed back to the model as a
+    /// follow-up turn, and the original turn's receipt stays pending until that
+    /// follow-up has run — the host's `prompt()` covers the whole run.
+    #[tokio::test]
+    async fn test_print_steer_feeds_task_notifications_back() {
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        runner
+            .spawn_task("t1".into(), "quick job".into(), async {
+                "done output".to_string()
+            })
+            .unwrap();
+        wait_until(|| runner.pending_notification_count() == 1).await;
+
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("main-response"),
+            text_response("steer-response"),
+        ]));
+        let requests = llm.requests.clone();
+        let config = SessionConfig {
+            llm,
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: None,
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            hook_guard: None,
+            print_background: Some(PrintBackgroundPolicy {
+                mode: PrintBackgroundMode::Steer,
+                ceiling_s: 30,
+                max_turns: 5,
+            }),
+            task_runner: Some(runner),
+        };
+        let session = EngineSession::new(config).await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "hello"), Admission::NewTurn))
+            .unwrap();
+        let outcome = receipt.outcome().await.unwrap();
+        assert!(matches!(outcome, TurnOutcome::Ran(_)));
+
+        let calls = requests.lock().unwrap();
+        assert_eq!(calls.len(), 2, "steer must run one follow-up turn");
+        let steer_call = &calls[1];
+        assert!(
+            steer_call.iter().any(|m| {
+                m.role == "user"
+                    && m.content
+                        .contains("Background task t1 (completed) finished: quick job")
+                    && m.content.contains("done output")
+            }),
+            "steer turn missing the task notification: {steer_call:?}"
+        );
+        assert!(
+            steer_call
+                .iter()
+                .any(|m| m.role == "assistant" && m.content == "main-response"),
+            "steer turn history missing the main turn's answer"
+        );
+    }
+
+    /// A print run with an active goal continues the goal itself: the turn
+    /// loop renders the follow-up prompt (v2's host loop re-prompted, and no
+    /// native host consumes `goal.continuation`), and the receipt rides along
+    /// until the continuation turn has run. `drain` on purpose — the goal
+    /// continuation is mode-independent, the way v2's goal wait preceded the
+    /// mode check. `max_turns: 1` also proves the shared budget stops the
+    /// loop: the provider here never completes its goal, so an unbounded run
+    /// would spin forever.
+    #[tokio::test]
+    async fn test_print_run_continues_active_goal() {
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("main-response"),
+            text_response("goal-response"),
+        ]));
+        let requests = llm.requests.clone();
+        let goal: GoalProvider = Arc::new(|| {
+            Box::pin(async {
+                Some(crate::turn_loop::types::GoalContext {
+                    goal_id: "g1".into(),
+                    objective: "ship the thing".into(),
+                    status: crate::turn_loop::types::GoalStatus::Active,
+                    token_budget: None,
+                    turn_budget: None,
+                    wall_clock_budget_ms: None,
+                    wall_clock_ms: 0,
+                    tokens_used: 100,
+                    turns_used: 1,
+                })
+            })
+        });
+        let config = SessionConfig {
+            llm,
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: Some(goal),
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            hook_guard: None,
+            print_background: Some(PrintBackgroundPolicy {
+                mode: PrintBackgroundMode::Drain,
+                ceiling_s: 30,
+                max_turns: 1,
+            }),
+            task_runner: Some(Arc::new(crate::storage::TaskRunner::new(None))),
+        };
+        let session = EngineSession::new(config).await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "hello"), Admission::NewTurn))
+            .unwrap();
+        let outcome = receipt.outcome().await.unwrap();
+        assert!(matches!(outcome, TurnOutcome::Ran(_)));
+
+        let calls = requests.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            2,
+            "one goal continuation, then the shared budget stops the loop"
+        );
+        let continuation = &calls[1];
+        assert!(
+            continuation
+                .iter()
+                .any(|m| m.role == "user" && m.content.contains("ship the thing")),
+            "continuation turn missing the goal objective: {continuation:?}"
+        );
+        assert!(
+            continuation
+                .iter()
+                .any(|m| m.role == "assistant" && m.content == "main-response"),
+            "continuation turn history missing the main turn's answer"
+        );
+    }
+
+    /// The cron fire a print run injects: the documented `<cron-fire>`
+    /// envelope (renderers strip it before display) with the `CronJobOrigin`
+    /// the transcript folds into a cron card.
+    #[test]
+    fn test_render_cron_fire_matches_documented_envelope() {
+        let entry = crate::cron::scheduler::CronEntry {
+            id: "a3f9c2".into(),
+            cron: "*/5 * * * *".into(),
+            prompt: "Check the deploy status".into(),
+            recurring: true,
+        };
+        assert_eq!(
+            render_cron_fire(&entry),
+            "<cron-fire jobId=\"a3f9c2\" cron=\"*/5 * * * *\" recurring=\"true\" coalescedCount=\"1\" stale=\"false\">\n<prompt>\nCheck the deploy status\n</prompt>\n</cron-fire>"
+        );
+        assert_eq!(
+            cron_fire_origin(&entry),
+            serde_json::json!({
+                "kind": "cron_job",
+                "jobId": "a3f9c2",
+                "cron": "*/5 * * * *",
+                "recurring": true,
+                "coalescedCount": 1,
+                "stale": false,
+            })
+        );
     }
 
     #[tokio::test]

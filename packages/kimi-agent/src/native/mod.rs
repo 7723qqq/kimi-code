@@ -1,4 +1,7 @@
-#![cfg_attr(not(feature = "napi"), allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    not(feature = "napi"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 mod bash;
 mod bash_spawn;
@@ -8,11 +11,11 @@ mod encoding;
 mod escape;
 mod fetch_url;
 mod file_cache;
-mod file_type;
+pub mod file_type;
 mod glob;
 pub mod goal;
 mod grep;
-mod image_compress;
+pub mod image_compress;
 mod line_endings;
 pub mod list_directory;
 mod llm_stream;
@@ -22,6 +25,7 @@ mod output_truncate;
 mod path_access;
 mod permission;
 mod read;
+pub mod shell;
 mod tokens;
 mod tool_access;
 pub(crate) mod tool_naming;
@@ -34,7 +38,7 @@ pub mod event_store;
 pub mod lsp;
 pub mod permission_engine;
 
-pub use list_directory::{list_directory, ListDirectoryConfig, ListDirectoryResult};
+pub use list_directory::{ListDirectoryConfig, ListDirectoryResult, list_directory};
 
 pub fn native_list_directory(
     path: Option<String>,

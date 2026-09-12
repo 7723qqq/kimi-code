@@ -81,8 +81,7 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
 }
 
 /// Output message for tools skipped after a previous tool stops the turn or batch (v2 toolExecutorService.ts:450).
-pub const SKIPPED_TOOL_OUTPUT: &str =
-    "Tool skipped because a previous tool call stopped the turn.";
+pub const SKIPPED_TOOL_OUTPUT: &str = "Tool skipped because a previous tool call stopped the turn.";
 
 /// Cap on tool calls running concurrently within one batch.
 const MAX_PARALLEL_TOOLS: usize = 16;
@@ -121,6 +120,7 @@ where
         if batch_stopped {
             for _ in batch {
                 all_results.push(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: SKIPPED_TOOL_OUTPUT.to_string(),
                     is_error: true,
@@ -168,6 +168,7 @@ where
                         break;
                     }
                     all_results.push(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: e,
                         is_error: true,
@@ -180,6 +181,7 @@ where
                         break;
                     }
                     all_results.push(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: format!("Tool task join error: {e}"),
                         is_error: true,
@@ -848,8 +850,7 @@ mod tests {
         // The v2 fallback `execution.accesses ?? ToolAccesses.all()`
         // (toolExecutorService.ts:437): a tool with no declaration — here an
         // MCP-style name — conflicts with any other tool, even read-only.
-        let accesses =
-            infer_tool_accesses("mcp__server__tool", &serde_json::json!({"x": 1}));
+        let accesses = infer_tool_accesses("mcp__server__tool", &serde_json::json!({"x": 1}));
         assert_eq!(accesses, vec![all_access()]);
         assert!(tool_accesses_conflict(
             &accesses,
@@ -929,6 +930,7 @@ mod tests {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
                     Ok(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: "ok".into(),
                         is_error: false,
@@ -985,6 +987,7 @@ mod tests {
         ];
         let executor = move |tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: tc.id.clone(),
                 is_error: false,
@@ -1016,6 +1019,7 @@ mod tests {
         }];
         let executor = move |_tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "ok".into(),
                 is_error: false,
@@ -1060,6 +1064,7 @@ mod tests {
                 Err("transport failed".to_string())
             } else {
                 Ok(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: "ok-2".into(),
                     is_error: false,
@@ -1124,6 +1129,7 @@ mod tests {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     active.fetch_sub(1, Ordering::SeqCst);
                     Ok(ExecutableToolResult {
+                        delivery: None,
                         stop_turn: false,
                         content: "ok".into(),
                         is_error: false,
@@ -1145,6 +1151,7 @@ mod tests {
     async fn test_execute_scheduled_empty() {
         let results = execute_scheduled(None, vec![], |_tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: "x".into(),
                 is_error: false,
@@ -1190,6 +1197,7 @@ mod tests {
         ];
         let results = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
             Ok(ExecutableToolResult {
+                delivery: None,
                 stop_turn: false,
                 content: tc.id,
                 is_error: false,
@@ -1228,6 +1236,7 @@ mod tests {
         let results = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
             if tc.id == "1" {
                 Ok(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: true,
                     content: "plan exited".into(),
                     is_error: false,
@@ -1235,6 +1244,7 @@ mod tests {
                 })
             } else {
                 Ok(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: "written".into(),
                     is_error: false,

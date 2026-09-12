@@ -42,6 +42,7 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
             }
             Err(e) => {
                 return Some(ExecutableToolResult {
+                    delivery: None,
                     stop_turn: false,
                     content: format!("Directory does not exist: {raw_path} ({e})"),
                     is_error: true,
@@ -53,6 +54,7 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
 
     if !target_dir.is_dir() {
         return Some(ExecutableToolResult {
+            delivery: None,
             stop_turn: false,
             content: format!("{} is not a directory", target_dir.display()),
             is_error: true,
@@ -62,6 +64,7 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
 
     let output = render_directory_tree(&target_dir, collapse_hidden);
     Some(ExecutableToolResult {
+        delivery: None,
         stop_turn: false,
         content: output,
         is_error: false,

@@ -115,7 +115,6 @@ pub fn canonicalize_path(path: &str, cwd: &str, path_class: PathClass) -> Result
     Ok(normalize_path(&abs_path, path_class))
 }
 
-
 fn is_win32_drive_relative(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 2
@@ -238,48 +237,37 @@ pub fn is_within_workspace(candidate: &str, roots: &[String], path_class: PathCl
     false
 }
 
-const SENSITIVE_BASENAMES: &[&str] = &[
-    ".env",
-    "id_rsa",
-    "id_ed25519",
-    "id_ecdsa",
-    "credentials",
-];
+const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 
-const ENV_EXEMPTIONS: &[&str] = &[
-    ".env.example",
-    ".env.sample",
-    ".env.template",
-];
+const ENV_EXEMPTIONS: &[&str] = &[".env.example", ".env.sample", ".env.template"];
 
-const PUBLIC_KEY_BASENAMES: &[&str] = &[
-    "id_rsa.pub",
-    "id_ed25519.pub",
-    "id_ecdsa.pub",
-];
+const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
 
-const SENSITIVE_BASENAME_PREFIXES: &[&str] = &[
-    "id_rsa",
-    "id_ed25519",
-    "id_ecdsa",
-    "credentials",
-];
+const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 
 const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
-    ".bak", ".backup", ".copy", ".disabled", ".key",
-    ".old", ".orig", ".pem", ".save", ".tmp",
+    ".bak",
+    ".backup",
+    ".copy",
+    ".disabled",
+    ".key",
+    ".old",
+    ".orig",
+    ".pem",
+    ".save",
+    ".tmp",
 ];
 
-const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[
-    &[".aws", "credentials"],
-    &[".gcp", "credentials"],
-];
+const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[&[".aws", "credentials"], &[".gcp", "credentials"]];
 
 /// 原生敏感文件判断算法（严格对齐 TS tool/path-access.ts isSensitiveFile）
 pub fn is_sensitive_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     let comparable_path = normalized.to_ascii_lowercase();
-    let name = comparable_path.rsplit('/').next().unwrap_or(&comparable_path);
+    let name = comparable_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&comparable_path);
 
     // 1. 豁免检查
     if ENV_EXEMPTIONS.contains(&name) {

@@ -1,13 +1,13 @@
 /**
  * `kimi -p` (print mode) entry point and shared print-mode utilities.
  *
- * The engine is always agent-core-v2: `runPrompt` delegates to the native v2
- * runner (`./v2/run-v2-print.ts`), which talks to the v2 DI services directly
- * and owns the turn/goal/background policy. This module keeps the small
- * print-mode helpers the v2 runner shares with the CLI entry chain:
- * time-bounded cleanup (`raceWithTimeout`), termination-signal handling
- * (`installPromptTerminationCleanup` / `signalExitCode`), and model resolution
- * (`requireConfiguredModel` / `configuredModel`).
+ * The engine is always the native Rust agent: `runPrompt` delegates to
+ * `./run-native-print.ts`, which drives the engine and owns the print-mode
+ * lifecycle. This module keeps the small print-mode helpers the runner shares
+ * with the CLI entry chain: time-bounded cleanup (`raceWithTimeout`),
+ * termination-signal handling (`installPromptTerminationCleanup` /
+ * `signalExitCode`), and model resolution (`requireConfiguredModel` /
+ * `configuredModel`).
  */
 
 import os from 'node:os';
@@ -84,18 +84,6 @@ export async function runPrompt(
   version: string,
   io: PromptRunIO = {},
 ): Promise<void> {
-  if (
-    process.env['KIMI_FORCE_V2_PRINT'] === '1' ||
-    process.env['KIMI_FORCE_V2_PRINT'] === 'true' ||
-    process.env['KIMI_NATIVE_PRINT'] === '0' ||
-    Boolean(opts.agent) ||
-    Boolean(opts.agentFiles && opts.agentFiles.length > 0)
-  ) {
-    const { runV2Print } = await import('./v2/run-v2-print.js');
-    await runV2Print(opts, version, io);
-    return;
-  }
-
   const { runNativePrint } = await import('./run-native-print.js');
   await runNativePrint(opts, version, io);
 }
