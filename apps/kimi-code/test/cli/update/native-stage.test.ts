@@ -104,11 +104,7 @@ interface MockCdnOptions {
    * When set, the manifest entry advertises a compressed artifact; the .zst
    * URL serves `payload` (null → 404, a CDN without the artifact yet).
    */
-  readonly compressed?: {
-    readonly payload: Buffer | null;
-    readonly checksum?: string;
-    readonly field?: 'compressed' | 'zstd';
-  };
+  readonly compressed?: { readonly payload: Buffer | null; readonly checksum?: string };
 }
 
 function mockCdnFetch(options: MockCdnOptions): typeof fetch {
@@ -118,13 +114,11 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
     checksum: options.checksum ?? sha256Hex(options.payload),
   };
   if (options.compressed !== undefined) {
-    const checksum =
-      options.compressed.checksum ?? sha256Hex(options.compressed.payload ?? Buffer.alloc(0));
-    if (options.compressed.field === 'zstd') {
-      platformEntry['zstd'] = { file: COMPRESSED_FILENAME, sha256: checksum };
-    } else {
-      platformEntry['compressed'] = { filename: COMPRESSED_FILENAME, checksum };
-    }
+    platformEntry['compressed'] = {
+      filename: COMPRESSED_FILENAME,
+      checksum:
+        options.compressed.checksum ?? sha256Hex(options.compressed.payload ?? Buffer.alloc(0)),
+    };
   }
   const manifestBody = JSON.stringify({
     version,
@@ -231,10 +225,10 @@ describe('stageNativeUpdate', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it.each(['compressed', 'zstd'] as const)('downloads the %s artifact and stages the decompressed binary', async (field) => {
+  it('downloads the compressed artifact and stages the decompressed binary', async () => {
     const fetchImpl = mockCdnFetch({
       payload: PAYLOAD,
-      compressed: { payload: zstdCompressSync(PAYLOAD), field },
+      compressed: { payload: zstdCompressSync(PAYLOAD) },
     });
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -262,11 +256,11 @@ describe('stageNativeUpdate', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact is missing (%s)', async (field) => {
+  it('falls back to the bare binary when the compressed artifact is missing', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchImpl = mockCdnFetch({
       payload: PAYLOAD,
-      compressed: { payload: null, field },
+      compressed: { payload: null },
     });
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -285,12 +279,12 @@ describe('stageNativeUpdate', () => {
     expect(exeBytes.equals(PAYLOAD)).toBe(true);
   });
 
-  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact fails verification (%s)', async (field) => {
+  it('falls back to the bare binary when the compressed artifact fails verification', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchImpl = mockCdnFetch({
       payload: PAYLOAD,
       // The .zst bytes do not hash to the advertised compressed checksum.
-      compressed: { payload: zstdCompressSync(PAYLOAD), checksum: 'f'.repeat(64), field },
+      compressed: { payload: zstdCompressSync(PAYLOAD), checksum: 'f'.repeat(64) },
     });
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -309,13 +303,13 @@ describe('stageNativeUpdate', () => {
     expect(exeBytes.equals(PAYLOAD)).toBe(true);
   });
 
-  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the decompressed content fails verification (%s)', async (field) => {
+  it('falls back to the bare binary when the decompressed content fails verification', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     // The .zst verifies against its own checksum but inflates to something
     // other than the bare binary the manifest checksum covers.
     const fetchImpl = mockCdnFetch({
       payload: PAYLOAD,
-      compressed: { payload: zstdCompressSync(Buffer.from('other-content')), field },
+      compressed: { payload: zstdCompressSync(Buffer.from('other-content')) },
     });
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -329,47 +323,6 @@ describe('stageNativeUpdate', () => {
     expect(result.staged.sha256).toBe(sha256Hex(PAYLOAD));
     const exeBytes = await readFile(stagedExePath(exePath, result.staged));
     expect(exeBytes.equals(PAYLOAD)).toBe(true);
-  });
-
-  it('prefers zstd when both manifest formats are present', async () => {
-    const compressedPayload = zstdCompressSync(PAYLOAD);
-    const fetchImpl = mockCdnFetch({
-      payload: PAYLOAD,
-      compressed: { payload: compressedPayload, field: 'zstd' },
-    });
-    vi.mocked(fetchImpl).mockResolvedValueOnce(new Response(JSON.stringify({
-      version: VERSION,
-      platforms: {
-        'linux-x64': {
-          filename: BINARY_FILENAME,
-          checksum: sha256Hex(PAYLOAD),
-          zstd: { file: COMPRESSED_FILENAME, sha256: sha256Hex(compressedPayload) },
-          compressed: { filename: 'legacy.zst', checksum: 'a'.repeat(64) },
-        },
-      },
-    })));
-
-    const result = await stageNativeUpdate({
-      version: VERSION,
-      exePath,
-      platform: 'linux',
-      arch: 'x64',
-      fetchImpl,
-    });
-
-    expect(await readFile(stagedExePath(exePath, result.staged))).toEqual(PAYLOAD);
-    expect(fetchImpl).toHaveBeenCalledWith(
-      nativeBinaryUrl(VERSION, COMPRESSED_FILENAME),
-      expect.anything(),
-    );
-    expect(fetchImpl).not.toHaveBeenCalledWith(
-      nativeBinaryUrl(VERSION, 'legacy.zst'),
-      expect.anything(),
-    );
-    expect(fetchImpl).not.toHaveBeenCalledWith(
-      nativeBinaryUrl(VERSION, BINARY_FILENAME),
-      expect.anything(),
-    );
   });
 
   // chmod has no effect on the Windows permission model — the mode bits stay

@@ -165,7 +165,7 @@ function resolveSpecifier({ currentFile, emittedFiles, packageDir, specifier }) 
   if (specifier.startsWith('#/')) {
     return resolvePackageSubpath({
       emittedFiles,
-      srcRoot: srcRootForFile(currentFile, packageDir),
+      packageDir,
       subpath: specifier.slice(2),
       originalSpecifier: specifier,
     });
@@ -178,17 +178,10 @@ function resolveSpecifier({ currentFile, emittedFiles, packageDir, specifier }) 
 
   return resolvePackageSubpath({
     emittedFiles,
-    srcRoot: path.join(dtsRoot, workspacePackage.packageDir, 'src'),
+    packageDir: workspacePackage.packageDir,
     subpath: workspacePackage.subpath,
     originalSpecifier: specifier,
   });
-}
-
-function srcRootForFile(currentFile, packageDir) {
-  const srcRoot = path.join(dtsRoot, packageDir, 'src');
-  const humanRoot = path.join(srcRoot, 'human');
-  const rel = path.relative(humanRoot, currentFile);
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel) ? humanRoot : srcRoot;
 }
 
 function workspacePackageForSpecifier(specifier) {
@@ -206,7 +199,8 @@ function workspacePackageForSpecifier(specifier) {
   return;
 }
 
-function resolvePackageSubpath({ emittedFiles, srcRoot, subpath, originalSpecifier }) {
+function resolvePackageSubpath({ emittedFiles, packageDir, subpath, originalSpecifier }) {
+  const srcRoot = path.join(dtsRoot, packageDir, 'src');
   const directFile = path.resolve(srcRoot, `${subpath}.d.ts`);
   if (emittedFiles.has(directFile) || existsSync(directFile)) {
     return directFile;

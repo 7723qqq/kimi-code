@@ -16,7 +16,6 @@ export default defineConfig({
       KIMI_LOG_LEVEL: 'off',
     },
     include: ['test/**/*.test.ts'],
-    testTimeout: 15_000,
     // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
     server: {
       deps: {

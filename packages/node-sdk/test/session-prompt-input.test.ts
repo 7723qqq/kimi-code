@@ -94,4 +94,67 @@ describe('Session.prompt input normalization', () => {
       sessionId: 'ses_btw_start',
     });
   });
+
+  it('scopes interactive agent id across awaited session operations', async () => {
+    const rpc = new CapturingRpc();
+    const session = new Session({
+      id: 'ses_scoped_agent',
+      workDir: '/tmp/work',
+      rpc,
+    });
+
+    await rpc.withInteractiveAgent('agent-btw', async () => {
+      await Promise.resolve();
+      await session.prompt('side question');
+      await session.setPlanMode(true);
+      await session.getPlan();
+      await session.clearPlan();
+      await session.setPlanMode(false);
+      expect(rpc.interactiveAgentId).toBe('agent-btw');
+    });
+
+    expect(rpc.interactiveAgentId).toBe('main');
+    expect(rpc.promptCalls).toEqual([
+      {
+        sessionId: 'ses_scoped_agent',
+        agentId: 'agent-btw',
+        input: [{ type: 'text', text: 'side question' }],
+      },
+    ]);
+    expect(rpc.enterPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
+    expect(rpc.getPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
+    expect(rpc.clearPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
+    expect(rpc.cancelPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
+  });
+
+  it('isolates overlapping interactive agent scopes while RPC resolution is pending', async () => {
+    let releaseRpc!: () => void;
+    const getRpcDelay = new Promise<void>((resolve) => {
+      releaseRpc = resolve;
+    });
+    const rpc = new CapturingRpc();
+    rpc.delayGetRpcUntil(getRpcDelay);
+    const session = new Session({
+      id: 'ses_overlapping_agents',
+      workDir: '/tmp/work',
+      rpc,
+    });
+
+    const first = rpc.withInteractiveAgent('agent-a', () => session.setModel('model-a'));
+    const second = rpc.withInteractiveAgent('agent-b', () => session.setModel('model-b'));
+    await rpc.waitForGetRpcCalls(2);
+
+    expect(rpc.setModelCalls).toEqual([]);
+    releaseRpc();
+    await Promise.all([first, second]);
+
+    expect(rpc.interactiveAgentId).toBe('main');
+    expect(rpc.setModelCalls).toHaveLength(2);
+    expect(rpc.setModelCalls).toEqual(
+      expect.arrayContaining([
+        { sessionId: 'ses_overlapping_agents', agentId: 'agent-a', model: 'model-a' },
+        { sessionId: 'ses_overlapping_agents', agentId: 'agent-b', model: 'model-b' },
+      ]),
+    );
+  });
 });

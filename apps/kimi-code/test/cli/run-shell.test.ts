@@ -325,7 +325,6 @@ describe('runShell', () => {
       sessionId: undefined,
       endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
-      onUnexpectedError: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
@@ -346,7 +345,6 @@ describe('runShell', () => {
       },
       version: '1.2.3-test',
       workDir: process.cwd(),
-      telemetryDisabled: false,
     });
     expect(mocks.tuiStart).toHaveBeenCalledOnce();
     expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
@@ -407,20 +405,6 @@ describe('runShell', () => {
 
     const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({ agentProfile: 'reviewer' });
-  });
-
-  it('forwards the telemetry opt-out from config to the TUI startup input', async () => {
-    stubTuiStartup();
-    mocks.harnessGetConfig.mockResolvedValue({
-      providers: {},
-      defaultModel: 'k2',
-      telemetry: false,
-    });
-
-    await runShell(minimalCliOptions, '1.2.3-test');
-
-    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
-    expect(startupInput).toMatchObject({ telemetryDisabled: true });
   });
 
   it('forwards skillsDirs from CLI options to the harness', async () => {
