@@ -226,12 +226,12 @@ All commits and PR titles must follow [Conventional Commits](https://www.convent
 
 | Type     | Use for                                     | Example                                   |
 |----------|---------------------------------------------|-------------------------------------------|
-| feat     | A new feature                               | feat(agent-core): add tool dedup          |
+| feat     | A new feature                               | feat(kimi-agent): add tool dedup          |
 | fix      | A bug fix                                   | fix(tui): correct status bar alignment    |
 | docs     | Documentation only                          | docs: clarify install instructions        |
 | chore    | Tooling / housekeeping                      | chore: bump dependencies                  |
 | refactor | Internal refactor without behavior change   | refactor(kosong): extract retry helper    |
-| test     | Adding or improving tests                   | test(agent-core): cover skill resolver    |
+| test     | Adding or improving tests                   | test(kosong): cover skill resolver        |
 | ci       | CI / build pipeline changes                 | ci: cache the bun package cache           |
 | build    | Build system / artifact changes             | build(native): add win32-arm64 target     |
 | perf     | Performance improvement                     | perf(session): batch event flushes        |

@@ -69,12 +69,6 @@ export interface KimiHarnessRuntimeOptions {
    * session-scoped properties, and lose only to the canonical harness fields.
    */
   readonly sessionStartedDynamicProperties?: () => TelemetryProperties;
-  /**
-   * Owner-scoped [image] limits for prompt-ingestion compression in the
-   * client process (paste-time, ACP prompt conversion). In-process cores
-   * (SDKRpcClient) hand over their core's instance; daemon-client hosts
-   * leave it undefined and ingestion falls back to env/built-in defaults.
-   */
   readonly imageLimits?: ImageLimits | undefined;
 }
 
@@ -662,13 +656,12 @@ export class KimiHarness {
       ...this.sessionStartedDynamicProperties?.(),
       // Canonical fields are owned by the harness and must win over any
       // caller-supplied sessionStartedProperties that happen to share a key.
-      // `client_id` is always null here: a single-process host has no
-      // per-connection client id (that concept only exists for daemon clients,
-      // see core-impl.ts). Kept as an explicit key so both producers share the
-      // same session_started schema.
-      client_id: null,
-      client_name: this.identity?.productName ?? null,
-      client_version: this.identity?.version ?? null,
+      // A single-process host has no per-connection client id, so `client_id`
+      // stays empty; empty strings (unlike null) survive payload flattening,
+      // keeping the client-attribution keys present on every row.
+      client_id: '',
+      client_name: this.identity?.productName ?? '',
+      client_version: this.identity?.version ?? '',
       ui_mode: this.uiMode,
       resumed,
     });

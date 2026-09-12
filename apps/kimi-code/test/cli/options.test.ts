@@ -5,7 +5,7 @@
  * Run: cd apps/kimi-code && bunx vitest run test/cli/options.test.ts
  */
 
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
@@ -515,8 +515,11 @@ describe('CLI options parsing', () => {
     it('accepts the flags in prompt mode', () => {
       const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
       expect(validateOptions(opts, {}).uiMode).toBe('print');
-      const opts2 = parse(['-p', 'hi', '--agent', 'reviewer']);
-      expect(validateOptions(opts2, {}).uiMode).toBe('print');
+    });
+
+    it('accepts --agent in prompt mode', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(validateOptions(opts, {}).uiMode).toBe('print');
     });
   });
 
@@ -580,11 +583,6 @@ describe('CLI options parsing', () => {
     });
 
     it('registers the visible sub-commands', () => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_REMOTE_CONTROL', '0');
-      onTestFinished(() => {
-        vi.unstubAllEnvs();
-      });
       const program = createProgram(
         '0.0.0',
         () => {},
@@ -605,6 +603,7 @@ describe('CLI options parsing', () => {
         'acp',
         'web',
         'server',
+        'rc',
         'login',
         'doctor',
         'vis',

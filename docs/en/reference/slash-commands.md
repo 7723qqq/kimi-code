@@ -16,7 +16,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/logout` | `/disconnect` | Clear credentials for the currently selected account | No |
 | `/provider` | `/providers` | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
 | `/model` | — | Switch the LLM model used in the current session | Yes |
-| `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Hidden when the subagent model pool is disabled | Yes |
+| `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)) | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
 | `/experiments` | `/experimental` | Open the experimental feature panel | No |
 | `/permission` | — | Select a permission mode | Yes |
@@ -48,8 +48,8 @@ Some commands are only available in the idle state. Executing these commands whi
 
 | Command | Alias | Description | Always available |
 | --- | --- | --- | --- |
-| `/ask-when-needed [on\|off]` | `/yolo`, `/yes` | Toggle Ask When Needed mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. When enabled, routine edits and commands run automatically; risky actions, questions, and plans still ask | Yes |
-| `/never-ask [on\|off]` | `/auto` | Toggle Never Ask mode. When enabled, it never interrupts you; everything runs and is decided automatically | Yes |
+| `/yolo` | `/yes` | Open the permission mode list with Ask When Needed preselected; press `Enter` to confirm. In this mode, routine edits and commands run automatically; risky actions, questions, and plans still ask | Yes |
+| `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, Kimi never interrupts you; everything runs and is decided automatically | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
 | `/effort` | `/thinking` | Switch thinking effort | Yes |
@@ -61,7 +61,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: warning
-`/ask-when-needed` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/ask-when-needed`; `Bash` inside Plan mode is still subject to the regular `/ask-when-needed` allow rules.
+`/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
 :::
 
 ## Autonomous Goal

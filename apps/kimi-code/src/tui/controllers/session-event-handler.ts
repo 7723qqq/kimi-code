@@ -64,14 +64,15 @@ import {
   type UpcomingGoal,
 } from '../goal-queue-store';
 import type { TUIState } from '../tui-state';
-import type {
-  AppState,
-  LivePaneState,
-  QueuedMessage,
-  SkillActivationTrigger,
-  ToolCallBlockData,
-  ToolResultBlockData,
-  TranscriptEntry,
+import {
+  sumTokenUsage,
+  type AppState,
+  type LivePaneState,
+  type QueuedMessage,
+  type SkillActivationTrigger,
+  type ToolCallBlockData,
+  type ToolResultBlockData,
+  type TranscriptEntry,
 } from '../types';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import {
@@ -93,9 +94,11 @@ import {
 } from '../utils/mcp-server-status';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
+import { NotifyController } from './notify';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
 import { SubAgentEventHandler } from './subagent-event-handler';
+import type { SurveyController } from './survey-controller';
 import type { TasksBrowserController } from './tasks-browser';
 
 export interface SessionEventHost {
@@ -146,6 +149,7 @@ export interface SessionEventHost {
   readonly lastDispatchedUserEntryId?: string;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly surveyController: SurveyController;
 }
 
 /**
@@ -164,6 +168,7 @@ function estimateTokensFromText(text: string): number {
 }
 
 export class SessionEventHandler {
+  readonly notifications: NotifyController;
   readonly subAgentEventHandler: SubAgentEventHandler;
   private readonly pluginUpdateNotifier: PluginUpdateNotifier;
 
@@ -171,6 +176,7 @@ export class SessionEventHandler {
     private readonly host: SessionEventHost,
     pluginUpdateNotifier?: PluginUpdateNotifier,
   ) {
+    this.notifications = new NotifyController(host.state);
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
       backgroundTasks: this.backgroundTasks,
       backgroundTaskTranscriptedTerminal: this.backgroundTaskTranscriptedTerminal,
@@ -216,6 +222,7 @@ export class SessionEventHandler {
     this.backgroundTasks.clear();
     this.backgroundTaskTranscriptedTerminal.clear();
     this.subAgentEventHandler.resetRuntimeState();
+    this.notifications.reset();
     this.renderedSkillActivationIds.clear();
     this.renderedPluginCommandActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
@@ -303,6 +310,7 @@ export class SessionEventHandler {
   }
 
   handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void {
+    this.notifications.handleEvent(event);
     if (this.subAgentEventHandler.routeChildAgentEvent(event)) return;
 
     if ('turnId' in event && event.turnId !== undefined) {
@@ -739,6 +747,7 @@ export class SessionEventHandler {
 
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
+    this.host.surveyController.notifyToolCallStarted();
     streamingUI.flushNow();
     this.toolStartTimes.set(event.toolCallId, Date.now());
     const { turnId, step } = streamingUI.getTurnContext();
@@ -864,6 +873,9 @@ export class SessionEventHandler {
     }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
+    if (event.usage?.total !== undefined) {
+      patch.cumulativeTokens = sumTokenUsage(event.usage.total);
+    }
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.swarmMode === false) {
       this.host.state.swarmModeEntry = undefined;
@@ -1301,6 +1313,7 @@ export class SessionEventHandler {
     // is expected). Cancellations do neither: the context was not cut.
     this.host.recordSessionActivity();
     this.host.noteCompactionFinished();
+    this.host.surveyController.notifyCompactionFinished();
     this.finishCompaction(sendQueued);
   }
 

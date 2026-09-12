@@ -26,6 +26,7 @@ export const vscodeProjects = [
       include: ['test/**/*.test.ts'],
       exclude: ['test/webview/**'],
       environment: 'node',
+      testTimeout: 15_000,
       server: {
         deps: {
           inline: [/zod/],

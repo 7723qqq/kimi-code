@@ -99,7 +99,7 @@ describe('kimi doctor', () => {
     expect(out).toContain('built-in defaults will apply');
   });
 
-  it('keeps v2 validation when the legacy flag is set', async () => {
+  it('keeps v2 validation for a valid config', async () => {
     const configPath = join(dir, 'config.toml');
     await writeFile(
       configPath,
@@ -119,7 +119,6 @@ max_context_size = 262144
 `,
       'utf-8',
     );
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
     const { deps, stdout, stderr } = makeDeps();
 
     const code = await handleDoctor(deps, { target: 'config' });
@@ -129,7 +128,7 @@ max_context_size = 262144
     expect(stdout.join('')).toContain(`OK config.toml  ${configPath}`);
   });
 
-  it('reports schema-invalid sections with the v2 engine when the legacy flag is set', async () => {
+  it('reports schema-invalid sections', async () => {
     await writeFile(
       join(dir, 'config.toml'),
       `
@@ -140,7 +139,6 @@ max_context_size = "large"
 `,
       'utf-8',
     );
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
     const { deps, stderr } = makeDeps();
 
     const code = await handleDoctor(deps, { target: 'config' });

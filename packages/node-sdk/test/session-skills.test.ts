@@ -75,12 +75,80 @@ beforeEach(() => {
   fakeProviderState.responseText = 'skill response';
 });
 
+const CONFIG_ENV_PATTERN =
+  /^(KIMI_MODEL_|KIMI_LOOP_|KIMI_MCP_|KIMI_WEB_|KIMI_IMAGE_|KIMI_CODE_BACKGROUND_|KIMI_CODE_MODEL_CATALOG_)/;
+
+/** Keep ambient env from injecting providers/models into the v2 engine. */
+function scrubConfigEnv(): () => void {
+  const saved: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && CONFIG_ENV_PATTERN.test(key)) {
+      saved[key] = value;
+      delete process.env[key];
+    }
+  }
+  return () => {
+    for (const [key, value] of Object.entries(saved)) {
+      process.env[key] = value;
+    }
+  };
+}
+
 afterEach(async () => {
   await removeTempDirs(tempDirs);
   vi.unstubAllEnvs();
 });
 
 describe('Session skills', () => {
+  it('submits multiple skills with a prompt as one grouped turn', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    await writeSkill(workDir, 'security', [
+      '---',
+      'name: security',
+      'description: Check security',
+      '---',
+      '',
+      'Check the requested file for security issues.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_multi_skill', workDir });
+      const events: Event[] = [];
+      const unsubscribe = session.onEvent((event) => {
+        events.push(event);
+      });
+      const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
+
+      await session.promptWithSkills(
+        'Review this change.',
+        [{ name: 'review' }, { name: 'security' }],
+      );
+      await ended;
+      unsubscribe();
+
+      const activations = events.filter(
+        (event): event is Extract<Event, { type: 'skill.activated' }> =>
+          event.type === 'skill.activated',
+      );
+      expect(activations.map((event) => event.skillName)).toEqual(['review', 'security']);
+      expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1);
+    } finally {
+      await harness.close();
+      restoreEnv();
+    }
+  });
+
   it('lists session skills without exposing content', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');

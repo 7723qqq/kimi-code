@@ -154,7 +154,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   const feedback = toTerminalHyperlink('feedback', 'https://kimi.com/code/feedback');
   return [
     '',
-    `  ${title('Kimi Remote Control ready')}  ${muted(`${getVersion()} (experimental)`)}`,
+    `  ${title('Kimi Remote Control ready')}  ${muted(getVersion())}`,
     `  ${muted('Use Kimi Code on this machine from your phone or another computer.')}`,
     '',
     `  ${label('1.')} Scan the QR code, or open ${link(options.url)}`,
@@ -169,7 +169,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${label('QR code PNG: ')}${options.pngPath} ${muted('(open this if the QR above does not scan)')}`,
     `  ${label('Local UI: ')}${muted(options.localOrigin)} ${muted('(LAN: --host)')}`,
     '',
-    `  ${muted('Experimental —')} ${docs} ${muted('·')} ${feedback}`,
+    `  ${docs} ${muted('·')} ${feedback}`,
     `  ${label('Logs: ')}${muted('off (--log-level info)')} ${muted('·')} ${label('Stop: ')}${muted('Ctrl+C')}`,
     '',
   ].join('\n');

@@ -9,10 +9,7 @@ import {
 
 import { createKimiCodeUserAgent } from '#/cli/version';
 
-import type { SkillListSession } from '../commands';
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
-import type { TUIState } from '../tui-state';
-import type { AppState, KimiTUIOptions } from '../types';
 import {
   refreshAllProviderModels,
   type RefreshProviderHost,
@@ -20,10 +17,9 @@ import {
   type RefreshResult,
 } from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
-import type { SessionEventHandler } from './session-event-handler';
+import type { AppState, KimiTUIOptions } from '../types';
 
 export interface AuthFlowHost {
-  state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
@@ -31,15 +27,8 @@ export interface AuthFlowHost {
   setAppState(patch: Partial<AppState>): void;
   setStartupReady(): void;
   resetSessionRuntime(): void;
-  setSession(session: Session): Promise<void>;
-  syncRuntimeState(session?: Session): Promise<void>;
   appendStartupNotice(extra: string): void;
   hydrateLazyConfigDefaults(): Promise<void>;
-  readonly sessionEventHandler: SessionEventHandler;
-  fetchSessions(): Promise<void>;
-  updateTerminalTitle(): void;
-  refreshSkillCommands(session?: SkillListSession): Promise<void>;
-  refreshPluginCommands(session?: Session): Promise<void>;
 }
 
 export class AuthFlowController {
@@ -68,14 +57,26 @@ export class AuthFlowController {
     this.host.setStartupReady();
   }
 
-  async activateModelAfterLogin(model: string, effort?: string): Promise<void> {
+  /**
+   * Apply a model pick to the runtime. Returns whether the activation made
+   * the engine emit `model_switch` — it reached an already-live session AND
+   * changed the bound alias (both engines track the event only on an actual
+   * alias change). `false` when no live session existed (session creation is
+   * deferred to the first prompt) or the alias was already bound, so callers
+   * mirroring the engine's telemetry must stay the producer for exactly
+   * those paths. Thinking-effort changes are orthogonal: the engine's
+   * `thinking_toggle` fires from `setThinking` regardless of this flag.
+   */
+  async activateModelAfterLogin(model: string, effort?: string): Promise<boolean> {
     const { host } = this;
     if (host.session !== undefined) {
-      await host.session.setModel(model);
+      const session = host.session;
+      const modelChanged = (await session.getStatus()).model !== model;
+      await session.setModel(model);
       if (effort !== undefined) {
-        await host.session.setThinking(effort);
+        await session.setThinking(effort);
       }
-      return;
+      return modelChanged;
     }
 
     // Lazy session creation: configure the model only; the session is created
@@ -88,9 +89,15 @@ export class AuthFlowController {
       patch.lazySessionThinking = effort as ThinkingEffort;
     }
     host.setAppState(patch);
+    return false;
   }
 
-  async refreshConfigAfterLogin(): Promise<void> {
+  /**
+   * Re-read config and reactivate the persisted model after login or a
+   * config-refreshing command. Returns whatever the activation reports (see
+   * {@link activateModelAfterLogin}); `false` when no activation ran.
+   */
+  async refreshConfigAfterLogin(): Promise<boolean> {
     const { host } = this;
     const config = await host.harness.getConfig({ reload: true });
     const availableModels = config.models ?? {};
@@ -105,16 +112,19 @@ export class AuthFlowController {
         await host.hydrateLazyConfigDefaults();
       }
       host.setAppState({ availableModels, availableProviders });
-      return;
+      return false;
     }
 
-    await this.activateModelAfterLogin(defaultModel, thinkingEffortFromConfig(config.thinking));
+    const activated = await this.activateModelAfterLogin(
+      defaultModel,
+      thinkingEffortFromConfig(config.thinking),
+    );
     if (host.session === undefined) {
       // Session-less: also hydrate permission/plan defaults from the
       // refreshed config, same as startup.
       await host.hydrateLazyConfigDefaults();
       host.setAppState({ availableModels, availableProviders });
-      return;
+      return activated;
     }
     const appStatePatch: Partial<AppState> = {
       availableModels,
@@ -123,6 +133,7 @@ export class AuthFlowController {
       maxContextTokens: selected.maxContextSize,
     };
     host.setAppState(appStatePatch);
+    return activated;
   }
 
   async refreshConfigAfterLogout(): Promise<void> {

@@ -40,11 +40,9 @@ export class BridgeHandler {
     private readonly showLogs: ShowLogsFn,
     private readonly writeLog: (message: string) => void,
   ) {
-    const useAgentCoreV1 = VSCodeSettings.useAgentCoreV1;
     try {
       this.runtime = new KimiRuntime({
         version: VSCodeSettings.getExtensionConfig().version,
-        useAgentCoreV1,
         broadcast,
         captureBaseline: (session, filePath, webviewIds) => {
           this.captureFileBaseline(session, filePath, webviewIds);
@@ -52,13 +50,8 @@ export class BridgeHandler {
         log: (message, error) => this.logRuntimeError(message, error),
       });
     } catch (error) {
-      // No silent fallback: report the failure so the user can report it. The
-      // legacy v1 engine was removed, so no rollback hint is offered anymore.
-      const rollbackHint = useAgentCoreV1
-        ? ''
-        : " The legacy v1 engine was removed; the 'kimi.useAgentCoreV1' setting is deprecated and cannot work around this.";
       throw new Error(
-        `Failed to start the Kimi engine: ${error instanceof Error ? error.message : String(error)}.${rollbackHint}`,
+        `Failed to start the Kimi engine: ${error instanceof Error ? error.message : String(error)}.`,
         { cause: error },
       );
     }

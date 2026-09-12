@@ -25,9 +25,6 @@ export function effectiveModelAlias(alias: ModelAlias, providerType?: ProviderTy
     delete effective.defaultEffort;
   }
 
-  // The input cap can never exceed the effective total window (an override
-  // lowering max_context_size must not leave a stale, larger cap behind).
-  // Build a copy for the clamp — never rewrite the caller's config record.
   const clamped =
     effective.maxInputSize !== undefined && effective.maxInputSize > effective.maxContextSize
       ? { ...effective, maxInputSize: effective.maxContextSize }

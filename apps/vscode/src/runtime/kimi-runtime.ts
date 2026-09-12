@@ -1,6 +1,5 @@
 import {
-  createKimiHarnessNative,
-  createKimiHarnessV2,
+  createKimiHarness,
   type KimiHarness,
   type Session,
   type SessionSummary,
@@ -30,12 +29,6 @@ export interface KimiRuntimeOptions {
   readonly log: (message: string, error?: unknown) => void;
   readonly homeDir?: string;
   readonly harness?: KimiHarness;
-  /**
-   * Deprecated: the legacy v1 harness was removed, and `createKimiHarness` is
-   * the same factory as `createKimiHarnessV2`, so this option no longer changes
-   * engine selection. Kept for compatibility.
-   */
-  readonly useAgentCoreV1?: boolean;
 }
 
 export interface OpenSessionOptions {
@@ -63,10 +56,9 @@ export class KimiRuntime {
     this.broadcast = options.broadcast;
     this.captureBaseline = options.captureBaseline;
     this.log = options.log;
-    const createHarness = options.useAgentCoreV1 ? createKimiHarnessV2 : createKimiHarnessNative;
     this.harness =
       options.harness ??
-      createHarness({
+      createKimiHarness({
         homeDir: options.homeDir,
         identity: {
           productName: 'kimi-code-vscode',

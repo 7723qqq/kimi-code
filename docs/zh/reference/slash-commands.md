@@ -16,7 +16,7 @@
 | `/logout` | `/disconnect` | 清除当前所选账号的凭据 | 否 |
 | `/provider` | `/providers` | 打开交互式供应商管理器，查看、添加和删除已配置的供应商。详见[平台与模型 — `/provider` 与供应商管理](../configuration/providers.md#provider-—-交互式供应商管理) | 是 |
 | `/model` | — | 切换当前会话使用的 LLM 模型 | 是 |
-| `/secondary-model` | `/subagent-model` | 选择 subagent 的默认模型（写入 `[secondary_model] default_model`，详见[subagent 模型池](../configuration/config-files.md#subagent-模型池)）。subagent 模型池被禁用时不显示 | 是 |
+| `/secondary-model` | `/subagent-model` | 选择 subagent 的默认模型（写入 `[secondary_model] default_model`，详见[subagent 模型池](../configuration/config-files.md#subagent-模型池)） | 是 |
 | `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
 | `/experiments` | `/experimental` | 打开实验功能面板 | 否 |
 | `/permission` | — | 选择权限模式 | 是 |
@@ -48,8 +48,8 @@
 
 | 命令 | 别名 | 说明 | 随时可用 |
 | --- | --- | --- | --- |
-| `/ask-when-needed [on\|off]` | `/yolo`、`/yes` | 切换「必要时询问」模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。开启后常规修改和命令自动完成；高危操作、提问和计划仍会问你 | 是 |
-| `/never-ask [on\|off]` | `/auto` | 切换「完全自动」模式。开启后完全不打断，所有操作和判断自动完成 | 是 |
+| `/yolo` | `/yes` | 打开权限模式列表并预选 "Ask When Needed"，按 `Enter` 确认开启。该模式下常规修改和命令自动完成；高危操作、提问和计划仍会问你 | 是 |
+| `/auto` | — | 打开权限模式列表并预选 "Never Ask"，按 `Enter` 确认开启。该模式下完全不打断，所有操作和判断自动完成 | 是 |
 | `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
@@ -61,7 +61,7 @@
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 
 ::: warning 注意
-`/ask-when-needed` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/ask-when-needed` 跳过；Plan 模式下的 `Bash` 也按 `/ask-when-needed` 的普通放行规则处理。
+`/yolo` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/yolo` 跳过；Plan 模式下的 `Bash` 也按 `/yolo` 的普通放行规则处理。
 :::
 
 ## 目标模式

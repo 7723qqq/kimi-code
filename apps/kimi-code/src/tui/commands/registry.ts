@@ -172,8 +172,8 @@ function formatDirectoryCompletionValue(
 
 export const BUILTIN_SLASH_COMMANDS = [
   {
-    name: 'ask-when-needed',
-    aliases: ['yolo', 'yes'],
+    name: 'yolo',
+    aliases: ['yes'],
     get description() {
       return t('tui.slashCommands.yolo');
     },
@@ -181,8 +181,8 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'never-ask',
-    aliases: ['auto'],
+    name: 'auto',
+    aliases: [],
     get description() {
       return t('tui.slashCommands.auto');
     },
@@ -279,7 +279,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     },
     priority: 90,
     availability: 'always',
-    experimentalFlag: 'secondary-model',
   },
   {
     name: 'effort',
@@ -562,7 +561,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     },
     priority: 40,
     availability: 'always',
-    experimentalFlag: 'remote-control',
   },
   {
     name: 'exit',

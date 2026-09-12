@@ -42,9 +42,6 @@ export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number)
   }
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  // Attach the catch eagerly (synchronously) so `promise` is always consumed and
-  // a late rejection can never become an unhandled rejection. Before the timeout
-  // wins, the handler rethrows so a real cleanup failure still propagates.
   const guarded = promise.catch((error: unknown) => {
     if (timedOut) return;
     throw error;

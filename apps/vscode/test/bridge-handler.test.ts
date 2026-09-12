@@ -56,8 +56,6 @@ const host = vi.hoisted(() => {
     watcher,
     harness,
     createKimiHarness: vi.fn(() => harness),
-    createKimiHarnessV2: vi.fn(() => harness),
-    createKimiHarnessNative: vi.fn(() => harness),
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
@@ -81,8 +79,6 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   return {
     ...original,
     createKimiHarness: () => host.createKimiHarness(),
-    createKimiHarnessV2: () => host.createKimiHarnessV2(),
-    createKimiHarnessNative: () => host.createKimiHarnessNative(),
   };
 });
 
@@ -101,8 +97,6 @@ beforeEach(async () => {
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
   host.createKimiHarness.mockImplementation(() => host.harness);
-  host.createKimiHarnessV2.mockImplementation(() => host.harness);
-  host.createKimiHarnessNative.mockImplementation(() => host.harness);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
@@ -135,25 +129,12 @@ describe('Engine startup', () => {
     );
   }
 
-  it('reports the rollback setting when the default engine cannot start', () => {
-    // Keep native the default even when the suite itself runs under the legacy flag.
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
-    host.createKimiHarnessNative.mockImplementationOnce(() => {
+  it('surfaces the failure when the engine cannot start', () => {
+    host.createKimiHarness.mockImplementationOnce(() => {
       throw new Error('engine boom');
     });
 
-    expect(constructBridge).toThrow(
-      /Failed to start the Kimi engine: engine boom\..*kimi\.useAgentCoreV1/s,
-    );
-  });
-
-  it('reports no rollback hint when the legacy engine itself cannot start', () => {
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
-    host.createKimiHarnessV2.mockImplementationOnce(() => {
-      throw new Error('legacy boom');
-    });
-
-    expect(constructBridge).toThrow(/^Failed to start the Kimi engine: legacy boom\.$/);
+    expect(constructBridge).toThrow(/^Failed to start the Kimi engine: engine boom\.$/);
   });
 });
 

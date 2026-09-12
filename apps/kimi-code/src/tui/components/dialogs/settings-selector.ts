@@ -9,6 +9,7 @@ export type SettingsSelection =
   | 'editor'
   | 'language'
   | 'permission'
+  | 'survey'
   | 'experiments'
   | 'upgrade'
   | 'usage'
@@ -41,6 +42,11 @@ function getSettingsOptions(): readonly ChoiceOption[] {
       value: 'editor',
       label: t('tui.dialogs.settingsSelector.editor'),
       description: t('tui.dialogs.settingsSelector.editorDesc'),
+    },
+    {
+      value: 'survey',
+      label: t('tui.dialogs.settingsSelector.survey'),
+      description: t('tui.dialogs.settingsSelector.surveyDesc'),
     },
     {
       value: 'experiments',
@@ -82,6 +88,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'language' ||
     value === 'editor' ||
     value === 'permission' ||
+    value === 'survey' ||
     value === 'experiments' ||
     value === 'upgrade' ||
     value === 'usage' ||

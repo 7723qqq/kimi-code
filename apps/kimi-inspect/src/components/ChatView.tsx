@@ -16,15 +16,15 @@
  * Rendering is turn-granular (turn → step → frame) and typed entirely by the
  * transcript data model. Prompts/cancels go through the `IAgentPromptService`
  * / `IAgentLoopService` channels
- * over the debug RPC surface (`/api/v1/debug`); the running indicator
+ * over the debug RPC surface (`/api/v1/debug`); interaction answers
+ * (approve/reject, answer/dismiss) go through the public REST endpoints
+ * (`src/interactions/api.ts`); the running indicator
  * derives from transcript state (`meta.activity` / running turns).
  */
 
 import { IAgentLoopService } from '../compat/v2';
 import { IAgentPromptService } from '../compat/v2';
-import { ISessionApprovalService } from '../compat/v2';
 import {
-  ISessionQuestionService,
   type QuestionItem,
   type QuestionRequest,
 } from '../compat/v2';
@@ -61,6 +61,12 @@ import {
 import { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
 import { t } from '../i18n';
+import {
+  answerQuestion,
+  decideApproval,
+  dismissQuestion,
+  type QuestionAnswerWire,
+} from '../interactions/api';
 import type { SearchHit } from '../search/api';
 import {
   fetchTranscriptAttachment,
@@ -1168,7 +1174,7 @@ function InteractionEntityView({
   interaction: TranscriptInteraction;
   nested?: boolean;
 }) {
-  const { klient } = useConnection();
+  const { baseUrl, config } = useConnection();
   const sessionId = useContext(SessionContext);
   const [busy, setBusy] = useState(false);
   const [respondError, setRespondError] = useState<unknown>(null);
@@ -1182,6 +1188,7 @@ function InteractionEntityView({
     interaction.interactionKind === 'question'
       ? (interaction.request as QuestionRequest | undefined)
       : undefined;
+  const api = { baseUrl, token: config.token, sessionId };
 
   const run = (fn: () => Promise<unknown>): void => {
     setBusy(true);
@@ -1196,12 +1203,7 @@ function InteractionEntityView({
   };
 
   const decide = (decision: 'approved' | 'rejected'): void => {
-    run(() =>
-      klient
-        .session(sessionId)
-        .service(ISessionApprovalService)
-        .decide(interaction.interactionId, { decision }),
-    );
+    run(() => decideApproval(api, interaction.interactionId, decision));
   };
 
   const toggleOption = (question: QuestionItem, label: string): void => {
@@ -1220,27 +1222,34 @@ function InteractionEntityView({
   };
 
   const submitAnswers = (): void => {
-    const answers: Record<string, string> = {};
-    for (const question of questionRequest?.questions ?? []) {
-      const parts = [...(selections[question.question] ?? [])];
+    const answers: Record<string, QuestionAnswerWire> = {};
+    for (const [index, question] of (questionRequest?.questions ?? []).entries()) {
+      const selected = selections[question.question] ?? [];
+      const optionIds = selected.flatMap((label) => {
+        const optionIndex = question.options.findIndex((option) => option.label === label);
+        return optionIndex < 0 ? [] : [`opt_${index}_${optionIndex}`];
+      });
       const other = (others[question.question] ?? '').trim();
-      if (other !== '') parts.push(other);
-      if (parts.length > 0) answers[question.question] = parts.join(', ');
+      if (other !== '' && optionIds.length > 0) {
+        answers[`q_${index}`] = { kind: 'multi_with_other', option_ids: optionIds, other_text: other };
+      } else if (other !== '') {
+        answers[`q_${index}`] = { kind: 'other', text: other };
+      } else if (optionIds.length > 1 || (question.multiSelect === true && optionIds.length > 0)) {
+        answers[`q_${index}`] = { kind: 'multi', option_ids: optionIds };
+      } else if (optionIds.length === 1) {
+        answers[`q_${index}`] = { kind: 'single', option_id: optionIds[0]! };
+      }
     }
-    // Mirror the TUI adapter: no answers at all resolves with null.
-    const result = Object.keys(answers).length > 0 ? { answers, method: 'enter' as const } : null;
-    run(() =>
-      klient
-        .session(sessionId)
-        .service(ISessionQuestionService)
-        .answer(interaction.interactionId, result),
-    );
+    // Mirror the TUI adapter: no answers at all dismisses the question.
+    if (Object.keys(answers).length === 0) {
+      dismiss();
+      return;
+    }
+    run(() => answerQuestion(api, interaction.interactionId, answers, 'enter'));
   };
 
   const dismiss = (): void => {
-    run(() =>
-      klient.session(sessionId).service(ISessionQuestionService).dismiss(interaction.interactionId),
-    );
+    run(() => dismissQuestion(api, interaction.interactionId));
   };
 
   return (

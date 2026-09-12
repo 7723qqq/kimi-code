@@ -30,8 +30,6 @@ import { IAgentPlanService } from './compat/v2';
 import { ISessionInitService } from './compat/v2';
 import { IAgentSwarmService } from './compat/v2';
 import { IProviderService } from './compat/v2';
-import { ISessionApprovalService } from './compat/v2';
-import { ISessionQuestionService } from './compat/v2';
 import { ISessionMetadata } from './compat/v2';
 import { ISessionWorkspaceContext } from './compat/v2';
 
@@ -111,18 +109,6 @@ export const SESSION_PANELS: readonly ServicePanelDef[] = [
       { label: 'Archive', danger: true, run: (svc) => call(svc, 'setArchived', true) },
       { label: 'Unarchive', run: (svc) => call(svc, 'setArchived', false) },
     ],
-  },
-  {
-    id: String(ISessionApprovalService),
-    label: 'SessionApprovalService',
-    scope: 'session',
-    fetch: (svc) => call(svc, 'listPending'),
-  },
-  {
-    id: String(ISessionQuestionService),
-    label: 'SessionQuestionService',
-    scope: 'session',
-    fetch: (svc) => call(svc, 'listPending'),
   },
   {
     id: String(ISessionWorkspaceContext),

@@ -77,8 +77,10 @@ export {
   buildDaemonFileUrl,
   buildMediaPathTag,
   isDaemonFileUrl,
+  matchSingleMediaPathTag,
   parseDaemonFileUrl,
 } from '#/media/mediaRef';
+export type { DaemonFileRef, MediaKind } from '#/media/mediaRef';
 export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
 // Host-side config → engine-param resolvers (env > config precedence, see

@@ -18,7 +18,7 @@ import {
   type ProviderDeps,
 } from '#/cli/sub/provider';
 
-// Spy on the SDK harness factories so the default-deps engine routing can be
+// Spy on the SDK harness factory so the default-deps construction can be
 // asserted without booting a real engine. The real implementations stay in
 // place for everything else the handlers use.
 const harnessRouting = vi.hoisted(() => ({
@@ -62,8 +62,7 @@ function makeHarness(initial: KimiConfig): {
   removeCalls: string[];
 } {
   // `persisted` simulates the on-disk config; the real RPC's `removeProvider`
-  // reads from / writes to disk on every call (see
-  // `packages/agent-core-v2/src/kosong/provider/providerService.ts` `ProviderService.delete`). Tests must
+  // reads from / writes to disk on every call. Tests must
   // model this: anything the handler builds up in its in-memory `config`
   // object disappears unless it is flushed via `setConfig` BEFORE the next
   // `removeProvider`.
@@ -76,7 +75,7 @@ function makeHarness(initial: KimiConfig): {
     setConfig: async (patch) => {
       setConfigCalls.push(structuredClone(patch));
       // Mirror the real `setKimiConfig`: deep-merge with undefined keys
-      // skipped (see `packages/agent-core-v2/src/app/config/configPure.ts deepMerge`). This is
+      // skipped. This is
       // load-bearing for tests that assert `setConfig({defaultModel:
       // undefined})` does NOT wipe a key from disk — only `removeProvider`
       // can.

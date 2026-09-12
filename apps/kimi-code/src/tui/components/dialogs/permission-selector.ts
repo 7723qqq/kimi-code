@@ -30,6 +30,7 @@ function isPermissionModeChoice(value: string): value is PermissionMode {
 
 export interface PermissionSelectorOptions {
   readonly currentValue: PermissionMode;
+  readonly initialValue?: PermissionMode;
   readonly onSelect: (mode: PermissionMode) => void;
   readonly onCancel: () => void;
 }
@@ -40,6 +41,7 @@ export class PermissionSelectorComponent extends ChoicePickerComponent {
       title: t('tui.dialogs.permissionSelector.title'),
       options: [...permissionOptions()],
       currentValue: opts.currentValue,
+      initialValue: opts.initialValue,
       onSelect: (value) => {
         if (isPermissionModeChoice(value)) opts.onSelect(value);
       },

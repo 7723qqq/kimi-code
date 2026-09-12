@@ -15,16 +15,12 @@ Current publishable packages:
 
 All other workspace packages are private internal packages, are not published to npm, and are excluded via `ignore` in `.changeset/config.json`. The authoritative ignore list lives in `.changeset/config.json` and currently contains:
 
-<<<<<<< HEAD
-=======
-- `@moonshot-ai/agent-core`
 - `@moonshot-ai/kaos`
 - `@moonshot-ai/kimi-code-oauth`
 - `@moonshot-ai/kimi-telemetry`
 - `@moonshot-ai/kosong`
 - `@moonshot-ai/migration-legacy`
 - `@moonshot-ai/protocol`
->>>>>>> @moonshot-ai/kimi-code@0.40.1
 - `@moonshot-ai/vis`
 - `@moonshot-ai/vis-server`
 - `@moonshot-ai/vis-web`
@@ -150,7 +146,8 @@ The root-level `bun run publish` first runs typecheck, lint, sherif, test, build
 - Changes under `plugins/` (the bundled official plugins such as `kimi-datasource`) do **not** need a changeset: each plugin carries its own version in `kimi.plugin.json` and `plugins/marketplace.json` and is distributed via the marketplace CDN, separately from the `@moonshot-ai/kimi-code` npm package.
 - Changeset files must be committed to the repository — release PRs are only triggered after they're merged.
 - Release PRs require human review and merge; they will not publish automatically.
-- Changesets for private internal packages are used to keep their versions and changelogs in sync even though they are not published. When an internal-package change alters user-visible behavior of a publishable package, also add a changeset to the affected publishable package. For example, when a bug fixed in `@moonshot-ai/agent-core-v2` resolves an issue CLI users encounter, add a changeset to `@moonshot-ai/kimi-code` describing the user-visible fix.
+- Do not add release changesets for private internal packages; only select `@moonshot-ai/kimi-code` and `@moonshot-ai/kimi-code-sdk`.
+- If a change in an underlying internal package alters user-visible behavior or public API of a publishable package, add a changeset to the affected publishable package. For example, when a bug fixed in `@moonshot-ai/kosong` resolves an issue CLI users encounter, add a changeset to `@moonshot-ai/kimi-code` describing the user-visible fix.
 - `@moonshot-ai/kimi-code` is the official CLI package name; after a global install it provides the `kimi` command.
 - Make sure each publishable package on npm has a Trusted Publisher configured.
 
