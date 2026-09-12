@@ -46,6 +46,7 @@ handover.md
 .qoder/
 .arts/
 .zcode/
+.vt.*
 
 # Stray Cargo build dirs created outside their package (e.g. /target/prompt_test)
 /target/
