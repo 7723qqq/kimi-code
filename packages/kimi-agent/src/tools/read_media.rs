@@ -41,6 +41,41 @@ const JPEG_QUALITY_STEPS: [u8; 4] = [80, 60, 40, 20];
 const MODEL_ACCEPTED_IMAGE_MIMES: [&str; 4] =
     ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+/// Upstream #3649: Kimi models accept BMP, HEIC, and HEIF in addition to baseline formats.
+pub const KIMI_ACCEPTED_IMAGE_MIMES: [&str; 7] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/heic",
+    "image/heif",
+];
+
+/// Upstream #3649: Default raw-byte inline budget (3.75 MB).
+pub const DEFAULT_INLINE_IMAGE_BYTE_BUDGET: u64 = 3_932_160;
+
+/// Upstream #3649: Kimi model inline image budget (5 MB).
+pub const KIMI_INLINE_IMAGE_BYTE_BUDGET: u64 = 5 * 1024 * 1024;
+
+/// Check if an image MIME type is accepted by the given provider (defaulting to baseline set).
+pub fn is_model_accepted_image_mime(mime: &str, provider: Option<&str>) -> bool {
+    if provider == Some("kimi") {
+        KIMI_ACCEPTED_IMAGE_MIMES.contains(&mime)
+    } else {
+        MODEL_ACCEPTED_IMAGE_MIMES.contains(&mime)
+    }
+}
+
+/// Upstream #3649 inline image byte budget for the provider.
+pub fn inline_image_byte_budget(provider: Option<&str>) -> u64 {
+    if provider == Some("kimi") {
+        KIMI_INLINE_IMAGE_BYTE_BUDGET
+    } else {
+        DEFAULT_INLINE_IMAGE_BYTE_BUDGET
+    }
+}
+
 /// A crop rectangle, in original-image pixel coordinates (v2 `MediaReadRegion`).
 #[derive(Debug, Clone, Copy)]
 pub struct ImageRegion {
@@ -121,6 +156,8 @@ pub struct ReadMediaLimits {
     /// `None` (unknown model) and `Some(true)` both allow it (v2's
     /// unknown-capability leniency).
     pub image_in: Option<bool>,
+    /// Provider type (e.g. "kimi").
+    pub provider: Option<String>,
 }
 
 impl ReadMediaLimits {
@@ -205,14 +242,14 @@ fn decode_limit_error(final_bytes: u64) -> String {
     )
 }
 
-/// v2 `buildFullResolutionLimitError`: `full_resolution` must fit the default
-/// per-image byte budget, which does not grow with `[image].read_byte_budget`.
-fn full_resolution_limit_error(path: &Path, final_bytes: u64) -> String {
+/// v2 `buildFullResolutionLimitError`: `full_resolution` must fit the provider's
+/// inline image byte budget.
+fn full_resolution_limit_error(path: &Path, final_bytes: u64, inline_budget: u64) -> String {
     format!(
-        "\"{}\" is {final_bytes} bytes ({}), over the {READ_IMAGE_BYTE_BUDGET}-byte ({}) per-image limit, so full_resolution cannot be honored. Use region to view a crop at full fidelity instead.",
+        "\"{}\" is {final_bytes} bytes ({}), over the {inline_budget}-byte ({}) per-image limit, so full_resolution cannot be honored. Use region to view a crop at full fidelity instead.",
         path.display(),
         format_byte_size(final_bytes as usize),
-        format_byte_size(READ_IMAGE_BYTE_BUDGET as usize),
+        format_byte_size(inline_budget as usize),
     )
 }
 
@@ -356,7 +393,7 @@ pub fn read_image_media(
     }
 
     let mime = resolve_mime(path, &header);
-    if !MODEL_ACCEPTED_IMAGE_MIMES.contains(&mime.as_str()) {
+    if !is_model_accepted_image_mime(&mime, limits.provider.as_deref()) {
         return Some(err_result(format!(
             "\"{}\" is an {mime} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.",
             path.display()
@@ -365,6 +402,7 @@ pub fn read_image_media(
 
     let budget = limits.budget();
     let max_edge = limits.max_edge();
+    let inline_budget = inline_image_byte_budget(limits.provider.as_deref());
 
     // `region` / `full_resolution` force a full decode, so they are refused
     // past the safe decode ceiling regardless of the delivery budget.
@@ -373,14 +411,52 @@ pub fn read_image_media(
     }
     // `full_resolution` means "send the bytes untouched", so it must fit the
     // fixed per-image limit — `[image].read_byte_budget` cannot enlarge it.
-    if request.region.is_none() && request.full_resolution && byte_size > READ_IMAGE_BYTE_BUDGET {
-        return Some(err_result(full_resolution_limit_error(path, byte_size)));
+    if request.region.is_none() && request.full_resolution && byte_size > inline_budget {
+        return Some(err_result(full_resolution_limit_error(path, byte_size, inline_budget)));
     }
     // Default path: no point decoding something we could never deliver.
     if !request.is_explicit() && byte_size > MAX_IMAGE_DECODE_BYTES && byte_size > budget {
         return Some(err_result(delivery_limit_error(
             byte_size, budget, max_edge,
         )));
+    }
+
+    // HEIC/HEIF cannot be re-encoded locally; upstream #3649 sends them inline up to the inline budget.
+    if mime == "image/heic" || mime == "image/heif" {
+        if request.region.is_some() {
+            return Some(err_result(format!(
+                "Cropping region is not supported for {mime} images. Convert to PNG or JPEG first."
+            )));
+        }
+        let inline_limit = std::cmp::max(budget, inline_budget);
+        if byte_size > inline_limit {
+            return Some(err_result(format!(
+                "\"{}\" is an {byte_size}-byte {mime} image, which exceeds the {inline_limit}-byte limit. Convert it to JPEG or PNG first, then read the converted file.",
+                path.display()
+            )));
+        }
+        let data = std::fs::read(path).ok()?;
+        let (width, height) = sniff_image_dimensions(&data).map(|d| (d.width, d.height)).unwrap_or((0, 0));
+        let delivery = if request.full_resolution {
+            ImageDelivery::Full
+        } else {
+            ImageDelivery::Untouched
+        };
+        let note = build_media_note(&mime, byte_size, Some((width, height)), &delivery);
+        let base64 = BASE64_STANDARD.encode(&data);
+        return Some(ExecutableToolResult {
+            stop_turn: false,
+            content: format!("<image path=\"{}\" mime=\"{mime}\" size=\"{byte_size}\" />", path.display()),
+            is_error: false,
+            note: Some(note),
+            delivery: Some(ToolDelivery {
+                blocks: vec![ContentBlock::Image {
+                    media_type: mime,
+                    data: base64,
+                    name: None,
+                }],
+            }),
+        });
     }
 
     let data = std::fs::read(path).ok()?;
@@ -512,6 +588,7 @@ pub fn read_image_media(
             blocks: vec![ContentBlock::Image {
                 media_type: delivered.mime,
                 data: base64,
+                name: None,
             }],
         }),
     })
@@ -565,7 +642,7 @@ mod tests {
         let delivery = result.delivery.expect("delivery");
         assert_eq!(delivery.blocks.len(), 1);
         match &delivery.blocks[0] {
-            ContentBlock::Image { media_type, data } => {
+            ContentBlock::Image { media_type, data, .. } => {
                 assert_eq!(media_type, "image/png");
                 assert!(!data.is_empty());
             }
@@ -707,6 +784,58 @@ mod tests {
             .expect("the media path owns an explicit region call");
         assert!(result.is_error);
         assert!(result.content.contains("is a text file"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_is_model_accepted_image_mime_and_budgets() {
+        assert!(is_model_accepted_image_mime("image/png", None));
+        assert!(is_model_accepted_image_mime("image/jpeg", None));
+        assert!(!is_model_accepted_image_mime("image/bmp", None));
+        assert!(!is_model_accepted_image_mime("image/heic", None));
+        assert!(!is_model_accepted_image_mime("image/heif", None));
+
+        assert!(is_model_accepted_image_mime("image/png", Some("kimi")));
+        assert!(is_model_accepted_image_mime("image/jpeg", Some("kimi")));
+        assert!(is_model_accepted_image_mime("image/bmp", Some("kimi")));
+        assert!(is_model_accepted_image_mime("image/heic", Some("kimi")));
+        assert!(is_model_accepted_image_mime("image/heif", Some("kimi")));
+
+        assert_eq!(inline_image_byte_budget(None), DEFAULT_INLINE_IMAGE_BYTE_BUDGET);
+        assert_eq!(inline_image_byte_budget(Some("kimi")), KIMI_INLINE_IMAGE_BYTE_BUDGET);
+    }
+
+    #[test]
+    fn kimi_provider_accepts_heic_while_default_refuses() {
+        let path = std::env::temp_dir().join(format!("kimi-test-{}.heic", fastrand::u32(..)));
+        // Write a small dummy file with HEIC magic
+        let mut dummy = vec![0u8; 32];
+        dummy[4..12].copy_from_slice(b"ftypheic");
+        std::fs::write(&path, &dummy).unwrap();
+
+        let request = ReadMediaRequest::default();
+        // Baseline provider refuses HEIC
+        let default_res = read_image_media(&path, &request, &ReadMediaLimits::default()).expect("refusal");
+        assert!(default_res.is_error);
+        assert!(default_res.content.contains("which the provider does not accept"));
+
+        // Kimi provider accepts HEIC inline
+        let kimi_limits = ReadMediaLimits {
+            provider: Some("kimi".into()),
+            ..Default::default()
+        };
+        let kimi_res = read_image_media(&path, &request, &kimi_limits).expect("success");
+        assert!(!kimi_res.is_error);
+        assert!(kimi_res.delivery.is_some());
+        let delivery = kimi_res.delivery.unwrap();
+        assert_eq!(delivery.blocks.len(), 1);
+        match &delivery.blocks[0] {
+            ContentBlock::Image { media_type, .. } => {
+                assert_eq!(media_type, "image/heic");
+            }
+            other => panic!("expected image block, got {other:?}"),
+        }
+
         let _ = std::fs::remove_file(&path);
     }
 }

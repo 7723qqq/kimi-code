@@ -2483,6 +2483,7 @@ async fn compact_session_with_summary(
         .unwrap_or_default();
     let tokens_after = crate::compaction::estimate_messages_tokens(&compacted);
     let mut new_history = compacted[1..].to_vec();
+    new_history.push(crate::compaction::compaction_continuation_message());
     new_history.extend(injections);
     let message_count = new_history.len() as u32;
     entry.session.set_history(new_history);

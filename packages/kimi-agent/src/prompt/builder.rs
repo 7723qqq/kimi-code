@@ -13,6 +13,8 @@ use super::skills_renderer::generate_skills_section_with_extra;
 pub const DEFAULT_PRODUCT_NAME: &str = "Kimi Code CLI";
 pub const DEFAULT_REPLY_STYLE_GUIDE: &str = "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
 
+pub const NOTIFY_USER_GUIDANCE: &str = "When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Keep each update to one or two sentences in the end user's language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask's progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates remain visible until the main agent starts its next turn, so your final reply must still stand on its own.";
+
 pub const SYSTEM_PROMPT_TEMPLATE: &str = include_str!("./system.md");
 
 /// Builder for constructing comprehensive agent system prompts.
@@ -31,6 +33,7 @@ pub struct SystemPromptBuilder {
     /// Extra skill scan roots (`extra_skill_dirs`): the listed skills must
     /// match what the `Skill` tool can load.
     skill_dirs: Vec<PathBuf>,
+    notify_user_active: bool,
 }
 
 impl SystemPromptBuilder {
@@ -48,7 +51,15 @@ impl SystemPromptBuilder {
             plugin_sections: None,
             additional_dirs: Vec::new(),
             skill_dirs: Vec::new(),
+            notify_user_active: false,
         }
+    }
+
+    /// Set whether `NotifyUser` guidance is injected into the system prompt.
+    #[must_use]
+    pub fn with_notify_user(mut self, active: bool) -> Self {
+        self.notify_user_active = active;
+        self
     }
 
     /// Extra skill scan roots (schema `extra_skill_dirs`).
@@ -179,10 +190,17 @@ impl SystemPromptBuilder {
         // 8. Interpolation
         let mut prompt = SYSTEM_PROMPT_TEMPLATE.to_string();
 
+        let notify_user_guidance = if self.notify_user_active {
+            format!(" {}", NOTIFY_USER_GUIDANCE)
+        } else {
+            String::new()
+        };
+
         let replacements = [
             ("${product_name}", self.product_name.as_str()),
             ("${role_additional}", role_additional.as_str()),
             ("${reply_style_guide}", self.reply_style_guide.as_str()),
+            ("${notify_user_guidance}", notify_user_guidance.as_str()),
             ("${os}", env.os_kind.as_str()),
             ("${shell}", shell_desc.as_str()),
             ("${windows_notes}", env.windows_notes.as_str()),
@@ -361,5 +379,22 @@ mod tests {
         let default_built = SystemPromptBuilder::build_default(temp.path());
         let manual_built = SystemPromptBuilder::new(temp.path()).build();
         assert_eq!(default_built, manual_built);
+    }
+
+    #[test]
+    fn test_builder_notify_user_toggle() {
+        let temp = tempdir().unwrap();
+        let prompt_disabled = SystemPromptBuilder::new(temp.path())
+            .with_notify_user(false)
+            .build();
+        assert!(!prompt_disabled.contains(NOTIFY_USER_GUIDANCE));
+        assert!(!prompt_disabled.contains("${notify_user_guidance}"));
+
+        let prompt_enabled = SystemPromptBuilder::new(temp.path())
+            .with_notify_user(true)
+            .build();
+        assert!(prompt_enabled.contains(NOTIFY_USER_GUIDANCE));
+        assert!(prompt_enabled.contains("When `NotifyUser` is available, use it proactively"));
+        assert!(!prompt_enabled.contains("${notify_user_guidance}"));
     }
 }

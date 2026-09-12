@@ -68,7 +68,7 @@ pub fn build_request_full(
                             ContentBlock::Text { text } => {
                                 parts.push(json!({ "type": "input_text", "text": text }));
                             }
-                            ContentBlock::Image { media_type, data } => {
+                            ContentBlock::Image { media_type, data, .. } => {
                                 parts.push(json!({
                                     "type": "input_image",
                                     "image_url": format!("data:{};base64,{}", media_type, data),

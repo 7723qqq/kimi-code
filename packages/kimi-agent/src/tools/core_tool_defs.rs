@@ -200,11 +200,21 @@ fn build_core_tool_defs() -> Vec<ToolInfo> {
                             }
                         ]
                     },
+                    "column_offset": {
+                        "description": "Zero-based character offset within the first line of a forward read, excluding its line-number prefix. Uses character length in the displayed text. Copy continuation arguments from the previous result to resume a long line.",
+                        "type": "integer",
+                        "minimum": 0
+                    },
                     "n_lines": {
                         "description": "The number of lines to read; the tool also applies its internal cap. Omit to read up to the internal cap of 1000 lines. Text files only.",
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991i64
+                    },
+                    "max_chars": {
+                        "description": "Maximum characters in the returned text, including line numbers and status. Omit for the configured default; requests above the configured maximum are capped.",
+                        "type": "integer",
+                        "minimum": 1
                     },
                     "region": {
                         "description": "Images only: view just this rectangle of the image (original-image pixel coordinates). Use after a downsampled full view to inspect fine detail — a region within the size limits is delivered at full fidelity.",
@@ -353,6 +363,16 @@ fn build_core_tool_defs() -> Vec<ToolInfo> {
                     "path": {
                         "description": "Directory to search. Accepts an absolute path, or a path relative to the current working directory. Defaults to the current working directory.",
                         "type": "string"
+                    },
+                    "head_limit": {
+                        "description": "Maximum number of matching paths to return after offset. Defaults to 100. Pass 0 to remove the match-count limit. The character limit still applies: large pages are saved for Read, and a continuation offset is provided when more paths remain. Search time and output capture limits still apply.",
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "offset": {
+                        "description": "Number of matching paths to skip. Defaults to 0. Each call searches the current filesystem again; changes can shift results between pages.",
+                        "type": "integer",
+                        "minimum": 0
                     },
                     "include_ignored": {
                         "description": "Also match files excluded by ignore files such as `.gitignore`, `.ignore`, and `.rgignore` (for example `node_modules` or build outputs). Sensitive files (such as `.env`) remain filtered out for safety. VCS metadata directories (`.git` and similar) are always skipped, even when this is true. Defaults to false.",
@@ -514,6 +534,43 @@ fn build_core_tool_defs() -> Vec<ToolInfo> {
     ]
 }
 
+const NOTIFY_USER_DESCRIPTION: &str = r#"Show the end user a short progress update without ending your turn. Main-agent and subagent updates appear together in the TUI's Updates panel, with source labels added automatically. The panel keeps every update in order until the main agent starts a new turn. It remains visible when work ends, and the user can page through the complete messages.
+
+**When to use:**
+1. Early in a multi-step task, describe your approach so the user can follow your work.
+2. Report meaningful findings and phase conclusions, distinguishing confirmed results from hypotheses.
+3. Before a long-running step, say what you are waiting for and why.
+4. When blocked, explain the blocker and your next step.
+
+**How to use:**
+- Write one or two sentences of light Markdown in the end user's language. Avoid repeating unchanged status or narrating individual tool calls.
+- When working as a subagent, describe only your own subtask. Its completion does not mean the whole task is complete.
+- Do not add an agent name or source prefix; the UI supplies it.
+- Batch the update with your next tool calls when possible.
+- This tool informs the end user; it does not automatically send a message to your parent agent. Keep all important findings in your final reply or final handoff to the parent.
+- Do not use an update to ask questions, request decisions, or deliver the final answer. Subagents must leave questions for the parent agent in their handoff.
+"#;
+
+/// Tool definition for the native NotifyUser tool.
+pub fn notify_user_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "NotifyUser".into(),
+        description: NOTIFY_USER_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Short progress update in light Markdown to show the user."
+                }
+            },
+            "required": ["message"],
+            "additionalProperties": false
+        }),
+    }
+}
+
 const LSP_DESCRIPTION: &str = r#"Query a Language Server (LSP) for code intelligence, such as definition locations, references, hover documentation, and document symbols.
 
 Supported actions:
@@ -559,10 +616,11 @@ pub fn lsp_tool_def() -> ToolInfo {
     }
 }
 
-/// All native tool definitions including LSP.
+/// All native tool definitions including LSP and NotifyUser.
 pub fn all_native_tool_defs() -> Vec<ToolInfo> {
     let mut defs = core_tool_defs();
     defs.push(lsp_tool_def());
+    defs.push(notify_user_tool_def());
     defs
 }
 
@@ -725,7 +783,17 @@ mod tests {
         assert_eq!(lsp.input_schema["additionalProperties"], false);
 
         let all = all_native_tool_defs();
-        assert_eq!(all.len(), 9);
+        assert_eq!(all.len(), 10);
         assert!(all.iter().any(|d| d.name == "Lsp"));
+        assert!(all.iter().any(|d| d.name == "NotifyUser"));
+    }
+
+    #[test]
+    fn test_notify_user_tool_def_schema() {
+        let nu = notify_user_tool_def();
+        assert_eq!(nu.name, "NotifyUser");
+        assert_eq!(nu.input_schema["required"], json!(["message"]));
+        assert_eq!(nu.input_schema["additionalProperties"], false);
+        assert_eq!(nu.input_schema["properties"]["message"]["type"], "string");
     }
 }

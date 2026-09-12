@@ -683,8 +683,23 @@ impl McpManager {
                 // back to a descriptive notice with a data preview.
                 const NON_TEXT_PREVIEW_BYTES: usize = 120;
                 let mut text_parts = Vec::new();
-                for c in res.content {
-                    text_parts.push(Self::render_mcp_content(&c, NON_TEXT_PREVIEW_BYTES));
+                for c in &res.content {
+                    text_parts.push(Self::render_mcp_content(c, NON_TEXT_PREVIEW_BYTES));
+                }
+                if res.structured_content.is_some() || res.meta.is_some() {
+                    let mut extras = serde_json::Map::new();
+                    if let Some(sc) = res.structured_content {
+                        extras.insert("structuredContent".to_string(), sc);
+                    }
+                    if let Some(m) = res.meta {
+                        extras.insert("_meta".to_string(), m);
+                    }
+                    let extras_json = serde_json::to_string_pretty(&Value::Object(extras))
+                        .unwrap_or_default();
+                    text_parts.push(format!(
+                        "<mcp-result-extras>\n{}\n</mcp-result-extras>",
+                        extras_json
+                    ));
                 }
                 Some(ExecutableToolResult {
                     delivery: None,

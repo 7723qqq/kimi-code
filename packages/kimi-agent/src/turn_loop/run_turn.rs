@@ -770,6 +770,7 @@ pub fn run_turn<'a>(
                 }
                 context_tokens.invalidate();
                 messages = compacted;
+                messages.push(crate::compaction::compaction_continuation_message());
             }
             messages.extend(injections);
 
@@ -870,6 +871,7 @@ pub fn run_turn<'a>(
                                 "recovered from context overflow via emergency compaction"
                             );
                             messages = force_compacted;
+                            messages.push(crate::compaction::compaction_continuation_message());
                             context_tokens.invalidate();
                             messages.extend(injections);
                             match execute_loop_step_with_retry(
@@ -4022,8 +4024,8 @@ mod tests {
         let captured = captured.lock().unwrap();
         assert_eq!(
             captured.len(),
-            4,
-            "system + placeholder + recent user + injections"
+            5,
+            "system + placeholder + recent user + continuation reminder + injections"
         );
         assert_eq!(captured[0].role, "system");
         assert_eq!(captured[1].role, "user");
@@ -4033,8 +4035,13 @@ mod tests {
             "placeholder must carry exact summary format with omitted count"
         );
         assert_eq!(captured[2].content, big, "most recent message preserved");
+        assert_eq!(
+            captured[3].content,
+            crate::compaction::COMPACTION_CONTINUATION_TEXT,
+            "compaction continuation reminder anchored on latest context"
+        );
         assert!(
-            captured[3].content.starts_with("<system-reminder>\n"),
+            captured[4].content.starts_with("<system-reminder>\n"),
             "injection appended after compaction"
         );
     }
@@ -4657,8 +4664,8 @@ mod tests {
                         // Third call succeeds after compaction.
                         assert_eq!(
                             params.messages.len(),
-                            6,
-                            "expected exact 6 messages: system + placeholder + u2 + a2 + u3 + date reminder"
+                            7,
+                            "expected exact 7 messages: system + placeholder + u2 + a2 + u3 + continuation reminder + date reminder"
                         );
                         assert_eq!(params.messages[0].role, "system");
                         assert_eq!(params.messages[1].role, "user");
@@ -4670,8 +4677,13 @@ mod tests {
                         assert_eq!(params.messages[2].content, "u2");
                         assert_eq!(params.messages[3].content, "a2");
                         assert_eq!(params.messages[4].content, "u3");
+                        assert_eq!(
+                            params.messages[5].content,
+                            crate::compaction::COMPACTION_CONTINUATION_TEXT,
+                            "compaction continuation reminder anchored before injection"
+                        );
                         assert!(
-                            params.messages[5]
+                            params.messages[6]
                                 .content
                                 .starts_with("<system-reminder>\n"),
                             "date reminder appended after emergency compaction"

@@ -65,8 +65,6 @@ const GREP_HEAD_LIMIT: usize = 250;
 /// VCS metadata directories excluded from every grep walk, regardless of
 /// `.gitignore` (mirrors the host `VCS_DIRECTORIES_TO_EXCLUDE`).
 const VCS_DIRECTORIES_TO_EXCLUDE: [&str; 6] = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
-/// Maximum number of Glob results returned.
-const GLOB_MAX_RESULTS: usize = 500;
 
 /// Hard wall-clock cap for native Bash (host may configure less).
 const BASH_MAX_SECONDS: u64 = 300;
@@ -193,6 +191,8 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "knowledge",
     "team",
     "workflow",
+    "notifyuser",
+    "notify_user",
     "agent",
     "agentswarm",
     "agent_swarm",
@@ -314,6 +314,8 @@ pub struct NativeToolset {
     /// background on timeout). `None` keeps the built-in 600s; `Some(0)`
     /// means "no timeout".
     bash_task_timeout_s: Option<u64>,
+    /// Bound provider type (e.g. "kimi").
+    provider: Option<String>,
 }
 
 /// Bundle the native file-history recorder needs: the store handle plus
@@ -401,6 +403,7 @@ impl NativeToolset {
             model_capabilities: None,
             bash_auto_background: true,
             bash_task_timeout_s: None,
+            provider: None,
         })
     }
 
@@ -472,7 +475,14 @@ impl NativeToolset {
                 .model_capabilities
                 .as_deref()
                 .map(|caps| caps.iter().any(|cap| cap == "image_in")),
+            provider: self.provider.clone(),
         }
+    }
+
+    /// Set the bound provider type (e.g. "kimi").
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
+        self
     }
 
     /// Attach a TaskRunner for native background tasks and inspection.
@@ -824,6 +834,26 @@ impl NativeToolset {
             "skill" => {
                 let callbacks = self.callbacks.as_deref()?;
                 Some(skill::execute_skill(callbacks, self.session_id.as_deref(), args).await)
+            }
+            "notifyuser" | "notify_user" => {
+                let message = args.get("message").and_then(Value::as_str).unwrap_or("");
+                if message.trim().is_empty() {
+                    Some(ExecutableToolResult {
+                        delivery: None,
+                        stop_turn: false,
+                        content: "message must not be empty.".to_string(),
+                        is_error: true,
+                        note: None,
+                    })
+                } else {
+                    Some(ExecutableToolResult {
+                        delivery: None,
+                        stop_turn: false,
+                        content: "Update shown to the user.".to_string(),
+                        is_error: false,
+                        note: None,
+                    })
+                }
             }
             "select_tools" | "selecttools" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -1183,6 +1213,14 @@ impl NativeToolset {
                 n as usize
             }
         };
+        let column_offset = match args.get("column_offset") {
+            None | Some(Value::Null) => 0usize,
+            Some(v) => v.as_u64().unwrap_or(0) as usize,
+        };
+        let max_chars = match args.get("max_chars") {
+            None | Some(Value::Null) => 100_000usize,
+            Some(v) => (v.as_u64().unwrap_or(100_000) as usize).clamp(1, 500_000),
+        };
         let n_lines = match args.get("n_lines") {
             None | Some(Value::Null) => READ_MAX_LINES,
             Some(v) => (v.as_u64()? as usize).min(READ_MAX_LINES),
@@ -1239,17 +1277,28 @@ impl NativeToolset {
         // Line rendering mirrors the host Read tool: `${lineNo}\t${content}`,
         // CRLF-style trailing CRs stripped, per-line truncation to
         // READ_MAX_LINE_LENGTH characters with a `...` marker, lone CRs made
-        // visible as `\r` on mixed files, and a READ_MAX_OUTPUT_BYTES budget.
+        // visible as `\r` on mixed files, and a READ_MAX_OUTPUT_BYTES / max_chars budget.
         let mut out = String::new();
         let mut truncated_lines: Vec<usize> = Vec::new();
         let mut rendered_bytes = 0usize;
         let mut max_bytes_reached = false;
+        let mut max_chars_reached = false;
         let mut rendered_count = 0usize;
+        let mut resume_continuation: Option<(usize, usize)> = None;
+
         for (i, raw) in all[start..end].iter().enumerate() {
             let mut rendered: String = (*raw).to_string();
             let mut was_truncated = false;
             if style == encoding::LineEndingStyle::CrLf && rendered.ends_with('\r') {
                 rendered.pop();
+            }
+            if i == 0 && column_offset > 0 {
+                let char_count = rendered.chars().count();
+                if column_offset >= char_count {
+                    rendered.clear();
+                } else {
+                    rendered = rendered.chars().skip(column_offset).collect();
+                }
             }
             if rendered.chars().count() > READ_MAX_LINE_LENGTH {
                 const MARKER: &str = "...";
@@ -1261,16 +1310,32 @@ impl NativeToolset {
             if style == encoding::LineEndingStyle::Mixed {
                 rendered = encoding::make_carriage_returns_visible(&rendered);
             }
-            let rendered_line = format!("{}\t{}", offset + i, rendered);
+            let current_line_num = offset + i;
+            let rendered_line = format!("{}\t{}", current_line_num, rendered);
+            // Check max_chars budget
+            if !out.is_empty() && out.chars().count() + rendered_line.chars().count() + 1 > max_chars {
+                max_chars_reached = true;
+                let available_chars = max_chars.saturating_sub(out.chars().count() + 1);
+                if available_chars > 8 {
+                    let partial: String = rendered_line.chars().take(available_chars).collect();
+                    out.push_str(&partial);
+                    out.push('\n');
+                    resume_continuation = Some((current_line_num, column_offset + available_chars.saturating_sub(format!("{current_line_num}\t").chars().count())));
+                } else {
+                    resume_continuation = Some((current_line_num, 0));
+                }
+                break;
+            }
             // The separator byte between rendered lines counts toward the
             // budget (host renderedLineBytes accounting).
             let line_bytes = rendered_line.len() + usize::from(!out.is_empty());
             if !out.is_empty() && rendered_bytes + line_bytes > READ_MAX_OUTPUT_BYTES {
                 max_bytes_reached = true;
+                resume_continuation = Some((current_line_num, 0));
                 break;
             }
             if was_truncated {
-                truncated_lines.push(offset + i);
+                truncated_lines.push(current_line_num);
             }
             out.push_str(&rendered_line);
             out.push('\n');
@@ -1278,16 +1343,26 @@ impl NativeToolset {
             rendered_bytes += line_bytes;
             if rendered_bytes >= READ_MAX_OUTPUT_BYTES {
                 max_bytes_reached = true;
+                if start + i + 1 < end {
+                    resume_continuation = Some((offset + i + 1, 0));
+                }
                 break;
             }
         }
         // Host-faithful `<system>` note (finishMessage in readTool.ts).
         let mut parts: Vec<String> = Vec::new();
         if rendered_count > 0 {
-            parts.push(format!(
-                "{rendered_count} {} read from file starting from line {offset}.",
-                if rendered_count == 1 { "line" } else { "lines" }
-            ));
+            if column_offset > 0 {
+                parts.push(format!(
+                    "{rendered_count} {} read from file starting from line {offset}, column {column_offset}.",
+                    if rendered_count == 1 { "line" } else { "lines" }
+                ));
+            } else {
+                parts.push(format!(
+                    "{rendered_count} {} read from file starting from line {offset}.",
+                    if rendered_count == 1 { "line" } else { "lines" }
+                ));
+            }
         } else {
             parts.push("No lines read from file.".into());
         }
@@ -1296,10 +1371,17 @@ impl NativeToolset {
             n_lines >= READ_MAX_LINES && rendered_count == n_lines && end < all.len();
         if max_lines_reached {
             parts.push(format!("Max {READ_MAX_LINES} lines reached."));
+        } else if max_chars_reached {
+            parts.push(format!("Max {max_chars} characters reached."));
         } else if max_bytes_reached {
             parts.push(format!("Max {READ_MAX_OUTPUT_BYTES} bytes reached."));
         } else if rendered_count < n_lines {
             parts.push("End of file reached.".into());
+        }
+        if let Some((next_line, next_col)) = resume_continuation {
+            parts.push(format!(
+                "To resume reading, call Read with line_offset={next_line}, column_offset={next_col}."
+            ));
         }
         if !truncated_lines.is_empty() {
             let list = truncated_lines
@@ -1574,6 +1656,12 @@ impl NativeToolset {
         let include_ignored = args
             .get("include_ignored")
             .is_some_and(|v| v.as_bool() == Some(true));
+        let head_limit = match args.get("head_limit").and_then(Value::as_u64) {
+            Some(0) => usize::MAX,
+            Some(n) => n as usize,
+            None => 100,
+        };
+        let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
         let glob = build_glob(pattern)?;
         let search_root = match args.get("path").and_then(|p| p.as_str()) {
             Some(p) => Self::resolve(root, p)?,
@@ -1581,7 +1669,6 @@ impl NativeToolset {
         };
 
         let mut results: Vec<String> = Vec::new();
-        let mut truncated = false;
         let mut filtered_sensitive: usize = 0;
 
         let mut builder = ignore::WalkBuilder::new(&search_root);
@@ -1620,33 +1707,52 @@ impl NativeToolset {
                 }
                 let display = path.strip_prefix(root).unwrap_or(path);
                 results.push(display.display().to_string());
-                if results.len() >= GLOB_MAX_RESULTS {
-                    truncated = true;
-                    break;
-                }
             }
         }
         results.sort();
 
-        let mut out = if results.is_empty() {
-            if filtered_sensitive > 0 {
-                format!(
+        let total = results.len();
+        let paged: Vec<String> = results.into_iter().skip(offset).take(head_limit).collect();
+        let count = paged.len();
+        let truncated = offset + count < total;
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut footer: Vec<String> = Vec::new();
+
+        if count == 0 {
+            if total > 0 {
+                lines.push(format!(
+                    "No more matches at offset={offset} in the current result set ({total} matches)."
+                ));
+            } else if filtered_sensitive > 0 {
+                lines.push(format!(
                     "No non-sensitive matches found ({filtered_sensitive} sensitive file(s) filtered)."
-                )
+                ));
             } else {
-                format!("No files matched pattern: {pattern}")
+                lines.push(format!("No files matched pattern: {pattern}"));
             }
         } else {
-            results.join("\n")
-        };
-        if truncated {
-            out.push_str("\n\n[truncated — narrow the pattern to see more]");
+            if truncated || offset > 0 {
+                lines.push(format!(
+                    "Showing matches {}–{} of {total}.",
+                    offset + 1,
+                    offset + count
+                ));
+            }
+            lines.extend(paged);
+            if truncated {
+                lines.push(format!(
+                    "Continue with the same search arguments and offset={}.",
+                    offset + count
+                ));
+                lines.push("To remove the match-count limit, omit offset and use head_limit=0.".into());
+            }
         }
-        if !results.is_empty() && filtered_sensitive > 0 {
-            out.push_str(&format!(
-                "\nFiltered {filtered_sensitive} sensitive file(s)."
-            ));
+        if filtered_sensitive > 0 && total > 0 {
+            footer.push(format!("Filtered {filtered_sensitive} sensitive file(s)."));
         }
+
+        let out = [lines, footer].concat().join("\n");
         Some(ok_result(out))
     }
 
@@ -3408,7 +3514,9 @@ mod tests {
             content.push('\n');
         }
         std::fs::write(_dir.path().join("wide.txt"), content).unwrap();
-        let result = ts.execute("Read", &json!({ "path": "wide.txt" })).unwrap();
+        let result = ts
+            .execute("Read", &json!({ "path": "wide.txt", "max_chars": 500_000 }))
+            .unwrap();
         assert!(!result.is_error, "content: {}", result.content);
         let note = result.note.unwrap();
         assert!(note.contains("Max 102400 bytes reached."), "note: {note}");
@@ -3417,6 +3525,22 @@ mod tests {
             "byte budget must stop rendering early: {}",
             result.content
         );
+    }
+
+    #[test]
+    fn read_output_character_budget_reports_max_chars() {
+        let (_dir, ts) = setup();
+        let mut content = String::new();
+        for _ in 0..100 {
+            content.push_str(&"x".repeat(1100));
+            content.push('\n');
+        }
+        std::fs::write(_dir.path().join("wide.txt"), content).unwrap();
+        let result = ts.execute("Read", &json!({ "path": "wide.txt" })).unwrap();
+        assert!(!result.is_error, "content: {}", result.content);
+        let note = result.note.unwrap();
+        assert!(note.contains("Max 100000 characters reached."), "note: {note}");
+        assert!(note.contains("To resume reading, call Read with line_offset="));
     }
 
     #[test]

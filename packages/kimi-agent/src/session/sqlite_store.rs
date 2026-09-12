@@ -1870,6 +1870,7 @@ mod tests {
                     },
                     ContentBlock::ImageUrl {
                         url: "https://example.com/cat.png".into(),
+                        name: None,
                     },
                 ],
                 tool_calls: vec![],
@@ -1930,7 +1931,8 @@ mod tests {
         assert_eq!(
             loaded[0].blocks[1],
             ContentBlock::ImageUrl {
-                url: "https://example.com/cat.png".into()
+                url: "https://example.com/cat.png".into(),
+                name: None,
             }
         );
 

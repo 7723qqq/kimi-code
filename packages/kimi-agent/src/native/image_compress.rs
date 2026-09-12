@@ -139,10 +139,12 @@ pub fn compress_image(
     config: &CompressConfig,
 ) -> Option<CompressResult> {
     let normalized = normalize_mime(mime_type);
-    let source_is_png_like = normalized == "image/png" || normalized == "image/webp";
+    let source_is_png_like =
+        normalized == "image/png" || normalized == "image/webp" || normalized == "image/bmp";
     let format = match normalized.as_str() {
         "image/png" => ImageFormat::Png,
         "image/jpeg" => ImageFormat::Jpeg,
+        "image/bmp" => ImageFormat::Bmp,
         "image/webp" => {
             // Animated WebP — pass through unchanged; decoding would flatten.
             if is_animated_webp(bytes) {
@@ -203,10 +205,12 @@ pub fn crop_image(
         return Err(CropError::Empty);
     }
     let normalized = normalize_mime(mime_type);
-    let source_is_png_like = normalized == "image/png" || normalized == "image/webp";
+    let source_is_png_like =
+        normalized == "image/png" || normalized == "image/webp" || normalized == "image/bmp";
     let format = match normalized.as_str() {
         "image/png" => ImageFormat::Png,
         "image/jpeg" => ImageFormat::Jpeg,
+        "image/bmp" => ImageFormat::Bmp,
         "image/webp" => {
             // Animated WebP cannot be cropped sensibly.
             if is_animated_webp(bytes) {

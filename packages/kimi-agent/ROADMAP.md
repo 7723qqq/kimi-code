@@ -243,22 +243,22 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 
 本次将上游 `@moonshot-ai/kimi-code@0.42.0`（`0.40.1 → 0.42.0`，85 个提交）并入 `main`。上游把 53 个提交集中在 `packages/agent-core-v2`，而该包在本 fork 已物理删除，因此这些行为按「合并时保持删除、行为移植到 Rust」处理，TS 侧一律取 fork 版本以保证 `bun run typecheck` 全绿。参考：`git log 0.40.1..@moonshot-ai/kimi-code@0.42.0 -- packages/agent-core-v2`。
 
-| 上游项 | 上游 v2 行为 | Rust 移植目标 |
-|---|---|---|
-| #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 |
-| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 |
-| #3630 会话删除与串行清理 | `deleteSession`、`event.session.deleted` 广播、`ISessionManager.onWillDeleteSession` | Rust server 会话删除端点 + 事件广播 |
-| #3548 保留媒体附件名 | 媒体引用新增 `name` 字段 | Rust 原生媒体块类型增加 name 并全链路透传 |
-| #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 |
-| #3537 compaction 恢复锚定最新用户消息 | 自动压缩后恢复正确请求 | `compaction/mod.rs` 恢复锚点 |
-| #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 |
-| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | Rust fs watch（核对现有实现是否覆盖） |
-| #3645 大文件读取可续读 | 可恢复长行读取与重复截断修复 | `native/read.rs` |
-| #3658 glob 超过 100 条 | 分页续取 | `native/glob.rs` |
-| #3654 MCP 结构化结果去重 | 保留不同的结构化结果 | `mcp/*` |
-| #3644 交互 DI → 全局 human 单例 | interaction 层归并 | `permission` / `callbacks` / interaction |
-| #3638 遥测事件属性丢失修复 | 停止静默丢弃 key event attributes | telemetry 桥接 |
-| #3616 云推荐 thinking effort | 默认 effort 升级为推荐档 | 已有 `recommended-effort`（CLI 侧），核对引擎参数透传 |
+| 上游项 | 上游 v2 行为 | Rust 移植目标 | 状态 |
+|---|---|---|---|
+| #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 | **已完成**：`core_tool_defs.rs` 与 `tools/mod.rs` 新增 `NotifyUser` 原生工具，`builder.rs` 新增 `NOTIFY_USER_GUIDANCE` |
+| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **已完成**：`server/mod.rs` 挂载 `GET/POST /api/v1/remote-control` 端点与运行时状态切换，REST 契约对齐 |
+| #3630 会话删除与串行清理 | `deleteSession`、`event.session.deleted` 广播、`ISessionManager.onWillDeleteSession` | Rust server 会话删除端点 + 事件广播 | **已完成**：`server/mod.rs` 支持 `POST /api/v1/sessions/:id:delete`，`event.session.deleted` 携带 `workspaceId` |
+| #3548 保留媒体附件名 | 媒体引用新增 `name` 字段 | Rust 原生媒体块类型增加 name 并全链路透传 | **已完成**：`ContentBlock`、`ImageUrl` 等全类型透传 `name: Option<String>`，服务端全链路映射 |
+| #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 | **已完成**：BMP 编解码支持，`read_media.rs` 针对 Kimi 模型放行 BMP/HEIC/HEIF 并放宽至 5MB 预算 |
+| #3537 compaction 恢复锚定最新用户消息 | 自动压缩后恢复正确请求 | `compaction/mod.rs` 恢复锚点 | **已完成**：实现 `compaction_continuation_message`，LLM 前压缩与紧急压缩均注入恢复锚点 |
+| #3645 大文件读取可续读 | 可恢复长行读取与重复截断修复 | `native/read.rs` | **已完成**：`Read` 工具增加 `column_offset` 与 `max_chars` 限制，超限提示断点续读参数 |
+| #3658 glob 超过 100 条 | 分页续取 | `native/glob.rs` | **已完成**：`Glob` 工具增加 `head_limit` 和 `offset`，支持分页切片与续取提示 |
+| #3654 MCP 结构化结果去重 | 保留不同的结构化结果 | `mcp/*` | **已完成**：`McpToolCallResult` 新增 `structuredContent` 与 `_meta`，在 `<mcp-result-extras>` 保留完整数据 |
+| #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 | 已在 `turn_step.rs` / `run_turn.rs` 自主驱动重试循环 |
+| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | Rust fs watch（核对现有实现是否覆盖） | 原生已由 `fs_watch.rs` 统一通道接管 |
+| #3644 交互 DI → 全局 human 单例 | interaction 层归并 | `permission` / `callbacks` / interaction | 原生已收敛至 `interaction::InteractionManager` |
+| #3638 遥测事件属性丢失修复 | 停止静默丢弃 key event attributes | telemetry 桥接 | 原生已由 `events.rs` 保持全属性无损 |
+| #3616 云推荐 thinking effort | 默认 effort 升级为推荐档 | 已有 `recommended-effort`（CLI 侧），核对引擎参数透传 | CLI 与引擎参数无损透传 |
 
 **本次合并中整包/整文件回退到 fork 版本（上游改动转上表）**：
 - `packages/kap-server`：整包回退（待退役 compat 壳，见其 AGENTS.md 与 P158）。

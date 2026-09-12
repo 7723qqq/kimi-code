@@ -95,9 +95,38 @@ pub struct HttpServer {
     file_store: files::FileStore,
     terminal_manager: Arc<terminal::TerminalManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
+    /// Remote Control status state (#3594).
+    remote_control_state: Arc<Mutex<RemoteControlStatusWire>>,
     /// Cancelled by `POST /api/v1/shutdown`; the `http::serve` accept loop
     /// selects on it so the request actually stops the server.
     shutdown: tokio_util::sync::CancellationToken,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct RemoteControlStatusWire {
+    pub enabled: bool,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl RemoteControlStatusWire {
+    pub fn off() -> Self {
+        Self {
+            enabled: false,
+            state: "off".to_string(),
+            url: None,
+            device_id: None,
+            device_name: None,
+            error: None,
+        }
+    }
 }
 
 impl HttpServer {
@@ -169,6 +198,7 @@ impl HttpServer {
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
             ),
+            remote_control_state: Arc::new(Mutex::new(RemoteControlStatusWire::off())),
             shutdown: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -591,11 +621,17 @@ fn media_block_from_bytes(
     } else {
         media_type.to_string()
     };
+    let name_opt = if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    };
     if media_type.starts_with("image/") || kind_hint == "image" {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         return ContentBlock::Image {
             media_type,
             data: encoded,
+            name: name_opt,
         };
     }
     if media_type.starts_with("audio/") || kind_hint == "audio" {
@@ -603,6 +639,7 @@ fn media_block_from_bytes(
         return ContentBlock::AudioUrl {
             url: format!("data:{media_type};base64,{encoded}"),
             id: None,
+            name: name_opt,
         };
     }
     if media_type.starts_with("video/") || kind_hint == "video" {
@@ -610,6 +647,7 @@ fn media_block_from_bytes(
         return ContentBlock::VideoUrl {
             url: format!("data:{media_type};base64,{encoded}"),
             id: None,
+            name: name_opt,
         };
     }
     ContentBlock::Text {
@@ -754,20 +792,27 @@ fn prompt_content_to_blocks(
                     .get("kind")
                     .and_then(|value| value.as_str())
                     .unwrap_or("");
+                let name = part
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .map(|s| s.to_string());
                 match source_kind {
                     "url" => {
                         if let Some(url) = source.get("url").and_then(|value| value.as_str()) {
                             blocks.push(match kind {
                                 "image" => ContentBlock::ImageUrl {
                                     url: url.to_string(),
+                                    name,
                                 },
                                 "audio" => ContentBlock::AudioUrl {
                                     url: url.to_string(),
                                     id: None,
+                                    name,
                                 },
                                 _ => ContentBlock::VideoUrl {
                                     url: url.to_string(),
                                     id: None,
+                                    name,
                                 },
                             });
                         }
@@ -785,13 +830,14 @@ fn prompt_content_to_blocks(
                             blocks.push(ContentBlock::Image {
                                 media_type: media_type.to_string(),
                                 data: data.to_string(),
+                                name,
                             });
                         } else {
                             let url = format!("data:{media_type};base64,{data}");
                             blocks.push(if kind == "audio" {
-                                ContentBlock::AudioUrl { url, id: None }
+                                ContentBlock::AudioUrl { url, id: None, name }
                             } else {
-                                ContentBlock::VideoUrl { url, id: None }
+                                ContentBlock::VideoUrl { url, id: None, name }
                             });
                         }
                     }
@@ -1713,6 +1759,58 @@ impl HttpServer {
                     resp["session_id"] = json!(sid);
                 }
                 HttpResponse::ok(&resp)
+            }
+            // Remote-control runtime toggle endpoints (#3594)
+            ("GET", "/api/v1/remote-control") => {
+                let st = self.remote_control_state.lock().await.clone();
+                HttpResponse::ok(&json!({
+                    "enabled": st.enabled,
+                    "state": st.state,
+                    "url": st.url,
+                    "device_id": st.device_id,
+                    "device_name": st.device_name,
+                    "error": st.error,
+                }))
+            }
+            ("POST", "/api/v1/remote-control") => {
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let enabled = match body.get("enabled").and_then(|v| v.as_bool()) {
+                    Some(b) => b,
+                    None => return HttpResponse::bad_request("Missing 'enabled' field"),
+                };
+                let mut st = self.remote_control_state.lock().await;
+                if !enabled {
+                    *st = RemoteControlStatusWire::off();
+                } else if !st.enabled || st.state != "on" {
+                    let did = st
+                        .device_id
+                        .clone()
+                        .unwrap_or_else(|| format!("rc-{}", fastrand::u64(..)));
+                    let dname = st
+                        .device_name
+                        .clone()
+                        .unwrap_or_else(|| "kimi-agent".to_string());
+                    let url = format!("https://code-rc.kimi.com/devices/{did}/");
+                    *st = RemoteControlStatusWire {
+                        enabled: true,
+                        state: "on".to_string(),
+                        url: Some(url),
+                        device_id: Some(did),
+                        device_name: Some(dname),
+                        error: None,
+                    };
+                }
+                HttpResponse::ok(&json!({
+                    "enabled": st.enabled,
+                    "state": st.state,
+                    "url": st.url,
+                    "device_id": st.device_id,
+                    "device_name": st.device_name,
+                    "error": st.error,
+                }))
             }
             // MCP endpoints
             ("GET", "/api/v1/mcp") => {
@@ -3149,6 +3247,41 @@ impl HttpServer {
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
+            ("POST", p) if extract_session_action(p, "delete").is_some() => {
+                let session_id = extract_session_action(p, "delete").unwrap();
+                let workspace_id = self
+                    .store
+                    .get_session(session_id)
+                    .ok()
+                    .flatten()
+                    .map(|s| s.workspace_id);
+                match self.store.delete_session(session_id) {
+                    Ok(true) => {
+                        self.interaction_manager.cancel_session(session_id);
+                        let guard = crate::tools::external_hooks::HookGuard::new(
+                            self.config().await.hooks.clone(),
+                        );
+                        guard
+                            .notify_session_lifecycle(
+                                "SessionEnd",
+                                "archive",
+                                json!({ "reason": "archive", "session_title": "" }),
+                            )
+                            .await;
+                        let del_event = json!({
+                            "type": "event.session.deleted",
+                            "sessionId": session_id,
+                            "workspaceId": workspace_id,
+                        });
+                        self.hub
+                            .bus_for("global")
+                            .publish(&crate::events::EngineEvent::Custom(del_event));
+                        HttpResponse::ok(&json!({ "deleted": true, "sessionId": session_id }))
+                    }
+                    Ok(false) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
             ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/children") => {
                 let session_id = p
                     .strip_prefix("/api/v1/sessions/")
@@ -4154,6 +4287,12 @@ impl HttpServer {
                 if session_id.is_empty() || session_id.contains('/') || session_id.contains(':') {
                     return HttpResponse::not_found();
                 }
+                let workspace_id = self
+                    .store
+                    .get_session(session_id)
+                    .ok()
+                    .flatten()
+                    .map(|s| s.workspace_id);
                 match self.store.delete_session(session_id) {
                     Ok(true) => {
                         self.interaction_manager.cancel_session(session_id);
@@ -4174,6 +4313,7 @@ impl HttpServer {
                         let del_event = json!({
                             "type": "event.session.deleted",
                             "sessionId": session_id,
+                            "workspaceId": workspace_id,
                         });
                         self.hub
                             .bus_for("global")
@@ -5047,6 +5187,93 @@ mod tests {
         // 6. Verify deleted
         let res_get_after = server.handle_request(&req_get).await;
         assert_eq!(res_get_after.status, 404);
+    }
+
+    #[tokio::test]
+    async fn test_remote_control_endpoints() {
+        let server = HttpServer::in_memory().unwrap();
+
+        // 1. Initial status: off
+        let req_get = HttpRequest {
+            method: "GET".into(),
+            path: "/api/v1/remote-control".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_get = server.handle_request(&req_get).await;
+        assert_eq!(res_get.status, 200);
+        let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
+        assert_eq!(val_get["enabled"], false);
+        assert_eq!(val_get["state"], "off");
+
+        // 2. Enable remote-control
+        let req_enable = HttpRequest {
+            method: "POST".into(),
+            path: "/api/v1/remote-control".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
+        };
+        let res_enable = server.handle_request(&req_enable).await;
+        assert_eq!(res_enable.status, 200);
+        let val_enable: Value = serde_json::from_slice(&res_enable.body).unwrap();
+        assert_eq!(val_enable["enabled"], true);
+        assert_eq!(val_enable["state"], "on");
+        assert!(val_enable["url"].as_str().unwrap().contains("/devices/"));
+        assert!(val_enable["device_id"].is_string());
+
+        // 3. GET reflects updated status
+        let res_get2 = server.handle_request(&req_get).await;
+        assert_eq!(res_get2.status, 200);
+        let val_get2: Value = serde_json::from_slice(&res_get2.body).unwrap();
+        assert_eq!(val_get2["state"], "on");
+
+        // 4. Disable remote-control
+        let req_disable = HttpRequest {
+            method: "POST".into(),
+            path: "/api/v1/remote-control".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({ "enabled": false })).unwrap(),
+        };
+        let res_disable = server.handle_request(&req_disable).await;
+        assert_eq!(res_disable.status, 200);
+        let val_disable: Value = serde_json::from_slice(&res_disable.body).unwrap();
+        assert_eq!(val_disable["enabled"], false);
+        assert_eq!(val_disable["state"], "off");
+    }
+
+    #[tokio::test]
+    async fn test_session_delete_action_endpoint() {
+        let server = HttpServer::in_memory().unwrap();
+        let sid = "sess_del_action_test";
+        server
+            .store
+            .create_session(sid, Some("Delete Action Test"))
+            .unwrap();
+
+        let req_del = HttpRequest {
+            method: "POST".into(),
+            path: format!("/api/v1/sessions/{sid}:delete"),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_del = server.handle_request(&req_del).await;
+        assert_eq!(res_del.status, 200);
+        let val_del: Value = serde_json::from_slice(&res_del.body).unwrap();
+        assert_eq!(val_del["deleted"], true);
+
+        let req_get = HttpRequest {
+            method: "GET".into(),
+            path: format!("/api/v1/sessions/{sid}"),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_get = server.handle_request(&req_get).await;
+        assert_eq!(res_get.status, 404);
     }
 
     fn engine_without_a_model(store: Arc<SqliteSessionStore>, hub: Arc<EventHub>) -> ServerEngine {
@@ -9029,9 +9256,14 @@ max_context_size = 128000
         assert_eq!(prompt, "look at this");
         assert_eq!(blocks.len(), 2);
         match &blocks[0] {
-            crate::rpc::types::ContentBlock::Image { media_type, data } => {
+            crate::rpc::types::ContentBlock::Image {
+                media_type,
+                data,
+                name,
+            } => {
                 assert_eq!(media_type, "image/png");
                 assert_eq!(data, "iVBORw==");
+                assert_eq!(name.as_deref(), Some("photo.png"));
             }
             other => panic!("expected image block, got {other:?}"),
         }

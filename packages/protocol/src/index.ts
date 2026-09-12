@@ -42,3 +42,4 @@ export * from './rest/config';
 export * from './rest/terminal';
 export * from './rest/connection';
 export * from './rest/guiStore';
+export * from './rest/remoteControl';

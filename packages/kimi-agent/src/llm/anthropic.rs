@@ -212,11 +212,11 @@ pub fn build_request_full(
 fn project_block(b: &ContentBlock) -> Value {
     match b {
         ContentBlock::Text { text } => json!({ "type": "text", "text": text }),
-        ContentBlock::Image { media_type, data } => json!({
+        ContentBlock::Image { media_type, data, .. } => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": media_type, "data": data },
         }),
-        ContentBlock::ImageUrl { url } => json!({
+        ContentBlock::ImageUrl { url, .. } => json!({
             "type": "image",
             "source": { "type": "url", "url": url },
         }),
@@ -838,6 +838,7 @@ mod tests {
                 ContentBlock::Image {
                     media_type: "image/jpeg".into(),
                     data: "BBBB".into(),
+                    name: None,
                 },
             ],
         );
@@ -861,10 +862,12 @@ mod tests {
                 ContentBlock::AudioUrl {
                     url: "https://example.com/a.mp3".into(),
                     id: None,
+                    name: None,
                 },
                 ContentBlock::VideoUrl {
                     url: "https://example.com/v.mp4".into(),
                     id: None,
+                    name: None,
                 },
             ],
         );

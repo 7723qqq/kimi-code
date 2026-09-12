@@ -991,10 +991,15 @@ fn acp_blocks_to_media(blocks: &[serde_json::Value]) -> Vec<crate::rpc::types::C
             .get("mimeType")
             .and_then(|value| value.as_str())
             .unwrap_or("image/png");
+        let name = block
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(|s| s.to_string());
         if let Some(data) = block.get("data").and_then(|value| value.as_str()) {
             media.push(ContentBlock::Image {
                 media_type: media_type.to_string(),
                 data: data.to_string(),
+                name,
             });
         }
     }
@@ -1595,7 +1600,7 @@ mod tests {
         let media = acp_blocks_to_media(&blocks);
         assert_eq!(media.len(), 2);
         match &media[0] {
-            crate::rpc::types::ContentBlock::Image { media_type, data } => {
+            crate::rpc::types::ContentBlock::Image { media_type, data, .. } => {
                 assert_eq!(media_type, "image/jpeg");
                 assert_eq!(data, "AAAB");
             }

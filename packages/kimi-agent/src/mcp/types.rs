@@ -32,11 +32,19 @@ pub struct McpContent {
     pub resource: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct McpToolCallResult {
     pub content: Vec<McpContent>,
     #[serde(rename = "isError", default)]
     pub is_error: bool,
+    #[serde(
+        rename = "structuredContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub structured_content: Option<Value>,
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
 }
 
 #[cfg(test)]
@@ -145,5 +153,20 @@ mod tests {
         let serialized = serde_json::to_value(&err_res).expect("serialization failed");
         assert_eq!(serialized["isError"], true);
         assert!(serialized.get("is_error").is_none());
+
+        // Structured content and meta preservation (#3654)
+        let raw_structured = json!({
+            "content": [{ "type": "text", "text": "Found rows" }],
+            "isError": false,
+            "structuredContent": { "rows": [{ "id": 1 }] },
+            "_meta": { "source": "db" }
+        });
+        let structured_res: McpToolCallResult =
+            serde_json::from_value(raw_structured).expect("structured parse failed");
+        assert_eq!(
+            structured_res.structured_content,
+            Some(json!({ "rows": [{ "id": 1 }] }))
+        );
+        assert_eq!(structured_res.meta, Some(json!({ "source": "db" })));
     }
 }

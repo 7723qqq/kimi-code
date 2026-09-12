@@ -24,6 +24,7 @@
     "TaskStop",
     "Skill",
     "Workflow",
+    "NotifyUser",
     "Agent",
     "AgentSwarm",
     "WaitFor",
@@ -121,7 +122,8 @@
     "tower_finding": "snake twin of TowerFinding",
     "tower_review": "snake twin of TowerReview",
     "tower_mission": "snake twin of TowerMission",
-    "tower_status": "snake twin of TowerStatus"
+    "tower_status": "snake twin of TowerStatus",
+    "notify_user": "snake twin of NotifyUser"
   },
   "notes": {
     "Tower": "P85: All 11 Tower orchestration tools (TowerInit, TowerPlan, TowerSpawn, TowerMerge, TowerTeardown, TowerSend, TowerInbox, TowerFinding, TowerReview, TowerMission, TowerStatus) execute natively via the Git and .tower/ protocol.",

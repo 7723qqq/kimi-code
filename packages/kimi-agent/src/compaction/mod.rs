@@ -235,6 +235,19 @@ pub(crate) fn summary_placeholder(omitted: usize) -> String {
     )
 }
 
+/// Continuation reminder appended after context compaction, matching upstream #3537.
+pub const COMPACTION_CONTINUATION_TEXT: &str =
+    "<system-reminder>\nContext compaction is complete — continue the work that was in progress when it began.\n</system-reminder>";
+
+/// Build the continuation message that anchors context compaction resumption.
+pub fn compaction_continuation_message() -> LLMMessage {
+    LLMMessage {
+        role: "user".into(),
+        content: COMPACTION_CONTINUATION_TEXT.into(),
+        ..Default::default()
+    }
+}
+
 /// Default instruction for the summarizer when the caller provides none.
 const DEFAULT_SUMMARIZATION_INSTRUCTION: &str = "\
 Summarize the conversation below concisely. Preserve key context, decisions, \
@@ -776,12 +789,14 @@ mod tests {
         m_img.blocks.push(ContentBlock::Image {
             media_type: "image/png".into(),
             data: "base64data".into(),
+            name: None,
         });
         assert_eq!(estimate_message_tokens(&m_img), MEDIA_TOKEN_ESTIMATE);
 
         let mut m_img_url = msg("user", "");
         m_img_url.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/pic.png".into(),
+            name: None,
         });
         assert_eq!(estimate_message_tokens(&m_img_url), MEDIA_TOKEN_ESTIMATE);
 
@@ -789,6 +804,7 @@ mod tests {
         m_audio.blocks.push(ContentBlock::AudioUrl {
             url: "http://example.com/audio.mp3".into(),
             id: Some("a1".into()),
+            name: None,
         });
         assert_eq!(estimate_message_tokens(&m_audio), MEDIA_TOKEN_ESTIMATE);
 
@@ -796,6 +812,7 @@ mod tests {
         m_video.blocks.push(ContentBlock::VideoUrl {
             url: "http://example.com/video.mp4".into(),
             id: None,
+            name: None,
         });
         assert_eq!(estimate_message_tokens(&m_video), MEDIA_TOKEN_ESTIMATE);
 
@@ -810,6 +827,7 @@ mod tests {
         });
         m_combo.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/img.jpg".into(), // 2000 tokens
+            name: None,
         });
         assert_eq!(estimate_message_tokens(&m_combo), 1 + 1 + 1 + 2000);
     }
@@ -1799,5 +1817,14 @@ mod tests {
             "cancel during backoff must return immediately, took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn test_compaction_continuation_message_structure() {
+        let msg = compaction_continuation_message();
+        assert_eq!(msg.role, "user");
+        assert!(msg.content.contains("Context compaction is complete"));
+        assert!(msg.content.starts_with("<system-reminder>\n"));
+        assert!(msg.content.ends_with("\n</system-reminder>"));
     }
 }

@@ -33,6 +33,7 @@ pub mod error_codes {
     pub const PROMPT_ID_CONFLICT: u32 = 40904;
     pub const QUESTION_DISMISSED: u32 = 40909;
     pub const PROVIDER_ALREADY_EXISTS: u32 = 40921;
+    pub const REMOTE_CONTROL_ALREADY_RUNNING: u32 = 40928;
 
     pub const INTERNAL_ERROR: u32 = 50001;
 }

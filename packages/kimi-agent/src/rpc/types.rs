@@ -452,20 +452,33 @@ pub enum ContentBlock {
     /// Plain text.
     Text { text: String },
     /// Base64-encoded image data with a MIME media type (e.g. `image/png`).
-    Image { media_type: String, data: String },
+    Image {
+        media_type: String,
+        data: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// Image referenced by URL (https or data URL).
-    ImageUrl { url: String },
+    ImageUrl {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// Audio referenced by URL, with an optional provider-side id.
     AudioUrl {
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
     },
     /// Video referenced by URL, with an optional provider-side id.
     VideoUrl {
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
     },
     /// Model reasoning content. `encrypted` carries the provider's attestation
     /// signature (Anthropic `signature`), which must come back with the block.
@@ -1258,6 +1271,7 @@ mod tests {
                     content: "see".into(),
                     blocks: vec![ContentBlock::ImageUrl {
                         url: "https://example.com/a.png".into(),
+                        name: None,
                     }],
                 },
             ],

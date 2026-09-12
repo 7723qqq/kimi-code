@@ -102,7 +102,7 @@ pub fn build_request_full(
                 for b in &m.blocks {
                     match b {
                         ContentBlock::Text { text } => parts.push(json!({ "text": text })),
-                        ContentBlock::Image { media_type, data } => {
+                        ContentBlock::Image { media_type, data, .. } => {
                             parts.push(json!({
                                 "inlineData": {
                                     "mimeType": media_type,
@@ -110,7 +110,7 @@ pub fn build_request_full(
                                 }
                             }));
                         }
-                        ContentBlock::ImageUrl { url } => {
+                        ContentBlock::ImageUrl { url, .. } => {
                             parts.push(convert_media_url(url, "image/png"));
                         }
                         ContentBlock::AudioUrl { url, .. } => {
@@ -625,17 +625,21 @@ mod tests {
             vec![
                 ContentBlock::ImageUrl {
                     url: "https://example.com/photo.png".into(),
+                    name: None,
                 },
                 ContentBlock::AudioUrl {
                     url: "https://example.com/sound.mp3".into(),
                     id: None,
+                    name: None,
                 },
                 ContentBlock::VideoUrl {
                     url: "data:video/mp4;base64,AAAA".into(),
                     id: None,
+                    name: None,
                 },
                 ContentBlock::ImageUrl {
                     url: "https://example.com/unknown.bin".into(),
+                    name: None,
                 },
             ],
         )];

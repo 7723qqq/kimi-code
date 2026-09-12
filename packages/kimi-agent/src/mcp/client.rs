@@ -505,6 +505,7 @@ impl McpClient {
                     ..Default::default()
                 }],
                 is_error: false,
+                ..Default::default()
             });
         }
 

@@ -138,22 +138,22 @@ fn project_message(m: &WireMessage) -> Value {
 fn project_block(b: &ContentBlock) -> Value {
     match b {
         ContentBlock::Text { text } => json!({ "type": "text", "text": text }),
-        ContentBlock::Image { media_type, data } => json!({
+        ContentBlock::Image { media_type, data, .. } => json!({
             "type": "image_url",
             "image_url": { "url": format!("data:{media_type};base64,{data}") },
         }),
-        ContentBlock::ImageUrl { url } => json!({
+        ContentBlock::ImageUrl { url, .. } => json!({
             "type": "image_url",
             "image_url": { "url": url },
         }),
-        ContentBlock::AudioUrl { url, id } => {
+        ContentBlock::AudioUrl { url, id, .. } => {
             let mut audio = json!({ "url": url });
             if let Some(id) = id {
                 audio["id"] = Value::String(id.clone());
             }
             json!({ "type": "audio_url", "audio_url": audio })
         }
-        ContentBlock::VideoUrl { url, id } => {
+        ContentBlock::VideoUrl { url, id, .. } => {
             let mut video = json!({ "url": url });
             if let Some(id) = id {
                 video["id"] = Value::String(id.clone());
@@ -600,9 +600,11 @@ mod tests {
                 ContentBlock::Image {
                     media_type: "image/png".into(),
                     data: "AAAA".into(),
+                    name: None,
                 },
                 ContentBlock::ImageUrl {
                     url: "https://example.com/x.png".into(),
+                    name: None,
                 },
             ],
         );
@@ -625,10 +627,12 @@ mod tests {
                 ContentBlock::AudioUrl {
                     url: "https://example.com/a.mp3".into(),
                     id: None,
+                    name: None,
                 },
                 ContentBlock::VideoUrl {
                     url: "https://example.com/v.mp4".into(),
                     id: Some("v1".into()),
+                    name: None,
                 },
             ],
         );
