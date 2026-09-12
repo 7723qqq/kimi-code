@@ -6,6 +6,30 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 0.42.0 (2026-09-09)
+
+### Features
+
+- Add read-only tools to the `/btw` side agent.
+- web: Preview images and videos in a reorderable media rail in the composer, mention them in the text on demand, and keep previews after queueing and sending.
+- web: Support permanently deleting sessions from the session row context menu, with a confirmation prompt.
+- Add an experimental Updates panel with paginated progress messages from the main agent and subagents; enable it with `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER=1`.
+
+### Polish
+
+- Remote Control and the subagent model pool (`[secondary_model]`) are now always on; their experimental flags have been removed.
+- Watch user-level skill roots (`~/.kimi-code/skills` and `~/.agents/skills`) so the workspace skill catalog refreshes automatically when skills are created, modified, or deleted without restarting.
+- Support HEIC, HEIF, and BMP images in file reads and prompt attachments when the model is served by Kimi.
+- Allow file searches to retrieve matches beyond the first 100 results, and add configurable character limits and resumable reads to long-line file viewing.
+- Collapse finished tool calls in the transcript to a concise outcome row; hidden output is counted and revealed by `Ctrl-O`.
+
+### Bug Fixes
+
+- Fix the agent resuming the wrong request after automatic context compaction in long sessions.
+- Fix recent sessions missing from the session list when the sessions directory contains stray files.
+- web: Reduce jank when opening and scrolling back through long conversations, and avoid simultaneous request spikes when reloading sessions with background tasks.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
 ## 0.41.0 (2026-09-04)
 
 ### Features
