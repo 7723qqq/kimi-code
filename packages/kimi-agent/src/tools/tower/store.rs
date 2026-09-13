@@ -834,9 +834,7 @@ impl TowerStore {
         }
 
         let existing = self.reviews_for(&input.target).await.map_err(|error| {
-            format!(
-                "could not list existing reviews for round numbering: {error}"
-            )
+            format!("could not list existing reviews for round numbering: {error}")
         })?;
         let my_rounds = existing
             .iter()
@@ -951,10 +949,7 @@ impl TowerStore {
         Ok(reviews)
     }
 
-    pub async fn latest_review(
-        &self,
-        target: &str,
-    ) -> Result<Option<TowerReviewInfo>, String> {
+    pub async fn latest_review(&self, target: &str) -> Result<Option<TowerReviewInfo>, String> {
         Ok(self.reviews_for(target).await?.into_iter().last())
     }
 

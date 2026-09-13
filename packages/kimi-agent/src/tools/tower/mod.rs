@@ -1018,10 +1018,9 @@ pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> Executab
                     m.branch, r.round, r.reviewer, r.status, r.merge
                 )),
                 Ok(None) => sections.push(format!("- {}: no review submitted yet", m.branch)),
-                Err(error) => sections.push(format!(
-                    "- {}: review state unreadable ({error})",
-                    m.branch
-                )),
+                Err(error) => {
+                    sections.push(format!("- {}: review state unreadable ({error})", m.branch))
+                }
             }
         }
     }

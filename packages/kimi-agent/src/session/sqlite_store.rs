@@ -2225,7 +2225,9 @@ mod tests {
             .unwrap();
 
         // 1. Search by content keyword
-        let hits = store.search_messages("database", None, None, 10, 0).unwrap();
+        let hits = store
+            .search_messages("database", None, None, 10, 0)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].session_id, "sess-1");
         assert_eq!(hits[0].session_title, "Refactoring Core");

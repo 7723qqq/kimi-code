@@ -439,7 +439,8 @@ pub(crate) fn extract_in_band_error(event: &Value) -> Option<String> {
         return Some(message);
     }
 
-    if event.get("type").and_then(|v| v.as_str()) == Some("error") {        if let Some(message) = top_error
+    if event.get("type").and_then(|v| v.as_str()) == Some("error") {
+        if let Some(message) = top_error
             .filter(|v| v.is_object())
             .and_then(|err| err.get("message"))
             .and_then(|v| v.as_str())

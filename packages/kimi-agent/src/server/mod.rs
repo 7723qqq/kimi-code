@@ -8368,7 +8368,8 @@ max_context_size = 128000
         // Page 1 of 3 with page_size 2: two items, more available, cursor set.
         let res1 = server
             .handle_request(&post_search(
-                serde_json::to_vec(&json!({ "query": "pagination probe", "page_size": 2 })).unwrap(),
+                serde_json::to_vec(&json!({ "query": "pagination probe", "page_size": 2 }))
+                    .unwrap(),
             ))
             .await;
         assert_eq!(res1.status, 200);
