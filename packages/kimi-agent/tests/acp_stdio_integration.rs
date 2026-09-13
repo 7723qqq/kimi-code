@@ -1,12 +1,12 @@
 //! Binary integration test for the ACP stdio surface.
 //!
 //! Spawns the built `kimi-agent-cli` binary with `--acp`, points it at an empty
-//! config (so no native LLM is resolved and the canned prompt path runs), and
-//! drives the JSON-RPC stream over stdin/stdout:
+//! config (so no native LLM is resolved: prompts are refused instead of
+//! answered), and drives the JSON-RPC stream over stdin/stdout:
 //!   1. `initialize` answers the ACP spec handshake shape
 //!   2. a notification (no `id`) never produces an output line
-//!   3. `session/new` → `session/prompt` (`ContentBlock[]`) → `session/load`
-//!      round-trips a session
+//!   3. `session/new` → refused `session/prompt` → `session/load` round-trips
+//!      a session (nothing is persisted, so nothing replays)
 //!   4. an unknown method yields -32601
 //!
 //! Requires the binary, which is built by the `cli` feature: the whole file is
@@ -243,8 +243,20 @@ fn acp_session_round_trip_with_content_blocks() {
             }),
         )
         .expect("session/prompt must answer");
-    assert!(response["error"].is_null(), "unexpected error: {response}");
-    assert_eq!(response["result"]["stopReason"], "end_turn");
+    // No engine is wired under the empty test config, so the prompt is
+    // refused instead of answered with a fabricated reply (the fake used to
+    // be persisted, polluting every later resume/export).
+    let error = response["error"]
+        .as_object()
+        .expect("a prompt with no engine wired must be refused, not faked");
+    assert_eq!(error["code"], serde_json::json!(-32000));
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("No LLM engine is available"),
+        "unexpected error: {response}"
+    );
 
     // `session/load` replays the stored history as `session/update` chunks and
     // answers with the mode state (v2 `loadSession`).
@@ -272,13 +284,12 @@ fn acp_session_round_trip_with_content_blocks() {
     assert_eq!(response["id"], serde_json::json!(id));
     assert_eq!(response["result"]["modes"]["currentModeId"], "default");
 
-    let user_chunk = replayed
-        .iter()
-        .find(|line| {
-            line["params"]["update"]["sessionUpdate"] == serde_json::json!("user_message_chunk")
-        })
-        .expect("the stored user prompt must replay");
-    assert_eq!(user_chunk["params"]["update"]["content"]["text"], "hello");
+    // The refused prompt persisted nothing, so no user chunk replays — the
+    // load round-trip still answers with the mode state.
+    assert!(
+        replayed.is_empty(),
+        "nothing was stored, so nothing may replay: {replayed:?}"
+    );
 }
 
 /// A response line (the client's answer to a server-initiated request) is

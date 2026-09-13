@@ -456,10 +456,11 @@ fn spawn_hook_command(
     }
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
         // v2 `detached` (non-Windows): hooks run in their own process group
         // so terminal signals don't reach them directly. Timeout/cancel
         // still kills the direct child, as in v2.
+        // (tokio's `Command` has an inherent `process_group`; the std
+        // `CommandExt` trait import is redundant and trips unused-imports.)
         cmd.process_group(0);
     }
     cmd.stdin(std::process::Stdio::piped())

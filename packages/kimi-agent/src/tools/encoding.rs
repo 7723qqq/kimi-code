@@ -152,7 +152,9 @@ pub fn decode_utf_text(bytes: &[u8], encoding: UtfTextEncoding) -> String {
 /// odd byte become U+FFFD (the WHATWG `TextDecoder` behavior).
 fn decode_utf16(bytes: &[u8], little_endian: bool) -> String {
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             if little_endian {
                 u16::from_le_bytes([pair[0], pair[1]])
