@@ -160,7 +160,7 @@ impl HttpServer {
                 let is_compaction = event_type == "context.compaction";
                 let payload_json =
                     serde_json::to_string(&seq_ev.event).unwrap_or_else(|_| "null".to_string());
-                let _ = store_persister.append_wire_event_json(
+                if let Err(err) = store_persister.append_wire_event_json(
                     &format!("wevt-{}", fastrand::u64(..)),
                     &seq_ev.session_id,
                     &event_type,
@@ -168,7 +168,14 @@ impl HttpServer {
                     is_checkpoint,
                     is_compaction,
                     now,
-                );
+                ) {
+                    tracing::warn!(
+                        session_id = %seq_ev.session_id,
+                        event_type = %event_type,
+                        error = %err,
+                        "Failed to persist wire event to sqlite store"
+                    );
+                }
             },
         ));
 

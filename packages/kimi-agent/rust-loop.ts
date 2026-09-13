@@ -2427,6 +2427,10 @@ export function createRunTurnOverride(
           });
           break;
         }
+        case 'llm_chat.cancel': {
+          // Handled outside the chain in handleEngineEvent
+          break;
+        }
         default:
           break;
       }
