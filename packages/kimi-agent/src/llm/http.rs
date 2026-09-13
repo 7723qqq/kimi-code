@@ -55,6 +55,15 @@ impl Accumulator {
             Self::Google(acc) => acc.finish(),
         }
     }
+
+    /// Terminal accumulation failure (e.g. truncated Responses function-call
+    /// arguments). Only the Responses accumulator can produce one today.
+    fn take_error(&mut self) -> Option<String> {
+        match self {
+            Self::Responses(acc) => acc.take_error(),
+            _ => None,
+        }
+    }
 }
 
 /// An [`LLM`] implementation that talks to an OpenAI-compatible or
@@ -336,6 +345,14 @@ impl NativeHttpLlm {
         }
 
         if let Some(message) = in_band_error {
+            return Err(format!("llm provider stream error: {message}"));
+        }
+
+        // Failures the accumulator recorded itself (truncated Responses
+        // function-call arguments) must also fail the request: finishing
+        // here would run tools with fabricated empty arguments or complete
+        // the turn with an empty answer.
+        if let Some(message) = acc.take_error() {
             return Err(format!("llm provider stream error: {message}"));
         }
 

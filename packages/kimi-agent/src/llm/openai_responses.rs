@@ -68,7 +68,9 @@ pub fn build_request_full(
                             ContentBlock::Text { text } => {
                                 parts.push(json!({ "type": "input_text", "text": text }));
                             }
-                            ContentBlock::Image { media_type, data, .. } => {
+                            ContentBlock::Image {
+                                media_type, data, ..
+                            } => {
                                 parts.push(json!({
                                     "type": "input_image",
                                     "image_url": format!("data:{};base64,{}", media_type, data),
@@ -152,11 +154,17 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                         .and_then(|n| n.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let arguments: Value = item
-                        .get("arguments")
-                        .and_then(|a| a.as_str())
-                        .and_then(|s| serde_json::from_str(s).ok())
-                        .unwrap_or(json!({}));
+                    // Absent or empty arguments are a valid no-args call;
+                    // present-but-unparsable arguments are corruption — fail
+                    // the parse instead of executing with a fabricated `{}`.
+                    let arguments: Value = match item.get("arguments") {
+                        None => json!({}),
+                        Some(a) if a.as_str().is_some_and(|s| s.trim().is_empty()) => json!({}),
+                        Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
+                            format!("function call '{name}' has invalid arguments ({e})")
+                        })?,
+                        Some(other) => other.clone(),
+                    };
                     tool_calls.push(ToolCall {
                         id,
                         name,
@@ -244,6 +252,10 @@ pub struct StreamAccumulator {
     tool_calls: Vec<ToolCall>,
     finish_reason: Option<String>,
     usage: TokenUsage,
+    /// Terminal transport-level failure observed mid-stream (truncated
+    /// function-call arguments, `response.failed`). The transport must turn
+    /// this into an `Err`, never into a silently completed empty answer.
+    error: Option<String>,
 }
 
 impl StreamAccumulator {
@@ -311,6 +323,13 @@ impl StreamAccumulator {
                     .and_then(|m| m.as_str())
                     .unwrap_or("response.failed");
                 self.finish_reason = Some(format!("failed: {err_msg}"));
+                // A failed response is a terminal transport failure, not an
+                // empty answer: record it so the transport returns Err even
+                // if a caller feeds the accumulator without the shared
+                // in-band-error pre-check.
+                if self.error.is_none() {
+                    self.error = Some(format!("responses stream failed: {err_msg}"));
+                }
             }
             "error" => {
                 let err_msg = v
@@ -318,6 +337,9 @@ impl StreamAccumulator {
                     .and_then(|m| m.as_str())
                     .unwrap_or("stream error");
                 self.finish_reason = Some(format!("failed: {err_msg}"));
+                if self.error.is_none() {
+                    self.error = Some(format!("responses stream error: {err_msg}"));
+                }
             }
             _ => {}
         }
@@ -331,8 +353,27 @@ impl StreamAccumulator {
                 .current_call_id
                 .take()
                 .unwrap_or_else(|| format!("call_{}", self.tool_calls.len()));
-            let arguments: Value =
-                serde_json::from_str(&self.current_call_args).unwrap_or_else(|_| json!({}));
+            // Fail closed on truncated arguments: executing a tool with a
+            // fabricated `{}` (e.g. Bash/Write with empty params) is worse
+            // than failing the turn. An empty argument stream is a valid
+            // no-args call; a non-empty but unparsable one is corruption.
+            let trimmed = self.current_call_args.trim();
+            let arguments = if trimmed.is_empty() {
+                json!({})
+            } else {
+                match serde_json::from_str(trimmed) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        if self.error.is_none() {
+                            self.error = Some(format!(
+                                "function call '{name}' has truncated (non-JSON) arguments ({e}); refusing to execute with fabricated empty arguments"
+                            ));
+                        }
+                        self.current_call_args.clear();
+                        return;
+                    }
+                }
+            };
             self.tool_calls.push(ToolCall {
                 id,
                 name,
@@ -343,8 +384,29 @@ impl StreamAccumulator {
         }
     }
 
+    /// Terminal failure observed while accumulating, if any. The transport
+    /// must return it as `Err` instead of completing the turn silently.
+    pub fn take_error(&mut self) -> Option<String> {
+        self.error.take()
+    }
+
     pub fn finish(mut self) -> LLMChatResponse {
         self.flush_current_tool_call();
+
+        // Fail closed: a corrupted tool call (or a failed response) poisons
+        // the whole turn. Handing upward a partial tool set — or an empty
+        // answer with a "failed" finish reason — is what turned provider
+        // failures into silent empty completions. The contentless, toolless,
+        // reasonless response is mapped to `Err` by the transport.
+        if self.error.is_some() {
+            return LLMChatResponse {
+                content: String::new(),
+                thinking: Vec::new(),
+                tool_calls: Vec::new(),
+                finish_reason: None,
+                usage: self.usage,
+            };
+        }
 
         let mut thinking = Vec::new();
         if !self.thinking.is_empty() {
@@ -487,11 +549,91 @@ mod tests {
             }
         }));
 
-        let resp = acc.finish();
-        assert_eq!(
-            resp.finish_reason.as_deref(),
-            Some("failed: Rate limit exceeded")
+        let mut resp_acc = acc;
+        let err = resp_acc.take_error();
+        assert!(
+            err.is_some_and(|m| m.contains("Rate limit exceeded")),
+            "a failed response must surface as a transport error, not an empty completion"
         );
+        let _ = resp_acc.finish();
+    }
+
+    #[test]
+    fn test_truncated_tool_call_arguments_are_an_error_not_empty_object() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "call_id": "call_9",
+                "name": "Bash"
+            }
+        }));
+        // Stream cut mid-arguments: `{"command": "rm -rf /tmp/x` never parses.
+        acc.feed(&json!({
+            "type": "response.function_call_arguments.delta",
+            "delta": "{\"command\": \"rm -rf /tmp/x"
+        }));
+
+        // The corruption only materializes at flush time; the transport
+        // surfaces mid-stream failures via take_error() and finish() refuses
+        // to hand up a partial tool set.
+        let resp = acc.finish();
+        assert!(
+            resp.tool_calls.is_empty() && resp.content.is_empty(),
+            "the corrupted call must be dropped, not pushed with empty arguments"
+        );
+        assert!(
+            resp.finish_reason.is_none(),
+            "a poisoned turn must come back contentless/toolless/reasonless so the transport errors"
+        );
+    }
+
+    #[test]
+    fn test_empty_tool_call_arguments_stay_a_valid_no_args_call() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "call_id": "call_10",
+                "name": "ListFiles"
+            }
+        }));
+        acc.feed(&json!({ "type": "response.output_item.done" }));
+
+        let mut acc2 = acc;
+        assert!(acc2.take_error().is_none());
+        let resp = acc2.finish();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].arguments, json!({}));
+    }
+
+    #[test]
+    fn test_parse_response_rejects_invalid_arguments() {
+        let bad = json!({
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "Write",
+                "arguments": "{\"path\": \"/x"
+            }]
+        });
+        assert!(
+            parse_response(&bad).is_err(),
+            "non-streaming invalid arguments must fail the parse, not become {{}}"
+        );
+        let no_args = json!({
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_2",
+                "name": "ListFiles"
+            }]
+        });
+        let parsed = parse_response(&no_args).unwrap();
+        assert_eq!(parsed.tool_calls[0].arguments, json!({}));
     }
 
     #[test]

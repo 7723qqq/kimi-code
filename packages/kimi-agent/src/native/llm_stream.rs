@@ -7,6 +7,7 @@
 //! - OpenAI Responses API (`openai-responses`)
 //! - OpenAI Chat Completions / Legacy (`openai-legacy`)
 //! - Anthropic Messages API (`anthropic`)
+//! - Google GenAI / Gemini (`google` | `google-genai` | `gemini`)
 
 use std::time::Duration;
 
@@ -16,6 +17,16 @@ use reqwest::header::{
     AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT,
 };
 use serde_json::Value;
+
+use crate::llm::google_genai;
+use crate::llm::wire::StreamDelta;
+
+/// Whether this provider string is the Google GenerateContent wire. The
+/// endpoint builder (`llm::http`) and the config resolver match the same three
+/// spellings.
+fn is_google_provider(provider: &str) -> bool {
+    matches!(provider, "google" | "google-genai" | "gemini")
+}
 
 /// Shared HTTP client: one connection pool and TLS session cache across every
 /// LLM stream request. The per-request deadline rides on the request builder.
@@ -140,6 +151,18 @@ pub async fn run_llm_stream_with(
         }
     }
 
+    // A Google endpoint without a version segment is not an API route: a
+    // catch-all gateway answers it 200 with a body the decoder cannot use, which
+    // reaches the user as "the model returned nothing". The engine transport
+    // appends the segment itself (`google_api_base`); this path receives a full
+    // endpoint URL, so it can only refuse the request loudly.
+    if is_google_provider(&config.provider) && !crate::llm::http::url_has_api_version(&config.url) {
+        return Err(format!(
+            "google-genai stream url \"{}\" carries no API version segment (expected e.g. /v1beta/models/<model>:streamGenerateContent). Refusing to issue a request that would be answered by a catch-all route.",
+            config.url
+        ));
+    }
+
     // Make the HTTP request
     let response = HTTP_CLIENT
         .post(&config.url)
@@ -176,9 +199,33 @@ pub async fn run_llm_stream_with(
         ..Default::default()
     };
 
+    // Google frames are cumulative deltas: `usageMetadata` and `finishReason`
+    // ride on arbitrary frames, so the accumulator has to outlive the loop
+    // (unlike the stateless decoders below).
+    let mut google =
+        is_google_provider(&config.provider).then(google_genai::StreamAccumulator::new);
+
+    // A stream that never yields a parseable frame must not end as a silent
+    // `Done`: the caller sees zero parts and reports "the model returned
+    // nothing". Same failure mode the engine transport guards against.
+    // Read the content type before `bytes_stream()` consumes the response.
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
     // Read SSE stream
     let bytes_stream = response.bytes_stream();
     let mut sse_stream = bytes_stream.eventsource();
+
+    let mut n_parsed: u32 = 0;
+    let mut n_malformed: u32 = 0;
+    let mut first_malformed: Option<String> = None;
+    // An in-band error or a decode failure already reported the terminal state;
+    // emitting `Done` afterwards would tell the caller the stream completed.
+    let mut errored = false;
 
     while let Some(result) = sse_stream.next().await {
         match result {
@@ -190,8 +237,17 @@ pub async fn run_llm_stream_with(
 
                 let parsed: Value = match serde_json::from_str(&data) {
                     Ok(v) => v,
-                    Err(_) => continue, // Skip malformed JSON
+                    // Count instead of discarding silently: a catch-all gateway
+                    // answering 200 with a non-SSE body lands here.
+                    Err(_) => {
+                        n_malformed += 1;
+                        if first_malformed.is_none() {
+                            first_malformed = Some(truncate_for_diagnosis(&data));
+                        }
+                        continue;
+                    }
                 };
+                n_parsed += 1;
 
                 // Gateways and providers report mid-stream failures as in-band
                 // error frames (Chat Completions: a top-level `error` object;
@@ -202,6 +258,7 @@ pub async fn run_llm_stream_with(
                     emit(StreamEvent::Error(format!(
                         "Provider stream error: {message}"
                     )));
+                    errored = true;
                     break;
                 }
 
@@ -209,6 +266,10 @@ pub async fn run_llm_stream_with(
                     "openai-responses" => decode_openai_responses_event(&parsed, &mut metadata),
                     "openai-legacy" => decode_openai_legacy_event(&parsed, &mut metadata),
                     "anthropic" => decode_anthropic_event(&parsed, &mut metadata),
+                    "google" | "google-genai" | "gemini" => match google.as_mut() {
+                        Some(accumulator) => decode_google_event(accumulator, &parsed),
+                        None => Vec::new(),
+                    },
                     _ => vec![],
                 };
 
@@ -218,9 +279,56 @@ pub async fn run_llm_stream_with(
             }
             Err(e) => {
                 emit(StreamEvent::Error(format!("SSE stream error: {e}")));
+                errored = true;
                 break;
             }
         }
+    }
+
+    // Google reports usage and the finish reason across the stream rather than
+    // in a final frame, so `finish()` is where the accumulator hands them over.
+    if let Some(accumulator) = google.take() {
+        let final_response = accumulator.finish();
+        metadata.input_tokens = final_response.usage.input_tokens;
+        metadata.output_tokens = final_response.usage.output_tokens;
+        // `TokenUsage` names the cache fields after Anthropic's; Google's
+        // `cachedContentTokenCount` lands in `input_cache_read`.
+        metadata.cached_tokens = final_response.usage.input_cache_read;
+        metadata.finish_reason = final_response.finish_reason;
+
+        // Gemini function calls only exist once the accumulator is finalized —
+        // the per-frame delta carries text/think only. They used to be dropped
+        // here, so on this path the agent received a Gemini function call as
+        // nothing at all and could not act on it.
+        for (index, call) in final_response.tool_calls.into_iter().enumerate() {
+            emit(StreamEvent::Part(StreamedPart {
+                part_type: "function".into(),
+                text: None,
+                think: None,
+                encrypted: None,
+                id: Some(call.id),
+                name: Some(call.name),
+                arguments: Some(call.arguments.to_string()),
+                arguments_part: None,
+                stream_index: Some(index as u32),
+            }));
+        }
+    }
+
+    if errored {
+        // The terminal event was already emitted; do not follow it with `Done`.
+        return Ok(());
+    }
+
+    // No parseable frame at all: report a stream error instead of `Done`, which
+    // the caller would read as "the model returned nothing".
+    if n_parsed == 0 {
+        emit(StreamEvent::Error(empty_stream_error(
+            &content_type,
+            n_malformed,
+            first_malformed.as_deref(),
+        )));
+        return Ok(());
     }
 
     emit(StreamEvent::Done(metadata));
@@ -228,6 +336,67 @@ pub async fn run_llm_stream_with(
 }
 
 // ── In-band error detection ──────────────────────────────────────────────────
+
+/// Prefix for a 200 response whose body is not an SSE chat stream at all (every
+/// frame failed to parse). Retrying cannot fix a wrong `base_url`, so the engine
+/// transport refuses to retry it.
+pub(crate) const NOT_AN_SSE_ENDPOINT_PREFIX: &str = "llm endpoint is not an SSE stream";
+
+/// Keeps a diagnosis readable: the first frame of a non-SSE body is the useful
+/// part, and a catch-all gateway can answer with a megabyte of HTML.
+///
+/// Shared with the engine transport (`llm::http`) so both paths truncate a
+/// captured frame the same way.
+pub(crate) fn truncate_for_diagnosis(text: &str) -> String {
+    const LIMIT: usize = 200;
+    let cleaned = text.trim().replace(['\r', '\n'], " ");
+    if cleaned.is_empty() {
+        return "<empty frame>".to_string();
+    }
+    let mut out: String = cleaned.chars().take(LIMIT).collect();
+    if cleaned.chars().count() > LIMIT {
+        out.push('…');
+    }
+    out
+}
+
+/// Explains a stream that produced no parseable frame.
+///
+/// The common cause in practice is a `base_url` that is not an API route — a
+/// catch-all gateway answers 200 for anything — so the message names that
+/// explicitly instead of letting the empty result read as "the model said
+/// nothing". Shared by both transports.
+pub(crate) fn empty_stream_error(
+    content_type: &str,
+    n_malformed: u32,
+    first_malformed: Option<&str>,
+) -> String {
+    let mut detail: Vec<String> = Vec::new();
+    if !content_type.is_empty() {
+        detail.push(format!("content-type \"{content_type}\""));
+    }
+    detail.push(format!("{n_malformed} unparsable SSE frame(s)"));
+    if let Some(sample) = first_malformed {
+        detail.push(format!("first frame: {sample}"));
+    }
+    let detail = detail.join(", ");
+    let advice = "check that the provider base_url is the API root, including the protocol version segment (e.g. /v1beta for google-genai)";
+    // A catch-all gateway answers 200 with whatever it serves by default —
+    // typically a directory listing or an error page. That body yields *no*
+    // frames at all (no `data:` lines), so "unparsable frame count > 0" is not
+    // the right test: the content type is what gives such a response away.
+    let content_type_is_streamy = content_type.contains("event-stream")
+        || content_type.contains("json")
+        || content_type.contains("text/plain");
+    if n_malformed > 0 || (!content_type.is_empty() && !content_type_is_streamy) {
+        return format!(
+            "{NOT_AN_SSE_ENDPOINT_PREFIX}: the endpoint answered 200 with a body that carries no parseable events ({detail}). It answered, but not with a chat stream — {advice}."
+        );
+    }
+    format!(
+        "llm stream produced no events ({detail}). The endpoint answered 200 with an empty body; {advice}."
+    )
+}
 
 /// Extract the message of an in-band stream error frame, if the event is one.
 ///
@@ -239,7 +408,12 @@ pub async fn run_llm_stream_with(
 /// - OpenAI Responses: `{"type": "error", "message": ..., "code": ...}`.
 ///
 /// Returns `None` for every non-error event, including `"error": null`.
-fn extract_in_band_error(event: &Value) -> Option<String> {
+///
+/// Shared with the engine's own HTTP transport (`llm::http`) so the two paths
+/// cannot disagree about what an in-band error looks like — the engine path
+/// shipped without any such check at all, which is how a gateway error frame
+/// turned into a silently empty response.
+pub(crate) fn extract_in_band_error(event: &Value) -> Option<String> {
     let top_error = event.get("error");
     if let Some(err) = top_error.filter(|v| v.is_object()) {
         if let Some(message) = err.get("message").and_then(|v| v.as_str())
@@ -250,8 +424,22 @@ fn extract_in_band_error(event: &Value) -> Option<String> {
         return Some(err.to_string());
     }
 
-    if event.get("type").and_then(|v| v.as_str()) == Some("error") {
-        if let Some(message) = top_error
+    // OpenAI Responses API terminal failure: `{"type":"response.failed",
+    // "response":{"error":{"message":...}}}`. Neither the engine transport
+    // nor the napi decoder may normalize this into an empty completion.
+    if event.get("type").and_then(|v| v.as_str()) == Some("response.failed") {
+        let message = event
+            .get("response")
+            .and_then(|r| r.get("error"))
+            .and_then(|e| e.get("message"))
+            .and_then(|v| v.as_str())
+            .filter(|m| !m.is_empty())
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "response.failed".to_string());
+        return Some(message);
+    }
+
+    if event.get("type").and_then(|v| v.as_str()) == Some("error") {        if let Some(message) = top_error
             .filter(|v| v.is_object())
             .and_then(|err| err.get("message"))
             .and_then(|v| v.as_str())
@@ -273,6 +461,35 @@ fn extract_in_band_error(event: &Value) -> Option<String> {
 }
 
 // ── OpenAI Responses API decoder ─────────────────────────────────────────────
+
+/// Decode one Google GenAI `streamGenerateContent` frame.
+///
+/// Unlike the decoders below this is **not** pure: the accumulator owns the
+/// cross-frame state, because Google spreads `usageMetadata` and `finishReason`
+/// over arbitrary frames instead of emitting a terminal one. Without this arm
+/// every Gemini frame fell through to `_ => vec![]` — the stream produced zero
+/// parts and zero errors, which is exactly what "the model returns nothing"
+/// looks like from outside.
+fn decode_google_event(
+    accumulator: &mut google_genai::StreamAccumulator,
+    event: &Value,
+) -> Vec<StreamedPart> {
+    let Some(delta) = accumulator.feed(event) else {
+        return Vec::new();
+    };
+    match delta {
+        StreamDelta::Text(text) => vec![StreamedPart {
+            part_type: "text".into(),
+            text: Some(text),
+            ..Default::default()
+        }],
+        StreamDelta::Think(think) => vec![StreamedPart {
+            part_type: "think".into(),
+            think: Some(think),
+            ..Default::default()
+        }],
+    }
+}
 
 fn decode_openai_responses_event(
     event: &Value,
@@ -697,6 +914,68 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Google GenAI decoding
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// A Gemini frame must yield a part. Before the `google` arm existed every
+    /// frame fell through to `_ => vec![]`, so the stream produced nothing at
+    /// all — and no error either.
+    #[test]
+    fn google_frame_decodes_into_a_text_part() {
+        let mut accumulator = google_genai::StreamAccumulator::new();
+        let frame = json!({
+            "candidates": [{
+                "content": { "parts": [{ "text": "Hello" }] },
+                "finishReason": "STOP"
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 11,
+                "candidatesTokenCount": 5,
+                "cachedContentTokenCount": 3
+            }
+        });
+
+        let parts = decode_google_event(&mut accumulator, &frame);
+        assert_eq!(parts.len(), 1, "parts: {parts:?}");
+        assert_eq!(parts[0].part_type, "text");
+        assert_eq!(parts[0].text.as_deref(), Some("Hello"));
+
+        // Usage and the finish reason ride on the stream, so they only surface
+        // from `finish()` — that is why the accumulator outlives the loop.
+        let final_response = accumulator.finish();
+        assert_eq!(final_response.usage.input_tokens, 11);
+        assert_eq!(final_response.usage.output_tokens, 5);
+        assert_eq!(final_response.usage.input_cache_read, 3);
+        assert_eq!(final_response.finish_reason.as_deref(), Some("stop"));
+    }
+
+    /// `thought: true` parts are reasoning, not the visible answer.
+    #[test]
+    fn google_thought_frames_decode_into_think_parts() {
+        let mut accumulator = google_genai::StreamAccumulator::new();
+        let frame = json!({
+            "candidates": [{
+                "content": { "parts": [{ "text": "let me think", "thought": true }] }
+            }]
+        });
+
+        let parts = decode_google_event(&mut accumulator, &frame);
+        assert_eq!(parts.len(), 1, "parts: {parts:?}");
+        assert_eq!(parts[0].part_type, "think");
+        assert_eq!(parts[0].think.as_deref(), Some("let me think"));
+        assert_eq!(parts[0].text, None);
+    }
+
+    #[test]
+    fn is_google_provider_covers_every_spelling() {
+        assert!(is_google_provider("google"));
+        assert!(is_google_provider("google-genai"));
+        assert!(is_google_provider("gemini"));
+        assert!(!is_google_provider("openai"));
+        assert!(!is_google_provider("anthropic"));
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     // In-band error detection tests
@@ -1427,5 +1706,198 @@ mod tests {
         assert!(parts2.is_empty());
         let parts3 = decode_openai_legacy_event(&event, &mut meta);
         assert!(parts3.is_empty());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // End-to-end stream guards
+    //
+    // These drive the real transport against a loopback server: the failure
+    // modes being guarded (empty body, non-SSE body, in-band error, a dropped
+    // Gemini tool call) only exist end to end.
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// Serve a single 200 response per connection with a fixed body.
+    async fn spawn_http_server(
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        (addr, handle)
+    }
+
+    fn stream_config(url: String, provider: &str) -> LlmStreamConfig {
+        LlmStreamConfig {
+            provider: provider.to_string(),
+            url,
+            api_key: "test-key".to_string(),
+            request_body: "{}".to_string(),
+            timeout_ms: 10_000,
+            extra_headers: Vec::new(),
+        }
+    }
+
+    async fn collect_events(config: &LlmStreamConfig) -> Result<Vec<StreamEvent>, String> {
+        let mut events = Vec::new();
+        run_llm_stream_with(config, |event| events.push(event)).await?;
+        Ok(events)
+    }
+
+    fn error_event(events: &[StreamEvent]) -> Option<String> {
+        events.iter().find_map(|event| match event {
+            StreamEvent::Error(message) => Some(message.clone()),
+            _ => None,
+        })
+    }
+
+    fn has_done(events: &[StreamEvent]) -> bool {
+        events
+            .iter()
+            .any(|event| matches!(event, StreamEvent::Done(_)))
+    }
+
+    /// A 200 whose body is not SSE must surface an error and must not be
+    /// followed by `Done` — the caller reads `Done` with zero parts as "the
+    /// model returned nothing".
+    #[tokio::test]
+    async fn non_sse_body_emits_an_error_instead_of_done() {
+        let (addr, server) = spawn_http_server("text/html", "<html>index of /</html>").await;
+        let config = stream_config(format!("http://{addr}/stream"), "openai-legacy");
+        let events = collect_events(&config)
+            .await
+            .expect("transport itself succeeded");
+        server.abort();
+
+        let error = error_event(&events).expect("a non-SSE body must produce an error event");
+        assert!(
+            error.starts_with(NOT_AN_SSE_ENDPOINT_PREFIX),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("text/html"),
+            "the diagnosis must name the type: {error}"
+        );
+        assert!(!has_done(&events), "a failed stream must not emit Done");
+    }
+
+    /// An empty 200 body is an error too.
+    #[tokio::test]
+    async fn empty_body_emits_an_error_instead_of_done() {
+        let (addr, server) = spawn_http_server("text/event-stream", "").await;
+        let config = stream_config(format!("http://{addr}/stream"), "openai-legacy");
+        let events = collect_events(&config)
+            .await
+            .expect("transport itself succeeded");
+        server.abort();
+
+        let error = error_event(&events).expect("an empty body must produce an error event");
+        assert!(
+            error.contains("produced no events"),
+            "unexpected error: {error}"
+        );
+        assert!(!has_done(&events), "a failed stream must not emit Done");
+    }
+
+    /// The guards must not break a normal stream.
+    #[tokio::test]
+    async fn a_normal_stream_emits_parts_then_done() {
+        let (addr, server) = spawn_http_server(
+            "text/event-stream",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n",
+        )
+        .await;
+        let config = stream_config(format!("http://{addr}/stream"), "openai-legacy");
+        let events = collect_events(&config)
+            .await
+            .expect("a normal stream must succeed");
+        server.abort();
+
+        assert!(
+            events.iter().any(
+                |event| matches!(event, StreamEvent::Part(p) if p.text.as_deref() == Some("hi"))
+            ),
+            "the text part must be emitted: {events:?}"
+        );
+        assert!(has_done(&events), "a normal stream must emit Done");
+    }
+
+    /// An in-band provider error ends the stream without a trailing `Done`.
+    #[tokio::test]
+    async fn in_band_error_ends_the_stream_without_done() {
+        let (addr, server) = spawn_http_server(
+            "text/event-stream",
+            "data: {\"error\":{\"message\":\"boom\"}}\n\n",
+        )
+        .await;
+        let config = stream_config(format!("http://{addr}/stream"), "openai-legacy");
+        let events = collect_events(&config)
+            .await
+            .expect("transport itself succeeded");
+        server.abort();
+
+        let error = error_event(&events).expect("an in-band error must be surfaced");
+        assert!(
+            error.contains("boom"),
+            "the provider message must survive: {error}"
+        );
+        assert!(!has_done(&events), "an errored stream must not emit Done");
+    }
+
+    /// Gemini function calls only materialize when the accumulator is finalized;
+    /// they were dropped entirely, so the agent could not act on one.
+    #[tokio::test]
+    async fn google_tool_calls_are_emitted_as_function_parts() {
+        let (addr, server) = spawn_http_server(
+            "text/event-stream",
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"Grep\",\"args\":{\"query\":\"x\"},\"id\":\"fc_1\"},\"thoughtSignature\":\"sig-x\"}]}}]}\n\n",
+        )
+        .await;
+        let config = stream_config(format!("http://{addr}/v1beta/stream"), "google-genai");
+        let events = collect_events(&config)
+            .await
+            .expect("a google stream must succeed");
+        server.abort();
+
+        let call = events
+            .iter()
+            .find_map(|event| match event {
+                StreamEvent::Part(part) if part.part_type == "function" => Some(part),
+                _ => None,
+            })
+            .expect("a function part must be emitted");
+        assert_eq!(call.name.as_deref(), Some("Grep"));
+        assert_eq!(call.id.as_deref(), Some("fc_1"));
+        assert_eq!(call.arguments.as_deref(), Some("{\"query\":\"x\"}"));
+        assert!(
+            has_done(&events),
+            "the stream must still terminate with Done"
+        );
+    }
+
+    /// A google URL without a version segment is refused up front instead of
+    /// being answered by a catch-all route and looking like an empty answer.
+    #[tokio::test]
+    async fn google_url_without_a_version_segment_is_refused() {
+        let config = stream_config(
+            "http://127.0.0.1:1/models/x:streamGenerateContent".into(),
+            "google-genai",
+        );
+        let error = run_llm_stream_with(&config, |_| {})
+            .await
+            .expect_err("a versionless google url must be refused");
+        assert!(error.contains("no API version segment"), "{error}");
     }
 }

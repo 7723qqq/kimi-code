@@ -166,6 +166,14 @@ impl MultiLLM {
     }
 }
 
+/// A response that carries neither visible text nor a tool call. Relays do
+/// answer 200 with such a body intermittently (and a host-proxy response is
+/// legitimately text-free), so it is not an error — but it must not preempt a
+/// provider that has real content.
+fn is_empty_completion(response: &LLMChatResponse) -> bool {
+    response.content.is_empty() && response.tool_calls.is_empty()
+}
+
 /// Await the first task to COMPLETE (by completion order, not spawn order);
 /// return the first successful response and abort the remaining tasks. Errors
 /// from providers that finish first with a failure are collected and only
@@ -180,12 +188,28 @@ async fn race_first_success(
     cancellers: &HashMap<String, Arc<dyn HostCallbacks>>,
 ) -> Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>> {
     let mut errors: Vec<String> = Vec::new();
+    // An empty completion used to be declared the winner immediately, which
+    // aborted and cancelled every healthy provider — one transient relay hiccup
+    // therefore failed the whole turn even though another provider was about to
+    // answer. Hold it as a fallback and keep racing: it is returned only when
+    // nothing better arrives.
+    let mut empty_fallback: Option<LLMChatResponse> = None;
     while !handles.is_empty() {
         let (joined, _index, rest) = select_all(handles).await;
         handles = rest;
         match joined {
             Ok((winner_id, pr)) => match pr.result {
                 Ok(response) => {
+                    if is_empty_completion(&response) {
+                        eprintln!(
+                            "MultiLLM: {} returned an empty completion ({}ms); holding it as a fallback",
+                            pr.provider_name, pr.elapsed_ms
+                        );
+                        if empty_fallback.is_none() {
+                            empty_fallback = Some(response);
+                        }
+                        continue;
+                    }
                     eprintln!("MultiLLM: {} won ({}ms)", pr.provider_name, pr.elapsed_ms);
                     for handle in &handles {
                         handle.abort();
@@ -201,6 +225,9 @@ async fn race_first_success(
             },
             Err(e) => errors.push(format!("join error: {e}")),
         }
+    }
+    if let Some(response) = empty_fallback {
+        return Ok(response);
     }
     Err(errors.join("; ").into())
 }
@@ -452,6 +479,7 @@ mod tests {
                 Ok(crate::rpc::types::LlmChatResponse {
                     content: request_id.unwrap_or_default(),
                     tool_calls: vec![],
+                    thinking: vec![],
                     finish_reason: Some(if slow { "slow" } else { "fast" }.to_string()),
                     usage: crate::rpc::types::TokenUsage::default(),
                 })
@@ -634,6 +662,7 @@ mod tests {
                     Ok(LlmChatResponse {
                         content: String::new(),
                         tool_calls: vec![],
+                        thinking: vec![],
                         finish_reason: Some("recording".into()),
                         usage: TokenUsage::default(),
                     })
@@ -820,6 +849,7 @@ mod tests {
                         Ok(LlmChatResponse {
                             content: String::new(),
                             tool_calls: vec![],
+                            thinking: vec![],
                             finish_reason: Some("winner".into()),
                             usage: TokenUsage::default(),
                         })

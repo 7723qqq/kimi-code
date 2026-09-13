@@ -639,6 +639,12 @@ pub struct RunTurnParams {
     /// permission grant) run inside the Rust process.
     #[serde(default)]
     pub native_tools: bool,
+    /// Host-authorized extra roots (`/add-dir` → `additionalDirs`): paths that
+    /// canonicalize under one of them are served by the native toolset even
+    /// though they sit outside `workspace_root`. `#[serde(default)]` keeps
+    /// older callers that do not send the field wire-compatible.
+    #[serde(default)]
+    pub additional_dirs: Vec<String>,
     /// Rust engine self-contained mode. When true, the engine refuses to
     /// fall back to the host proxy for LLM calls — the caller must set
     /// `native_llm` or `providers`, or the engine returns a JSON-RPC
@@ -993,6 +999,11 @@ pub struct LlmChatResponse {
     #[serde(default)]
     pub content: String,
     pub tool_calls: Vec<LlmToolCall>,
+    /// Provider reasoning blocks (may be empty). The host-proxy path used to
+    /// drop these; they round-trip like message blocks so signatures that
+    /// must come back with the block survive the hop.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thinking: Vec<ContentBlock>,
     pub finish_reason: Option<String>,
     pub usage: TokenUsage,
 }
@@ -1502,7 +1513,11 @@ mod tests {
                 id: "call_1".to_string(),
                 name: "read".to_string(),
                 arguments: serde_json::json!({"path": "/tmp/test.txt"}),
-                extras: None,
+                extras: Some(serde_json::json!({"thought_signature_b64": "sig-x"})),
+            }],
+            thinking: vec![ContentBlock::Think {
+                think: "checking the path".to_string(),
+                encrypted: None,
             }],
             finish_reason: Some("stop".to_string()),
             usage: TokenUsage {
@@ -1514,12 +1529,33 @@ mod tests {
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["tool_calls"][0]["name"], "read");
+        assert_eq!(
+            json["tool_calls"][0]["extras"]["thought_signature_b64"],
+            "sig-x"
+        );
+        assert_eq!(json["thinking"][0]["think"], "checking the path");
         assert_eq!(json["finish_reason"], "stop");
 
         let deserialized: LlmChatResponse = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized.tool_calls.len(), 1);
         assert_eq!(deserialized.tool_calls[0].id, "call_1");
+        assert_eq!(
+            deserialized.tool_calls[0].extras.as_ref().unwrap()["thought_signature_b64"],
+            "sig-x"
+        );
+        assert_eq!(deserialized.thinking.len(), 1);
         assert_eq!(deserialized.finish_reason, Some("stop".to_string()));
+
+        // Old hosts that never send thinking must still deserialize.
+        let legacy = serde_json::json!({
+            "content": "hi",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+                      "input_cache_read": 0, "input_cache_creation": 0}
+        });
+        let legacy_resp: LlmChatResponse = serde_json::from_value(legacy).unwrap();
+        assert!(legacy_resp.thinking.is_empty());
     }
 
     #[test]

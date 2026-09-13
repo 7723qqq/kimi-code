@@ -151,6 +151,12 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "web_search",
     "listdirectory",
     "list_directory",
+    // Lsp has an execution arm (`Self::execute_tool`) and a tool definition in
+    // `all_native_tool_defs()`, which `GET /api/v1/tools` reports as an active
+    // builtin. Leaving it out of this list made `handles()` false, so a host
+    // that advertised Lsp had every call forwarded to a host with no tool
+    // runtime — the call could only fail.
+    "lsp",
     "invokesubagent",
     "invoke_subagent",
     "managesubagents",
@@ -254,9 +260,69 @@ tokio::task_local! {
     pub static CURRENT_CONVERSATION_HISTORY: std::sync::Arc<std::sync::Mutex<Vec<crate::turn_loop::types::LLMMessage>>>;
 }
 
+/// The set of directories a native tool call may touch.
+///
+/// `primary` is the workspace root (canonicalized by [`NativeToolset::new`]).
+/// `extra` holds the host-authorized additional directories — the `/add-dir`
+/// list the host hands over as `additionalDirs`. A path that canonicalizes
+/// under any of them is served natively instead of being handed back to a
+/// host that has no tool runtime to serve it with.
+#[derive(Debug, Clone)]
+pub struct Sandbox {
+    primary: PathBuf,
+    extra: Vec<PathBuf>,
+}
+
+impl Sandbox {
+    pub fn new(primary: PathBuf) -> Self {
+        Self {
+            primary,
+            extra: Vec::new(),
+        }
+    }
+
+    /// Add host-authorized roots. Each is canonicalized here; entries that do
+    /// not exist, are not directories, or are already covered by an existing
+    /// root are dropped rather than failing the whole sandbox.
+    pub fn with_extra(mut self, extra: impl IntoIterator<Item = PathBuf>) -> Self {
+        for root in extra {
+            let Ok(root) = std::fs::canonicalize(&root) else {
+                continue;
+            };
+            if !root.is_dir() || self.contains(&root) {
+                continue;
+            }
+            self.extra.push(root);
+        }
+        self
+    }
+
+    pub fn primary(&self) -> &Path {
+        &self.primary
+    }
+
+    /// The extra roots, deduplicated and canonicalized by [`Self::with_extra`].
+    pub fn extra(&self) -> &[PathBuf] {
+        &self.extra
+    }
+
+    /// Every root, primary first.
+    pub fn roots(&self) -> impl Iterator<Item = &Path> {
+        std::iter::once(self.primary.as_path()).chain(self.extra.iter().map(PathBuf::as_path))
+    }
+
+    /// Whether an already-canonicalized path lies inside any root.
+    pub fn contains(&self, path: &Path) -> bool {
+        path.starts_with(&self.primary) || self.extra.iter().any(|root| path.starts_with(root))
+    }
+}
+
 /// Sandboxed native executor, rooted at the workspace.
 pub struct NativeToolset {
     root: PathBuf,
+    /// Host-authorized extra roots (`additionalDirs`). Already canonicalized;
+    /// see [`Sandbox::with_extra`].
+    extra_roots: Vec<PathBuf>,
     /// Host shell for Bash (the host always uses bash, including Git Bash on
     /// Windows). `None` on Windows means "host owns Bash" — native Bash would
     /// otherwise run commands under a different shell than the tool's
@@ -384,6 +450,7 @@ impl NativeToolset {
         };
         Some(Self {
             root,
+            extra_roots: Vec::new(),
             shell,
             subagent_manager: None,
             mcp_manager: None,
@@ -405,6 +472,30 @@ impl NativeToolset {
             bash_task_timeout_s: None,
             provider: None,
         })
+    }
+
+    /// Host-authorized extra roots (`additionalDirs`): directories outside the
+    /// workspace root that this session may still read and write natively.
+    pub fn with_extra_roots(mut self, extra: Vec<String>) -> Self {
+        let roots: Vec<PathBuf> = extra
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+            .collect();
+        self.extra_roots = Sandbox::new(self.root.clone())
+            .with_extra(roots)
+            .extra()
+            .to_vec();
+        self
+    }
+
+    /// The sandbox this toolset executes inside. Roots were canonicalized when
+    /// [`Self::with_extra_roots`] ran, so this is a cheap clone per call.
+    fn sandbox(&self) -> Sandbox {
+        Sandbox {
+            primary: self.root.clone(),
+            extra: self.extra_roots.clone(),
+        }
     }
 
     /// Apply the host-resolved `[image]` limits for model-initiated reads
@@ -650,14 +741,13 @@ impl NativeToolset {
     /// Execute a read-only tool natively when supported and inside the
     /// sandbox. `None` means "not handled here — send it to the host".
     pub fn execute(&self, tool_name: &str, args: &Value) -> Option<ExecutableToolResult> {
+        let sandbox = self.sandbox();
         match tool_name.to_ascii_lowercase().as_str() {
-            "read" => self
-                .read_media(args)
-                .or_else(|| Self::read(&self.root, args)),
-            "grep" => Self::grep(&self.root, args),
-            "glob" => Self::glob(&self.root, args),
+            "read" => self.read_media(args).or_else(|| Self::read(&sandbox, args)),
+            "grep" => Self::grep(&sandbox, args),
+            "glob" => Self::glob(&sandbox, args),
             "listdirectory" | "list_directory" => {
-                list_directory::execute_list_directory(&self.root, args)
+                list_directory::execute_list_directory(&self.root, &self.extra_roots, args)
             }
             _ => None,
         }
@@ -754,7 +844,7 @@ impl NativeToolset {
                     .await
             }
             "listdirectory" | "list_directory" => {
-                list_directory::execute_list_directory(&self.root, args)
+                list_directory::execute_list_directory(&self.root, &self.extra_roots, args)
             }
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args, tool_call_id).await,
             "websearch" | "web_search" => web_search::execute_web_search(args, tool_call_id).await,
@@ -857,11 +947,26 @@ impl NativeToolset {
             }
             "select_tools" | "selecttools" => {
                 let callbacks = self.callbacks.as_deref()?;
-                let available: std::collections::HashSet<String> =
-                    match callbacks.list_tools().await {
-                        Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
-                        Err(_) => std::collections::HashSet::new(),
-                    };
+                // A failed enumeration is not an empty catalogue. Collapsing it
+                // to an empty set made every requested name look like a typo the
+                // model had made, hiding the RPC failure behind "unknown tool".
+                let available: std::collections::HashSet<String> = match callbacks
+                    .list_tools()
+                    .await
+                {
+                    Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
+                    Err(error) => {
+                        return Some(ExecutableToolResult {
+                            delivery: None,
+                            stop_turn: false,
+                            content: format!(
+                                "Could not enumerate the connected tools ({error}). No tools were selected; retry once the connection is healthy."
+                            ),
+                            is_error: true,
+                            note: None,
+                        });
+                    }
+                };
                 let mut loaded = std::collections::HashSet::new();
                 Some(select_tools::execute_select_tools(
                     args,
@@ -1055,9 +1160,9 @@ impl NativeToolset {
     async fn run_readonly_file_tool_on_blocking_pool(
         &self,
         args: &Value,
-        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
-        match Self::spawn_file_tool(self.root.clone(), args.clone(), tool).await {
+        match Self::spawn_file_tool(self.sandbox(), args.clone(), tool).await {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(false, e.to_string()),
         }
@@ -1073,7 +1178,7 @@ impl NativeToolset {
             Err(message) => return Some(err_result(message)),
         };
         let path = args.get("path")?.as_str()?;
-        let resolved = Self::resolve(&self.root, path)?;
+        let resolved = Self::resolve(&self.sandbox(), path)?;
         read_media::read_image_media(&resolved, &request, &self.read_media_limits())
     }
 
@@ -1086,7 +1191,7 @@ impl NativeToolset {
             Err(message) => return Some(err_result(message)),
         };
         let path = args.get("path")?.as_str()?;
-        let resolved = Self::resolve(&self.root, path)?;
+        let resolved = Self::resolve(&self.sandbox(), path)?;
         let limits = self.read_media_limits();
         match tokio::task::spawn_blocking(move || {
             read_media::read_image_media(&resolved, &request, &limits)
@@ -1099,11 +1204,11 @@ impl NativeToolset {
     }
 
     async fn spawn_file_tool(
-        root: PathBuf,
+        sandbox: Sandbox,
         args: Value,
-        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
-        tokio::task::spawn_blocking(move || tool(&root, &args)).await
+        tokio::task::spawn_blocking(move || tool(&sandbox, &args)).await
     }
 
     /// Run a synchronous mutating file-I/O tool (`write` / `edit`) on tokio's
@@ -1114,19 +1219,19 @@ impl NativeToolset {
     async fn run_mutating_file_tool_on_blocking_pool(
         &self,
         args: &Value,
-        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
         let ctx = self.file_history.clone();
-        match Self::spawn_mutating_file_tool(self.root.clone(), args.clone(), tool, ctx).await {
+        match Self::spawn_mutating_file_tool(self.sandbox(), args.clone(), tool, ctx).await {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(true, e.to_string()),
         }
     }
 
     async fn spawn_mutating_file_tool(
-        root: PathBuf,
+        sandbox: Sandbox,
         args: Value,
-        tool: fn(&Path, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
         ctx: Option<FileHistoryCtx>,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
         tokio::task::spawn_blocking(move || {
@@ -1134,43 +1239,47 @@ impl NativeToolset {
             // `write` / `edit` read it back out to record the change. A
             // no-op for callers without `with_file_history`.
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = ctx);
-            let result = tool(&root, &args);
+            let result = tool(&sandbox, &args);
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = None);
             result
         })
         .await
     }
 
-    /// Resolve a path argument inside the workspace. `None` when the path
-    /// escapes the sandbox or does not exist.
-    fn resolve(root: &Path, path: &str) -> Option<PathBuf> {
-        let candidate = Self::candidate_path(root, path);
-        let resolved = std::fs::canonicalize(&candidate).ok()?;
-        resolved.starts_with(root).then_some(resolved)
+    /// Resolve a path argument inside the sandbox. `None` when the path
+    /// escapes every authorized root or does not exist.
+    fn resolve(sandbox: &Sandbox, path: &str) -> Option<PathBuf> {
+        // Reads are not path-gated: v2's sandbox only covers writes
+        // (`sandboxWriteGuard`), and gating reads here turned every
+        // out-of-workspace read into a silent host fallback — the host has no
+        // file-tool runtime, so the read simply vanished.
+        let candidate = Self::candidate_path(sandbox.primary(), path);
+        std::fs::canonicalize(&candidate).ok()
     }
 
     /// Like [`resolve`] but tolerates a not-yet-existing target: walks up to
     /// the nearest existing ancestor, canonicalizes it (resolving any
     /// symlink escapes), then rejoins the missing tail. `None` when the
     /// existing ancestor lies outside the sandbox.
-    fn resolve_for_write(root: &Path, path: &str) -> Option<PathBuf> {
-        let candidate = Self::candidate_path(root, path);
+    fn resolve_for_write(sandbox: &Sandbox, path: &str) -> Option<PathBuf> {
+        // Write confinement belongs to the SandboxMode gateway
+        // (`SandboxExecutionPolicy::sandbox_write_guard`, Off by default —
+        // mirroring v2), not to this resolver: an unconditional root check here
+        // also blocked writes the configured mode had already allowed.
+        let candidate = Self::candidate_path(sandbox.primary(), path);
         if let Ok(resolved) = std::fs::canonicalize(&candidate) {
-            return resolved.starts_with(root).then_some(resolved);
+            return Some(resolved);
         }
         let mut missing: Vec<std::ffi::OsString> = Vec::new();
         let mut cursor = candidate.as_path();
         loop {
             match std::fs::canonicalize(cursor) {
                 Ok(existing) => {
-                    if !existing.starts_with(root) {
-                        return None;
-                    }
                     let mut resolved = existing;
                     for segment in missing.iter().rev() {
                         resolved = resolved.join(segment);
                     }
-                    return resolved.starts_with(root).then_some(resolved);
+                    return Some(resolved);
                 }
                 Err(_) => {
                     missing.push(cursor.file_name()?.to_os_string());
@@ -1190,7 +1299,7 @@ impl NativeToolset {
 
     // ── Read ───────────────────────────────────────────────────────────
 
-    fn read(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+    fn read(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         // The dispatcher's media path owns `region` / `full_resolution` and
         // is consulted before every call that reaches this text read; decline
@@ -1202,16 +1311,24 @@ impl NativeToolset {
         {
             return None;
         }
-        // Negative offsets (tail reads) keep their host semantics.
-        let offset = match args.get("line_offset") {
-            None | Some(Value::Null) => 1,
+        // Negative offsets are tail reads implemented natively: -N starts
+        // N lines from the end of the file (schema: -1000..=-1).
+        let (line_offset, tail_lines) = match args.get("line_offset") {
+            None | Some(Value::Null) => (1i64, 0usize),
             Some(v) => {
                 let n = v.as_i64()?;
-                if n < 1 {
+                if n == 0 {
                     return None;
                 }
-                n as usize
+                (n, n.unsigned_abs() as usize)
             }
+        };
+        let mut offset = if line_offset > 0 {
+            line_offset as usize
+        } else {
+            // Resolved below once the line count is known; 0 is a sentinel
+            // that is always replaced before use.
+            0
         };
         let column_offset = match args.get("column_offset") {
             None | Some(Value::Null) => 0usize,
@@ -1226,54 +1343,141 @@ impl NativeToolset {
             Some(v) => (v.as_u64()? as usize).min(READ_MAX_LINES),
         };
 
-        let resolved = Self::resolve(root, path)?;
+        let resolved = Self::resolve(sandbox, path)?;
         let meta = std::fs::metadata(&resolved).ok()?;
-        if !meta.is_file() || meta.len() > READ_MAX_BYTES {
+        if !meta.is_file() {
             return None;
         }
-        let bytes = std::fs::read(&resolved).ok()?;
 
-        // Encoding detection mirrors the host Read tool: BOM first, then the
-        // zero-byte parity heuristic. UTF-16 payloads are transcoded whole;
-        // binary-looking headers and invalid UTF-8 fall back to the host,
-        // which owns the media pipeline and the full error contract.
-        let header = &bytes[..bytes.len().min(encoding::ENCODING_DETECTION_SAMPLE_BYTES)];
-        let detection = encoding::detect_text_encoding(header);
-        let (text, encoding_note) =
-            if !detection.seems_binary && detection.encoding != encoding::UtfTextEncoding::Utf8 {
-                let decoded = encoding::decode_utf_text(&bytes, detection.encoding);
-                (decoded, Some(detection.encoding))
-            } else if detection.seems_binary {
+        // Encoding detection needs only the first bytes — reads are ranged
+        // (v2 #3645), so a 30MB+ file must never load whole just to be read.
+        let mut file = std::fs::File::open(&resolved).ok()?;
+        let sample_len = (meta.len() as usize).min(encoding::ENCODING_DETECTION_SAMPLE_BYTES);
+        let mut header = vec![0u8; sample_len];
+        if sample_len > 0 {
+            std::io::Read::read_exact(&mut file, &mut header).ok()?;
+            // The sample consumed the handle's position: rewind so the line
+            // stream starts at line 1, not after the header.
+            std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).ok()?;
+        }
+        let detection = encoding::detect_text_encoding(&header);
+        if detection.seems_binary {
+            return None;
+        }
+
+        // Tail reads on UTF-8/ASCII files: count lines in a streaming pass
+        // (no storage), then collect the window in a second pass from the
+        // top, so large files are never loaded whole. The probe over-reads
+        // into its buffer, so rewind explicitly afterwards.
+        if tail_lines > 0 && detection.encoding == encoding::UtfTextEncoding::Utf8 {
+            let counted = {
+                use std::io::BufRead;
+                let mut probe = std::io::BufReader::new(&mut file);
+                let mut buf = Vec::new();
+                let mut count = 0usize;
+                loop {
+                    buf.clear();
+                    let n = probe.read_until(b'\n', &mut buf).ok()?;
+                    if n == 0 {
+                        break;
+                    }
+                    count += 1;
+                }
+                count
+            };
+            std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).ok()?;
+            offset = counted.saturating_sub(tail_lines) + 1;
+        }
+
+        // Non-UTF-8 text (UTF-16/GBK) requires whole-file transcoding; the
+        // transcode cap applies there. UTF-8/ASCII files stream line by line:
+        // only the rendered window is held in memory, so file size is not a
+        // constraint (the old whole-file load + READ_MAX_BYTES cap declined
+        // every large text file before this).
+        let (mut all, encoding_note, total_lines): (
+            Vec<String>,
+            Option<encoding::UtfTextEncoding>,
+            usize,
+        ) = if detection.encoding != encoding::UtfTextEncoding::Utf8 {
+            if meta.len() > READ_MAX_BYTES {
                 return None;
+            }
+            let bytes = std::fs::read(&resolved).ok()?;
+            let text = encoding::decode_utf_text(&bytes, detection.encoding);
+            let text_lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
+            let total = text_lines.len();
+            // Tail reads slice from the loaded lines. A trailing newline
+            // leaves a phantom empty segment that the streaming counter
+            // never sees, so exclude it from the tail math (the reported
+            // total keeps the historical count).
+            let windowed: Vec<String> = if tail_lines > 0 {
+                let mut count = total;
+                if count > 0 && text_lines.last().is_some_and(|l| l.is_empty()) {
+                    count -= 1;
+                }
+                let start = count.saturating_sub(tail_lines).min(total);
+                offset = start + 1;
+                text_lines.into_iter().skip(start).collect()
             } else {
-                // Strict UTF-8: NUL bytes and malformed sequences are the host's
-                // verdict (binary / not-UTF-8 errors), not a lossy native read.
-                if bytes.contains(&0) {
+                text_lines
+            };
+            (windowed, Some(detection.encoding), total)
+        } else {
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(file);
+            let mut raw: Vec<u8> = Vec::new();
+            let mut all: Vec<String> = Vec::new();
+            let mut total: usize = 0;
+            loop {
+                raw.clear();
+                let n = reader.read_until(b'\n', &mut raw).ok()?;
+                if n == 0 {
+                    break;
+                }
+                total += 1;
+                if total < offset || all.len() >= n_lines {
+                    continue;
+                }
+                if raw.contains(&0) {
                     return None;
                 }
-                let text = std::str::from_utf8(&bytes).ok()?.to_string();
-                // A leading UTF-8 BOM is stripped like TextDecoder does.
-                let text = text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string();
-                (text, None)
-            };
+                let mut l = raw.clone();
+                if l.last() == Some(&b'\n') {
+                    l.pop();
+                }
+                match std::str::from_utf8(&l) {
+                    Ok(text) => all.push(text.to_string()),
+                    Err(_) => return None,
+                }
+            }
+            (all, None, total)
+        };
 
-        // Split keeping a trailing `\r` per line — the style-aware renderer
-        // decides whether to strip it (pure CRLF) or make it visible (mixed).
-        // A final newline does not produce a phantom empty line.
-        let mut all: Vec<&str> = text.split('\n').collect();
-        if all.last().is_some_and(|l| l.is_empty()) {
-            all.pop();
+        // A leading UTF-8 BOM is stripped like TextDecoder does.
+        if let Some(first) = all.first_mut()
+            && let Some(stripped) = first.strip_prefix('\u{FEFF}')
+        {
+            *first = stripped.to_string();
         }
-        let style = encoding::detect_line_ending_style(text.as_bytes());
+        // Re-attach the '\n' separators: the style detector distinguishes
+        // CRLF from lone CR by what follows the '\r'.
+        let window_bytes: Vec<u8> = all
+            .iter()
+            .flat_map(|l| {
+                let mut b = l.as_bytes().to_vec();
+                b.push(b'\n');
+                b
+            })
+            .collect();
+        let style = encoding::detect_line_ending_style(&window_bytes);
 
-        if offset > all.len() && !all.is_empty() {
+        if total_lines > 0 && offset > total_lines {
             return Some(err_result(format!(
-                "line_offset {offset} is past the end of {path} ({} lines)",
-                all.len()
+                "line_offset {offset} is past the end of {path} ({total_lines} lines)"
             )));
         }
-        let start = (offset - 1).min(all.len());
-        let end = (start + n_lines).min(all.len());
+        let start = 0usize;
+        let end = all.len();
         // Line rendering mirrors the host Read tool: `${lineNo}\t${content}`,
         // CRLF-style trailing CRs stripped, per-line truncation to
         // READ_MAX_LINE_LENGTH characters with a `...` marker, lone CRs made
@@ -1313,14 +1517,21 @@ impl NativeToolset {
             let current_line_num = offset + i;
             let rendered_line = format!("{}\t{}", current_line_num, rendered);
             // Check max_chars budget
-            if !out.is_empty() && out.chars().count() + rendered_line.chars().count() + 1 > max_chars {
+            if !out.is_empty()
+                && out.chars().count() + rendered_line.chars().count() + 1 > max_chars
+            {
                 max_chars_reached = true;
                 let available_chars = max_chars.saturating_sub(out.chars().count() + 1);
                 if available_chars > 8 {
                     let partial: String = rendered_line.chars().take(available_chars).collect();
                     out.push_str(&partial);
                     out.push('\n');
-                    resume_continuation = Some((current_line_num, column_offset + available_chars.saturating_sub(format!("{current_line_num}\t").chars().count())));
+                    resume_continuation = Some((
+                        current_line_num,
+                        column_offset
+                            + available_chars
+                                .saturating_sub(format!("{current_line_num}\t").chars().count()),
+                    ));
                 } else {
                     resume_continuation = Some((current_line_num, 0));
                 }
@@ -1366,9 +1577,10 @@ impl NativeToolset {
         } else {
             parts.push("No lines read from file.".into());
         }
-        parts.push(format!("Total lines in file: {}.", all.len()));
-        let max_lines_reached =
-            n_lines >= READ_MAX_LINES && rendered_count == n_lines && end < all.len();
+        parts.push(format!("Total lines in file: {total_lines}."));
+        let max_lines_reached = n_lines >= READ_MAX_LINES
+            && rendered_count == n_lines
+            && offset + all.len() <= total_lines;
         if max_lines_reached {
             parts.push(format!("Max {READ_MAX_LINES} lines reached."));
         } else if max_chars_reached {
@@ -1419,7 +1631,7 @@ impl NativeToolset {
     /// otherwise owns. Each maps to the exact host rg flag: `type` -> `--type`,
     /// `include_ignored` -> `--no-ignore`, `multiline` -> `-U
     /// --multiline-dotall`.
-    fn grep(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+    fn grep(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
         // Argument typing is strict on purpose: the engine short-circuits ahead
         // of the host's zod validation, so a present-but-mistyped argument has
         // to return `None` (host fallback, which reports the schema error)
@@ -1480,8 +1692,8 @@ impl NativeToolset {
         };
 
         let search_root = match args.get("path") {
-            None | Some(Value::Null) => root.to_path_buf(),
-            Some(value) => Self::resolve(root, value.as_str()?)?,
+            None | Some(Value::Null) => sandbox.primary().to_path_buf(),
+            Some(value) => Self::resolve(sandbox, value.as_str()?)?,
         };
 
         let mode = match output_mode {
@@ -1507,7 +1719,7 @@ impl NativeToolset {
             mut file_cap_truncated,
         } = grep_collect(
             &search_root,
-            root,
+            sandbox.primary(),
             &scan_cfg,
             glob_filter.as_ref(),
             type_filter.as_ref(),
@@ -1651,7 +1863,7 @@ impl NativeToolset {
 
     // ── Glob ───────────────────────────────────────────────────────────
 
-    fn glob(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+    fn glob(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
         let pattern = args.get("pattern")?.as_str()?;
         let include_ignored = args
             .get("include_ignored")
@@ -1664,8 +1876,8 @@ impl NativeToolset {
         let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
         let glob = build_glob(pattern)?;
         let search_root = match args.get("path").and_then(|p| p.as_str()) {
-            Some(p) => Self::resolve(root, p)?,
-            None => root.to_path_buf(),
+            Some(p) => Self::resolve(sandbox, p)?,
+            None => sandbox.primary().to_path_buf(),
         };
 
         let mut results: Vec<String> = Vec::new();
@@ -1705,7 +1917,7 @@ impl NativeToolset {
                     filtered_sensitive += 1;
                     continue;
                 }
-                let display = path.strip_prefix(root).unwrap_or(path);
+                let display = path.strip_prefix(sandbox.primary()).unwrap_or(path);
                 results.push(display.display().to_string());
             }
         }
@@ -1745,7 +1957,9 @@ impl NativeToolset {
                     "Continue with the same search arguments and offset={}.",
                     offset + count
                 ));
-                lines.push("To remove the match-count limit, omit offset and use head_limit=0.".into());
+                lines.push(
+                    "To remove the match-count limit, omit offset and use head_limit=0.".into(),
+                );
             }
         }
         if filtered_sensitive > 0 && total > 0 {
@@ -1785,14 +1999,14 @@ impl NativeToolset {
         }
     }
 
-    fn write(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+    fn write(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         let content = args.get("content")?.as_str()?;
         let mode = match args.get("mode") {
             None | Some(Value::Null) => "overwrite",
             Some(v) => v.as_str()?,
         };
-        let resolved = Self::resolve_for_write(root, path)?;
+        let resolved = Self::resolve_for_write(sandbox, path)?;
         if let Some(parent) = resolved.parent() {
             std::fs::create_dir_all(parent).ok()?;
         }
@@ -1833,7 +2047,7 @@ impl NativeToolset {
 
     // ── Edit ───────────────────────────────────────────────────────────
 
-    fn edit(root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+    fn edit(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
         let path = args.get("path")?.as_str()?;
         let old = args.get("old_string")?.as_str()?;
         let new = args.get("new_string")?.as_str()?;
@@ -1841,7 +2055,7 @@ impl NativeToolset {
             .get("replace_all")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let resolved = Self::resolve_for_write(root, path)?;
+        let resolved = Self::resolve_for_write(sandbox, path)?;
 
         let bytes = std::fs::read(&resolved).ok()?;
         if bytes.contains(&0) {
@@ -1865,7 +2079,10 @@ impl NativeToolset {
         // `text` is the pre-image; capture the diff before writing.
         Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
         std::fs::write(&resolved, updated).ok()?;
-        let display = resolved.strip_prefix(root).unwrap_or(&resolved).display();
+        let display = resolved
+            .strip_prefix(sandbox.primary())
+            .unwrap_or(&resolved)
+            .display();
         Some(ok_result(format!("Edited {display}")))
     }
 
@@ -1888,7 +2105,7 @@ impl NativeToolset {
         // stay inside it. Returns `None` (host fallback) on escape — the
         // host applies its own cwd policy there.
         let working_dir = match args.get("cwd").and_then(|c| c.as_str()) {
-            Some(cwd) => Self::resolve(&self.root, cwd)?,
+            Some(cwd) => Self::resolve(&self.sandbox(), cwd)?,
             None => self.root.clone(),
         };
 
@@ -3306,24 +3523,78 @@ mod tests {
         assert!(!is_sensitive_file("src/main.rs"));
     }
 
+    /// Reads are not path-gated: v2's sandbox (`sandboxWriteGuard`) covers
+    /// writes only, so an out-of-workspace read is served in-process — the
+    /// host has no file-tool runtime to fall back to.
     #[test]
-    fn read_outside_workspace_falls_back() {
+    fn read_outside_workspace_is_served_natively() {
         let (_dir, ts) = setup();
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret.txt"), "nope").unwrap();
         let escaped = outside.path().join("secret.txt");
+        let result = ts
+            .execute("Read", &json!({ "path": escaped.to_str().unwrap() }))
+            .expect("reads must not be declined for lying outside the workspace");
+        assert!(!result.is_error, "content: {}", result.content);
         assert!(
-            ts.execute("Read", &json!({ "path": escaped.to_str().unwrap() }))
-                .is_none()
+            result.content.contains("nope"),
+            "content: {}",
+            result.content
         );
     }
 
     #[test]
-    fn read_negative_offset_falls_back_to_host() {
+    fn read_negative_offset_reads_tail_natively() {
         let (_dir, ts) = setup();
+        // a.txt is 3 lines; -2 serves the last two with correct numbers.
+        let tail = ts
+            .execute("Read", &json!({ "path": "a.txt", "line_offset": -2 }))
+            .expect("tail reads must be served natively, not declined");
+        assert!(!tail.is_error, "content: {}", tail.content);
         assert!(
-            ts.execute("Read", &json!({ "path": "a.txt", "line_offset": -5 }))
-                .is_none()
+            tail.content.contains("2\tbeta") && tail.content.contains("3\tgamma"),
+            "content: {}",
+            tail.content
+        );
+        assert!(
+            !tail.content.contains("1\talpha"),
+            "content: {}",
+            tail.content
+        );
+
+        // A tail larger than the file serves the whole file from line 1.
+        let whole = ts
+            .execute("Read", &json!({ "path": "a.txt", "line_offset": -100 }))
+            .expect("oversized tail must clamp to the file start");
+        assert!(
+            whole.content.contains("1\talpha"),
+            "content: {}",
+            whole.content
+        );
+    }
+
+    #[test]
+    fn read_negative_offset_respects_n_lines_window() {
+        let (dir, ts) = setup();
+        let body: String = (1..=10).map(|i| format!("line{i}\n")).collect();
+        std::fs::write(dir.path().join("ten.txt"), body).unwrap();
+        // Last 3 lines, capped to 2 by n_lines: lines 8-9.
+        let result = ts
+            .execute(
+                "Read",
+                &json!({ "path": "ten.txt", "line_offset": -3, "n_lines": 2 }),
+            )
+            .expect("tail reads must be served natively");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("8\tline8") && result.content.contains("9\tline9"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("10\tline10"),
+            "n_lines must cap the tail window: {}",
+            result.content
         );
     }
 
@@ -3539,7 +3810,10 @@ mod tests {
         let result = ts.execute("Read", &json!({ "path": "wide.txt" })).unwrap();
         assert!(!result.is_error, "content: {}", result.content);
         let note = result.note.unwrap();
-        assert!(note.contains("Max 100000 characters reached."), "note: {note}");
+        assert!(
+            note.contains("Max 100000 characters reached."),
+            "note: {note}"
+        );
         assert!(note.contains("To resume reading, call Read with line_offset="));
     }
 
@@ -3557,17 +3831,25 @@ mod tests {
         assert!(note.contains("Total lines in file: 0."), "note: {note}");
     }
 
+    /// A 10MB single-line file is served natively: reads stream, so file size
+    /// is no longer a constraint (the old READ_MAX_BYTES cap declined every
+    /// large text file). Output is still bounded by the line renderer.
     #[test]
-    fn read_large_file_falls_back_to_host() {
+    fn read_large_single_line_file_is_served_natively() {
         let (_dir, ts) = setup();
         std::fs::write(
             _dir.path().join("big.txt"),
             vec![b'a'; 10 * 1024 * 1024 + 1],
         )
         .unwrap();
+        let result = ts
+            .execute("Read", &json!({ "path": "big.txt" }))
+            .expect("large files stream; they are not declined");
+        assert!(!result.is_error, "content: {}", result.content);
         assert!(
-            ts.execute("Read", &json!({ "path": "big.txt" })).is_none(),
-            "files beyond the transcode budget stay on the host"
+            result.content.contains("1\t"),
+            "content: {}",
+            result.content
         );
     }
 
@@ -4318,21 +4600,23 @@ m2
         assert_eq!(written, "hello\n");
     }
 
+    /// v2's sandbox defaults to `off`, so an out-of-workspace write is served
+    /// in-process when no SandboxMode policy is wired; confinement belongs to
+    /// `SandboxExecutionPolicy::sandbox_write_guard` at the callbacks layer.
     #[tokio::test]
-    async fn write_outside_sandbox_falls_back() {
+    async fn write_outside_workspace_is_served_without_a_mode() {
         let (_dir, ts) = setup();
         let outside = tempfile::tempdir().unwrap();
-        let escaped = outside.path().join("evil.txt");
-        assert!(
-            ts.execute_mutating(
+        let escaped = outside.path().join("written.txt");
+        let result = ts
+            .execute_mutating(
                 "Write",
-                &json!({ "path": escaped.to_str().unwrap(), "content": "x" })
+                &json!({ "path": escaped.to_str().unwrap(), "content": "x" }),
             )
             .await
-            .is_none(),
-            "sandbox escape must fall back to the host"
-        );
-        assert!(!escaped.exists());
+            .expect("with no SandboxMode policy writes are not confined");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(escaped.exists());
     }
 
     #[tokio::test]
@@ -4506,19 +4790,153 @@ m2
         );
     }
 
+    /// Same as the write case: with no SandboxMode policy wired, Bash runs
+    /// with whatever cwd the caller passes — confinement is the
+    /// `sandbox_code_execution_guard`'s job at the callbacks layer.
     #[tokio::test]
-    async fn bash_cwd_escape_falls_back() {
+    async fn bash_cwd_outside_workspace_runs_without_a_mode() {
         let (_dir, ts) = setup();
         let outside = tempfile::tempdir().unwrap();
-        assert!(
-            ts.execute_mutating(
+        let result = ts
+            .execute_mutating(
                 "Bash",
-                &json!({ "command": "echo hi", "cwd": outside.path().to_str().unwrap() })
+                &json!({ "command": "echo hi", "cwd": outside.path().to_str().unwrap() }),
             )
             .await
-            .is_none(),
-            "cwd outside the sandbox must fall back to the host"
+            .expect("with no SandboxMode policy the cwd is not confined");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(result.content.contains("hi"), "content: {}", result.content);
+    }
+
+    /// Temporary benchmark: large inputs (20MB file / 300-file grep / 2000-file glob).
+    #[test]
+    fn bench_large_inputs() {
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let line = "the quick brown fox jumps over the lazy dog 0123456789\n";
+        let big = dir.path().join("huge.txt");
+        let mut content = String::with_capacity(line.len() * 500_000);
+        for i in 0..500_000 {
+            content.push_str(&format!("line {i}: {line}"));
+        }
+        std::fs::write(&big, &content).unwrap();
+        println!("[large] file = {:.1} MB", content.len() as f64 / 1048576.0);
+        let ts = NativeToolset::new(&dir.path().to_string_lossy(), None).unwrap();
+
+        let show = |label: &str, r: Option<ExecutableToolResult>, t: std::time::Instant| match r {
+            Some(res) => println!(
+                "[large] {:28} {:6.1}ms  is_error={} len={}",
+                label,
+                t.elapsed().as_secs_f64() * 1000.0,
+                res.is_error,
+                res.content.len()
+            ),
+            None => println!("[large] {:28}  declined (None)", label),
+        };
+
+        let full = json!({ "path": big.to_string_lossy() });
+        let t = Instant::now();
+        let r = ts.execute("Read", &full);
+        show("Read full 32MB", r, t);
+
+        let deep = json!({ "path": big.to_string_lossy(), "line_offset": 400_000 });
+        let t = Instant::now();
+        let r = ts.execute("Read", &deep);
+        show("Read offset@400k", r, t);
+
+        for i in 0..300 {
+            let p = dir.path().join(format!("g{i}.txt"));
+            let body: String = (0..300)
+                .map(|j| {
+                    if j == 5 {
+                        format!("needle {i}\n")
+                    } else {
+                        format!("fill {j}\n")
+                    }
+                })
+                .collect();
+            std::fs::write(&p, body).unwrap();
+        }
+        for i in 0..2000 {
+            let p = dir.path().join(format!("w{i}.txt"));
+            std::fs::write(&p, "x\n").unwrap();
+        }
+        let grep_arg = json!({ "pattern": "needle", "path": dir.path().to_string_lossy() });
+        ts.execute("Grep", &grep_arg).unwrap();
+        let t = Instant::now();
+        let r = ts.execute("Grep", &grep_arg).unwrap();
+        println!(
+            "[large] Grep 300files/90k行 {:.1}ms (hits={})",
+            t.elapsed().as_secs_f64() * 1000.0,
+            r.content.matches("needle").count()
         );
+
+        let glob_arg = json!({ "pattern": "w*.txt", "path": dir.path().to_string_lossy() });
+        ts.execute("Glob", &glob_arg).unwrap();
+        let t = Instant::now();
+        ts.execute("Glob", &glob_arg).unwrap();
+        println!(
+            "[large] Glob 2000files      {:.1}ms",
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// Temporary benchmark: native basic-tool latency floor (10 runs each).
+    #[test]
+    fn bench_basic_tools_latency() {
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = dir.path().join("big.txt");
+        let content: String = (0..1200)
+            .map(|i| format!("line {i}: the quick brown fox jumps\n"))
+            .collect::<Vec<_>>()
+            .join("");
+        std::fs::write(&file, &content).unwrap();
+        for i in 0..5 {
+            let p = dir.path().join(format!("m{i}.txt"));
+            let _ = std::fs::write(&p, format!("needle {i}\nsecond line\n"));
+        }
+        let ts = NativeToolset::new(&dir.path().to_string_lossy(), None).unwrap();
+        let read_arg = json!({ "path": file.to_string_lossy() });
+        let grep_arg = json!({ "pattern": "needle", "path": dir.path().to_string_lossy() });
+        let glob_arg = json!({ "pattern": "*.txt", "path": dir.path().to_string_lossy() });
+
+        // warmup
+        let _ = ts.execute("Read", &read_arg).unwrap();
+        let _ = ts.execute("Grep", &grep_arg).unwrap();
+        let _ = ts.execute("Glob", &glob_arg).unwrap();
+
+        let t = Instant::now();
+        for _ in 0..10 {
+            ts.execute("Read", &read_arg).unwrap();
+        }
+        println!(
+            "[tool-bench] Read        avg {:.2}ms",
+            t.elapsed().as_secs_f64() * 1000.0 / 10.0
+        );
+
+        let t = Instant::now();
+        for _ in 0..10 {
+            ts.execute("Grep", &grep_arg).unwrap();
+        }
+        println!(
+            "[tool-bench] Grep        avg {:.2}ms",
+            t.elapsed().as_secs_f64() * 1000.0 / 10.0
+        );
+
+        let t = Instant::now();
+        for _ in 0..10 {
+            ts.execute("Glob", &glob_arg).unwrap();
+        }
+        println!(
+            "[tool-bench] Glob        avg {:.2}ms",
+            t.elapsed().as_secs_f64() * 1000.0 / 10.0
+        );
+
+        if let Some(bash) = find_bash() {
+            let (_, _ts) = setup_with_shell(Some(&bash));
+        }
+        let _ = (&mut file,);
     }
 
     /// The name contract between the v2 host and this engine, pinned on both
@@ -4752,7 +5170,7 @@ m2
 
     /// A panic inside `spawn_blocking` surfaces to the awaiting task as a real
     /// `JoinError`, which is exactly the failure mode the split has to handle.
-    fn panicking_tool(_root: &Path, _args: &Value) -> Option<ExecutableToolResult> {
+    fn panicking_tool(_sandbox: &Sandbox, _args: &Value) -> Option<ExecutableToolResult> {
         panic!("synthetic blocking-pool failure");
     }
 
@@ -5139,8 +5557,13 @@ m2
         // Create normal file
         std::fs::write(root.join("hello.txt"), "world").unwrap();
 
+        // Canonicalized the way `NativeToolset::new` canonicalizes the
+        // workspace root: `resolve` compares canonical paths, so a raw
+        // `dir.path()` would not match on Windows.
+        let sandbox = Sandbox::new(std::fs::canonicalize(root).unwrap());
+
         // 1. Glob for ci.yml: should find .github/workflows/ci.yml, NOT .git/hooks/ci.yml
-        let res = NativeToolset::glob(root, &json!({ "pattern": "**/ci.yml" })).unwrap();
+        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/ci.yml" })).unwrap();
         assert!(res.content.contains("ci.yml"));
         assert!(res.content.contains(".github"));
         assert!(!res.content.contains("hooks"));
@@ -5149,16 +5572,41 @@ m2
         }
 
         // 2. Glob for sensitive file: should filter it out and report filtered
-        let res = NativeToolset::glob(root, &json!({ "pattern": "**/.env" })).unwrap();
+        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/.env" })).unwrap();
         assert!(
             res.content
                 .contains("No non-sensitive matches found (1 sensitive file(s) filtered)")
         );
 
         // 3. Glob matching both normal and sensitive file:
-        let res = NativeToolset::glob(root, &json!({ "pattern": "**/*" })).unwrap();
+        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/*" })).unwrap();
         assert!(res.content.contains("hello.txt"));
         assert!(res.content.contains("Filtered 1 sensitive file(s)."));
+    }
+
+    // ── Multi-root sandbox (`/add-dir` → `additionalDirs`) ──────────────
+
+    /// A path outside `workspace_root` used to be unservable: the toolset
+    /// declined it and the call went to the host `execute_tool` seam, which
+    /// has no tool runtime. Authorized extra roots must be served natively.
+    #[test]
+    fn reads_are_not_path_gated() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("note.txt");
+        std::fs::write(&outside_file, "hello from outside").unwrap();
+        let arg = outside_file.to_string_lossy().into_owned();
+
+        let ts = NativeToolset::new(&workspace.path().to_string_lossy(), None).unwrap();
+        let result = ts
+            .execute("read", &json!({ "path": arg }))
+            .expect("reads must not be declined for lying outside the workspace");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("hello from outside"),
+            "content: {}",
+            result.content
+        );
     }
 
     #[tokio::test]

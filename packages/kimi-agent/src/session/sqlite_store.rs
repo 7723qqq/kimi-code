@@ -1252,6 +1252,7 @@ impl SqliteSessionStore {
         session_id: Option<&str>,
         role: Option<&str>,
         limit: usize,
+        offset: usize,
     ) -> Result<Vec<SearchHit>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let query_trim = query.trim();
@@ -1280,8 +1281,10 @@ impl SqliteSessionStore {
         }
 
         params_vec.push((limit as i64).into());
+        params_vec.push((offset as i64).into());
         sql.push_str(&format!(
-            " ORDER BY m.created_at DESC LIMIT ?{}",
+            " ORDER BY m.created_at DESC LIMIT ?{} OFFSET ?{}",
+            params_vec.len() - 1,
             params_vec.len()
         ));
 
@@ -2222,7 +2225,7 @@ mod tests {
             .unwrap();
 
         // 1. Search by content keyword
-        let hits = store.search_messages("database", None, None, 10).unwrap();
+        let hits = store.search_messages("database", None, None, 10, 0).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].session_id, "sess-1");
         assert_eq!(hits[0].session_title, "Refactoring Core");
@@ -2235,7 +2238,7 @@ mod tests {
 
         // 2. Search by title keyword
         let hits_title = store
-            .search_messages("Refactoring", None, None, 10)
+            .search_messages("Refactoring", None, None, 10, 0)
             .unwrap();
         assert_eq!(
             hits_title.len(),
@@ -2247,19 +2250,19 @@ mod tests {
 
         // 3. Filter by role
         let hits_assistant = store
-            .search_messages("index", None, Some("assistant"), 10)
+            .search_messages("index", None, Some("assistant"), 10, 0)
             .unwrap();
         assert_eq!(hits_assistant.len(), 1);
         assert_eq!(hits_assistant[0].role, "assistant");
 
         let hits_user = store
-            .search_messages("index", None, Some("user"), 10)
+            .search_messages("index", None, Some("user"), 10, 0)
             .unwrap();
         assert_eq!(hits_user.len(), 0);
 
         // 4. Filter by session_id
         let hits_sess2 = store
-            .search_messages("Fix", Some("sess-2"), None, 10)
+            .search_messages("Fix", Some("sess-2"), None, 10, 0)
             .unwrap();
         assert_eq!(hits_sess2.len(), 1);
         assert_eq!(hits_sess2[0].session_id, "sess-2");
@@ -2267,26 +2270,40 @@ mod tests {
         // 5. Query edge cases
         assert!(
             store
-                .search_messages("", None, None, 10)
+                .search_messages("", None, None, 10, 0)
                 .unwrap()
                 .is_empty()
         );
         assert!(
             store
-                .search_messages("   \t ", None, None, 10)
+                .search_messages("   \t ", None, None, 10, 0)
                 .unwrap()
                 .is_empty()
         );
         assert!(
             store
-                .search_messages("nonexistent query", None, None, 10)
+                .search_messages("nonexistent query", None, None, 10, 0)
                 .unwrap()
                 .is_empty()
         );
 
         // 6. Search with limit
-        let limited = store.search_messages("the", None, None, 1).unwrap();
+        let limited = store.search_messages("the", None, None, 1, 0).unwrap();
         assert_eq!(limited.len(), 1);
+
+        // 6b. Search with offset skips the first page (LIMIT/OFFSET).
+        // Note turn t1 holds two messages, so identity must include the
+        // snippet, not just (session_id, step_id).
+        let page1 = store.search_messages("the", None, None, 1, 0).unwrap();
+        let page2 = store.search_messages("the", None, None, 1, 1).unwrap();
+        let all = store.search_messages("the", None, None, 10, 0).unwrap();
+        assert!(all.len() >= 2, "fixture needs 2+ hits, got {}", all.len());
+        assert_eq!(page1.len(), 1);
+        assert_eq!(page2.len(), 1);
+        assert_ne!(
+            page1[0].snippet, page2[0].snippet,
+            "offset must advance past the first hit"
+        );
 
         // 7. Snippet extraction with query in middle of long string
         let long_text = "start_prefix ".repeat(15) + "CRITICAL_KEYWORD" + &" end_suffix".repeat(15);
@@ -2294,7 +2311,7 @@ mod tests {
             .save_turn("sess-1", "t3", 2, &[LLMMessage::user(&long_text)], None)
             .unwrap();
         let snippet_hits = store
-            .search_messages("CRITICAL_KEYWORD", None, None, 1)
+            .search_messages("CRITICAL_KEYWORD", None, None, 1, 0)
             .unwrap();
         assert_eq!(snippet_hits.len(), 1);
         assert!(snippet_hits[0].snippet.starts_with("..."));

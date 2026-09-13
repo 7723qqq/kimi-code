@@ -139,7 +139,10 @@ impl LLM for HostLlmProxy {
                 },
             )?;
 
-            // Convert to turn_loop types
+            // Convert to turn_loop types. Tool-call extras (e.g. Gemini
+            // thoughtSignature) and reasoning blocks must round-trip: both
+            // were dropped here, breaking multi-turn tool use and losing
+            // provider attestation signatures on the host-proxy path.
             let tool_calls: Vec<ToolCall> = response
                 .tool_calls
                 .into_iter()
@@ -147,7 +150,7 @@ impl LLM for HostLlmProxy {
                     id: tc.id,
                     name: tc.name,
                     arguments: tc.arguments,
-                    extras: None,
+                    extras: tc.extras,
                 })
                 .collect();
 
@@ -161,7 +164,7 @@ impl LLM for HostLlmProxy {
 
             Ok(LLMChatResponse {
                 content: response.content,
-                thinking: vec![],
+                thinking: response.thinking,
                 tool_calls,
                 finish_reason: response.finish_reason,
                 usage,

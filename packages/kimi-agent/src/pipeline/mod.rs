@@ -78,6 +78,11 @@ pub struct PipelineSpec {
     /// When true (and `workspace_root` is set), sandboxable tools run in the
     /// Rust process, each still gated on a host permission grant.
     pub native_tools: bool,
+    /// Host-authorized directories outside `workspace_root` that native tools
+    /// may still touch — the `/add-dir` list (`additionalDirs` on the host
+    /// side). Without them a path outside the workspace root cannot be served
+    /// natively, and the host has no tool runtime to fall back to.
+    pub extra_roots: Vec<String>,
     /// When true, the engine refuses the `host/llm_chat` fallback: `providers`
     /// or `native_llm` must be set, or building fails with a message naming
     /// `rustSelfContained` (ROADMAP P26 批 1).
@@ -268,6 +273,7 @@ pub async fn build_engine_pipeline(
                     // PreToolUse hooks (v2 `agentExternalHooksService`, G-6 #6):
                     // user-configured commands gate native calls.
                     let mut toolset = toolset
+                        .with_extra_roots(spec.extra_roots.clone())
                         .with_subagents(subagent_manager.clone())
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
                         .with_parent_cancel_slot_if(parent_cancel_slot)
@@ -334,9 +340,13 @@ pub async fn build_engine_pipeline(
                     } else if let Some(ref mode_str) = spec.sandbox_mode {
                         let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
                         let root = spec.workspace_root.clone().unwrap_or_default();
-                        Some(crate::tools::sandbox::SandboxExecutionPolicy::new(
-                            mode, root,
-                        ))
+                        // Host-authorized `additionalDirs` are part of the
+                        // boundary: without them the guard rejects writes into
+                        // a directory the host explicitly handed over.
+                        Some(
+                            crate::tools::sandbox::SandboxExecutionPolicy::new(mode, root)
+                                .with_extra_roots(spec.extra_roots.clone()),
+                        )
                     } else {
                         None
                     };
@@ -497,6 +507,7 @@ mod tests {
                 Ok(LlmChatResponse {
                     content: "from the in-process host".into(),
                     tool_calls: Vec::new(),
+                    thinking: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
                 })
@@ -557,6 +568,7 @@ mod tests {
             native_llm: None,
             workspace_root: None,
             native_tools: false,
+            extra_roots: Vec::new(),
             rust_self_contained: false,
             shell_path: None,
             policy_snapshot: None,

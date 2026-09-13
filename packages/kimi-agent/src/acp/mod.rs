@@ -30,7 +30,6 @@ use crate::acp::types::{
 use crate::events::bus::{EventBus, Subscription};
 use crate::mcp::manager::{McpServerOptions, McpServerRecipe};
 use crate::session::sqlite_store::SqliteSessionStore;
-use crate::turn_loop::types::LLMMessage;
 
 pub use channel::{AcpChannel, AcpOutbound};
 
@@ -61,6 +60,28 @@ impl AcpServer {
         Self {
             store,
             engine: None,
+            channel: AcpChannel::new(),
+            modes: Mutex::new(HashMap::new()),
+            client_capabilities: Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
+            disable_auth: false,
+        }
+    }
+
+    /// Attach an engine shared with other servers without rebinding its
+    /// host factory. [`with_engine`] installs a factory that routes turn
+    /// permission prompts and client-fs execution to *this* server's
+    /// channel — but the factory slot is engine-global, so a per-request
+    /// server (e.g. the HTTP ACP bridge) must not overwrite it: that would
+    /// steal permission/fs-bridge routing from concurrent users, including
+    /// the dedicated stdio ACP server. Turns started through this handle
+    /// fall back to the engine's interaction-manager host instead.
+    pub fn with_shared_engine(
+        store: Arc<SqliteSessionStore>,
+        engine: Arc<crate::server::engine::ServerEngine>,
+    ) -> Self {
+        Self {
+            store,
+            engine: Some(engine),
             channel: AcpChannel::new(),
             modes: Mutex::new(HashMap::new()),
             client_capabilities: Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
@@ -608,20 +629,19 @@ impl AcpServer {
                                 ),
                             }
                         } else {
-                            let turn_id = format!("turn-{}", fastrand::u64(..));
-                            let msgs = vec![
-                                LLMMessage::user(p.clone()),
-                                LLMMessage::assistant(format!("Response to: {p}")),
-                            ];
-                            let _ = self.store.save_turn(sid, &turn_id, 1, &msgs, None);
-                            JsonRpcResponse::success(
+                            // No engine is wired (e.g. no model could be
+                            // resolved). The previous behaviour invented an
+                            // assistant reply and *persisted* it, so the client
+                            // showed a plausible answer that no model had
+                            // produced and the fake exchange polluted the
+                            // session's history for every later resume/export.
+                            // Refuse instead of fabricating.
+                            JsonRpcResponse::error(
                                 req.id,
-                                json!({
-                                    "sessionId": sid,
-                                    "turnId": turn_id,
-                                    "stopReason": "end_turn",
-                                    "content": format!("Response to: {p}"),
-                                }),
+                                -32000,
+                                "No LLM engine is available for this session, so no prompt can \
+                                 be answered. Configure a model (or start the server with one \
+                                 resolved) and retry.",
                             )
                         }
                     }
@@ -1383,6 +1403,7 @@ mod tests {
                 native_llm: None,
                 workspace_root: None,
                 native_tools: false,
+                extra_roots: Vec::new(),
                 rust_self_contained: false,
                 shell_path: None,
                 policy_snapshot: None,
@@ -1489,6 +1510,7 @@ mod tests {
                 native_llm: None,
                 workspace_root: None,
                 native_tools: false,
+                extra_roots: Vec::new(),
                 rust_self_contained: false,
                 shell_path: None,
                 policy_snapshot: None,
@@ -1577,14 +1599,32 @@ mod tests {
             .handle_message(&prompt_req.to_string())
             .await
             .unwrap();
-        assert!(resp.error.is_none(), "prompt blocks must be accepted");
+        // No engine is wired: the prompt is refused instead of being answered
+        // with an invented reply, so nothing is persisted for it. The
+        // block→text projection therefore has to be asserted directly (below)
+        // rather than through a fabricated history entry.
+        let err = resp
+            .error
+            .expect("a prompt with no engine wired must be refused, not faked");
+        assert_eq!(err.code, -32000);
 
-        let history = server.store.load_session_history(&sid).unwrap();
+        let prompt_value = json!([
+            { "type": "text", "text": "look at this" },
+            {
+                "type": "resource",
+                "resource": { "uri": "file:///tmp/a.txt", "text": "body" }
+            },
+            { "type": "resource_link", "uri": "file:///tmp/b.txt", "name": "b" },
+            { "type": "image", "mimeType": "image/png", "data": "AAAA" }
+        ]);
+        let (text, media) =
+            acp_prompt_to_parts(&prompt_value).expect("the prompt must project to text");
         assert_eq!(
-            history[0].content,
+            text,
             "look at this\n<resource uri=\"file:///tmp/a.txt\">body</resource>\n\
              <resource_link uri=\"file:///tmp/b.txt\" name=\"b\" />"
         );
+        assert_eq!(media.len(), 1, "the image block becomes a media attachment");
     }
 
     /// ACP image blocks become native media blocks; the text projection keeps
@@ -1600,7 +1640,9 @@ mod tests {
         let media = acp_blocks_to_media(&blocks);
         assert_eq!(media.len(), 2);
         match &media[0] {
-            crate::rpc::types::ContentBlock::Image { media_type, data, .. } => {
+            crate::rpc::types::ContentBlock::Image {
+                media_type, data, ..
+            } => {
                 assert_eq!(media_type, "image/jpeg");
                 assert_eq!(data, "AAAB");
             }
@@ -1873,9 +1915,18 @@ mod tests {
             .handle_message(&prompt_req.to_string())
             .await
             .unwrap();
-        assert!(resp.error.is_none());
-        let res = resp.result.unwrap();
-        assert_eq!(res["stopReason"], "end_turn");
+        // No engine is wired in this test, so the server refuses the prompt
+        // instead of inventing an assistant reply (which it also used to persist
+        // into the session's history).
+        let err = resp
+            .error
+            .expect("a prompt with no engine wired must be refused, not faked");
+        assert_eq!(err.code, -32000);
+        assert!(
+            err.message.contains("No LLM engine is available"),
+            "unexpected error: {}",
+            err.message
+        );
 
         // 4. Load session history 鈥?replayed as `session/update` chunks, the
         // response carries the mode state (v2 `loadSession`).
@@ -1896,12 +1947,12 @@ mod tests {
                 replayed.push(note.params.unwrap());
             }
         }
-        assert_eq!(replayed.len(), 2, "user + assistant chunks");
-        assert_eq!(replayed[0]["update"]["sessionUpdate"], "user_message_chunk");
-        assert_eq!(replayed[0]["update"]["content"]["text"], "Hello ACP");
+        // Nothing is replayed: the refused prompt persists no turn at all, where
+        // it used to leave a fabricated user+assistant pair in the history.
         assert_eq!(
-            replayed[1]["update"]["sessionUpdate"],
-            "agent_message_chunk"
+            replayed.len(),
+            0,
+            "a refused prompt must not fabricate a turn"
         );
 
         // 5. Set mode (ACP wire name `modeId`; the legacy `mode` still parses)
@@ -2054,10 +2105,22 @@ mod tests {
             "method": "session/prompt",
             "params": { "sessionId": sid, "prompt": "hi" }
         });
-        server
+        let resp = server
             .handle_message(&prompt_req.to_string())
             .await
             .unwrap();
+        // No engine is wired, so the prompt is refused instead of being answered
+        // with an invented reply. Seed the history this test needs explicitly —
+        // it used to come from that fabricated turn.
+        assert!(
+            resp.error.is_some(),
+            "a prompt with no engine wired must be refused, not faked"
+        );
+        use crate::turn_loop::types::LLMMessage;
+        server
+            .store
+            .save_turn(&sid, "turn-1", 1, &[LLMMessage::user("hi")], None)
+            .expect("the seed turn must persist");
 
         // resume: mode state only, no replayed chunks.
         let resume_req = json!({

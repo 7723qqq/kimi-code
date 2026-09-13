@@ -2241,13 +2241,44 @@ impl HttpServer {
                 let role = body.get("role").and_then(|v| v.as_str());
                 let page_size =
                     body.get("page_size").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                // Opaque cursor: the message offset encoded as a decimal
+                // string. Absent/null means the first page.
+                let offset = match body.get("page_token") {
+                    None | Some(Value::Null) => 0usize,
+                    Some(Value::String(s)) if s.trim().is_empty() => 0usize,
+                    Some(Value::String(s)) => match s.trim().parse::<usize>() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            return HttpResponse::bad_request(
+                                "Field 'page_token' must be an opaque cursor from a previous response",
+                            );
+                        }
+                    },
+                    Some(_) => {
+                        return HttpResponse::bad_request(
+                            "Field 'page_token' must be an opaque cursor from a previous response",
+                        );
+                    }
+                };
 
-                let hits = match self
-                    .store
-                    .search_messages(query, session_id, role, page_size)
-                {
+                // Fetch one past the page to know whether a next page exists.
+                let mut hits = match self.store.search_messages(
+                    query,
+                    session_id,
+                    role,
+                    page_size.saturating_add(1),
+                    offset,
+                ) {
                     Ok(h) => h,
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
+                };
+
+                let has_more = hits.len() > page_size;
+                hits.truncate(page_size);
+                let next_page_token = if has_more {
+                    Value::String((offset + page_size).to_string())
+                } else {
+                    Value::Null
                 };
 
                 let total_sessions = self.store.list_sessions().map(|s| s.len()).unwrap_or(0);
@@ -2255,8 +2286,8 @@ impl HttpServer {
 
                 HttpResponse::ok(&json!({
                     "items": hits,
-                    "has_more": false,
-                    "page_token": serde_json::Value::Null,
+                    "has_more": has_more,
+                    "page_token": next_page_token,
                     "incomplete": false,
                     "index_state": {
                         "state": "ready",
@@ -2377,7 +2408,23 @@ impl HttpServer {
                     Ok(s) => s,
                     Err(_) => return HttpResponse::bad_request("Invalid UTF-8 payload"),
                 };
-                let acp_server = crate::acp::AcpServer::new(self.store.clone());
+                // Attach the server engine when one is configured: a bare
+                // per-request AcpServer has no model and no auth state, so
+                // every session method but `initialize` used to fail with
+                // -32000 and every notification was dropped. Uses the shared
+                // (factory-preserving) constructor: the host-factory slot is
+                // engine-global and must keep pointing at the dedicated stdio
+                // ACP server. No notification sink is set on purpose — plain
+                // HTTP request/response has no channel for server-push
+                // `session/update`s; the final result still travels in the
+                // JSON-RPC response.
+                let acp_server = match &self.engine {
+                    Some(engine) => crate::acp::AcpServer::with_shared_engine(
+                        self.store.clone(),
+                        engine.clone(),
+                    ),
+                    None => crate::acp::AcpServer::new(self.store.clone()),
+                };
                 let response = acp_server.handle_message(body_str).await;
                 if let Some(resp) = response {
                     let val = serde_json::to_value(&resp).unwrap_or(Value::Null);
@@ -8264,6 +8311,95 @@ max_context_size = 128000
         // camelCase agentCapabilities (see src/acp/types.rs).
         assert_eq!(val_acp["result"]["protocolVersion"], 1);
         assert!(val_acp["result"]["agentCapabilities"].is_object());
+
+        // 12. The bridge attaches the server engine when one is configured:
+        // `session/new` must create a session, not fail with -32000.
+        let hub = Arc::new(EventHub::new());
+        let engine = engine_without_a_model(store.clone(), hub.clone());
+        let eng_server = HttpServer::with_hub(store.clone(), hub).with_engine(engine);
+        let res_new = eng_server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/acp".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "session/new",
+                    "params": {}
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res_new.status, 200);
+        let val_new: Value = serde_json::from_slice(&res_new.body).unwrap();
+        assert!(
+            val_new.get("error").is_none(),
+            "engine-attached bridge must not auth-fail: {val_new}"
+        );
+        assert!(
+            val_new["result"]["sessionId"].is_string(),
+            "session/new must create a session: {val_new}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_http_search_pagination_is_real() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        store.create_session("sess-p", Some("Paging")).unwrap();
+        for i in 0..3 {
+            let msgs = vec![crate::turn_loop::types::LLMMessage::user(format!(
+                "pagination probe message {i}"
+            ))];
+            store
+                .save_turn("sess-p", &format!("t{i}"), i + 1, &msgs, None)
+                .unwrap();
+        }
+        let server = HttpServer::new(store.clone());
+        let post_search = |body: Vec<u8>| HttpRequest {
+            method: "POST".into(),
+            path: "/api/v1/search".into(),
+            query: None,
+            headers: HashMap::new(),
+            body,
+        };
+
+        // Page 1 of 3 with page_size 2: two items, more available, cursor set.
+        let res1 = server
+            .handle_request(&post_search(
+                serde_json::to_vec(&json!({ "query": "pagination probe", "page_size": 2 })).unwrap(),
+            ))
+            .await;
+        assert_eq!(res1.status, 200);
+        let page1: Value = serde_json::from_slice(&res1.body).unwrap();
+        assert_eq!(page1["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page1["has_more"], true);
+        let cursor = page1["page_token"].as_str().expect("cursor must be set");
+
+        // Page 2 follows the cursor: the remaining item, no more pages.
+        let res2 = server
+            .handle_request(&post_search(
+                serde_json::to_vec(
+                    &json!({ "query": "pagination probe", "page_size": 2, "page_token": cursor }),
+                )
+                .unwrap(),
+            ))
+            .await;
+        assert_eq!(res2.status, 200);
+        let page2: Value = serde_json::from_slice(&res2.body).unwrap();
+        assert_eq!(page2["items"].as_array().unwrap().len(), 1);
+        assert_eq!(page2["has_more"], false);
+        assert!(page2["page_token"].is_null());
+
+        // A garbage cursor is a client error, not silently page one.
+        let res_bad = server
+            .handle_request(&post_search(
+                serde_json::to_vec(&json!({ "query": "pagination probe", "page_token": "nope" }))
+                    .unwrap(),
+            ))
+            .await;
+        assert_eq!(res_bad.status, 400);
     }
 
     #[tokio::test]
