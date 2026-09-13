@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lsp_tool_missing_params() {
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let root = PathBuf::from(".");
         let res1 = execute_lsp_tool(&root, &serde_json::json!({}))
             .await
             .unwrap();
@@ -257,7 +257,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lsp_tool_nonexistent_file() {
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let root = PathBuf::from(".");
         let res = execute_lsp_tool(
             &root,
             &serde_json::json!({
@@ -273,12 +273,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_lsp_tool_unsupported_file_type() {
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let dir = tempfile::Builder::new()
+            .prefix("kimi-lsp-test")
+            .tempdir()
+            .unwrap();
+        let file = dir.path().join("note.md");
+        std::fs::write(&file, "placeholder").unwrap();
         let res = execute_lsp_tool(
-            &root,
+            &dir.path().to_path_buf(),
             &serde_json::json!({
                 "action": "definition",
-                "path": "README.md"
+                "path": file.to_string_lossy()
             }),
         )
         .await
@@ -289,12 +294,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_lsp_tool_unsupported_action() {
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let dir = tempfile::Builder::new()
+            .prefix("kimi-lsp-test")
+            .tempdir()
+            .unwrap();
+        let file = dir.path().join("lib.rs");
+        std::fs::write(&file, "pub fn placeholder() {}\n").unwrap();
         let res = execute_lsp_tool(
-            &root,
+            &dir.path().to_path_buf(),
             &serde_json::json!({
                 "action": "unknown_action_xyz",
-                "path": "packages/kimi-agent/src/lib.rs"
+                "path": file.to_string_lossy()
             }),
         )
         .await

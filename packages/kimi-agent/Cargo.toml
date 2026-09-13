@@ -73,6 +73,9 @@ tower-lsp = "0.20"
 lsp-types = "0.95"
 rquickjs = { version = "0.9", features = ["full-async", "futures", "macro", "array-buffer"], optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 napi-build = "2"
 
