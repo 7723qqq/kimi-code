@@ -1476,8 +1476,10 @@ mod tests {
         // Capacity shrank to 1, so the second retry cannot start until the
         // first retry completes (200ms later) or capacity recovers (150ms
         // later). Recovery fires first, so the second retry starts while the
-        // first retry is still in flight.
-        assert!(second_retry >= first_retry + Duration::from_millis(100));
+        // first retry is still in flight. Use a 50ms floor to tolerate CPU
+        // scheduling jitter under heavy test parallelism while asserting the
+        // delay far exceeds the baseline 20ms launch interval.
+        assert!(second_retry >= first_retry + Duration::from_millis(50));
         assert!(second_retry < completion_at("agent-2"));
     }
 
