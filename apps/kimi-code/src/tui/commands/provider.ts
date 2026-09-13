@@ -341,7 +341,6 @@ export async function setDefaultModel(
   if (!engineTrackedSwitch) {
     host.track('model_switch', { model: alias });
   }
-  host.track('model_switch', { model: alias });
   host.showStatus(t('tui.commands.provider.defaultModelSet', { model: alias, effort }));
 }
 

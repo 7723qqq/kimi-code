@@ -25,6 +25,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
   loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
   resolveConfigPath: mocks.resolveConfigPath,
   resolveKimiHome: mocks.resolveKimiHome,
+  resolveThinkingKeep: vi.fn(),
   // constant/app.ts derives its OAuth error code from this at import time.
   ErrorCodes: { AUTH_LOGIN_REQUIRED: 'AUTH_LOGIN_REQUIRED' },
   KimiAuthFacade: class {
@@ -592,6 +593,35 @@ describe('normalizeBaseUrl', () => {
     );
     expect(normalizeBaseUrl('openai', 'https://api.z.ai/api/paas/v4')).toBe(
       'https://api.z.ai/api/paas/v4',
+    );
+  });
+
+  it('appends /v1beta to bare-host google baseUrls', () => {
+    // The documented contract is host-root-only: the client appends the
+    // version segment. The native transport then builds
+    // `{base}/models/{model}:streamGenerateContent`, which is only an API route
+    // once `/v1beta` is there.
+    expect(normalizeBaseUrl('google', 'https://generativelanguage.googleapis.com')).toBe(
+      'https://generativelanguage.googleapis.com/v1beta',
+    );
+    expect(normalizeBaseUrl('google-genai', 'http://127.0.0.1:3001')).toBe(
+      'http://127.0.0.1:3001/v1beta',
+    );
+    expect(normalizeBaseUrl('gemini', 'http://107.173.87.151:8045')).toBe(
+      'http://107.173.87.151:8045/v1beta',
+    );
+  });
+
+  it('passes google baseUrls with a version segment through unchanged', () => {
+    expect(normalizeBaseUrl('google-genai', 'https://generativelanguage.googleapis.com/v1beta')).toBe(
+      'https://generativelanguage.googleapis.com/v1beta',
+    );
+    // A relay that serves `/v1` instead keeps its own choice.
+    expect(normalizeBaseUrl('google-genai', 'http://127.0.0.1:3001/v1')).toBe(
+      'http://127.0.0.1:3001/v1',
+    );
+    expect(normalizeBaseUrl('google-genai', 'https://proxy.example.com/v2alpha')).toBe(
+      'https://proxy.example.com/v2alpha',
     );
   });
 

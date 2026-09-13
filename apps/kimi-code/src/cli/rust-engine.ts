@@ -255,13 +255,20 @@ function tryResolveNativeLlm(
       reason: `provider "${providerName}" has neither a static apiKey nor oauth material for the native transport`,
     };
   }
-  // OAuth-managed logins (managed Kimi) write the endpoint into the config;
-  // a provider without either URL has no resolvable endpoint (e.g. Google
-  // OAuth, whose endpoint lives inside the GenAI SDK client). A declared
-  // alias endpoint wins over the provider default
+  // OAuth-managed logins (managed Kimi) write the endpoint into the config.
+  // A declared alias endpoint wins over the provider default
   // (`[models.<alias>].baseUrl`): gateway providers serve one alias over a
   // different path than the provider default.
-  const rawBaseUrl = modelAliasConfig?.baseUrl ?? provider.baseUrl;
+  //
+  // Google's endpoint is a constant, so a provider without `base_url` still
+  // resolves natively — its OAuth token rides the `auth_provider` channel —
+  // instead of silently falling back to the host LLM proxy.
+  const rawBaseUrl =
+    modelAliasConfig?.baseUrl ??
+    provider.baseUrl ??
+    (provider.type === 'google' || provider.type === 'google-genai' || provider.type === 'gemini'
+      ? 'https://generativelanguage.googleapis.com'
+      : undefined);
   if (!rawBaseUrl) {
     return {
       reason: `provider "${providerName}" has no baseUrl for the native transport`,
@@ -351,10 +358,21 @@ function tryResolveNativeLlm(
  *   append `/v1`. URLs that already end in `/vN` (including `/v1`) are
  *   passed through.
  */
+/** A trailing API version segment (`/v1`, `/v1beta`, `/v2alpha`, …). */
+const API_VERSION_SEGMENT = /\/v\d+[a-z]*($|\/)/i;
+
 export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, '');
   if (protocol === 'google' || protocol === 'google-genai' || protocol === 'gemini') {
-    return trimmed;
+    // The GenerateContent API always carries a version segment, and the
+    // documented contract is "give the host root only — the client appends the
+    // API version segment itself" (kosong CHANGELOG #1269, mirrored by
+    // `packages/kosong/native/src/google_genai.rs`). The native transport
+    // builds `{base}/models/{model}:streamGenerateContent`, so a bare host root
+    // otherwise requests a path that is not an API route at all — a
+    // Gemini-compatible relay answers it from its catch-all and the SSE decoder
+    // then sees nothing.
+    return API_VERSION_SEGMENT.test(trimmed) ? trimmed : `${trimmed}/v1beta`;
   }
   if (protocol === 'openai' || protocol === 'openai_responses' || protocol === 'openai-responses') {
     return /\/v\d+($|\/)/.test(trimmed) ? trimmed : `${trimmed}/v1`;
@@ -400,11 +418,53 @@ function isEngineLoadable(): boolean {
 }
 
 /**
- * Wire the Rust agent engine. The gate is rust-only: the TS engine is
- * disabled for the duration of the rust migration, so this either returns
- * the engine or throws (the callers exit on the error) — it never returns
- * `undefined` today, but the optional signature keeps the harness wiring
- * (`engineOverride !== undefined` spread) honest.
+ * Engine gate — rust-only, no opt-out during the migration:
+ * - `agent.engine = "js"` → ignored (warned): the TS engine stays disabled.
+ * - `agent.engine = "rust"` / unset → rust engine required.
+ *
+ * A missing or broken rust bundle is a startup error, never a silent JS
+ * fallback. Shared by [`assertRustEngineAvailable`] (the CLI's check-only
+ * entry point) and [`resolveRustEngine`] (which additionally builds the
+ * adapter), so the two can never drift.
+ */
+function enforceRustEngineGate(agentConfig: { engine?: string } | undefined): void {
+  if (agentConfig?.engine === 'js') {
+    console.warn(
+      '[kimi-agent] `[agent] engine = "js"` is ignored — the TS agent engine is disabled for the rust migration.',
+    );
+  }
+  if (!isEngineLoadable()) {
+    throw new Error(
+      '[kimi-agent] Rust engine bundle not found — the TS agent engine is disabled. ' +
+        'Build the native bundle (start-native.bat / `make rust-build`).',
+    );
+  }
+}
+
+/**
+ * Check-only startup gate. `run-shell` calls this to fail loudly when the
+ * engine bundle/addon is missing; it deliberately does not build the adapter,
+ * because turns run on the native harness (`session-handle` → napi), which
+ * wires the engine itself.
+ */
+export function assertRustEngineAvailable(homeDir?: string, configPath?: string): void {
+  const resolvedHome = resolveKimiHome(homeDir);
+  const resolvedConfig = resolveConfigPath({ homeDir: resolvedHome, configPath });
+  const loaded = loadRuntimeConfigSafe(resolvedConfig);
+  enforceRustEngineGate(loaded.fileError === undefined ? loaded.config.agent : undefined);
+}
+
+/**
+ * Load the Rust agent engine adapter. The gate is rust-only: the TS engine is
+ * disabled for the duration of the rust migration, so this either returns the
+ * engine or throws — `run-shell` calls it as the startup gate and exits on the
+ * error.
+ *
+ * Turns are driven by the native harness (`session-handle` → napi addon),
+ * which wires the engine itself; the adapter returned here is the
+ * stdio-capable fallback channel. `KimiHarnessOptions.engineOverride` used to
+ * carry it to the harness, but the v2 host loop that consumed it was deleted —
+ * the field was written and never read, so it is gone.
  *
  * When `agent.multiLlm` is configured, extracts matching providers
  * and passes them to the Rust engine for concurrent MultiLLM execution.
@@ -432,23 +492,7 @@ async function resolveRustEngine(
   const shellPreference =
     loaded.fileError === undefined ? loaded.config.shell?.preference : undefined;
 
-  // Engine gate — rust-only, no opt-out during the migration:
-  // - agent.engine = "js"    → ignored (warned): the TS engine stays disabled.
-  // - agent.engine = "rust"  → rust engine required.
-  // - unset (default)        → rust engine required.
-  // A missing or broken rust bundle is a startup error, never a silent JS
-  // fallback.
-  if (agentConfig?.engine === 'js') {
-    console.warn(
-      '[kimi-agent] `[agent] engine = "js"` is ignored — the TS agent engine is disabled for the rust migration.',
-    );
-  }
-  if (!isEngineLoadable()) {
-    throw new Error(
-      '[kimi-agent] Rust engine bundle not found — the TS agent engine is disabled. ' +
-        'Build the native bundle (start-native.bat / `make rust-build`).',
-    );
-  }
+  enforceRustEngineGate(agentConfig);
   // Wired but unrun: the gate is rust-only and the bundle is loadable, so the
   // TS engine is off from here — without guessing a transport yet.
   setEngineExecution({ rust: true });
