@@ -640,7 +640,7 @@ mod engine_tests {
     #[tokio::test]
     async fn test_kimi_engine_run_once_flow() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let root = std::env::current_dir().unwrap();
         let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
 
         let engine = KimiEngine::new(store.clone(), permission);
@@ -690,7 +690,7 @@ mod engine_tests {
     #[tokio::test]
     async fn test_kimi_engine_real_run_turn_execution() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
-        let root = PathBuf::from("G:/kimi/kimi-code");
+        let root = std::env::current_dir().unwrap();
         let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
 
         let engine = KimiEngine::new(store.clone(), permission);

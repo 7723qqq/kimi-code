@@ -69,6 +69,31 @@ fn string_arg(args: &serde_json::Value, name: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// A required tool argument, validated instead of defaulted.
+///
+/// A missing `prompt` used to start a subagent with no task and report success,
+/// so the model's mistake was invisible and the turn — plus its tokens — was
+/// spent on nothing.
+///
+/// `description` is deliberately not validated here: the schema marks it
+/// required, but it only feeds the UI label, and callers in the wild omit it.
+/// Rejecting the call for a cosmetic field would break working clients for no
+/// gain, so it keeps a default.
+fn required_string_arg(
+    args: &serde_json::Value,
+    name: &str,
+) -> Result<String, ExecutableToolResult> {
+    string_arg(args, name).ok_or_else(|| ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: format!(
+            "Missing required argument `{name}`: Agent needs a non-empty `{name}` (the tool schema marks it required)."
+        ),
+        is_error: true,
+        note: None,
+    })
+}
+
 /// The v2 `SubagentTool` description body (condensed from
 /// `agent-core-v2/src/agent/tools/agent/agent*.md`), with the profile list
 /// appended at definition time.
@@ -152,7 +177,7 @@ pub fn agent_tool_def(
             },
             "description": {
                 "type": "string",
-                "description": "Short task description (3-5 words) for UI display"
+                "description": "Short task description (3-5 words) for UI display. Optional: only feeds the UI label, so omitting it never fails the call."
             },
             "subagent_type": {
                 "type": "string",
@@ -171,7 +196,9 @@ pub fn agent_tool_def(
                 "description": "Fork the current context: the subagent starts with a snapshot of this agent's completed conversation history instead of zero context, inheriting this agent's agent type, tool set, and model. A non-empty resume is rejected. If subagent_type is provided, it must match this agent's type."
             }
         },
-        "required": ["prompt", "description"]
+        // Only `prompt` is required: `description` is cosmetic (UI label)
+        // and real callers omit it, so the schema must not claim otherwise.
+        "required": ["prompt"]
     });
     if let Some(pool) = pool
         && pool.exposes_choice()
@@ -300,7 +327,10 @@ async fn execute_resume(
 ) -> Option<ExecutableToolResult> {
     let profile_name = manager.resume_profile(resume_id).await?;
     let runtime = manager.runtime().await?;
-    let prompt = string_arg(args, "prompt").unwrap_or_default();
+    let prompt = match required_string_arg(args, "prompt") {
+        Ok(prompt) => prompt,
+        Err(error) => return Some(error),
+    };
 
     emit_spawned_started(
         runtime.callbacks.as_ref(),
@@ -501,7 +531,10 @@ pub async fn execute_agent(
     // No injected runtime (unwired transport) — the host tool still works.
     let runtime = manager.runtime().await?;
 
-    let prompt = string_arg(args, "prompt").unwrap_or_default();
+    let prompt = match required_string_arg(args, "prompt") {
+        Ok(prompt) => prompt,
+        Err(error) => return Some(error),
+    };
     let description = string_arg(args, "description").unwrap_or_default();
 
     let inherited_history = if is_fork {

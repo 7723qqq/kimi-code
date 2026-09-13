@@ -13,7 +13,7 @@ use crate::tools::tower::git::{
 use crate::tools::tower::paths::{
     ACTIVITY_LOG, BROADCAST_NAME, FINDINGS_DIR, INBOX_DIR, LOG_DIR, MISSIONS_DIR, MISSIONS_INDEX,
     REVIEWS_DIR, STATE_FILE, TOWER_NAME, WORKTREES_DIR, date_dash, finding_file_name,
-    inbox_file_name, mission_file_name, review_file_name, slugify, target_slug,
+    inbox_file_name, mission_file_name, review_file_name, slugify, target_slug, unique_slug,
 };
 use crate::tools::tower::types::{
     TowerFindingInput, TowerInboxItem, TowerInitResult, TowerMission, TowerMissionPatch,
@@ -361,38 +361,41 @@ impl TowerStore {
         let mut state = self.load().await?;
         let start_index = state.missions.len();
 
-        let missions: Vec<TowerMission> = input
-            .iter()
-            .enumerate()
-            .map(|(index, item)| {
-                let n = start_index + index + 1;
-                let slug = slugify(&item.title, 40);
-                TowerMission {
-                    id: format!("M{n}"),
-                    title: item.title.clone(),
-                    slug: slug.clone(),
-                    kind: item.kind.unwrap_or_default(),
-                    scope: item.scope.clone(),
-                    branch: format!("feat/{slug}"),
-                    worktree: format!("wt-{n}"),
-                    deps: item.deps.clone().unwrap_or_default(),
-                    status: TowerMissionStatus::Planned,
-                    tasks: item
-                        .tasks
-                        .clone()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|text| crate::tools::tower::types::TowerMissionTask {
-                            text,
-                            done: false,
-                        })
-                        .collect(),
-                    notes: Vec::new(),
-                    blockers: Vec::new(),
-                    owner: None,
-                }
-            })
-            .collect();
+        // Slugs feed the branch name. `slugify` keeps ASCII alphanumerics only,
+        // so every non-Latin title collapses to the same fallback (`item`) and
+        // every repeated title also collides — two missions then produced the
+        // same `feat/<slug>` branch, and the second `git worktree add` failed
+        // with "already checked out". Deduplicate against the existing roster and
+        // within this batch.
+        let mut taken_slugs: std::collections::HashSet<String> =
+            state.missions.iter().map(|m| m.slug.clone()).collect();
+
+        let mut missions: Vec<TowerMission> = Vec::with_capacity(input.len());
+        for (index, item) in input.iter().enumerate() {
+            let n = start_index + index + 1;
+            let slug = unique_slug(&slugify(&item.title, 40), &mut taken_slugs);
+            missions.push(TowerMission {
+                id: format!("M{n}"),
+                title: item.title.clone(),
+                slug: slug.clone(),
+                kind: item.kind.unwrap_or_default(),
+                scope: item.scope.clone(),
+                branch: format!("feat/{slug}"),
+                worktree: format!("wt-{n}"),
+                deps: item.deps.clone().unwrap_or_default(),
+                status: TowerMissionStatus::Planned,
+                tasks: item
+                    .tasks
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|text| crate::tools::tower::types::TowerMissionTask { text, done: false })
+                    .collect(),
+                notes: Vec::new(),
+                blockers: Vec::new(),
+                owner: None,
+            });
+        }
 
         let known_ids: std::collections::HashSet<String> = state
             .missions
@@ -664,7 +667,16 @@ impl TowerStore {
         let dir = self.abs(INBOX_DIR);
         let mut read_dir = match fs::read_dir(&dir).await {
             Ok(rd) => rd,
-            Err(_) => return Ok(Vec::new()),
+            // A missing inbox is genuinely empty (nothing has been sent yet).
+            // Any other failure is surfaced: presenting a permission or IO error
+            // as "inbox empty" makes broken shared state look healthy.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(format!(
+                    "could not read the tower inbox at {}: {error}",
+                    dir.display()
+                ));
+            }
         };
 
         let mut items = Vec::new();
@@ -821,7 +833,11 @@ impl TowerStore {
             ));
         }
 
-        let existing = self.reviews_for(&input.target).await;
+        let existing = self.reviews_for(&input.target).await.map_err(|error| {
+            format!(
+                "could not list existing reviews for round numbering: {error}"
+            )
+        })?;
         let my_rounds = existing
             .iter()
             .filter(|r| r.reviewer == caller_name)
@@ -880,11 +896,20 @@ impl TowerStore {
         Ok(written)
     }
 
-    pub async fn reviews_for(&self, target: &str) -> Vec<TowerReviewInfo> {
+    pub async fn reviews_for(&self, target: &str) -> Result<Vec<TowerReviewInfo>, String> {
         let dir = self.abs(REVIEWS_DIR);
         let mut read_dir = match fs::read_dir(&dir).await {
             Ok(rd) => rd,
-            Err(_) => return Vec::new(),
+            // A missing reviews directory is legitimately empty; anything else is
+            // an error, because "no review found" would otherwise let an unreviewed
+            // merge through a gate that believes it looked.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(format!(
+                    "could not read the tower reviews directory at {}: {error}",
+                    dir.display()
+                ));
+            }
         };
 
         let prefix = format!("review-{}-", target_slug(target));
@@ -923,11 +948,14 @@ impl TowerStore {
             });
         }
         reviews.sort_by_key(|r| r.round);
-        reviews
+        Ok(reviews)
     }
 
-    pub async fn latest_review(&self, target: &str) -> Option<TowerReviewInfo> {
-        self.reviews_for(target).await.into_iter().last()
+    pub async fn latest_review(
+        &self,
+        target: &str,
+    ) -> Result<Option<TowerReviewInfo>, String> {
+        Ok(self.reviews_for(target).await?.into_iter().last())
     }
 
     pub async fn merge(
@@ -1009,7 +1037,21 @@ impl TowerStore {
             return Ok((tip, Vec::new(), true));
         }
 
-        let review = self.latest_review(branch).await;
+        let review = match self.latest_review(branch).await {
+            Ok(review) => review,
+            Err(error) => {
+                self.append_log(
+                    TOWER_NAME,
+                    "merge.blocked",
+                    &[("branch", branch), ("reason", "review-read-error")],
+                    None,
+                )
+                .await?;
+                return Err(format!(
+                    "merge blocked: cannot read the reviews for {branch} ({error}) — refusing to treat an unreadable gate as clean"
+                ));
+            }
+        };
         let Some(rev) = review else {
             self.append_log(
                 TOWER_NAME,

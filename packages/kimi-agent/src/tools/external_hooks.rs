@@ -31,6 +31,17 @@ const FAILED_TO_SPAWN: &str = "Permission hook failed to spawn: ";
 const TIMED_OUT: &str = "Permission hook timed out";
 const ERRORED: &str = "Permission hook errored while running";
 
+/// A hook whose matcher failed to compile: the hook never matches.
+/// Recorded (and warn-logged) at construction so a typo'd guardrail is
+/// discoverable instead of silently off. Callers that own a user-visible
+/// surface should report [`HookGuard::invalid_matchers`].
+#[derive(Debug, Clone)]
+pub struct InvalidMatcher {
+    pub event: String,
+    pub matcher: String,
+    pub error: String,
+}
+
 /// The PreToolUse gate: holds the user-configured hooks from the policy
 /// snapshot and runs the matching ones before a native tool call.
 pub struct HookGuard {
@@ -39,6 +50,7 @@ pub struct HookGuard {
     /// matches everything, an invalid one never matches (v2 `matchHooks.ts`).
     /// Compiling per tool call would re-parse every hook's regex every time.
     matchers: Vec<Matcher>,
+    invalid: Vec<InvalidMatcher>,
 }
 
 enum Matcher {
@@ -59,6 +71,7 @@ impl Matcher {
 
 impl HookGuard {
     pub fn new(hooks: Vec<HookDef>) -> Self {
+        let mut invalid = Vec::new();
         let matchers = hooks
             .iter()
             .map(|hook| {
@@ -67,12 +80,39 @@ impl HookGuard {
                 } else {
                     match regex::Regex::new(&hook.matcher) {
                         Ok(re) => Matcher::Regex(re),
-                        Err(_) => Matcher::Never,
+                        Err(error) => {
+                            // Silently disabling is the wrong failure mode for a
+                            // guard: a typo in a PreToolUse matcher switched the
+                            // hook off with no signal anywhere, so the user kept
+                            // believing a guardrail was in force.
+                            tracing::warn!(
+                                event = %hook.event,
+                                matcher = %hook.matcher,
+                                %error,
+                                "external hook matcher is not a valid regex; the hook will never match"
+                            );
+                            invalid.push(InvalidMatcher {
+                                event: hook.event.clone(),
+                                matcher: hook.matcher.clone(),
+                                error: error.to_string(),
+                            });
+                            Matcher::Never
+                        }
                     }
                 }
             })
             .collect();
-        Self { hooks, matchers }
+        Self {
+            hooks,
+            matchers,
+            invalid,
+        }
+    }
+
+    /// Hooks whose matcher failed to compile (and therefore never match).
+    /// Empty in the healthy case.
+    pub fn invalid_matchers(&self) -> &[InvalidMatcher] {
+        &self.invalid
     }
 
     /// Hooks matching an event + tool-name target, deduped by command
@@ -590,9 +630,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_matcher_is_silently_skipped() {
+    async fn invalid_matcher_never_matches_but_is_reported() {
         let guard = HookGuard::new(vec![hook("PreToolUse", "[", exit_two_with_stderr())]);
         assert_eq!(guard.denial(&request("Write")).await, None);
+        // The hook is off, but the typo must be discoverable: recorded for
+        // user-visible surfaces (and warn-logged at construction).
+        let invalid = guard.invalid_matchers();
+        assert_eq!(invalid.len(), 1);
+        assert_eq!(invalid[0].event, "PreToolUse");
+        assert_eq!(invalid[0].matcher, "[");
+        assert!(!invalid[0].error.is_empty());
+
+        let healthy = HookGuard::new(vec![hook("PreToolUse", "Wri", exit_two_with_stderr())]);
+        assert!(healthy.invalid_matchers().is_empty());
     }
 
     #[tokio::test]

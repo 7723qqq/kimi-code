@@ -1012,13 +1012,16 @@ pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> Executab
     for m in &state.missions {
         if m.status.is_open() {
             unmerged_count += 1;
-            let review = store.latest_review(&m.branch).await;
-            match review {
-                Some(r) => sections.push(format!(
+            match store.latest_review(&m.branch).await {
+                Ok(Some(r)) => sections.push(format!(
                     "- {}: latest review round {} by {} is \"{}\" (merge: {})",
                     m.branch, r.round, r.reviewer, r.status, r.merge
                 )),
-                None => sections.push(format!("- {}: no review submitted yet", m.branch)),
+                Ok(None) => sections.push(format!("- {}: no review submitted yet", m.branch)),
+                Err(error) => sections.push(format!(
+                    "- {}: review state unreadable ({error})",
+                    m.branch
+                )),
             }
         }
     }
@@ -1033,14 +1036,16 @@ pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> Executab
         sections.push("All missions are merged or abandoned. Free the worktree checkouts now: run TowerTeardown (branches and .tower/comms/ are kept; dirty worktrees are protected).".to_string());
     }
 
-    let inbox = store.read_inbox(&caller, 1000).await.unwrap_or_default();
     sections.push(String::new());
     sections.push("## Inbox".to_string());
     sections.push(String::new());
-    sections.push(format!(
-        "{} message(s) visible to you — read with TowerInbox.",
-        inbox.len()
-    ));
+    match store.read_inbox(&caller, 1000).await {
+        Ok(inbox) => sections.push(format!(
+            "{} message(s) visible to you — read with TowerInbox.",
+            inbox.len()
+        )),
+        Err(error) => sections.push(format!("inbox unreadable ({error})")),
+    }
 
     sections.push(String::new());
     sections.push("## Concurrency (adaptive)".to_string());

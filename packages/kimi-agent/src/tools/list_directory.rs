@@ -12,13 +12,25 @@ use crate::turn_loop::types::ExecutableToolResult;
 pub const LIST_DIR_ROOT_WIDTH: usize = 30;
 pub const LIST_DIR_CHILD_WIDTH: usize = 10;
 
+/// Rendered when the target directory cannot be read at all. Compared by
+/// value at the call site to mark the call failed (see below).
+pub const UNREADABLE_DIRECTORY: &str = "(unreadable directory)";
+
 #[derive(Debug, Clone)]
 struct Entry {
     name: String,
     is_dir: bool,
 }
 
-pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<ExecutableToolResult> {
+/// `extra_roots` are the host-authorized `additionalDirs`. They belong here
+/// because the workspace root alone is not the boundary: rejecting a path inside
+/// a directory the host handed over returned `None`, which fell back to a host
+/// with no file-tool runtime — the call vanished with no explanation.
+pub fn execute_list_directory(
+    root_dir: &Path,
+    extra_roots: &[std::path::PathBuf],
+    args: &Value,
+) -> Option<ExecutableToolResult> {
     let raw_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
     let collapse_hidden = args
         .get("collapse_hidden_dirs")
@@ -35,8 +47,21 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
         };
         match std::fs::canonicalize(&candidate) {
             Ok(p) => {
-                if !p.starts_with(root_dir) {
-                    return None; // Sandbox escape fallback
+                let authorized =
+                    p.starts_with(root_dir) || extra_roots.iter().any(|extra| p.starts_with(extra));
+                if !authorized {
+                    // Report the refusal instead of returning `None`: a `None`
+                    // here is forwarded to the host, which cannot serve it.
+                    return Some(ExecutableToolResult {
+                        delivery: None,
+                        stop_turn: false,
+                        content: format!(
+                            "Refused to list \"{raw_path}\": it resolves to \"{}\", which is outside the workspace and any authorized directory.",
+                            p.display()
+                        ),
+                        is_error: true,
+                        note: None,
+                    });
                 }
                 p
             }
@@ -63,11 +88,14 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
     }
 
     let output = render_directory_tree(&target_dir, collapse_hidden);
+    // An unreadable directory is a failed call, not empty data: reporting it
+    // with is_error:false made permission failures look like results.
+    let is_error = output == UNREADABLE_DIRECTORY;
     Some(ExecutableToolResult {
         delivery: None,
         stop_turn: false,
         content: output,
-        is_error: false,
+        is_error,
         note: None,
     })
 }
@@ -75,7 +103,7 @@ pub fn execute_list_directory(root_dir: &Path, args: &Value) -> Option<Executabl
 pub fn render_directory_tree(dir_path: &Path, collapse_hidden: bool) -> String {
     let (root_entries, total_root, readable) = collect_entries(dir_path, LIST_DIR_ROOT_WIDTH);
     if !readable {
-        return "(unreadable directory)".to_string();
+        return UNREADABLE_DIRECTORY.to_string();
     }
     if root_entries.is_empty() {
         return "(empty directory)".to_string();
