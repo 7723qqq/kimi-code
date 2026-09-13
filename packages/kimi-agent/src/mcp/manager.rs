@@ -694,8 +694,8 @@ impl McpManager {
                     if let Some(m) = res.meta {
                         extras.insert("_meta".to_string(), m);
                     }
-                    let extras_json = serde_json::to_string_pretty(&Value::Object(extras))
-                        .unwrap_or_default();
+                    let extras_json =
+                        serde_json::to_string_pretty(&Value::Object(extras)).unwrap_or_default();
                     text_parts.push(format!(
                         "<mcp-result-extras>\n{}\n</mcp-result-extras>",
                         extras_json

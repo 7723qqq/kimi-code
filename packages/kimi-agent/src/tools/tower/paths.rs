@@ -60,6 +60,27 @@ pub fn slugify(text: &str, max_length: usize) -> String {
     }
 }
 
+/// Makes `base` unique within `taken`, appending `-2`, `-3`, … and recording the
+/// winner.
+///
+/// [`slugify`] keeps ASCII alphanumerics only, so every non-Latin title falls
+/// back to `item` and every repeated title collides. Since a mission's branch is
+/// `feat/<slug>`, a duplicate slug meant a duplicate branch and a second
+/// `git worktree add` that fails with "already checked out".
+pub fn unique_slug(base: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    if taken.insert(base.to_string()) {
+        return base.to_string();
+    }
+    let mut counter = 2u32;
+    loop {
+        let candidate = format!("{base}-{counter}");
+        if taken.insert(candidate.clone()) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
 pub fn target_slug(target: &str) -> String {
     let cleaned = target.trim().strip_prefix('#').unwrap_or(target.trim());
     let replaced = cleaned.replace(['/', '#'], "-");

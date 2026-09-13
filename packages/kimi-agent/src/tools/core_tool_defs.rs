@@ -616,10 +616,42 @@ pub fn lsp_tool_def() -> ToolInfo {
     }
 }
 
-/// All native tool definitions including LSP and NotifyUser.
+/// Tool definition for the native ListDirectory tool.
+///
+/// The capability has been executable (native arm + `NATIVE_TOOL_NAMES` entry)
+/// and verified through a host-supplied tool table, but no definition advertised
+/// it — so it was listed nowhere and the model could never call it.
+pub fn list_directory_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "ListDirectory".into(),
+        description: "List a directory as a compact two-level tree (directories and files). Use it to orient yourself in a directory before reading individual files. Hidden directories are expanded unless `collapse_hidden_dirs` is set.".into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory to list. Relative paths resolve against the workspace root; defaults to the workspace root."
+                },
+                "collapse_hidden_dirs": {
+                    "type": "boolean",
+                    "description": "Collapse dot-directories instead of expanding them (defaults to false)."
+                }
+            },
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// All native tool definitions including LSP, ListDirectory and NotifyUser.
+///
+/// Invariant: every entry here must satisfy [`crate::tools::is_native_tool_name`].
+/// This list is what `GET /api/v1/tools` reports as active builtins, so an entry
+/// the toolset cannot execute is a promise the engine cannot keep.
 pub fn all_native_tool_defs() -> Vec<ToolInfo> {
     let mut defs = core_tool_defs();
     defs.push(lsp_tool_def());
+    defs.push(list_directory_tool_def());
     defs.push(notify_user_tool_def());
     defs
 }
@@ -783,9 +815,39 @@ mod tests {
         assert_eq!(lsp.input_schema["additionalProperties"], false);
 
         let all = all_native_tool_defs();
-        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), 11);
         assert!(all.iter().any(|d| d.name == "Lsp"));
+        assert!(all.iter().any(|d| d.name == "ListDirectory"));
         assert!(all.iter().any(|d| d.name == "NotifyUser"));
+    }
+
+    /// `GET /api/v1/tools` reports this list as active builtins. An entry the
+    /// toolset refuses (`handles()` → false) is forwarded to a host that has no
+    /// tool runtime, so it can only ever fail — which is exactly what happened
+    /// to `Lsp` while it was missing from `NATIVE_TOOL_NAMES`.
+    #[test]
+    fn advertised_native_tools_are_executable() {
+        for def in all_native_tool_defs() {
+            assert!(
+                crate::tools::is_native_tool_name(&def.name),
+                "{} is advertised by all_native_tool_defs() but is not a natively executable tool name",
+                def.name
+            );
+        }
+    }
+
+    #[test]
+    fn list_directory_tool_def_schema() {
+        let def = list_directory_tool_def();
+        assert_eq!(def.name, "ListDirectory");
+        assert_eq!(def.input_schema["type"], "object");
+        assert_eq!(def.input_schema["additionalProperties"], false);
+        assert_eq!(
+            def.input_schema["properties"]["collapse_hidden_dirs"]["type"],
+            "boolean"
+        );
+        // Neither field is required: the tool defaults to the workspace root.
+        assert!(def.input_schema.get("required").is_none());
     }
 
     #[test]

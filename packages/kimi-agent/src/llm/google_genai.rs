@@ -102,7 +102,9 @@ pub fn build_request_full(
                 for b in &m.blocks {
                     match b {
                         ContentBlock::Text { text } => parts.push(json!({ "text": text })),
-                        ContentBlock::Image { media_type, data, .. } => {
+                        ContentBlock::Image {
+                            media_type, data, ..
+                        } => {
                             parts.push(json!({
                                 "inlineData": {
                                     "mimeType": media_type,
@@ -404,11 +406,20 @@ impl StreamAccumulator {
                     .and_then(|id| id.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| format!("{}_{}", name, self.tool_calls.len() + i));
+                // Carry the Gemini attestation signature, exactly like the
+                // non-streaming path (`parse_response`). Without it the echoed
+                // function call is rejected on the next request, so multi-turn
+                // tool calling failed — and the engine only ever streams.
+                let extras = part
+                    .get("thoughtSignature")
+                    .or_else(|| part.get("thought_signature"))
+                    .and_then(|s| s.as_str())
+                    .map(|sig| json!({ "thought_signature_b64": sig }));
                 self.tool_calls.push(ToolCall {
                     id,
                     name: name.to_string(),
                     arguments,
-                    extras: None,
+                    extras,
                 });
             }
         }
@@ -702,5 +713,73 @@ mod tests {
         let fc = &req["contents"][0]["parts"][0]["functionCall"];
         assert_eq!(fc["name"], "Grep");
         assert_eq!(fc["thought_signature"], "sig-b64");
+    }
+
+    /// The engine only ever streams, so the attestation signature has to survive
+    /// the streaming accumulator too. Capturing it on the non-streaming path
+    /// alone left multi-turn Gemini tool calls rejected by the API.
+    #[test]
+    fn streaming_accumulator_captures_the_thought_signature() {
+        let mut acc = StreamAccumulator::new();
+        let delta = acc.feed(&json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "Grep",
+                            "args": { "query": "x" },
+                            "id": "fc_1"
+                        },
+                        "thoughtSignature": "sig-stream"
+                    }]
+                }
+            }]
+        }));
+        assert!(
+            delta.is_none(),
+            "a function-call frame carries no text delta"
+        );
+
+        let finished = acc.finish();
+        assert_eq!(finished.tool_calls.len(), 1);
+        let extras = finished.tool_calls[0]
+            .extras
+            .as_ref()
+            .expect("signature captured while streaming");
+        assert_eq!(extras["thought_signature_b64"], "sig-stream");
+
+        // ... and it reaches the wire on the next request, exactly like the
+        // non-streaming round trip above.
+        let messages = vec![WireMessage::assistant_tool_calls(
+            "",
+            finished.tool_calls.clone(),
+        )];
+        let req = build_request_full(&messages, &[], None);
+        assert_eq!(
+            req["contents"][0]["parts"][0]["functionCall"]["thought_signature"],
+            "sig-stream"
+        );
+    }
+
+    /// The snake_case spelling some relays emit must be accepted too.
+    #[test]
+    fn streaming_accumulator_accepts_the_snake_case_signature() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": { "name": "Grep", "args": {}, "id": "fc_2" },
+                        "thought_signature": "sig-snake"
+                    }]
+                }
+            }]
+        }));
+        let finished = acc.finish();
+        let extras = finished.tool_calls[0]
+            .extras
+            .as_ref()
+            .expect("snake_case signature captured");
+        assert_eq!(extras["thought_signature_b64"], "sig-snake");
     }
 }

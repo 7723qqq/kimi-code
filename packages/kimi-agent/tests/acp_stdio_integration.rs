@@ -9,8 +9,13 @@
 //!      round-trips a session
 //!   4. an unknown method yields -32601
 //!
-//! Requires the binary (`cargo test --features cli` builds it); the tests skip
-//! with a passing assertion when it is absent, so a skipped run proves nothing.
+//! Requires the binary, which is built by the `cli` feature: the whole file is
+//! `#![cfg(feature = "cli")]`, so a plain `cargo test` does not compile it at
+//! all, and `cargo test --features cli` runs it for real. A missing binary is a
+//! hard failure — an earlier version returned early instead, which recorded a
+//! *passing* test that had asserted nothing.
+
+#![cfg(feature = "cli")]
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
@@ -150,9 +155,8 @@ impl AcpClient {
 
 #[test]
 fn acp_initialize_returns_spec_handshake() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     let response = client
         .request(
             "initialize",
@@ -177,9 +181,8 @@ fn acp_initialize_returns_spec_handshake() {
 /// the answer to the *following* request.
 #[test]
 fn acp_notification_is_not_answered_on_stdio() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     client
         .notify(
             "session/cancel",
@@ -210,9 +213,8 @@ fn acp_notification_is_not_answered_on_stdio() {
 
 #[test]
 fn acp_session_round_trip_with_content_blocks() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     let response = client
         .request("session/new", serde_json::json!({ "cwd": "/tmp" }))
         .expect("session/new must answer");
@@ -283,9 +285,8 @@ fn acp_session_round_trip_with_content_blocks() {
 /// routed to the back channel, never parsed as a client request.
 #[test]
 fn acp_response_line_is_not_treated_as_a_request() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     client
         .write_line(&serde_json::json!({
             "jsonrpc": "2.0",
@@ -318,9 +319,8 @@ fn acp_response_line_is_not_treated_as_a_request() {
 /// lines may arrive in either order, so the test sorts them out by shape.
 #[test]
 fn acp_set_mode_notifies_on_stdio() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     let response = client
         .request("session/new", serde_json::json!({}))
         .expect("session/new must answer");
@@ -367,9 +367,8 @@ fn acp_set_mode_notifies_on_stdio() {
 /// new session id (v2 `resumeSession` / `forkSession`).
 #[test]
 fn acp_resume_and_fork_on_stdio() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     let response = client
         .request("session/new", serde_json::json!({}))
         .expect("session/new must answer");
@@ -408,9 +407,8 @@ fn acp_resume_and_fork_on_stdio() {
 
 #[test]
 fn acp_unknown_method_returns_method_not_found() {
-    let Some(mut client) = AcpClient::start() else {
-        return;
-    };
+    let mut client =
+        AcpClient::start().expect("kimi-agent-cli must be built: run `cargo test --features cli`");
     let response = client
         .request("no/such/method", serde_json::json!({}))
         .expect("unknown method must answer");

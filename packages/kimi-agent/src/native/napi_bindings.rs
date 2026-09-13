@@ -1695,7 +1695,15 @@ pub fn native_llm_stream_streaming(
 
     match llm_stream_runtime() {
         Ok(rt) => {
-            rt.spawn(async move {
+            // Keep the JoinHandle: a panic inside the stream task would
+            // otherwise vanish into the runtime, and because the JS consumer
+            // treats only `done`/`error` as terminal it would then wait forever.
+            // `native_web_search` already maps a JoinError into a result; this
+            // path did not.
+            // `tsfn` is moved into the worker below, so keep one clone for the
+            // reaper's failure report.
+            let worker_tsfn = tsfn.clone();
+            let handle = rt.spawn(async move {
                 let result = llm_stream::run_llm_stream_with(&stream_config, |event| {
                     let js_event = match event {
                         llm_stream::StreamEvent::Part(p) => NativeLlmStreamEvent {
@@ -1736,14 +1744,14 @@ pub fn native_llm_stream_streaming(
                     };
                     // NonBlocking: just enqueue for the JS event loop; never blocks the
                     // SSE decode loop.
-                    tsfn.call(
+                    worker_tsfn.call(
                         Ok(js_event),
                         napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
                     );
                 })
                 .await;
                 if let Err(e) = result {
-                    tsfn.call(
+                    worker_tsfn.call(
                         Ok(NativeLlmStreamEvent {
                             kind: "error".to_string(),
                             part: None,
@@ -1753,6 +1761,34 @@ pub fn native_llm_stream_streaming(
                         napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
                     );
                 }
+            });
+
+            let reaper = tsfn.clone();
+            rt.spawn(async move {
+                let Err(join_error) = handle.await else {
+                    return;
+                };
+                let detail = if join_error.is_panic() {
+                    let panic = join_error.into_panic();
+                    panic
+                        .downcast_ref::<&str>()
+                        .map(|message| (*message).to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "panic payload was not a string".to_string())
+                } else {
+                    format!("stream task aborted: {join_error}")
+                };
+                reaper.call(
+                    Ok(NativeLlmStreamEvent {
+                        kind: "error".to_string(),
+                        part: None,
+                        metadata: None,
+                        error: Some(format!(
+                            "LLM stream task failed before it could report: {detail}"
+                        )),
+                    }),
+                    napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+                );
             });
         }
         Err(e) => {

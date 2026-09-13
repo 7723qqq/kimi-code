@@ -137,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
                 }),
                 workspace_root: Some(workspace.display().to_string()),
                 native_tools: true,
+                extra_roots: Vec::new(),
                 rust_self_contained: true,
                 shell_path: Some(
                     kimi_agent::native::shell::resolve_shell(config.shell.preference.as_deref())
@@ -981,6 +982,7 @@ async fn build_engine_pipeline(
         native_llm: params.native_llm.clone(),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools,
+        extra_roots: params.additional_dirs.clone(),
         rust_self_contained: params.rust_self_contained,
         shell_path: params.shell_path.clone(),
         policy_snapshot: params.policy_snapshot.clone(),
@@ -1178,6 +1180,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         }),
         workspace_root: Some(workspace.display().to_string()),
         native_tools: true,
+        extra_roots: Vec::new(),
         // The standalone server has no JS host to fall back to; refusing the
         // host-proxy leg here means a misconfiguration fails at startup rather
         // than mid-turn.

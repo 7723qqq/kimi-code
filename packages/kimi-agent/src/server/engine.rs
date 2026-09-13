@@ -357,7 +357,10 @@ impl ServerEngine {
 
     /// Whether a turn is currently executing for `session_id`.
     pub fn is_turn_active(&self, session_id: &str) -> bool {
-        self.active_turns.lock().unwrap().contains_key(session_id)
+        self.active_turns
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(session_id)
     }
 
     /// Queue a steering prompt for `session_id`'s active turn. Returns `false`
@@ -489,7 +492,10 @@ impl ServerEngine {
 
     /// Check whether a turn is currently executing for the given session.
     pub fn is_busy(&self, session_id: &str) -> bool {
-        self.active_turns.lock().unwrap().contains_key(session_id)
+        self.active_turns
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(session_id)
     }
 
     /// Signal cancellation for the active turn in the given session, if one is running.
@@ -497,7 +503,10 @@ impl ServerEngine {
         if let Some(mgr) = self.interaction_manager() {
             mgr.cancel_session(session_id);
         }
-        let turns = self.active_turns.lock().unwrap();
+        let turns = self
+            .active_turns
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(flag) = turns.get(session_id) {
             flag.store(true, Ordering::SeqCst);
             true
@@ -542,7 +551,10 @@ impl ServerEngine {
         std::hash::Hash::hash(&payload.to_string(), &mut hasher);
         let hash = std::hash::Hasher::finish(&hasher);
         {
-            let mut hashes = self.status_hashes.lock().unwrap();
+            let mut hashes = self
+                .status_hashes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if hashes.get(session_id) == Some(&hash) {
                 return;
             }
@@ -811,7 +823,10 @@ impl ServerEngine {
         let turn_id = format!("turn-{}", fastrand::u64(..));
         let cancel = Arc::new(AtomicBool::new(false));
         {
-            let mut turns = self.active_turns.lock().unwrap();
+            let mut turns = self
+                .active_turns
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             turns.insert(session_id.to_string(), Arc::clone(&cancel));
         }
         self.publish_work_changed(session_id, true, None);
@@ -853,7 +868,11 @@ impl ServerEngine {
         }
         impl<'a> Drop for ActiveGuard<'a> {
             fn drop(&mut self) {
-                let mut turns = self.engine.active_turns.lock().unwrap();
+                let mut turns = self
+                    .engine
+                    .active_turns
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 turns.remove(&self.session_id);
                 drop(turns);
                 let mut queues = self
@@ -1090,6 +1109,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         native_llm: spec.native_llm.clone(),
         workspace_root: spec.workspace_root.clone(),
         native_tools: spec.native_tools,
+        extra_roots: spec.extra_roots.clone(),
         rust_self_contained: spec.rust_self_contained,
         shell_path: spec.shell_path.clone(),
         policy_snapshot: spec.policy_snapshot.clone(),
@@ -1127,6 +1147,7 @@ mod tests {
             native_llm: None,
             workspace_root: None,
             native_tools: false,
+            extra_roots: Vec::new(),
             rust_self_contained: false,
             shell_path: None,
             policy_snapshot: None,

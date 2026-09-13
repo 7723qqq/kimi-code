@@ -138,7 +138,9 @@ fn project_message(m: &WireMessage) -> Value {
 fn project_block(b: &ContentBlock) -> Value {
     match b {
         ContentBlock::Text { text } => json!({ "type": "text", "text": text }),
-        ContentBlock::Image { media_type, data, .. } => json!({
+        ContentBlock::Image {
+            media_type, data, ..
+        } => json!({
             "type": "image_url",
             "image_url": { "url": format!("data:{media_type};base64,{data}") },
         }),

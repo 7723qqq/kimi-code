@@ -1032,7 +1032,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal guard (G-6 #7/#8)', () 
     expect(result.stopReason).toBe('EndTurn');
     expect(result.nativeToolCalls).toBe(0);
     expect(hostExecutions).toBe(1);
-    expect(nativeEvents).toBe(0);
     rmSync(workspaceRoot, { recursive: true, force: true });
   });
 

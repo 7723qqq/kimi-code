@@ -918,18 +918,23 @@ async fn handle_inbound(
                 return Ok(false);
             }
 
-            let (frames, _total) = tm
+            let (frames, last_seq) = tm
                 .output(&session_id, &terminal_id, since_seq.unwrap_or(0) as usize)
                 .await
                 .unwrap_or_default();
             let replayed = frames.len();
-            let start_seq = since_seq.unwrap_or(0);
+            // Label each replayed frame with its real sequence. The buffer keeps
+            // only the newest MAX_BUFFER_FRAMES frames, so the requested
+            // `since_seq` is not the sequence of the first frame returned —
+            // deriving it from `since_seq` mislabelled every replayed frame after
+            // a buffer wrap, and the client re-anchored its resume point there.
+            let first_seq = last_seq.saturating_sub(replayed) + 1;
             for (idx, line) in frames.into_iter().enumerate() {
                 let evt_json = json!({
                     "type": "terminal_output",
                     "session_id": session_id,
                     "terminal_id": terminal_id,
-                    "seq": start_seq + (idx as u64) + 1,
+                    "seq": first_seq + idx,
                     "timestamp": ws_protocol::timestamp(),
                     "payload": { "data": line },
                 });

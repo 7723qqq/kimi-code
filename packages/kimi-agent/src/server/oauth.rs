@@ -639,8 +639,12 @@ impl OAuthManager {
         let token = self.load_token(provider)?;
         // Proactively treat near-expiry tokens as stale; the caller refreshes
         // via the refresh grant (mirrors TS expires_at bookkeeping).
-        if token.expires_at - 60 < chrono::Utc::now().timestamp() && !token.refresh_token.is_empty()
-        {
+        //
+        // `expires_at` comes from a credentials file on disk, so it can be
+        // corrupt or hostile: a raw `- 60` underflowed on `i64::MIN` (panic in
+        // debug, a bogus "never expired" value in release).
+        let refresh_deadline = token.expires_at.saturating_sub(60);
+        if refresh_deadline < chrono::Utc::now().timestamp() && !token.refresh_token.is_empty() {
             return None;
         }
         Some(token)

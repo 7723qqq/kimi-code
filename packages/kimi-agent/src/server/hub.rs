@@ -225,7 +225,10 @@ impl EventHub {
         let slots = Arc::clone(&self.slots);
         let persister = Arc::clone(&self.persister);
         lane.bus.subscribe(move |event| {
-            let _ordered = forward.order.lock().unwrap();
+            let _ordered = forward
+                .order
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let seq = forward.next_seq.fetch_add(1, Ordering::Relaxed) + 1;
             let sequenced = Arc::new(SequencedEvent::new(
                 Arc::clone(&forward.session_id),
@@ -233,7 +236,10 @@ impl EventHub {
                 seq,
                 event.clone(),
             ));
-            let mut history = forward.history.lock().unwrap();
+            let mut history = forward
+                .history
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             history.push_back(Arc::clone(&sequenced));
             if history.len() > LANE_HISTORY_CAP {
                 history.pop_front();
@@ -312,8 +318,14 @@ impl EventHub {
         let Some(lane) = lanes.get(session_id) else {
             return Vec::new();
         };
-        let _order = lane.order.lock().unwrap();
-        let history = lane.history.lock().unwrap();
+        let _order = lane
+            .order
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let history = lane
+            .history
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         history
             .iter()
             .filter(|e| e.seq > since_seq)
@@ -373,10 +385,20 @@ impl EventHub {
         let mut replay = VecDeque::new();
         let _lane_locks: Vec<_> = lanes
             .iter()
-            .map(|lane| lane.order.lock().unwrap())
+            .map(|lane| {
+                lane.order
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            })
             .collect();
         for lane in &lanes {
-            replay.extend(lane.history.lock().unwrap().iter().cloned());
+            replay.extend(
+                lane.history
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .iter()
+                    .cloned(),
+            );
         }
 
         WsSubscription {

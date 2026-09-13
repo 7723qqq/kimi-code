@@ -40,6 +40,13 @@ pub mod permission_engine;
 
 pub use list_directory::{ListDirectoryConfig, ListDirectoryResult, list_directory};
 
+/// Shared with the engine's own HTTP transport (`llm::http`) so the two paths
+/// cannot disagree about what an in-band provider error frame looks like, what a
+/// non-SSE body means, or how a captured frame is truncated for a message.
+pub(crate) use llm_stream::{
+    NOT_AN_SSE_ENDPOINT_PREFIX, empty_stream_error, extract_in_band_error, truncate_for_diagnosis,
+};
+
 pub fn native_list_directory(
     path: Option<String>,
     collapse_hidden_dirs: Option<bool>,

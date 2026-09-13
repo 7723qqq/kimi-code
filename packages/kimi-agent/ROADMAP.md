@@ -217,9 +217,10 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 - 补齐冷恢复逻辑：实现进程重启后子代理从 SQLite 记录自动反序列化恢复（对齐 #3478）；
 - 消除 `apps/kimi-code` 对 `agent-core-v2/src/agent/loop` 的编译时与运行时依赖。
 
-### P158 — `kap-server` 切流至 Rust 原生服务层
-- `kap-server` 改造为轻量代理直接转发至 `kimi-agent` 启动的原生 HTTP/WS 服务端口，或者直接使用编译出的原生二进制作为后台守护进程；
-- 一次性剥离 `kap-server` 中对 `agent-core-v2` 的 175 处服务依赖。
+### P158 — `kap-server` 彻底物理退役与 Rust 原生服务层全量接管（已完成）
+- `apps/kimi-code`（`kimi web`）与周边套件完全直连 `kimi-agent-cli --serve` 原生 HTTP/WebSocket 服务；
+- 安全凭据轮转（`rotateServerToken`）与实例存活探活（`getLiveServerInstance`）收敛至 CLI 内聚安全实现；
+- 物理删除 `packages/kap-server`，从 workspace 与 `flake.nix` 解除绑定，并纳入 `scripts/check-no-legacy-engine.mjs` 退役黑名单。
 
 ### P159 — `klient` 门面原生化改造
 - `packages/klient` 全面改造为与 Rust 原生协议（REST/WebSocket 或进程内内存通道）交互的轻量客户端；
@@ -246,7 +247,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 | 上游项 | 上游 v2 行为 | Rust 移植目标 | 状态 |
 |---|---|---|---|
 | #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 | **已完成**：`core_tool_defs.rs` 与 `tools/mod.rs` 新增 `NotifyUser` 原生工具，`builder.rs` 新增 `NOTIFY_USER_GUIDANCE` |
-| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **已完成**：`server/mod.rs` 挂载 `GET/POST /api/v1/remote-control` 端点与运行时状态切换，REST 契约对齐 |
+| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **仅 REST 表面（2026-09-13 修正）**：`server/mod.rs` 挂载了 `GET/POST /api/v1/remote-control`，但**没有任何运行时实现**（无设备注册、无通道、无心跳）。此前 POST 会把本地状态改成 `state:"on"` 并回一个 `https://code-rc.kimi.com/devices/<随机id>/` URL，客户端据此展示为「已开启」，实际没有任何监听方。现已修正为：GET 回 `enabled:false` + `available:false` + `reason`，POST 返 501（`REMOTE_CONTROL_UNAVAILABLE`），不再伪造状态。真正的 remote-control 运行时（上游 `@moonshot-ai/remote-control` manager 的等价物）**仍是缺失项**，见文末「未闭环项」。 |
 | #3630 会话删除与串行清理 | `deleteSession`、`event.session.deleted` 广播、`ISessionManager.onWillDeleteSession` | Rust server 会话删除端点 + 事件广播 | **已完成**：`server/mod.rs` 支持 `POST /api/v1/sessions/:id:delete`，`event.session.deleted` 携带 `workspaceId` |
 | #3548 保留媒体附件名 | 媒体引用新增 `name` 字段 | Rust 原生媒体块类型增加 name 并全链路透传 | **已完成**：`ContentBlock`、`ImageUrl` 等全类型透传 `name: Option<String>`，服务端全链路映射 |
 | #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 | **已完成**：BMP 编解码支持，`read_media.rs` 针对 Kimi 模型放行 BMP/HEIC/HEIF 并放宽至 5MB 预算 |
@@ -254,16 +255,27 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 | #3645 大文件读取可续读 | 可恢复长行读取与重复截断修复 | `native/read.rs` | **已完成**：`Read` 工具增加 `column_offset` 与 `max_chars` 限制，超限提示断点续读参数 |
 | #3658 glob 超过 100 条 | 分页续取 | `native/glob.rs` | **已完成**：`Glob` 工具增加 `head_limit` 和 `offset`，支持分页切片与续取提示 |
 | #3654 MCP 结构化结果去重 | 保留不同的结构化结果 | `mcp/*` | **已完成**：`McpToolCallResult` 新增 `structuredContent` 与 `_meta`，在 `<mcp-result-extras>` 保留完整数据 |
-| #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 | 已在 `turn_step.rs` / `run_turn.rs` 自主驱动重试循环 |
-| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | Rust fs watch（核对现有实现是否覆盖） | 原生已由 `fs_watch.rs` 统一通道接管 |
+| #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 | **已归位（措辞修正）**：`turn_step.rs` / `run_turn.rs` 自主驱动重试循环。原条目只写「已在…自主驱动」而无证据，保留为已归位。 |
+| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | Rust fs watch（**核对现有实现是否覆盖**） | **未核对（措辞修正）**：原条目自认「核对现有实现是否覆盖」，即从未核对。原生有 `fs_watch.rs` 单一通道，但是否覆盖 #3502 的语义（统一为单一服务、去重订阅、生命周期绑定会话）**尚无结论**，见文末「未闭环项」。 |
 | #3644 交互 DI → 全局 human 单例 | interaction 层归并 | `permission` / `callbacks` / interaction | 原生已收敛至 `interaction::InteractionManager` |
 | #3638 遥测事件属性丢失修复 | 停止静默丢弃 key event attributes | telemetry 桥接 | 原生已由 `events.rs` 保持全属性无损 |
 | #3616 云推荐 thinking effort | 默认 effort 升级为推荐档 | 已有 `recommended-effort`（CLI 侧），核对引擎参数透传 | CLI 与引擎参数无损透传 |
 
 **本次合并中整包/整文件回退到 fork 版本（上游改动转上表）**：
-- `packages/kap-server`：整包回退（待退役 compat 壳，见其 AGENTS.md 与 P158）。
+- `packages/kap-server`：已彻底物理删除（见 P158）。
 - `apps/vis`：整包回退（调试工具，上游 #3540 对齐改动待后续单独处理）。
 - `apps/kimi-code` 引擎耦合文件：`constant/app.ts`、`cli/sub/web/{run,remote-control}.ts`、`tui/commands/{web,btw,plugins}.ts`、`utils/paths.ts` 等。
 - `packages/node-sdk` 上游 v2 表面文件已移除：`flag.ts`、`image.ts`、`interaction.ts`、`mcp.ts`、`permission.ts`、`replay.ts`、`task.ts`、`tool.ts`、`model-provider.ts`、`config/resolve.ts`、`logging/*`、`utils/fs.ts`。
 
 > 该队列不阻塞本次 merge；按 Rust 子系统逐条落地并补 `cargo test` 断言。
+
+### 未闭环项（2026-09-13 审查后补记）
+
+以下条目在上表中曾被标为「已完成」或用无证据措辞带过，核对源码后确认为**未闭环**：
+
+1. **#3594 remote-control 运行时**（上表已修正标注）。REST 端点存在，运行时完全缺失。需要设备注册、长连通道与心跳，以及 `@moonshot-ai/remote-control` manager 的等价实现。
+2. **#3502 fs watch 语义覆盖**。需逐条比对 #3502 的语义（单一服务、订阅去重、会话生命周期绑定）与 `fs_watch.rs` 的实际行为，再决定是否补码。
+3. **`POST /api/v1/acp` 桥**（`server/mod.rs`）。每请求新建一个无 engine 的 `AcpServer`，且从不 `set_notification_sink`：`session/new|load|resume|fork` 一律返回 `-32000`，`session/update` 通知全部丢弃，实际只能回 `initialize`。需接上 engine 与通知 sink 才算「ACP 流量由原生处理」（P160 的前提）。
+4. **`apps/vis` 整包回退**（上游 #3540 对齐）待单独处理——本表之外，见第 5 节末尾的「整包/整文件回退」清单。
+
+> 另注：`acp/mod.rs` 在无 engine 时曾伪造一份助手回复并**持久化**到会话历史（`save_turn`），客户端看到的是无人产出的回答。已改为返回 `-32000` 错误，不再写库。

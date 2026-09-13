@@ -65,7 +65,10 @@ impl InteractionManager {
 
     fn sweep_expired_before(&self, now: chrono::DateTime<chrono::Utc>) {
         let expired: Vec<(String, ActiveApproval)> = {
-            let mut lock = self.approvals.lock().unwrap();
+            let mut lock = self
+                .approvals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let stale: Vec<String> = lock
                 .iter()
                 .filter(|(_, a)| {
@@ -103,16 +106,25 @@ impl InteractionManager {
     }
 
     pub fn with_hub(self, hub: Arc<crate::server::hub::EventHub>) -> Self {
-        *self.hub.lock().unwrap() = Some(hub);
+        *self
+            .hub
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(hub);
         self
     }
 
     pub fn set_hub(&self, hub: Arc<crate::server::hub::EventHub>) {
-        *self.hub.lock().unwrap() = Some(hub);
+        *self
+            .hub
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(hub);
     }
 
     fn publish_event(&self, session_id: &str, event: crate::events::EngineEvent) {
-        let lock = self.hub.lock().unwrap();
+        let lock = self
+            .hub
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(hub) = lock.as_ref() {
             hub.bus_for(session_id).publish(&event);
         }
@@ -121,12 +133,20 @@ impl InteractionManager {
     /// Install the activity notifier (the engine does this when a manager
     /// attaches). See [`ActivitySignal`].
     pub fn set_activity_notifier(&self, notifier: crate::server::activity::ActivityNotifier) {
-        *self.activity_notifier.lock().unwrap() = Some(notifier);
+        *self
+            .activity_notifier
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(notifier);
     }
 
     /// Fire the activity notifier, if one is installed.
     fn notify_activity(&self, session_id: &str, signal: ActivitySignal) {
-        if let Some(notifier) = self.activity_notifier.lock().unwrap().as_ref() {
+        if let Some(notifier) = self
+            .activity_notifier
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
             notifier(session_id, signal);
         }
     }
@@ -151,7 +171,10 @@ impl InteractionManager {
         };
 
         {
-            let mut lock = self.questions.lock().unwrap();
+            let mut lock = self
+                .questions
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             lock.insert(qid.clone(), active);
         }
 
@@ -215,7 +238,10 @@ impl InteractionManager {
 
     /// List all currently pending questions for a session.
     pub fn list_questions(&self, session_id: &str) -> Vec<Value> {
-        let lock = self.questions.lock().unwrap();
+        let lock = self
+            .questions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut items = Vec::new();
         for (qid, q) in lock.iter() {
             if q.session_id == session_id {
@@ -300,7 +326,10 @@ impl InteractionManager {
         method: Option<String>,
     ) -> bool {
         let active = {
-            let mut lock = self.questions.lock().unwrap();
+            let mut lock = self
+                .questions
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             lock.remove(question_id)
         };
         if let Some(q) = active {
@@ -337,7 +366,10 @@ impl InteractionManager {
     /// Dismiss a pending question without answering.
     pub fn dismiss_question(&self, question_id: &str) -> bool {
         let active = {
-            let mut lock = self.questions.lock().unwrap();
+            let mut lock = self
+                .questions
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             lock.remove(question_id)
         };
         if let Some(q) = active {
@@ -394,7 +426,10 @@ impl InteractionManager {
         };
 
         {
-            let mut lock = self.approvals.lock().unwrap();
+            let mut lock = self
+                .approvals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             lock.insert(approval_id.clone(), active);
         }
 
@@ -435,7 +470,10 @@ impl InteractionManager {
     /// List all currently pending tool approvals for a session.
     pub fn list_approvals(&self, session_id: &str) -> Vec<Value> {
         self.sweep_expired_approvals();
-        let lock = self.approvals.lock().unwrap();
+        let lock = self
+            .approvals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut items = Vec::new();
         for (aid, a) in lock.iter() {
             if a.session_id == session_id {
@@ -467,7 +505,10 @@ impl InteractionManager {
         reason: Option<String>,
     ) -> bool {
         let active = {
-            let mut lock = self.approvals.lock().unwrap();
+            let mut lock = self
+                .approvals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             lock.remove(approval_id)
         };
         if let Some(a) = active {
@@ -504,7 +545,10 @@ impl InteractionManager {
 
     /// Cancel all pending interactions when a session is aborted, deleted, or turns complete.
     pub fn cancel_session(&self, session_id: &str) {
-        let mut q_lock = self.questions.lock().unwrap();
+        let mut q_lock = self
+            .questions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let to_remove_q: Vec<String> = q_lock
             .iter()
             .filter(|(_, q)| q.session_id == session_id)
@@ -522,7 +566,10 @@ impl InteractionManager {
             }
         }
 
-        let mut a_lock = self.approvals.lock().unwrap();
+        let mut a_lock = self
+            .approvals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let to_remove_a: Vec<String> = a_lock
             .iter()
             .filter(|(_, a)| a.session_id == session_id)
@@ -639,7 +686,10 @@ mod tests {
         assert!(manager.resolve_approval(&approval_id, true, None));
         assert!(approval_rx.try_recv().is_ok());
 
-        let recorded = signals.lock().unwrap().clone();
+        let recorded = signals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         assert_eq!(
             recorded,
             vec![

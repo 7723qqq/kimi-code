@@ -245,19 +245,50 @@ pub fn render_todo_list_with_title(todos: &[TodoItem], title: &str) -> String {
                 .is_none_or(|parent| !known.contains(parent))
         })
         .collect();
+    // Guard the walk: a parent pointer that points at itself, or a cycle
+    // (A → B → A), is reachable from no root — but a cycle hanging off a root
+    // recursed forever, and any node that no root reaches was dropped from the
+    // output entirely, leaving only the header line.
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for root in roots {
-        render_tree_line(root, &children_of, &report.by_id, 0, &mut lines);
+        render_tree_line(
+            root,
+            &children_of,
+            &report.by_id,
+            0,
+            &mut lines,
+            &mut visited,
+        );
+    }
+    for orphan in todos {
+        if visited.contains(orphan.id.as_str()) {
+            continue;
+        }
+        render_tree_line(
+            orphan,
+            &children_of,
+            &report.by_id,
+            0,
+            &mut lines,
+            &mut visited,
+        );
     }
     lines.join("\n")
 }
 
-fn render_tree_line(
-    item: &TodoItem,
-    children_of: &HashMap<&str, Vec<&TodoItem>>,
+fn render_tree_line<'a>(
+    item: &'a TodoItem,
+    children_of: &HashMap<&str, Vec<&'a TodoItem>>,
     by_id: &HashMap<String, u32>,
     depth: usize,
     lines: &mut Vec<String>,
+    visited: &mut std::collections::HashSet<&'a str>,
 ) {
+    // Emit each entry once: stops a cycle from recursing forever and stops a
+    // shared child from being listed twice.
+    if !visited.insert(item.id.as_str()) {
+        return;
+    }
     let indent = "  ".repeat(depth + 1);
     let progress = by_id.get(&item.id).copied().unwrap_or(0);
     let status = effective_status(item, progress);
@@ -270,7 +301,7 @@ fn render_tree_line(
     ));
     if let Some(children) = children_of.get(item.id.as_str()) {
         for child in children {
-            render_tree_line(child, children_of, by_id, depth + 1, lines);
+            render_tree_line(child, children_of, by_id, depth + 1, lines, visited);
         }
     }
 }

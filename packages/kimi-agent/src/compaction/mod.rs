@@ -236,8 +236,7 @@ pub(crate) fn summary_placeholder(omitted: usize) -> String {
 }
 
 /// Continuation reminder appended after context compaction, matching upstream #3537.
-pub const COMPACTION_CONTINUATION_TEXT: &str =
-    "<system-reminder>\nContext compaction is complete — continue the work that was in progress when it began.\n</system-reminder>";
+pub const COMPACTION_CONTINUATION_TEXT: &str = "<system-reminder>\nContext compaction is complete — continue the work that was in progress when it began.\n</system-reminder>";
 
 /// Build the continuation message that anchors context compaction resumption.
 pub fn compaction_continuation_message() -> LLMMessage {

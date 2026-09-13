@@ -159,7 +159,23 @@ pub fn compress_image(
     let original_width = img.width();
     let original_height = img.height();
 
-    fit_within_edge(&mut img, config.max_edge);
+    let resized = fit_within_edge(&mut img, config.max_edge);
+    if !resized && bytes.len() <= config.byte_budget {
+        // Already within both budgets — send the original bytes untouched.
+        // Dimensions still report display space (EXIF orientation applied),
+        // which is the space captions and region readbacks share.
+        return Some(CompressResult {
+            data: bytes.to_vec(),
+            mime_type: normalized,
+            width: original_width,
+            height: original_height,
+            original_width,
+            original_height,
+            changed: false,
+            original_byte_length: bytes.len(),
+            final_byte_length: bytes.len(),
+        });
+    }
 
     let encoded = encode_within_budget(
         &mut img,

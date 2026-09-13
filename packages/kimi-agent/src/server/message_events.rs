@@ -122,7 +122,10 @@ impl MessageCallbacks {
             return;
         };
         let (message_id, index) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if state.current.is_none() {
                 let id = format!("msg-a{}-{}", self.turn_number, state.step);
                 state.current = Some(AssistantMessage {
@@ -160,7 +163,10 @@ impl MessageCallbacks {
     /// The step finished: finalize the assistant message with its text plus
     /// one `tool_use` block per requested tool call.
     fn on_step_end(&self, event: &Value) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let Some(current) = state.current.take() else {
             return;
         };
@@ -274,7 +280,10 @@ impl HostCallbacks for MessageCallbacks {
     fn emit_event(&self, event: Value) {
         match event.get("type").and_then(|v| v.as_str()) {
             Some("llm.step.begin") => {
-                self.state.lock().unwrap().step += 1;
+                self.state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .step += 1;
             }
             Some("llm.delta") => {
                 if let Some(part) = event.get("part") {

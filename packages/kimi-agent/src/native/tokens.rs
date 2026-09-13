@@ -81,12 +81,12 @@ pub fn truncate_text_to_tokens(text: &str, max_tokens: usize) -> String {
     text[..end].to_string()
 }
 
-/// NOTE: structured estimators (JSON weighting, per-tool/message rollups)
-/// and the anchor tracker used to live here as unwired duplicates. The
-/// canonical implementations are `crate::compaction::estimate_tokens`,
-/// `estimate_tokens_for_json`, `estimate_message_tokens` and friends, which
-/// operate on real `LLMMessage`s and back the engine's compaction budget.
-/// Do not re-add tuple-shaped copies here; extend `compaction` instead.
+// NOTE: structured estimators (JSON weighting, per-tool/message rollups)
+// and the anchor tracker used to live here as unwired duplicates. The
+// canonical implementations are `crate::compaction::estimate_tokens`,
+// `estimate_tokens_for_json`, `estimate_message_tokens` and friends, which
+// operate on real `LLMMessage`s and back the engine's compaction budget.
+// Do not re-add tuple-shaped copies here; extend `compaction` instead.
 
 /// Truncate text to fit within a token budget, keeping the END.
 ///

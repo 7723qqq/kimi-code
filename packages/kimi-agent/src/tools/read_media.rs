@@ -412,7 +412,11 @@ pub fn read_image_media(
     // `full_resolution` means "send the bytes untouched", so it must fit the
     // fixed per-image limit — `[image].read_byte_budget` cannot enlarge it.
     if request.region.is_none() && request.full_resolution && byte_size > inline_budget {
-        return Some(err_result(full_resolution_limit_error(path, byte_size, inline_budget)));
+        return Some(err_result(full_resolution_limit_error(
+            path,
+            byte_size,
+            inline_budget,
+        )));
     }
     // Default path: no point decoding something we could never deliver.
     if !request.is_explicit() && byte_size > MAX_IMAGE_DECODE_BYTES && byte_size > budget {
@@ -436,7 +440,9 @@ pub fn read_image_media(
             )));
         }
         let data = std::fs::read(path).ok()?;
-        let (width, height) = sniff_image_dimensions(&data).map(|d| (d.width, d.height)).unwrap_or((0, 0));
+        let (width, height) = sniff_image_dimensions(&data)
+            .map(|d| (d.width, d.height))
+            .unwrap_or((0, 0));
         let delivery = if request.full_resolution {
             ImageDelivery::Full
         } else {
@@ -446,7 +452,10 @@ pub fn read_image_media(
         let base64 = BASE64_STANDARD.encode(&data);
         return Some(ExecutableToolResult {
             stop_turn: false,
-            content: format!("<image path=\"{}\" mime=\"{mime}\" size=\"{byte_size}\" />", path.display()),
+            content: format!(
+                "<image path=\"{}\" mime=\"{mime}\" size=\"{byte_size}\" />",
+                path.display()
+            ),
             is_error: false,
             note: Some(note),
             delivery: Some(ToolDelivery {
@@ -642,7 +651,9 @@ mod tests {
         let delivery = result.delivery.expect("delivery");
         assert_eq!(delivery.blocks.len(), 1);
         match &delivery.blocks[0] {
-            ContentBlock::Image { media_type, data, .. } => {
+            ContentBlock::Image {
+                media_type, data, ..
+            } => {
                 assert_eq!(media_type, "image/png");
                 assert!(!data.is_empty());
             }
@@ -801,8 +812,14 @@ mod tests {
         assert!(is_model_accepted_image_mime("image/heic", Some("kimi")));
         assert!(is_model_accepted_image_mime("image/heif", Some("kimi")));
 
-        assert_eq!(inline_image_byte_budget(None), DEFAULT_INLINE_IMAGE_BYTE_BUDGET);
-        assert_eq!(inline_image_byte_budget(Some("kimi")), KIMI_INLINE_IMAGE_BYTE_BUDGET);
+        assert_eq!(
+            inline_image_byte_budget(None),
+            DEFAULT_INLINE_IMAGE_BYTE_BUDGET
+        );
+        assert_eq!(
+            inline_image_byte_budget(Some("kimi")),
+            KIMI_INLINE_IMAGE_BYTE_BUDGET
+        );
     }
 
     #[test]
@@ -815,9 +832,14 @@ mod tests {
 
         let request = ReadMediaRequest::default();
         // Baseline provider refuses HEIC
-        let default_res = read_image_media(&path, &request, &ReadMediaLimits::default()).expect("refusal");
+        let default_res =
+            read_image_media(&path, &request, &ReadMediaLimits::default()).expect("refusal");
         assert!(default_res.is_error);
-        assert!(default_res.content.contains("which the provider does not accept"));
+        assert!(
+            default_res
+                .content
+                .contains("which the provider does not accept")
+        );
 
         // Kimi provider accepts HEIC inline
         let kimi_limits = ReadMediaLimits {

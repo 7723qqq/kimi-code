@@ -618,9 +618,21 @@ impl KimiConfig {
         // A declared alias endpoint wins: gateway providers serve one alias
         // over a different path than the provider default
         // (schema `models.*.baseUrl`).
+        let p_type = provider
+            .provider_type
+            .as_deref()
+            .unwrap_or("openai")
+            .to_lowercase();
+        // Google's endpoint is a constant: a provider without `base_url` still
+        // resolves natively — its OAuth token rides the `auth_provider` channel
+        // — instead of silently falling back to the host LLM proxy.
         let raw_base_url = alias
             .and_then(|alias| alias.base_url.as_deref())
-            .or(provider.base_url.as_deref())?;
+            .or(provider.base_url.as_deref())
+            .or_else(|| {
+                (p_type == "google" || p_type == "google-genai" || p_type == "gemini")
+                    .then_some("https://generativelanguage.googleapis.com")
+            })?;
         let api_key = provider.api_key.clone().unwrap_or_default();
         // A static key wins; an OAuth-bound provider (`[providers.*].oauth`)
         // authenticates through the host token channel instead, so the static
@@ -642,10 +654,19 @@ impl KimiConfig {
         // The alias declares its wire protocol (schema `models.*.protocol`:
         // "anthropic" | "openai_responses"); the provider type is the
         // fallback, and everything else is Chat Completions.
+        //
+        // Google has to be matched explicitly: falling through to "openai"
+        // sent Gemini traffic to `{base}/chat/completions` with a Chat
+        // Completions body — the endpoint is the only thing a Gemini-compatible
+        // relay accepts, so the request never even reached the model.
         let protocol = match alias.and_then(|alias| alias.protocol.as_deref()) {
             Some("anthropic") => "anthropic",
             Some("openai_responses") => "openai_responses",
+            Some("google") | Some("google-genai") | Some("gemini") => "google-genai",
             _ if p_type == "anthropic" => "anthropic",
+            _ if p_type == "google" || p_type == "google-genai" || p_type == "gemini" => {
+                "google-genai"
+            }
             _ => "openai",
         };
 
@@ -1062,6 +1083,12 @@ fn resolve_web_service(
 
 fn normalize_base_url(url: &str, protocol: &str) -> String {
     let trimmed = url.trim_end_matches('/');
+    // GenerateContent lives under an API version segment, and the documented
+    // contract is host-root-only — see [`crate::llm::http::google_api_base`],
+    // which the endpoint builder also applies.
+    if protocol == "google" || protocol == "google-genai" || protocol == "gemini" {
+        return crate::llm::http::google_api_base(trimmed);
+    }
     if protocol == "anthropic" {
         if trimmed.ends_with("/v1") {
             trimmed.to_string()

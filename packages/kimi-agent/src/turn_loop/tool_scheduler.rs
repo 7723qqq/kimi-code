@@ -146,8 +146,28 @@ where
 
         let mut failure: Option<String> = None;
         let mut pending = handles.into_iter();
-        for handle in pending.by_ref() {
-            match handle.await {
+        'collect: for mut handle in pending.by_ref() {
+            // Await with cancellation ticks instead of awaiting blindly: one
+            // hung tool used to pin this loop, so user cancellation landed
+            // only after that tool's full duration. Aborting drops the task's
+            // future (a spawned OS child outlives it — only the Rust side is
+            // reclaimed). Fast tools resolve on the first poll; the tick only
+            // bounds the worst case.
+            let joined = loop {
+                if is_cancelled(cancellation) {
+                    handle.abort();
+                    failure = Some("turn cancelled".to_string());
+                    break 'collect;
+                }
+                let tick = tokio::time::sleep(std::time::Duration::from_millis(20));
+                tokio::pin!(tick);
+                tokio::select! {
+                    biased;
+                    () = &mut tick => {}
+                    done = &mut handle => break done,
+                }
+            };
+            match joined {
                 Ok(Ok(result)) => {
                     if is_cancelled(cancellation) {
                         failure = Some("turn cancelled".to_string());
@@ -1032,6 +1052,51 @@ mod tests {
         assert!(
             err.to_string().contains("cancelled"),
             "unexpected error: {err}"
+        );
+    }
+
+    /// A hung tool must not pin cancellation: the collector races each task
+    /// against cancel ticks, so the turn fails fast instead of after the
+    /// tool's full duration.
+    #[tokio::test]
+    async fn test_execute_scheduled_hung_tool_does_not_block_cancel() {
+        let scheduled = vec![ScheduledToolCall {
+            tool_call: ToolCall {
+                id: "1".into(),
+                name: "bash".into(),
+                arguments: serde_json::json!({}),
+                extras: None,
+            },
+            accesses: vec![],
+        }];
+        let executor = move |_tc: ToolCall| async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: "too late".into(),
+                is_error: false,
+                note: None,
+            })
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            canceller.store(true, Ordering::Relaxed);
+        });
+        let started = std::time::Instant::now();
+        let err = execute_scheduled(Some(&cancel), scheduled, executor)
+            .await
+            .expect_err("cancellation must win over the hung tool");
+        assert!(
+            err.to_string().contains("cancelled"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "cancel took {:?}, the hung tool pinned the collector",
+            started.elapsed()
         );
     }
 

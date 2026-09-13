@@ -41,7 +41,12 @@ struct TerminalEntry {
     descriptor: TerminalDescriptor,
     stdin_tx: Option<mpsc::Sender<Vec<u8>>>,
     buffer: Vec<String>,
+    /// Absolute sequence of the newest buffered frame.
     next_seq: usize,
+    /// Frames evicted from the front once `buffer` hit `MAX_BUFFER_FRAMES`.
+    /// `next_seq - dropped == buffer.len()`, which is what lets a caller's
+    /// absolute `since_seq` be mapped onto a buffer index.
+    dropped: usize,
     child_pid: Option<u32>,
 }
 
@@ -161,6 +166,7 @@ impl TerminalManager {
             stdin_tx: Some(stdin_tx),
             buffer: Vec::new(),
             next_seq: 0,
+            dropped: 0,
             child_pid,
         };
 
@@ -190,6 +196,7 @@ impl TerminalManager {
                                 out_seq = e.next_seq;
                                 if e.buffer.len() >= MAX_BUFFER_FRAMES {
                                     e.buffer.remove(0);
+                                    e.dropped += 1;
                                 }
                                 e.buffer.push(text.clone());
                             } else {
@@ -236,6 +243,7 @@ impl TerminalManager {
                                 out_seq = e.next_seq;
                                 if e.buffer.len() >= MAX_BUFFER_FRAMES {
                                     e.buffer.remove(0);
+                                    e.dropped += 1;
                                 }
                                 e.buffer.push(text.clone());
                             } else {
@@ -392,6 +400,15 @@ impl TerminalManager {
     }
 
     /// Retrieve recorded terminal buffer frames.
+    ///
+    /// `since_seq` is an absolute frame sequence, but `buffer` only retains the
+    /// newest `MAX_BUFFER_FRAMES` frames — after the first eviction the absolute
+    /// sequence and the buffer index diverge. Slicing by absolute sequence
+    /// therefore returned the wrong frames (and, in the WebSocket replay path,
+    /// mislabelled every replayed frame's `seq`).
+    ///
+    /// Returns the requested frames plus the absolute sequence of the newest
+    /// buffered frame, which is what a client resumes from.
     pub async fn output(
         &self,
         session_id: &str,
@@ -405,12 +422,11 @@ impl TerminalManager {
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
         }
-        let total = entry.buffer.len();
-        if since_seq >= total {
-            Ok((Vec::new(), total))
-        } else {
-            Ok((entry.buffer[since_seq..].to_vec(), total))
-        }
+        // Frames `1..=dropped` are gone; buffer[i] is absolute sequence
+        // `dropped + i + 1`. Ask for everything strictly after `since_seq`.
+        let start = since_seq.saturating_sub(entry.dropped);
+        let start = start.min(entry.buffer.len());
+        Ok((entry.buffer[start..].to_vec(), entry.next_seq))
     }
 }
 

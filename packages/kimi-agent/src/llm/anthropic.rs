@@ -212,7 +212,9 @@ pub fn build_request_full(
 fn project_block(b: &ContentBlock) -> Value {
     match b {
         ContentBlock::Text { text } => json!({ "type": "text", "text": text }),
-        ContentBlock::Image { media_type, data, .. } => json!({
+        ContentBlock::Image {
+            media_type, data, ..
+        } => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": media_type, "data": data },
         }),

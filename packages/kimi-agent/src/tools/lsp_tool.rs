@@ -21,6 +21,16 @@ pub fn detect_language_id(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// 支持的 LSP 动作。校验在定位/启动语言服务器之前进行（fail-fast），
+/// 避免为无效请求付出 spawn 服务器的代价。
+const SUPPORTED_ACTIONS: &[&str] = &[
+    "definition",
+    "references",
+    "hover",
+    "symbols",
+    "document_symbols",
+];
+
 /// 执行 LSP 原生工具调用
 pub async fn execute_lsp_tool(workspace_root: &Path, args: &Value) -> Option<ExecutableToolResult> {
     let action = match args.get("action").and_then(|v| v.as_str()) {
@@ -35,6 +45,18 @@ pub async fn execute_lsp_tool(workspace_root: &Path, args: &Value) -> Option<Exe
             });
         }
     };
+
+    if !SUPPORTED_ACTIONS.contains(&action) {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: format!(
+                "Unsupported LSP action: '{action}'. Currently supported: 'definition', 'references', 'hover', 'symbols'."
+            ),
+            is_error: true,
+            note: None,
+        });
+    }
 
     let raw_path = match args.get("path").and_then(|v| v.as_str()) {
         Some(p) => p,
@@ -280,7 +302,7 @@ mod tests {
         let file = dir.path().join("note.md");
         std::fs::write(&file, "placeholder").unwrap();
         let res = execute_lsp_tool(
-            &dir.path().to_path_buf(),
+            dir.path(),
             &serde_json::json!({
                 "action": "definition",
                 "path": file.to_string_lossy()
@@ -301,7 +323,7 @@ mod tests {
         let file = dir.path().join("lib.rs");
         std::fs::write(&file, "pub fn placeholder() {}\n").unwrap();
         let res = execute_lsp_tool(
-            &dir.path().to_path_buf(),
+            dir.path(),
             &serde_json::json!({
                 "action": "unknown_action_xyz",
                 "path": file.to_string_lossy()

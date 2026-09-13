@@ -324,6 +324,14 @@ export interface JsRunTurnParams {
    */
   nativeTools?: boolean
   /**
+   * Host-authorized extra roots (`/add-dir` → `additionalDirs`). Paths that
+   * canonicalize under one of them are served by the native toolset even
+   * though they sit outside `workspaceRoot`; without this they fall outside
+   * the sandbox and the only fallback — the host `execute_tool` seam — has no
+   * tool runtime to serve them.
+   */
+  additionalDirs?: string[]
+  /**
    * Rust engine self-contained mode. When true, the engine refuses to
    * fall back to the host proxy for LLM calls — the user must
    * configure either `providers` (concurrent MultiLLM race) or

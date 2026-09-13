@@ -13,11 +13,13 @@
 //!   - `unknown_method_returns_error`: an unknown method yields a -32601 error
 //!   - `run_turn_with_host_callbacks`: run_turn drives host/llm_chat + host/execute_tool
 //!
-//! These tests require the binary to be built (`cargo test --features cli`
-//! builds it; so do `cargo build --features cli` and `cargo build --release
-//! --features cli`). They are skipped (with a passing assertion) when the
-//! binary is absent, so `cargo test` still works without a prior build step —
-//! note that a skipped test proves nothing, so CI builds the binary first.
+//! These tests require the binary, which the `cli` feature builds: the whole
+//! file is `#![cfg(feature = "cli")]`, so a plain `cargo test` does not compile
+//! it, and `cargo test --features cli` runs it for real. A missing binary is a
+//! hard failure — the earlier early-return recorded a *passing* test that had
+//! asserted nothing, which is worse than not running at all.
+
+#![cfg(feature = "cli")]
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
@@ -147,13 +149,14 @@ impl Drop for RpcClient {
     }
 }
 
-/// Skip the test if the binary is not built.
+/// Require the binary. The file is gated on the `cli` feature, so its absence
+/// here means the build is misconfigured — fail rather than pass silently.
 macro_rules! require_binary {
     ($client:expr) => {
-        if $client.is_none() {
-            eprintln!("Skipping test: kimi-agent binary not built. Run `cargo build --release`.");
-            return;
-        }
+        assert!(
+            $client.is_some(),
+            "the kimi-agent binary must be built: run `cargo test --features cli`"
+        );
     };
 }
 

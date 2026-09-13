@@ -78,10 +78,20 @@ async fn write_todo_list(
     args: &Value,
     normalized: Vec<crate::tools::todo_item::TodoItem>,
 ) -> ExecutableToolResult {
+    // Fail closed: a serialization failure must not degrade into "write an
+    // empty list", which would clear the user's todos and still report success.
+    let value = match serde_json::to_value(&normalized) {
+        Ok(value) => value,
+        Err(error) => {
+            return err_result(format!(
+                "Failed to serialize the todo list ({error}). No changes were written; the existing list is unchanged."
+            ));
+        }
+    };
     let request = StateWriteRequest {
         domain: "todo".into(),
         key: "todo".into(),
-        value: serde_json::to_value(&normalized).unwrap_or(Value::Array(Vec::new())),
+        value,
         undoable: true,
         turn_id: args
             .get("turn_id")

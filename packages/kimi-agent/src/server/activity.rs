@@ -325,7 +325,10 @@ impl ActivityTracker {
 
     /// The phase right now, for status snapshots that want to carry it.
     pub fn snapshot(&self) -> AgentPhase {
-        self.state.lock().unwrap().clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// Transition and publish. Phases in the same *series* — the same kind
@@ -335,7 +338,10 @@ impl ActivityTracker {
     /// re-emitting.
     fn transition(&self, next: AgentPhase) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if same_series(&state, &next) {
                 return;
             }
@@ -345,7 +351,11 @@ impl ActivityTracker {
     }
 
     fn publish(&self) {
-        let phase = self.state.lock().unwrap().clone();
+        let phase = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         self.hub
             .bus_for(&self.session_id)
             .publish(&EngineEvent::Custom(serde_json::json!({
@@ -370,7 +380,10 @@ impl ActivityTracker {
     pub fn turn_started(&self, turn_number: u32) {
         self.turn_id.store(turn_number, Ordering::Relaxed);
         self.step.store(0, Ordering::Relaxed);
-        *self.turn_started_at.lock().unwrap() = Some(Instant::now());
+        *self
+            .turn_started_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Instant::now());
         self.transition(AgentPhase::Running {
             turn_id: u64::from(turn_number),
             step: 0,
@@ -463,7 +476,10 @@ impl ActivityTracker {
     /// after a turn ended must not resurrect a running phase.
     pub fn interaction_resolved(&self) {
         let matches = matches!(
-            *self.state.lock().unwrap(),
+            *self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
             AgentPhase::AwaitingApproval { .. }
         );
         if matches {
@@ -542,7 +558,10 @@ impl ActivityRegistry {
         self: &std::sync::Arc<Self>,
         session_id: &str,
     ) -> std::sync::Arc<ActivityTracker> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         sessions
             .entry(session_id.to_string())
             .or_insert_with(|| {
@@ -744,7 +763,10 @@ mod tests {
         }
 
         fn turn_event(&self, event: crate::turn_events::TurnEvent) {
-            self.turn_events.lock().unwrap().push(event);
+            self.turn_events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(event);
         }
     }
 
@@ -782,7 +804,14 @@ mod tests {
         assert_eq!(ended["reason"], "completed");
 
         // The host-facing seam still gets them.
-        assert_eq!(inner.turn_events.lock().unwrap().len(), 2);
+        assert_eq!(
+            inner
+                .turn_events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]

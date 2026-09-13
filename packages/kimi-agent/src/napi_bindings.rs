@@ -764,6 +764,11 @@ pub struct JsRunTurnParams {
     /// (native on) is resolved by the TS adapter — matching the stdio wire,
     /// where an absent `native_tools` is likewise false.
     pub native_tools: Option<bool>,
+    /// Host-authorized extra roots (`/add-dir` → `additionalDirs`). Paths that
+    /// canonicalize under one of them are served by the native toolset even
+    /// though they sit outside `workspace_root`; without this they could only
+    /// fall back to the host, which has no tool runtime on this transport.
+    pub additional_dirs: Option<Vec<String>>,
     /// Rust engine self-contained mode. When true, the engine refuses to
     /// fall back to the host proxy for LLM calls — the user must
     /// configure either `providers` (concurrent MultiLLM race) or
@@ -1457,6 +1462,7 @@ async fn build_engine_pipeline(
         }),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools.unwrap_or(false),
+        extra_roots: params.additional_dirs.clone().unwrap_or_default(),
         rust_self_contained: params.rust_self_contained.unwrap_or(false),
         shell_path: params.shell_path.clone(),
         // The host hands the permission policy over as JSON (napi has no typed
@@ -1485,7 +1491,10 @@ async fn build_engine_pipeline(
         sandbox_policy: params.sandbox_mode.as_deref().map(|mode_str| {
             let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
             let root = params.workspace_root.clone().unwrap_or_default();
+            // `additionalDirs` are part of the authorized boundary, not just a
+            // toolset search path.
             crate::tools::sandbox::SandboxExecutionPolicy::new(mode, root)
+                .with_extra_roots(params.additional_dirs.clone().unwrap_or_default())
         }),
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
