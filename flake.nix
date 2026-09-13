@@ -148,7 +148,6 @@
             fileset = lib.fileset.unions (
               [
                 ./build
-                ./.nvmrc
                 ./package.json
                 ./bun.lock
                 ./bunfig.toml
