@@ -46,8 +46,12 @@ jobs:
 
       - uses: actions/cache@v4
         with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/kimi-agent/target
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}-cargo-${{ hashFiles('packages/kimi-agent/Cargo.lock') }}
 
       - run: bun install --frozen-lockfile
 
@@ -56,6 +60,13 @@ jobs:
 
       - name: Build kimi-agent native addon
         run: cd packages/kimi-agent && bun run build
+
+      # The stdio-forcing TS suites (rust-loop staleness guard, …) spawn the
+      # CLI binary directly: without it `createRunTurnOverride` yields
+      # undefined and they fail instead of testing anything.
+      - name: Build kimi-agent CLI binary (debug)
+        working-directory: packages/kimi-agent
+        run: cargo build --features cli --bin kimi-agent-cli
 
       # The vitest suite runs under the Bun runtime (`--bun`): Bun is the
       # canonical dev/test toolchain and the shards need no Node install.
