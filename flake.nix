@@ -223,7 +223,7 @@
             # paste the "got:" hash reported by Nix.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = lib.fakeSha256;
+            outputHash = "sha256-QE55VFEbSSc/M70T9hzxbfROo3y91pvw0vvXcmd82vg=";
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
