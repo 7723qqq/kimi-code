@@ -103,7 +103,6 @@
         ./packages/i18n
         ./packages/i18n-shared
         ./packages/kaos
-        ./packages/kap-server
         ./packages/kimi-agent
         ./packages/kosong
         ./packages/minidb
