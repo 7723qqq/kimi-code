@@ -68,11 +68,14 @@ export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
     : `${trimmed}/v1`;
 }
 
-export function resolveNativeLlm(config: KimiConfig): JsNativeLlmConfig | undefined {
+export function resolveNativeLlm(
+  config: KimiConfig,
+  defaultHeaders?: Record<string, string>,
+): JsNativeLlmConfig | undefined {
   const defaultModelAlias = config.defaultModel;
   return defaultModelAlias === undefined
     ? undefined
-    : resolveNativeLlmForAlias(config, defaultModelAlias);
+    : resolveNativeLlmForAlias(config, defaultModelAlias, undefined, defaultHeaders);
 }
 
 /**
@@ -86,6 +89,7 @@ export function resolveNativeLlmForAlias(
   config: KimiConfig,
   alias: string,
   effortOverride?: string,
+  defaultHeaders?: Record<string, string>,
 ): JsNativeLlmConfig | undefined {
   const modelConfig = config.models?.[alias];
   const providerName = modelConfig?.provider ?? config.agent?.nativeLlmProvider;
@@ -129,11 +133,14 @@ export function resolveNativeLlmForAlias(
   }
   if (!model) return undefined;
 
-  const customHeaders = Object.fromEntries(
-    Object.entries(provider.customHeaders ?? {}).filter(
-      ([key]) => !AUTH_HEADERS.has(key.toLowerCase()),
+  const customHeaders = {
+    ...defaultHeaders,
+    ...Object.fromEntries(
+      Object.entries(provider.customHeaders ?? {}).filter(
+        ([key]) => !AUTH_HEADERS.has(key.toLowerCase()),
+      ),
     ),
-  );
+  };
 
   let reasoningEffort: string | undefined;
   let thinkingBudget: number | undefined;
@@ -279,6 +286,7 @@ export function resolveSecondaryModelPool(
   config: KimiConfig,
   enabled: boolean,
   env: NodeJS.ProcessEnv = process.env,
+  defaultHeaders?: Record<string, string>,
 ): SecondaryModelPoolWire | undefined {
   if (!enabled) return undefined;
   const section = config.secondaryModel;
@@ -331,7 +339,7 @@ export function resolveSecondaryModelPool(
   }
 
   const models = [...hints.entries()].map(([alias, hint]) => {
-    const llm = resolveNativeLlmForAlias(config, alias, defaultEffort);
+    const llm = resolveNativeLlmForAlias(config, alias, defaultEffort, defaultHeaders);
     if (llm === undefined) {
       throw invalidConfig(
         `[secondary_model.models] entry "${alias}" could not be resolved: add it to [models] with a provider that has credentials.`,

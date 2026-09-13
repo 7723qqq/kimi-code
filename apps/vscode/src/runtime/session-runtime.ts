@@ -214,6 +214,7 @@ export class SessionRuntime {
       resolve: resolveCompletion,
     };
     this.activePrompt = active;
+    this.turnStreamClosed = false;
 
     try {
       await action();
@@ -493,10 +494,9 @@ export class SessionRuntime {
     }
 
     if (adapted.event !== undefined) {
-      if (adapted.event.type === 'SubagentEvent' && this.turnStreamClosed) {
-        // The main turn / host action that spawned this subagent already
-        // reached its terminal event; its late events must not reopen the
-        // closed Webview display.
+      if (this.turnStreamClosed) {
+        // The main turn / host action already reached its terminal event;
+        // its late events must not reopen the closed Webview display.
         return;
       }
       // Errors the core reports while the active turn keeps running (they are

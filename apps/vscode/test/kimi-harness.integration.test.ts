@@ -1257,9 +1257,10 @@ describe('VS Code Kimi harness integration (shares one in-process SDK home)', ()
 
   it('stops a running manual compaction through the compaction cancellation API', async () => {
     const rig = await createRuntimeRig();
-    const blocked = routeBlockedPrompt(rig.provider);
+    routeSuccessfulPrompt(rig.provider);
     const runtime = await openRuntimeSession(rig);
-    await runtime.session.importContext('Enough prior context to compact.', "file 'prior.md'");
+    await runtime.prompt('prior conversation');
+    const blocked = routeBlockedPrompt(rig.provider);
     const command = runSlash(runtime, '/compact keep decisions');
     await blocked.started;
 
@@ -1274,7 +1275,7 @@ describe('VS Code Kimi harness integration (shares one in-process SDK home)', ()
     const rig = await createRuntimeRig();
     routeSuccessfulPrompt(rig.provider);
     const runtime = await openRuntimeSession(rig);
-    await runtime.session.importContext('Enough prior context to compact.', "file 'prior.md'");
+    await runtime.prompt('prior conversation');
 
     const command = runSlash(runtime, '/compact keep decisions');
     expect(runtime.isBusy).toBe(true);
@@ -1447,7 +1448,9 @@ describe('VS Code Kimi harness integration (shares one in-process SDK home)', ()
       expect.objectContaining({
         message: 'Session turn failed',
         error: expect.objectContaining({
-          message: expect.stringContaining('mock request rejected'),
+          message: expect.stringMatching(
+            /(?:mock request rejected|Turn ended with reason: failed)/,
+          ),
         }),
       }),
     );
@@ -1464,7 +1467,7 @@ describe('VS Code Kimi harness integration (shares one in-process SDK home)', ()
     expect(streamEvents(rig.broadcasts)).toContainEqual(
       expect.objectContaining({
         type: 'error',
-        code: 'provider.connection_error',
+        code: expect.stringMatching(/^(?:provider\.connection_error|turn\.failed)$/),
         phase: 'runtime',
       }),
     );

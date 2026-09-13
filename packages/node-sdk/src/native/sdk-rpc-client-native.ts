@@ -20,7 +20,11 @@ import {
   type SessionTurnOutcome,
 } from '@moonshot-ai/kimi-agent/session-handle';
 import type { OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import { assertKimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import {
+  assertKimiHostIdentity,
+  createKimiDefaultHeaders,
+  parseKimiCodeCustomHeaders,
+} from '@moonshot-ai/kimi-code-oauth';
 import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
 import type { TurnEndReason } from '@moonshot-ai/protocol';
 import { mcpOAuthStoreKey } from '@moonshot-ai/protocol';
@@ -118,6 +122,7 @@ import type { ExperimentalFlagSource } from '#/types';
 
 import {
   resolveNativeLlm,
+  resolveNativeLlmForAlias,
   probeShellPath,
   buildPolicySnapshot,
   resolveSecondaryModelPool,
@@ -855,7 +860,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const workDir = meta.workDir;
     const config = loadRuntimeConfigLenient(this.configPath);
     const shellPath = probeShellPath();
-    const resolvedLlm = resolveNativeLlm(config);
+    const defaultHeaders = {
+      ...parseKimiCodeCustomHeaders(),
+      ...(this.identity
+        ? createKimiDefaultHeaders({ homeDir: this.homeDir, ...this.identity })
+        : {}),
+    };
+    const modelAlias = meta.model ?? config.defaultModel;
+    const resolvedLlm = modelAlias
+      ? resolveNativeLlmForAlias(config, modelAlias, undefined, defaultHeaders)
+      : resolveNativeLlm(config, defaultHeaders);
     const nativeLlm = resolvedLlm ? applySessionLlmOverrides(resolvedLlm, meta) : resolvedLlm;
 
     const callbacks: SessionCallbacks = {
@@ -1050,14 +1064,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           return;
         }
         const eventAgentId = meta.activeAgentId ?? 'main';
+        const rawTurnId = parsed.turnId ?? parsed.turn_id;
+        const turnId =
+          typeof rawTurnId === 'number'
+            ? rawTurnId
+            : typeof rawTurnId === 'string'
+              ? Number.parseInt(rawTurnId, 10) || 0
+              : 0;
         if (parsed.type === 'turn.started') {
-          meta.currentTurnId =
-            typeof parsed.turn_id === 'number' ? parsed.turn_id : Number(parsed.turn_id) || 0;
+          meta.currentTurnId = turnId;
           this.receiveEvent({
             sessionId,
             agentId: eventAgentId,
             type: 'turn.started',
-            turnId: meta.currentTurnId,
+            turnId,
             // origin is required on TurnStartedEvent; native turns are always
             // user-prompted (skill / plugin / task origins are host-driven and
             // do not run through this engine callback).
@@ -1065,12 +1085,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             prompt: String(parsed.prompt ?? ''),
           });
         } else if (parsed.type === 'turn.ended') {
+          const endedTurnId =
+            parsed.turnId !== undefined || parsed.turn_id !== undefined
+              ? turnId
+              : meta.currentTurnId;
           this.receiveEvent({
             sessionId,
             agentId: eventAgentId,
             type: 'turn.ended',
-            turnId: meta.currentTurnId,
+            turnId: endedTurnId,
             reason: toTurnEndReason(parsed.reason ?? parsed.status),
+            ...(parsed.error ? { error: parsed.error } : {}),
+            ...(parsed.durationMs ?? parsed.duration_ms
+              ? { durationMs: parsed.durationMs ?? parsed.duration_ms }
+              : {}),
           });
           meta.activeAgentId = undefined;
         }
@@ -1084,6 +1112,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const secondaryModel = resolveSecondaryModelPool(
       config,
       isExperimentalFlagEnabled(config, 'secondary-model'),
+      process.env,
+      defaultHeaders,
     );
     const policySnapshot = buildPolicySnapshot(config, workDir);
     // The session's live permission / plan mode overrides the config-derived
