@@ -92,15 +92,23 @@ const picked = cfg && cfg.fileError === undefined ? pickAnyProvider(cfg) : null;
 const optedIn = process.env['KIMI_E2E'] === '1';
 console.log('[diag] optedIn =', optedIn, 'picked =', picked?.alias ?? null, 'path =', CFG);
 
-describe.skipIf(!optedIn || !picked)('real-key E2E — native LLM via kimi-agent', () => {
-  const provider = picked!;
-  const maskedKey = `${provider.apiKey.slice(0, 6)}…${provider.apiKey.slice(-4)}`;
-
+// NOTE: vitest executes the suite body at collection even when `skipIf`
+// skips, so nothing here may dereference `picked` unguarded (a bare
+// `picked!.apiKey` surfaced as `TypeError: null is not an object` in CI).
+describe.skipIf(!optedIn || !picked?.apiKey)('real-key E2E — native LLM via kimi-agent', () => {
   it(
-    `runs one Read turn through the Rust engine against ${provider.alias}`,
+    'runs one Read turn through the Rust engine against the picked provider',
     { timeout: 60_000 },
     async () => {
-    const { createRunTurnOverride } = await import('./rust-loop');
+      const provider = picked;
+      if (!provider?.apiKey) {
+        throw new Error(
+          '[real-key-e2e] running without a usable provider apiKey; ' +
+            `optedIn=${optedIn} picked=${picked?.alias ?? null}`,
+        );
+      }
+      const maskedKey = `${provider.apiKey.slice(0, 6)}…${provider.apiKey.slice(-4)}`;
+      const { createRunTurnOverride } = await import('./rust-loop');
 
     const workspace = join(tmpdir(), `kimi-real-e2e-${Date.now()}`);
     mkdirSync(workspace, { recursive: true });

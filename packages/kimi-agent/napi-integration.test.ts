@@ -2475,22 +2475,12 @@ describe.skipIf(!nativeEntry)('napi EngineSessionHandle — engine-owned tool ta
         } catch {
           captured.push([]);
         }
-        res.writeHead(200, { 'content-type': 'application/json' });
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        // A real SSE completion: the native transport requires at least one
+        // parseable event — a bare JSON body yields zero events, which is a
+        // transport error (retried, then failed), not an empty completion.
         res.end(
-          JSON.stringify({
-            id: 'chatcmpl-tool-table',
-            object: 'chat.completion',
-            created: 0,
-            model: 'test-model',
-            choices: [
-              {
-                index: 0,
-                message: { role: 'assistant', content: 'done' },
-                finish_reason: 'stop',
-              },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-          }),
+          'data: {"id":"chatcmpl-tool-table","object":"chat.completion.chunk","created":0,"model":"test-model","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
         );
       });
     });

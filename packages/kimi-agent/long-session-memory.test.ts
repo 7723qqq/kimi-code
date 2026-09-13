@@ -103,19 +103,29 @@ interface TurnSample {
   outputTokens: number;
 }
 
-describe.skipIf(!optedIn || !picked)('long-session memory growth (P20-C)', () => {
-  const provider = picked!;
-  const maskedKey = `${provider.apiKey.slice(0, 4)}…${provider.apiKey.slice(-2)}`;
-
-  // Activate Rust-side tracing if the host set KIMI_AGENT_TRACE.
-  // The native binding is a process-wide singleton (Once), so a
-  // second call returns false — that's fine, we only need one init.
-  initRustTracing();
-
+// NOTE: vitest executes the suite body at collection even when `skipIf`
+// skips, so nothing here may dereference `picked` unguarded. The gate
+// requires a usable key (not just a resolved provider): a keyless entry
+// must skip, and must never surface as a bare TypeError.
+describe.skipIf(!optedIn || !picked?.apiKey)('long-session memory growth (P20-C)', () => {
   it(
     `runs ${TURN_COUNT} consecutive native-LLM turns and reports per-turn RSS`,
     { timeout: 300_000 },
     async () => {
+      const provider = picked;
+      if (!provider?.apiKey) {
+        throw new Error(
+          '[long-session] running without a usable provider apiKey; ' +
+            `optedIn=${optedIn} picked=${picked?.alias ?? null}`,
+        );
+      }
+      const maskedKey = `${provider.apiKey.slice(0, 4)}…${provider.apiKey.slice(-2)}`;
+
+      // Activate Rust-side tracing if the host set KIMI_AGENT_TRACE.
+      // The native binding is a process-wide singleton (Once), so a
+      // second call returns false — that's fine, we only need one init.
+      initRustTracing();
+
       const { createRunTurnOverride } = await import('./rust-loop');
 
       const workspace = join(tmpdir(), `kimi-long-session-${Date.now()}`);

@@ -124,9 +124,23 @@ async function sseFirstDeltaUntilDone(
   return { outputTokens, finishReason };
 }
 
-describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host-proxy', () => {
-  const provider = minimax!;
-  const maskedKey = `${provider.apiKey.slice(0, 4)}…${provider.apiKey.slice(-2)}`;
+// NOTE: vitest executes the suite body at collection even when `skipIf`
+// skips, so `provider` must not be dereferenced here — only assigned.
+describe.skipIf(!optedIn || !minimax?.apiKey)('real-key benchmark — native-LLM vs host-proxy', () => {
+  const provider = minimax;
+  // The suite body runs at collection even when skipped, so the key is
+  // resolved through this guard at *use* sites (helpers run only inside
+  // the test, after the gate above has passed).
+  function requireApiKey(): string {
+    const key = provider?.apiKey;
+    if (!key) {
+      throw new Error(
+        '[bench] running without a usable minimax apiKey; ' +
+          `optedIn=${optedIn} minimax=${minimax ? 'resolved' : 'null'}`,
+      );
+    }
+    return key;
+  }
 
   function anthropicBody(): Record<string, unknown> {
     return {
@@ -144,7 +158,7 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
       nativeLlm: () => ({
         protocol: 'anthropic',
         base_url: ANTHROPIC_MESSAGES_BASE.replace(/\/messages$/, ''),
-        api_key: provider.apiKey,
+        api_key: requireApiKey(),
         model: MODEL,
         max_tokens: 96,
       }),
@@ -201,7 +215,7 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
         async chat({ onTextPart }: { onTextPart: (part: { type: 'text'; text: string }) => Promise<void> }) {
           const { outputTokens, finishReason } = await sseFirstDeltaUntilDone(
             ANTHROPIC_MESSAGES_BASE,
-            provider.apiKey,
+            requireApiKey(),
             anthropicBody(),
             (at) => {
               firstDeltaAt = at;
@@ -259,6 +273,7 @@ describe.skipIf(!optedIn || !minimax)('real-key benchmark — native-LLM vs host
     `compares ${RUNS} runs each — native vs host-proxy (${MODEL})`,
     { timeout: 180_000 },
     async () => {
+      const maskedKey = `${requireApiKey().slice(0, 4)}…${requireApiKey().slice(-2)}`;
       const native: TurnMetrics[] = [];
       const proxy: TurnMetrics[] = [];
       const globalStart = performance.now();

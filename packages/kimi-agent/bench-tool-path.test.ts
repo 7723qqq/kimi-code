@@ -95,11 +95,16 @@ let escapeName: string;
 beforeAll(() => {
   workspace = mkdtempSync(join(tmpdir(), 'kimi-tool-path-'));
   fitName = 'fits.txt';
-  escapeName = 'too_big.txt';
+  escapeName = 'binary_fallback.bin';
   writeFileSync(join(workspace, fitName), syntheticFile(50_000));
-  // ~13 MB — above the native Read cap (10 MiB since P32 G-3), so the
-  // native arm must fall back to the host.
-  writeFileSync(join(workspace, escapeName), syntheticFile(200_000));
+  // ~13 MB of binary (NUL-bearing) bytes. Native Read declines binary files
+  // at the encoding sniff, so this exercises the native→host fallback arm.
+  // (A large TEXT file no longer falls back: reads stream line-by-line since
+  // ranged reads, so size alone cannot trigger the fallback path anymore.)
+  const binary = Buffer.alloc(13 * 1024 * 1024, 0xab);
+  binary.writeUInt8(0, 1024);
+  binary.writeUInt8(0, 8 * 1024 * 1024);
+  writeFileSync(join(workspace, escapeName), binary);
 });
 
 afterAll(() => {
@@ -207,8 +212,8 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
       `control (2 steps, no tool)        ${control.medianMs.toFixed(2)} ms`,
       `host  read in-cap file            ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
       `native read in-cap file           ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
-      `host  read oversized file         ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
-      `native oversized → falls back     ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
+      `host  read binary file            ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
+      `native binary → falls back       ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
       `fallback tax vs same-size host    ${(nativeFallsBack.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
     ];
     console.log(`\n── tool-execution path baseline (${REPS} reps/arm) ──\n${lines.join('\n')}\n`);
