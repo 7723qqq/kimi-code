@@ -1,5 +1,16 @@
 //! Native HTTP REST request dispatcher for the Kimi Agent API surface.
 //!
+//! ## Locking convention
+//!
+//! The server's registries (event hub lanes, the active-turn table, pending
+//! questions and approvals, activity state) are shared by every session and
+//! connection. A `std::sync::Mutex` stays poisoned for the rest of the process
+//! once a thread panics while holding it, and every later `.lock().unwrap()`
+//! panics too — so one panic in one session's callback would take the whole
+//! server down. Those locks are therefore taken with
+//! `.lock().unwrap_or_else(|poisoned| poisoned.into_inner())`, which recovers
+//! the guard instead of propagating the panic.
+//!
 //! `HttpServer::handle_request` maps a handful of paths (`/health`,
 //! `/api/v1/sessions`, `POST /api/v1/sessions/:id/prompt`) onto
 //! `SqliteSessionStore`, and [`http::serve`] binds them to a real TCP listener.
@@ -731,9 +742,15 @@ fn apply_prompt_submission_options(
             config.insert("disabled_tools".to_string(), Value::Array(disabled.clone()));
         }
     }
-    let _ = server
+    // A dropped write here means the turn runs with the previous
+    // model/thinking/profile/permission settings while the client believes the
+    // submission was accepted. Surface it instead.
+    if let Err(e) = server
         .store()
-        .put_state("agent_config", session_id, &agent_config);
+        .put_state("agent_config", session_id, &agent_config)
+    {
+        return Err(format!("failed to persist the agent config: {e}"));
+    }
 
     let mut metadata = server
         .store()
@@ -756,17 +773,52 @@ fn apply_prompt_submission_options(
             meta.insert("permission_mode".to_string(), json!(mode));
         }
     }
-    let _ = server.store().put_state("metadata", session_id, &metadata);
+    if let Err(e) = server.store().put_state("metadata", session_id, &metadata) {
+        return Err(format!("failed to persist session metadata: {e}"));
+    }
 
     // Plan mode is workspace-scoped state the plan guard reads; activate or
-    // clear it so the submitted `plan_mode` takes effect on the turn.
-    if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool())
-        && let Some(work_dir) = fs_routes::resolve_session_workdir(server.store(), session_id)
-        && let Ok(state) = crate::storage::StateStore::for_workspace(&work_dir)
-    {
-        let _ = state.write_domain("plan", &json!({ "active": plan_mode }));
+    // clear it so the submitted `plan_mode` takes effect on the turn. A caller
+    // that asked for a plan-mode change must not have it silently dropped.
+    if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool()) {
+        let work_dir =
+            fs_routes::resolve_session_workdir(server.store(), session_id).ok_or_else(|| {
+                "plan_mode was submitted but this session has no resolvable working directory"
+                    .to_string()
+            })?;
+        let state = crate::storage::StateStore::for_workspace(&work_dir)
+            .map_err(|e| format!("failed to open the workspace state store for plan mode: {e}"))?;
+        state
+            .write_domain("plan", &json!({ "active": plan_mode }))
+            .map_err(|e| format!("failed to persist plan mode: {e}"))?;
     }
     Ok(())
+}
+
+/// Explains why `/api/v1/remote-control` cannot enable anything.
+///
+/// Kept as a shared constant so GET and POST cannot drift into telling different
+/// stories about the same missing capability.
+const REMOTE_CONTROL_UNAVAILABLE: &str = "this standalone kimi-agent server has no remote-control runtime: no device registration, channel or heartbeat is implemented, so no remote session can be established";
+
+/// Parses a terminal dimension from a JSON body.
+///
+/// `as u32` silently wrapped values above `u32::MAX`, and a missing field was
+/// accepted as a valid size, so `{"cols": 4294967297}` and `{"cols": 0}` both
+/// produced a nonsensical pty. `Ok(None)` means "not supplied".
+fn terminal_dimension(value: Option<&Value>, label: &str) -> Result<Option<u32>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let Some(number) = raw.as_u64() else {
+        return Err(format!("Field '{label}' must be a non-negative integer"));
+    };
+    let dimension = u32::try_from(number)
+        .map_err(|_| format!("Field '{label}' must be at most {}", u32::MAX))?;
+    if dimension == 0 {
+        return Err(format!("Field '{label}' must be greater than 0"));
+    }
+    Ok(Some(dimension))
 }
 
 fn prompt_content_to_blocks(
@@ -842,9 +894,17 @@ fn prompt_content_to_blocks(
                         } else {
                             let url = format!("data:{media_type};base64,{data}");
                             blocks.push(if kind == "audio" {
-                                ContentBlock::AudioUrl { url, id: None, name }
+                                ContentBlock::AudioUrl {
+                                    url,
+                                    id: None,
+                                    name,
+                                }
                             } else {
-                                ContentBlock::VideoUrl { url, id: None, name }
+                                ContentBlock::VideoUrl {
+                                    url,
+                                    id: None,
+                                    name,
+                                }
                             });
                         }
                     }
@@ -1767,15 +1827,24 @@ impl HttpServer {
                 }
                 HttpResponse::ok(&resp)
             }
-            // Remote-control runtime toggle endpoints (#3594)
+            // Remote-control runtime (#3594).
+            //
+            // The REST surface exists, but this server has no remote-control
+            // runtime behind it: nothing registers a device, opens a persistent
+            // channel or serves a heartbeat. Reporting `state: "on"` plus a
+            // `https://code-rc.kimi.com/devices/<id>/` URL made the feature look
+            // live while nothing was listening — the client showed it as enabled
+            // and handed the user a dead link. Report the capability gap instead.
             ("GET", "/api/v1/remote-control") => {
                 let st = self.remote_control_state.lock().await.clone();
                 HttpResponse::ok(&json!({
-                    "enabled": st.enabled,
+                    "enabled": false,
                     "state": st.state,
-                    "url": st.url,
+                    "url": Value::Null,
                     "device_id": st.device_id,
                     "device_name": st.device_name,
+                    "available": false,
+                    "reason": REMOTE_CONTROL_UNAVAILABLE,
                     "error": st.error,
                 }))
             }
@@ -1784,40 +1853,19 @@ impl HttpServer {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let enabled = match body.get("enabled").and_then(|v| v.as_bool()) {
-                    Some(b) => b,
-                    None => return HttpResponse::bad_request("Missing 'enabled' field"),
-                };
-                let mut st = self.remote_control_state.lock().await;
-                if !enabled {
-                    *st = RemoteControlStatusWire::off();
-                } else if !st.enabled || st.state != "on" {
-                    let did = st
-                        .device_id
-                        .clone()
-                        .unwrap_or_else(|| format!("rc-{}", fastrand::u64(..)));
-                    let dname = st
-                        .device_name
-                        .clone()
-                        .unwrap_or_else(|| "kimi-agent".to_string());
-                    let url = format!("https://code-rc.kimi.com/devices/{did}/");
-                    *st = RemoteControlStatusWire {
-                        enabled: true,
-                        state: "on".to_string(),
-                        url: Some(url),
-                        device_id: Some(did),
-                        device_name: Some(dname),
-                        error: None,
-                    };
+                if body.get("enabled").and_then(|v| v.as_bool()).is_none() {
+                    return HttpResponse::bad_request("Missing 'enabled' field");
                 }
-                HttpResponse::ok(&json!({
-                    "enabled": st.enabled,
-                    "state": st.state,
-                    "url": st.url,
-                    "device_id": st.device_id,
-                    "device_name": st.device_name,
-                    "error": st.error,
-                }))
+                HttpResponse::json(
+                    501,
+                    &json!({
+                        "enabled": false,
+                        "state": "off",
+                        "url": Value::Null,
+                        "available": false,
+                        "error": REMOTE_CONTROL_UNAVAILABLE,
+                    }),
+                )
             }
             // MCP endpoints
             ("GET", "/api/v1/mcp") => {
@@ -3441,16 +3489,37 @@ impl HttpServer {
                     Err(e) if e.contains("undo refused") => return HttpResponse::bad_request(e),
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
-                if revert_files
-                    && let Some(workdir) =
-                        fs_routes::resolve_session_workdir(&self.store, session_id)
-                {
+                // Revert the workspace files *before* the turn rows are deleted:
+                // if a file cannot be restored we must not report a successful
+                // undo, and the history must stay intact so the operation can be
+                // retried instead of silently diverging from the workspace.
+                if revert_files {
+                    let Some(workdir) = fs_routes::resolve_session_workdir(&self.store, session_id)
+                    else {
+                        return HttpResponse::bad_request(
+                            "undo requested `revert_files` but this session has no resolvable working directory, so its files cannot be restored. Retry without `revert_files` to undo history only.",
+                        );
+                    };
+                    let mut revert_failures: Vec<String> = Vec::new();
                     for turn_number in &turn_numbers {
-                        let _ = self.store.revert_turn_file_changes(
+                        if let Err(e) = self.store.revert_turn_file_changes(
                             session_id,
                             *turn_number as usize,
                             &workdir,
-                        );
+                        ) {
+                            revert_failures.push(format!("turn {turn_number}: {e}"));
+                        }
+                    }
+                    if !revert_failures.is_empty() {
+                        return HttpResponse::internal_error(format!(
+                            "undo refused: the workspace files of {} could not be restored ({}). No history was removed.",
+                            turn_numbers
+                                .iter()
+                                .map(|n| n.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            revert_failures.join("; ")
+                        ));
                     }
                 }
                 match self.store.undo_turns(session_id, count) {
@@ -3608,7 +3677,11 @@ impl HttpServer {
                 } else {
                     let body: Value = match serde_json::from_slice(&req.body) {
                         Ok(v) => v,
-                        Err(_) => json!({}),
+                        Err(e) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid JSON payload for question resolution: {e}"
+                            ));
+                        }
                     };
                     let mut answers = std::collections::HashMap::new();
                     if let Some(map) = body.get("answers").and_then(|v| v.as_object()) {
@@ -3684,14 +3757,26 @@ impl HttpServer {
                     tail
                 };
 
+                // Fail closed: an approval resolution must name its decision
+                // explicitly. Defaulting a missing/!parsable body to "approved"
+                // let any client that could reach this route grant a dangerous
+                // tool by POSTing an empty body.
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
-                    Err(_) => json!({}),
+                    Err(e) => {
+                        return HttpResponse::bad_request(format!(
+                            "Invalid JSON payload for approval resolution: {e}"
+                        ));
+                    }
                 };
-                let decision_str = body
-                    .get("decision")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("approved");
+                let decision_str = match body.get("decision").and_then(|v| v.as_str()) {
+                    Some(v) => v,
+                    None => {
+                        return HttpResponse::bad_request(
+                            "Missing required 'decision' field (expected \"approved\" or \"denied\")",
+                        );
+                    }
+                };
                 let allowed = decision_str.eq_ignore_ascii_case("approved")
                     || decision_str.eq_ignore_ascii_case("allow");
                 let reason = body
@@ -3770,12 +3855,16 @@ impl HttpServer {
                 };
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
-                    Err(_) => json!({}),
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                if let Some(new_title) = body.get("title").and_then(|v| v.as_str()) {
-                    let _ = self
+                if let Some(new_title) = body.get("title").and_then(|v| v.as_str())
+                    && let Err(e) = self
                         .store
-                        .update_session_title(session_id, Some(new_title.trim()));
+                        .update_session_title(session_id, Some(new_title.trim()))
+                {
+                    return HttpResponse::internal_error(format!(
+                        "Failed to persist the session title: {e}"
+                    ));
                 }
                 if let Some(cfg) = body.get("agent_config") {
                     let mut current = self
@@ -3792,7 +3881,11 @@ impl HttpServer {
                     } else {
                         current = cfg.clone();
                     }
-                    let _ = self.store.put_state("agent_config", session_id, &current);
+                    if let Err(e) = self.store.put_state("agent_config", session_id, &current) {
+                        return HttpResponse::internal_error(format!(
+                            "Failed to persist the agent config: {e}"
+                        ));
+                    }
                 }
                 let updated_session = self
                     .store
@@ -3839,9 +3932,15 @@ impl HttpServer {
                     Some(d) => d,
                     None => return HttpResponse::not_found(),
                 };
-                let body: Value = match serde_json::from_slice(&req.body) {
-                    Ok(v) => v,
-                    Err(_) => json!({}),
+                // An empty body is legitimate (`git_status` takes no arguments);
+                // only an unparsable one is a client error.
+                let body: Value = if req.body.iter().all(|b| b.is_ascii_whitespace()) {
+                    json!({})
+                } else {
+                    match serde_json::from_slice(&req.body) {
+                        Ok(v) => v,
+                        Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                    }
                 };
                 match action {
                     "git_status" | "gitStatus" => fs_routes::handle_git_status(&work_dir),
@@ -3951,7 +4050,7 @@ impl HttpServer {
                 }
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
-                    Err(_) => json!({}),
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
                 let work_dir = fs_routes::resolve_session_workdir(&self.store, session_id)
                     .unwrap_or_else(|| {
@@ -3963,8 +4062,14 @@ impl HttpServer {
                     .map(|c| work_dir.join(c).to_string_lossy().to_string())
                     .unwrap_or_else(|| work_dir.to_string_lossy().to_string());
                 let shell_opt = body.get("shell").and_then(|v| v.as_str());
-                let cols_opt = body.get("cols").and_then(|v| v.as_u64()).map(|c| c as u32);
-                let rows_opt = body.get("rows").and_then(|v| v.as_u64()).map(|r| r as u32);
+                let cols_opt = match terminal_dimension(body.get("cols"), "cols") {
+                    Ok(value) => value,
+                    Err(e) => return HttpResponse::bad_request(e),
+                };
+                let rows_opt = match terminal_dimension(body.get("rows"), "rows") {
+                    Ok(value) => value,
+                    Err(e) => return HttpResponse::bad_request(e),
+                };
 
                 match self
                     .terminal_manager
@@ -4034,9 +4139,14 @@ impl HttpServer {
                     .unwrap_or(tail);
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
-                    Err(_) => json!({}),
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let data = body.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                let data = match body.get("data").and_then(|v| v.as_str()) {
+                    Some(data) => data,
+                    None => {
+                        return HttpResponse::bad_request("Field 'data' must be a string");
+                    }
+                };
                 match self
                     .terminal_manager
                     .write(session_id, terminal_id, data.as_bytes())
@@ -4065,10 +4175,18 @@ impl HttpServer {
                     .unwrap_or(tail);
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
-                    Err(_) => json!({}),
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let cols = body.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u32;
-                let rows = body.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u32;
+                let cols = match terminal_dimension(body.get("cols"), "cols") {
+                    Ok(Some(cols)) => cols,
+                    Ok(None) => 80,
+                    Err(e) => return HttpResponse::bad_request(e),
+                };
+                let rows = match terminal_dimension(body.get("rows"), "rows") {
+                    Ok(Some(rows)) => rows,
+                    Ok(None) => 24,
+                    Err(e) => return HttpResponse::bad_request(e),
+                };
                 match self
                     .terminal_manager
                     .resize(session_id, terminal_id, cols, rows)
@@ -4101,8 +4219,19 @@ impl HttpServer {
                     .output(session_id, terminal_id, since_seq)
                     .await
                 {
-                    Ok((output, total)) => {
-                        HttpResponse::ok(&json!({ "output": output, "total": total }))
+                    Ok((output, last_seq)) => {
+                        // `last_seq` is the absolute sequence of the newest
+                        // buffered frame (`total` is the same value: the total
+                        // number of frames the terminal has produced). It used to
+                        // report the buffer length, which stops matching the
+                        // sequence numbers as soon as frames are evicted.
+                        let count = output.len();
+                        HttpResponse::ok(&json!({
+                            "output": output,
+                            "count": count,
+                            "last_seq": last_seq,
+                            "total": last_seq,
+                        }))
                     }
                     Err(e) => HttpResponse::bad_request(e),
                 }
@@ -4987,20 +5116,29 @@ impl HttpServer {
             Err(e) => return HttpResponse::bad_request(format!("Failed to apply patch: {e}")),
         };
 
+        // Persist the patched fields. A dropped write must not be reported as a
+        // successful patch: the client would keep a state the store never took,
+        // and the inverse patch (the only way back) would be gone with it.
+        let mut persist_failures: Vec<String> = Vec::new();
         if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str())
             && session.title.as_deref() != Some(new_title)
+            && let Err(e) = self.store.update_session_title(session_id, Some(new_title))
         {
-            let _ = self.store.update_session_title(session_id, Some(new_title));
+            persist_failures.push(format!("session title: {e}"));
         }
-        if let Some(new_meta) = current_wire.get("metadata") {
-            let _ = self.store.put_state("metadata", session_id, new_meta);
+        if let Some(new_meta) = current_wire.get("metadata")
+            && let Err(e) = self.store.put_state("metadata", session_id, new_meta)
+        {
+            persist_failures.push(format!("session metadata: {e}"));
         }
-        if let Some(new_cfg) = current_wire.get("agent_config") {
-            let _ = self.store.put_state("agent_config", session_id, new_cfg);
+        if let Some(new_cfg) = current_wire.get("agent_config")
+            && let Err(e) = self.store.put_state("agent_config", session_id, new_cfg)
+        {
+            persist_failures.push(format!("agent config: {e}"));
         }
 
         let checkpoint_id = format!("patch-{}", fastrand::u64(..));
-        let _ = self.store.save_checkpoint(
+        if let Err(e) = self.store.save_checkpoint(
             session_id,
             &checkpoint_id,
             "session_patch",
@@ -5008,7 +5146,18 @@ impl HttpServer {
                 "patch": patch_set,
                 "inverse": inverse_patch,
             }),
-        );
+        ) {
+            persist_failures.push(format!("patch checkpoint: {e}"));
+        }
+
+        if !persist_failures.is_empty() {
+            // Nothing is published: no client should observe a state that the
+            // store does not hold.
+            return HttpResponse::internal_error(format!(
+                "Session patch could not be persisted ({}). The stored session does not match the requested patch.",
+                persist_failures.join("; ")
+            ));
+        }
 
         let updated_event = json!({
             "type": "event.session.updated",
@@ -5058,14 +5207,29 @@ impl HttpServer {
             Err(e) => return HttpResponse::bad_request(format!("Failed to revert patch: {e}")),
         };
 
-        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str()) {
-            let _ = self.store.update_session_title(session_id, Some(new_title));
+        // Same contract as the forward patch: never report an undo whose
+        // restored state was not actually stored.
+        let mut persist_failures: Vec<String> = Vec::new();
+        if let Some(new_title) = current_wire.get("title").and_then(|t| t.as_str())
+            && let Err(e) = self.store.update_session_title(session_id, Some(new_title))
+        {
+            persist_failures.push(format!("session title: {e}"));
         }
-        if let Some(new_meta) = current_wire.get("metadata") {
-            let _ = self.store.put_state("metadata", session_id, new_meta);
+        if let Some(new_meta) = current_wire.get("metadata")
+            && let Err(e) = self.store.put_state("metadata", session_id, new_meta)
+        {
+            persist_failures.push(format!("session metadata: {e}"));
         }
-        if let Some(new_cfg) = current_wire.get("agent_config") {
-            let _ = self.store.put_state("agent_config", session_id, new_cfg);
+        if let Some(new_cfg) = current_wire.get("agent_config")
+            && let Err(e) = self.store.put_state("agent_config", session_id, new_cfg)
+        {
+            persist_failures.push(format!("agent config: {e}"));
+        }
+        if !persist_failures.is_empty() {
+            return HttpResponse::internal_error(format!(
+                "The patch undo could not be persisted ({}). The stored session does not match the returned state.",
+                persist_failures.join("; ")
+            ));
         }
 
         let updated_event = json!({
@@ -5196,11 +5360,13 @@ mod tests {
         assert_eq!(res_get_after.status, 404);
     }
 
+    /// The REST surface for remote control exists (#3594) but the runtime does
+    /// not: the server must say so rather than mint a `state: "on"` status and a
+    /// device URL for a device that was never registered.
     #[tokio::test]
-    async fn test_remote_control_endpoints() {
+    async fn test_remote_control_reports_the_missing_runtime() {
         let server = HttpServer::in_memory().unwrap();
 
-        // 1. Initial status: off
         let req_get = HttpRequest {
             method: "GET".into(),
             path: "/api/v1/remote-control".into(),
@@ -5213,8 +5379,17 @@ mod tests {
         let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
         assert_eq!(val_get["enabled"], false);
         assert_eq!(val_get["state"], "off");
+        assert_eq!(val_get["available"], false);
+        assert!(val_get["url"].is_null(), "no device URL may be advertised");
+        assert!(
+            val_get["reason"]
+                .as_str()
+                .unwrap()
+                .contains("no remote-control runtime"),
+            "the response must explain the gap: {val_get}"
+        );
 
-        // 2. Enable remote-control
+        // Enabling is refused outright, and must not flip any state.
         let req_enable = HttpRequest {
             method: "POST".into(),
             path: "/api/v1/remote-control".into(),
@@ -5223,32 +5398,29 @@ mod tests {
             body: serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
         };
         let res_enable = server.handle_request(&req_enable).await;
-        assert_eq!(res_enable.status, 200);
+        assert_eq!(
+            res_enable.status, 501,
+            "enabling must be refused, not faked"
+        );
         let val_enable: Value = serde_json::from_slice(&res_enable.body).unwrap();
-        assert_eq!(val_enable["enabled"], true);
-        assert_eq!(val_enable["state"], "on");
-        assert!(val_enable["url"].as_str().unwrap().contains("/devices/"));
-        assert!(val_enable["device_id"].is_string());
+        assert_eq!(val_enable["enabled"], false);
+        assert_eq!(val_enable["available"], false);
 
-        // 3. GET reflects updated status
-        let res_get2 = server.handle_request(&req_get).await;
-        assert_eq!(res_get2.status, 200);
-        let val_get2: Value = serde_json::from_slice(&res_get2.body).unwrap();
-        assert_eq!(val_get2["state"], "on");
-
-        // 4. Disable remote-control
-        let req_disable = HttpRequest {
+        // A missing `enabled` field is still a client error.
+        let req_missing = HttpRequest {
             method: "POST".into(),
             path: "/api/v1/remote-control".into(),
             query: None,
             headers: HashMap::new(),
-            body: serde_json::to_vec(&json!({ "enabled": false })).unwrap(),
+            body: serde_json::to_vec(&json!({})).unwrap(),
         };
-        let res_disable = server.handle_request(&req_disable).await;
-        assert_eq!(res_disable.status, 200);
-        let val_disable: Value = serde_json::from_slice(&res_disable.body).unwrap();
-        assert_eq!(val_disable["enabled"], false);
-        assert_eq!(val_disable["state"], "off");
+        assert_eq!(server.handle_request(&req_missing).await.status, 400);
+
+        // GET is unchanged by the refused enable.
+        let res_get2 = server.handle_request(&req_get).await;
+        let val_get2: Value = serde_json::from_slice(&res_get2.body).unwrap();
+        assert_eq!(val_get2["state"], "off");
+        assert_eq!(val_get2["enabled"], false);
     }
 
     #[tokio::test]
@@ -5292,6 +5464,7 @@ mod tests {
                 native_llm: None,
                 workspace_root: None,
                 native_tools: false,
+                extra_roots: Vec::new(),
                 rust_self_contained: false,
                 shell_path: None,
                 policy_snapshot: None,
@@ -6756,7 +6929,10 @@ max_context_size = 128000
         let payload_for_server = payload.clone();
         tokio::spawn(async move {
             while let Ok((mut sock, _)) = listener.accept().await {
-                let payload = payload_for_server.lock().unwrap().clone();
+                let payload = payload_for_server
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
                 tokio::spawn(async move {
                     let mut buffer = [0u8; 4096];
                     let _ = sock.read(&mut buffer).await;
@@ -6844,7 +7020,9 @@ max_context_size = 128000
         assert!(result["changed"].as_array().unwrap().is_empty());
 
         // 3. A model the endpoint stops listing is reported and removed.
-        *payload.lock().unwrap() = json!({
+        *payload
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = json!({
             "data": [{ "id": "k3", "context_length": 200000 }]
         });
         let res = server
@@ -7639,6 +7817,112 @@ max_context_size = 128000
             decision_deny.reason.as_deref(),
             Some("Denied by user choice")
         );
+    }
+
+    /// An approval resolution must be explicit. A missing or unparsable body
+    /// must never resolve to "approved" — that would let any client able to
+    /// reach the route grant a dangerous tool call with an empty POST.
+    #[tokio::test]
+    async fn test_approval_resolve_is_fail_closed() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+        store
+            .create_session("sess-fc", Some("Fail Closed"))
+            .unwrap();
+
+        let inter_mgr = server.interaction_manager();
+        let appr_req = crate::rpc::types::PermissionCheckRequest {
+            tool_name: "Bash".into(),
+            tool_call_id: "call_fc".into(),
+            arguments: json!({ "command": "rm -rf /" }),
+        };
+
+        // Empty body must not approve.
+        let (aid, mut rx) = inter_mgr.register_approval("sess-fc", appr_req.clone(), "dangerous");
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/sess-fc/approvals/{aid}"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 400, "empty body must be rejected");
+        assert!(
+            rx.try_recv().is_err(),
+            "no decision must reach the waiter on a rejected body"
+        );
+
+        // Malformed JSON must not approve.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/sess-fc/approvals/{aid}"),
+                query: None,
+                headers: HashMap::new(),
+                body: b"{not json".to_vec(),
+            })
+            .await;
+        assert_eq!(res.status, 400, "malformed body must be rejected");
+
+        // A well-formed body without `decision` must not approve either.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/sess-fc/approvals/{aid}"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "feedback": "looks fine" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 400, "missing decision must be rejected");
+        assert!(
+            rx.try_recv().is_err(),
+            "missing decision must not resolve the approval"
+        );
+
+        // An explicit decision still works.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/sess-fc/approvals/{aid}"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "decision": "approved" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        assert!(rx.try_recv().unwrap().is_allow());
+
+        // Unparsable question resolution is rejected the same way.
+        let q_req = crate::rpc::types::AskQuestionRequest {
+            question_id: "q_fc".into(),
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_q_fc".into(),
+            background: false,
+            timeout_ms: None,
+            questions: vec![crate::rpc::types::AskQuestionItem {
+                question: "Proceed?".into(),
+                header: None,
+                options: vec![crate::rpc::types::AskQuestionOption {
+                    label: "Yes".into(),
+                    description: None,
+                }],
+                multi_select: false,
+            }],
+        };
+        let _rx_q = inter_mgr.register_question("sess-fc", q_req);
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-fc/questions/q_fc".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: b"{not json".to_vec(),
+            })
+            .await;
+        assert_eq!(res.status, 400, "malformed question body must be rejected");
     }
 
     #[tokio::test]

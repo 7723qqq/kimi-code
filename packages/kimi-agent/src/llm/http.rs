@@ -59,6 +59,18 @@ impl Accumulator {
 
 /// An [`LLM`] implementation that talks to an OpenAI-compatible or
 /// Anthropic endpoint over HTTPS with SSE streaming.
+/// Process-wide HTTP client. TCP/TLS connections pool across turns; building
+/// a client per LLM instance dropped that pool on every rebuild, so each turn
+/// paid a fresh connect + TLS handshake before its first token. Keep-alive
+/// reuse is what lets the host transport (Node fetch) start streaming sooner.
+static SHARED_HTTP_CLIENT: once_cell::sync::Lazy<reqwest::Client> =
+    once_cell::sync::Lazy::new(|| {
+        reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_default()
+    });
+
 pub struct NativeHttpLlm {
     config: NativeLlmConfig,
     system_prompt: String,
@@ -80,11 +92,7 @@ pub struct NativeHttpLlm {
 
 impl NativeHttpLlm {
     pub fn new(config: NativeLlmConfig, system_prompt: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .build()
-            .unwrap_or_default();
+        let client = SHARED_HTTP_CLIENT.clone();
         Self {
             config,
             system_prompt,
@@ -140,9 +148,15 @@ impl NativeHttpLlm {
             }
             "openai_responses" | "openai-responses" => format!("{base}/responses"),
             "google" | "google-genai" | "gemini" => {
+                // The GenerateContent API always carries a version segment; the
+                // host resolvers normalize `base_url` for this, but the URL is
+                // actually assembled here, so this must not depend on the
+                // caller having done so. A bare host root otherwise builds a
+                // path that is not an API route at all.
+                let base = google_api_base(base);
                 format!(
                     "{base}/models/{}:streamGenerateContent?alt=sse",
-                    self.config.model
+                    google_model_id(&self.config.model)
                 )
             }
             _ => format!("{base}/chat/completions"),
@@ -229,6 +243,7 @@ impl NativeHttpLlm {
                 .await?;
             status = response.status();
         }
+        let t_headers = started_at.elapsed();
         if !status.is_success() {
             // The provider may ask for a specific wait; carry it out-of-band
             // so the retry layer can honour it instead of burning its
@@ -253,6 +268,24 @@ impl NativeHttpLlm {
             Accumulator::OpenAI(openai::StreamAccumulator::new())
         };
 
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let mut n_events: u32 = 0;
+        // Frames that arrived but were not JSON, and in-band provider errors.
+        // Both used to be dropped without a trace: a gateway answering 200 with
+        // a catch-all (HTML/plain) body produced zero events, the accumulator
+        // finished on EOF with an empty response, and the step layer mapped that
+        // to a normal `Complete`. From the outside it looked like "the model
+        // returned nothing", with no error anywhere.
+        let mut n_malformed: u32 = 0;
+        let mut first_malformed: Option<String> = None;
+        let mut in_band_error: Option<String> = None;
+        let mut t_first_event: Option<std::time::Duration> = None;
         let mut stream = response.bytes_stream().eventsource();
         while let Some(event) = tokio::select! {
             // Mid-stream cancellation (generate.ts:154-202): abort the read
@@ -273,9 +306,25 @@ impl NativeHttpLlm {
             }
             let value: serde_json::Value = match serde_json::from_str(&event.data) {
                 Ok(v) => v,
-                // Tolerate non-JSON keep-alive payloads.
-                Err(_) => continue,
+                // Tolerate non-JSON keep-alive payloads, but count them: an
+                // endpoint that is not actually speaking SSE must not look like
+                // an empty completion.
+                Err(_) => {
+                    n_malformed += 1;
+                    if first_malformed.is_none() {
+                        first_malformed = Some(truncate_for_diagnosis(&event.data));
+                    }
+                    continue;
+                }
             };
+            if let Some(message) = crate::native::extract_in_band_error(&value) {
+                in_band_error = Some(message);
+                break;
+            }
+            n_events += 1;
+            if t_first_event.is_none() {
+                t_first_event = Some(started_at.elapsed());
+            }
             if let Some(event_type) = value.get("type").and_then(|t| t.as_str())
                 && (event_type == "message_stop" || event_type == "response.done")
             {
@@ -286,7 +335,54 @@ impl NativeHttpLlm {
             }
         }
 
+        if let Some(message) = in_band_error {
+            return Err(format!("llm provider stream error: {message}"));
+        }
+
+        // Hyper returns a connection to the pool only after its body is read
+        // to EOF. The loop above breaks on the terminal marker and would
+        // otherwise drop the stream mid-body — closing the connection and
+        // forcing the next turn to pay a fresh TCP+TLS handshake. Drain the
+        // remainder off-thread, bounded, so the pool keeps the connection.
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                while let Some(Ok(_)) = stream.next().await {}
+            })
+            .await;
+        });
+
+        if std::env::var_os("KIMI_HTTP_TIMING").is_some_and(|v| v == "1") {
+            eprintln!(
+                "[native-http-timing] total={}ms headers={}ms first_event={}ms events={} model={}",
+                started_at.elapsed().as_millis(),
+                t_headers.as_millis(),
+                t_first_event.map(|d| d.as_millis()).unwrap_or(0),
+                n_events,
+                self.config.model
+            );
+        }
+
         let response = acc.finish();
+
+        // A stream that produced no usable events is a transport failure, not an
+        // empty answer. Returning `Ok` here is what turned a misconfigured
+        // endpoint into "the model said nothing", with no error anywhere for the
+        // retry layer or the user to act on.
+        if n_events == 0 {
+            return Err(empty_stream_error(
+                &content_type,
+                n_malformed,
+                first_malformed.as_deref(),
+            ));
+        }
+        if response.content.is_empty()
+            && response.tool_calls.is_empty()
+            && response.finish_reason.is_none()
+        {
+            return Err(format!(
+                "llm stream ended without content, tool calls or a finish reason ({n_events} event(s), {n_malformed} unparsable frame(s), content-type \"{content_type}\"). The endpoint answered 200 but nothing usable was decoded."
+            ));
+        }
 
         // Report the finished step (content + tool calls + usage) so the
         // host can record the assistant message without owning the call.
@@ -351,7 +447,11 @@ impl NativeHttpLlm {
         // v2 aborts preflight sends through the same signal
         // (generate.ts:107-109): a cancel landing before the response
         // headers arrives must not pay for the request.
-        let send = req.send();
+        // The shared client no longer carries the whole-request timeout, so it
+        // rides on each request (same value the per-instance client used).
+        let send = req
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .send();
         let response = match cancel {
             Some(cancel) => tokio::select! {
                 _ = cancel.cancelled() => return Err(CANCELLED_MESSAGE.into()),
@@ -417,6 +517,54 @@ impl NativeHttpLlm {
     }
 }
 
+/// Google's GenerateContent routes live under a version segment (`/v1beta`).
+/// Append it when the configured base URL carries none, so a host-root-only
+/// `base_url` — the documented contract for the `google-genai` provider —
+/// still resolves to a real API route.
+pub fn google_api_base(base: &str) -> String {
+    if url_has_api_version(base) {
+        return base.to_string();
+    }
+    format!("{base}/v1beta")
+}
+
+/// Whether a URL already carries an API version segment (`v1`, `v1beta`, …).
+///
+/// The native streaming transport receives a full endpoint URL rather than a
+/// base, so it cannot append a version segment — but it can refuse to issue a
+/// request that has none, instead of letting a catch-all gateway answer 200 and
+/// the empty result read as "the model said nothing".
+pub fn url_has_api_version(url: &str) -> bool {
+    url.split('/').any(is_api_version_segment)
+}
+
+/// The model id as the GenerateContent path expects it: only the final segment.
+///
+/// Callers may hand over a `provider/model` alias (e.g.
+/// `zhongzhuan/gemini-3.8-flash-high`) when the alias is not declared under
+/// `[models.*]`. The model path segment must be the bare model id — a
+/// Gemini-compatible relay answers the prefixed form with 404
+/// (`protocol_endpoint_not_found`), which reaches the user as an empty
+/// response because nothing in the stream decodes.
+///
+/// Only applied to Google: other wires legitimately use `provider/model`
+/// (OpenRouter-style aliases), and they carry it in a body field rather than
+/// in the URL path.
+pub(crate) fn google_model_id(model: &str) -> &str {
+    model.rsplit('/').next().unwrap_or(model)
+}
+
+/// Whether one path segment is an API version marker: `v` + digits + optional
+/// alpha suffix (`v1`, `v1beta`, `v2alpha`). `vertex` is not one — the digits
+/// must come immediately after the `v`.
+fn is_api_version_segment(segment: &str) -> bool {
+    let Some(rest) = segment.strip_prefix(['v', 'V']) else {
+        return false;
+    };
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && rest[digits..].chars().all(|c| c.is_ascii_alphabetic())
+}
+
 /// Cap on how much of an error body is read. Only a brief excerpt is
 /// rendered, so there is no reason to buffer an unbounded response first.
 const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
@@ -429,6 +577,29 @@ const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
 /// as deterministic (the caller asked to stop), mirroring v2 where an
 /// `AbortError` is never classified as a retryable provider error.
 const CANCELLED_MESSAGE: &str = "llm cancelled: request aborted";
+
+/// Prefix for a response that is not an SSE stream at all. Re-exported from the
+/// native stream module so both transports classify it identically.
+const NOT_AN_SSE_ENDPOINT_PREFIX: &str = crate::native::NOT_AN_SSE_ENDPOINT_PREFIX;
+
+/// Keeps a diagnosis readable: the first frame of a non-SSE body is the useful
+/// part, and a catch-all gateway can answer with a megabyte of HTML.
+///
+/// Delegates to the native-stream implementation so the two transports cannot
+/// drift apart.
+fn truncate_for_diagnosis(text: &str) -> String {
+    crate::native::truncate_for_diagnosis(text)
+}
+
+/// Explains a stream that produced no events. Delegates to the shared
+/// implementation so both transports word the diagnosis the same way.
+fn empty_stream_error(
+    content_type: &str,
+    n_malformed: u32,
+    first_malformed: Option<&str>,
+) -> String {
+    crate::native::empty_stream_error(content_type, n_malformed, first_malformed)
+}
 
 /// Resolve immediately when no cancel handle is wired (test stubs) so the
 /// select arm stays inert.
@@ -511,6 +682,11 @@ impl LLM for NativeHttpLlm {
         if error.starts_with(CANCELLED_MESSAGE) {
             return false;
         }
+        // A body that is not SSE at all is a configuration error, not a
+        // transient one: no number of retries will make it parseable.
+        if error.starts_with(NOT_AN_SSE_ENDPOINT_PREFIX) {
+            return false;
+        }
         if let Some(rest) = error.strip_prefix("llm http status ") {
             let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
             let code: u16 = digits.parse().unwrap_or(0);
@@ -539,6 +715,10 @@ impl LLM for NativeHttpLlm {
         }
         // Fallback keyword list for errors produced by older code paths
         // (e.g. SSE decode failures, which carry their own prefix).
+        //
+        // An empty-but-well-formed stream is included deliberately: relays do
+        // intermittently answer 200 with an empty body, and the retry layer is
+        // the only thing that turns that into a usable turn.
         const RETRYABLE: &[&str] = &[
             "overloaded",
             "timed out",
@@ -546,6 +726,7 @@ impl LLM for NativeHttpLlm {
             "connect",
             "connection",
             "sse decode error",
+            "produced no events",
         ];
         let lower = error.to_lowercase();
         if is_quota_exhaustion_error(&lower) {
@@ -573,6 +754,62 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn google_base_url_gets_a_version_segment() {
+        // Host root only (the documented contract for `google-genai`): the
+        // version segment is appended here, so the assembled URL is an API route.
+        assert_eq!(
+            google_api_base("https://generativelanguage.googleapis.com"),
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+        assert_eq!(
+            google_api_base("http://127.0.0.1:3001"),
+            "http://127.0.0.1:3001/v1beta"
+        );
+        assert_eq!(
+            google_api_base("http://107.173.87.151:8045"),
+            "http://107.173.87.151:8045/v1beta"
+        );
+    }
+
+    #[test]
+    fn google_base_url_keeps_an_explicit_version_segment() {
+        assert_eq!(
+            google_api_base("https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+        assert_eq!(
+            google_api_base("http://127.0.0.1:3001/v1"),
+            "http://127.0.0.1:3001/v1"
+        );
+        assert_eq!(
+            google_api_base("https://proxy.example.com/v2alpha"),
+            "https://proxy.example.com/v2alpha"
+        );
+    }
+
+    #[test]
+    fn google_model_id_strips_a_provider_prefix() {
+        // A `provider/model` alias must not reach the URL path: the relay
+        // answers `/models/zhongzhuan/gemini-...` with 404
+        // (`protocol_endpoint_not_found`) and the turn comes back empty.
+        assert_eq!(
+            google_model_id("zhongzhuan/gemini-3.8-flash-high"),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(google_model_id("gemini-2.5-pro"), "gemini-2.5-pro");
+        assert_eq!(google_model_id("models/gemini-2.5-pro"), "gemini-2.5-pro");
+    }
+
+    #[test]
+    fn a_non_version_segment_is_not_mistaken_for_one() {
+        // `vertex` starts with `v` but carries no digits directly after it.
+        assert_eq!(
+            google_api_base("https://x.example.com/vertex"),
+            "https://x.example.com/vertex/v1beta"
+        );
+    }
 
     fn config(protocol: &str, base_url: &str) -> NativeLlmConfig {
         NativeLlmConfig {
@@ -799,7 +1036,9 @@ mod tests {
     }
 
     /// One-shot local HTTP server: the first request draws a 401, every later
-    /// one a 200 with an empty SSE body (the accumulator finishes on EOF).
+    /// one a 200 with a one-delta SSE body. The body used to be empty, which
+    /// made this test the only place asserting that an empty stream is `Ok` —
+    /// the behaviour that hid "the model returned nothing".
     async fn spawn_401_then_ok_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -816,14 +1055,149 @@ mod tests {
                 // the TCP connection.
                 let response = if requests == 1 {
                     "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        .to_string()
                 } else {
-                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n"
+                    sse_response(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"}}]}\n\ndata: [DONE]\n\n",
+                    )
                 };
                 let _ = sock.write_all(response.as_bytes()).await;
                 let _ = sock.shutdown().await;
             }
         });
         (addr, handle)
+    }
+
+    /// A local server that always answers 200 with a fixed body.
+    async fn spawn_fixed_200_server(
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        (addr, handle)
+    }
+
+    fn sse_response(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    async fn chat_once(llm: &NativeHttpLlm) -> Result<LLMChatResponse, String> {
+        llm.chat(LLMChatParams {
+            cancel: None,
+            messages: Arc::from(Vec::new()),
+            tools: Arc::from(Vec::new()),
+        })
+        .await
+        .map_err(|e| e.to_string())
+    }
+
+    /// An empty 200 body must be an error the retry layer can act on, not an
+    /// `Ok` empty response that the step layer reports as a finished turn.
+    #[tokio::test]
+    async fn empty_sse_body_is_reported_instead_of_returning_an_empty_answer() {
+        let (addr, server) = spawn_fixed_200_server("text/event-stream", "").await;
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let error = chat_once(&llm)
+            .await
+            .expect_err("empty body must not be Ok");
+        assert!(
+            error.contains("produced no events"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            llm.is_retryable_error(&error),
+            "a transient empty relay body must be retried: {error}"
+        );
+        server.abort();
+    }
+
+    /// A catch-all gateway answers 200 with anything. That must be diagnosed as
+    /// a wrong endpoint, and must not be retried (retries cannot fix it).
+    #[tokio::test]
+    async fn non_sse_body_is_reported_as_a_misconfigured_endpoint() {
+        let (addr, server) =
+            spawn_fixed_200_server("text/html", "<html><body>index of /</body></html>").await;
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let error = chat_once(&llm)
+            .await
+            .expect_err("non-SSE body must not be Ok");
+        assert!(
+            error.starts_with(NOT_AN_SSE_ENDPOINT_PREFIX),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("content-type \"text/html\""),
+            "the diagnosis must name the content type: {error}"
+        );
+        assert!(
+            !llm.is_retryable_error(&error),
+            "a misconfigured endpoint must not be retried: {error}"
+        );
+        server.abort();
+    }
+
+    /// Gateways report mid-stream failures in-band. The engine path used to
+    /// ignore these and finish with whatever partial content had arrived.
+    #[tokio::test]
+    async fn in_band_error_frame_is_surfaced() {
+        let (addr, server) = spawn_fixed_200_server(
+            "text/event-stream",
+            "data: {\"error\":{\"message\":\"upstream exploded\",\"type\":\"upstream_error\"}}\n\n",
+        )
+        .await;
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let error = chat_once(&llm)
+            .await
+            .expect_err("in-band error must not be Ok");
+        assert!(
+            error.contains("upstream exploded"),
+            "the provider message must survive: {error}"
+        );
+        assert!(error.contains("llm provider stream error"), "{error}");
+        server.abort();
+    }
+
+    /// The happy path still works, so the new guards are not over-eager.
+    #[tokio::test]
+    async fn a_normal_sse_stream_still_decodes() {
+        let (addr, server) = spawn_fixed_200_server(
+            "text/event-stream",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n",
+        )
+        .await;
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let response = chat_once(&llm).await.expect("a normal stream must succeed");
+        assert_eq!(response.content, "hello");
+        server.abort();
     }
 
     #[tokio::test]
@@ -848,9 +1222,10 @@ mod tests {
                 tools: Arc::from(Vec::new()),
             })
             .await;
-        assert!(
-            result.is_ok(),
-            "expected the 401 to be recovered: {result:?}"
+        let response = result.expect("expected the 401 to be recovered");
+        assert_eq!(
+            response.content, "recovered",
+            "the post-refresh request must return the streamed content"
         );
         assert_eq!(
             fetches.load(Ordering::SeqCst),

@@ -688,12 +688,24 @@ impl HostCallbacks for NativeToolCallbacks {
                     } else {
                         None
                     }
-                // Bash is code execution exactly like run_code: a ReadOnly
+                // Bash is code execution *and* a filesystem writer. A ReadOnly
                 // sandbox must not let a shell bypass the write guard by
-                // running `echo x > file`. SandboxGuard's own contract
-                // (tools/sandbox.rs) scopes the execution guard to any tool
-                // that runs commands, not just the (dead) run_code entry.
-                } else if tool_lower == "run_code" || tool_lower == "bash" {
+                // running `echo x > file`, and a workspace-write sandbox must
+                // confine both the working directory and any absolute write
+                // target mentioned in the command (redirection, `tee`, `rm`,
+                // `cd …`, …). SandboxGuard's own contract (tools/sandbox.rs)
+                // scopes the execution guard to any tool that runs commands,
+                // not just the (dead) run_code entry.
+                } else if tool_lower == "bash" {
+                    let cwd = request.arguments.get("cwd").and_then(|v| v.as_str());
+                    policy.sandbox_code_execution_guard_for(cwd).or_else(|| {
+                        request
+                            .arguments
+                            .get("command")
+                            .and_then(|v| v.as_str())
+                            .and_then(|command| policy.sandbox_bash_write_guard(command))
+                    })
+                } else if tool_lower == "run_code" {
                     policy.sandbox_code_execution_guard()
                 } else {
                     None
