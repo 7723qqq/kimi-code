@@ -656,7 +656,7 @@ export default {
           lsp: {
             title: 'LSP tool',
             description:
-              'Expose the lsp tool for go-to-definition, find-references, implementation, and hover queries through language servers configured in the [lsp] config section.',
+              'Expose the Lsp tool for go-to-definition, find-references, hover, and document-symbol queries. Language servers are resolved from PATH by file type (TypeScript, Rust, Python); there is no [lsp] config section.',
           },
           micro_compaction: {
             title: 'Micro compaction (cache-miss tool-result truncation)',
@@ -1185,9 +1185,8 @@ export default {
       replayFailed: 'Failed to replay session history: {{message}}',
       replayPlanModeOn: 'Plan mode: ON',
       replayPlanModeOff: 'Plan mode: OFF',
-      replayYoloModeOn: 'YOLO mode: ON',
+      replayYoloToggle: '{{mode}} mode: {{state}}',
       replayYoloModeOnSub: 'All actions will be approved automatically. Use with caution.',
-      replayYoloModeOff: 'YOLO mode: OFF',
       replayPermissionMode: 'Permission mode: {{mode}}',
       replaySkillActivated: 'Activated skill: {{skillName}}',
       replayFeedback: 'Feedback: {{feedback}}',

@@ -629,7 +629,7 @@
           },
           "lsp": {
             "title": "LSP 工具",
-            "description": "暴露 lsp 工具，通过 [lsp] 配置段中配置的语言服务器执行跳转到定义、查找引用、查找实现和悬停查询。"
+            "description": "暴露 Lsp 工具，执行跳转到定义、查找引用、悬停与文档符号查询。语言服务器按文件类型（TypeScript / Rust / Python）从 PATH 中查找；没有 [lsp] 配置段。"
           },
           "micro_compaction": {
             "title": "微压缩（缓存未命中时截断工具结果）",
@@ -1108,9 +1108,8 @@
       "replayFailed": "回放会话历史失败：{{message}}",
       "replayPlanModeOn": "计划模式：开",
       "replayPlanModeOff": "计划模式：关",
-      "replayYoloModeOn": "YOLO 模式：开",
+      "replayYoloToggle": "{{mode}}模式：{{state}}",
       "replayYoloModeOnSub": "所有操作将自动批准。请谨慎使用。",
-      "replayYoloModeOff": "YOLO 模式：关",
       "replayPermissionMode": "权限模式：{{mode}}",
       "replaySkillActivated": "已激活技能：{{skillName}}",
       "replayFeedback": "反馈：{{feedback}}",

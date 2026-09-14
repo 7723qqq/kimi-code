@@ -701,11 +701,20 @@ export class SessionReplayRenderer {
   }
 
   private renderPermissionUpdate(context: ReplayRenderContext, mode: PermissionMode): void {
-    if (mode === 'yolo') {
+    if (mode === 'yolo' || mode === 'manual') {
       this.host.appendTranscriptEntry(
-        replayEntry(context, 'status', t('tui.statusMessages.replayYoloModeOn'), 'notice', {
-          detail: t('tui.statusMessages.replayYoloModeOnSub'),
-        }),
+        replayEntry(
+          context,
+          'status',
+          t('tui.statusMessages.replayYoloToggle', {
+            mode: PERMISSION_MODE_DISPLAY_NAMES.yolo,
+            state: mode === 'yolo' ? 'ON' : 'OFF',
+          }),
+          'notice',
+          mode === 'yolo'
+            ? { detail: t('tui.statusMessages.replayYoloModeOnSub') }
+            : {},
+        ),
       );
       return;
     }
@@ -713,11 +722,9 @@ export class SessionReplayRenderer {
       replayEntry(
         context,
         'status',
-        mode === 'manual'
-          ? t('tui.statusMessages.replayYoloModeOff')
-          : t('tui.statusMessages.replayPermissionMode', {
-              mode: PERMISSION_MODE_DISPLAY_NAMES[mode],
-            }),
+        t('tui.statusMessages.replayPermissionMode', {
+          mode: PERMISSION_MODE_DISPLAY_NAMES[mode],
+        }),
         'notice',
       ),
     );

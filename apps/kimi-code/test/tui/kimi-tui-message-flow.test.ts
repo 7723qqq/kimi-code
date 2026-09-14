@@ -2731,24 +2731,35 @@ command = "vim"
 
   it('keeps the new session subscribed when post-create setup fails', async () => {
     const initialSession = makeSession({ id: 'ses-initial' });
-    const failedSession = makeSession({
-      id: 'ses-failed',
-      setPermission: vi.fn(async () => {
-        throw new Error('permission setup failed');
-      }),
+    const failedSessions: ReturnType<typeof makeSession>[] = [];
+    const createSession = vi.fn(async () => {
+      const created = makeSession({
+        id: 'ses-failed',
+        setPermission: vi.fn(async () => {
+          throw new Error('permission setup failed');
+        }),
+      });
+      failedSessions.push(created);
+      return created;
     });
-    const createSession = vi.fn(async () => failedSession);
     const { driver } = await makeDriver(initialSession, { createSession });
-    vi.mocked(failedSession.onEvent).mockClear();
+    const latestFailedSession = () => failedSessions.at(-1)!;
+    vi.mocked(latestFailedSession().onEvent).mockClear();
 
     driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
-      expect(stripSgr(renderTranscript(driver))).toContain(
-        'Post-create setup failed: permission setup failed',
-      );
+      // Startup's lazy creation already failed once; /new must produce a
+      // second failed session that is still subscribed.
+      expect(failedSessions.length).toBe(2);
+      expect(latestFailedSession().onEvent).toHaveBeenCalled();
     });
-    expect(failedSession.onEvent).toHaveBeenCalled();
+    expect(
+      countOccurrences(
+        stripSgr(renderTranscript(driver)),
+        'Post-create setup failed: permission setup failed',
+      ),
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('tracks Shift-Tab mode switches through the editor handler', async () => {
@@ -5455,6 +5466,7 @@ command = "vim"
     const initialSession = makeSession({ id: 'ses-initial' });
     const nextSession = makeSession({ id: 'ses-next' });
     const createSession = vi.fn(async () => nextSession);
+    createSession.mockResolvedValueOnce(initialSession);
     const { driver, harness } = await makeDriver(initialSession, { createSession });
     const cancelledAgentIds: string[] = [];
     initialSession.cancel.mockImplementation(async () => {
@@ -8096,6 +8108,8 @@ command = "vim"
     const { driver, harness } = await makeDriver(makeSession({ id: 'ses-1' }));
     const nextSession = makeSession({ id: 'ses-2' });
     harness.createSession.mockResolvedValueOnce(nextSession);
+    // Startup's lazy materialization already consumed one createSession call.
+    harness.createSession.mockClear();
     const write = vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
 
     driver.handleUserInput('/new');

@@ -1362,6 +1362,12 @@ export class KimiTUI {
     this.messageDispatch.steerMessage(session, input);
   }
 
+  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    void session.activateSkill(skillName, skillArgs).catch((error: unknown) => {
+      this.showError(`Skill "${skillName}" failed: ${formatErrorMessage(error)}`);
+    });
+  }
+
   handleTurnStarted(event: TurnStartedEvent): void {
     this.staging.handleTurnStarted(event);
     this.surveyController.notifyTurnStarted(isUserSubmittedTurnOrigin(event.origin));

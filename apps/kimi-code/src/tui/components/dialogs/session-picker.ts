@@ -413,7 +413,10 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? getCurrentMark() : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const titleSource = rawTitle;
+    const isImported = Boolean(session.metadata?.['imported_from_kimi_cli']);
+    const titleSource = isImported
+      ? `${t('tui.migration.badgeImported')} ${rawTitle}`
+      : rawTitle;
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);

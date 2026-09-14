@@ -97,8 +97,8 @@ describe('ChoicePickerComponent', () => {
       onCancel,
     });
     const permissionOutput = permission.render(120).map(strip);
-    expect(permissionOutput).toContain('  ❯ Ask When Needed');
-    expect(permissionOutput).toContain('    Always Ask ← current');
+    expect(permissionOutput).toContain('  ❯ YOLO');
+    expect(permissionOutput).toContain('    Manual ← current');
 
     const settings = new SettingsSelectorComponent({
       onSelect,

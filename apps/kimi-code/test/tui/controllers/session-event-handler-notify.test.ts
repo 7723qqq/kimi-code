@@ -55,6 +55,7 @@ function makeHost() {
     showNotice: vi.fn(),
     track: vi.fn(),
     recordSessionActivity: vi.fn(),
+    noteSessionTurnStarted: vi.fn(),
     noteStepUsage: vi.fn(),
     noteCompactionFinished: vi.fn(),
     mountEditorReplacement: vi.fn(),

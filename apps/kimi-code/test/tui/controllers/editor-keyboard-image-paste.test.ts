@@ -415,6 +415,7 @@ describe('clipboard image paste compression', () => {
     expect(att.fileId).toBeUndefined();
     expect(att.pending).toBeDefined();
 
+    await vi.waitFor(() => expect(uploadFile).toHaveBeenCalled());
     resolveUpload({ id: 'file-late' });
     await att.pending;
 
