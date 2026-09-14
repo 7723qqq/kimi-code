@@ -197,53 +197,60 @@ async function measure(
 }
 
 describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no provider traffic)', () => {
-  it('routes each arm the way P21 claims and prints the cost of each crossing', async () => {
-    const mod = loadNativeModule();
+  // Five arms × REPS turns, two of them reading a 13 MB binary — the default
+  // 5 s budget is a coin flip on a loaded machine. Timing is printed, never
+  // asserted, so the timeout is only a safety net.
+  it(
+    'routes each arm the way P21 claims and prints the cost of each crossing',
+    { timeout: 120_000 },
+    async () => {
+      const mod = loadNativeModule();
 
-    const control = await measure(mod, null, false);
-    const viaHost = await measure(mod, fitName, false);
-    const viaNative = await measure(mod, fitName, true);
-    const oversizedHost = await measure(mod, escapeName, false);
-    const nativeFallsBack = await measure(mod, escapeName, true);
+      const control = await measure(mod, null, false);
+      const viaHost = await measure(mod, fitName, false);
+      const viaNative = await measure(mod, fitName, true);
+      const oversizedHost = await measure(mod, escapeName, false);
+      const nativeFallsBack = await measure(mod, escapeName, true);
 
-    const toolCost = (turn: { medianMs: number }): number => turn.medianMs - control.medianMs;
+      const toolCost = (turn: { medianMs: number }): number => turn.medianMs - control.medianMs;
 
-    const lines = [
-      `control (2 steps, no tool)        ${control.medianMs.toFixed(2)} ms`,
-      `host  read in-cap file            ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
-      `native read in-cap file           ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
-      `host  read binary file            ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
-      `native binary → falls back       ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
-      `fallback tax vs same-size host    ${(nativeFallsBack.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
-    ];
-    console.log(`\n── tool-execution path baseline (${REPS} reps/arm) ──\n${lines.join('\n')}\n`);
+      const lines = [
+        `control (2 steps, no tool)        ${control.medianMs.toFixed(2)} ms`,
+        `host  read in-cap file            ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
+        `native read in-cap file           ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
+        `host  read binary file            ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
+        `native binary → falls back       ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
+        `fallback tax vs same-size host    ${(nativeFallsBack.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
+      ];
+      console.log(`\n── tool-execution path baseline (${REPS} reps/arm) ──\n${lines.join('\n')}\n`);
 
-    const routed = (c: Counts) => ({ host: c.hostExecutions, permission: c.permissionChecks });
-    expect(routed(control.counts)).toEqual({ host: 0, permission: 0 });
-    expect(routed(viaHost.counts)).toEqual({ host: REPS, permission: 0 });
-    expect(routed(viaNative.counts)).toEqual({ host: 0, permission: REPS });
-    expect(routed(oversizedHost.counts)).toEqual({ host: REPS, permission: 0 });
-    expect(routed(nativeFallsBack.counts)).toEqual({ host: REPS, permission: REPS });
+      const routed = (c: Counts) => ({ host: c.hostExecutions, permission: c.permissionChecks });
+      expect(routed(control.counts)).toEqual({ host: 0, permission: 0 });
+      expect(routed(viaHost.counts)).toEqual({ host: REPS, permission: 0 });
+      expect(routed(viaNative.counts)).toEqual({ host: 0, permission: REPS });
+      expect(routed(oversizedHost.counts)).toEqual({ host: REPS, permission: 0 });
+      expect(routed(nativeFallsBack.counts)).toEqual({ host: REPS, permission: REPS });
 
-    // The engine's own report must agree with what the callbacks observed:
-    // only the in-cap native arm executed anything in-process, and a
-    // never-reported field would surface as a negative total here.
-    expect(control.counts.engineNativeTotal).toBe(0);
-    expect(viaHost.counts.engineNativeTotal).toBe(0);
-    expect(viaNative.counts.engineNativeTotal).toBe(REPS);
-    expect(oversizedHost.counts.engineNativeTotal).toBe(0);
-    expect(nativeFallsBack.counts.engineNativeTotal).toBe(0);
+      // The engine's own report must agree with what the callbacks observed:
+      // only the in-cap native arm executed anything in-process, and a
+      // never-reported field would surface as a negative total here.
+      expect(control.counts.engineNativeTotal).toBe(0);
+      expect(viaHost.counts.engineNativeTotal).toBe(0);
+      expect(viaNative.counts.engineNativeTotal).toBe(REPS);
+      expect(oversizedHost.counts.engineNativeTotal).toBe(0);
+      expect(nativeFallsBack.counts.engineNativeTotal).toBe(0);
 
-    // Guard against measuring unequal work: the native arm must hand back the
-    // same 1000 numbered lines the host arm does, not a shorter payload.
-    const hostShape = hostRead(join(workspace, fitName));
-    expect(viaNative.counts.nativeResults).toHaveLength(REPS);
-    for (const content of viaNative.counts.nativeResults) {
-      expect(content).toContain('1\tline 1:');
-      expect(content).toContain('1000\tline 1000:');
-      expect(content.length).toBeLessThan(hostShape.length * 2);
-    }
-  });
+      // Guard against measuring unequal work: the native arm must hand back the
+      // same 1000 numbered lines the host arm does, not a shorter payload.
+      const hostShape = hostRead(join(workspace, fitName));
+      expect(viaNative.counts.nativeResults).toHaveLength(REPS);
+      for (const content of viaNative.counts.nativeResults) {
+        expect(content).toContain('1\tline 1:');
+        expect(content).toContain('1000\tline 1000:');
+        expect(content.length).toBeLessThan(hostShape.length * 2);
+      }
+    },
+  );
 });
 
 // ── Fixture-repo scale baseline (ROADMAP L689: tool-execution path baseline) ──
