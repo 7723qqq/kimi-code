@@ -977,7 +977,10 @@ impl<H: PersistentSubagentHost> StructuredDebateCoordinator<H> {
             .await
         {
             Ok(content) => Ok(content),
-            Err(_) => Ok(String::new()),
+            // An empty verdict is worse than a failure: the caller reports the
+            // discussion as ended-by-failed and clears the results, where a
+            // silent `Ok("")` looked like a debate that reached no conclusion.
+            Err(error) => Err(format!("the tally turn failed: {error}")),
         }
     }
 

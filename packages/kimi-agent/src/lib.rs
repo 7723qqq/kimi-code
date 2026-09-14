@@ -457,6 +457,10 @@ impl KimiEngine {
             .map_err(|e| format!("{e}"))?;
 
         // 5. 将模型与工具产生的最新消息流写入 SQLite 事件存储
+        //
+        // A failed append fails the call. Swallowing it returned `Ok` for a
+        // turn whose messages never reached the store, so the caller's view of
+        // the session silently diverged from the transcript.
         for msg in &turn_res.messages {
             if msg.role == "assistant" && (!msg.content.is_empty() || !msg.tool_calls.is_empty()) {
                 let tool_calls_json = if msg.tool_calls.is_empty() {
@@ -464,7 +468,7 @@ impl KimiEngine {
                 } else {
                     Some(serde_json::to_value(&msg.tool_calls).unwrap_or(serde_json::Value::Null))
                 };
-                let _ = self.store.append_event(&RawWireEvent {
+                self.store.append_event(&RawWireEvent {
                     id: ulid::Ulid::new().to_string(),
                     session_id: session_id.to_string(),
                     event_type: "message.assistant".into(),
@@ -475,9 +479,9 @@ impl KimiEngine {
                     is_checkpoint: false,
                     is_compaction: false,
                     created_at: now + 1,
-                });
+                })?;
             } else if msg.role == "tool" {
-                let _ = self.store.append_event(&RawWireEvent {
+                self.store.append_event(&RawWireEvent {
                     id: ulid::Ulid::new().to_string(),
                     session_id: session_id.to_string(),
                     event_type: "tool.result".into(),
@@ -488,7 +492,7 @@ impl KimiEngine {
                     is_checkpoint: false,
                     is_compaction: false,
                     created_at: now + 1,
-                });
+                })?;
             }
         }
 

@@ -1398,7 +1398,10 @@ impl HostCallbacks for StateStoreCallbacks {
                 }
                 return match store.apply_write(&request.domain, &request.value) {
                     Ok(outcome) => {
-                        let _ = store.write_domain(&request.domain, &outcome.stored);
+                        // A failed persist must fail the call: reporting
+                        // `ok: true` after dropping the write told the host the
+                        // state was durable when it was not.
+                        store.write_domain(&request.domain, &outcome.stored)?;
                         Ok(StateWriteResponse {
                             ok: true,
                             value: outcome.response,
@@ -1409,7 +1412,7 @@ impl HostCallbacks for StateStoreCallbacks {
             }
             match store.apply_write(&request.domain, &request.value) {
                 Ok(outcome) => {
-                    let _ = store.write_domain(&request.domain, &outcome.stored);
+                    store.write_domain(&request.domain, &outcome.stored)?;
                     Ok(StateWriteResponse {
                         ok: true,
                         value: outcome.response,
@@ -3103,6 +3106,42 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("does not support state bridge"));
+    }
+
+    /// A state write that cannot be persisted must fail the call. It used to
+    /// report `ok: true` after dropping the persist error, so the host believed
+    /// the state was durable when it was not.
+    #[tokio::test]
+    async fn test_state_write_reports_a_failed_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::storage::StateStore::for_workspace(dir.path()).unwrap());
+        // A directory where the domain file belongs makes the atomic rename
+        // fail, which is the persist step `apply_write` does not cover.
+        let domain_path = crate::storage::engine_state_dir(dir.path())
+            .unwrap()
+            .join("state")
+            .join("todo.json");
+        std::fs::create_dir_all(&domain_path).unwrap();
+
+        let callbacks = StateStoreCallbacks {
+            inner: Arc::new(RecordingCallbacks {
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            store,
+        };
+        let request = StateWriteRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            value: serde_json::json!([]),
+            undoable: true,
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_1".into(),
+        };
+        let err = callbacks.state_write(request).await.unwrap_err();
+        assert!(
+            err.contains("rename"),
+            "the persist failure must surface: {err}"
+        );
     }
 
     #[tokio::test]
