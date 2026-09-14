@@ -52,6 +52,10 @@ pub struct EnginePipeline {
     /// `Stop`); `None` when the policy snapshot configures no hooks. Turn
     /// drivers clone it per turn; subagent turns pass `None` by design.
     pub hook_guard: Option<Arc<HookGuard>>,
+    /// The `[secondary_model]` pool's default model, for engine-side
+    /// background work that must not spend the session model's budget (the
+    /// memory filing pass). `None` when no pool is configured.
+    pub secondary_llm: Option<Arc<dyn LLM>>,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -228,6 +232,9 @@ pub async fn build_engine_pipeline(
     let hook_guard = policy_snapshot
         .clone()
         .map(|s| Arc::new(HookGuard::new(s.pre_tool_hooks)));
+    // The pool's default model, hoisted out of the native-tool arm so the
+    // engine can reach it without downcasting the callback chain.
+    let mut secondary_llm: Option<Arc<dyn LLM>> = None;
     let callbacks: Arc<dyn HostCallbacks> =
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
@@ -320,6 +327,7 @@ pub async fn build_engine_pipeline(
                             llms,
                         ))
                     });
+                    secondary_llm = secondary_model.as_ref().and_then(|pool| pool.default_llm());
                     toolset = toolset.with_secondary_model(secondary_model);
                     if let Some(manager) = mcp_manager {
                         toolset = toolset.with_mcp(manager);
@@ -466,6 +474,7 @@ pub async fn build_engine_pipeline(
         turn_event_count,
         native_tool_count,
         hook_guard,
+        secondary_llm,
     })
 }
 

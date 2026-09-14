@@ -643,7 +643,8 @@ pub fn list_directory_tool_def() -> ToolInfo {
     }
 }
 
-/// All native tool definitions including LSP, ListDirectory and NotifyUser.
+/// All native tool definitions including LSP, ListDirectory, NotifyUser and
+/// the six memory tools.
 ///
 /// Invariant: every entry here must satisfy [`crate::tools::is_native_tool_name`].
 /// This list is what `GET /api/v1/tools` reports as active builtins, so an entry
@@ -653,7 +654,213 @@ pub fn all_native_tool_defs() -> Vec<ToolInfo> {
     defs.push(lsp_tool_def());
     defs.push(list_directory_tool_def());
     defs.push(notify_user_tool_def());
+    defs.extend(memory_tool_defs());
     defs
+}
+
+const MEMORY_READ_DESCRIPTION: &str = r#"Read one or more memory files.
+
+Returns each file's content and its version token — pass that token as `if_version` on the next write to the same file. Read a file before updating it, and read whenever a question concerns the user or their world: the listing says which files exist, not what is in them.
+"#;
+
+const MEMORY_WRITE_DESCRIPTION: &str = r#"Create a memory file, or replace one in full.
+
+`memory_write` replaces the whole file — any line you leave out is deleted. Use `if_version: "new"` only for a path that is not in the listing; otherwise pass the version `memory_read` returned.
+"#;
+
+const MEMORY_STR_REPLACE_DESCRIPTION: &str = r#"Change one part of a memory file.
+
+`old_str` must match the file's text exactly once; zero or several matches are rejected and return the current content. Use it for a small edit — use `memory_write` when the change touches many lines.
+"#;
+
+const MEMORY_APPEND_DESCRIPTION: &str = r#"Add a line to the end of a memory file.
+
+Use it for a fact the file does not cover yet; use `memory_str_replace` to change a line that is already there.
+"#;
+
+const MEMORY_LIST_DESCRIPTION: &str = r#"Refresh the memory listing.
+
+Returns every file with its size, last update, version, and a one-line preview. Use it when the injected listing may be stale, or with `path_prefix` to inspect a scope the listing does not cover (another project, or a session).
+"#;
+
+const MEMORY_DELETE_DESCRIPTION: &str = r#"Remove a whole memory file.
+
+Only call it when the user explicitly asks to forget something — never proactively, not to clean up, deduplicate, or drop a file that looks stale. Read the file first to get its `if_version`.
+"#;
+
+/// Tool definitions for the six memory tools, in the order the memory section
+/// lists them.
+pub fn memory_tool_defs() -> Vec<ToolInfo> {
+    vec![
+        memory_read_tool_def(),
+        memory_write_tool_def(),
+        memory_str_replace_tool_def(),
+        memory_append_tool_def(),
+        memory_list_tool_def(),
+        memory_delete_tool_def(),
+    ]
+}
+
+/// Tool definition for `memory_read`.
+pub fn memory_read_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_read".into(),
+        description: MEMORY_READ_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "description": "Memory path, or an array of up to 20 of them.",
+                    "anyOf": [
+                        { "type": "string" },
+                        {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "maxItems": 20
+                        }
+                    ]
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool definition for `memory_write`.
+pub fn memory_write_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_write".into(),
+        description: MEMORY_WRITE_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Memory path, e.g. `global/profile.md` or `projects/<id>/areas/<name>.md`."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The file's full new content, frontmatter included."
+                },
+                "if_version": {
+                    "type": "string",
+                    "description": "The version `memory_read` returned, or \"new\" for a path that is not in the listing."
+                }
+            },
+            "required": ["path", "content", "if_version"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool definition for `memory_str_replace`.
+pub fn memory_str_replace_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_str_replace".into(),
+        description: MEMORY_STR_REPLACE_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Memory path to edit."
+                },
+                "old_str": {
+                    "type": "string",
+                    "description": "Text to replace; must match the file exactly once."
+                },
+                "new_str": {
+                    "type": "string",
+                    "description": "Replacement text."
+                },
+                "if_version": {
+                    "type": "string",
+                    "description": "The version `memory_read` returned."
+                }
+            },
+            "required": ["path", "old_str", "new_str", "if_version"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool definition for `memory_append`.
+pub fn memory_append_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_append".into(),
+        description: MEMORY_APPEND_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Memory path to append to."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The line to add at the end of the file."
+                },
+                "if_version": {
+                    "type": "string",
+                    "description": "The version `memory_read` returned, or \"new\" to create the file."
+                }
+            },
+            "required": ["path", "content", "if_version"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool definition for `memory_list`.
+pub fn memory_list_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_list".into(),
+        description: MEMORY_LIST_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path_prefix": {
+                    "type": "string",
+                    "description": "Optional path prefix, e.g. `global/people/` or `sessions/<id>/`. Defaults to the global scope plus the current project."
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Optional cursor from a previous `memory_list` result, to read the next page."
+                }
+            },
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool definition for `memory_delete`.
+pub fn memory_delete_tool_def() -> ToolInfo {
+    ToolInfo {
+        name: "memory_delete".into(),
+        description: MEMORY_DELETE_DESCRIPTION.into(),
+        input_schema: json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Memory path to remove."
+                },
+                "if_version": {
+                    "type": "string",
+                    "description": "The version `memory_read` returned."
+                }
+            },
+            "required": ["path", "if_version"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -815,10 +1022,64 @@ mod tests {
         assert_eq!(lsp.input_schema["additionalProperties"], false);
 
         let all = all_native_tool_defs();
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 17);
         assert!(all.iter().any(|d| d.name == "Lsp"));
         assert!(all.iter().any(|d| d.name == "ListDirectory"));
         assert!(all.iter().any(|d| d.name == "NotifyUser"));
+    }
+
+    #[test]
+    fn memory_tool_defs_match_the_memory_section() {
+        let defs = memory_tool_defs();
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "memory_read",
+                "memory_write",
+                "memory_str_replace",
+                "memory_append",
+                "memory_list",
+                "memory_delete"
+            ]
+        );
+        for def in &defs {
+            assert_eq!(def.input_schema["type"], "object");
+            assert_eq!(def.input_schema["additionalProperties"], false);
+            assert!(!def.description.is_empty());
+        }
+        assert_eq!(
+            memory_read_tool_def().input_schema["required"],
+            json!(["path"])
+        );
+        assert_eq!(
+            memory_write_tool_def().input_schema["required"],
+            json!(["path", "content", "if_version"])
+        );
+        assert_eq!(
+            memory_str_replace_tool_def().input_schema["required"],
+            json!(["path", "old_str", "new_str", "if_version"])
+        );
+        assert_eq!(
+            memory_append_tool_def().input_schema["required"],
+            json!(["path", "content", "if_version"])
+        );
+        assert_eq!(
+            memory_delete_tool_def().input_schema["required"],
+            json!(["path", "if_version"])
+        );
+        // `memory_list` takes no required argument: it defaults to the global
+        // scope plus the current project.
+        assert!(
+            memory_list_tool_def()
+                .input_schema
+                .get("required")
+                .is_none()
+        );
+        assert_eq!(
+            memory_read_tool_def().input_schema["properties"]["path"]["anyOf"][1]["maxItems"],
+            20
+        );
     }
 
     /// `GET /api/v1/tools` reports this list as active builtins. An entry the

@@ -35,6 +35,7 @@ use crate::server::hub::EventHub;
 use crate::server::interaction::InteractionManager;
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::subagent::SubagentManager;
+use crate::tools::{memory_filing, memory_store};
 use crate::turn_loop::run_turn::run_turn_continued;
 use crate::turn_loop::types::{LLM, LLMMessage, RunTurnInput};
 
@@ -317,6 +318,76 @@ impl ServerEngine {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+
+    /// Whether the background memory filing pass may run: the
+    /// `KIMI_AGENT_MEMORY_FILING` env override over the
+    /// `[experimental].memory_filing` entry, on when neither is set. The pass
+    /// spends an LLM call per turn, so either switch turns it off.
+    async fn memory_filing_enabled(&self) -> bool {
+        memory_filing::resolve_gate(
+            memory_filing::env_switch(),
+            self.memory_filing_config_flag().await,
+        )
+    }
+
+    /// The `[experimental].memory_filing` entry alone, `None` when the engine
+    /// has no config source (the napi path resolves flags on the host) or the
+    /// entry is unset.
+    async fn memory_filing_config_flag(&self) -> Option<bool> {
+        let source = self.config_source()?;
+        let config = {
+            let guard = source.lock().await;
+            guard.clone()
+        }?;
+        memory_filing::config_flag(&config)
+    }
+
+    /// Hand the finished exchange to the background memory filing pass.
+    ///
+    /// The pass is spawned, never awaited: the turn report and the
+    /// user-visible reply must not wait on it. Every reason not to run is
+    /// decided here, so the spawned task only ever does the work.
+    async fn spawn_memory_filing(
+        &self,
+        system_prompt: &str,
+        transcript: &[LLMMessage],
+        prompt: &str,
+        reply: &str,
+        secondary_llm: Option<Arc<dyn LLM>>,
+    ) {
+        let memory_in_prompt =
+            system_prompt.contains(crate::prompt::builder::MEMORY_SECTION_MARKER);
+        let gate = self.memory_filing_enabled().await;
+        let wrote = memory_filing::turn_wrote_memory(transcript);
+        let Some(llm) =
+            memory_filing::filing_model(gate, memory_in_prompt, secondary_llm.as_ref(), wrote)
+        else {
+            return;
+        };
+        // The store resolves from the Kimi home, and the project id from the
+        // workspace the native tools were sandboxed to — the same pair the
+        // memory tools use.
+        let (Some(base), Some(workspace_root)) = (
+            memory_store::memory_base(),
+            self.spec.workspace_root.as_deref(),
+        ) else {
+            return;
+        };
+        memory_filing::FilingPass {
+            llm: llm.clone(),
+            base,
+            project_id: memory_store::project_id_for(std::path::Path::new(workspace_root)),
+            exchange: memory_filing::Exchange {
+                // The turn's own prompt, not the transcript's last user
+                // message: the loop appends injected reminders as user turns.
+                user_message: prompt.to_string(),
+                assistant_reply: reply.to_string(),
+                tool_activity: memory_filing::tool_activity(transcript),
+            },
+        }
+        .spawn();
     }
 
     /// Build the native transport config for a model alias from the live
@@ -770,6 +841,7 @@ impl ServerEngine {
             history,
             prompt,
             media,
+            pipeline.secondary_llm.clone(),
         )
         .await
     }
@@ -804,6 +876,7 @@ impl ServerEngine {
             history,
             prompt,
             Vec::new(),
+            None,
         )
         .await
     }
@@ -819,6 +892,7 @@ impl ServerEngine {
         history: Vec<LLMMessage>,
         prompt: &str,
         media: Vec<ContentBlock>,
+        secondary_llm: Option<Arc<dyn LLM>>,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1010,6 +1084,21 @@ impl ServerEngine {
             .map(|message| message.content.clone())
             .unwrap_or_default();
 
+        // The memory section promises that durable filing happens after the
+        // turn, so the model never files on its own initiative. The pass is
+        // spawned, not awaited: it must not delay the report or the reply.
+        // The system prompt is read off the LLM, which is the one the model
+        // actually ran with — the engine's base spec may have been rebuilt
+        // for this turn.
+        self.spawn_memory_filing(
+            llm.system_prompt(),
+            &transcript,
+            prompt,
+            &reply,
+            secondary_llm,
+        )
+        .await;
+
         Ok(TurnReport {
             turn_id,
             reply,
@@ -1179,6 +1268,65 @@ mod tests {
         )
     }
 
+    /// The `[experimental].memory_filing` flag gates the background filing
+    /// pass the same way: unset/off yields no flag, `true`/non-`false`
+    /// strings enable it. The env override is resolved on top of this, so the
+    /// config path is asserted on its own.
+    #[tokio::test]
+    async fn memory_filing_flag_reads_the_experimental_map() {
+        let with_flag = |value: Option<crate::config::ExperimentalValue>| {
+            let engine = engine();
+            let mut config = crate::config::KimiConfig::default();
+            if let Some(value) = value {
+                config
+                    .experimental
+                    .insert(memory_filing::FILING_CONFIG_KEY.to_string(), value);
+            }
+            engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+            engine
+        };
+
+        assert_eq!(
+            with_flag(None).memory_filing_config_flag().await,
+            None,
+            "unset flag is not a value"
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(false)))
+                .memory_filing_config_flag()
+                .await,
+            Some(false),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "false".into()
+            )))
+            .memory_filing_config_flag()
+            .await,
+            Some(false),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(true)))
+                .memory_filing_config_flag()
+                .await,
+            Some(true),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "true".into()
+            )))
+            .memory_filing_config_flag()
+            .await,
+            Some(true),
+        );
+        assert_eq!(
+            engine().memory_filing_config_flag().await,
+            None,
+            "no config source leaves the flag unresolved"
+        );
+    }
+
+    #[test]
     #[test]
     fn session_profile_overrides_spec_for_the_turn() {
         let mut spec = spec();

@@ -50,7 +50,13 @@
     "Knowledge",
     "Team",
     "select_tools",
-    "lsp"
+    "lsp",
+    "memory_read",
+    "memory_write",
+    "memory_str_replace",
+    "memory_append",
+    "memory_list",
+    "memory_delete"
   ],
   "unloadedInV2": [],
   "v2Github": [
@@ -124,7 +130,13 @@
     "tower_review": "snake twin of TowerReview",
     "tower_mission": "snake twin of TowerMission",
     "tower_status": "snake twin of TowerStatus",
-    "notify_user": "snake twin of NotifyUser"
+    "notify_user": "snake twin of NotifyUser",
+    "memoryread": "collapsed twin of memory_read (the def name, core_tool_defs.rs)",
+    "memorywrite": "collapsed twin of memory_write (the def name, core_tool_defs.rs)",
+    "memorystrreplace": "collapsed twin of memory_str_replace (the def name, core_tool_defs.rs)",
+    "memoryappend": "collapsed twin of memory_append (the def name, core_tool_defs.rs)",
+    "memorylist": "collapsed twin of memory_list (the def name, core_tool_defs.rs)",
+    "memorydelete": "collapsed twin of memory_delete (the def name, core_tool_defs.rs)"
   },
   "notes": {
     "Tower": "P85: All 11 Tower orchestration tools (TowerInit, TowerPlan, TowerSpawn, TowerMerge, TowerTeardown, TowerSend, TowerInbox, TowerFinding, TowerReview, TowerMission, TowerStatus) execute natively via the Git and .tower/ protocol.",
@@ -138,12 +150,13 @@
     "Team": "Same as Knowledge: teamTool.ts self-registers but is imported by nothing. Native twins exist in BOTH the REPL (repl/mod.rs team_tool_def) and the host-driven session table (tool_policy::native_tool_defs), with an execution arm in tools/mod.rs. The fork advertises Team as a feature — the v2-side wiring is gone.",
     "run_code": "Fully unreachable: codeRuntimeFeature is imported by no module (not even index.ts), there is no native arm and no REPL def. batch4 assessment treated it as a live v2 tool to evaluate; corrected here.",
     "lsp": "v2 side: unreachable — lspFeature is imported by no feature assembly (only its errors module feeds errors.ts). Rust side (corrected): there IS a native arm (tools/mod.rs \"lsp\" => lsp_tool::execute_lsp_tool) and a def (core_tool_defs.rs lsp_tool_def, pushed by all_native_tool_defs), so it is advertised by `GET /api/v1/tools` as an active builtin. The name was missing from NATIVE_TOOL_NAMES, which made handles() false and forwarded every call to a host with no tool runtime — the call could only fail. It is now in NATIVE_TOOL_NAMES, so the advertisement is truthful; it deliberately stays out of the host-driven session table (native_tool_defs), which is what tool_policy's `!names.contains(\"Lsp\")` assertion pins.",
+    "Memory": "The six memory tools (memory_read / memory_write / memory_str_replace / memory_append / memory_list / memory_delete) execute natively against the memory filesystem under `~/.kimi-code/memory/` (tools/memory_store.rs + tools/memory_tool.rs). The def names are the snake spellings the memory section documents, so the squashed twins are the aliases here. Unlike Lsp they ARE in the host-driven session table (tool_policy::native_tool_defs): the memory section ships in the default system prompt (SystemPromptBuilder::build_default* enables it), so the tools and the section are advertised together.",
     "session_query": "Fully unreachable: sessionQueryFeature is imported by no feature assembly (only its errors module feeds errors.ts), no native arm, no REPL def.",
     "unloadedInV2": "M3a (2026-09-01) deleted the unloaded tool features (lsp / sessionQuery / codeRuntime / knowledge / team / workflow / memory / attachment) from agent-core-v2 entirely — the section is kept empty so a re-wired tool fails the TS unclassified check instead of silently passing.",
     "mcp": "MCP runtime-discovered tools are host-owned by design: handles() never matches them, so they round-trip to the host's MCP runtime. The engine's own McpManager serves them only in REPL standalone mode (execute_tool's fallback arm).",
     "github": "GitHub tool names are a dynamic family matched by github::is_github_tool against its SPECS table, not part of NATIVE_TOOL_NAMES. v2Github pins the v2 registration set to the engine's SPECS — a tool added on one side fails the other side's test.",
     "aliases": "The snake spellings are load-bearing: subagent/manager.rs allowlists, permission/mod.rs and repl/mod.rs match them. Do not prune without sweeping those call sites.",
     "scope": "The v2 side of this contract is enumerated from the real tool registry (features assembled with every experimental flag on, then IAgentToolRegistryService.list()) — not a hand-maintained list. Tools registered by the app layer outside agent-core-v2 are host-owned by construction: handles() rejects any name not in NATIVE_TOOL_NAMES.",
-    "replOnlyNativeGroup": "The group label is historical: these are engine-native names that are NOT part of the v2-registered tool surface. Knowledge/Team/select_tools/list_directory/... are advertised by the host-driven session table or the REPL; `lsp` is advertised only by `all_native_tool_defs()` (i.e. `GET /api/v1/tools`) and is executed natively when a host asks for it. `is_native_tool_name` accepts every name in this group (asserted by tools::tests::native_tool_names_match_the_contract_file), which is the property the group actually pins."
+    "replOnlyNativeGroup": "The group label is historical: these are engine-native names that are NOT part of the v2-registered tool surface. Knowledge/Team/select_tools/list_directory/... are advertised by the host-driven session table or the REPL; `lsp` is advertised only by `all_native_tool_defs()` (i.e. `GET /api/v1/tools`), and the six memory tools by both that surface and the session table. All of them execute natively when a host asks for them. `is_native_tool_name` accepts every name in this group (asserted by tools::tests::native_tool_names_match_the_contract_file), which is the property the group actually pins."
   }
 }

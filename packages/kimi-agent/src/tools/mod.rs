@@ -100,7 +100,10 @@ pub mod kaos;
 pub mod knowledge_tool;
 pub mod list_directory;
 pub mod lsp_tool;
+pub mod memory_filing;
 pub mod memory_paths;
+pub mod memory_store;
+pub mod memory_tool;
 pub mod moonshot_service;
 pub mod plan_mode;
 pub mod read_media;
@@ -195,6 +198,20 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "create_goal",
     "skill",
     "knowledge",
+    // Memory tools: the def names are the snake spellings the memory section
+    // documents (`memory_read`), so the squashed twins are the aliases here.
+    "memoryread",
+    "memory_read",
+    "memorywrite",
+    "memory_write",
+    "memorystrreplace",
+    "memory_str_replace",
+    "memoryappend",
+    "memory_append",
+    "memorylist",
+    "memory_list",
+    "memorydelete",
+    "memory_delete",
     "team",
     "workflow",
     "notifyuser",
@@ -1004,6 +1021,24 @@ impl NativeToolset {
                 .await
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
+            "memoryread" | "memory_read" => {
+                Some(memory_tool::execute_memory_read(&self.root, args))
+            }
+            "memorywrite" | "memory_write" => {
+                Some(memory_tool::execute_memory_write(&self.root, args))
+            }
+            "memorystrreplace" | "memory_str_replace" => {
+                Some(memory_tool::execute_memory_str_replace(&self.root, args))
+            }
+            "memoryappend" | "memory_append" => {
+                Some(memory_tool::execute_memory_append(&self.root, args))
+            }
+            "memorylist" | "memory_list" => {
+                Some(memory_tool::execute_memory_list(&self.root, args))
+            }
+            "memorydelete" | "memory_delete" => {
+                Some(memory_tool::execute_memory_delete(&self.root, args))
+            }
             "workflow" => {
                 let home = crate::workflow::kimi_home();
                 let host: Option<std::sync::Arc<dyn crate::workflow::WorkflowHost>> =
@@ -4937,6 +4972,64 @@ m2
             let (_, _ts) = setup_with_shell(Some(&bash));
         }
         let _ = (&mut file,);
+    }
+
+    /// The six memory tools are wired into the dispatch table. A name the
+    /// toolset does not handle returns `None` (the call is forwarded to a host
+    /// that has no memory runtime), so `Some` here is the wiring assertion.
+    /// Every arm is driven with a path outside the memory store, which is
+    /// refused before any file is touched — a test never writes to the real
+    /// memory root.
+    #[tokio::test]
+    async fn memory_tools_dispatch_through_the_toolset() {
+        let (_dir, ts) = setup();
+        let refused = [
+            ("memory_read", json!({ "path": "../escape.md" })),
+            (
+                "memory_write",
+                json!({ "path": "../escape.md", "content": "x", "if_version": "new" }),
+            ),
+            (
+                "memory_str_replace",
+                json!({
+                    "path": "../escape.md",
+                    "old_str": "a",
+                    "new_str": "b",
+                    "if_version": "new"
+                }),
+            ),
+            (
+                "memory_append",
+                json!({ "path": "../escape.md", "content": "x", "if_version": "new" }),
+            ),
+            (
+                "memory_delete",
+                json!({ "path": "../escape.md", "if_version": "new" }),
+            ),
+        ];
+        for (name, args) in refused {
+            let result = ts
+                .execute_tool(name, &args)
+                .await
+                .unwrap_or_else(|| panic!("{name} is not handled by the toolset"));
+            assert!(result.is_error, "{name}: {}", result.content);
+        }
+        // `memory_list` is read-only, so it may succeed against the real root.
+        assert!(
+            ts.execute_tool("memory_list", &json!({})).await.is_some(),
+            "memory_list is not handled by the toolset"
+        );
+        // The squashed twins reach the same arms.
+        for name in [
+            "MemoryRead",
+            "MemoryWrite",
+            "MemoryStrReplace",
+            "MemoryAppend",
+            "MemoryList",
+            "MemoryDelete",
+        ] {
+            assert!(ts.handles(name), "{name} is not a native tool name");
+        }
     }
 
     /// The name contract between the v2 host and this engine, pinned on both

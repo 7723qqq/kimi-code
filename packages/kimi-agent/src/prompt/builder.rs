@@ -9,6 +9,7 @@ use super::agents_md::load_agents_md;
 use super::environment::{collect_environment, generate_cwd_listing};
 use super::profiles::ProfileCatalog;
 use super::skills_renderer::generate_skills_section_with_extra;
+use crate::tools::memory_store;
 
 pub const DEFAULT_PRODUCT_NAME: &str = "Kimi Code CLI";
 pub const DEFAULT_REPLY_STYLE_GUIDE: &str = "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
@@ -16,6 +17,13 @@ pub const DEFAULT_REPLY_STYLE_GUIDE: &str = "Your text replies render as Markdow
 pub const NOTIFY_USER_GUIDANCE: &str = "When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Keep each update to one or two sentences in the end user's language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask's progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates remain visible until the main agent starts its next turn, so your final reply must still stand on its own.";
 
 pub const SYSTEM_PROMPT_TEMPLATE: &str = include_str!("./system.md");
+
+/// Memory section, injected only when the memory filesystem is available.
+pub const MEMORY_SECTION: &str = include_str!("./memory.md");
+
+/// A line of [`MEMORY_SECTION`] that survives interpolation, so a caller
+/// holding only the assembled prompt can tell whether the section is in it.
+pub const MEMORY_SECTION_MARKER: &str = "You have a persistent memory filesystem";
 
 /// Builder for constructing comprehensive agent system prompts.
 #[derive(Debug, Clone)]
@@ -34,6 +42,7 @@ pub struct SystemPromptBuilder {
     /// match what the `Skill` tool can load.
     skill_dirs: Vec<PathBuf>,
     notify_user_active: bool,
+    memory_active: bool,
 }
 
 impl SystemPromptBuilder {
@@ -52,6 +61,7 @@ impl SystemPromptBuilder {
             additional_dirs: Vec::new(),
             skill_dirs: Vec::new(),
             notify_user_active: false,
+            memory_active: false,
         }
     }
 
@@ -59,6 +69,17 @@ impl SystemPromptBuilder {
     #[must_use]
     pub fn with_notify_user(mut self, active: bool) -> Self {
         self.notify_user_active = active;
+        self
+    }
+
+    /// Set whether the memory section is injected into the system prompt.
+    /// [`Self::new`] leaves it off; the production entry points
+    /// ([`Self::build_default`] and [`Self::build_default_with_skill_dirs`])
+    /// turn it on, because the memory tools are in the session tool table and
+    /// the section is what tells the model how to use them.
+    #[must_use]
+    pub fn with_memory(mut self, active: bool) -> Self {
+        self.memory_active = active;
         self
     }
 
@@ -110,8 +131,12 @@ impl SystemPromptBuilder {
     }
 
     /// Build the default system prompt for the given workspace path.
+    ///
+    /// The default prompt carries the memory section: the memory tools are in
+    /// the session tool table, so a prompt without the section would advertise
+    /// a capability the model was never told how to use.
     pub fn build_default(workspace_root: impl AsRef<Path>) -> String {
-        Self::new(workspace_root).build()
+        Self::new(workspace_root).with_memory(true).build()
     }
 
     /// [`Self::build_default`] with extra skill scan roots (schema
@@ -122,6 +147,7 @@ impl SystemPromptBuilder {
     ) -> String {
         Self::new(workspace_root)
             .with_skill_dirs(skill_dirs)
+            .with_memory(true)
             .build()
     }
 
@@ -196,6 +222,42 @@ impl SystemPromptBuilder {
             String::new()
         };
 
+        let memory_section = if self.memory_active {
+            MEMORY_SECTION.to_string()
+        } else {
+            String::new()
+        };
+
+        // Memory blocks: rendered from the store when the section is active.
+        // The section text carries `${memory_listing}` / `${profile}` /
+        // `${preferences}`, so it is expanded first and these resolve in the
+        // same pass. `with_brand_home` pins the Kimi home for tests; otherwise
+        // the store resolves it from the environment.
+        let (memory_listing, profile, preferences) = if self.memory_active {
+            let base = self
+                .custom_brand_home
+                .as_deref()
+                .map(memory_store::memory_base_at)
+                .or_else(memory_store::memory_base);
+            match base {
+                Some(base) => {
+                    let project_id = memory_store::project_id_for(&self.workspace_root);
+                    (
+                        memory_store::render_listing(&memory_store::list_entries_for(
+                            &base,
+                            &project_id,
+                            "",
+                        )),
+                        memory_store::render_profile(&base),
+                        memory_store::render_preferences(&base),
+                    )
+                }
+                None => (String::new(), String::new(), String::new()),
+            }
+        } else {
+            (String::new(), String::new(), String::new())
+        };
+
         let replacements = [
             ("${product_name}", self.product_name.as_str()),
             ("${role_additional}", role_additional.as_str()),
@@ -214,6 +276,12 @@ impl SystemPromptBuilder {
             ("${agents_md}", agents_md.as_str()),
             ("${skills_section}", skills_section.as_str()),
             ("${plugin_sections}", plugin_sections.as_str()),
+            // The memory section is expanded before its own inner blocks, so
+            // `${memory_listing}` and friends resolve in the same pass.
+            ("${memory_section}", memory_section.as_str()),
+            ("${memory_listing}", memory_listing.as_str()),
+            ("${profile}", profile.as_str()),
+            ("${preferences}", preferences.as_str()),
         ];
 
         for (var, val) in replacements {
@@ -259,6 +327,9 @@ mod tests {
             "# Coding",
             "# Risky actions",
             "# Delivering work",
+            "# Untrusted content",
+            "# Search",
+            "# Skills",
             "# Context management",
             "# Environment",
             "# Project information",
@@ -377,7 +448,9 @@ mod tests {
     fn test_builder_build_default_matches_new_build() {
         let temp = tempdir().unwrap();
         let default_built = SystemPromptBuilder::build_default(temp.path());
-        let manual_built = SystemPromptBuilder::new(temp.path()).build();
+        let manual_built = SystemPromptBuilder::new(temp.path())
+            .with_memory(true)
+            .build();
         assert_eq!(default_built, manual_built);
     }
 
@@ -396,5 +469,70 @@ mod tests {
         assert!(prompt_enabled.contains(NOTIFY_USER_GUIDANCE));
         assert!(prompt_enabled.contains("When `NotifyUser` is available, use it proactively"));
         assert!(!prompt_enabled.contains("${notify_user_guidance}"));
+    }
+
+    #[test]
+    fn test_builder_memory_toggle() {
+        let temp = tempdir().unwrap();
+        let prompt_disabled = SystemPromptBuilder::new(temp.path())
+            .with_memory(false)
+            .build();
+        assert!(!prompt_disabled.contains("# Memory"));
+        assert!(!prompt_disabled.contains("memory_read"));
+        assert!(!prompt_disabled.contains("${memory_section}"));
+
+        let prompt_enabled = SystemPromptBuilder::new(temp.path())
+            .with_memory(true)
+            .build();
+        assert!(prompt_enabled.contains("# Memory"));
+        assert!(prompt_enabled.contains("memory_read"));
+        assert!(!prompt_enabled.contains("${memory_section}"));
+        assert!(!prompt_enabled.contains("${memory_listing}"));
+    }
+
+    #[test]
+    fn test_builder_memory_blocks_render_from_the_store() {
+        let temp = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        let memory = home.path().join("memory").join("global");
+        std::fs::create_dir_all(&memory).unwrap();
+        std::fs::write(
+            memory.join("profile.md"),
+            "---\nname: profile\ndescription: Who they are.\ntype: note\n---\n\n- [stated] Works on the kimi-code CLI.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            memory.join("preferences.md"),
+            "---\nname: preferences\ndescription: How they want replies.\n---\n\n- [stated] Prefers short answers.\n",
+        )
+        .unwrap();
+
+        let prompt = SystemPromptBuilder::new(temp.path())
+            .with_brand_home(home.path())
+            .with_memory(true)
+            .build();
+
+        assert!(
+            prompt.contains(
+                "<memory_listing>\n\
+                 - global/preferences.md [note] — How they want replies.\n\
+                 - global/profile.md [note] — Who they are.\n\
+                 </memory_listing>"
+            ),
+            "listing block missing from the prompt"
+        );
+        assert!(prompt.contains("<profile>\n- [stated] Works on the kimi-code CLI.\n</profile>"));
+        assert!(
+            prompt.contains("<preferences>\n- [stated] Prefers short answers.\n</preferences>")
+        );
+        assert!(!prompt.contains("${"));
+
+        // With the section off, none of the blocks are rendered.
+        let off = SystemPromptBuilder::new(temp.path())
+            .with_brand_home(home.path())
+            .with_memory(false)
+            .build();
+        assert!(!off.contains("<memory_listing>"));
+        assert!(!off.contains("<profile>"));
     }
 }

@@ -167,6 +167,13 @@ impl SecondaryModelRuntime {
         })
     }
 
+    /// The pool's default model, for engine-side background work that must
+    /// not spend the session model's budget. `None` when the default alias
+    /// has no built LLM.
+    pub fn default_llm(&self) -> Option<Arc<dyn LLM>> {
+        self.llms.get(self.config.default_model.as_str()).cloned()
+    }
+
     /// Validate an explicit `model` argument when no pool is configured:
     /// `primary` (and omitting the parameter) inherit the caller's model,
     /// anything else is the v2 `CONFIG_INVALID` text. No binding is returned —

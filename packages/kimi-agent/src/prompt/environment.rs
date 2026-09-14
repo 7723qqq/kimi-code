@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-pub const WINDOWS_NOTES: &str = "IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.";
+pub const WINDOWS_NOTES: &str = "IMPORTANT: You are on Windows. The Bash tool runs through a POSIX shell (bash), not PowerShell or CMD, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.";
 
 /// Captured environment details for prompt interpolation.
 #[derive(Debug, Clone)]
@@ -207,7 +207,7 @@ mod tests {
 
         if cfg!(target_os = "windows") {
             assert_eq!(env.windows_notes, format!("\n\n{}\n\n", WINDOWS_NOTES));
-            assert!(env.windows_notes.contains("Git Bash"));
+            assert!(env.windows_notes.contains("POSIX shell (bash)"));
             assert!(env.windows_notes.contains("`/dev/null` not `NUL`"));
         } else {
             assert_eq!(env.windows_notes, "");

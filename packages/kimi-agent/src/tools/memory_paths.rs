@@ -8,8 +8,8 @@
 //! are built around the first case-insensitive query hit, and relative
 //! paths follow the `memory/global|projects|sessions/` layout.
 //!
-//! SHA-256 (FIPS 180-4) is implemented inline because the crate has no
-//! crypto dependency; it is only used for the 12-hex project id.
+//! SHA-256 (FIPS 180-4) is implemented inline; it backs both the 12-hex
+//! project id and the 12-hex content version token.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -81,7 +81,14 @@ pub struct ParsedMemoryPath {
 /// Derive the project id from a cwd: the first 12 hex chars of the SHA-256
 /// digest of the cwd (v2 `projectIdFromCwd`).
 pub fn project_id_from_cwd(cwd: &str) -> String {
-    sha256_hex(cwd)[..12].to_string()
+    content_version(cwd)
+}
+
+/// The version token of a memory file: the first 12 hex chars of the SHA-256
+/// digest of its content. Every memory mutation is conditional on it, so a
+/// write that raced another writer is rejected instead of silently winning.
+pub fn content_version(content: &str) -> String {
+    sha256_hex(content)[..12].to_string()
 }
 
 /// The memory root directory under a home dir (v2 `memoryDir`).
@@ -258,8 +265,9 @@ fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
     idx
 }
 
-/// SHA-256 (FIPS 180-4), implemented inline because the crate has no crypto
-/// dependency. Only used to derive the 12-hex project id from a cwd.
+/// SHA-256 (FIPS 180-4), implemented inline. Used to derive the 12-hex
+/// project id from a cwd and the 12-hex content version token of a memory
+/// file.
 fn sha256(input: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
@@ -374,6 +382,16 @@ mod tests {
     fn test_project_id_from_cwd_golden() {
         assert_eq!(project_id_from_cwd("G:/kimi/kimi-code"), "28c0fe7f6661");
         assert_eq!(project_id_from_cwd("/home/user/project"), "9dad1e4e08b0");
+    }
+
+    #[test]
+    fn test_content_version_is_the_12_hex_digest_prefix() {
+        assert_eq!(content_version(""), "e3b0c44298fc");
+        assert_eq!(content_version("abc"), "ba7816bf8f01");
+        assert_eq!(content_version("abc").len(), 12);
+        assert_ne!(content_version("abc"), content_version("abd"));
+        // The project id is the same digest over the cwd.
+        assert_eq!(project_id_from_cwd("abc"), content_version("abc"));
     }
 
     #[test]
