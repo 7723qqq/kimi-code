@@ -1430,6 +1430,14 @@ export declare function sessionTryAcquireQuiescence(sessionId: string): boolean
  */
 export declare function sessionTurnOutcome(sessionId: string, turnId: number): object
 
+/**
+ * Lightweight projection of a `ToolResourceAccess` for conflict detection.
+ *
+ * `kind` is `"file"` or `"all"`. For `"all"`, the remaining fields are
+ * `None` and the access conflicts with everything. For `"file"`,
+ * `operation` is `"read"` / `"write"` / `"readwrite"` / `"search"`,
+ * `path` is the file path, and `recursive` marks tree-wide access.
+ */
 export interface ToolAccessMeta {
   kind: string
   operation?: string
