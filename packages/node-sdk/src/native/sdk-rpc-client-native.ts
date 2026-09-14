@@ -288,6 +288,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * The `liveShellCommands` key for one `!` shell command. `undefined` when the
+ * caller passed no `commandId` — without one there is nothing to cancel by, so
+ * the handle is not published.
+ */
+function shellCommandKey(sessionId: string, commandId: string | undefined): string | undefined {
+  return commandId === undefined ? undefined : `${sessionId}\u0000${commandId}`;
+}
+
+/**
  * The history cut index that removes the last `count` user turns: walking from
  * the end, the Nth-from-last user message starts the earliest turn to drop, so
  * everything from it onward is undone. Fewer than `count` user turns clears the
@@ -738,6 +747,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   private readonly sessionBaseDir: string;
   /** Sessions whose in-flight compaction was cancelled from the host. */
   private readonly compactionCancels = new Set<string>();
+  /**
+   * Managed bash handles for live `!` shell commands, keyed by
+   * `shellCommandKey(sessionId, commandId)`. `runShellCommand` publishes the
+   * handle here so `cancelShellCommand` can kill the process tree it spawned.
+   */
+  private readonly liveShellCommands = new Map<string, number>();
 
   constructor(options: SDKRpcClientNativeOptions = {}) {
     super();
@@ -2378,6 +2393,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     commandId: string;
   }): Promise<void> {
     this.requireSession(input.sessionId);
+    const key = shellCommandKey(input.sessionId, input.commandId);
+    const id = key === undefined ? undefined : this.liveShellCommands.get(key);
+    // Nothing to kill means the command already finished (or never started) —
+    // not an error, and not a claim that something was cancelled.
+    if (id === undefined) return;
+    const { nativeBashKill } = await import('@moonshot-ai/kimi-agent/native');
+    nativeBashKill(id);
   }
 
   override async swarm(input: SessionPromptRpcInput): Promise<void> {
@@ -2530,13 +2552,22 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           if (ev.kind === 'stderr' && ev.data) stderr += ev.data;
         },
       );
-      const exit = await nativeBashWait(id);
-      return {
-        stdout,
-        stderr,
-        isError: exit.exitCode !== 0 || Boolean(exit.error),
-        backgrounded: false,
-      };
+      // Publish the handle so `cancelShellCommand` can reach the process this
+      // call spawned. Without it the cancel had nothing to kill and reported
+      // success while the command kept running.
+      const key = shellCommandKey(input.sessionId, input.commandId);
+      if (key !== undefined) this.liveShellCommands.set(key, id);
+      try {
+        const exit = await nativeBashWait(id);
+        return {
+          stdout,
+          stderr,
+          isError: exit.exitCode !== 0 || Boolean(exit.error),
+          backgrounded: false,
+        };
+      } finally {
+        if (key !== undefined) this.liveShellCommands.delete(key);
+      }
     } catch {
       return new Promise((res) => {
         exec(input.command, { cwd: meta.workDir }, (error, stdout, stderr) => {
@@ -3218,8 +3249,21 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     return undefined;
   }
 
+  /**
+   * Nothing to wait for: the engine drains the session's background tasks
+   * inside the turn, while the turn slot is still held, and only then resolves
+   * the `prompt()` receipt. By the time a host could call this, the drain has
+   * already happened — the engine's own comment says holding the receipt is
+   * what keeps the host free of a settle loop.
+   */
   override async waitForBackgroundTasksOnPrint(_input: SessionIdRpcInput): Promise<void> {}
 
+  /**
+   * `'finish'` is the answer, not a placeholder. The engine runs the whole
+   * print-background lifecycle inside the turn — drain, then the goal / cron /
+   * task follow-up turns for `steer` mode — so a completed main turn means the
+   * run is done and the host has nothing to keep alive.
+   */
   override async handlePrintMainTurnCompleted(
     _input: SessionIdRpcInput,
   ): Promise<'finish' | 'continue'> {

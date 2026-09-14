@@ -522,6 +522,11 @@ export class Session {
    * (`print_background_mode = "drain"`, or the legacy `keep_alive_on_exit = true`
    * fallback), so background subagents get a chance to complete before the process
    * exits. No-op in other modes. Bounded by `background.print_wait_ceiling_s`.
+   *
+   * On the native engine this is already done: the drain runs inside the turn,
+   * while the turn slot is held, and the `prompt()` receipt only resolves
+   * afterwards. The call is kept for the RPC transport's shape and is a no-op
+   * there too — the standalone server implements no such route.
    */
   async waitForBackgroundTasksOnPrint(): Promise<void> {
     this.ensureOpen();
@@ -535,6 +540,10 @@ export class Session {
    * steer the main agent into a new turn. Policy is selected by
    * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
    * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   *
+   * The native engine answers `'finish'` because it owns the whole lifecycle:
+   * the drain and the `steer` follow-up turns all run inside the turn, so a
+   * completed main turn already means the run is done.
    */
   async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
     this.ensureOpen();
