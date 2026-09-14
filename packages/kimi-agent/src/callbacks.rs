@@ -143,6 +143,22 @@ pub trait HostCallbacks: Send + Sync {
         Box::pin(async { Err("host does not support oauth token fetch".into()) })
     }
 
+    /// Install or refresh native file-history capture for the turn about to
+    /// run: `write` / `edit` then record a `session_file_history` row per
+    /// successful change, which is what `/file-history/*` and
+    /// `undo {revert_files:true}` read (`turn_id` attributes the rows).
+    ///
+    /// No-op by default: a host without a native tool runtime has nothing to
+    /// record, and non-server entries (stdio host-driven turns, REPL) keep
+    /// their existing behaviour.
+    fn set_file_history(
+        &self,
+        _store: Arc<crate::session::sqlite_store::SqliteSessionStore>,
+        _session_id: String,
+        _turn_id: usize,
+    ) {
+    }
+
     /// Release the steering prompts injected during the active turn. The
     /// engine-local steer queue (see `SteerQueueCallbacks`) serves this at
     /// every step head; the default answers with nothing.
@@ -551,6 +567,21 @@ pub type PlanGuard =
     dyn Fn(&str, &serde_json::Value) -> BoxFuture<'static, Option<String>> + Send + Sync;
 
 impl HostCallbacks for NativeToolCallbacks {
+    /// Arm native file-history capture on the wrapped toolset. This is the
+    /// production wiring point: `write` / `edit` record a
+    /// `session_file_history` row only when a recorder is installed, and
+    /// without this call `session_file_history` stayed empty, so
+    /// `/file-history/*` always answered `[]` and `undo {revert_files:true}`
+    /// reported success without restoring anything.
+    fn set_file_history(
+        &self,
+        store: Arc<crate::session::sqlite_store::SqliteSessionStore>,
+        session_id: String,
+        turn_id: usize,
+    ) {
+        self.toolset.set_file_history(store, session_id, turn_id);
+    }
+
     fn llm_chat(
         &self,
         request: LlmChatRequest,

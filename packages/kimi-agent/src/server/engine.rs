@@ -859,6 +859,18 @@ impl ServerEngine {
         .await
         .map_err(|error| EngineError::NoModel(error.message))?;
 
+        // Arm native file-history capture for this turn. `write` / `edit` only
+        // record a `session_file_history` row when a recorder is installed, and
+        // this is the only production installation point: without it the table
+        // stayed empty, `/file-history/*` always answered `[]`, and
+        // `undo {revert_files:true}` reported success without restoring any
+        // file. A no-op for hosts whose callbacks are not `NativeToolCallbacks`.
+        pipeline.callbacks.set_file_history(
+            self.store.clone(),
+            session_id.to_string(),
+            turn_number as usize,
+        );
+
         // Micro compaction (v2 `AgentMicroCompactionService`): with the
         // `[experimental].micro_compaction` flag on, blank oversized old tool
         // results in the outgoing history so the rebuilt prefix stays small.

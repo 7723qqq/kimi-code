@@ -370,8 +370,18 @@ pub struct NativeToolset {
     task_runner: Option<std::sync::Arc<crate::storage::TaskRunner>>,
     /// Native file-history capture (v2 `fileHistoryService`): when set,
     /// mutating file tools (`write` / `edit`) record a row into
-    /// `session_file_history` for each successful change.
-    file_history: Option<FileHistoryCtx>,
+    /// `session_file_history` for each successful change. Shared so the host
+    /// can install it per turn through
+    /// [`crate::callbacks::HostCallbacks::set_file_history`] after the toolset
+    /// has been moved into the callbacks wrapper.
+    file_history: Arc<std::sync::Mutex<Option<FileHistoryCtx>>>,
+    /// Turn number attributed to recorded file-history rows. Carried on the
+    /// toolset (not a thread-local) because mutating tools run on tokio's
+    /// blocking pool: a thread-local set on the async thread is invisible
+    /// there, which is why the previous `scope_turn_id` helper was dead.
+    /// Shared + atomic so it can be refreshed per turn after construction.
+    turn_id: Arc<std::sync::atomic::AtomicUsize>,
+
     /// The user's global `[tools]` enable/disable lists (v2 tool policy):
     /// applied to the advertised table and enforced again before execution.
     tools_filter: Option<tool_policy::ToolsFilter>,
@@ -418,26 +428,12 @@ thread_local! {
     static FILE_HISTORY: std::cell::RefCell<Option<FileHistoryCtx>> =
         const { std::cell::RefCell::new(None) };
 
-    /// Per-turn identifier scoped by the turn runner. The native mutating
-    /// file tools read it when recording the file-history row.
+    /// Turn number the current mutating-file call belongs to. Installed in the
+    /// same blocking closure as `FILE_HISTORY` (see
+    /// [`NativeToolset::spawn_mutating_file_tool`]); the mutating file tools
+    /// read it when recording the file-history row.
     static TURN_ID: std::cell::RefCell<usize> =
         const { std::cell::RefCell::new(0) };
-}
-
-/// Scoped task-local: install a `turn_id` for the duration of `f`.
-/// `None` is a no-op (no installation); nested installs are not tracked.
-pub fn scope_turn_id<F: FnOnce() -> R, R>(turn_id: usize, f: F) -> R {
-    struct Restore<'a>(std::cell::RefMut<'a, usize>);
-    impl<'a> Drop for Restore<'a> {
-        fn drop(&mut self) {
-            *self.0 = 0;
-        }
-    }
-    TURN_ID.with(|cell| {
-        *cell.borrow_mut() = turn_id;
-        let _restore = Restore(cell.borrow_mut());
-        f()
-    })
 }
 
 impl NativeToolset {
@@ -479,7 +475,9 @@ impl NativeToolset {
             caller_agent_id: None,
             session_id: None,
             task_runner: None,
-            file_history: None,
+            file_history: Arc::new(std::sync::Mutex::new(None)),
+            turn_id: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+
             tools_filter: None,
             secondary_model: None,
             image_read_byte_budget: None,
@@ -613,19 +611,54 @@ impl NativeToolset {
     /// `edit`). Each successful mutation records a `session_file_history`
     /// row (v2 `fileHistoryService.onWillExecuteTool` capture, plus the
     /// post-image diff) so `undo {revert_files:true}` and the
-    /// `/file-history/*` endpoints have real data. `turn_id` is captured
-    /// from the `TURN_ID` task-local when set, else 0 — single-turn
-    /// pipelines (REPL) and call-site rewrites are not required.
+    /// `/file-history/*` endpoints have real data.
+    ///
+    /// `turn_id` is attributed on the toolset ([`Self::with_turn_id`], default
+    /// 0) and installed alongside the recorder inside the blocking call, so it
+    /// is visible to the tool regardless of which pool thread runs it.
     pub fn with_file_history(
-        mut self,
+        self,
         store: std::sync::Arc<crate::session::sqlite_store::SqliteSessionStore>,
         session_id: impl Into<String>,
     ) -> Self {
-        self.file_history = Some(FileHistoryCtx {
+        self.set_file_history(store, session_id, self.effective_turn_id());
+        self
+    }
+
+    /// Turn number attributed to file-history rows recorded by this toolset.
+    #[must_use]
+    pub fn with_turn_id(self, turn_id: usize) -> Self {
+        self.set_turn_id(turn_id);
+        self
+    }
+
+    /// Install/refresh the file-history recorder. Takes `&self` so a host can
+    /// arm capture on a toolset already moved into the callbacks wrapper — the
+    /// reason this is not builder-only.
+    pub fn set_file_history(
+        &self,
+        store: std::sync::Arc<crate::session::sqlite_store::SqliteSessionStore>,
+        session_id: impl Into<String>,
+        turn_id: usize,
+    ) {
+        *self
+            .file_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(FileHistoryCtx {
             store,
             session_id: session_id.into(),
         });
-        self
+        self.set_turn_id(turn_id);
+    }
+
+    /// Refresh only the turn number (the recorder stays as installed).
+    pub fn set_turn_id(&self, turn_id: usize) {
+        self.turn_id
+            .store(turn_id, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn effective_turn_id(&self) -> usize {
+        self.turn_id.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The agent id executing the current turn: the [`CALLER_AGENT_ID`]
@@ -1256,8 +1289,14 @@ impl NativeToolset {
         args: &Value,
         tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
-        let ctx = self.file_history.clone();
-        match Self::spawn_mutating_file_tool(self.sandbox(), args.clone(), tool, ctx).await {
+        let ctx = self
+            .file_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let turn_id = self.effective_turn_id();
+        match Self::spawn_mutating_file_tool(self.sandbox(), args.clone(), tool, ctx, turn_id).await
+        {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(true, e.to_string()),
         }
@@ -1268,14 +1307,20 @@ impl NativeToolset {
         args: Value,
         tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
         ctx: Option<FileHistoryCtx>,
+        turn_id: usize,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
         tokio::task::spawn_blocking(move || {
-            // Install the recorder for the duration of this blocking call;
-            // `write` / `edit` read it back out to record the change. A
-            // no-op for callers without `with_file_history`.
+            // Install the recorder and the turn number for the duration of this
+            // blocking call; `write` / `edit` read both back out to record the
+            // change. Thread-locals must be set *here* — the blocking pool runs
+            // on another thread, so a value installed on the async thread would
+            // be invisible. `ctx` is `None` for callers without
+            // `with_file_history`, in which case nothing is recorded.
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = ctx);
+            TURN_ID.with(|cell| *cell.borrow_mut() = turn_id);
             let result = tool(&sandbox, &args);
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = None);
+            TURN_ID.with(|cell| *cell.borrow_mut() = 0);
             result
         })
         .await
@@ -3287,8 +3332,7 @@ mod tests {
         (dir, toolset)
     }
 
-    /// Locate a bash for native-Bash tests; `None` skips them (Windows CI
-    /// without Git Bash on PATH keeps the host fallback contract anyway).
+
     fn find_bash() -> Option<String> {
         for candidate in ["bash", "C:\\Program Files\\Git\\bin\\bash.exe"] {
             let ok = std::process::Command::new(candidate)
@@ -3483,6 +3527,81 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    /// The file-history chain end to end: a native `Write` records a
+    /// `session_file_history` row, and `revert_turn_file_changes` can then undo
+    /// it. Before this was wired `with_file_history` had no caller, so
+    /// `/file-history/*` was always empty and `undo {revert_files:true}`
+    /// reported success while restoring nothing.
+    #[tokio::test]
+    async fn write_records_file_history_and_revert_restores_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::session::sqlite_store::SqliteSessionStore::in_memory().unwrap());
+        let sid = "sess-file-history";
+        store.create_session(sid, Some("fh")).unwrap();
+
+        // Pre-existing file, so the revert path restores the pre-image rather
+        // than exercising only the "added file" branch.
+        std::fs::write(dir.path().join("kept.txt"), "original").unwrap();
+
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None)
+            .unwrap()
+            .with_file_history(store.clone(), sid)
+            .with_turn_id(1);
+
+        let overwritten = ts
+            .execute_mutating("Write", &json!({ "path": "kept.txt", "content": "changed" }))
+            .await
+            .expect("write executes natively");
+        assert!(!overwritten.is_error, "{}", overwritten.content);
+        let created = ts
+            .execute_mutating("Write", &json!({ "path": "fresh.txt", "content": "new" }))
+            .await
+            .expect("write executes natively");
+        assert!(!created.is_error, "{}", created.content);
+
+        // Both writes are attributed to the turn `with_turn_id` installed.
+        // `record_file_history` stores the canonicalized absolute path (that is
+        // what the mutating tools resolve), so match on the file name.
+        let (changes, _) = store.get_file_history_changes(sid, Some(1)).unwrap();
+        assert_eq!(changes.len(), 2, "one row per write: {changes:?}");
+        let named = |suffix: &str| {
+            changes
+                .iter()
+                .any(|c| c.path.replace('\\', "/").ends_with(suffix))
+        };
+        assert!(named("kept.txt"), "{changes:?}");
+        assert!(named("fresh.txt"), "{changes:?}");
+
+        // A different turn number sees nothing.
+        let (other_turn, _) = store.get_file_history_changes(sid, Some(2)).unwrap();
+        assert!(other_turn.is_empty(), "{other_turn:?}");
+
+        // The pre-image was captured, so undo can actually restore the file.
+        let reverted = store.revert_turn_file_changes(sid, 1, dir.path()).unwrap();
+        assert_eq!(reverted.len(), 2, "{reverted:?}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("kept.txt")).unwrap(),
+            "original"
+        );
+        assert!(
+            !dir.path().join("fresh.txt").exists(),
+            "a file the turn added is removed by the revert"
+        );
+    }
+
+    /// Without `with_file_history` nothing is recorded — the chain is opt-in,
+    /// not incidentally broken.
+    #[tokio::test]
+    async fn write_without_recorder_records_nothing() {
+        let (_dir, ts) = setup();
+        let result = ts
+            .execute_mutating("Write", &json!({ "path": "plain.txt", "content": "x" }))
+            .await
+            .unwrap();
+        assert!(!result.is_error, "{}", result.content);
     }
 
     #[test]
