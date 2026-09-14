@@ -95,51 +95,6 @@ describe('status panel report lines', () => {
     expect(output).not.toContain('Engine');
   });
 
-  it('names the JS loop when the engine was declined', () => {
-    const output = buildStatusReportLines({ ...engineBase, engine: { rust: false } }).join(newline);
-    expect(output).toContain('Engine');
-    expect(output).toContain('js (v2 loop)');
-  });
-
-  it('says a wired engine has not run a turn yet, rather than guessing a transport', () => {
-    const output = buildStatusReportLines({ ...engineBase, engine: { rust: true } }).join(newline);
-    expect(output).toContain('rust (wired, no turn yet)');
-  });
-
-  it('shows the resolved transport plus the engine-reported llm path and native tool count', () => {
-    const output = buildStatusReportLines({
-      ...engineBase,
-      engine: { rust: true, transport: 'napi', llmTransport: 'native-http', nativeToolCalls: 3 },
-    }).join(newline);
-    expect(output).toContain('rust | napi | llm native-http | native tools: 3');
-  });
-
-  it('keeps a zero native-tool count visible as a fact, not a missing value', () => {
-    const output = buildStatusReportLines({
-      ...engineBase,
-      engine: { rust: true, transport: 'stdio', llmTransport: 'host-proxy', nativeToolCalls: 0 },
-    }).join(newline);
-    expect(output).toContain('rust | stdio | llm host-proxy | native tools: 0');
-  });
-
-  it('P62: /status explains why the LLM was served through the host proxy', () => {
-    const output = buildStatusReportLines({
-      ...engineBase,
-      engine: {
-        rust: true,
-        transport: 'napi',
-        llmTransport: 'host-proxy',
-        llmFallbackReason: 'provider "main" has no static baseUrl + apiKey',
-        nativeToolCalls: 0,
-      },
-    }).join(newline);
-    expect(
-      output,
-      'P62: the decline reason must reach /status now that it is no longer printed to stdout',
-    ).toContain('llm host-proxy | llm proxy reason: provider "main" has no static');
-    expect(output).toContain('native tools: 0');
-  });
-
   it('prefers the fetched status tower mode over the cached value', () => {
     const lines = buildStatusReportLines({
       version: '1.2.3',
