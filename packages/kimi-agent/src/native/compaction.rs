@@ -12,6 +12,8 @@
 //! stay private to this module.
 //!
 
+#[cfg(feature = "napi")]
+use napi_derive::napi;
 
 /// Lightweight projection of a `Message` for the compaction algorithm.
 ///
@@ -19,9 +21,6 @@
 /// boundary: `role` (for split-safety checks), `tool_calls_count` (to
 /// detect pending tool exchanges), and `tokens` (pre-computed by TS via
 /// the cached `estimateTokensForMessage`).
-#[cfg(feature = "napi")]
-use napi_derive::napi;
-
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "napi", napi(object))]
 pub struct CompactionMessageMeta {

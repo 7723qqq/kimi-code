@@ -326,11 +326,10 @@ export interface JsRunTurnParams {
   /**
    * Host-authorized extra roots (`/add-dir` → `additionalDirs`). Paths that
    * canonicalize under one of them are served by the native toolset even
-   * though they sit outside `workspaceRoot`; without this they fall outside
-   * the sandbox and the only fallback — the host `execute_tool` seam — has no
-   * tool runtime to serve them.
+   * though they sit outside `workspace_root`; without this they could only
+   * fall back to the host, which has no tool runtime on this transport.
    */
-  additionalDirs?: string[]
+  additionalDirs?: Array<string>
   /**
    * Rust engine self-contained mode. When true, the engine refuses to
    * fall back to the host proxy for LLM calls — the user must
@@ -1019,14 +1018,6 @@ export declare function nativeLlmStreamStreaming(config: NativeLlmStreamConfig, 
 export declare function nativeParsePermissionPattern(pattern: string): string
 
 /**
- * Parse a permission rule DSL pattern.
- *
- * Grammar: `toolName` or `toolName(argPattern)`.
- * Returns JSON `{"toolName":"...","argPattern":...}` or `"ERROR: ..."` on failure.
- */
-export declare function nativeParsePermissionPattern(pattern: string): string
-
-/**
  * Lexical canonicalization: relative → absolute → normalize.
  * Returns "ERROR: <code>: <message>" on failure (mirrors TS PathSecurityError).
  */
@@ -1240,12 +1231,6 @@ export interface NativeWriteChunkResult {
  */
 export declare function nativeWriteToolOutputChunk(text: string, currentNchars: number, maxChars: number, maxLineLength: number | undefined | null, alreadyTruncated: boolean): NativeWriteChunkResult
 
-/** Parsed permission rule pattern. */
-export interface ParsedPattern {
-  toolName: string
-  argPattern?: string
-}
-
 /** Maximum output bytes for read operations. */
 export const READ_MAX_BYTES: number
 
@@ -1445,14 +1430,6 @@ export declare function sessionTryAcquireQuiescence(sessionId: string): boolean
  */
 export declare function sessionTurnOutcome(sessionId: string, turnId: number): object
 
-/**
- * Lightweight projection of a `ToolResourceAccess` for conflict detection.
- *
- * `kind` is `"file"` or `"all"`. For `"all"`, the remaining fields are
- * `None` and the access conflicts with everything. For `"file"`,
- * `operation` is `"read"` / `"write"` / `"readwrite"` / `"search"`,
- * `path` is the file path, and `recursive` marks tree-wide access.
- */
 export interface ToolAccessMeta {
   kind: string
   operation?: string
