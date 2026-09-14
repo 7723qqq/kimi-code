@@ -1191,6 +1191,7 @@ async fn read_cron_registry(
                         .get("recurring")
                         .and_then(serde_json::Value::as_bool)
                         .unwrap_or(true),
+                    session_id: None,
                 })
             })
             .collect(),
@@ -1201,7 +1202,10 @@ async fn read_cron_registry(
 /// prompt wrapped in attributes the renderers strip before display. One fire
 /// per tick here, so `coalescedCount` is always 1 and `stale` never applies
 /// (the 7-day stale rule belongs to the long-lived daemon).
-fn render_cron_fire(entry: &crate::cron::scheduler::CronEntry) -> String {
+///
+/// Public because the daemon binary (`main.rs`) is a separate crate and wraps
+/// its own fired prompts with it.
+pub fn render_cron_fire(entry: &crate::cron::scheduler::CronEntry) -> String {
     format!(
         "<cron-fire jobId=\"{}\" cron=\"{}\" recurring=\"{}\" coalescedCount=\"1\" stale=\"false\">\n<prompt>\n{}\n</prompt>\n</cron-fire>",
         entry.id, entry.cron, entry.recurring, entry.prompt
@@ -1979,6 +1983,7 @@ mod tests {
             cron: "*/5 * * * *".into(),
             prompt: "Check the deploy status".into(),
             recurring: true,
+            session_id: None,
         };
         assert_eq!(
             render_cron_fire(&entry),

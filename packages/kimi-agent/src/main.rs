@@ -1276,12 +1276,16 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     let shutdown = server.shutdown_token();
 
     // Cron tick loop: the scheduler only fires when something calls `tick`, so
-    // the daemon drives it here and surfaces each firing as `cron.fired` on the
-    // global lane. Running the prompt as a turn is deliberately NOT done yet —
-    // that needs a session/workspace decision (see ROADMAP known gaps).
+    // the daemon drives it here. Each firing is published as `cron.fired` on
+    // the global lane, and — when the schedule was created through a
+    // session-scoped route — the prompt is also run as a turn in that session,
+    // wrapped in the documented `<cron-fire>` envelope. A global
+    // `/api/v1/cron` entry has no session to run in, so it only publishes.
     {
         let cron_scheduler = server.cron_scheduler();
         let cron_hub = server.hub();
+        let cron_engine = server.engine();
+        let cron_store = server.store_arc();
         tokio::spawn(async move {
             let mut last_tick = chrono::Utc::now().timestamp_millis();
             loop {
@@ -1295,10 +1299,35 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
                 for entry in fired {
                     cron_hub.bus_for("global").publish(
                         &kimi_agent::events::EngineEvent::CronFired {
-                            entry_id: entry.id,
-                            prompt: entry.prompt,
+                            entry_id: entry.id.clone(),
+                            prompt: entry.prompt.clone(),
                         },
                     );
+                    let (Some(engine), Some(session_id)) =
+                        (cron_engine.as_ref(), entry.session_id.as_deref())
+                    else {
+                        continue;
+                    };
+                    // A session deleted since the schedule was created must not
+                    // take the tick loop down with it.
+                    let Ok(history) = cron_store.load_session_history(session_id) else {
+                        continue;
+                    };
+                    let Ok(turn_number) = cron_store.next_turn_number(session_id) else {
+                        continue;
+                    };
+                    let prompt = kimi_agent::session::render_cron_fire(&entry);
+                    if let Err(error) = engine
+                        .run_turn(session_id, turn_number, history, &prompt)
+                        .await
+                    {
+                        tracing::warn!(
+                            session_id,
+                            cron_id = %entry.id,
+                            %error,
+                            "cron-fired turn failed"
+                        );
+                    }
                 }
             }
         });

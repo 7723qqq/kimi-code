@@ -3037,6 +3037,7 @@ impl HttpServer {
                 if (p.starts_with("/api/v1/sessions/") && p.ends_with("/cron"))
                     || p == "/api/v1/cron" =>
             {
+                let mut owning_session: Option<String> = None;
                 if p != "/api/v1/cron" {
                     let segments: Vec<&str> = p.split('/').collect();
                     if segments.len() != 6 {
@@ -3046,6 +3047,7 @@ impl HttpServer {
                     if self.store.get_session(session_id).ok().flatten().is_none() {
                         return HttpResponse::not_found();
                     }
+                    owning_session = Some(session_id.to_string());
                 }
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
@@ -3074,6 +3076,7 @@ impl HttpServer {
                     cron: cron_expr.to_string(),
                     prompt: prompt.to_string(),
                     recurring,
+                    session_id: owning_session.clone(),
                 };
                 let mut scheduler = self.cron_scheduler.lock().await;
                 if scheduler.add_entry(entry) {
@@ -8732,6 +8735,75 @@ max_context_size = 128000
             .await;
         assert_eq!(deleted.status, 200);
         assert!(restarted.load_cron_entries().is_empty());
+    }
+
+    /// A schedule created through a session-scoped route records the session
+    /// it belongs to, so the daemon's tick loop has somewhere to run the fired
+    /// prompt. A global `/api/v1/cron` entry has none and only publishes
+    /// `cron.fired`.
+    #[tokio::test]
+    async fn test_session_scoped_cron_records_its_session() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+        store.create_session("sess-cron", Some("Cron Session")).unwrap();
+
+        let scoped = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-cron/cron".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "cron": "*/5 * * * *",
+                    "prompt": "check the deploy"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(scoped.status, 201);
+
+        let global = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/cron".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "cron": "0 9 * * *",
+                    "prompt": "morning"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(global.status, 201);
+
+        let entries = server.load_cron_entries();
+        let scoped_entry = entries
+            .iter()
+            .find(|e| e.prompt == "check the deploy")
+            .expect("the session-scoped entry");
+        assert_eq!(scoped_entry.session_id.as_deref(), Some("sess-cron"));
+        let global_entry = entries
+            .iter()
+            .find(|e| e.prompt == "morning")
+            .expect("the global entry");
+        assert_eq!(global_entry.session_id, None);
+
+        // An unknown session is still refused before anything is created.
+        let missing = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-missing/cron".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "cron": "*/5 * * * *",
+                    "prompt": "nope"
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(missing.status, 404);
     }
 
     #[tokio::test]

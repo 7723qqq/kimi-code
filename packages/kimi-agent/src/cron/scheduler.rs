@@ -21,6 +21,12 @@ pub struct CronEntry {
     pub prompt: String,
     #[serde(default = "default_recurring")]
     pub recurring: bool,
+    /// The session a fired prompt runs in. Set when the schedule was created
+    /// through a session-scoped route; a global `/api/v1/cron` entry has none,
+    /// and the daemon can only publish `cron.fired` for it — there is no
+    /// session to run a turn in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 fn default_recurring() -> bool {
@@ -176,6 +182,7 @@ mod tests {
             cron: cron.into(),
             prompt: prompt.into(),
             recurring,
+            session_id: None,
         }
     }
 
@@ -528,6 +535,7 @@ mod tests {
                 cron: "*/5 * * * *".into(),
                 prompt: "run check".into(),
                 recurring: true, // defaults to true when omitted
+                session_id: None,
             }
         );
 
