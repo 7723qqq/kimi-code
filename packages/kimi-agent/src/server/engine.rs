@@ -750,36 +750,14 @@ impl ServerEngine {
         payload
     }
 
-    /// Build an engine context for one turn and run it.
+    /// The [`PipelineSpec`] one session's turns run with: the engine-wide spec
+    /// plus this session's persisted profile (model / thinking / disabled
+    /// tools) and its permission mode.
     ///
-    /// The pipeline is rebuilt per turn, as the legacy stdio entry does: the
-    /// configuration is fixed for the process, but the subagent runtime and the
-    /// event bus binding are per-context, and nothing here is long-lived enough
-    /// to be worth caching yet.
-    pub async fn run_turn(
-        &self,
-        session_id: &str,
-        turn_number: u32,
-        history: Vec<LLMMessage>,
-        prompt: &str,
-    ) -> Result<TurnReport, EngineError> {
-        self.run_turn_with_media(session_id, turn_number, history, prompt, Vec::new())
-            .await
-    }
-
-    /// Run a turn whose opening user message carries media content blocks
-    /// (prompt attachments resolved from the local file store).
-    pub async fn run_turn_with_media(
-        &self,
-        session_id: &str,
-        turn_number: u32,
-        history: Vec<LLMMessage>,
-        prompt: &str,
-        media: Vec<ContentBlock>,
-    ) -> Result<TurnReport, EngineError> {
-        let mut history = history;
-        // A self-contained engine must refuse the host-proxy fallback rather
-        // than reach ServerHost.llm_chat and fail mid-turn.
+    /// Split out of [`Self::run_turn_with_media`] so engine-side work that
+    /// needs the session's model without running a turn — the REST `:compact`
+    /// summarizer — resolves it the same way instead of a second copy.
+    async fn session_spec(&self, session_id: &str) -> PipelineSpec {
         let mut policy_snapshot = self.spec.policy_snapshot.clone().unwrap_or_default();
         if policy_snapshot.mode == crate::permission::PermissionMode::Manual {
             if std::env::var("KIMI_AUTO_APPROVE")
@@ -843,6 +821,16 @@ impl ServerEngine {
             spec.native_llm = Some(native);
         }
         apply_session_overrides(&mut spec, &session_profile);
+        spec
+    }
+
+    /// The host callbacks one session's pipeline runs with, wrapped in the
+    /// workspace state store when `ws_ref` resolves to one.
+    fn session_callbacks(
+        &self,
+        session_id: &str,
+        ws_ref: &std::path::Path,
+    ) -> Arc<dyn HostCallbacks> {
         let host_callbacks: Arc<dyn HostCallbacks> = match self.host_factory() {
             Some(factory) => factory(session_id),
             None => {
@@ -856,7 +844,68 @@ impl ServerEngine {
                 }
             }
         };
+        match crate::storage::StateStore::for_workspace(ws_ref) {
+            Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
+                inner: host_callbacks,
+                store: Arc::new(store),
+            }),
+            Err(_) => host_callbacks,
+        }
+    }
 
+    /// The LLM one session's turns run on, without building a pipeline.
+    ///
+    /// `None` when the session's spec selects no model the engine can reach —
+    /// the caller falls back to whatever it does without an LLM.
+    pub async fn session_llm(&self, session_id: &str) -> Option<Arc<dyn LLM>> {
+        let spec = self.session_spec(session_id).await;
+        let ws_root = match self.store.get_session(session_id) {
+            Ok(Some(s)) if s.workspace_id.is_some() => {
+                let wid = s.workspace_id.unwrap();
+                self.store
+                    .get_workspace(&wid)
+                    .ok()
+                    .flatten()
+                    .map(|w| std::path::PathBuf::from(w.root))
+            }
+            _ => None,
+        };
+        let ws_ref = ws_root.as_deref().unwrap_or(std::path::Path::new("."));
+        let callbacks = self.session_callbacks(session_id, ws_ref);
+        crate::pipeline::build_llm_for_spec(&spec, &callbacks).ok()
+    }
+
+    /// Build an engine context for one turn and run it.
+    ///
+    /// The pipeline is rebuilt per turn, as the legacy stdio entry does: the
+    /// configuration is fixed for the process, but the subagent runtime and the
+    /// event bus binding are per-context, and nothing here is long-lived enough
+    /// to be worth caching yet.
+    pub async fn run_turn(
+        &self,
+        session_id: &str,
+        turn_number: u32,
+        history: Vec<LLMMessage>,
+        prompt: &str,
+    ) -> Result<TurnReport, EngineError> {
+        self.run_turn_with_media(session_id, turn_number, history, prompt, Vec::new())
+            .await
+    }
+
+    /// Run a turn whose opening user message carries media content blocks
+    /// (prompt attachments resolved from the local file store).
+    pub async fn run_turn_with_media(
+        &self,
+        session_id: &str,
+        turn_number: u32,
+        history: Vec<LLMMessage>,
+        prompt: &str,
+        media: Vec<ContentBlock>,
+    ) -> Result<TurnReport, EngineError> {
+        let mut history = history;
+        // A self-contained engine must refuse the host-proxy fallback rather
+        // than reach ServerHost.llm_chat and fail mid-turn.
+        let spec = self.session_spec(session_id).await;
         let ws_root = match self.store.get_session(session_id) {
             Ok(Some(s)) if s.workspace_id.is_some() => {
                 let wid = s.workspace_id.unwrap();
@@ -873,14 +922,7 @@ impl ServerEngine {
         // the guard is constructed with the transport, so a later write would
         // only take effect on the next turn.
         self.apply_thinking_guard_setting().await;
-        let host_callbacks: Arc<dyn HostCallbacks> =
-            match crate::storage::StateStore::for_workspace(ws_ref) {
-                Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
-                    inner: host_callbacks,
-                    store: Arc::new(store),
-                }),
-                Err(_) => host_callbacks,
-            };
+        let host_callbacks = self.session_callbacks(session_id, ws_ref);
         let pipeline = build_engine_pipeline(
             &spec,
             host_callbacks,

@@ -410,11 +410,38 @@ pub async fn build_engine_pipeline(
             _ => base_callbacks.clone(),
         };
 
-    // LLM selection — priority order:
-    //   1. providers (concurrent MultiLLM race)
-    //   2. native_llm (Rust calls the provider directly via HTTP/SSE)
-    //   3. host proxy (skipped when `rust_self_contained` is set; the engine
-    //      errors out instead, see ROADMAP P26 批 1)
+    let llm = build_llm_for_spec(spec, &callbacks)?;
+    // Subagent execution runtime (P46): spawned subagent turns run with this
+    // pipeline's llm + callback chain.
+    subagent_manager
+        .set_runtime(llm.clone(), callbacks.clone(), spec.session_id.clone())
+        .await;
+
+    Ok(EnginePipeline {
+        llm,
+        callbacks,
+        turn_event_count,
+        native_tool_count,
+        hook_guard,
+        secondary_llm,
+        mcp_manager,
+    })
+}
+
+/// Build the LLM one [`PipelineSpec`] selects, in priority order:
+///   1. providers (concurrent MultiLLM race)
+///   2. native_llm (Rust calls the provider directly via HTTP/SSE)
+///   3. host proxy (skipped when `rust_self_contained` is set; the engine
+///      errors out instead, see ROADMAP P26 批 1)
+///
+/// Split out of [`build_engine_pipeline`] so engine-side work that needs the
+/// session's model without a whole pipeline — the REST `:compact` summarizer —
+/// resolves it through this same chain instead of a second copy that could
+/// drift on the event sink or the OAuth token plumbing.
+pub fn build_llm_for_spec(
+    spec: &PipelineSpec,
+    callbacks: &Arc<dyn HostCallbacks>,
+) -> Result<Arc<dyn LLM>, PipelineError> {
     let llm: Box<dyn LLM> = if !spec.providers.is_empty() {
         let providers: Vec<LlmProvider> = spec
             .providers
@@ -428,7 +455,7 @@ pub async fn build_engine_pipeline(
             .collect();
         Box::new(MultiLLM::new(providers))
     } else if let Some(cfg) = spec.native_llm.clone() {
-        build_native_llm(&cfg, &spec.system_prompt, &callbacks)
+        build_native_llm(&cfg, &spec.system_prompt, callbacks)
     } else {
         if spec.rust_self_contained {
             return Err(PipelineError {
@@ -442,46 +469,30 @@ pub async fn build_engine_pipeline(
                 .with_callbacks(callbacks.clone()),
         )
     };
+    Ok(Arc::from(llm))
+}
 
-    let llm: Arc<dyn LLM> = Arc::from(llm);
-    // Subagent execution runtime (P46): spawned subagent turns run with this
-    // pipeline's llm + callback chain.
-    subagent_manager
-        .set_runtime(llm.clone(), callbacks.clone(), spec.session_id.clone())
-        .await;
-
-    /// Build a native HTTP LLM for one `NativeLlmConfig`: the single place the
-    /// session model and every `[secondary_model]` pool alias go through, so the
-    /// event sink and OAuth token plumbing cannot drift between them.
-    fn build_native_llm(
-        cfg: &NativeLlmConfig,
-        system_prompt: &str,
-        callbacks: &Arc<dyn HostCallbacks>,
-    ) -> Box<dyn crate::turn_loop::types::LLM> {
-        let sink_callbacks = callbacks.clone();
-        let mut llm = NativeHttpLlm::new(cfg.clone(), system_prompt.to_string())
-            .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
-        if cfg.auth_provider.is_some() {
-            let auth_callbacks = callbacks.clone();
-            let provider_name = cfg.auth_provider.clone().unwrap_or_default();
-            llm = llm.with_auth_provider(Arc::new(move |force| {
-                let cb = auth_callbacks.clone();
-                let provider = provider_name.clone();
-                Box::pin(async move { cb.auth_token(provider, force).await })
-            }));
-        }
-        Box::new(llm)
+/// Build a native HTTP LLM for one `NativeLlmConfig`: the single place the
+/// session model and every `[secondary_model]` pool alias go through, so the
+/// event sink and OAuth token plumbing cannot drift between them.
+fn build_native_llm(
+    cfg: &NativeLlmConfig,
+    system_prompt: &str,
+    callbacks: &Arc<dyn HostCallbacks>,
+) -> Box<dyn crate::turn_loop::types::LLM> {
+    let sink_callbacks = callbacks.clone();
+    let mut llm = NativeHttpLlm::new(cfg.clone(), system_prompt.to_string())
+        .with_sink(Arc::new(move |event| sink_callbacks.emit_event(event)));
+    if cfg.auth_provider.is_some() {
+        let auth_callbacks = callbacks.clone();
+        let provider_name = cfg.auth_provider.clone().unwrap_or_default();
+        llm = llm.with_auth_provider(Arc::new(move |force| {
+            let cb = auth_callbacks.clone();
+            let provider = provider_name.clone();
+            Box::pin(async move { cb.auth_token(provider, force).await })
+        }));
     }
-
-    Ok(EnginePipeline {
-        llm,
-        callbacks,
-        turn_event_count,
-        native_tool_count,
-        hook_guard,
-        secondary_llm,
-        mcp_manager,
-    })
+    Box::new(llm)
 }
 
 #[cfg(test)]

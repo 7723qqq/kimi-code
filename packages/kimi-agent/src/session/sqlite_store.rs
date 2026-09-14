@@ -890,10 +890,30 @@ impl SqliteSessionStore {
     /// (event_store `is_compaction`). `instruction` is the caller's
     /// summarization hint (v2 `rest-session.ts:131-137`); it is recorded with
     /// the checkpoint.
+    ///
+    /// Folds the omitted prefix into the fixed placeholder. Callers that hold
+    /// an LLM use [`Self::compact_session_with_summary`] instead, so the
+    /// compacted history carries a written summary rather than a notice that
+    /// something was removed.
     pub fn compact_session(
         &self,
         session_id: &str,
         instruction: Option<&str>,
+    ) -> Result<CompactionReport, String> {
+        self.compact_session_with_summary(session_id, instruction, None)
+    }
+
+    /// [`Self::compact_session`] with a caller-supplied summary text.
+    ///
+    /// `summary` is the LLM-written replacement for the omitted prefix; `None`
+    /// keeps the placeholder. The split point is recomputed here rather than
+    /// taken from the caller, so a summary produced from a stale history
+    /// cannot desynchronize the count from the messages it replaces.
+    pub fn compact_session_with_summary(
+        &self,
+        session_id: &str,
+        instruction: Option<&str>,
+        summary: Option<String>,
     ) -> Result<CompactionReport, String> {
         let history = self
             .load_session_history(session_id)
@@ -902,7 +922,13 @@ impl SqliteSessionStore {
             return Ok(CompactionReport::skipped());
         }
         let config = crate::compaction::CompactionConfig::default();
-        let compacted = crate::compaction::force_compact_messages_manual(&history, &config);
+        let compacted = match summary {
+            Some(text) => {
+                let count = crate::compaction::compute_compact_count_manual(&history, &config);
+                crate::compaction::apply_compaction_with_summary(&history, count, text)
+            }
+            None => crate::compaction::force_compact_messages_manual(&history, &config),
+        };
         if compacted.len() >= history.len() {
             return Ok(CompactionReport::skipped());
         }
@@ -2627,6 +2653,59 @@ mod tests {
         assert!(
             err.contains("undo refused"),
             "expected boundary refusal, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_compact_session_with_summary_writes_the_summary() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-summary", None).unwrap();
+        for i in 1..=15 {
+            store
+                .save_turn(
+                    "sess-summary",
+                    &format!("t{i}"),
+                    i,
+                    &[
+                        LLMMessage::user(format!("User message {i}")),
+                        LLMMessage::assistant(format!("Assistant message {i}")),
+                    ],
+                    None,
+                )
+                .unwrap();
+        }
+
+        let report = store
+            .compact_session_with_summary(
+                "sess-summary",
+                None,
+                Some("The user asked for fifteen numbered messages.".to_string()),
+            )
+            .unwrap();
+        assert!(report.removed > 0);
+
+        let history = store.load_session_history("sess-summary").unwrap();
+        assert_eq!(
+            history[1].content, "The user asked for fifteen numbered messages.",
+            "the caller's summary replaces the omitted prefix"
+        );
+        assert!(
+            !history[1].content.contains("compacted"),
+            "the placeholder must not survive a supplied summary"
+        );
+
+        // The split point is recomputed from the stored history, so a summary
+        // handed in for a history that cannot be compacted changes nothing.
+        let short = SqliteSessionStore::in_memory().unwrap();
+        short.create_session("sess-short", None).unwrap();
+        short
+            .save_turn("sess-short", "t1", 1, &[LLMMessage::user("hi")], None)
+            .unwrap();
+        assert_eq!(
+            short
+                .compact_session_with_summary("sess-short", None, Some("unused".to_string()))
+                .unwrap(),
+            CompactionReport::skipped()
         );
     }
 

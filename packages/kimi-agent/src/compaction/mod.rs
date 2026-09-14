@@ -456,7 +456,7 @@ pub async fn compact_messages_with_summary_at(
 /// Project `count` leading messages into a summary, keeping the system
 /// message (index 0) and the tail untouched. Like [`apply_compaction`] but
 /// uses the provided `summary` text instead of [`summary_placeholder`].
-fn apply_compaction_with_summary(
+pub(crate) fn apply_compaction_with_summary(
     messages: &[LLMMessage],
     count: u32,
     summary: String,

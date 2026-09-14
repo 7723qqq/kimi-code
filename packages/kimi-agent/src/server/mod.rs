@@ -3782,7 +3782,45 @@ impl HttpServer {
                         "sessionId": session_id,
                         "instruction": instruction,
                     })));
-                match self.store.compact_session(session_id, instruction) {
+                // Summarize the prefix this compaction is about to fold away, so
+                // the compacted history carries a written summary instead of the
+                // fixed placeholder. The NAPI path has always summarized; this
+                // endpoint did not, so the same "compact" action produced
+                // different history depending on which client asked for it.
+                let summary = match self.engine.as_ref() {
+                    Some(engine) => match engine.session_llm(session_id).await {
+                        Some(llm) => match self.store.load_session_history(session_id) {
+                            Ok(history) => {
+                                let config = crate::compaction::CompactionConfig::default();
+                                let count = crate::compaction::compute_compact_count_manual(
+                                    &history, &config,
+                                );
+                                if count == 0 {
+                                    None
+                                } else {
+                                    crate::compaction::summarize_with_llm(
+                                        &history[1..count as usize],
+                                        llm.as_ref(),
+                                        instruction,
+                                        None,
+                                    )
+                                    .await
+                                }
+                            }
+                            Err(e) => {
+                                return HttpResponse::internal_error(format!(
+                                    "Database error: {e}"
+                                ));
+                            }
+                        },
+                        None => None,
+                    },
+                    None => None,
+                };
+                match self
+                    .store
+                    .compact_session_with_summary(session_id, instruction, summary)
+                {
                     Ok(report) => {
                         self.hub
                             .bus_for(session_id)
@@ -10103,6 +10141,145 @@ max_context_size = 128000
         assert!(
             completed["tokensBefore"].as_u64().unwrap()
                 > completed["tokensAfter"].as_u64().unwrap()
+        );
+    }
+
+    /// A host whose `llm_chat` answers with a fixed summary, so the `:compact`
+    /// route's summarizer call can be observed end to end.
+    struct SummarizingHost {
+        summary: String,
+    }
+
+    impl crate::callbacks::HostCallbacks for SummarizingHost {
+        fn llm_chat(
+            &self,
+            _: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::LlmChatResponse, String>,
+        > {
+            let summary = self.summary.clone();
+            Box::pin(async move {
+                Ok(crate::rpc::types::LlmChatResponse {
+                    content: summary,
+                    tool_calls: vec![],
+                    thinking: vec![],
+                    finish_reason: Some("stop".to_string()),
+                    usage: crate::rpc::types::TokenUsage::default(),
+                })
+            })
+        }
+
+        fn execute_tool(
+            &self,
+            _: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ToolExecuteResponse, String>,
+        > {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::PermissionDecision, String>,
+        > {
+            Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
+        }
+    }
+
+    /// `POST :compact` folds the omitted prefix into the session model's
+    /// written summary. The endpoint used to write the fixed placeholder even
+    /// with an engine attached, so the same action produced different history
+    /// depending on whether the client went through REST or NAPI.
+    #[tokio::test]
+    async fn the_compact_route_writes_the_llm_summary_not_the_placeholder() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let hub = Arc::new(EventHub::new());
+        let sid = "sess-compact-summary";
+        store.create_session(sid, None).unwrap();
+        for i in 1..=12 {
+            let filler = "x".repeat(400);
+            store
+                .save_turn(
+                    sid,
+                    &format!("t{i}"),
+                    i,
+                    &[
+                        crate::turn_loop::types::LLMMessage::user(format!("u{i} {filler}")),
+                        crate::turn_loop::types::LLMMessage::assistant(format!("a{i} {filler}")),
+                    ],
+                    None,
+                )
+                .unwrap();
+        }
+
+        // A provider-backed spec: `build_llm_for_spec` resolves it to a
+        // host-proxy LLM, which is the seam the factory below answers.
+        let engine = ServerEngine::new(
+            crate::pipeline::PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "test-model".into(),
+                providers: vec![crate::pipeline::PipelineProvider {
+                    name: "test".into(),
+                    system_prompt: "sys".into(),
+                    model: "test-model".into(),
+                }],
+                native_llm: None,
+                workspace_root: None,
+                native_tools: false,
+                extra_roots: Vec::new(),
+                rust_self_contained: true,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+                secondary_model: None,
+                image_read_byte_budget: None,
+                image_max_edge_px: None,
+                model_capabilities: None,
+                skill_dirs: Vec::new(),
+                background: crate::storage::BackgroundLimits::default(),
+            },
+            hub.clone(),
+            store.clone(),
+        );
+        engine.set_host_factory(Arc::new(|_session_id| {
+            Arc::new(SummarizingHost {
+                summary: "The user sent twelve filler messages.".to_string(),
+            })
+        }));
+        let server = HttpServer::with_hub(store.clone(), hub).with_engine(engine);
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:compact"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({})).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["compacted"], true);
+
+        let history = store.load_session_history(sid).unwrap();
+        assert_eq!(
+            history[1].content, "The user sent twelve filler messages.",
+            "the endpoint must store the model's summary, not the placeholder"
         );
     }
 
