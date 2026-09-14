@@ -162,6 +162,7 @@
 | 工作区动态属性更新 | 支持 PATCH /api/v1/workspaces/{id} 重命名与元数据更新 | 缺失该 REST 动词 | `sqlite_store.rs` 实现 `update_workspace_name`，并在服务端完整接入 `PATCH /api/v1/workspaces/{id}` |
 | Debug 反射面 (/api/v1/debug/*) | 支持 kimi-inspect 调试器探查渠道、快照与 RPC 调用 | 原生端点缺失，返回 404 | 新增 `server/debug.rs`，实现 `/api/v1/debug/channels`、业务快照与动态服务方法调度器，全面兼容 kimi-inspect |
 | 文件变动回滚与持久化撤销清理 | undo 时级联清理文件历史并在请求时还原工作区受影响文件 | undo 仅删除 messages 与 turns，无文件回滚 | **已完成并接线（2026-09-14 复核）**：`sqlite_store.rs` 实现了 `revert_turn_file_changes` 并级联删除 `session_file_history`，服务端 undo 端点接入物理恢复（`server/mod.rs:3554-3582`），且生产写入方已接上——`HostCallbacks::set_file_history`（新增的默认 no-op seam）由 `server/engine.rs` 在每轮构建 pipeline 后调用，落到 `NativeToolset` 的共享 recorder；turn 归属经 `with_turn_id`/`set_turn_id`（原 `scope_turn_id` 线程局部在 `spawn_blocking` 线程上不可见，已删除）。测试 `tools::tests::write_records_file_history_and_revert_restores_the_file` 断言全链：Write → 记行 → 回滚恢复原文件/删除新增文件。 |
+| REST `:compact` 的摘要 | 手动压缩把省略的前缀折叠为模型写的摘要 | 端点走 `store.compact_session` → `force_compact_messages_manual` → 固定占位文案；NAPI 路径（TUI）一直是真摘要，同一个「压缩」动作两条路两种历史 | **已修复（2026-09-14）**：端点先经 `ServerEngine::session_llm` 取会话模型，用 `summarize_with_llm` 摘要即将折叠的前缀，再交 `compact_session_with_summary` 落库；无可用模型时回退占位文案。`build_llm_for_spec`（pipeline）与 `session_spec`/`session_callbacks`（engine）从 turn 路径抽出，两条路共用同一条 LLM 选择链。测试 `server::tests::the_compact_route_writes_the_llm_summary_not_the_placeholder` 与 `session::sqlite_store::tests::test_compact_session_with_summary_writes_the_summary`。 |
 
 **MCP 连接管理器对齐（2026-09-08）**：
 
