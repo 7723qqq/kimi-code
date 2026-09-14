@@ -20,17 +20,18 @@
  *                                compressed variant (`checksum` is always
  *                                the hash of what `compressed` inflates to)
  *
- * Requires `unzip` and `zstd` on PATH (preinstalled on GitHub-hosted
- * runners).
+ * Requires `zstd` on PATH (preinstalled on GitHub-hosted runners). Zip
+ * extraction is handled in-process via yauzl.
  */
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import yauzl from 'yauzl';
 
 import { fail, run } from './exec.mjs';
 
@@ -48,7 +49,7 @@ if (!inputDir || !tag) {
 // Tag 格式 `@moonshot-ai/kimi-code@x.y.z` 或 `vx.y.z` 或 `x.y.z`，都归一化到 x.y.z
 const version = tag.replace(/^@moonshot-ai\/kimi-code@/, '').replace(/^v/, '');
 
-for (const tool of ['unzip', 'zstd']) {
+for (const tool of ['zstd']) {
   try {
     await execFileAsync('sh', ['-c', `command -v ${tool}`]);
   } catch {
@@ -63,6 +64,50 @@ async function sha256File(path) {
     stream.on('error', reject);
     stream.on('data', (chunk) => hash.update(chunk));
     stream.on('end', () => resolveHash(hash.digest('hex')));
+  });
+}
+
+/** Extract exactly one member from a zip archive, byte-faithfully, to
+ *  `destPath` (mode 0o755 — the member is the main executable). Replaces the
+ *  former external `unzip` call: some local unzip builds (MSYS2) translate
+ *  LF→CRLF for members they classify as text, which corrupts the extracted
+ *  binary and its checksum. yauzl streams the stored bytes verbatim and
+ *  verifies CRC32 like unzip does. */
+function extractExecutable(zipPath, memberName, destPath) {
+  return new Promise((resolveExtract, rejectExtract) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (openError, zipFile) => {
+      if (openError) {
+        rejectExtract(openError);
+        return;
+      }
+      const fail = (error) => {
+        zipFile.close();
+        rejectExtract(error);
+      };
+      zipFile.on('error', fail);
+      zipFile.on('end', () => fail(new Error(`zip member not found: ${memberName}`)));
+      zipFile.on('entry', (entry) => {
+        if (entry.fileName !== memberName) {
+          zipFile.readEntry();
+          return;
+        }
+        zipFile.openReadStream(entry, (streamError, readStream) => {
+          if (streamError) {
+            fail(streamError);
+            return;
+          }
+          const writeStream = createWriteStream(destPath, { mode: 0o755 });
+          writeStream.on('error', fail);
+          readStream.on('error', fail);
+          writeStream.on('finish', () => {
+            zipFile.close();
+            resolveExtract();
+          });
+          readStream.pipe(writeStream);
+        });
+      });
+      zipFile.readEntry();
+    });
   });
 }
 
@@ -95,7 +140,7 @@ for (const sumFile of sumFiles.sort()) {
 
   const workDir = await mkdtemp(join(tmpdir(), `native-manifest-${target}-`));
   try {
-    await run('unzip', ['-o', resolve(inputDir, zipName), '-d', workDir]);
+    await extractExecutable(resolve(inputDir, zipName), exeName, join(workDir, exeName));
     const exePath = join(workDir, exeName);
     const binaryChecksum = await sha256File(exePath);
     await run('zstd', ['-T0', '-19', '-q', '-f', '-o', resolve(inputDir, zstName), exePath]);

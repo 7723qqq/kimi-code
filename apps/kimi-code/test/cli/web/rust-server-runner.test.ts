@@ -138,18 +138,19 @@ describe('rust-server-runner', () => {
       expect(res.deprecationNotice).toBeUndefined();
     });
 
-    it('falls back to legacy server with deprecation notice when binary is not found', () => {
+    it('defaults to Rust server even when binary finder returns undefined (throws on start)', () => {
       const res = resolveServerRunner({}, () => undefined);
-      expect(res.isRust).toBe(false);
-      expect(res.isLegacyFallback).toBe(true);
-      expect(res.deprecationNotice).toContain('kap-server is deprecated');
+      expect(res.isRust).toBe(true);
+      expect(res.isLegacyFallback).toBe(false);
+      expect(res.deprecationNotice).toBeUndefined();
     });
 
-    it('honors --legacy-server even when rust binary is present', () => {
+    it('rejects --legacy-server with deprecation error indicating kap-server is retired', async () => {
       const res = resolveServerRunner({ legacyServer: true }, () => '/path/to/kimi-agent');
       expect(res.isRust).toBe(false);
-      expect(res.isLegacyFallback).toBe(true);
-      expect(res.deprecationNotice).toContain('kap-server (agent-core-v2) is deprecated');
+      expect(res.isLegacyFallback).toBe(false);
+      expect(res.deprecationNotice).toContain('kap-server has been retired and removed');
+      await expect(res.runner(defaultOptions)).rejects.toThrow('kap-server has been retired and removed');
     });
 
     it('honors --rust-server explicitly', () => {

@@ -28,17 +28,7 @@ export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.kimi.com';
 
 export const REMOTE_CONTROL_RELAY_URL_ENV = 'KIMI_CODE_REMOTE_CONTROL_RELAY_URL';
 
-export const REMOTE_CONTROL_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_REMOTE_CONTROL';
 
-const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-export function isRemoteControlEnabled(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): boolean {
-  const truthy = (key: string): boolean =>
-    TRUTHY_ENV_VALUES.has((env[key] ?? '').trim().toLowerCase());
-  return truthy('KIMI_CODE_EXPERIMENTAL_FLAG') || truthy(REMOTE_CONTROL_FLAG_ENV);
-}
 
 export function resolveRemoteControlRelayOrigin(
   env: Readonly<Record<string, string | undefined>> = process.env,

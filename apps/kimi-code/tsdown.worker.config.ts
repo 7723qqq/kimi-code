@@ -2,11 +2,9 @@
 // self-contained ESM files so they ship as embedded assets and can be
 // spawned from disk at runtime:
 //   - text-build-worker.mjs: the minidb text-build worker
-//     (packages/minidb/src/worker/text-build-worker.ts);
-//   - search-worker.mjs: the kap-server global-search worker
-//     (packages/kap-server/src/search/worker/entry.ts).
-// Without them the bundled binary lacks the worker entry files on disk and
-// heavy index work degrades to the inline main-thread cores, stalling the
+//     (packages/minidb/src/worker/text-build-worker.ts).
+// Without it the bundled binary lacks the worker entry file on disk and
+// heavy index work degrades to the inline main-thread core, stalling the
 // event loop on large corpora. Runs after the main bundle with clean:false
 // so all verified files remain.
 //
@@ -46,5 +44,4 @@ function workerConfig(name: string, entry: string) {
 
 export default [
   workerConfig('text-build-worker', '../../packages/minidb/src/worker/text-build-worker.ts'),
-  workerConfig('search-worker', '../../packages/kap-server/src/search/worker/entry.ts'),
 ];

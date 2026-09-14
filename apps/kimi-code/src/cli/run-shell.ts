@@ -19,7 +19,7 @@ import {
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { setLocale, t } from '#/i18n';
-import { maybeLoadRustEngine } from '#/cli/rust-engine';
+import { assertRustEngineAvailable } from '#/cli/rust-engine';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -63,14 +63,19 @@ export async function runShell(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  // Rust engine override: the TS engine is explicitly disabled, so a missing
-  // or broken rust bundle exits here instead of silently running the JS loop.
-  const engineOverride = await maybeLoadRustEngine(telemetryBootstrap.homeDir).catch(
-    (error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    },
-  );
+  // Rust engine startup gate. Turns run on the Rust engine through the native
+  // harness (session-handle → napi addon), which wires the engine itself, so
+  // the CLI only needs the check: a missing or broken bundle must exit here
+  // with the build hint instead of failing per-session. Builds nothing — the
+  // adapter this module can still build is the stdio fallback channel, and
+  // `KimiHarnessOptions.engineOverride` (its only handoff) had no consumer
+  // once the v2 host loop was deleted, so the field is gone.
+  try {
+    assertRustEngineAvailable(telemetryBootstrap.homeDir);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
   const harnessOptions: KimiHarnessOptions = {
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
@@ -87,7 +92,6 @@ export async function runShell(
       });
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
-    ...(engineOverride !== undefined ? { engineOverride } : {}),
   };
   // Real native harness powered by Rust EngineSessionHandle
   const harness = createKimiHarnessNative(harnessOptions);

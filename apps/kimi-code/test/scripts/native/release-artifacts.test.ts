@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -108,6 +108,14 @@ function writeBunZip(dir: string, zipTarget: string, content: string): Promise<s
       .pipe(createWriteStream(zipPath))
       .on('error', rejectZip)
       .on('close', () => resolveZip(zipPath));
+  }).then(async (path) => {
+    // package.mjs emits a checksum sidecar next to every archive; the
+    // manifest script discovers targets from those sidecars.
+    await writeFile(
+      join(dir, `${zipName}.sha256`),
+      `${sha256(await readFile(path))}  ${zipName}\n`,
+    );
+    return path;
   });
 }
 

@@ -11,12 +11,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createServerLogger, startServer, type ServerLogger } from '@moonshot-ai/kap-server';
-import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -24,10 +21,10 @@ import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
 import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
-import { initializeServerTelemetry } from '../../telemetry';
-import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
+import { getHostPackageRoot, getVersion } from '../../version';
 import {
   accessUrlLines,
+  browserOpenOrigin,
   buildOpenableUrl,
   isLoopbackHost,
   splitTokenFragment,
@@ -36,8 +33,6 @@ import { type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
-  isRemoteControlEnabled,
-  REMOTE_CONTROL_FLAG_ENV,
   startRemoteControl,
   type RemoteControlHandle,
   type RemoteControlOptions,
@@ -58,17 +53,6 @@ import {
 
 const WEB_ASSETS_DIR = 'dist-web';
 
-/**
- * Minimal surface `runServerInProcess` needs from the server. kap-server's
- * `RunningServer` is adapted to it (it returns `{ host, port, close }`
- * instead of `{ address, logger, close }`).
- */
-interface RoutedServer {
-  readonly address: string;
-  readonly logger: ServerLogger;
-  close(): Promise<void>;
-}
-
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
   remoteControl?: boolean;
@@ -83,7 +67,7 @@ export interface StartForegroundHooks {
 }
 
 export interface WebCommandDeps {
-  /** Foreground runner; defaults to the real in-process runner when omitted. */
+  /** Foreground runner; defaults to the real native runner when omitted. */
   startServerForeground?: (
     options: ParsedServerOptions,
     hooks?: StartForegroundHooks,
@@ -116,8 +100,8 @@ export interface ServerRunnerResolution {
 }
 
 /**
- * Resolve the appropriate server runner (native Rust server vs legacy kap-server).
- * Prefers the native Rust server by default whenever the binary is discoverable.
+ * Resolve the appropriate server runner (native Rust server only).
+ * kap-server has been retired; native kimi-agent is the sole supported server.
  */
 export function resolveServerRunner(
   opts: WebCliOptions,
@@ -126,32 +110,26 @@ export function resolveServerRunner(
   const forceLegacy = opts.legacyServer === true || process.env['KIMI_LEGACY_SERVER'] === '1';
   if (forceLegacy) {
     return {
-      runner: startServerForeground,
+      runner: async () => {
+        throw new Error(
+          '[DEPRECATION] kap-server has been retired and removed. Only the native kimi-agent server is supported.',
+        );
+      },
       isRust: false,
-      isLegacyFallback: true,
-      deprecationNotice:
-        '[DEPRECATION] kap-server (agent-core-v2) is deprecated and will be removed in a future release. Native kimi-agent server is recommended.',
-    };
-  }
-
-  const forceRust = opts.rustServer === true || process.env['KIMI_USE_RUST_SERVER'] === '1';
-  const hasRustBinary = findBin() !== undefined;
-
-  if (forceRust || hasRustBinary) {
-    return {
-      runner: startRustServerForeground,
-      isRust: true,
       isLegacyFallback: false,
+      deprecationNotice:
+        '[DEPRECATION] kap-server has been retired and removed. Only the native kimi-agent server is supported.',
     };
   }
 
-  // Fallback to legacy kap-server when rust binary cannot be found
   return {
-    runner: startServerForeground,
-    isRust: false,
-    isLegacyFallback: true,
-    deprecationNotice:
-      '[DEPRECATION] Native kimi-agent binary was not found; falling back to legacy kap-server (agent-core-v2). kap-server is deprecated and will be removed.',
+    runner: (options, hooks) =>
+      startRustServerForeground(options, hooks, {
+        findBinary: findBin,
+        webAssetsDir: serverWebAssetsDir(),
+      }),
+    isRust: true,
+    isLegacyFallback: false,
   };
 }
 
@@ -163,7 +141,7 @@ export function resolveServerRunner(
  * logged by proxies. The Web UI reads it from `location.hash` after load.
  */
 export function buildWebUrl(origin: string, token: string): string {
-  return buildOpenableUrl(origin, token);
+  return buildOpenableUrl(browserOpenOrigin(origin), token);
 }
 
 /** Build the `web` command, mounting the runner action on `cmd` itself. */
@@ -224,10 +202,8 @@ export function buildWebCommand(
     withServerOptions.addOption(
       new Option(
         '--rc, --remote-control',
-        'Expose the web UI through Kimi Remote Control (experimental).',
-      )
-        .default(false)
-        .hideHelp(!isRemoteControlEnabled()),
+        'Expose the web UI through Kimi Remote Control.',
+      ).default(false),
     );
   }
   return withServerOptions
@@ -247,11 +223,6 @@ export async function handleWebCommand(
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
-  if (opts.remoteControl === true && !isRemoteControlEnabled()) {
-    throw new Error(
-      `--remote-control is experimental: set ${REMOTE_CONTROL_FLAG_ENV}=1 (or KIMI_CODE_EXPERIMENTAL_FLAG=1) to enable it.`,
-    );
-  }
   if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
     throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
   }
@@ -318,7 +289,7 @@ export async function handleWebCommand(
           : formatReadyLine(origin, token, parsed.dangerousBypassAuth),
       );
       if (opts.open === true) {
-        deps.openUrl(token !== undefined ? buildWebUrl(origin, token) : origin);
+        deps.openUrl(token !== undefined ? buildWebUrl(origin, token) : browserOpenOrigin(origin));
       }
     },
     onShutdown: async () => {
@@ -352,128 +323,14 @@ function formatDangerNoticeLines(): string[] {
 }
 
 /**
- * `kimi web` — runs the local server in-process, attached to the current
- * terminal. Resolves only via `process.exit` (SIGINT/SIGTERM).
+ * `kimi web` — runs the native Rust server in the foreground.
  */
 export async function startServerForeground(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks = {},
 ): Promise<never> {
-  return runServerInProcess(options, hooks);
-}
-
-/**
- * Start the server in the current process and block until shutdown.
- * `onReady` fires once the server is listening.
- */
-async function runServerInProcess(
-  options: ParsedServerOptions,
-  hooks: StartForegroundHooks,
-): Promise<never> {
-  const version = getVersion();
-  // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
-  // client itself is not passed into kap-server.
-  initializeServerTelemetry({ version });
-
-  let running: RoutedServer | undefined;
-  let stopping = false;
-
-  async function shutdown(reason: string): Promise<void> {
-    if (stopping) return;
-    stopping = true;
-    running?.logger.info({ reason }, 'server shutting down');
-    try {
-      await hooks.onShutdown?.(reason);
-    } catch (error) {
-      running?.logger.error(
-        { err: error instanceof Error ? error : new Error(String(error)) },
-        'foreground shutdown hook error',
-      );
-    }
-    try {
-      await running?.close();
-      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-    } catch (error) {
-      running?.logger.error(
-        { err: error instanceof Error ? error : new Error(String(error)) },
-        'server shutdown error',
-      );
-    }
-    process.exit(0);
-  }
-
-  // kap-server (the DI × Scope engine server) is the only server flavor. Its
-  // `startServer` returns `{ host, port, close }` rather than `{ address,
-  // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
-  // this runner consumes.
-  const logger = createServerLogger({ level: options.logLevel });
-  const webAssetsDir = serverWebAssetsDir();
-  if (webAssetsDir === undefined) {
-    logger.info('dev mode: web assets not built; starting the API server without the web UI');
-  }
-  const v2 = await startServer({
-    host: options.host,
-    port: options.port,
-    // Report the CLI's product version as `server_version` (/meta, web UI)
-    // rather than kap-server's private package version.
-    serverVersion: version,
-    // The CLI's host identity: feeds the engine's bootstrap client identity
-    // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
-    // OAuth flows and model / WebSearch requests carry the CLI identity. The
-    // `web` User-Agent suffix distinguishes web-UI traffic from direct CLI
-    // runs upstream (same product token, same platform).
-    hostIdentity: {
-      ...createKimiCodeHostIdentity(version),
-      userAgentSuffix: WEB_USER_AGENT_SUFFIX,
-    },
-    logLevel: options.logLevel,
-    logger,
-    debugEndpoints: options.debugEndpoints,
-    insecureNoTls: options.insecureNoTls,
-    allowRemoteShutdown: options.allowRemoteShutdown,
-    allowedHosts: options.allowedHosts,
-    disableAuth: options.dangerousBypassAuth,
-    webTitle: options.webTitle,
-    // Attach the engine's cloud telemetry appender (still gated by the config
-    // `telemetry` toggle). Complements the v1 client registered above, which
-    // only covers host-level events.
-    telemetry: true,
-    webAssetsDir,
-    engineBridge: true,
-    seeds: [],
-  });
-  logger.info('serving the REST/WS API and the bundled web UI');
-  running = {
-    address: `http://${v2.host}:${v2.port}`,
-    logger,
-    close: () => v2.close(),
-  };
-
-  track('server_started', { daemon: false });
-
-  process.once('SIGINT', () => {
-    void shutdown('SIGINT');
-  });
-  process.once('SIGTERM', () => {
-    void shutdown('SIGTERM');
-  });
-
-  running.logger.info({ address: running.address }, 'server ready');
-
-  try {
-    await hooks.onReady?.(running.address);
-  } catch (error) {
-    try {
-      await hooks.onShutdown?.('startup_failed');
-    } finally {
-      await running.close();
-      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-    }
-    throw error;
-  }
-
-  return new Promise<never>(() => {
-    // Keeps the event loop alive; the process ends via shutdown()/process.exit.
+  return startRustServerForeground(options, hooks, {
+    webAssetsDir: serverWebAssetsDir(),
   });
 }
 
@@ -532,7 +389,8 @@ export function formatReadyBanner(
     return frag === '' ? url(base) : url(base) + dim(frag);
   };
 
-  const port = Number(new URL(origin).port);
+  const lastColon = origin.lastIndexOf(':');
+  const port = Number(origin.slice(lastColon + 1)) || 58627;
   // Borderless header: the Kimi sprite (the little mascot with eyes) sits next
   // to the title, keeping the brand without the enclosing box.
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;

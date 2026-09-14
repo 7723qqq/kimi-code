@@ -34,8 +34,8 @@ describe('buildManifestKey', () => {
 
 describe('buildRuntimeAssetKey', () => {
   it('namespaces runtime files under the target', () => {
-    expect(buildRuntimeAssetKey('darwin-arm64', 'kap-search-worker')).toBe(
-      'native/darwin-arm64/runtime/kap-search-worker',
+    expect(buildRuntimeAssetKey('darwin-arm64', 'minidb-text-build-worker')).toBe(
+      'native/darwin-arm64/runtime/minidb-text-build-worker',
     );
   });
 });

@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ServerLogLevel } from '@moonshot-ai/kap-server';
+export type ServerLogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
 import { t } from '#/i18n';
 

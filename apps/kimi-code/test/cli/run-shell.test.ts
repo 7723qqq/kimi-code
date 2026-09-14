@@ -127,6 +127,10 @@ vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
 });
 
 vi.mock('#/cli/rust-engine', () => ({
+  // `run-shell` imports only the check-only gate now; the adapter loader is
+  // covered by rust-engine.test.ts. Kept here too so any transitive importer
+  // of the module still resolves.
+  assertRustEngineAvailable: vi.fn(),
   maybeLoadRustEngine: vi.fn(async () => undefined),
 }));
 
@@ -325,6 +329,7 @@ describe('runShell', () => {
       sessionId: undefined,
       endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
+      onUnexpectedError: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {

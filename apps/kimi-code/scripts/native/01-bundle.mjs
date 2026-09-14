@@ -15,9 +15,9 @@ export async function runBundleStep() {
   // miss it (npm builds get it via the `prebuild` script).
   await run(process.execPath, [buildVisAssetPath]);
   await run(process.execPath, [tsdownCliPath, '--config', 'tsdown.native.config.ts']);
-  // Bundle the off-main-thread workers (the minidb text-build worker and
-  // the kap-server global-search worker) into self-contained ESM files so
-  // they can ride the compiled binary as embedded assets and be spawned
+  // Bundle the off-main-thread worker (the minidb text-build worker)
+  // into a self-contained ESM file so it can ride the compiled binary as an
+  // embedded asset and be spawned from disk at runtime.
   // from disk at runtime — bundled binaries otherwise lack the worker
   // entries and heavy index work degrades to inline main-thread cores.
   // Runs after the main bundle with clean:false so all verified files remain.

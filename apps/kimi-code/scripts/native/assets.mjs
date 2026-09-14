@@ -6,7 +6,6 @@ import { pathToFileURL } from 'node:url';
 
 import { toPosixPath, listFiles, sha256 } from './fs-utils.mjs';
 import {
-  KAP_SEARCH_WORKER_ASSET,
   MINIDB_TEXT_BUILD_WORKER_ASSET,
   NATIVE_ASSET_MANIFEST_VERSION,
   buildAssetKey,
@@ -249,7 +248,6 @@ export async function collectNativeAssets({ appRoot, target }) {
   const runtimeFiles = [];
   for (const [fileName, asset] of [
     ['text-build-worker.mjs', MINIDB_TEXT_BUILD_WORKER_ASSET],
-    ['search-worker.mjs', KAP_SEARCH_WORKER_ASSET],
   ]) {
     const workerSource = resolve(nativeIntermediatesDir(), fileName);
     const workerBytes = await readFile(workerSource);
