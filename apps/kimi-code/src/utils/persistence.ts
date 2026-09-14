@@ -35,6 +35,52 @@ function assertNonConfigWrite(filePath: string): void {
   }
 }
 
+/**
+ * Windows refuses to rename over a destination another process still holds
+ * open (no delete sharing by default) and answers EPERM. Transient openers —
+ * a co-process reader, an antivirus scan, a file indexer — come and go within
+ * milliseconds, so both atomic writers below retry EPERM with jitter before
+ * giving up. POSIX renames over open files directly and never takes this path.
+ */
+const RENAME_EPERM_RETRIES = 100;
+const RENAME_EPERM_BASE_DELAY_MS = 20;
+
+function isRenameEperm(error: unknown): boolean {
+  return process.platform === 'win32' && (error as { code?: string } | null)?.code === 'EPERM';
+}
+
+function renameJitterMs(): number {
+  return RENAME_EPERM_BASE_DELAY_MS + Math.floor(Math.random() * (RENAME_EPERM_BASE_DELAY_MS + 10));
+}
+
+async function renameReplaceAsync(src: string, dst: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(src, dst);
+      return;
+    } catch (error) {
+      if (!isRenameEperm(error) || attempt >= RENAME_EPERM_RETRIES) throw error;
+      await new Promise((resolve) => {
+        setTimeout(resolve, renameJitterMs());
+      });
+    }
+  }
+}
+
+/** Sync twin of {@link renameReplaceAsync}. `Atomics.wait` is the only sleep
+ *  available on this path — the callers are sync by contract. */
+function renameReplaceSync(src: string, dst: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(src, dst);
+      return;
+    } catch (error) {
+      if (!isRenameEperm(error) || attempt >= RENAME_EPERM_RETRIES) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, renameJitterMs());
+    }
+  }
+}
+
 function tempPathFor(filePath: string): string {
   const dir = dirname(filePath);
   const base = basename(filePath);
@@ -69,7 +115,7 @@ export async function writeJsonFile<T>(
   const tmpPath = tempPathFor(filePath);
   try {
     await writeFile(tmpPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
-    await rename(tmpPath, filePath);
+    await renameReplaceAsync(tmpPath, filePath);
   } catch (error) {
     await unlink(tmpPath).catch(() => {});
     throw error;
@@ -83,7 +129,7 @@ export function writeJsonFileSync<T>(filePath: string, schema: z.ZodType<T>, val
   const tmpPath = tempPathFor(filePath);
   try {
     writeFileSync(tmpPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
-    renameSync(tmpPath, filePath);
+    renameReplaceSync(tmpPath, filePath);
   } catch (error) {
     try {
       unlinkSync(tmpPath);

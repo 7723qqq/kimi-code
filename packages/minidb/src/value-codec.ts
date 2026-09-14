@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fsyncDir } from './compaction.js';
 import { SNAPSHOT_FILE, WAL_FILE } from './generation.js';
+import { renameReplace } from './rename-replace.js';
 import type { RangeOptions } from './skiplist.js';
 import type { ValueMode } from './recovery.js';
 import type { ValueCodec, ValueCodecName, ValueModeSetting } from './types.js';
@@ -105,7 +106,12 @@ export async function writeFileAtomic(
   const tmp = `${file}.tmp-${process.pid}-${++sidecarTmpSeq}`;
   try {
     await fs.writeFile(tmp, data, 'utf8');
-    await fs.rename(tmp, file);
+    // `renameReplace`, not a bare rename: Windows refuses to rename over a
+    // destination another process holds open (a co-process reader, an
+    // antivirus scan, an indexer) and returns EPERM. Every other atomic
+    // rename in this package already goes through the retrying helper — this
+    // one did not, so a concurrent `createIndex` pair could fail outright.
+    await renameReplace(tmp, file);
   } finally {
     // A successful rename already moved the tmp away (this rm is a no-op); a
     // failed write/rename must not strand it.
