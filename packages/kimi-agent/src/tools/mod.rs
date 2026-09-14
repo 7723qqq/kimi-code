@@ -6001,7 +6001,11 @@ m2
             .trim()
             .trim_end_matches(['.', ')']);
 
-        let wait_res = runner.wait(task_id, 2000).await;
+        // 10s, not 2s: this wait races a real shell spawn, and on a loaded
+        // machine (parallel builds, ConPTY tests spawning powershells) 2s
+        // intermittently expired before the task finished — a flake, not a
+        // regression. The happy path still returns in milliseconds.
+        let wait_res = runner.wait(task_id, 10_000).await;
         assert!(matches!(
             wait_res,
             crate::storage::TaskWaitResult::Completed(_)
