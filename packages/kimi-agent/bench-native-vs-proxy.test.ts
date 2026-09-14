@@ -84,14 +84,13 @@ async function sseFirstDeltaUntilDone(
     throw new Error('response body is not a readable stream');
   }
   const decoder = new TextDecoder();
-  let v:
-    | {
-        type?: string;
-        delta?: { type?: string; text?: string };
-        usage?: { output_tokens?: number; input_tokens?: number };
-        message?: { stop_reason?: string | null };
-      }
-    | undefined;
+  interface SseEvent {
+    type?: string;
+    delta?: { type?: string; text?: string };
+    usage?: { output_tokens?: number; input_tokens?: number };
+    message?: { stop_reason?: string | null };
+  }
+  let v: SseEvent | undefined;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -104,16 +103,17 @@ async function sseFirstDeltaUntilDone(
       const data = line.slice(6);
       if (data === '[DONE]') continue;
       try {
-        v = JSON.parse(data);
+        v = JSON.parse(data) as SseEvent;
       } catch {
         continue;
       }
+      if (v === undefined) continue;
       if (v.type === 'content_block_delta' && v.delta?.type === 'text_delta') {
         if (!firstDeltaSent) {
           firstDeltaSent = true;
           onFirstDelta(performance.now());
         }
-        if (onTextPart) await onTextPart(v.delta.text ?? '');
+        if (onTextPart) await onTextPart(v.delta?.text ?? '');
       }
       if (v.type === 'message_delta' && v.usage) {
         outputTokens = v.usage.output_tokens ?? 0;

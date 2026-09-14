@@ -9,6 +9,7 @@
  * providers raced).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -36,7 +37,7 @@ const providers = await (async (): Promise<Providers | null> => {
   const cfg = loadRuntimeConfigSafe(CFG);
   if (cfg.fileError !== undefined) return null;
   const minimax = cfg.config.providers?.['minimax-cn-coding-plan'];
-  const deepseek = cfg.config.providers?.deepseek;
+  const deepseek = cfg.config.providers?.['deepseek'];
   if (minimax?.apiKey && deepseek?.apiKey) {
     return { minimaxKey: minimax.apiKey, deepseekKey: deepseek.apiKey };
   }
@@ -114,11 +115,11 @@ describe.skipIf(!optedIn || !providers)('real-key MultiLLM concurrency', () => {
               routedModels.add(input.modelName ?? '');
               const name = (input.modelName ?? '').toLowerCase();
               if (name.includes('minimax')) {
-                calls.minimax += 1;
+                calls['minimax'] = (calls['minimax'] ?? 0) + 1;
                 return { toolCalls: [], providerFinishReason: 'stop', usage: { inputOther: 1, output: await streamMinimax(), inputCacheRead: 0, inputCacheCreation: 0 } };
               }
               if (name.includes('deepseek')) {
-                calls.deepseek += 1;
+                calls['deepseek'] = (calls['deepseek'] ?? 0) + 1;
                 return { toolCalls: [], providerFinishReason: 'stop', usage: { inputOther: 1, output: await streamDeepseek(), inputCacheRead: 0, inputCacheCreation: 0 } };
               }
               throw new Error(`unroutable model name: ${input.modelName}`);
@@ -148,8 +149,8 @@ describe.skipIf(!optedIn || !providers)('real-key MultiLLM concurrency', () => {
 
         // Both providers must have been raced (real concurrency), each under
         // its own model name — the seam this test guards.
-        expect(calls.minimax).toBeGreaterThanOrEqual(1);
-        expect(calls.deepseek).toBeGreaterThanOrEqual(1);
+        expect(calls['minimax']).toBeGreaterThanOrEqual(1);
+        expect(calls['deepseek']).toBeGreaterThanOrEqual(1);
         expect(routedModels).toEqual(new Set([MINIMAX_MODEL, DEEPSEEK_MODEL]));
         expect(result.stopReason).toBe('completed');
         expect(result.steps).toBeGreaterThanOrEqual(1);
@@ -283,7 +284,7 @@ describe('MultiLLM multi-step performance (P20-B)', () => {
             if (call.name !== 'Read') return { output: 'unknown tool', isError: true };
             try {
               const args = JSON.parse(call.arguments ?? '{}') as { path?: string };
-              const text = await Bun.file(join(workspace, args.path ?? '')).text();
+              const text = await readFile(join(workspace, args.path ?? ''), 'utf8');
               return { output: text, isError: false };
             } catch (e) {
               return { output: `error: ${(e as Error).message}`, isError: true };
@@ -311,8 +312,8 @@ describe('MultiLLM multi-step performance (P20-B)', () => {
         // Sanity: 6 tool-call steps + 1 stop = 7 chats per provider,
         // the winner takes 6 steps, the loser is cancelled at step 7
         // after stop. We expect at least 6 from each provider.
-        expect(calls.minimax).toBeGreaterThanOrEqual(stepLimit);
-        expect(calls.deepseek).toBeGreaterThanOrEqual(stepLimit);
+        expect(calls['minimax']).toBeGreaterThanOrEqual(stepLimit);
+        expect(calls['deepseek']).toBeGreaterThanOrEqual(stepLimit);
         // Total chats per provider should equal stepLimit + 1 (one stop
         // call) = 7. Allow >= stepLimit to be tolerant of stop calls.
         expect(result.stopReason).toBe('completed');
@@ -394,7 +395,7 @@ describe('MultiLLM multi-step performance (P20-B)', () => {
               return {
                 toolCalls: [],
                 providerFinishReason: 'stop',
-                usage: { inputOther: 1, output: await streamFn(p), inputCacheRead: 0, inputCacheCreation: 0 },
+                usage: { inputOther: 1, output: await streamFn(), inputCacheRead: 0, inputCacheCreation: 0 },
               };
             },
           },
@@ -426,8 +427,8 @@ describe('MultiLLM multi-step performance (P20-B)', () => {
         // Same assertions as the P16 test (model routing + concurrency),
         // plus a per-event count for forward-compat with future multi-step
         // real-key runs.
-        expect(calls.minimax).toBeGreaterThanOrEqual(1);
-        expect(calls.deepseek).toBeGreaterThanOrEqual(1);
+        expect(calls['minimax']).toBeGreaterThanOrEqual(1);
+        expect(calls['deepseek']).toBeGreaterThanOrEqual(1);
         expect(routedModels).toEqual(new Set([MINIMAX_MODEL, DEEPSEEK_MODEL]));
         expect(result.stopReason).toBe('completed');
         expect(result.steps).toBeGreaterThanOrEqual(1);

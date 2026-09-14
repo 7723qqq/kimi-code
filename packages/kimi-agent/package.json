@@ -23,7 +23,8 @@
   "scripts": {
     "build": "napi build --platform --release --dts target/napi-generated.d.ts && bun scripts/fix-napi-dts.mjs",
     "test": "cargo test --features cli",
-  "test:js": "vitest run"
+    "test:js": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "napi": {
     "binaryName": "kimi_agent",

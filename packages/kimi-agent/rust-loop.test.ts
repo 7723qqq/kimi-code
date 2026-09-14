@@ -112,7 +112,7 @@ describe('projectHostMessageToWire', () => {
       role: 'assistant',
       content: [
         { type: 'text', text: 'answer' },
-        { type: 'think', think: 'internal reasoning' },
+        { type: 'think', think: 'internal reasoning' } as never,
       ],
     });
     expect(wire.content).toBe('answer');
@@ -310,8 +310,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     const out = await driveWriteTurn(workspace, { decision: 'allow' });
 
     expect(out.permissionCalls).toHaveLength(1);
-    expect(out.permissionCalls[0].name).toBe('Write');
-    expect(out.hostToolExecutions).toBe(0, 'native write must not fall back to host executeTool');
+    expect(out.permissionCalls[0]?.name).toBe('Write');
+    expect(out.hostToolExecutions, 'native write must not fall back to host executeTool').toBe(0);
     expect(out.fileExisted).toBe(true);
     expect(out.fileContent).toBe('seam check\n');
     // Rust emits tool.native on both allow and deny; the JS handler must
@@ -329,7 +329,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     // → adapter telemetry.eventsEmitted seam.
     const telemetry = (out.result as { telemetry?: { eventsEmitted: number } }).telemetry;
     expect(typeof telemetry?.eventsEmitted).toBe('number');
-    expect(telemetry.eventsEmitted).toBeGreaterThanOrEqual(1);
+    expect(telemetry?.eventsEmitted).toBeGreaterThanOrEqual(1);
     // The host observer sees the turn the engine actually completed, which is
     // what the /status Engine row reports - same object, not a re-derivation.
     const observed = out.observed as {
@@ -350,8 +350,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     });
 
     expect(out.permissionCalls).toHaveLength(1);
-    expect(out.permissionCalls[0].name).toBe('Write');
-    expect(out.hostToolExecutions).toBe(0, 'denied calls must not fall back to host executeTool');
+    expect(out.permissionCalls[0]?.name).toBe('Write');
+    expect(out.hostToolExecutions, 'denied calls must not fall back to host executeTool').toBe(0);
     expect(out.fileExisted).toBe(false);
     const toolResultEvents = out.events
       .filter(
@@ -359,7 +359,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       )
       .map((e) => e as { result?: { isError?: boolean; output?: unknown } });
     expect(toolResultEvents).toHaveLength(1);
-    expect(toolResultEvents[0].result?.isError).toBe(true);
+    expect(toolResultEvents[0]?.result?.isError).toBe(true);
   });
 
   // P46: the native `Agent` tool runs a foreground subagent from the
@@ -538,7 +538,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
     ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
     expect(toolResultEvents).toHaveLength(1);
-    const rawOutput = toolResultEvents[0].result?.output;
+    const rawOutput = toolResultEvents[0]?.result?.output;
     const output = typeof rawOutput === 'string' ? rawOutput : '';
     expect(output).toContain('actual_subagent_type: researcher');
     expect(output).toContain('status: completed');
@@ -615,18 +615,18 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(out.chatCalls).toBe(4);
     expect(out.hostToolExecutions).toBe(0);
 
-    expect(out.subagentEvents.map((e) => e.type)).toEqual([
+    expect(out.subagentEvents.map((e) => e['type'])).toEqual([
       'subagent.spawned',
       'subagent.started',
       'subagent.completed',
     ]);
     const spawned = out.subagentEvents[0];
-    expect(spawned.subagentName).toBe('researcher');
-    expect(spawned.parentToolCallId).toBe('agent-call-1');
-    expect(spawned.description).toBe('Loop probe');
+    expect(spawned?.['subagentName']).toBe('researcher');
+    expect(spawned?.['parentToolCallId']).toBe('agent-call-1');
+    expect(spawned?.['description']).toBe('Loop probe');
     const completed = out.subagentEvents[2];
-    expect(completed.resultSummary).toBe(longSummary);
-    expect((completed.usage as { inputOther: number }).inputOther).toBeGreaterThan(0);
+    expect(completed?.['resultSummary']).toBe(longSummary);
+    expect((completed?.['usage'] as { inputOther: number }).inputOther).toBeGreaterThan(0);
 
     const toolResultEvents = out.events.filter(
       (e) =>
@@ -636,7 +636,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
     ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
     expect(toolResultEvents).toHaveLength(1);
-    expect(String(toolResultEvents[0].result?.output)).toContain(longSummary);
+    expect(String(toolResultEvents[0]?.result?.output)).toContain(longSummary);
   });
 
   // P52: the native-path veto mirrors — btw's full tool denial and swarm's
@@ -653,8 +653,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     );
 
     expect((out.result as { stopReason: string }).stopReason).toBe('completed');
-    expect(out.fileExisted).toBe(false, 'the vetoed Write must not touch the disk');
-    expect(out.hostToolExecutions).toBe(0, 'no host fallback — the veto denies locally');
+    expect(out.fileExisted, 'the vetoed Write must not touch the disk').toBe(false);
+    expect(out.hostToolExecutions, 'no host fallback — the veto denies locally').toBe(0);
     const toolResultEvents = out.events.filter(
       (e) =>
         typeof e === 'object' &&
@@ -663,8 +663,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         (e as { toolCallId?: string }).toolCallId === 'call-stdio-write',
     ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
     expect(toolResultEvents).toHaveLength(1);
-    expect(toolResultEvents[0].result?.isError).toBe(true);
-    expect(String(toolResultEvents[0].result?.output)).toContain(
+    expect(toolResultEvents[0]?.result?.isError).toBe(true);
+    expect(String(toolResultEvents[0]?.result?.output)).toContain(
       'Tool calls are disabled for side questions',
     );
   });
@@ -683,7 +683,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     expect(out.hostToolExecutions).toBe(0);
     // Parent launch, parent finish — the subagent never ran.
     expect(out.chatCalls).toBe(2);
-    expect(out.subagentEvents).toEqual([], 'no lifecycle events for a vetoed Agent call');
+    expect(out.subagentEvents, 'no lifecycle events for a vetoed Agent call').toEqual([]);
     const toolResultEvents = out.events.filter(
       (e) =>
         typeof e === 'object' &&
@@ -692,8 +692,8 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
         (e as { toolCallId?: string }).toolCallId === 'agent-call-1',
     ) as Array<{ result?: { output?: unknown; isError?: boolean } }>;
     expect(toolResultEvents).toHaveLength(1);
-    expect(toolResultEvents[0].result?.isError).toBe(true);
-    expect(String(toolResultEvents[0].result?.output)).toContain(
+    expect(toolResultEvents[0]?.result?.isError).toBe(true);
+    expect(String(toolResultEvents[0]?.result?.output)).toContain(
       'Agent is denied while swarm mode is active.',
     );
   });
@@ -810,13 +810,13 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const second = await driveWriteTurn(workspace, { decision: 'allow' }, { resetEngine: false });
-    expect(second.fileExisted).toBe(true, 'a turn after a crash must still complete');
+    expect(second.fileExisted, 'a turn after a crash must still complete').toBe(true);
 
     const pidAfter = (
       mod.activeAgentProcessForTests() as unknown as { process?: { pid?: number } } | null
     )?.process?.pid;
     expect(pidAfter).toBeDefined();
-    expect(pidAfter).not.toBe(pidBefore, 'a replacement process must have been spawned');
+    expect(pidAfter, 'a replacement process must have been spawned').not.toBe(pidBefore);
   });
 
   it('P62: past the restart budget every turn fails with the restart guidance', async () => {
@@ -851,10 +851,10 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — host/check_permission
       'P62: the 4th crash must stop respawning and record why',
     ).toBeDefined();
 
-    await expect(engine?.({} as never)).rejects.toThrow(
-      /restart the CLI/,
+    await expect(
+      engine?.({} as never),
       'P62: the thrown guidance is the only thing a user sees — it must name the remedy',
-    );
+    ).rejects.toThrow(/restart the CLI/);
     expect(reported, 'P62: the host must hear it too, or /status keeps reporting a live engine').toBeDefined();
 
     mod.shutdownRustEngine();
@@ -1240,7 +1240,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio transport — provider model routin
 
 describe('stdio transport — host/goal JS-side handler', () => {
   type HostRequestHandler = {
-    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+    handleHostRequest(msg: { jsonrpc?: string; method?: string; id?: unknown; params?: unknown }): Promise<void>;
   };
 
   function fakeProcess(): { agent: AgentProcess; written: string[] } {
@@ -1368,7 +1368,7 @@ describe.skipIf(!hasStdioCliBinary())('stdio session handle (M1d 3b e2e)', () =>
 
 describe('stdio transport — host/ask_question JS handler', () => {
   type HostRequestHandler = {
-    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+    handleHostRequest(msg: { jsonrpc?: string; method?: string; id?: unknown; params?: unknown }): Promise<void>;
   };
 
   function fakeProcess(): {
@@ -1802,7 +1802,7 @@ describe('NapiEngine — ask_question callback passing', () => {
 
 describe('stdio transport — host/state_read / host/state_write JS handlers', () => {
   type HostRequestHandler = {
-    handleHostRequest(msg: { method?: string; id?: unknown; params?: unknown }): Promise<void>;
+    handleHostRequest(msg: { jsonrpc?: string; method?: string; id?: unknown; params?: unknown }): Promise<void>;
   };
 
   function fakeProcess(): {
