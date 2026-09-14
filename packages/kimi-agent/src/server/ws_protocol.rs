@@ -13,11 +13,12 @@
 //!   followed by a close — kap-server's own `wsConnectionV1.authorize`.
 //!
 //! `subscribe` / `unsubscribe` / `watch_fs_add` / `watch_fs_remove` are parsed
-//! and acked (the watch registry tracks paths per connection; actual filesystem
-//! event emission is not wired — see ROADMAP known-gaps). Top-level
-//! `resync_required` epoch-change frames have no server-side trigger yet: the
-//! epoch never changes mid-connection here, and cursor mismatches are reported
-//! through the ack's `resync_required` array per the v1 contract.
+//! and acked (the watch registry tracks paths per connection, and
+//! `server/fs_watch.rs` turns mtime changes into `event.fs.changed` on the
+//! session lane). Top-level `resync_required` epoch-change frames have no
+//! server-side trigger yet: the epoch never changes mid-connection here, and
+//! cursor mismatches are reported through the ack's `resync_required` array per
+//! the v1 contract.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -403,8 +404,8 @@ pub enum Inbound {
         terminal_id: String,
     },
     /// Register workspace paths to watch for a session (ws-control.ts:199-202).
-    /// The control layer acks with the live watch set; actual filesystem
-    /// event emission is not wired (see ROADMAP known-gaps).
+    /// The control layer acks with the live watch set; `server/fs_watch.rs`
+    /// turns mtime changes into `event.fs.changed` on the session lane.
     WatchFsAdd {
         id: String,
         session_id: String,

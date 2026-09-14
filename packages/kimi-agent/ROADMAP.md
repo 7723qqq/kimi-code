@@ -58,7 +58,7 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`microCompaction/` | `kimi-agent/src/compaction/mod.rs` | 🟡 **仅 fullCompaction；microCompaction 缺失** | 已实现基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。**但 v2 的 `microCompaction`（缓存未命中后把过大的旧工具结果替换为占位标记）在 Rust 全仓零命中**（`micro.?compact` = 0），且在 v2 内是被 `index.ts` 真实引用的活特性。注意 fork 的 TUI 实验面板仍在展示 `micro_compaction` 开关（`KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION`）——**当前是无效开关**。 |
+| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`microCompaction/` | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，354 行 + 8 个单测）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**与 v2 的差异**：v2 额外以「检测到 prompt-cache miss」为触发条件，该信号尚未接入引擎，目前仅由开关决定。 |
 | **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs` | ✅ **100% 原生** | `<system-reminder>` 包装与识别。内置日期变更注入、工作区 AGENTS.md 动态提醒、Goal 预算耗尽与 Plan-Mode Cadence 节律注入，压缩操作不丢失注入块。 |
 
 ### 板块 6：系统提示词与 Profile 角色目录
@@ -77,7 +77,7 @@
 |---|---|---|:---:|---|
 | **REST API 全路由** | `packages/kap-server/src/routes/`（41个文件） | `kimi-agent/src/server/router.rs`<br>`src/server/http.rs`, `fs_routes.rs` | ✅ **100% 原生** | 原生提供 `/api/v1` 全量接口：`/sessions` (CRUD, status, abort, fork)、`/workspaces`、`/skills`、`/models`、`/mcp`、`/plugins`、`/terminals`、`/fs` 等。 |
 | **WebSocket 全双工** | `packages/kap-server/src/ws/` | `kimi-agent/src/server/ws.rs`<br>`src/server/hub.rs` | ✅ **100% 原生** | RFC 6455 协议支持，实现打字机推流（stream.delta）、思考流（thinking.delta）、工具进度（tool.progress）、双向 Prompt/Cancel 控制帧与心跳 Ping/Pong（含 40112 鉴权）。 |
-| **虚拟终端** | `packages/kap-server/src/terminal/` | `kimi-agent/src/server/terminal.rs` | 🟡 **降级（非 PTY）** | 跨平台终端管理：REST 创建/列出/关闭 + WebSocket 双向数据吞吐均已实现。**但底层是管道子进程（`Command` + `Stdio::piped`），不是伪终端**——crate 无任何 pty/conpty 依赖。因此子进程没有控制终端：Ctrl-C、作业控制、`isatty` 与全屏 TUI 行为与真终端不同；`resize` 只改 descriptor 里的 cols/rows，无法下达 `TIOCSWINSZ`/`ResizePseudoConsole` 给子进程。详见 `server/terminal.rs` 模块说明。 |
+| **虚拟终端 PTY** | `packages/kap-server/src/terminal/` | `kimi-agent/src/server/terminal.rs` | ✅ **100% 原生** | 跨平台终端管理，基于 `portable-pty`（wezterm）：每个终端是一个真伪终端，REST 创建/列出/关闭 + WebSocket 二进制双向吞吐，`resize` 经 `MasterPty::resize` 下达 `TIOCSWINSZ`/`ResizePseudoConsole` 给子进程，Ctrl-C、作业控制与 `isatty` 行为与真终端一致。 |
 | **静态资产与 SPA** | `packages/kap-server/src/routes/webAssets.ts` | `kimi-agent/src/server/static_files.rs` | ✅ **100% 原生** | 内置静态 Web 资源托管与 SPA 前端回退路由支持。 |
 
 ### 板块 8：客户端 SDK 与通讯协议
@@ -290,15 +290,12 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 > 前一版（2026-09-13）在此列了 4 项，其中 2 项已在当日晚间的修复批次中解决，且第 2 项的描述本身失实。
 > 以下为**逐条回源码复核**后的当前状态。
 
-1. **#3594 remote-control 的原生服务端运行时**（仍缺失，但影响面已收窄）。
-   `server/mod.rs` 的 `/api/v1/remote-control` 已改为诚实应答：GET 返回 `enabled:false` +
-   `available:false` + `reason`，POST 返回 501 `REMOTE_CONTROL_UNAVAILABLE`，**不再伪造「已开启」状态和
-   `https://code-rc.kimi.com/devices/<id>/` 假 URL**（旧版会写 `state:"on"` 并回假 URL）。
-   注意区分：**产品级 remote control 是可用的**——它由 TS CLI 实现
-   （`apps/kimi-code/src/cli/sub/web/remote-control.ts`，1109 行：设备注册、到 `code-rc.kimi.com` 的
-   WebSocket 中继、反向 HTTP 代理、重连与心跳），`kimi rc` / `kimi web --remote-control` 走的是它。
-   真正缺的只是**脱离 CLI、由原生服务端自己提供服务**的那条路径（上游 `@moonshot-ai/remote-control`
-   manager 的等价物）。
+1. ~~#3594 remote-control 的原生服务端运行时~~ **已解决（2026-09-14）**。
+   `server/remote_control.rs`（1339 行）是原生实现：设备注册、到 `code-rc.kimi.com` 的 WebSocket 中继
+   （`tokio-tungstenite`）、心跳与有界指数退避重连、反向 HTTP 代理，由 `server/mod.rs` 持有
+   `RemoteControlHandle` 并在 `/api/v1/remote-control` 上暴露真实状态（不再是 `enabled:false` 的诚实占位）。
+   TS CLI 那条路径（`apps/kimi-code/src/cli/sub/web/remote-control.ts`）仍在，`kimi rc` /
+   `kimi web --remote-control` 走它；两条路径现在都能提供服务。
 
 2. ~~#3502 fs watch 语义~~ **已解决（2026-09-14，见 §1 板块对齐矩阵 #3502 行）**。此前本节曾写「原生有
    `fs_watch.rs` 单一通道」——当时该文件**并不存在**、引擎也没有任何监听实现，`watch_fs_*` 只解析 ack 不发射；
