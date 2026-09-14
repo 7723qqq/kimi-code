@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { vscodeProjects } from './apps/vscode/vitest.projects';
 
 export default defineConfig({
   test: {
@@ -8,7 +9,7 @@ export default defineConfig({
       'apps/kimi-inspect',
       'apps/vis/server',
       'apps/vis/web',
-      'apps/vscode',
+      ...vscodeProjects,
     ],
     coverage: {
       provider: 'v8',

@@ -77,7 +77,7 @@ apps/
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
   kimi-web/         — Vue 3 Web UI (fork addition; excluded from the root Bun workspace; standalone Bun install via its own bun.lock)
   vscode/           — VS Code extension (React 19 webview)
-  kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
+  kimi-inspect/     — Web inspector for kimi-agent /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
 ```
 
@@ -144,7 +144,7 @@ Key contributions:
 
 #### `apps/kimi-inspect` — Web Inspector
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface. Workspace/session browser, per-session chat, and Service panels. React 19 + Vite. Built on a `ProxyChannel` model similar to VS Code.
+Web inspector for the kimi-agent `/api/v1/debug` RPC surface. Workspace/session browser, per-session chat, and Service panels. React 19 + Vite. Built on a `ProxyChannel` model similar to VS Code.
 
 #### `apps/vis` — Session Visualizer
 
@@ -157,7 +157,6 @@ packages/
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
-  kap-server/          — Kimi Code local server (REST + WebSocket)
   kimi-agent/          — Rust agent engine + native Node addon (napi-rs)
   kosong/              — LLM / provider abstraction layer
   minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
@@ -175,8 +174,6 @@ packages/
 **`kimi-agent`** — Next-generation Rust agent engine that drives the entire agent execution. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, ACP stdio protocol, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). The former `kimi-native-tools` addon (bash, grep, glob, read, write, edit, token counting, output truncation, web fetching, image processing, SSE streaming, SQLite, ULID, i18n translation) was merged into this crate under `src/native/` — one crate, one `.node` binary, one npm package. See `packages/kimi-agent/ROADMAP.md`.
 
 **`kosong`** (v0.5.5) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
-
-**`kap-server`** — The Kimi Code local server. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
@@ -199,7 +196,7 @@ scripts/
   check-locale-keys.mjs         — Check locale key coverage
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
-  check-no-comments.mjs         — Enforce no-comment policy (kap-server, transcript)
+  check-no-comments.mjs         — Enforce no-comment policy (transcript)
   check-service-naming.mjs      — Check service naming conventions
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
@@ -344,7 +341,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 ### General Coding Rules
 
-- `packages/kap-server` and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
+- `packages/transcript` is a comment-free zone: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`

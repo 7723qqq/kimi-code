@@ -33,8 +33,6 @@
     "dev:cli": "cd apps/kimi-code && bun run dev",
     "dev:cli:marketplace": "cd apps/kimi-code && KIMI_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/kimi-code/plugins/marketplace.json bun run dev",
     "dev:server": "cd apps/kimi-code && bun run dev:server",
-    "dev:kap-server": "cd apps/kimi-code && bun run dev:kap-server",
-    "dev:v2": "cd apps/kimi-code && bun run dev:kap-server:multi",
     "build:plugin-marketplace": "cd apps/kimi-code && bun run build:plugin-marketplace",
     "vis": "cd apps/vis && bun run dev",
     "dev:docs": "cd docs && bun install && bun run dev",

@@ -29,11 +29,7 @@ const LOCALE_SOURCES = [
     en: 'apps/kimi-code/src/i18n/locales/en.ts',
     zh: 'apps/kimi-code/src/i18n/locales/zh.ts',
   },
-  {
-    name: 'kap-server',
-    en: 'packages/kap-server/src/i18n-locales/en.ts',
-    zh: 'packages/kap-server/src/i18n-locales/zh.ts',
-  },
+
   {
     name: 'kimi-inspect',
     en: 'apps/kimi-inspect/src/i18n/locales/en.ts',

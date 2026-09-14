@@ -11,6 +11,7 @@ const RETIRED_PACKAGES = [
   'kimi-native-tools',
   'klient',
   'acp-server',
+  'kap-server',
 ];
 
 const SPECIFIER_PATTERN = new RegExp(
