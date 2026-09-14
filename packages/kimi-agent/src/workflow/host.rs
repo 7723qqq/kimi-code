@@ -1,7 +1,11 @@
 //! `WorkflowHost` backed by the engine's [`SubagentManager`].
 //!
 //! The workflow runtime's `agent()` primitive becomes a real foreground
-//! subagent run; `search()` stays empty until a web-search provider is wired.
+//! subagent run; `search()` is bound to a web-search provider when one is
+//! attached via [`SubagentWorkflowHost::with_search`] — the `Workflow` tool
+//! wires the native DuckDuckGo search there. Without a provider `search()`
+//! returns an empty list (a bare `SubagentWorkflowHost` built in a test still
+//! behaves that way).
 
 use std::path::PathBuf;
 use std::sync::Arc;

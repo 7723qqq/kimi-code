@@ -381,7 +381,11 @@ pub struct NativeToolset {
     /// there, which is why the previous `scope_turn_id` helper was dead.
     /// Shared + atomic so it can be refreshed per turn after construction.
     turn_id: Arc<std::sync::atomic::AtomicUsize>,
-
+    /// Names the model has loaded through `select_tools`. Shared (`Arc`) so the
+    /// toolset can hand a `&mut` view to the loader while `execute` keeps its
+    /// `&self` signature; persists for the pipeline's lifetime, so
+    /// `already_available` is meaningful across turns.
+    loaded_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// The user's global `[tools]` enable/disable lists (v2 tool policy):
     /// applied to the advertised table and enforced again before execution.
     tools_filter: Option<tool_policy::ToolsFilter>,
@@ -477,7 +481,7 @@ impl NativeToolset {
             task_runner: None,
             file_history: Arc::new(std::sync::Mutex::new(None)),
             turn_id: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-
+            loaded_tools: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             tools_filter: None,
             secondary_model: None,
             image_read_byte_budget: None,
@@ -1017,7 +1021,13 @@ impl NativeToolset {
                         });
                     }
                 };
-                let mut loaded = std::collections::HashSet::new();
+                // The loaded set is the toolset's shared, session-scoped one:
+                // a fresh set per call made `already_available` unreachable and
+                // reported every requested tool as newly loaded.
+                let mut loaded = self
+                    .loaded_tools
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 Some(select_tools::execute_select_tools(
                     args,
                     &available,
@@ -1076,11 +1086,39 @@ impl NativeToolset {
                 let home = crate::workflow::kimi_home();
                 let host: Option<std::sync::Arc<dyn crate::workflow::WorkflowHost>> =
                     self.subagent_manager.clone().map(|manager| {
-                        std::sync::Arc::new(crate::workflow::host::SubagentWorkflowHost::new(
-                            manager,
-                            self.root.clone(),
-                            home.clone(),
-                        ))
+                        // `search()` backend: without a provider the workflow
+                        // primitive returned an empty list with no error, so a
+                        // script's web lookup silently found nothing. Bound to
+                        // the native DuckDuckGo search (the same engine the
+                        // WebSearch tool uses). The host trait takes a sync
+                        // provider, so this call blocks its executor thread for
+                        // the search timeout — bounded by `timeout_ms` and only
+                        // reached from a workflow script.
+                        let search: std::sync::Arc<crate::workflow::host::SearchProvider> =
+                            std::sync::Arc::new(|query: String, count: usize| {
+                                let config = crate::native::web_search::WebSearchConfig {
+                                    query,
+                                    max_results: count.clamp(1, 10),
+                                    ..Default::default()
+                                };
+                                crate::native::web_search::web_search(&config)
+                                    .results
+                                    .into_iter()
+                                    .map(|hit| crate::workflow::SearchHit {
+                                        title: hit.title,
+                                        url: hit.url,
+                                        snippet: hit.snippet,
+                                    })
+                                    .collect()
+                            });
+                        std::sync::Arc::new(
+                            crate::workflow::host::SubagentWorkflowHost::new(
+                                manager,
+                                self.root.clone(),
+                                home.clone(),
+                            )
+                            .with_search(search),
+                        )
                             as std::sync::Arc<dyn crate::workflow::WorkflowHost>
                     });
                 let outcome = crate::tools::workflow::run_workflow_tool(
@@ -3332,7 +3370,116 @@ mod tests {
         (dir, toolset)
     }
 
+    /// Minimal host that answers only `list_tools` — enough to drive
+    /// `select_tools` through the toolset.
+    struct ToolTableHost(Vec<crate::turn_loop::types::ToolInfo>);
 
+    impl crate::callbacks::HostCallbacks for ToolTableHost {
+        fn llm_chat(
+            &self,
+            _request: crate::rpc::types::LlmChatRequest,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+        {
+            Box::pin(async { Err("unused".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _request: crate::rpc::types::ToolExecuteRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ToolExecuteResponse, String>,
+        > {
+            Box::pin(async { Err("unused".into()) })
+        }
+
+        fn check_permission(
+            &self,
+            _request: crate::rpc::types::PermissionCheckRequest,
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::PermissionDecision, String>,
+        > {
+            Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
+        }
+
+        fn list_tools(
+            &self,
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ListToolsResponse, String>>
+        {
+            let tools = self.0.clone();
+            Box::pin(async move { Ok(crate::rpc::types::ListToolsResponse { tools }) })
+        }
+    }
+
+    fn tool_info(name: &str) -> crate::turn_loop::types::ToolInfo {
+        crate::turn_loop::types::ToolInfo {
+            name: name.to_string(),
+            description: format!("{name} tool"),
+            input_schema: json!({ "type": "object" }),
+        }
+    }
+
+    /// `select_tools` remembers what it loaded: the loaded set lives on the
+    /// toolset, so a second call reports `already available` instead of
+    /// re-claiming the load (a fresh set per call made that branch dead), and
+    /// the announcement reaches the model through `delivery`.
+    #[tokio::test]
+    async fn select_tools_remembers_loaded_names_and_announces_them() {
+        let (_dir, ts) = setup();
+        let ts = ts.with_callbacks(std::sync::Arc::new(ToolTableHost(vec![
+            tool_info("Read"),
+            tool_info("mcp__github__search"),
+        ])));
+
+        let first = ts
+            .execute_tool(
+                "select_tools",
+                &json!({ "names": ["mcp__github__search"] }),
+            )
+            .await
+            .expect("select_tools is a native tool");
+        assert!(!first.is_error, "{}", first.content);
+        assert!(
+            first.content.contains("Loaded: mcp__github__search"),
+            "{}",
+            first.content
+        );
+        let delivery = first.delivery.expect("announcement is delivered");
+        let announced = delivery
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                crate::rpc::types::ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .expect("a text block");
+        assert!(announced.contains("<tools_added>"), "{announced}");
+        assert!(announced.contains("mcp__github__search"), "{announced}");
+
+        // Second call for the same name: remembered, not re-loaded.
+        let second = ts
+            .execute_tool(
+                "select_tools",
+                &json!({ "names": ["mcp__github__search"] }),
+            )
+            .await
+            .expect("select_tools is a native tool");
+        assert!(
+            second
+                .content
+                .contains("Already available: mcp__github__search"),
+            "{}",
+            second.content
+        );
+        assert!(
+            second.delivery.is_none(),
+            "nothing new was loaded, so no announcement"
+        );
+    }
+
+    /// Locate a bash for native-Bash tests; `None` skips them (Windows CI
+    /// without Git Bash on PATH keeps the host fallback contract anyway).
     fn find_bash() -> Option<String> {
         for candidate in ["bash", "C:\\Program Files\\Git\\bin\\bash.exe"] {
             let ok = std::process::Command::new(candidate)

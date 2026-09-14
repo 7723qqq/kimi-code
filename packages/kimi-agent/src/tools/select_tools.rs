@@ -2,6 +2,28 @@
 //!
 //! Mirrors `packages/agent-core-v2/src/agent/toolSelect/` and
 //! `packages/agent-core-v2/src/agent/tools/select-tools/`.
+//!
+//! # Wiring (2026-09-14)
+//!
+//! Live:
+//! - `execute_select_tools` is dispatched from the `"select_tools"` arm of
+//!   [`crate::tools::NativeToolset::execute`], and the loaded set is now the
+//!   toolset's **session-scoped** `loaded_tools` set instead of a set created
+//!   and dropped on every call. `already_available` therefore reports names
+//!   loaded by an earlier call, and `to_load` reports only genuinely new ones.
+//! - `render_loadable_tools_announcement` is reached from
+//!   `execute_select_tools` and delivered to the model as a follow-up `user`
+//!   message via [`ExecutableToolResult::delivery`], so the
+//!   `<tools_added>` block the tool description refers to actually arrives.
+//!
+//! Deliberately unreachable:
+//! - `not_loaded_tool_output` has no call site **by design**. v2 deferred MCP
+//!   schemas out of `tools[]` and refused a call to a deferred-but-unloaded
+//!   tool. This engine advertises every tool it can execute
+//!   (`GET /api/v1/tools` reports all builtins and all MCP tools as
+//!   `active: true`), so no advertised tool is ever "not loaded" — gating a
+//!   call would reject tools the model can see. Keeping the helper here
+//!   documents the v2 wording; it is intentionally not wired.
 
 use std::collections::HashSet;
 
@@ -124,8 +146,20 @@ pub fn execute_select_tools(
     }
 
     let is_error = result.to_load.is_empty() && result.already_available.is_empty();
+
+    // Announce what just became loadable. `delivery` reaches the model as a
+    // follow-up `user` message — the same channel v2 used for its
+    // `loadable-tools` reminder. Without this the tool description told the
+    // model to fold `<tools_added>` blocks that were never produced, and
+    // `render_loadable_tools_announcement` had no caller at all.
+    let delivery = render_loadable_tools_announcement(&result.to_load, &[]).map(|text| {
+        crate::turn_loop::types::ToolDelivery {
+            blocks: vec![crate::rpc::types::ContentBlock::Text { text }],
+        }
+    });
+
     ExecutableToolResult {
-        delivery: None,
+        delivery,
         stop_turn: false,
         content: lines.join("\n"),
         is_error,
