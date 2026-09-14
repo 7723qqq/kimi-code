@@ -12,7 +12,7 @@
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EngineSessionHandle } from './session-handle';
+import { EngineSessionHandle, type SessionNativeModule } from './session-handle';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -20,11 +20,28 @@ const nativeEntry = readdirSync(import.meta.dirname).find(
   (f) => f.endsWith('.node') && f.startsWith('kimi_agent'),
 );
 
+/**
+ * The turn result the native addon hands back (`JsRunTurnResult` in
+ * `src/napi_bindings.rs`). Typed here so the assertions below read the fields
+ * directly instead of casting every access out of `unknown`.
+ */
+interface NativeTurnResult {
+  stopReason: string;
+  steps: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  inputCacheRead: number;
+  inputCacheCreation: number;
+  eventsEmitted: number;
+  llmRetries: number;
+  llmTransport: string;
+  nativeToolCalls: number;
+}
+
 /** Direct native module access (bypasses rust-loop.ts adapter). */
-function loadNativeModule(): {
-  runTurnRust: (...args: unknown[]) => Promise<unknown>;
-  resolveCallback: (id: number, error: string | null, result: string | null) => void;
-  getCallbackPayload: (id: number) => string | null;
+function loadNativeModule(): SessionNativeModule & {
+  runTurnRust: (...args: unknown[]) => Promise<NativeTurnResult>;
   cancelTurn: (turnId: string) => void;
 } {
   if (!nativeEntry) {
@@ -113,7 +130,7 @@ describe.skipIf(!nativeEntry)('napi native module', () => {
   it('reports the serving transport, the native tool count, and cache usage', async () => {
     const mod = loadNativeModule();
 
-    const result = (await mod.runTurnRust(
+    const result = await mod.runTurnRust(
       validParams,
       makeCallback(mod, (_req) =>
         JSON.stringify({
@@ -129,7 +146,7 @@ describe.skipIf(!nativeEntry)('napi native module', () => {
         }),
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
-    )) as Record<string, unknown>;
+    );
 
     // validParams sets neither nativeLlm nor providers, and no native toolset
     // is engaged, so the host proxy served every step.
@@ -207,10 +224,11 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — JSON serialization round-tri
     );
 
     expect(receivedRequest).toBeDefined();
-    expect(typeof (receivedRequest as Record<string, unknown>).system_prompt).toBe('string');
-    expect(typeof (receivedRequest as Record<string, unknown>).model_name).toBe('string');
-    expect(Array.isArray((receivedRequest as Record<string, unknown>).messages)).toBe(true);
-    expect(Array.isArray((receivedRequest as Record<string, unknown>).tools)).toBe(true);
+    const wire = receivedRequest as Record<string, unknown>;
+    expect(typeof wire['system_prompt']).toBe('string');
+    expect(typeof wire['model_name']).toBe('string');
+    expect(Array.isArray(wire['messages'])).toBe(true);
+    expect(Array.isArray(wire['tools'])).toBe(true);
   });
 
   it('llm_chat callback response is parsed correctly by Rust', async () => {
@@ -287,7 +305,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
 
     expect(toolExecuted).toBe(true);
     expect(receivedToolRequest).toBeDefined();
-    expect((receivedToolRequest as Record<string, unknown>).tool_name).toBe('echo');
+    expect((receivedToolRequest as Record<string, unknown>)['tool_name']).toBe('echo');
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
   });
@@ -712,7 +730,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () =
       makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
       undefined,
       makeCallback(mod, (req) => {
-        const parsed = JSON.parse(req as string) as { tool_name: string };
+        const parsed = JSON.parse(req) as { tool_name: string };
         permissionCalls.push(parsed.tool_name);
         return JSON.stringify({ decision: 'allow' });
       }),
@@ -746,7 +764,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — native mutating tools', () =
         messages: [{ role: 'user', content: 'write it' }],
       },
       makeCallback(mod, (req) => {
-        const parsed = JSON.parse(req as string) as { messages: Array<{ role: string; content: string }> };
+        const parsed = JSON.parse(req) as { messages: Array<{ role: string; content: string }> };
         void parsed;
         return JSON.stringify({
           tool_calls: [
@@ -1894,7 +1912,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
 
   it('executes the tool natively and maps an answered response into the model context', async () => {
     const mod = loadNativeModule();
-    let receivedRequest: Record<string, unknown> | null = null;
+    let receivedRequest: unknown = null;
 
     const { llmRequests, askQuestionRequests } = await runAskTurn(mod, (req) => {
       receivedRequest = JSON.parse(req);
@@ -1907,18 +1925,18 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
     expect(askQuestionRequests.length).toBe(1);
     expect(receivedRequest).not.toBeNull();
     const wire = receivedRequest as Record<string, unknown>;
-    expect(typeof wire.question_id).toBe('string');
-    expect((wire.question_id as string).startsWith('question_')).toBe(true);
-    const questions = wire.questions as Array<Record<string, unknown>>;
+    expect(typeof wire['question_id']).toBe('string');
+    expect((wire['question_id'] as string).startsWith('question_')).toBe(true);
+    const questions = wire['questions'] as Array<Record<string, unknown>>;
     expect(questions.length).toBe(1);
-    expect(questions[0]?.question).toBe('Which approach should I take?');
-    expect(questions[0]?.header).toBe('Style');
-    const options = questions[0]?.options as Array<Record<string, unknown>>;
-    expect(options.map((o) => o.label)).toEqual(['Option A (Recommended)', 'Option B']);
+    expect(questions[0]?.['question']).toBe('Which approach should I take?');
+    expect(questions[0]?.['header']).toBe('Style');
+    const options = questions[0]?.['options'] as Array<Record<string, unknown>>;
+    expect(options.map((o) => o['label'])).toEqual(['Option A (Recommended)', 'Option B']);
     // The formatted answer re-enters the model context as the tool result.
     const toolMsg = llmRequests[1]?.messages.find((m) => m.role === 'tool');
     const parsed = JSON.parse(toolMsg?.content ?? '{}') as Record<string, unknown>;
-    expect(parsed.answers).toEqual({
+    expect(parsed['answers']).toEqual({
       'Which approach should I take?': 'Option A (Recommended)',
     });
   });
@@ -1960,7 +1978,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
 
   it('forwards background:true to the host wire request', async () => {
     const mod = loadNativeModule();
-    let receivedRequest: Record<string, unknown> | null = null;
+    let receivedRequest: unknown = null;
 
     const { llmRequests } = await runAskTurn(
       mod,
@@ -1976,7 +1994,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — ask_user_question (第 4 批
       { ...askArgs, background: true },
     );
 
-    expect((receivedRequest as Record<string, unknown>).background).toBe(true);
+    expect((receivedRequest as Record<string, unknown>)['background']).toBe(true);
     const followUp = JSON.stringify(llmRequests[1]?.messages ?? []);
     expect(followUp).toContain('task_id: question_abc');
     expect(followUp).toContain('status: running');
@@ -2008,19 +2026,19 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
       },
       makeCallback(mod, () => stopResponse),
       makeCallback(mod, () => JSON.stringify({ content: 'ok', is_error: false })),
-    ) as Promise<string>;
+    );
   }
 
   it('creates a session, runs an enqueued turn, and folds history', async () => {
     const mod = loadNativeModule();
-    const sessionId = (await createSession(mod)) as string;
+    const sessionId = await createSession(mod);
     expect(sessionId).toMatch(/^session-/);
 
     const turnId = mod.sessionEnqueueTurn(
       sessionId,
       JSON.stringify({ role: 'user', content: 'hi' }),
       'newTurn',
-    ) as number;
+    );
     expect(typeof turnId).toBe('number');
 
     const outcome = (await mod.sessionTurnOutcome(sessionId, turnId)) as {
@@ -2043,7 +2061,7 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
   it('cancels a queued turn before it starts and keeps the active turn running', async () => {
     const mod = loadNativeModule();
     let release: (() => void) | undefined;
-    const sessionId = (await mod.createEngineSession(
+    const sessionId = await mod.createEngineSession(
       {
         turnId: 'ignored',
         systemPrompt: 'You are a test assistant.',
@@ -2060,13 +2078,13 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
         });
       }),
       makeCallback(mod, () => JSON.stringify({ content: 'ok', is_error: false })),
-    )) as string;
+    );
 
     const activeId = mod.sessionEnqueueTurn(
       sessionId,
       JSON.stringify({ role: 'user', content: 'gated' }),
       'newTurn',
-    ) as number;
+    );
     // Wait until the pump claims the first turn.
     for (let i = 0; i < 100; i += 1) {
       const status = mod.sessionStatus(sessionId) as { activeTurnId: number | null };
@@ -2080,7 +2098,7 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
       sessionId,
       JSON.stringify({ role: 'user', content: 'queued' }),
       'newTurn',
-    ) as number;
+    );
     expect(mod.sessionCancelTurn(sessionId, queuedId)).toBe(true);
     const queuedOutcome = (await mod.sessionTurnOutcome(sessionId, queuedId)) as {
       status: string;

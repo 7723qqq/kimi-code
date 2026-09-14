@@ -81,28 +81,36 @@ export interface SessionStatus {
   } | null;
 }
 
+/**
+ * A host callback's answer. Every one of these is `await`ed by
+ * [`makeRequestCallback`], so a synchronous handler is as valid as an async
+ * one — the type says so rather than forcing `async` on handlers that have
+ * nothing to await.
+ */
+export type CallbackAnswer = string | Promise<string>;
+
 /** Session-scoped host callbacks (the run_turn callback set plus the goal provider). */
 export interface SessionCallbacks {
-  llmChat: (request: string) => Promise<string>;
-  executeTool: (request: string) => Promise<string>;
+  llmChat: (request: string) => CallbackAnswer;
+  executeTool: (request: string) => CallbackAnswer;
   emitEvent?: (eventJson: string) => void;
-  checkPermission?: (request: string) => Promise<string>;
-  askQuestion?: (request: string) => Promise<string>;
-  stateRead?: (request: string) => Promise<string>;
-  stateWrite?: (request: string) => Promise<string>;
+  checkPermission?: (request: string) => CallbackAnswer;
+  askQuestion?: (request: string) => CallbackAnswer;
+  stateRead?: (request: string) => CallbackAnswer;
+  stateWrite?: (request: string) => CallbackAnswer;
   /** P53: native write executions snapshot pre-images host-side (fire-and-forget response). */
-  checkpoint?: (request: string) => Promise<string>;
+  checkpoint?: (request: string) => CallbackAnswer;
   turnEvent?: (eventJson: string) => void;
   telemetry?: (eventJson: string) => void;
-  listTools?: () => Promise<string>;
+  listTools?: () => CallbackAnswer;
   /** Fresh goal snapshot per turn, as the snake_case wire goal JSON or null. */
-  goal?: () => Promise<string | null>;
+  goal?: () => string | null | Promise<string | null>;
   /** OAuth bearer token for `auth_provider`-configured native transports. */
-  authToken?: (request: string) => Promise<string>;
+  authToken?: (request: string) => CallbackAnswer;
 }
 
 /** The session-scoped slice of the native addon. */
-interface SessionNativeModule {
+export interface SessionNativeModule {
   createEngineSession(
     params: unknown,
     llmChatCb: (callbackId: number) => void,
@@ -210,7 +218,7 @@ function loadSessionNativeModule(): SessionNativeModule {
  */
 function makeRequestCallback(
   mod: SessionNativeModule,
-  handler: (request: string) => Promise<string>,
+  handler: (request: string) => CallbackAnswer,
 ): (callbackId: number) => void {
   return (callbackId: number) => {
     const payload = mod.getCallbackPayload(callbackId);
