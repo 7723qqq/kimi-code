@@ -6,8 +6,7 @@ and **SQLite** (durable single-file persistence, WAL, indexed queries).
 Written in **TypeScript**, with strict types and zero runtime dependencies.
 
 > Built by studying the real source code of Redis, SQLite, NeDB, Bitcask, and a
-> tiny SQLite clone — see [`DESIGN_NOTES.md`](./DESIGN_NOTES.md) for what each
-> one taught us.
+> tiny SQLite clone.
 
 ## Features
 
@@ -428,9 +427,7 @@ is rotated — **non-blocking**: writers keep appending to the WAL (which double
 as a Redis-style rewrite buffer) while the snapshot is written, and pause only
 for a brief final rotation. Recovery loads the latest
 snapshot then replays the WAL, truncating any torn tail. Secondary indexes use
-a Redis-style skip list for range queries. See
-[`DESIGN_NOTES.md`](./DESIGN_NOTES.md) for the full rationale and the
-source-code study behind each choice.
+a Redis-style skip list for range queries.
 
 ## Concurrency & multi-process
 

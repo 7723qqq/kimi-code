@@ -4,8 +4,6 @@
 > 
 > 本路线图唯一的终态判定标准是：**v2 从 Monorepo 中物理消失，且 `apps/kimi-code`、`packages/kap-server` 与 `packages/klient` 完全由 Rust 原生引擎驱动**。
 > 功能等效只是迁移期的过渡验收手段，不是终点。
-> 
-> 历史演进档案（P0–P156 详细批次记录、测试断言、相对性能基准与工程决策）已完整归档至：[ROADMAP-history.md](./ROADMAP-history.md)。
 
 ---
 
