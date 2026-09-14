@@ -370,6 +370,40 @@ impl ServerEngine {
         memory_filing::config_flag(&config)
     }
 
+    /// Apply `[experimental].thinking_repeat_guard` to the process-wide
+    /// thinking-guard setting. Unset means on — the guard only ever removes a
+    /// degenerate repetition from the display, never content.
+    ///
+    /// The setting is process-wide rather than per-session because the guard
+    /// is built inside the LLM transport, which has no session handle. Every
+    /// session in one process reads the same config file, so they resolve the
+    /// same value; `KIMI_AGENT_THINKING_GUARD` still overrides it.
+    async fn apply_thinking_guard_setting(&self) {
+        crate::llm::thinking_guard::set_enabled(
+            self.thinking_guard_config_flag().await.unwrap_or(true),
+        );
+    }
+
+    /// The `[experimental].thinking_repeat_guard` entry alone, `None` when the
+    /// engine has no config source or the entry is unset.
+    async fn thinking_guard_config_flag(&self) -> Option<bool> {
+        let source = self.config_source()?;
+        let config = {
+            let guard = source.lock().await;
+            guard.clone()
+        }?;
+        match config
+            .experimental
+            .get(crate::llm::thinking_guard::GUARD_CONFIG_KEY)
+        {
+            Some(crate::config::ExperimentalValue::Bool(value)) => Some(*value),
+            Some(crate::config::ExperimentalValue::String(value)) => {
+                Some(!value.is_empty() && value != "false")
+            }
+            None => None,
+        }
+    }
+
     /// Hand the finished exchange to the background memory filing pass.
     ///
     /// The pass is spawned, never awaited: the turn report and the
@@ -835,6 +869,10 @@ impl ServerEngine {
             _ => None,
         };
         let ws_ref = ws_root.as_deref().unwrap_or(std::path::Path::new("."));
+        // Apply the thinking-guard setting before the pipeline builds its LLM:
+        // the guard is constructed with the transport, so a later write would
+        // only take effect on the next turn.
+        self.apply_thinking_guard_setting().await;
         let host_callbacks: Arc<dyn HostCallbacks> =
             match crate::storage::StateStore::for_workspace(ws_ref) {
                 Ok(store) => Arc::new(crate::callbacks::StateStoreCallbacks {
@@ -1381,6 +1419,64 @@ mod tests {
                 .micro_compaction_config()
                 .await
                 .is_some(),
+        );
+    }
+
+    /// The `[experimental].thinking_repeat_guard` flag drives the guard the
+    /// same way: unset yields no flag (the caller defaults it to on),
+    /// `true`/non-`false` strings enable it, `false` disables it.
+    #[tokio::test]
+    async fn thinking_guard_flag_reads_the_experimental_map() {
+        let with_flag = |value: Option<crate::config::ExperimentalValue>| {
+            let engine = engine();
+            let mut config = crate::config::KimiConfig::default();
+            if let Some(value) = value {
+                config.experimental.insert(
+                    crate::llm::thinking_guard::GUARD_CONFIG_KEY.to_string(),
+                    value,
+                );
+            }
+            engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+            engine
+        };
+
+        assert_eq!(
+            with_flag(None).thinking_guard_config_flag().await,
+            None,
+            "unset flag is not a value"
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(false)))
+                .thinking_guard_config_flag()
+                .await,
+            Some(false),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "false".into()
+            )))
+            .thinking_guard_config_flag()
+            .await,
+            Some(false),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(true)))
+                .thinking_guard_config_flag()
+                .await,
+            Some(true),
+        );
+        assert_eq!(
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "true".into()
+            )))
+            .thinking_guard_config_flag()
+            .await,
+            Some(true),
+        );
+        assert_eq!(
+            engine().thinking_guard_config_flag().await,
+            None,
+            "no config source leaves the flag unresolved"
         );
     }
 

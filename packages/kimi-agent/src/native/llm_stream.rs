@@ -226,6 +226,10 @@ pub async fn run_llm_stream_with(
     // An in-band error or a decode failure already reported the terminal state;
     // emitting `Done` afterwards would tell the caller the stream completed.
     let mut errored = false;
+    // Thinking-loop guard: a degenerate thinking stream is a decoding attractor
+    // the model cannot notice from inside, so the repetition is caught here and
+    // the rest of the block is dropped from the display.
+    let mut thinking_guard = crate::llm::thinking_guard::ThinkingGuard::from_settings();
 
     while let Some(result) = sse_stream.next().await {
         match result {
@@ -274,7 +278,28 @@ pub async fn run_llm_stream_with(
                 };
 
                 for part in decoded {
-                    emit(StreamEvent::Part(part));
+                    match part.part_type.as_str() {
+                        "think" => {
+                            // Drop the rest of a degenerate thinking loop.
+                            // Borrow rather than clone: this runs per token.
+                            let forward = match part.think.as_deref() {
+                                Some(text) => {
+                                    thinking_guard.observe(text)
+                                        == crate::llm::thinking_guard::ThinkingVerdict::Forward
+                                }
+                                None => true,
+                            };
+                            if forward {
+                                emit(StreamEvent::Part(part));
+                            }
+                        }
+                        "text" => {
+                            // The thinking block ended; the next one starts clean.
+                            thinking_guard.reset();
+                            emit(StreamEvent::Part(part));
+                        }
+                        _ => emit(StreamEvent::Part(part)),
+                    }
                 }
             }
             Err(e) => {

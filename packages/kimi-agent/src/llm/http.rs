@@ -295,6 +295,12 @@ impl NativeHttpLlm {
         let mut first_malformed: Option<String> = None;
         let mut in_band_error: Option<String> = None;
         let mut t_first_event: Option<std::time::Duration> = None;
+        // Thinking-loop guard: a degenerate thinking stream is a decoding
+        // attractor the model cannot notice from inside, so the repetition is
+        // caught here and the rest of the block is dropped from the display.
+        // The accumulator keeps its own copy — an Anthropic thinking block
+        // must round-trip with its signature intact.
+        let mut thinking_guard = crate::llm::thinking_guard::ThinkingGuard::from_settings();
         let mut stream = response.bytes_stream().eventsource();
         while let Some(event) = tokio::select! {
             // Mid-stream cancellation (generate.ts:154-202): abort the read
@@ -339,7 +345,9 @@ impl NativeHttpLlm {
             {
                 break;
             }
-            if let Some(delta) = acc.feed(&value) {
+            if let Some(delta) = acc.feed(&value)
+                && let Some(delta) = crate::llm::thinking_guard::gate_delta(&mut thinking_guard, delta)
+            {
                 self.emit_delta(delta);
             }
         }
@@ -1340,5 +1348,87 @@ mod tests {
             tokens.iter().all(|t| t == "token-1"),
             "every caller reuses the winner's token: {tokens:?}"
         );
+    }
+
+    /// A degenerate thinking loop must stop reaching the host, while the
+    /// answer that follows it still does. This drives the real SSE loop
+    /// against a local server, so it covers the wiring and not just the guard.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_thinking_loop_is_dropped_from_the_stream() {
+        const LOOP_DELTAS: usize = 60;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = sock.read(&mut buf).await;
+
+            let mut body = String::from(
+                "data: {\"type\":\"content_block_start\",\"index\":0,\
+                 \"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n",
+            );
+            for _ in 0..LOOP_DELTAS {
+                body.push_str(
+                    "data: {\"type\":\"content_block_delta\",\"index\":0,\
+                     \"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Let me check. \"}}\n\n",
+                );
+            }
+            body.push_str(
+                "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+                 data: {\"type\":\"content_block_start\",\"index\":1,\
+                 \"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+                 data: {\"type\":\"content_block_delta\",\"index\":1,\
+                 \"delta\":{\"type\":\"text_delta\",\"text\":\"Here is the fix.\"}}\n\n\
+                 data: {\"type\":\"message_stop\"}\n\n",
+            );
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{body}"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.flush().await;
+        });
+
+        let seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let cfg = config("anthropic", &format!("http://{addr}"));
+        let llm = NativeHttpLlm::new(cfg, String::new()).with_sink(Arc::new(move |event| {
+            sink_seen.lock().unwrap().push(event);
+        }));
+
+        llm.chat(LLMChatParams {
+            cancel: None,
+            messages: Arc::from(vec![crate::turn_loop::types::LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }]),
+            tools: Arc::from(Vec::new()),
+        })
+        .await
+        .expect("the stream completes");
+
+        let events = seen.lock().unwrap().clone();
+        let think_deltas = events
+            .iter()
+            .filter(|e| e["part"]["type"] == "think")
+            .count();
+        let text_deltas = events
+            .iter()
+            .filter(|e| e["part"]["type"] == "text")
+            .count();
+
+        assert!(
+            think_deltas > 0,
+            "the opening of the thinking block is still shown"
+        );
+        assert!(
+            think_deltas < LOOP_DELTAS,
+            "the loop must stop reaching the host: {think_deltas} of {LOOP_DELTAS} forwarded"
+        );
+        assert_eq!(text_deltas, 1, "the answer is never gated");
+
+        server.abort();
     }
 }

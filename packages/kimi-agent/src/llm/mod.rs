@@ -5,4 +5,5 @@ pub mod multi;
 pub mod openai;
 pub mod openai_responses;
 pub mod proxy;
+pub mod thinking_guard;
 pub mod wire;
