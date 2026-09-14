@@ -103,14 +103,10 @@ import type {
   McpServerConfig,
   McpServerInfo,
   McpServerLocator,
-  McpStartupMetrics,
   McpTestResult,
   PermissionMode,
   PluginCommandDef,
-  PluginInfo,
-  PluginSummary,
   PromptPart,
-  ReloadSummary,
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
@@ -786,6 +782,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       {},
       {
         get: (_target, prop) => {
+          // `await` probes `then` on whatever it is handed, and this proxy
+          // answers every property with a throwing function — so the probe
+          // itself threw and every unimplemented call reported `"then"`
+          // instead of the method the caller asked for. Answering `then` with
+          // `undefined` keeps the proxy a non-thenable, and the real property
+          // access below is what throws.
+          if (prop === 'then') return undefined;
           throw new KimiError(
             ErrorCodes.NOT_IMPLEMENTED,
             `native harness has not wired RPC method "${String(prop)}"`,
@@ -3113,84 +3116,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async cancelGlobalMcpServerAuth(): Promise<void> {}
   override async resetGlobalMcpServerAuth(): Promise<void> {}
 
-  override async beginMcpServerAuth(
-    _locator: McpServerLocator,
-    _options: { readonly cwd?: string } = {},
-  ): Promise<BeginGlobalMcpServerAuthResult> {
-    return { status: 'already-authorized' };
-  }
-
   override async completeMcpServerAuth(): Promise<void> {}
   override async cancelMcpServerAuth(): Promise<void> {}
-  override async resetMcpServerAuth(): Promise<void> {}
-
-  override async getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics> {
-    this.requireSession(input.sessionId);
-    return { durationMs: 0 };
-  }
-
-  override async listPlugins(): Promise<readonly PluginSummary[]> {
-    return [];
-  }
-
-  override async installPlugin(source: string): Promise<PluginSummary> {
-    const id = `plugin_${randomUUID()}`;
-    return {
-      id,
-      name: source,
-      displayName: source,
-      version: '1.0.0',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'local-path',
-    };
-  }
-
-  override async setPluginEnabled(_id: string, _enabled: boolean): Promise<void> {}
-  override async setPluginMcpServerEnabled(
-    _id: string,
-    _server: string,
-    _enabled: boolean,
-  ): Promise<void> {}
-  override async removePlugin(_id: string): Promise<void> {}
-  override async reloadPlugins(): Promise<ReloadSummary> {
-    return { added: [], removed: [], errors: [] };
-  }
-  override async getPluginInfo(id: string): Promise<PluginInfo> {
-    return {
-      id,
-      name: id,
-      displayName: id,
-      version: '1.0.0',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'local-path',
-      root: join(this.homeDir, 'plugins', id),
-      installedAt: new Date().toISOString(),
-      mcpServers: [],
-      diagnostics: [],
-    };
-  }
-  override async activatePluginCommand(input: {
-    sessionId: string;
-    pluginId: string;
-    commandName: string;
-    args?: string;
-  }): Promise<void> {
-    this.requireSession(input.sessionId);
-  }
 
   /**
    * The engine pipeline's task runner (Rust `TaskRunner`, attached to the
