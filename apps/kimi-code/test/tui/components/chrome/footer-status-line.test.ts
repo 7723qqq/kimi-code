@@ -148,6 +148,15 @@ const nodeCommand = (args: string) =>
     ? `""${process.execPath}" ${args}"`
     : `"${process.execPath}" ${args}`;
 
+/**
+ * These tests spawn `cmd.exe`/`sh` plus a whole Node process. The production
+ * default is 300 ms — fine for a status line on an idle machine, but under a
+ * loaded test run the spawn alone can exceed it and the command is killed
+ * before it writes anything. The budget here only has to outlast a cold
+ * process launch.
+ */
+const SPAWN_TEST_TIMEOUT_MS = 30_000;
+
 describe('runStatusLineCommand', () => {
   it('passes the payload as JSON on stdin and returns the first stdout line', async () => {
     // `node <script>` avoids POSIX-only utilities (cat) and cmd.exe quoting
@@ -161,7 +170,7 @@ describe('runStatusLineCommand', () => {
         scriptFile,
         "let data = '';\nprocess.stdin.setEncoding('utf-8');\nprocess.stdin.on('data', (c) => { data += c; });\nprocess.stdin.on('end', () => { process.stdout.write(data.split('\\n')[0]); });\n",
       );
-      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload);
+      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload, SPAWN_TEST_TIMEOUT_MS);
 
       expect(line).not.toBeNull();
       const parsed = JSON.parse(line!);
@@ -194,7 +203,7 @@ describe('runStatusLineCommand', () => {
     try {
       const scriptFile = join(dir, 'out.mjs');
       writeFileSync(scriptFile, "process.stdout.write('first\\nsecond\\n');\n");
-      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload);
+      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload, SPAWN_TEST_TIMEOUT_MS);
 
       expect(line).toBe('first');
     } finally {
@@ -209,7 +218,7 @@ describe('runStatusLineCommand', () => {
     try {
       const scriptFile = join(dir, 'out.mjs');
       writeFileSync(scriptFile, "process.stdout.write('a'.repeat(200000));\n");
-      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload);
+      const line = await runStatusLineCommand(nodeCommand(scriptFile), payload, SPAWN_TEST_TIMEOUT_MS);
 
       expect(line).not.toBeNull();
       expect(line!.length).toBeLessThanOrEqual(STATUS_LINE_MAX_CAPTURE_BYTES);
