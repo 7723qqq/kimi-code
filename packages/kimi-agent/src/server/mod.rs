@@ -41,6 +41,7 @@ pub mod auth;
 pub mod debug;
 pub mod engine;
 pub mod envelope;
+pub mod file_launch;
 pub mod files;
 pub mod fs_routes;
 pub mod fs_watch;
@@ -501,6 +502,109 @@ impl HttpServer {
 
     pub fn store_arc(&self) -> Arc<SqliteSessionStore> {
         self.store.clone()
+    }
+
+    /// Enqueue one prompt for a session: validate, resolve attachments, admit
+    /// into the queue (`running` when it starts a turn, `queued` behind an
+    /// active one), publish `prompt.submitted`, and spawn the turn loop.
+    ///
+    /// Shared by `POST /sessions/{id}/prompts` (the protocol route) and
+    /// `POST /prompts` (the collection route). The collection route used to
+    /// answer `{"status":"enqueued"}` after minting an id without touching the
+    /// queue, so a client got a receipt for a prompt that never ran.
+    async fn submit_session_prompt(&self, session_id: &str, body: Value) -> HttpResponse {
+        let content = body
+            .get("content")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let (mut prompt, blocks) = match prompt_content_to_blocks(&content, &self.file_store) {
+            Ok(parsed) => parsed,
+            Err(error) => return HttpResponse::bad_request(error),
+        };
+        if prompt.is_empty() {
+            prompt = body
+                .get("prompt")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
+        }
+        if prompt.is_empty() && blocks.is_empty() {
+            return HttpResponse::bad_request("prompt content is empty");
+        }
+        if self.store.get_session(session_id).ok().flatten().is_none() {
+            return HttpResponse::not_found();
+        }
+        if let Err(error) = apply_prompt_submission_options(self, session_id, &body) {
+            return HttpResponse::bad_request(error);
+        }
+        let Some(engine) = self.engine.clone() else {
+            return HttpResponse::json(
+                503,
+                &json!({ "error": "no engine configured for this server" }),
+            );
+        };
+        let prompt_id = body
+            .get("prompt_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("prompt-{}", fastrand::u64(..)));
+        if self.prompt_queue.contains(session_id, &prompt_id) {
+            return HttpResponse::json(
+                409,
+                &json!({
+                    "code": crate::server::envelope::error_codes::PROMPT_ID_CONFLICT,
+                    "msg": "prompt_id already exists",
+                }),
+            );
+        }
+        let wire_content = if content.is_empty() {
+            json!([{ "type": "text", "text": prompt }])
+        } else {
+            Value::Array(content)
+        };
+        // The item carries no status; `admit` stamps it (`running` when it
+        // starts a turn, `queued` behind the active prompt).
+        let item = json!({
+            "prompt_id": prompt_id.clone(),
+            "user_message_id": format!("msg-{prompt_id}"),
+            "content": wire_content,
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        });
+        let (item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
+        crate::server::prompt_queue::publish_prompt_event(
+            &self.hub,
+            session_id,
+            json!({
+                "type": "prompt.submitted",
+                "promptId": item.get("prompt_id").cloned().unwrap_or(Value::Null),
+                "userMessageId": item
+                    .get("user_message_id")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "status": item.get("status").cloned().unwrap_or(Value::Null),
+                "content": item.get("content").cloned().unwrap_or_else(|| json!([])),
+                "createdAt": item.get("created_at").cloned().unwrap_or(Value::Null),
+            }),
+        );
+        if let Some(run) = run {
+            let queue = self.prompt_queue.clone();
+            let store = self.store_arc();
+            let hub = self.hub.clone();
+            let session_id = session_id.to_string();
+            tokio::spawn(async move {
+                crate::server::prompt_queue::run_prompt_loop(
+                    Some(engine),
+                    store,
+                    queue,
+                    hub,
+                    session_id,
+                    run,
+                )
+                .await;
+            });
+        }
+        HttpResponse::ok(&item)
     }
 
     pub async fn config(&self) -> crate::config::KimiConfig {
@@ -1742,21 +1846,19 @@ impl HttpServer {
                 HttpResponse::ok(&json!({ "items": items }))
             }
             ("POST", "/api/v1/prompts") => {
+                // Collection-level submit: the session path carries the
+                // enqueue contract, so this route delegates to it instead of
+                // minting an id. Previously it answered `{"status":"enqueued"}`
+                // without touching the queue — a prompt that never ran.
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let prompt_id = format!("prompt-{}", ulid::Ulid::new());
-                let session_id = body
-                    .get("session_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                HttpResponse::ok(&json!({
-                    "id": prompt_id,
-                    "session_id": session_id,
-                    "status": "enqueued",
-                    "created_at": chrono::Utc::now().to_rfc3339()
-                }))
+                let session_id = match body.get("session_id").and_then(|v| v.as_str()) {
+                    Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                    _ => return HttpResponse::bad_request("Field 'session_id' is required"),
+                };
+                self.submit_session_prompt(&session_id, body).await
             }
             ("GET", "/api/v1/files") => match self.file_store.list() {
                 Ok(metas) => {
@@ -4358,6 +4460,8 @@ impl HttpServer {
                     "grep" => fs_routes::handle_grep(&work_dir, &body),
                     "open" => fs_routes::handle_open(&work_dir, &body),
                     "reveal" => fs_routes::handle_reveal(&work_dir, &body),
+                    "open-in" | "openIn" => fs_routes::handle_open_in(&work_dir, &body),
+                    "open-in-apps" | "openInApps" => fs_routes::handle_open_in_apps(&body),
                     _ => HttpResponse::bad_request(format!(
                         "Unsupported filesystem action: {action}"
                     )),
@@ -5248,104 +5352,11 @@ impl HttpServer {
                 if segments.len() != 6 {
                     return HttpResponse::not_found();
                 }
-                let session_id = segments[4];
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(value) => value,
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
-                let content = body
-                    .get("content")
-                    .and_then(|value| value.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                let (mut prompt, blocks) =
-                    match prompt_content_to_blocks(&content, &self.file_store) {
-                        Ok(parsed) => parsed,
-                        Err(error) => return HttpResponse::bad_request(error),
-                    };
-                if prompt.is_empty() {
-                    prompt = body
-                        .get("prompt")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                }
-                if prompt.is_empty() && blocks.is_empty() {
-                    return HttpResponse::bad_request("prompt content is empty");
-                }
-                if self.store.get_session(session_id).ok().flatten().is_none() {
-                    return HttpResponse::not_found();
-                }
-                if let Err(error) = apply_prompt_submission_options(self, session_id, &body) {
-                    return HttpResponse::bad_request(error);
-                }
-                let Some(engine) = self.engine.clone() else {
-                    return HttpResponse::json(
-                        503,
-                        &json!({ "error": "no engine configured for this server" }),
-                    );
-                };
-                let prompt_id = body
-                    .get("prompt_id")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("prompt-{}", fastrand::u64(..)));
-                if self.prompt_queue.contains(session_id, &prompt_id) {
-                    return HttpResponse::json(
-                        409,
-                        &json!({
-                            "code": crate::server::envelope::error_codes::PROMPT_ID_CONFLICT,
-                            "msg": "prompt_id already exists",
-                        }),
-                    );
-                }
-                let wire_content = if content.is_empty() {
-                    json!([{ "type": "text", "text": prompt }])
-                } else {
-                    Value::Array(content)
-                };
-                // The item carries no status; `admit` stamps it (`running` when
-                // it starts a turn, `queued` behind the active prompt).
-                let item = json!({
-                    "prompt_id": prompt_id.clone(),
-                    "user_message_id": format!("msg-{prompt_id}"),
-                    "content": wire_content,
-                    "created_at": chrono::Utc::now().to_rfc3339(),
-                });
-                let (item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
-                crate::server::prompt_queue::publish_prompt_event(
-                    &self.hub,
-                    session_id,
-                    json!({
-                        "type": "prompt.submitted",
-                        "promptId": item.get("prompt_id").cloned().unwrap_or(Value::Null),
-                        "userMessageId": item
-                            .get("user_message_id")
-                            .cloned()
-                            .unwrap_or(Value::Null),
-                        "status": item.get("status").cloned().unwrap_or(Value::Null),
-                        "content": item.get("content").cloned().unwrap_or_else(|| json!([])),
-                        "createdAt": item.get("created_at").cloned().unwrap_or(Value::Null),
-                    }),
-                );
-                if let Some(run) = run {
-                    let queue = self.prompt_queue.clone();
-                    let store = self.store_arc();
-                    let hub = self.hub.clone();
-                    let session_id = session_id.to_string();
-                    tokio::spawn(async move {
-                        crate::server::prompt_queue::run_prompt_loop(
-                            Some(engine),
-                            store,
-                            queue,
-                            hub,
-                            session_id,
-                            run,
-                        )
-                        .await;
-                    });
-                }
-                HttpResponse::ok(&item)
+                self.submit_session_prompt(segments[4], body).await
             }
             ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompt") => {
                 let segments: Vec<&str> = p.split('/').collect();
@@ -5898,6 +5909,7 @@ mod tests {
                 tools_veto: None,
                 todo_tool_veto: None,
                 tower_worktree_root: None,
+                tower_enabled: false,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 caller_agent_id: None,
@@ -10242,6 +10254,7 @@ max_context_size = 128000
                 tools_veto: None,
                 todo_tool_veto: None,
                 tower_worktree_root: None,
+                tower_enabled: false,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 caller_agent_id: None,
@@ -10653,5 +10666,138 @@ max_context_size = 128000
         let content =
             vec![json!({ "type": "image", "source": { "kind": "file", "file_id": "f_missing" } })];
         assert!(prompt_content_to_blocks(&content, &files).is_err());
+    }
+
+    /// `POST /api/v1/prompts` used to mint an id and answer
+    /// `{"status":"enqueued"}` without touching the queue. It now delegates to
+    /// the session submit path: missing session / unknown session / no engine
+    /// all refuse instead of issuing a receipt for a prompt that never runs.
+    #[tokio::test]
+    async fn collection_prompt_route_refuses_instead_of_faking_enqueue() {
+        let server = HttpServer::in_memory().unwrap();
+
+        let missing_session = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/prompts".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "prompt": "hi" })).unwrap(),
+            })
+            .await;
+        assert_eq!(missing_session.status, 400, "session_id is required");
+        assert!(
+            !String::from_utf8_lossy(&missing_session.body).contains("enqueued"),
+            "the fake enqueue receipt is still being served"
+        );
+
+        server.store.create_session("sess-collection", Some("c")).unwrap();
+        let unknown_session = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/prompts".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "session_id": "sess-does-not-exist",
+                    "prompt": "hi",
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(unknown_session.status, 404);
+
+        let no_engine = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/prompts".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "session_id": "sess-collection",
+                    "prompt": "hi",
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(no_engine.status, 503, "no engine attached");
+
+        // Nothing was ever admitted to the queue by the fake path.
+        assert!(
+            server.prompt_queue.snapshot("sess-collection").0.is_none(),
+            "a refused submit must not leave a phantom active prompt"
+        );
+    }
+
+    /// `fs:open` / `fs:reveal` used to answer success without launching
+    /// anything. They now resolve the path (denying traversal) and report the
+    /// launcher's error rather than a fabricated `{"opened":true}`. The launch
+    /// itself is environment-dependent, so the assertions cover the paths that
+    /// are deterministic: a traversal attempt and a missing `path` field.
+    #[tokio::test]
+    async fn fs_open_routes_do_not_report_success_for_rejected_paths() {
+        let server = HttpServer::in_memory().unwrap();
+        let sid = "sess-fs-open";
+        server.store.create_session(sid, Some("fs")).unwrap();
+
+        let missing_field = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}/fs:open"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({})).unwrap(),
+            })
+            .await;
+        assert_eq!(missing_field.status, 400);
+
+        let traversal = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}/fs:reveal"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "path": "../../etc/passwd" })).unwrap(),
+            })
+            .await;
+        assert_ne!(traversal.status, 200, "a traversal path must not report success");
+        assert!(
+            !String::from_utf8_lossy(&traversal.body).contains("\"revealed\":true"),
+            "the fake reveal success is still being served"
+        );
+    }
+
+    /// `fs:open-in` is wired: an unknown app id reports the valid set instead
+    /// of answering `{"opened":true}`.
+    #[tokio::test]
+    async fn fs_open_in_rejects_unknown_app() {
+        let server = HttpServer::in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.txt"), "x").unwrap();
+        let ws = server
+            .store
+            .create_workspace(&dir.path().to_string_lossy(), Some("open-in WS"))
+            .unwrap();
+        let sid = "sess-open-in";
+        server
+            .store
+            .create_session_with_workspace(sid, Some("oi"), Some(&ws.id))
+            .unwrap();
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}/fs:open-in"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "path": "x.txt", "app": "photoshop" })).unwrap(),
+            })
+            .await;
+        assert_ne!(res.status, 200, "an unknown app must not report success");
+        assert!(
+            String::from_utf8_lossy(&res.body).contains("Unsupported app"),
+            "{}",
+            String::from_utf8_lossy(&res.body)
+        );
     }
 }

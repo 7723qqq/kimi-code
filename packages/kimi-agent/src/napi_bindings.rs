@@ -812,6 +812,10 @@ pub struct JsRunTurnParams {
     pub tools_veto: Option<String>,
     pub todo_tool_veto: Option<String>,
     pub tower_worktree_root: Option<String>,
+    /// Host-resolved tower enablement (`KIMI_CODE_EXPERIMENTAL_TOWER` /
+    /// `[experimental].tower`). `None` falls back to the engine's own env
+    /// probe.
+    pub tower_enabled: Option<bool>,
     pub sandbox_mode: Option<String>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
@@ -1487,6 +1491,15 @@ async fn build_engine_pipeline(
         tools_veto: params.tools_veto.clone(),
         todo_tool_veto: params.todo_tool_veto.clone(),
         tower_worktree_root: params.tower_worktree_root.clone(),
+        // The host resolves the experiment itself (env + config) and passes the
+        // resulting flag down; falling back to the env switch keeps a direct
+        // napi caller working without plumbing a new param.
+        tower_enabled: params.tower_enabled.unwrap_or_else(|| {
+            crate::tools::tower::paths::tower_enabled(
+                crate::tools::tower::paths::tower_env_switch(),
+                None,
+            )
+        }),
         sandbox_mode: params.sandbox_mode.clone(),
         sandbox_policy: params.sandbox_mode.as_deref().map(|mode_str| {
             let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);

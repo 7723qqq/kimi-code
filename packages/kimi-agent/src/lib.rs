@@ -423,6 +423,10 @@ impl KimiEngine {
                     tools_veto: None,
                     todo_tool_veto: None,
                     tower_worktree_root: None,
+                    tower_enabled: crate::tools::tower::paths::tower_enabled(
+                        crate::tools::tower::paths::tower_env_switch(),
+                        None,
+                    ),
                     sandbox_policy: None,
                 }) as Arc<dyn crate::callbacks::HostCallbacks>
             } else {
@@ -612,6 +616,10 @@ mod engine_tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: crate::tools::tower::paths::tower_enabled(
+                crate::tools::tower::paths::tower_env_switch(),
+                None,
+            ),
             sandbox_policy: None,
         };
         let tools = callbacks

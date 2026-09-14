@@ -155,6 +155,10 @@ async fn main() -> anyhow::Result<()> {
                 sandbox_policy: None,
                 todo_tool_veto: None,
                 tower_worktree_root: None,
+                tower_enabled: kimi_agent::tools::tower::paths::tower_enabled(
+                    kimi_agent::tools::tower::paths::tower_env_switch(),
+                    kimi_agent::tools::tower::paths::tower_config_flag(&config),
+                ),
                 caller_agent_id: None,
                 github_token: None,
                 github_base_url: None,
@@ -996,6 +1000,12 @@ async fn build_engine_pipeline(
         tools_veto: params.tools_veto.clone(),
         todo_tool_veto: params.todo_tool_veto.clone(),
         tower_worktree_root: params.tower_worktree_root.clone(),
+        tower_enabled: params.tower_enabled.unwrap_or_else(|| {
+            kimi_agent::tools::tower::paths::tower_enabled(
+                kimi_agent::tools::tower::paths::tower_env_switch(),
+                None,
+            )
+        }),
         sandbox_mode: params.sandbox_mode.clone(),
         sandbox_policy: None,
         caller_agent_id: params.caller_agent_id.clone(),
@@ -1196,6 +1206,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         tools_veto: None,
         todo_tool_veto: None,
         tower_worktree_root: None,
+        tower_enabled: kimi_agent::tools::tower::paths::tower_enabled(
+            kimi_agent::tools::tower::paths::tower_env_switch(),
+            kimi_agent::tools::tower::paths::tower_config_flag(&config),
+        ),
         sandbox_mode: None,
         sandbox_policy: None,
         caller_agent_id: None,

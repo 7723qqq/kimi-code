@@ -104,6 +104,7 @@ pub mod memory_filing;
 pub mod memory_paths;
 pub mod memory_store;
 pub mod memory_tool;
+pub mod mode_mutex;
 pub mod moonshot_service;
 pub mod plan_mode;
 pub mod read_media;
@@ -932,7 +933,22 @@ impl NativeToolset {
             }
             "enterplanmode" | "enter_plan_mode" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(plan_mode::execute_enter_plan_mode(callbacks, args).await)
+                let mut result = plan_mode::execute_enter_plan_mode(callbacks, args).await;
+                // Mode mutex (v2 `PlanModeEnter` → tower exit), main agent
+                // only: a subagent's plan entry is scoped to that subagent, so
+                // it must not touch the main agent's tower (v2's modeMutex is
+                // Agent-scoped and `tower.isActive` is main-only).
+                if !result.is_error && self.effective_caller_agent_id() == "main" {
+                    let paused =
+                        mode_mutex::pause_tower_for_mode_enter(&self.root, "plan mode entered")
+                            .await;
+                    if !paused.is_empty() {
+                        result
+                            .content
+                            .push_str(&mode_mutex::tower_paused_note(&paused));
+                    }
+                }
+                Some(result)
             }
             "cronlist" | "cron_list" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -1056,7 +1072,18 @@ impl NativeToolset {
             }
             "agentswarm" | "agent_swarm" => {
                 let mgr = self.subagent_manager.as_ref()?;
-                swarm_tool::execute_agent_swarm(
+                // Mode mutex (v2 `SwarmModeEnter` → tower exit): v2 enters
+                // swarm mode *before* the batch runs, so pause tower here too
+                // — pausing after the batch would let a sibling tool call race
+                // worker writes against the not-yet-paused state. Main agent
+                // only (v2 swarm mode is Agent-scoped).
+                let paused = if self.effective_caller_agent_id() == "main" {
+                    mode_mutex::pause_tower_for_mode_enter(&self.root, "AgentSwarm dispatched")
+                        .await
+                } else {
+                    Vec::new()
+                };
+                let result = swarm_tool::execute_agent_swarm(
                     mgr,
                     args,
                     self.subagent_timeout_ms,
@@ -1064,7 +1091,19 @@ impl NativeToolset {
                     tool_call_id,
                     self.secondary_model.as_deref(),
                 )
-                .await
+                .await;
+                match result {
+                    Some(mut r) => {
+                        // The pause already happened (v2 enters swarm mode
+                        // before execution), so report it even when the batch
+                        // itself failed — the state change is real either way.
+                        if !paused.is_empty() {
+                            r.content.push_str(&mode_mutex::tower_paused_note(&paused));
+                        }
+                        Some(r)
+                    }
+                    None => None,
+                }
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
             "memoryread" | "memory_read" => {
@@ -1143,9 +1182,25 @@ impl NativeToolset {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
                 let session = self.session_id.as_deref().unwrap_or("session-main");
-                Some(
-                    tower::execute_tower_init(&self.root, caller, session, &args.to_string()).await,
-                )
+                let mut result =
+                    tower::execute_tower_init(&self.root, caller, session, &args.to_string()).await;
+                // Mode mutex (v2 `TowerModeEnter` → plan exit): a tower
+                // starting under plan mode would split the brain — main turns
+                // stay plan-guarded while workers run free — so exit plan
+                // once the tower actually entered. Ordered after init because
+                // v2 exits plan on the entry event: a refused or failed init
+                // never entered tower mode, so it must not drop plan mode.
+                // (Swarm needs no exit: AgentSwarm is call-scoped.) Main
+                // agent only, matching v2's Agent-scoped mutex.
+                if caller == "main"
+                    && !result.is_error
+                    && let Some(callbacks) = self.callbacks.as_deref()
+                    && mode_mutex::exit_plan_for_tower_enter(callbacks).await
+                {
+                    result.content =
+                        format!("{}\n\n{}", mode_mutex::plan_exited_note(), result.content);
+                }
+                Some(result)
             }
             "towerplan" | "tower_plan" => {
                 let caller = self.effective_caller_agent_id();
@@ -6035,5 +6090,357 @@ m2
             .expect("Workflow is handled natively");
         assert!(run.is_error);
         assert!(run.content.contains("no subagent runtime"));
+    }
+
+    /// The mode-mutex dispatch wiring end to end: the real
+    /// `execute_tool` arms (`EnterPlanMode` / `TowerInit`), the real
+    /// `TowerSpawn` / `TowerMerge` gates, and a real git repository.
+    /// Unit tests of the helpers live in `mode_mutex.rs`; this module covers
+    /// the wiring those helpers are attached to.
+    mod mode_mutex_dispatch {
+        use std::path::Path;
+        use std::process::Command;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        use serde_json::{Value, json};
+
+        use crate::callbacks::HostCallbacks;
+        use crate::rpc::types::{
+            BoxFuture, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
+            StateReadRequest, StateReadResponse, StateWriteRequest, StateWriteResponse,
+            ToolExecuteRequest, ToolExecuteResponse,
+        };
+        use crate::tools::NativeToolset;
+        use crate::tools::tower::store::TowerStore;
+        use crate::tools::tower::types::{TowerMissionStatus, TowerState};
+
+        fn run_git(dir: &Path, args: &[&str]) {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env("GIT_AUTHOR_NAME", "test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.test")
+                .env("GIT_COMMITTER_NAME", "test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.test")
+                .output()
+                .expect("git runs");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        /// A real repository with one commit on `main`.
+        fn init_repo() -> tempfile::TempDir {
+            let dir = tempfile::tempdir().unwrap();
+            run_git(dir.path(), &["init", "-b", "main"]);
+            std::fs::write(dir.path().join("README.md"), "seed\n").unwrap();
+            run_git(dir.path(), &["add", "."]);
+            run_git(dir.path(), &["commit", "-m", "seed"]);
+            dir
+        }
+
+        /// State-bridge host: plan reads answer `active`, writes are
+        /// recorded.
+        struct StateHost {
+            plan_active: bool,
+            writes: Arc<StdMutex<Vec<Value>>>,
+        }
+
+        impl HostCallbacks for StateHost {
+            fn llm_chat(
+                &self,
+                _: LlmChatRequest,
+            ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+                Box::pin(async { Err("not used".into()) })
+            }
+
+            fn execute_tool(
+                &self,
+                _: ToolExecuteRequest,
+            ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+                Box::pin(async { Err("not used".into()) })
+            }
+
+            fn check_permission(
+                &self,
+                _: PermissionCheckRequest,
+            ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+                Box::pin(async {
+                    Ok(PermissionDecision {
+                        decision: "allow".into(),
+                        reason: None,
+                    })
+                })
+            }
+
+            fn emit_event(&self, _: Value) {}
+
+            fn state_read(
+                &self,
+                _: StateReadRequest,
+            ) -> BoxFuture<'static, Result<StateReadResponse, String>> {
+                let active = self.plan_active;
+                Box::pin(async move {
+                    Ok(StateReadResponse {
+                        value: json!({ "active": active }),
+                    })
+                })
+            }
+
+            fn state_write(
+                &self,
+                request: StateWriteRequest,
+            ) -> BoxFuture<'static, Result<StateWriteResponse, String>> {
+                self.writes.lock().unwrap().push(request.value.clone());
+                let value = request.value;
+                Box::pin(async move { Ok(StateWriteResponse { ok: true, value }) })
+            }
+        }
+
+        fn host(plan_active: bool) -> (Arc<dyn HostCallbacks>, Arc<StdMutex<Vec<Value>>>) {
+            let writes = Arc::new(StdMutex::new(Vec::new()));
+            (
+                Arc::new(StateHost {
+                    plan_active,
+                    writes: writes.clone(),
+                }),
+                writes,
+            )
+        }
+
+        /// A live tower with one open mission `M1`, planned through the real
+        /// `TowerPlan` tool so the branch/worktree fields match production.
+        async fn repo_with_open_mission(dir: &Path, toolset: &NativeToolset) {
+            let init = toolset
+                .execute_tool("TowerInit", &json!({}))
+                .await
+                .expect("TowerInit is native");
+            assert!(!init.is_error, "{}", init.content);
+            let plan = toolset
+                .execute_tool(
+                    "TowerPlan",
+                    &json!({ "missions": [{ "title": "gate probe", "scope": ["probe/"] }] }),
+                )
+                .await
+                .expect("TowerPlan is native");
+            assert!(!plan.is_error, "{}", plan.content);
+            let store = TowerStore::new(dir.to_path_buf());
+            let state = store.load().await.unwrap();
+            assert_eq!(state.missions.len(), 1);
+            assert_eq!(state.missions[0].id, "M1");
+        }
+
+        fn status_of(state: &TowerState, id: &str) -> Option<TowerMissionStatus> {
+            state.missions.iter().find(|m| m.id == id).map(|m| m.status)
+        }
+
+        /// The real bug this guards: entering plan mode through the toolset
+        /// dispatch must pause open tower missions, with the pause visible in
+        /// the persisted state (not just mentioned in the tool result).
+        #[tokio::test]
+        async fn enter_plan_mode_through_dispatch_pauses_open_tower_missions() {
+            let dir = init_repo();
+            let (callbacks, writes) = host(false);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks);
+            repo_with_open_mission(dir.path(), &toolset).await;
+
+            let result = toolset
+                .execute_tool("EnterPlanMode", &json!({}))
+                .await
+                .expect("EnterPlanMode is native");
+            assert!(!result.is_error, "{}", result.content);
+            assert!(
+                result.content.contains("paused 1 open tower mission")
+                    && result.content.contains("M1"),
+                "{}",
+                result.content
+            );
+            // The state bridge saw the plan activation.
+            assert_eq!(writes.lock().unwrap().len(), 1);
+
+            let state = TowerStore::new(dir.path().to_path_buf())
+                .load()
+                .await
+                .unwrap();
+            assert_eq!(status_of(&state, "M1"), Some(TowerMissionStatus::Paused));
+        }
+
+        /// TowerSpawn-worker on a paused mission must be refused by the real
+        /// dispatch path (no worktree is created, no worker is spawned).
+        #[tokio::test]
+        async fn tower_spawn_worker_refuses_paused_mission() {
+            let dir = init_repo();
+            let (callbacks, _) = host(false);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks);
+            repo_with_open_mission(dir.path(), &toolset).await;
+
+            // Pause M1 via the mutex (the same call the plan-enter arm makes).
+            let paused =
+                crate::tools::mode_mutex::pause_tower_for_mode_enter(dir.path(), "test").await;
+            assert_eq!(paused, vec!["M1".to_string()]);
+
+            let result = toolset
+                .execute_tool(
+                    "TowerSpawn",
+                    &json!({ "name": "w1", "kind": "worker", "mission_id": "M1" }),
+                )
+                .await
+                .expect("TowerSpawn is native");
+            assert!(result.is_error, "{}", result.content);
+            assert!(
+                result.content.contains("paused") && result.content.contains("status=active"),
+                "{}",
+                result.content
+            );
+            // The refusal happens before the worktree is created.
+            assert!(!dir.path().join(".tower/worktrees/wt-1").exists());
+        }
+
+        /// TowerMerge on a paused mission's branch must be refused even though
+        /// every other gate (review, deps) would also matter — the mutex gate
+        /// runs first and names the mission.
+        #[tokio::test]
+        async fn tower_merge_refuses_paused_mission_branch() {
+            let dir = init_repo();
+            let (callbacks, _) = host(false);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks);
+            repo_with_open_mission(dir.path(), &toolset).await;
+
+            let state = TowerStore::new(dir.path().to_path_buf())
+                .load()
+                .await
+                .unwrap();
+            let branch = state.missions[0].branch.clone();
+
+            let paused =
+                crate::tools::mode_mutex::pause_tower_for_mode_enter(dir.path(), "test").await;
+            assert_eq!(paused.len(), 1);
+
+            let result = toolset
+                .execute_tool("TowerMerge", &json!({ "branch": branch }))
+                .await
+                .expect("TowerMerge is native");
+            assert!(result.is_error, "{}", result.content);
+            assert!(
+                result.content.contains("paused") && result.content.contains("M1"),
+                "{}",
+                result.content
+            );
+        }
+
+        /// TowerInit while plan mode is active exits plan through the state
+        /// bridge (main agent path), and the tool result says so.
+        #[tokio::test]
+        async fn tower_init_through_dispatch_exits_plan_mode() {
+            let dir = init_repo();
+            let (callbacks, writes) = host(true);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks);
+
+            let result = toolset
+                .execute_tool("TowerInit", &json!({}))
+                .await
+                .expect("TowerInit is native");
+            assert!(!result.is_error, "{}", result.content);
+            assert!(
+                result
+                    .content
+                    .contains("plan mode was active, so it was exited"),
+                "{}",
+                result.content
+            );
+            let writes = writes.lock().unwrap();
+            assert_eq!(writes.len(), 1, "one plan deactivation write");
+            assert_eq!(writes[0], json!({ "active": false }));
+        }
+
+        /// A subagent's EnterPlanMode (non-main caller) must not touch the
+        /// main agent's tower (v2's modeMutex is Agent-scoped and
+        /// `tower.isActive` is main-only).
+        #[tokio::test]
+        async fn subagent_enter_plan_does_not_pause_tower() {
+            let dir = init_repo();
+            // The tower is created by the main agent's toolset (TowerInit is
+            // main-only); the subagent call runs through a second toolset.
+            let (main_callbacks, _) = host(false);
+            let main = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(main_callbacks);
+            repo_with_open_mission(dir.path(), &main).await;
+
+            let (sub_callbacks, _) = host(false);
+            let subagent = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(sub_callbacks)
+                .with_caller_agent_id("subagent-42");
+
+            let result = subagent
+                .execute_tool("EnterPlanMode", &json!({}))
+                .await
+                .expect("EnterPlanMode is native");
+            assert!(!result.is_error, "{}", result.content);
+            assert!(
+                !result.content.contains("paused"),
+                "a subagent plan entry must not pause main's tower: {}",
+                result.content
+            );
+            let state = TowerStore::new(dir.path().to_path_buf())
+                .load()
+                .await
+                .unwrap();
+            assert_eq!(status_of(&state, "M1"), Some(TowerMissionStatus::Planned));
+        }
+
+        /// A subagent's TowerInit is refused (main-only) and must not exit
+        /// main's plan mode as a side effect of the mutex arm running anyway.
+        #[tokio::test]
+        async fn subagent_tower_init_refused_and_plan_untouched() {
+            let dir = init_repo();
+            let (callbacks, writes) = host(true);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks)
+                .with_caller_agent_id("subagent-42");
+
+            let result = toolset
+                .execute_tool("TowerInit", &json!({}))
+                .await
+                .expect("TowerInit is native");
+            assert!(result.is_error, "{}", result.content);
+            assert!(
+                writes.lock().unwrap().is_empty(),
+                "a refused subagent init must not deactivate main's plan mode"
+            );
+        }
+
+        /// A failed TowerInit (no git repo) must not exit plan mode: v2 exits
+        /// plan on the entry event, and no tower mode was entered here.
+        #[tokio::test]
+        async fn failed_tower_init_does_not_exit_plan_mode() {
+            let dir = tempfile::tempdir().unwrap();
+            let (callbacks, writes) = host(true);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks);
+
+            let result = toolset
+                .execute_tool("TowerInit", &json!({}))
+                .await
+                .expect("TowerInit is native");
+            assert!(result.is_error, "{}", result.content);
+            assert!(
+                writes.lock().unwrap().is_empty(),
+                "plan mode must survive a failed tower init"
+            );
+        }
     }
 }

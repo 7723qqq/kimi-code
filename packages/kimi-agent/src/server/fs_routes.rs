@@ -724,24 +724,72 @@ pub fn handle_grep(work_dir: &Path, body: &Value) -> HttpResponse {
     }))
 }
 
-/// Handle `fs:open`.
+/// Handle `fs:open`: launch the resolved file in the user's editor (or the
+/// platform opener) and report the real outcome. Previously this discarded the
+/// resolved path and answered `{"opened": true}` without launching anything.
 pub fn handle_open(work_dir: &Path, body: &Value) -> HttpResponse {
     let rel_path = match body.get("path").and_then(|v| v.as_str()) {
         Some(p) if !p.trim().is_empty() => p.trim(),
         _ => return HttpResponse::bad_request("Field 'path' is required"),
     };
-    let _ = resolve_safe_path(work_dir, rel_path);
-    HttpResponse::ok(&json!({ "opened": true }))
+    let target = match resolve_safe_path(work_dir, rel_path) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+    let line = body.get("line").and_then(|v| v.as_u64());
+    match crate::server::file_launch::open_file(&target, line) {
+        Ok(()) => HttpResponse::ok(&json!({ "opened": true })),
+        Err(error) => HttpResponse::internal_error(error),
+    }
 }
 
-/// Handle `fs:reveal`.
+/// Handle `fs:reveal`: select the resolved file in the platform file manager.
 pub fn handle_reveal(work_dir: &Path, body: &Value) -> HttpResponse {
     let rel_path = match body.get("path").and_then(|v| v.as_str()) {
         Some(p) if !p.trim().is_empty() => p.trim(),
         _ => return HttpResponse::bad_request("Field 'path' is required"),
     };
-    let _ = resolve_safe_path(work_dir, rel_path);
-    HttpResponse::ok(&json!({ "revealed": true }))
+    let target = match resolve_safe_path(work_dir, rel_path) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+    match crate::server::file_launch::reveal_file(&target) {
+        Ok(()) => HttpResponse::ok(&json!({ "revealed": true })),
+        Err(error) => HttpResponse::internal_error(error),
+    }
+}
+
+/// Handle `fs:open-in`: open the resolved path in the requested app
+/// (v2 `OpenInAppId`: finder / cursor / vscode / iterm / terminal).
+pub fn handle_open_in(work_dir: &Path, body: &Value) -> HttpResponse {
+    let rel_path = match body.get("path").and_then(|v| v.as_str()) {
+        Some(p) if !p.trim().is_empty() => p.trim(),
+        _ => return HttpResponse::bad_request("Field 'path' is required"),
+    };
+    let app = match body.get("app").and_then(|v| v.as_str()) {
+        Some(a) if !a.trim().is_empty() => a.trim(),
+        _ => return HttpResponse::bad_request("Field 'app' is required"),
+    };
+    let target = match resolve_safe_path(work_dir, rel_path) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+    let line = body.get("line").and_then(|v| v.as_u64());
+    match crate::server::file_launch::open_in_app(app, &target, line) {
+        Ok(()) => HttpResponse::ok(&json!({ "opened": true })),
+        Err(error) => HttpResponse::internal_error(error),
+    }
+}
+
+/// The `fs:open-in` app ids available on this machine (v2
+/// `getAvailableOpenInApps`).
+pub fn handle_open_in_apps(_body: &Value) -> HttpResponse {
+    let apps: Vec<&str> = crate::server::file_launch::OPEN_IN_APP_IDS
+        .iter()
+        .copied()
+        .filter(|id| crate::server::file_launch::is_open_in_app_available(id))
+        .collect();
+    HttpResponse::ok(&json!({ "apps": apps }))
 }
 
 /// Content-Type for a served file, from its extension. Deliberately small:

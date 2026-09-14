@@ -719,6 +719,10 @@ pub struct RunTurnParams {
     pub todo_tool_veto: Option<String>,
     #[serde(default)]
     pub tower_worktree_root: Option<String>,
+    /// Tower enablement resolved by the host (`KIMI_CODE_EXPERIMENTAL_TOWER` /
+    /// `[experimental].tower`). `None` leaves the decision to the engine.
+    #[serde(default)]
+    pub tower_enabled: Option<bool>,
     #[serde(default)]
     pub sandbox_mode: Option<String>,
     #[serde(default)]

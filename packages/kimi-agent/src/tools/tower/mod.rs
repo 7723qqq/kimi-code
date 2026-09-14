@@ -322,6 +322,11 @@ pub async fn execute_tower_spawn(
             let Some(mission) = state.missions.iter().find(|m| &m.id == mid).cloned() else {
                 return Some(err_result(format!("unknown mission \"{mid}\"")));
             };
+            // Mode mutex: a mission paused by plan/swarm entry refuses new
+            // workers until resumed (v2 gated the tower toolset once exited).
+            if let Some(refusal) = crate::tools::mode_mutex::refuse_paused_mission(&mission) {
+                return Some(err_result(refusal));
+            }
 
             let manager = subagent_manager?;
             let runtime = manager.runtime().await?;
@@ -595,6 +600,19 @@ pub async fn execute_tower_merge(
     // interleave with another agent's and lose an update.
     let state_lock = store.state_lock();
     let _state_guard = state_lock.lock().await;
+
+    // Mode mutex: merging a paused mission's branch would apply worker output
+    // while another mode owns the tree — refuse until resumed.
+    match store.load().await {
+        Ok(state) => {
+            if let Some(mission) = state.missions.iter().find(|m| m.branch == args.branch)
+                && let Some(refusal) = crate::tools::mode_mutex::refuse_paused_mission(mission)
+            {
+                return err_result(refusal);
+            }
+        }
+        Err(e) => return err_result(e),
+    }
 
     match store.merge(&args.branch).await {
         Ok((commit, conflicts, noop)) => {

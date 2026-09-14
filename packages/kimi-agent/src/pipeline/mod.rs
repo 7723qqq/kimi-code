@@ -111,6 +111,10 @@ pub struct PipelineSpec {
     pub tools_veto: Option<String>,
     pub todo_tool_veto: Option<String>,
     pub tower_worktree_root: Option<String>,
+    /// Whether tower mode is enabled (`KIMI_CODE_EXPERIMENTAL_TOWER` /
+    /// `[experimental].tower`). Gates the advertised Tower* tool table; the
+    /// worker write-scope guard above is a separate, per-worker concern.
+    pub tower_enabled: bool,
     pub sandbox_mode: Option<String>,
     pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
     pub caller_agent_id: Option<String>,
@@ -402,6 +406,7 @@ pub async fn build_engine_pipeline(
                         tools_veto: spec.tools_veto.clone(),
                         todo_tool_veto: spec.todo_tool_veto.clone(),
                         tower_worktree_root: spec.tower_worktree_root.clone(),
+                        tower_enabled: spec.tower_enabled,
                         sandbox_policy,
                     })
                 }
@@ -605,6 +610,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_mode: None,
             sandbox_policy: None,
             caller_agent_id: None,

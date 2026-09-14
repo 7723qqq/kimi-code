@@ -16,6 +16,39 @@ pub const MISSIONS_INDEX: &str = ".tower/comms/MISSIONS.md";
 pub const TOWER_NAME: &str = "tower";
 pub const BROADCAST_NAME: &str = "all";
 
+/// `KIMI_CODE_EXPERIMENTAL_TOWER`: the env switch that enables tower mode
+/// (v2 `TOWER_FLAG_ID`).
+pub const TOWER_ENV_SWITCH: &str = "KIMI_CODE_EXPERIMENTAL_TOWER";
+/// The `[experimental]` config key that enables tower mode.
+pub const TOWER_CONFIG_KEY: &str = "tower";
+
+/// The env switch alone, `None` when unset (v2 flag precedence: env over
+/// config).
+pub fn tower_env_switch() -> Option<bool> {
+    std::env::var(TOWER_ENV_SWITCH)
+        .ok()
+        .map(|value| !value.is_empty() && value != "false" && value != "0")
+}
+
+/// The `[experimental].tower` entry alone, `None` when unset.
+pub fn tower_config_flag(config: &crate::config::KimiConfig) -> Option<bool> {
+    match config.experimental.get(TOWER_CONFIG_KEY) {
+        Some(crate::config::ExperimentalValue::Bool(value)) => Some(*value),
+        Some(crate::config::ExperimentalValue::String(value)) => {
+            Some(!value.is_empty() && value != "false")
+        }
+        None => None,
+    }
+}
+
+/// Whether tower mode is enabled: the env switch wins over the config entry,
+/// and either side being set to a truthy value enables it. An unset flag on
+/// both sides leaves tower off — the tool table must not advertise a mode the
+/// user never turned on (v2's flag default is false).
+pub fn tower_enabled(env: Option<bool>, config: Option<bool>) -> bool {
+    env.or(config).unwrap_or(false)
+}
+
 pub fn date_stamp() -> String {
     Local::now().format("%Y%m%d").to_string()
 }
@@ -127,5 +160,59 @@ pub fn resolve_tower_repo_root(cwd: &str) -> String {
         cwd[..pos].to_string()
     } else {
         cwd.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tower_enabled_prefers_env_then_config() {
+        // Env wins over config (v2 flag precedence).
+        assert!(tower_enabled(Some(true), Some(false)));
+        assert!(!tower_enabled(Some(false), Some(true)));
+        // Single side set.
+        assert!(tower_enabled(None, Some(true)));
+        assert!(!tower_enabled(None, Some(false)));
+        // Nothing set: off. The advertised table must not offer a mode the
+        // user never turned on.
+        assert!(!tower_enabled(None, None));
+    }
+
+    #[test]
+    fn env_switch_parses_truthy_and_falsy() {
+        // Unset -> None, so the caller can tell "not configured" from false.
+        assert_eq!(tower_env_switch(), None);
+        unsafe {
+            std::env::set_var(TOWER_ENV_SWITCH, "1");
+            assert_eq!(tower_env_switch(), Some(true));
+            std::env::set_var(TOWER_ENV_SWITCH, "false");
+            assert_eq!(tower_env_switch(), Some(false));
+            std::env::set_var(TOWER_ENV_SWITCH, "0");
+            assert_eq!(tower_env_switch(), Some(false));
+            std::env::remove_var(TOWER_ENV_SWITCH);
+        }
+        assert_eq!(tower_env_switch(), None);
+    }
+
+    #[test]
+    fn config_flag_reads_bool_and_string_forms() {
+        use crate::config::{ExperimentalValue, KimiConfig};
+        let mut config = KimiConfig::default();
+        assert_eq!(tower_config_flag(&config), None);
+        config
+            .experimental
+            .insert(TOWER_CONFIG_KEY.into(), ExperimentalValue::Bool(true));
+        assert_eq!(tower_config_flag(&config), Some(true));
+        config
+            .experimental
+            .insert(TOWER_CONFIG_KEY.into(), ExperimentalValue::Bool(false));
+        assert_eq!(tower_config_flag(&config), Some(false));
+        config.experimental.insert(
+            TOWER_CONFIG_KEY.into(),
+            ExperimentalValue::String("true".into()),
+        );
+        assert_eq!(tower_config_flag(&config), Some(true));
     }
 }

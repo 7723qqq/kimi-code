@@ -18,7 +18,7 @@ pub enum TodoStatus {
 }
 
 impl TodoStatus {
-    fn from_str(s: &str) -> Option<Self> {
+    pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(Self::Pending),
             "in_progress" => Some(Self::InProgress),

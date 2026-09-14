@@ -24,12 +24,23 @@ const TODO_LIST_WRITE_REMINDER: &str = "Ensure that you continue to use the todo
 const STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE: &str = "The connected client does not support the state bridge. Do NOT call this tool again — the host cannot persist todo list changes.";
 
 /// Execute the TodoList tool natively: omit `todos` to read the current
-/// list, pass an empty array to clear it, or pass a full replacement list
-/// (v2 semantics — no incremental patch).
+/// list, pass an empty array to clear it, pass a full replacement list
+/// (v2 semantics), or pass `updates` to patch items in place by id.
 pub async fn execute_todo_list(
     callbacks: &dyn HostCallbacks,
     args: &Value,
 ) -> ExecutableToolResult {
+    let has_todos = args.get("todos").is_some();
+    let has_updates = args.get("updates").is_some();
+    if has_todos && has_updates {
+        return err_result(
+            "Invalid TodoList arguments: `todos` and `updates` are mutually exclusive — pass one or the other."
+                .into(),
+        );
+    }
+    if has_updates {
+        return update_todo_list(callbacks, args).await;
+    }
     let Some(todos) = args.get("todos") else {
         return read_todo_list(callbacks, args).await;
     };
@@ -46,6 +57,120 @@ pub async fn execute_todo_list(
         );
     };
     write_todo_list(callbacks, args, normalized).await
+}
+
+/// Incremental mode (`updates`): read the host list, apply each patch by id,
+/// write the result back. Only the fields present on a patch change; an id
+/// that is not in the current list is an error naming the known ids, so a
+/// stale id cannot silently no-op.
+async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> ExecutableToolResult {
+    let Some(patches) = args.get("updates").and_then(|v| v.as_array()) else {
+        return err_result(
+            "Invalid TodoList arguments: `updates` must be an array of { id, ...fields } objects."
+                .into(),
+        );
+    };
+    let current = match read_current_items(callbacks, args).await {
+        Ok(items) => items,
+        Err(result) => return result,
+    };
+    let mut items = current;
+    for patch in patches {
+        let Some(obj) = patch.as_object() else {
+            return err_result(
+                "Invalid TodoList arguments: each update must be an object with an `id`."
+                    .into(),
+            );
+        };
+        let Some(id) = obj.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) else {
+            return err_result(
+                "Invalid TodoList arguments: each update needs a non-empty `id`.".into(),
+            );
+        };
+        let Some(target) = items.iter_mut().find(|item| item.id == id) else {
+            let known: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+            return err_result(format!(
+                "Unknown todo id \"{id}\" — current ids: {}. Read the list first (call TodoList with no arguments) to see the ids you are tracking.",
+                if known.is_empty() {
+                    "(none — the list is empty)".to_string()
+                } else {
+                    known.join(", ")
+                }
+            ));
+        };
+        if let Some(title) = obj.get("title").and_then(|v| v.as_str()) {
+            if title.is_empty() {
+                return err_result(
+                    "Invalid TodoList arguments: `title` must not be empty.".into(),
+                );
+            }
+            target.title = title.to_string();
+        }
+        if let Some(status) = obj.get("status").and_then(|v| v.as_str()) {
+            match crate::tools::todo_item::TodoStatus::from_str(status) {
+                Some(parsed) => target.status = parsed,
+                None => {
+                    return err_result(format!(
+                        "Invalid TodoList arguments: status \"{status}\" is not one of \"pending\", \"in_progress\", \"done\"."
+                    ));
+                }
+            }
+        }
+        if let Some(progress) = obj.get("progress").and_then(|v| v.as_f64()) {
+            if !progress.is_finite() {
+                return err_result("Invalid TodoList arguments: `progress` must be a number.".into());
+            }
+            target.progress = Some(progress.round().clamp(0.0, 100.0) as u32);
+        }
+        if let Some(description) = obj.get("description").and_then(|v| v.as_str()) {
+            target.description = Some(description.to_string());
+        }
+        if let Some(parent_id) = obj.get("parentId").and_then(|v| v.as_str()) {
+            target.parent_id = if parent_id.is_empty() {
+                None
+            } else {
+                Some(parent_id.to_string())
+            };
+        }
+        if let Some(kind) = obj.get("kind").and_then(|v| v.as_str()) {
+            match kind {
+                "milestone" => target.kind = crate::tools::todo_item::TodoKind::Milestone,
+                "task" => target.kind = crate::tools::todo_item::TodoKind::Task,
+                other => {
+                    return err_result(format!(
+                        "Invalid TodoList arguments: kind \"{other}\" is not one of \"milestone\", \"task\"."
+                    ));
+                }
+            }
+        }
+    }
+    write_todo_list(callbacks, args, items).await
+}
+
+/// Read the current list for the incremental path, mapping host errors the
+/// same way the read tool does.
+async fn read_current_items(
+    callbacks: &dyn HostCallbacks,
+    args: &Value,
+) -> Result<Vec<crate::tools::todo_item::TodoItem>, ExecutableToolResult> {
+    let request = StateReadRequest {
+        domain: "todo".into(),
+        key: "todo".into(),
+        turn_id: args
+            .get("turn_id")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
+        tool_call_id: args
+            .get("tool_call_id")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
+    };
+    match callbacks.state_read(request).await {
+        Ok(response) => Ok(read_todo_items(&response.value)),
+        Err(error) => Err(map_state_error(error)),
+    }
 }
 
 /// Read mode: `state_read` the todo domain and render the host's list.
@@ -184,6 +309,48 @@ pub fn todo_list_tool_def() -> crate::turn_loop::types::ToolInfo {
                             }
                         },
                         "required": ["title", "status"]
+                    }
+                },
+                "updates": {
+                    "type": "array",
+                    "description": "Patch existing items in place by id — the cheap path for progress updates. Only the fields you pass change; an unknown id is an error naming the current ids. Mutually exclusive with `todos`.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Id of the item to patch (from a previous read or write)."
+                            },
+                            "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "New title."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "done"],
+                                "description": "New status."
+                            },
+                            "progress": {
+                                "type": "number",
+                                "description": "New progress percentage (0-100)."
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "New description."
+                            },
+                            "parentId": {
+                                "type": "string",
+                                "description": "Move the item under this parent id (empty string to detach)."
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": ["milestone", "task"],
+                                "description": "New item kind."
+                            }
+                        },
+                        "required": ["id"]
                     }
                 }
             }
@@ -397,6 +564,90 @@ mod tests {
         let request = write_received.lock().unwrap().clone().unwrap();
         assert_eq!(request.value, serde_json::json!([]));
         assert!(request.undoable);
+    }
+
+    /// The `updates` path used to fall through to the read branch (the schema
+    /// had no `updates` property), so a model following the tool description
+    /// silently read the list instead of patching it. It now reads the current
+    /// list, patches by id, and writes the result back.
+    #[tokio::test]
+    async fn test_updates_patches_items_in_place() {
+        let (callbacks, read_received, write_received) = scripted(
+            read_ok(serde_json::json!([
+                { "id": "M1", "parentId": null, "kind": "milestone", "title": "Phase 1", "status": "pending" },
+                { "id": "T1", "parentId": "M1", "kind": "task", "title": "Read the file", "status": "pending" }
+            ])),
+            write_ok(serde_json::json!([
+                { "id": "M1", "parentId": null, "kind": "milestone", "title": "Phase 1", "status": "pending" },
+                { "id": "T1", "parentId": "M1", "kind": "task", "title": "Read the file", "status": "done", "progress": 100 }
+            ])),
+        );
+        let result = execute_todo_list(
+            &callbacks,
+            &serde_json::json!({ "updates": [{ "id": "T1", "status": "done", "progress": 100 }] }),
+        )
+        .await;
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("Todo list updated"), "{}", result.content);
+        assert!(read_received.lock().unwrap().is_some(), "the patch reads first");
+        let request = write_received.lock().unwrap().clone().unwrap();
+        // Untouched fields survive; the patched ones changed.
+        assert_eq!(request.value[0]["title"], "Phase 1");
+        assert_eq!(request.value[0]["status"], "pending");
+        assert_eq!(request.value[1]["id"], "T1");
+        assert_eq!(request.value[1]["status"], "done");
+        assert_eq!(request.value[1]["progress"], 100);
+        assert_eq!(request.value[1]["parentId"], "M1");
+        assert!(request.undoable);
+    }
+
+    #[tokio::test]
+    async fn test_updates_unknown_id_errors_with_known_ids() {
+        let (callbacks, _, write_received) = scripted(
+            read_ok(serde_json::json!([
+                { "id": "T1", "parentId": null, "kind": "task", "title": "only one", "status": "pending" }
+            ])),
+            write_ok(Value::Null),
+        );
+        let result = execute_todo_list(
+            &callbacks,
+            &serde_json::json!({ "updates": [{ "id": "T9", "status": "done" }] }),
+        )
+        .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown todo id"), "{}", result.content);
+        assert!(result.content.contains("T1"), "the error names the known ids: {}", result.content);
+        assert!(
+            write_received.lock().unwrap().is_none(),
+            "a rejected patch must not write"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_updates_and_todos_are_mutually_exclusive() {
+        let (callbacks, read_received, write_received) =
+            scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let result = execute_todo_list(
+            &callbacks,
+            &serde_json::json!({
+                "todos": [],
+                "updates": [{ "id": "T1", "status": "done" }]
+            }),
+        )
+        .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("mutually exclusive"), "{}", result.content);
+        assert!(read_received.lock().unwrap().is_none());
+        assert!(write_received.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_tool_def_advertises_updates_with_matching_shape() {
+        let def = todo_list_tool_def();
+        let updates = &def.input_schema["properties"]["updates"];
+        assert!(updates.is_object(), "the description promises updates; the schema must declare it");
+        assert_eq!(updates["items"]["required"][0], "id");
+        assert_eq!(updates["items"]["properties"]["status"]["enum"][2], "done");
     }
 
     #[tokio::test]

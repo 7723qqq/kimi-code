@@ -512,6 +512,9 @@ pub async fn start_repl(
         tools_veto: None,
         todo_tool_veto: None,
         tower_worktree_root: None,
+        // The REPL builds its own table and pushes the tower defs
+        // unconditionally, so the gate is irrelevant on this path.
+        tower_enabled: true,
         sandbox_policy: None,
     });
     subagent_manager

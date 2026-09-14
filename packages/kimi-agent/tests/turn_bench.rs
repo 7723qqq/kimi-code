@@ -242,6 +242,7 @@ async fn bench_native_vs_host(dir: &std::path::Path) {
         tools_veto: None,
         todo_tool_veto: None,
         tower_worktree_root: None,
+        tower_enabled: false,
         sandbox_policy: None,
     });
     run_turn_sync(&llm, &native, WARMUP_STEPS).await;

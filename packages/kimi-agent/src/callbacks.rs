@@ -555,7 +555,15 @@ pub struct NativeToolCallbacks {
     pub agent_tool_veto: Option<String>,
     pub tools_veto: Option<String>,
     pub todo_tool_veto: Option<String>,
+    /// Worker write-scope guard (G-6 #13): when set, a Write/Edit whose target
+    /// resolves outside this worktree is refused. A *per-worker* guard, not the
+    /// feature switch — see `tower_enabled` for the advertised-table gate.
     pub tower_worktree_root: Option<String>,
+    /// Whether tower mode is enabled (`KIMI_CODE_EXPERIMENTAL_TOWER` /
+    /// `[experimental].tower`). Gates the advertised Tower* tool table. The
+    /// gate used to be `tower_worktree_root.is_some()`, which no production
+    /// caller ever set, so the whole tower toolset was unreachable there.
+    pub tower_enabled: bool,
     pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
 }
 
@@ -607,6 +615,7 @@ impl HostCallbacks for NativeToolCallbacks {
             tools_veto: self.tools_veto.clone(),
             todo_tool_veto: self.todo_tool_veto.clone(),
             tower_worktree_root: self.tower_worktree_root.clone(),
+            tower_enabled: self.tower_enabled,
             sandbox_policy: self.sandbox_policy.clone(),
         };
         Box::pin(async move {
@@ -1109,7 +1118,7 @@ impl HostCallbacks for NativeToolCallbacks {
     fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
         let inner = self.inner.clone();
         let toolset = self.toolset.clone();
-        let tower_enabled = self.tower_worktree_root.is_some();
+        let tower_enabled = self.tower_enabled;
         let mcp_mgr = self.toolset.mcp_manager().cloned();
         Box::pin(async move {
             let filter = toolset.tools_filter().cloned();
@@ -1637,6 +1646,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         (dir, native, permission_calls, executed, native_count)
@@ -1729,6 +1739,7 @@ mod tests {
             tools_veto,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         (dir, native, permission_calls, executed, events)
@@ -1895,6 +1906,37 @@ mod tests {
         );
     }
 
+    /// The advertised Tower* table must follow the experiment flag, not the
+    /// worker write guard. The gate used to be `tower_worktree_root.is_some()`
+    /// — a per-worker scope that no production caller sets, which left the
+    /// whole tower toolset unreachable on the product path.
+    #[tokio::test]
+    async fn test_tower_tool_table_follows_the_experiment_flag() {
+        let disabled = veto_setup(None, None).1;
+        let table = disabled.list_tools().await.unwrap();
+        assert!(
+            !table.tools.iter().any(|t| t.name == "TowerInit"),
+            "tower tools must not be advertised while the experiment is off"
+        );
+
+        let mut enabled = veto_setup(None, None).1;
+        enabled.tower_enabled = true;
+        let table = enabled.list_tools().await.unwrap();
+        assert!(
+            table.tools.iter().any(|t| t.name == "TowerInit"),
+            "tower tools must be advertised once the experiment is on"
+        );
+
+        // Setting only the worker guard must NOT re-enable the table.
+        let mut guard_only = veto_setup(None, None).1;
+        guard_only.tower_worktree_root = Some("G:/repo/.tower/worktrees/worker-1".into());
+        let table = guard_only.list_tools().await.unwrap();
+        assert!(
+            !table.tools.iter().any(|t| t.name == "TowerInit"),
+            "the worker write guard is not the feature switch"
+        );
+    }
+
     #[tokio::test]
     async fn test_sandbox_policy_enforcement() {
         use crate::tools::sandbox::SandboxExecutionPolicy;
@@ -2035,6 +2077,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         let response = native
@@ -2300,6 +2343,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         (dir, native, executed, native_count, events, state_reads)
@@ -2576,6 +2620,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         (
@@ -2783,6 +2828,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         (
@@ -2991,6 +3037,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         let mut request = sample_ask_question_request();
@@ -3197,6 +3244,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
         let mut read_request = sample_state_read_request();
@@ -3537,6 +3585,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
 
@@ -3570,6 +3619,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
 
@@ -3629,6 +3679,7 @@ mod tests {
             tools_veto: None,
             todo_tool_veto: None,
             tower_worktree_root: None,
+            tower_enabled: false,
             sandbox_policy: None,
         };
 

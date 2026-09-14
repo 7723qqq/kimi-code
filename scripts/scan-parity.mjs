@@ -107,6 +107,15 @@ function collectRustRoutes() {
       ends: [...cond.matchAll(/ends_with\("([^"]+)"\)/g)].map((x) => x[1]),
       contains: [...cond.matchAll(/contains\("([^"]+)"\)/g)].map((x) => x[1]),
       action: cond.match(/extract_session_action\(\s*p\s*,\s*"(\w+)"/)?.[1],
+      // `extract_session_fs_action` is a dispatcher: the guard matches any
+      // `…/fs:<action>` path, and the accepted actions live in the match arms
+      // of its handler body, not in the route guard. Capture them so a
+      // declared `fs:<x>` with no arm still fails.
+      sessionFs: cond.includes('extract_session_fs_action')
+        ? [...source.matchAll(/"([a-z_]+)"\s*(?:\|\s*"[a-zA-Z_]+"\s*)*=>\s*fs_routes::/g)].map(
+            (x) => x[1],
+          )
+        : null,
     });
   }
   return { literals, guards };
@@ -117,14 +126,26 @@ function rustRouteFor(endpoint, routes) {
   for (const lit of routes.literals) {
     if (lit.method !== endpoint.method) continue;
     const shape = normalizePath(lit.path);
-    if (target === shape || target.startsWith(shape + '/') || target.startsWith(shape + ':'))
-      return lit;
+    // Exact match only. `startsWith(shape + '/')` used to make the literal
+    // `/api/v1/sessions` swallow every session subroute (`…/skills/{x}:activate`,
+    // `…/children`, `…/runtime`, `…/messages/{id}`, the whole `fs:*` family),
+    // so missing handlers passed this gate. A subroute must be declared by its
+    // own literal or by a guard that matches its tail.
+    if (target === shape) return lit;
   }
   for (const g of routes.guards) {
     if (g.method !== endpoint.method) continue;
     if (g.action) {
       if (endpoint.path.endsWith(':' + g.action)) return { method: g.method, path: ':' + g.action };
       continue;
+    }
+    if (g.sessionFs) {
+      const fsAction =
+        endpoint.path.match(/:(fs_[a-z_]+)$/)?.[1] ??
+        endpoint.path.match(/[:/]fs[:/]([a-z_]+)$/)?.[1];
+      if (fsAction && g.sessionFs.includes(fsAction))
+        return { method: g.method, path: '/fs:' + fsAction };
+      if (fsAction) continue;
     }
     if (!g.starts.length) continue;
     if (!g.starts.some((s) => target.startsWith(normalizePath(s)))) continue;
