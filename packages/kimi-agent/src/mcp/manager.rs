@@ -28,6 +28,17 @@ pub struct McpServerEntry {
     pub tools: Vec<McpToolSummary>,
 }
 
+/// One thing a session should tell the user at startup. The wire shape the
+/// host renders (`{ code, message, severity }`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct McpSessionWarning {
+    pub code: String,
+    pub message: String,
+    /// `"warning"` — a degraded session, not a failed one. The host maps
+    /// anything that is not `"error"` to a warning.
+    pub severity: String,
+}
+
 /// The spawn recipe for a configured server, kept so `reconnect` can
 /// re-derive the client (the TS connection-manager keeps `entry.config` for
 /// the same reason, connection-manager.ts:33-41).
@@ -531,6 +542,39 @@ impl McpManager {
         }
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         entries
+    }
+
+    /// The startup warnings this roster implies: a server the engine could not
+    /// connect, or one waiting on the user's authorization. A healthy roster
+    /// produces none, and a disabled server is not a warning — the user turned
+    /// it off on purpose.
+    ///
+    /// This is what a session surfaces once at startup, so a user whose MCP
+    /// tools are missing learns why instead of finding an empty tool list.
+    pub async fn session_warnings(&self) -> Vec<McpSessionWarning> {
+        self.server_entries()
+            .await
+            .into_iter()
+            .filter_map(|entry| match entry.status.as_str() {
+                "failed" => Some(McpSessionWarning {
+                    code: "mcp.server_failed".into(),
+                    message: match entry.error {
+                        Some(error) => format!("MCP server \"{}\" failed: {error}", entry.name),
+                        None => format!("MCP server \"{}\" failed to connect", entry.name),
+                    },
+                    severity: "warning".into(),
+                }),
+                "needs-auth" => Some(McpSessionWarning {
+                    code: "mcp.server_needs_auth".into(),
+                    message: format!(
+                        "MCP server \"{}\" needs authorization before its tools are available",
+                        entry.name
+                    ),
+                    severity: "warning".into(),
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Remove a registered or connected MCP server.
@@ -1535,6 +1579,51 @@ mod tests {
     async fn test_reconnect_unknown_server_errors() {
         let manager = McpManager::new();
         assert!(manager.reconnect("nope").await.is_err());
+    }
+
+    /// A session surfaces the roster's degradations at startup: a server that
+    /// failed to connect, and one waiting on authorization. A healthy roster
+    /// and a deliberately disabled server produce nothing.
+    #[tokio::test]
+    async fn test_session_warnings_report_failed_and_needs_auth_servers() {
+        let manager = McpManager::new();
+        assert!(manager.session_warnings().await.is_empty());
+
+        // A stdio command that cannot spawn: the connect fails outright.
+        manager
+            .configure(
+                "broken",
+                McpServerRecipe::Stdio {
+                    command: "definitely-not-a-real-binary-xyz".into(),
+                    args: Vec::new(),
+                    env: HashMap::new(),
+                    cwd: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect_err("the spawn must fail");
+
+        let warnings = manager.session_warnings().await;
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "mcp.server_failed");
+        assert_eq!(warnings[0].severity, "warning");
+        assert!(warnings[0].message.contains("broken"), "{warnings:?}");
+
+        // A disabled server is the user's own choice, not a warning.
+        manager
+            .configure(
+                "off",
+                McpServerRecipe::Mock,
+                McpServerOptions {
+                    enabled: false,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("a disabled server never connects");
+        let warnings = manager.session_warnings().await;
+        assert_eq!(warnings.len(), 1, "the disabled server adds nothing: {warnings:?}");
     }
 
     /// Reconnecting a disabled server is an error (v2 throws

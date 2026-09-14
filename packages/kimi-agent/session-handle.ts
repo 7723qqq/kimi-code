@@ -134,6 +134,9 @@ export interface SessionNativeModule {
   /** The MCP roster this session's pipeline connected, as a JSON array of
    *  `McpServerEntry`. `[]` when the session was built without `mcp_servers`. */
   sessionMcpServers(sessionId: string): Promise<string>;
+  /** Startup warnings for this session, as a JSON array of
+   *  `{ code, message, severity }`. `[]` when nothing is degraded. */
+  sessionWarnings(sessionId: string): Promise<string>;
   sessionIsSettled(sessionId: string): boolean;
   sessionSettled(sessionId: string): Promise<void>;
   sessionTryAcquireQuiescence(sessionId: string): boolean;
@@ -302,6 +305,11 @@ export class EngineSessionHandle {
     return (await this.transport.mcpServers?.(this.id)) ?? [];
   }
 
+  /** Startup warnings for this session; `[]` when the transport carries none. */
+  async warnings(): Promise<unknown[]> {
+    return (await this.transport.warnings?.(this.id)) ?? [];
+  }
+
   isSettled(): Promise<boolean> {
     return this.transport.isSettled(this.id);
   }
@@ -449,6 +457,8 @@ export interface SessionTransport {
   startBtw?(sessionId: string): Promise<string>;
   /** The MCP roster this session's pipeline connected. */
   mcpServers?(sessionId: string): Promise<unknown[]>;
+  /** Startup warnings for this session. */
+  warnings?(sessionId: string): Promise<unknown[]>;
   btwPrompt?(
     sessionId: string,
     agentId: string,
@@ -550,6 +560,17 @@ class NapiSessionTransport implements SessionTransport {
   /** The MCP roster this session's pipeline connected. */
   async mcpServers(sessionId: string): Promise<unknown[]> {
     const raw = await this.mod.sessionMcpServers(sessionId);
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Startup warnings for this session. */
+  async warnings(sessionId: string): Promise<unknown[]> {
+    const raw = await this.mod.sessionWarnings(sessionId);
     try {
       const parsed: unknown = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];

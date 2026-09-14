@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { nativeReadEngineState } from '@moonshot-ai/kimi-agent/native';
 
+import { createKimiHarnessNative } from '#/index';
+
+import { TEST_IDENTITY } from './test-identity';
+
 /**
  * The host reads the engine's per-workspace state through this binding rather
  * than deriving the path itself: the store lives under
@@ -44,4 +48,27 @@ describe('nativeReadEngineState', () => {
   it('answers null for a workspace that does not exist', () => {
     expect(nativeReadEngineState(join(workspace(), 'missing'), 'todo')).toBeNull();
   });
+});
+
+/**
+ * The session warnings the engine derives from its MCP roster. The host used
+ * to answer `[]` unconditionally, so a user whose MCP tools were missing got
+ * no reason at all.
+ */
+describe('session warnings', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+
+  it('answers an empty list for a session with no degraded MCP servers', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kimi-warn-home-'));
+    dirs.push(homeDir);
+    const workDir = mkdtempSync(join(tmpdir(), 'kimi-warn-work-'));
+    dirs.push(workDir);
+    const harness = createKimiHarnessNative({ homeDir, identity: TEST_IDENTITY });
+    const session = await harness.createSession({ workDir });
+    await expect(session.getSessionWarnings()).resolves.toEqual([]);
+  }, 60_000);
 });

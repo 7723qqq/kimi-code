@@ -2162,6 +2162,27 @@ pub fn session_mcp_servers(env: Env, session_id: String) -> napi::Result<JsObjec
     )
 }
 
+/// The warnings this session should surface at startup, as a JSON array of
+/// `{ code, message, severity }`.
+///
+/// Derived from the MCP roster: a server the engine could not connect, or one
+/// waiting on the user's authorization. A healthy session produces `[]`.
+#[napi]
+pub fn session_warnings(env: Env, session_id: String) -> napi::Result<JsObject> {
+    let manager = session_entry(&session_id)?.mcp_manager;
+    env.execute_tokio_future(
+        async move {
+            let Some(manager) = manager else {
+                return Ok("[]".to_string());
+            };
+            let warnings = manager.session_warnings().await;
+            serde_json::to_string(&warnings)
+                .map_err(|e| napi::Error::from_reason(format!("serialize session warnings: {e}")))
+        },
+        |env, json: String| env.create_string(&json),
+    )
+}
+
 /// Whether the session is fully idle right now (nothing active, pending, or
 /// held).
 #[napi]

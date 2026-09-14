@@ -54,6 +54,7 @@ const UNWRAPPED_BINDINGS = new Set([
   'runTurnRust',
   'sessionStatus',
   'sessionMcpServers',
+  'sessionWarnings',
   'resolveCallback',
   'sessionDispose',
   'sessionSettled',

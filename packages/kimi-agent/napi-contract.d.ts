@@ -1453,6 +1453,15 @@ export declare function sessionTryAcquireQuiescence(sessionId: string): boolean
 export declare function sessionTurnOutcome(sessionId: string, turnId: number): object
 
 /**
+ * The warnings this session should surface at startup, as a JSON array of
+ * `{ code, message, severity }`.
+ *
+ * Derived from the MCP roster: a server the engine could not connect, or one
+ * waiting on the user's authorization. A healthy session produces `[]`.
+ */
+export declare function sessionWarnings(sessionId: string): object
+
+/**
  * Lightweight projection of a `ToolResourceAccess` for conflict detection.
  *
  * `kind` is `"file"` or `"all"`. For `"all"`, the remaining fields are

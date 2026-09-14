@@ -3718,9 +3718,11 @@ impl HttpServer {
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
-                // No engine path produces session warnings yet; the list is
-                // honestly empty rather than fabricated.
-                HttpResponse::ok(&json!({ "warnings": [] }))
+                // The engine's own degradations: MCP servers it could not
+                // connect, and servers waiting on the user's authorization.
+                // A healthy roster produces an empty list.
+                let warnings = self.mcp_manager.session_warnings().await;
+                HttpResponse::ok(&json!({ "warnings": warnings }))
             }
             ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/title/generate") => {
                 let session_id = p
@@ -8804,6 +8806,77 @@ max_context_size = 128000
             })
             .await;
         assert_eq!(missing.status, 404);
+    }
+
+    /// The session warnings route reports the engine's own degradations — an
+    /// MCP server it could not connect — instead of the unconditional `[]` it
+    /// used to answer, which left a user with missing MCP tools no reason.
+    #[tokio::test]
+    async fn test_session_warnings_route_reports_mcp_failures() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+        store.create_session("sess-warn", Some("Warn Session")).unwrap();
+
+        // A healthy (empty) roster produces nothing.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-warn/warnings".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(val["warnings"].as_array().unwrap().len(), 0);
+
+        server
+            .mcp_manager()
+            .configure(
+                "broken",
+                crate::mcp::manager::McpServerRecipe::Stdio {
+                    command: "definitely-not-a-real-binary-xyz".into(),
+                    args: Vec::new(),
+                    env: HashMap::new(),
+                    cwd: None,
+                },
+                crate::mcp::manager::McpServerOptions::default(),
+            )
+            .await
+            .expect_err("the spawn must fail");
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-warn/warnings".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        let list = val["warnings"].as_array().unwrap();
+        assert_eq!(list.len(), 1, "{val}");
+        assert_eq!(list[0]["code"], "mcp.server_failed");
+        assert_eq!(list[0]["severity"], "warning");
+        assert!(
+            list[0]["message"].as_str().unwrap_or_default().contains("broken"),
+            "{val}"
+        );
+
+        // An unknown session is still refused.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-missing/warnings".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 404);
     }
 
     #[tokio::test]

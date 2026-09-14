@@ -2355,8 +2355,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async getSessionWarnings(
     input: SessionIdRpcInput,
   ): Promise<readonly { code: string; message: string; severity: 'warning' }[]> {
-    this.requireSession(input.sessionId);
-    return [];
+    const meta = this.requireSession(input.sessionId);
+    if (meta.handle === undefined) return [];
+    // The engine's own degradations — MCP servers it could not connect, and
+    // servers waiting on the user's authorization. This used to answer `[]`
+    // unconditionally, so a user whose MCP tools were missing got no reason.
+    const warnings = await meta.handle.warnings();
+    return warnings as readonly { code: string; message: string; severity: 'warning' }[];
   }
 
   override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
