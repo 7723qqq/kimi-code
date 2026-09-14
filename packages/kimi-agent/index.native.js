@@ -771,6 +771,20 @@ function nativeParsePermissionPattern(pattern) {
 }
 
 // ============================================================================
+// Engine state store — the per-workspace domain files
+// ============================================================================
+
+/**
+ * Read one engine state domain for a workspace.
+ * @param {string} workspaceRoot - the workspace the state belongs to
+ * @param {string} domain - one of todo / plan / goal / cron / task / turn
+ * @returns {string | null} the stored JSON, or null when the domain is empty
+ */
+function nativeReadEngineState(workspaceRoot, domain) {
+  return binding.nativeReadEngineState(workspaceRoot, domain);
+}
+
+// ============================================================================
 // GoalEngine — decision core (stateless, JSON-in/JSON-out)
 // ============================================================================
 
@@ -888,6 +902,9 @@ module.exports = {
 
   // Permission
   nativeParsePermissionPattern,
+
+  // Engine state store
+  nativeReadEngineState,
 
   // Translation (i18n)
   nativeTranslate,

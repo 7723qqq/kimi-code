@@ -1,9 +1,12 @@
 //! Local JSON state storage for the standalone REPL (P32 批 1).
 //!
-//! Provides per-domain durable state under `<workspace>/.kimi/state/` with
-//! one JSON file per domain (`todo.json` / `plan.json` / `goal.json` /
-//! `cron.json` / `task.json` / `turn.json`). Writes are atomic (tmp file +
-//! rename).
+//! Provides per-domain durable state under
+//! `<home>/.kimi-code/engine-state/<workspace-key>/state/` with one JSON file
+//! per domain (`todo.json` / `plan.json` / `goal.json` / `cron.json` /
+//! `task.json` / `turn.json`). The key is a digest of the canonicalized
+//! workspace path, so the directory is not derivable from the workspace alone
+//! — see [`read_workspace_state`] for the read side a host can call. Writes
+//! are atomic (tmp file + rename).
 //!
 //! Wire shapes align with the v2 state bridge domains: todo = `TodoItem[]`
 //! (full replacement), plan = `{active, id?, path?}`, goal =
@@ -150,6 +153,7 @@ impl StateStore {
         let content = fs::read_to_string(&path).ok()?;
         serde_json::from_str(&content).ok()
     }
+
 
     /// Write a domain's value atomically (tmp file + rename, so a crash
     /// mid-write never leaves a truncated domain file behind).
@@ -901,6 +905,18 @@ fn next_checkpoint_seq(dir: &Path) -> Result<u64, String> {
     Ok(max.map_or(1, |m| m + 1))
 }
 
+/// Read one domain's stored value for a workspace, as the JSON the store holds.
+///
+/// The store's directory name is a digest of the canonicalized workspace path,
+/// so a caller outside this crate cannot locate the file itself. The napi
+/// export and the host both go through here rather than re-deriving the path —
+/// the host used to guess `<sessionDir>/todo.json`, which nothing ever writes.
+pub fn read_workspace_state(workspace_root: &Path, domain: &str) -> Option<String> {
+    let store = StateStore::for_workspace(workspace_root).ok()?;
+    let value = store.read_domain(domain)?;
+    serde_json::to_string(&value).ok()
+}
+
 fn latest_checkpoint_seq(dir: &Path) -> Result<Option<u64>, String> {
     let mut max: Option<u64> = None;
     for entry in fs::read_dir(dir).map_err(|e| format!("read checkpoints dir: {e}"))? {
@@ -947,6 +963,26 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
         (tmp, store)
+    }
+
+    /// The read side a host reaches through the napi export: it resolves the
+    /// workspace-keyed directory itself, so the caller never has to know the
+    /// derivation. A domain with no stored state reads as `None` rather than
+    /// an error, and an unknown domain is `None` too.
+    #[test]
+    fn read_workspace_state_resolves_the_workspace_directory() {
+        let workspace = TempDir::new().unwrap();
+        let todos = json!([{ "title": "Read session-control.ts", "status": "in_progress" }]);
+        StateStore::for_workspace(workspace.path())
+            .unwrap()
+            .write_domain("todo", &todos)
+            .unwrap();
+
+        let raw = read_workspace_state(workspace.path(), "todo").expect("the todo domain is set");
+        assert_eq!(serde_json::from_str::<Value>(&raw).unwrap(), todos);
+
+        assert!(read_workspace_state(workspace.path(), "plan").is_none());
+        assert!(read_workspace_state(workspace.path(), "not-a-domain").is_none());
     }
 
     #[test]

@@ -1054,6 +1054,18 @@ export declare function nativeQualifyMcpToolName(serverName: string, toolName: s
  */
 export declare function nativeRead(path: string, lineOffset?: number | undefined | null, nLines?: number | undefined | null): Promise<ReadResult>
 
+/**
+ * Read one engine state domain for a workspace, as the JSON the store holds,
+ * or `null` when the domain has no stored state.
+ *
+ * The store lives under `<home>/.kimi-code/engine-state/<key>/state/`, where
+ * `<key>` is a digest of the canonicalized workspace path. The host cannot
+ * reproduce that layout without duplicating the derivation, so it asks here
+ * instead of guessing a path — the previous host-side guess read
+ * `<sessionDir>/todo.json`, which nothing ever writes.
+ */
+export declare function nativeReadEngineState(workspaceRoot: string, domain: string): string | null
+
 /** Result of a prediction. */
 export interface NativeReadPrediction {
   lineCount: number

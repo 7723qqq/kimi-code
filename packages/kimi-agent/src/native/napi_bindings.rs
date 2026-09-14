@@ -1173,6 +1173,26 @@ pub fn native_goal_render_objective_updated(
     steering::render_objective_updated(&objective, tokens_used, token_budget)
 }
 
+// ============================================================================
+// Engine state store
+// ============================================================================
+
+/// Read one engine state domain for a workspace, as the JSON the store holds,
+/// or `null` when the domain has no stored state.
+///
+/// The store lives under `<home>/.kimi-code/engine-state/<key>/state/`, where
+/// `<key>` is a digest of the canonicalized workspace path. The host cannot
+/// reproduce that layout without duplicating the derivation, so it asks here
+/// instead of guessing a path — the previous host-side guess read
+/// `<sessionDir>/todo.json`, which nothing ever writes.
+#[napi]
+pub fn native_read_engine_state(workspace_root: String, domain: String) -> Option<String> {
+    crate::storage::state_store::read_workspace_state(
+        std::path::Path::new(&workspace_root),
+        &domain,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Internal JSON helpers

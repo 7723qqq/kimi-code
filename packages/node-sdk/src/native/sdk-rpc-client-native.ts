@@ -2347,26 +2347,31 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
     const meta = this.requireSession(input.sessionId);
-    const todoFile = join(meta.sessionDir, 'todo.json');
-    if (existsSync(todoFile)) {
-      try {
-        const content = JSON.parse(readFileSync(todoFile, 'utf-8'));
-        if (Array.isArray(content)) {
-          return content.map((t: { title?: string; status?: string }) => ({
-            title: String(t.title ?? ''),
-            status:
-              t.status === 'done' || t.status === 'completed'
-                ? 'done'
-                : t.status === 'in_progress'
-                  ? 'in_progress'
-                  : 'pending',
-          }));
-        }
-      } catch {
-        // fall through
-      }
+    // The engine owns the todo state, and it lives under the workspace's
+    // engine-state directory — whose name is a digest of the canonicalized
+    // workspace path, so the host asks the engine for it rather than guessing.
+    // The previous guess read `<sessionDir>/todo.json`, which nothing ever
+    // writes, so this always answered `[]` and `/undo` could not restore the
+    // panel it had just cleared.
+    const { nativeReadEngineState } = await import('@moonshot-ai/kimi-agent/native');
+    const raw = nativeReadEngineState(meta.workDir, 'todo');
+    if (raw === null) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
     }
-    return [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry: { title?: string; status?: string }) => ({
+      title: String(entry.title ?? ''),
+      status:
+        entry.status === 'done' || entry.status === 'completed'
+          ? 'done'
+          : entry.status === 'in_progress'
+            ? 'in_progress'
+            : 'pending',
+    }));
   }
 
   override async cancelShellCommand(input: {

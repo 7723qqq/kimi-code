@@ -302,6 +302,19 @@ export interface PermissionPattern {
  */
 export function nativeParsePermissionPattern(pattern: string): PermissionPattern | string;
 
+/**
+ * Read one engine state domain for a workspace.
+ *
+ * The store lives under `<home>/.kimi-code/engine-state/<key>/state/`, where
+ * `<key>` is a digest of the canonicalized workspace path — a layout the host
+ * cannot reproduce without duplicating the derivation.
+ *
+ * @param workspaceRoot - the workspace the state belongs to
+ * @param domain - one of `todo` / `plan` / `goal` / `cron` / `task` / `turn`
+ * @returns the stored JSON, or `null` when the domain is empty or unknown
+ */
+export function nativeReadEngineState(workspaceRoot: string, domain: string): string | null;
+
 // ============================================================================
 // Tool access conflict detection
 // ============================================================================
