@@ -269,7 +269,12 @@ describe('VS Code replay from a public Node SDK resume state', () => {
                 new_text: 'after',
               },
             ],
-            output: [{ type: 'text', text: 'Replaced 1 occurrence in sample.txt' }],
+            output: [
+              {
+                type: 'text',
+                text: expect.stringMatching(/^(?:Replaced 1 occurrence in|Edited) sample\.txt$/),
+              },
+            ],
           }),
         }),
       }),

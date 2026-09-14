@@ -38,7 +38,19 @@ export interface MergeWorkspacesInput {
  * derived workspace (id = root = cwd). Real workspaces win on root.
  */
 export function mergeWorkspaces(input: MergeWorkspacesInput): AppWorkspace[] {
-  const { workspaces, sessions, hiddenWorkspaceRoots, sessionsHasMoreByWorkspace } = input;
+  // The sidebar reads this on every render, including the window where `load()`
+  // has not populated the state yet (or gave up because every per-workspace
+  // session page failed). Those fields arrive `undefined` from an
+  // un-initialized / failed state, and the first thing this function does is
+  // `hiddenWorkspaceRoots.map(...)` — which took the whole `load` operation
+  // down with "Cannot read properties of undefined (reading 'map')" instead of
+  // rendering an empty sidebar. Normalize at the boundary once.
+  const {
+    workspaces = [],
+    sessions = [],
+    hiddenWorkspaceRoots = [],
+    sessionsHasMoreByWorkspace = {},
+  } = input;
 
   // "Same root?" is always decided by the folded key; the first-seen original
   // string is kept for display.

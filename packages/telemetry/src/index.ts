@@ -45,6 +45,9 @@ export async function shutdownTelemetry(
 export { initializeTelemetry, isTelemetryDisabledByEnv, shouldEnableTelemetry } from './bootstrap';
 export type { TelemetryBootstrapOptions } from './bootstrap';
 
+export { EventSink } from './sink';
+export { AsyncTransport, TELEMETRY_ENDPOINT } from './transport';
+
 export { installCrashHandlers, setCrashPhase } from './crash';
 export type { CrashPhase } from './crash';
 

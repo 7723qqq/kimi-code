@@ -120,8 +120,10 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
     for (const name of files) if (await copyIfExists(deps.dir(), name, tmp)) copied.push(name);
     // Fsync every copied file BEFORE the manifest: the manifest is the
     // commit marker, so a durable manifest must imply durable payloads.
+    // Opened 'r+' (not 'r'): on Windows FlushFileBuffers needs a writable
+    // handle and rejects read-only ones with EPERM.
     for (const name of copied) {
-      const h = await fs.open(path.join(tmp, name), 'r');
+      const h = await fs.open(path.join(tmp, name), 'r+');
       try {
         await h.sync();
       } finally {
@@ -130,7 +132,7 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
     }
     const manifest = path.join(tmp, 'backup.manifest.json');
     await fs.writeFile(manifest, JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2), 'utf8');
-    const mh = await fs.open(manifest, 'r');
+    const mh = await fs.open(manifest, 'r+');
     try {
       await mh.sync();
     } finally {
