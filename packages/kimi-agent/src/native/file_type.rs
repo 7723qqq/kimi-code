@@ -1,6 +1,8 @@
 /// File type detection via magic bytes and extension sniffing.
 /// Mirrors the TypeScript `detectFileType` in `support/file-type.ts`.
+#[cfg(feature = "napi")]
 use napi_derive::napi;
+
 use std::path::Path;
 
 /// Number of bytes to read from file header for magic-byte detection.
@@ -190,7 +192,7 @@ const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
 
 /// Image dimensions (width × height in pixels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct ImageDimensions {
     pub width: u32,
     pub height: u32,

@@ -2,7 +2,9 @@
 ///
 /// Creates parent directories automatically.
 /// Mirrors `packages/agent-core-v2/src/agent/tools/os/write/write.ts`.
+#[cfg(feature = "napi")]
 use napi_derive::napi;
+
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -17,7 +19,7 @@ const S_IFDIR: u32 = 0o040000;
 
 /// Result of a write operation.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct WriteResult {
     pub bytes_written: i32,
     pub error: Option<String>,

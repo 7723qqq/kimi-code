@@ -9,7 +9,6 @@
 //! `file_operations_conflict`, `file_accesses_overlap`, and `normalize_path`
 //! stay private to this module.
 
-use napi_derive::napi;
 
 /// Lightweight projection of a `ToolResourceAccess` for conflict detection.
 ///
@@ -17,8 +16,11 @@ use napi_derive::napi;
 /// `None` and the access conflicts with everything. For `"file"`,
 /// `operation` is `"read"` / `"write"` / `"readwrite"` / `"search"`,
 /// `path` is the file path, and `recursive` marks tree-wide access.
+#[cfg(feature = "napi")]
+use napi_derive::napi;
+
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct ToolAccessMeta {
     pub kind: String,
     pub operation: Option<String>,

@@ -7,7 +7,9 @@
 ///   - Depth 0 (root):  up to LIST_DIR_ROOT_WIDTH entries
 ///   - Depth 1 (children of root dirs): up to LIST_DIR_CHILD_WIDTH entries
 ///   - Truncated levels show "... and N more" so the LLM knows more exists.
+#[cfg(feature = "napi")]
 use napi_derive::napi;
+
 use std::fs;
 use std::path::Path;
 
@@ -18,7 +20,7 @@ pub const LIST_DIR_CHILD_WIDTH: usize = 10;
 
 /// Result of a list-directory operation.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct ListDirectoryResult {
     pub output: String,
     pub error: Option<String>,

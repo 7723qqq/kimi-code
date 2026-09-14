@@ -12,7 +12,6 @@
 //! stay private to this module.
 //!
 
-use napi_derive::napi;
 
 /// Lightweight projection of a `Message` for the compaction algorithm.
 ///
@@ -20,8 +19,11 @@ use napi_derive::napi;
 /// boundary: `role` (for split-safety checks), `tool_calls_count` (to
 /// detect pending tool exchanges), and `tokens` (pre-computed by TS via
 /// the cached `estimateTokensForMessage`).
+#[cfg(feature = "napi")]
+use napi_derive::napi;
+
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct CompactionMessageMeta {
     pub role: String,
     pub tool_calls_count: u32,
@@ -35,7 +37,7 @@ pub struct CompactionMessageMeta {
 /// `recent_user_messages >= max_recent_user_messages` then never fires
 /// for realistic message counts, matching the TS behavior.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct CompactionConfigMeta {
     pub max_size: u32,
     pub max_recent_messages: u32,
@@ -244,7 +246,7 @@ fn prefix_ends_with_open_tool_exchange(messages: &[CompactionMessageMeta], index
 /// from `content` (skipping non-text parts) and pre-estimates tokens;
 /// Rust only needs the projection.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct HandoffMessageMeta {
     pub role: String,
     pub text: String,
@@ -254,7 +256,7 @@ pub struct HandoffMessageMeta {
 /// Result of `select_compaction_user_messages`. Indices reference the input
 /// `Vec<HandoffMessageMeta>` (user messages only, in original order).
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct CompactionUserSelection {
     pub head_indices: Vec<u32>,
     pub tail_indices: Vec<u32>,

@@ -3,14 +3,16 @@
 /// Replaces the first occurrence of `old_string` with `new_string` by default.
 /// When `replace_all` is true, replaces all occurrences.
 /// Mirrors `packages/agent-core-v2/src/agent/tools/edit/edit.ts`.
-use crate::native::line_endings::{materialize_model_text, to_model_text_view};
+#[cfg(feature = "napi")]
 use napi_derive::napi;
+
+use crate::native::line_endings::{materialize_model_text, to_model_text_view};
 use std::fs;
 use std::path::Path;
 
 /// Result of an edit operation.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct EditResult {
     pub success: bool,
     pub error: Option<String>,

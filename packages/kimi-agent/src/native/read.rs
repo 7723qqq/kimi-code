@@ -7,6 +7,9 @@
 ///
 /// Mirrors `packages/agent-core-v2/src/agent/tools/os/read/read.ts` and
 /// `packages/agent-core-v2/src/agent/tools/os/read/readTool.ts`.
+#[cfg(feature = "napi")]
+use napi_derive::napi;
+
 use crate::native::encoding::{
     LegacyTextEncoding, TRANSCODE_MAX_BYTES, UtfTextEncoding, decode_gbk, decode_utf_text,
     decode_utf8_lenient, detect_legacy_text_encoding, detect_text_encoding,
@@ -15,7 +18,6 @@ use crate::native::file_type::{FileKind, MEDIA_SNIFF_BYTES, detect_file_type};
 use crate::native::line_endings::{
     LineEndingFlags, LineEndingStyle, make_carriage_returns_visible,
 };
-use napi_derive::napi;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
@@ -30,7 +32,7 @@ pub const MAX_BYTES: usize = 100 * 1024;
 
 /// Result of a read operation.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct ReadResult {
     pub content: String,
     pub line_count: i32,

@@ -5,8 +5,10 @@
 /// glob filtering, head_limit, and offset.
 ///
 /// Mirrors `packages/agent-core-v2/src/agent/tools/os/grep/grep.ts`.
-use ignore::WalkBuilder;
+#[cfg(feature = "napi")]
 use napi_derive::napi;
+
+use ignore::WalkBuilder;
 use regex::RegexBuilder;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -31,7 +33,7 @@ const VCS_DIRECTORIES_TO_EXCLUDE: &[&str] = &[".git", ".svn", ".hg", ".bzr", ".j
 
 /// Result of a grep operation.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi", napi(object))]
 pub struct GrepResult {
     pub content: String,
     pub error: Option<String>,
