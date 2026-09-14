@@ -15,7 +15,7 @@ import { Worker } from 'node:worker_threads';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { MiniDb } from '../src/index.js';
+import { MiniDb, TextIndexBuildingError } from '../src/index.js';
 import { WorkerSlots, MaintenanceCancelledError, defaultWorkerSlots } from '../src/maintenance.js';
 import {
   configureTextBuildWorkerRuntime,
@@ -521,8 +521,21 @@ describe('MiniDb worker build integration', () => {
     const buildP = db.rebuildGeneration().finally(() => {
       settled = true;
     });
+    // The read path works before the build starts; the loop below only has to
+    // show it stays that way.
+    expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+
     // Ordinary traffic during the build: reads, writes, and searches keep
     // working off the OLD base + live delta.
+    //
+    // One exception, and only on Windows: publishing a generation renames the
+    // build directory, and Windows refuses to rename a directory holding an
+    // open file — so the base handles are closed across the rename and a
+    // search landing in that window raises `TextIndexBuildingError` rather
+    // than silently reading an empty base (see the win32 branch in
+    // `generation-builder.ts`). POSIX keeps the handles valid across the
+    // rename and never takes that path, so there the signal stays a failure.
+    const publishWindowIsPossible = process.platform === 'win32';
     let ops = 0;
     while (!settled && ops < 400) {
       await db.set(`c${ops}`, {
@@ -531,7 +544,11 @@ describe('MiniDb worker build integration', () => {
         text: `concurrent write ${ops} 并发`,
       });
       expect(db.get('k42')).toMatchObject({ score: 42 });
-      expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+      try {
+        expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+      } catch (error) {
+        if (!publishWindowIsPossible || !(error instanceof TextIndexBuildingError)) throw error;
+      }
       ops++;
     }
     await buildP;
