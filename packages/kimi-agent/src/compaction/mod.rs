@@ -10,6 +10,8 @@
 //! split point that cannot orphan a tool exchange, and the most recent
 //! tail is kept verbatim.
 
+pub mod micro;
+
 use crate::turn_loop::retry::{RetryConfig, retry_delay};
 use crate::turn_loop::turn_step::{retry_after_hint, step_delay};
 use crate::turn_loop::types::{ContentBlock, LLM, LLMChatParams, LLMMessage};

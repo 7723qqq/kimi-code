@@ -320,6 +320,32 @@ impl ServerEngine {
             .clone()
     }
 
+    /// The `[experimental].micro_compaction` knob: `Some(config)` when the
+    /// flag is enabled, `None` when unset/off. The feature must not change
+    /// model-visible content unless explicitly enabled — before this seam
+    /// existed the TUI advertised the flag while the engine had no
+    /// implementation at all.
+    ///
+    /// `None` is also returned when the engine has no config source (the napi
+    /// path resolves flags on the host instead), so the standalone server is
+    /// the only wired surface for now.
+    async fn micro_compaction_config(
+        &self,
+    ) -> Option<crate::compaction::micro::MicroCompactionConfig> {
+        let source = self.config_source()?;
+        let config = {
+            let guard = source.lock().await;
+            guard.clone()
+        }?;
+        let enabled = match config.experimental.get("micro_compaction") {
+            Some(crate::config::ExperimentalValue::Bool(value)) => *value,
+            Some(crate::config::ExperimentalValue::String(value)) => {
+                !value.is_empty() && value != "false"
+            }
+            None => false,
+        };
+        enabled.then(crate::compaction::micro::MicroCompactionConfig::default)
+    }
 
     /// Whether the background memory filing pass may run: the
     /// `KIMI_AGENT_MEMORY_FILING` env override over the
@@ -717,6 +743,7 @@ impl ServerEngine {
         prompt: &str,
         media: Vec<ContentBlock>,
     ) -> Result<TurnReport, EngineError> {
+        let mut history = history;
         // A self-contained engine must refuse the host-proxy fallback rather
         // than reach ServerHost.llm_chat and fail mid-turn.
         let mut policy_snapshot = self.spec.policy_snapshot.clone().unwrap_or_default();
@@ -831,6 +858,29 @@ impl ServerEngine {
         )
         .await
         .map_err(|error| EngineError::NoModel(error.message))?;
+
+        // Micro compaction (v2 `AgentMicroCompactionService`): with the
+        // `[experimental].micro_compaction` flag on, blank oversized old tool
+        // results in the outgoing history so the rebuilt prefix stays small.
+        // The transform is a deterministic projection — the store keeps the
+        // originals — so the blanked prefix is stable across requests (one
+        // cache miss on first application, then stable). v2 additionally gates
+        // on a detected prompt-cache miss; that signal is not threaded into the
+        // engine yet, so the flag alone decides (see ROADMAP known gaps).
+        if let Some(config) = self.micro_compaction_config().await {
+            let outcome =
+                crate::compaction::micro::apply_micro_compaction(&history, &config);
+            if outcome.changed {
+                self.hub.bus_for(session_id).publish(
+                    &crate::events::EngineEvent::Custom(serde_json::json!({
+                        "type": "micro_compaction.apply",
+                        "sessionId": session_id,
+                        "cutoff": outcome.cutoff,
+                    })),
+                );
+                history = outcome.messages;
+            }
+        }
 
         self.execute(
             pipeline.llm.as_ref(),
@@ -972,6 +1022,10 @@ impl ServerEngine {
         };
         messages.push(user_message.clone());
         let input_len = messages.len();
+        // Micro compaction was applied to `history` at the top of this
+        // function (see the `micro_compaction.apply` block above) — applying
+        // it again here would be a no-op rescan, because already-blanked tool
+        // results sit below `min_content_tokens`.
 
         let goal = callbacks.goal().await.ok().flatten();
         let input = RunTurnInput {
@@ -1268,6 +1322,56 @@ mod tests {
         )
     }
 
+    /// The `[experimental].micro_compaction` flag gates the wiring: off/unset
+    /// yields no config (the transform never runs), `true`/non-`false` strings
+    /// enable it.
+    #[tokio::test]
+    async fn micro_compaction_flag_reads_the_experimental_map() {
+        let with_flag = |value: Option<crate::config::ExperimentalValue>| {
+            let engine = engine();
+            let mut config = crate::config::KimiConfig::default();
+            if let Some(value) = value {
+                config
+                    .experimental
+                    .insert("micro_compaction".to_string(), value);
+            }
+            engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+            engine
+        };
+
+        assert!(
+            with_flag(None)
+                .micro_compaction_config()
+                .await
+                .is_none(),
+            "unset flag stays off"
+        );
+        assert!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(false)))
+                .micro_compaction_config()
+                .await
+                .is_none(),
+        );
+        assert!(
+            with_flag(Some(crate::config::ExperimentalValue::String("false".into())))
+                .micro_compaction_config()
+                .await
+                .is_none(),
+        );
+        assert!(
+            with_flag(Some(crate::config::ExperimentalValue::Bool(true)))
+                .micro_compaction_config()
+                .await
+                .is_some(),
+        );
+        assert!(
+            with_flag(Some(crate::config::ExperimentalValue::String("true".into())))
+                .micro_compaction_config()
+                .await
+                .is_some(),
+        );
+    }
+
     /// The `[experimental].memory_filing` flag gates the background filing
     /// pass the same way: unset/off yields no flag, `true`/non-`false`
     /// strings enable it. The env override is resolved on top of this, so the
@@ -1326,7 +1430,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn session_profile_overrides_spec_for_the_turn() {
         let mut spec = spec();
