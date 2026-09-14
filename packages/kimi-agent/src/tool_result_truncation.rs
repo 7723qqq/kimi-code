@@ -58,6 +58,12 @@ pub struct ToolResultTruncator {
     spill_dir: PathBuf,
 }
 
+/// How long a spilled tool result is kept under `<workspace>/.kimi/spill`.
+/// Pruned opportunistically whenever a truncator is rebuilt for the workspace
+/// (see [`ToolResultTruncator::for_workspace`]) — there is no background task.
+pub const SPILL_RETENTION: std::time::Duration =
+    std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
 impl ToolResultTruncator {
     pub fn new(spill_dir: PathBuf) -> Self {
         Self { spill_dir }
@@ -65,8 +71,19 @@ impl ToolResultTruncator {
 
     /// Construct a `ToolResultTruncator` rooted at `<workspace>/.kimi/spill`.
     /// The directory is created on the first spill (not eagerly).
+    ///
+    /// Also reclaims disk from earlier sessions by pruning spill files older
+    /// than [`SPILL_RETENTION`]. This is the only caller of
+    /// [`ToolResultTruncator::cleanup_expired_spills`]; without it the spill
+    /// directory grew without bound. Best-effort: a prune failure is logged at
+    /// debug level and never affects a turn.
     pub fn for_workspace(workspace_root: &Path) -> Self {
-        Self::new(workspace_root.join(".kimi").join("spill"))
+        let truncator = Self::new(workspace_root.join(".kimi").join("spill"));
+        let pruned = truncator.cleanup_expired_spills(SPILL_RETENTION);
+        if pruned > 0 {
+            tracing::debug!(pruned, "pruned expired spill files");
+        }
+        truncator
     }
 
     /// Apply the truncation policy. See module docs for the rules.
@@ -385,6 +402,39 @@ mod tests {
 
     fn small() -> ToolResultTruncator {
         ToolResultTruncator::new(env::temp_dir().join("kimi-agent-truncation-test"))
+    }
+
+    /// `for_workspace` is the only caller of the pruner: building a truncator
+    /// reclaims spills older than [`SPILL_RETENTION`] and keeps recent ones.
+    /// Without that call the spill directory grew without bound.
+    #[test]
+    fn workspace_truncator_prunes_expired_spills() {
+        let dir = tempfile::tempdir().unwrap();
+        let spill = dir.path().join(".kimi").join("spill");
+        std::fs::create_dir_all(&spill).unwrap();
+
+        let stale = spill.join("old.txt");
+        std::fs::write(&stale, "old").unwrap();
+        let aged = std::time::SystemTime::now()
+            .checked_sub(SPILL_RETENTION + std::time::Duration::from_secs(60))
+            .expect("retention is representable");
+        std::fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(aged))
+            .unwrap();
+
+        let fresh = spill.join("fresh.txt");
+        std::fs::write(&fresh, "fresh").unwrap();
+
+        let _ = ToolResultTruncator::for_workspace(dir.path());
+
+        assert!(
+            !stale.exists(),
+            "an expired spill is pruned when the truncator is built"
+        );
+        assert!(fresh.exists(), "a recent spill is kept");
     }
 
     #[test]
