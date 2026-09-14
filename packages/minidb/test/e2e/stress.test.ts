@@ -915,10 +915,25 @@ test(
         .map(([k]) => k)
         .toSorted();
       expect(ranged, `${ctx}: findRange(score 0..100)`).toEqual(wantRanged);
-      const hits = dbi
-        .search('docs', 'alpha', { limit: 10_000 })
-        .map((h) => h.key)
-        .toSorted();
+      // A background generation publish briefly closes the postings handles on
+      // Windows, and a search in that window raises `TextIndexBuildingError`
+      // instead of returning partial results. The churn below compacts often
+      // enough that a checkpoint can land there, so retry until the base is
+      // available again — the same treatment the other checkpoint in this file
+      // already uses.
+      let hits: string[] = [];
+      for (let attempt = 0; ; attempt++) {
+        try {
+          hits = dbi
+            .search('docs', 'alpha', { limit: 10_000 })
+            .map((h) => h.key)
+            .toSorted();
+          break;
+        } catch (error) {
+          if (!(error instanceof TextIndexBuildingError) || attempt >= 200) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
       const wantHits = [...model]
         .filter(([, v]) => (v.doc.body ?? '').split(' ').includes('alpha'))
         .map(([k]) => k)
