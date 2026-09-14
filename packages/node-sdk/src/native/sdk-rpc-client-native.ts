@@ -12,7 +12,15 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import type { AgentContextData, JsonObject } from '#/types';
+import type {
+  AgentContextData,
+  AgentMeta,
+  AgentType,
+  JsonObject,
+  PromptOrigin,
+  ResumedAgentState,
+  ToolCall,
+} from '#/types';
 import {
   EngineSessionHandle,
   type SessionCallbacks,
@@ -576,7 +584,6 @@ export interface SDKRpcClientNativeOptions {
   readonly sessionStartedProperties?: TelemetryProperties | undefined;
   readonly imageLimits?: ImageLimits | undefined;
   readonly skillDirs?: readonly string[] | undefined;
-  readonly engineOverride?: unknown;
 }
 
 interface NativeSessionMeta {
@@ -617,6 +624,7 @@ interface NativeSessionMeta {
   forkedFrom: string | undefined;
   activeAgentId?: string;
   handle?: EngineSessionHandle;
+  agents?: Record<string, AgentMeta>;
 }
 
 /**
@@ -657,6 +665,7 @@ interface PersistedSessionMeta {
   goal?: NativeGoalState | null | undefined;
   forkedFrom?: string | undefined;
   contextTokens?: number | undefined;
+  agents?: Record<string, AgentMeta> | undefined;
 }
 
 const DEFAULT_INIT_PROMPT = `You are a software engineering expert with many years of programming experience. Please explore the current project directory to understand the project's architecture and main details.
@@ -892,16 +901,23 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         // The previous path delegated to the base `toolCall`, which returned a
         // generic "SDK custom tool calls are not supported: <id>" that dropped
         // the tool name and read to the model like a transient failure to retry.
+        //
+        // Wire shape: the return value is a serde-deserialized
+        // `ToolExecuteResponse` (`kimi-agent/src/rpc/types.rs`), whose required
+        // fields are `content` + `is_error` — NOT the `{output, isError}` pair
+        // the rest of the SDK uses. Emitting the wrong keys made every host
+        // fallback die as `execute_tool parse: missing field \`content\``,
+        // replacing the intended message with an opaque serde error.
         let parsed: { tool_call_id?: string; tool_name?: string; arguments?: unknown };
         try {
           parsed = JSON.parse(req);
         } catch {
-          return JSON.stringify({ output: 'malformed tool execute request', isError: true });
+          return JSON.stringify({ content: 'malformed tool execute request', is_error: true });
         }
         const toolName = parsed.tool_name ?? 'unknown';
         return JSON.stringify({
-          output: `tool "${toolName}" is host-owned and not yet wired on the native harness`,
-          isError: true,
+          content: `tool "${toolName}" is host-owned and not yet wired on the native harness`,
+          is_error: true,
         });
       },
       emitEvent: (eventJson: string) => {
@@ -979,6 +995,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             toolCallId: String(parsed.tool_call_id ?? ''),
             update: { kind: 'stdout', text: String(parsed.text ?? '') },
           });
+        } else if (parsed.type === 'subagent.spawned') {
+          if (typeof parsed.subagent_id === 'string') {
+            meta.agents = meta.agents ?? {
+              main: { homedir: meta.workDir, type: 'main', parentAgentId: null },
+            };
+            meta.agents[parsed.subagent_id] = {
+              homedir: meta.workDir,
+              type: 'sub',
+              parentAgentId: 'main',
+            };
+            this.persistMeta(meta);
+          }
         }
       },
       checkPermission: async (req: string) => {
@@ -1166,6 +1194,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       tools: [],
       workspaceRoot: workDir,
       nativeTools: config.agent?.nativeTools !== false,
+      // `/add-dir` roots. The engine serves paths under them natively; without
+      // this they fall outside `workspace_root` and the only fallback — the
+      // host `execute_tool` seam — has no tool runtime to serve them.
+      // `?? undefined` (never null): napi Option fields reject null.
+      additionalDirs: meta.additionalDirs.length > 0 ? [...meta.additionalDirs] : undefined,
       shellPath,
       policySnapshotJson: JSON.stringify(policySnapshot),
       secondaryModelJson:
@@ -1243,6 +1276,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         goal: persisted?.goal ?? null,
         plan: persisted?.plan,
         forkedFrom: persisted?.forkedFrom,
+        agents: persisted?.agents,
       };
       meta = created;
       this.liveSessions.set(sessionId, created);
@@ -1253,15 +1287,199 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         created.messageCount = history.length;
       }
     }
-    return this.resumedSessionSummary(meta);
+    return this.resumedSessionSummary(meta, input);
   }
 
-  /** The `ResumedSessionSummary` of a session, including the per-agent main snapshot. */
-  private async resumedSessionSummary(meta: NativeSessionMeta): Promise<ResumedSessionSummary> {
-    const history = meta.handle
+  /** The `ResumedSessionSummary` of a session, including the per-agent main snapshot and any subagents. */
+  private async resumedSessionSummary(
+    meta: NativeSessionMeta,
+    input?: ResumeSessionInput,
+  ): Promise<ResumedSessionSummary> {
+    let history = meta.handle
       ? await meta.handle.getHistory().catch(() => [])
-      : this.readPersistedHistory(meta);
+      : [];
+    if (history.length === 0) {
+      history = this.readPersistedHistory(meta);
+    }
     const context = this.contextFromHistory(meta, history);
+
+    const sessionAgentsRoster: Record<string, AgentMeta> = {
+      main: { homedir: meta.workDir, type: 'main' as const, parentAgentId: null },
+      ...meta.agents,
+    };
+
+    const discoveredSubagents = new Map<
+      string,
+      {
+        type: AgentType;
+        prompt: string;
+        summary: string;
+        startedAt: number;
+      }
+    >();
+
+    const calls = new Map<
+      string,
+      { name: string; prompt: string; startedAt: number }
+    >();
+
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i]!;
+      const raw = msg as unknown as Record<string, unknown>;
+      const time = meta.createdAt + i;
+      const rawCalls = (raw['tool_calls'] ?? raw['toolCalls']) as unknown[] | undefined;
+      if (Array.isArray(rawCalls)) {
+        for (const c of rawCalls) {
+          const call = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
+          const name = typeof call['name'] === 'string' ? call['name'] : '';
+          const id = typeof call['id'] === 'string' ? call['id'] : '';
+          if (name === 'Agent' || name === 'AgentSwarm') {
+            let prompt = '';
+            try {
+              const rawArgs = call['arguments'];
+              const args =
+                typeof rawArgs === 'string'
+                  ? (JSON.parse(rawArgs) as Record<string, unknown>)
+                  : (rawArgs as Record<string, unknown>);
+              if (args && typeof args === 'object') {
+                prompt = typeof args['prompt'] === 'string' ? args['prompt'] : '';
+              }
+            } catch {}
+            calls.set(id, { name, prompt, startedAt: time });
+          }
+        }
+      }
+
+      const rawCallId = raw['tool_call_id'] ?? raw['toolCallId'];
+      const toolCallId = typeof rawCallId === 'string' ? rawCallId : '';
+      if (toolCallId && calls.has(toolCallId)) {
+        const callInfo = calls.get(toolCallId)!;
+        const content = typeof msg.content === 'string' ? msg.content : '';
+        const agentIdMatch = /(?:^|\n)agent_id:\s*([^\s]+)\s*(?=\n|$)/.exec(content);
+        if (agentIdMatch) {
+          const childAgentId = agentIdMatch[1]!;
+          const summaryMatch = /(?:^|\n)\[summary\]\n([\s\S]*)$/.exec(content);
+          const summary = summaryMatch ? summaryMatch[1]! : '';
+
+          sessionAgentsRoster[childAgentId] = {
+            homedir: meta.workDir,
+            type: 'sub',
+            parentAgentId: 'main',
+          };
+          discoveredSubagents.set(childAgentId, {
+            type: 'sub',
+            prompt: callInfo.prompt,
+            summary,
+            startedAt: callInfo.startedAt,
+          });
+        }
+      }
+    }
+
+    const resumedAgents: Record<string, ResumedAgentState> = {
+      main: {
+        type: 'main',
+        config: {
+          cwd: meta.workDir,
+          modelAlias: meta.model,
+          modelCapabilities: {
+            image_in: false,
+            video_in: false,
+            audio_in: false,
+            thinking: false,
+            tool_use: true,
+            max_context_tokens: meta.maxContextTokens,
+          },
+          thinkingEffort: meta.thinkingEffort,
+          systemPrompt: '',
+        },
+        context,
+        replay: history.map((message, index) => ({
+          type: 'message' as const,
+          time: meta.createdAt + index,
+          message: context.history[index]!,
+        })),
+        permission: { mode: meta.permissionMode },
+        plan: meta.plan
+          ? { id: meta.plan.id, content: meta.plan.content, path: meta.plan.path }
+          : null,
+        swarmMode: meta.swarmMode,
+        usage: {
+          inputOther: meta.usage.inputOther,
+          output: meta.usage.output,
+          inputCacheRead: meta.usage.inputCacheRead,
+          inputCacheCreation: meta.usage.inputCacheCreation,
+        },
+        tools: [],
+        background: [],
+      },
+    };
+
+    if (input?.includeSubagents === true) {
+      for (const [childAgentId, sub] of discoveredSubagents) {
+        resumedAgents[childAgentId] = {
+          type: sub.type,
+          config: {
+            cwd: meta.workDir,
+            modelAlias: meta.model,
+            modelCapabilities: {
+              image_in: false,
+              video_in: false,
+              audio_in: false,
+              thinking: false,
+              tool_use: true,
+              max_context_tokens: meta.maxContextTokens,
+            },
+            thinkingEffort: meta.thinkingEffort,
+            systemPrompt: '',
+          },
+          context: {
+            history: [
+              {
+                id: `${childAgentId}_prompt`,
+                role: 'user',
+                content: [{ type: 'text', text: sub.prompt }],
+                origin: { kind: 'user' },
+              },
+              {
+                id: `${childAgentId}_reply`,
+                role: 'assistant',
+                content: [{ type: 'text', text: sub.summary }],
+              },
+            ],
+            tokenCount: 0,
+          },
+          replay: [
+            {
+              type: 'message',
+              time: sub.startedAt,
+              message: {
+                id: `${childAgentId}_prompt`,
+                role: 'user',
+                content: [{ type: 'text', text: sub.prompt }],
+                origin: { kind: 'user' },
+              },
+            },
+            {
+              type: 'message',
+              time: sub.startedAt + 1,
+              message: {
+                id: `${childAgentId}_reply`,
+                role: 'assistant',
+                content: [{ type: 'text', text: sub.summary }],
+              },
+            },
+          ],
+          permission: { mode: meta.permissionMode },
+          plan: null,
+          swarmMode: false,
+          usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+          tools: [],
+          background: [],
+        };
+      }
+    }
+
     return {
       id: meta.id,
       workDir: meta.workDir,
@@ -1277,47 +1495,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         updatedAt: new Date(meta.updatedAt).toISOString(),
         title: meta.title,
         isCustomTitle: meta.isCustomTitle,
-        agents: {},
+        workDir: meta.workDir,
+        agents: sessionAgentsRoster,
         custom: { ...meta.custom } as JsonObject,
       },
-      agents: {
-        main: {
-          type: 'main',
-          config: {
-            cwd: meta.workDir,
-            modelAlias: meta.model,
-            modelCapabilities: {
-              image_in: false,
-              video_in: false,
-              audio_in: false,
-              thinking: false,
-              tool_use: true,
-              max_context_tokens: meta.maxContextTokens,
-            },
-            thinkingEffort: meta.thinkingEffort,
-            systemPrompt: '',
-          },
-          context,
-          replay: history.map((message, index) => ({
-            type: 'message' as const,
-            time: meta.createdAt + index,
-            message: context.history[index]!,
-          })),
-          permission: { mode: meta.permissionMode },
-          plan: meta.plan
-            ? { id: meta.plan.id, content: meta.plan.content, path: meta.plan.path }
-            : null,
-          swarmMode: meta.swarmMode,
-          usage: {
-            inputOther: meta.usage.inputOther,
-            output: meta.usage.output,
-            inputCacheRead: meta.usage.inputCacheRead,
-            inputCacheCreation: meta.usage.inputCacheCreation,
-          },
-          tools: [],
-          background: [],
-        },
-      },
+      agents: resumedAgents,
     };
   }
 
@@ -1364,6 +1546,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       meta.additionalDirs.push(input.path);
       meta.updatedAt = Date.now();
       this.persistMeta(meta);
+      // The extra roots are baked into the engine handle at build time — the
+      // native toolset's sandbox is constructed from `meta.additionalDirs` —
+      // so a newly authorized directory only takes effect after a rebuild.
+      // Same contract as setModel / setPermission: carry the history over.
+      await this.rebuildHandle(meta);
     }
     return {
       additionalDirs: [...meta.additionalDirs],
@@ -1472,6 +1659,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async closeSession(input: SessionIdRpcInput): Promise<void> {
     const meta = this.liveSessions.get(input.sessionId);
     if (meta?.handle) {
+      await this.persistHistory(meta).catch(() => {});
       await meta.handle.dispose().catch(() => {});
     }
     // Drop it from the live table: leaving a disposed handle behind made
@@ -2370,7 +2558,17 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot start a btw side channel on unknown or closed session "${input.sessionId}"`,
       );
     }
-    return meta.handle.startBtw();
+    const agentId = await meta.handle.startBtw();
+    meta.agents = meta.agents ?? {
+      main: { homedir: meta.workDir, type: 'main', parentAgentId: null },
+    };
+    meta.agents[agentId] = {
+      homedir: meta.workDir,
+      type: 'sub',
+      parentAgentId: 'main',
+    };
+    this.persistMeta(meta);
+    return agentId;
   }
 
   /**
@@ -3206,7 +3404,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       updatedAt: meta.updatedAt,
       title: meta.title,
       isCustomTitle: meta.isCustomTitle,
-      ...(meta.lastPrompt !== undefined ? { lastPrompt: meta.lastPrompt } : {}),
+      lastPrompt: meta.lastPrompt,
       custom: meta.custom,
       additionalDirs: meta.additionalDirs,
       model: meta.model,
@@ -3217,6 +3415,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       goal: meta.goal,
       forkedFrom: meta.forkedFrom,
       contextTokens: meta.contextTokens,
+      agents: meta.agents,
     };
     this.writePersistedMeta(meta.sessionDir, persisted);
   }
@@ -3334,13 +3533,79 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     history: readonly SessionPrompt[],
   ): AgentContextData {
     return {
-      history: history.map((message, index) => ({
-        id: `msg_${index}`,
-        role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: this.contextMessageContent(message),
-        toolCalls: [],
-        origin: { kind: 'user' },
-      })),
+      history: history.map((message, index) => {
+        const raw = message as unknown as Record<string, unknown>;
+        const rawRole = typeof raw['role'] === 'string' ? raw['role'] : 'user';
+        const role: 'user' | 'assistant' | 'system' | 'tool' =
+          rawRole === 'assistant' || rawRole === 'tool' || rawRole === 'system'
+            ? rawRole
+            : 'user';
+
+        let toolCalls: ToolCall[] | undefined;
+        const rawToolCalls = raw['tool_calls'] ?? raw['toolCalls'];
+        if (Array.isArray(rawToolCalls)) {
+          toolCalls = rawToolCalls.map((tc: unknown) => {
+            const call = (tc && typeof tc === 'object' ? tc : {}) as Record<string, unknown>;
+            const rawArgs = call['arguments'];
+            const args =
+              typeof rawArgs === 'string'
+                ? rawArgs
+                : rawArgs !== undefined && rawArgs !== null
+                  ? JSON.stringify(rawArgs)
+                  : null;
+            return {
+              type: 'function' as const,
+              id: typeof call['id'] === 'string' ? call['id'] : '',
+              name: typeof call['name'] === 'string' ? call['name'] : '',
+              arguments: args,
+            };
+          });
+        } else if (typeof raw['toolCallsJson'] === 'string') {
+          try {
+            const parsed = JSON.parse(raw['toolCallsJson']) as unknown;
+            if (Array.isArray(parsed)) {
+              toolCalls = parsed.map((tc: unknown) => {
+                const call = (tc && typeof tc === 'object' ? tc : {}) as Record<string, unknown>;
+                const rawArgs = call['arguments'];
+                const args =
+                  typeof rawArgs === 'string'
+                    ? rawArgs
+                    : rawArgs !== undefined && rawArgs !== null
+                      ? JSON.stringify(rawArgs)
+                      : null;
+                return {
+                  type: 'function' as const,
+                  id: typeof call['id'] === 'string' ? call['id'] : '',
+                  name: typeof call['name'] === 'string' ? call['name'] : '',
+                  arguments: args,
+                };
+              });
+            }
+          } catch {}
+        }
+
+        const toolCallId =
+          typeof raw['tool_call_id'] === 'string'
+            ? raw['tool_call_id']
+            : typeof raw['toolCallId'] === 'string'
+              ? raw['toolCallId']
+              : undefined;
+
+        const isError = Boolean(raw['is_error'] ?? raw['isError']);
+
+        const rawOrigin = raw['origin'] as PromptOrigin | undefined;
+        const origin: PromptOrigin = rawOrigin ?? { kind: 'user' };
+
+        return {
+          id: `msg_${index}`,
+          role,
+          content: this.contextMessageContent(message),
+          toolCalls: toolCalls ?? (role === 'assistant' ? [] : undefined),
+          toolCallId,
+          isError: isError || undefined,
+          origin,
+        };
+      }),
       tokenCount: meta.contextTokens ?? 0,
     };
   }
@@ -3372,7 +3637,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         // fall through to the plain content
       }
     }
-    return [{ type: 'text', text: message.content }];
+    return [{ type: 'text', text: message.content ?? '' }];
   }
 
   /**

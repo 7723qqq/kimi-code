@@ -55,10 +55,21 @@ export interface PolicySnapshotDto {
   }>;
 }
 
+/** A trailing API version segment (`/v1`, `/v1beta`, `/v2alpha`, …). */
+const API_VERSION_SEGMENT = /\/v\d+[a-z]*($|\/)/i;
+
 export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, '');
   if (protocol === 'google' || protocol === 'google-genai' || protocol === 'gemini') {
-    return trimmed;
+    // The GenerateContent API always carries a version segment, and the
+    // documented contract is "give the host root only — the client appends the
+    // API version segment itself" (kosong CHANGELOG #1269, mirrored by
+    // `packages/kosong/native/src/google_genai.rs`). The native transport
+    // builds `{base}/models/{model}:streamGenerateContent`, so a bare host root
+    // otherwise requests a path that is not an API route at all — a
+    // Gemini-compatible relay answers it from its catch-all and the SSE decoder
+    // then sees nothing.
+    return API_VERSION_SEGMENT.test(trimmed) ? trimmed : `${trimmed}/v1beta`;
   }
   if (protocol === 'openai' || protocol === 'openai_responses' || protocol === 'openai-responses') {
     return /\/v\d+($|\/)/.test(trimmed) ? trimmed : `${trimmed}/v1`;
@@ -96,12 +107,20 @@ export function resolveNativeLlmForAlias(
   if (!providerName) return undefined;
 
   const provider = config.providers?.[providerName];
+  const typeStr = String(provider?.type ?? '');
   // A declared alias endpoint wins: gateway providers serve one alias over a
   // different path than the provider default (`[models.<alias>].baseUrl`).
-  const rawBaseUrl = modelConfig?.baseUrl ?? provider?.baseUrl;
+  //
+  // Google's endpoint is a constant, so a provider without `base_url` still
+  // resolves natively — its OAuth token rides the `auth_provider` token
+  // channel below — instead of silently falling back to the host LLM proxy.
+  const rawBaseUrl =
+    modelConfig?.baseUrl ??
+    provider?.baseUrl ??
+    (typeStr === 'google' || typeStr === 'google-genai' || typeStr === 'gemini'
+      ? 'https://generativelanguage.googleapis.com'
+      : undefined);
   if (!provider || !rawBaseUrl) return undefined;
-
-  const typeStr = String(provider.type ?? '');
   // The alias declares its own wire protocol (`[models.<alias>].protocol`:
   // "anthropic" | "openai_responses"); the provider type is the fallback, and
   // everything else is Chat Completions.

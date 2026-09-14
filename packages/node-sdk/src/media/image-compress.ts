@@ -77,17 +77,41 @@ export async function compressImageForModel(
       fallbackEdges: [...FALLBACK_EDGES_PX],
       jpegQualitySteps: [...JPEG_QUALITY_STEPS],
     });
-    if (res && res.changed) {
+    if (res !== undefined && res !== null) {
+      if (res.changed) {
+        emitCompressTelemetry(options.telemetry, {
+          outcome: 'compressed',
+          original_bytes: res.originalByteLength,
+          final_bytes: res.finalByteLength,
+          original_width: res.originalWidth,
+          original_height: res.originalHeight,
+          final_width: res.width,
+          final_height: res.height,
+        });
+        return {
+          data: res.data,
+          mimeType: res.mimeType,
+          width: res.width,
+          height: res.height,
+          originalWidth: res.originalWidth,
+          originalHeight: res.originalHeight,
+          changed: true,
+          originalByteLength: res.originalByteLength,
+          finalByteLength: res.finalByteLength,
+        };
+      }
+      // Unchanged: the source already fit both budgets — report the native
+      // display-space dimensions but send the original bytes untouched.
       return {
-        data: res.data,
-        mimeType: res.mimeType,
+        data: bytes,
+        mimeType: normalizedMime,
         width: res.width,
         height: res.height,
         originalWidth: res.originalWidth,
         originalHeight: res.originalHeight,
-        changed: true,
-        originalByteLength: res.originalByteLength,
-        finalByteLength: res.finalByteLength,
+        changed: false,
+        originalByteLength: bytes.length,
+        finalByteLength: bytes.length,
       };
     }
   } catch {
@@ -95,6 +119,24 @@ export async function compressImageForModel(
   }
 
   return passthrough();
+}
+
+interface CompressTelemetryOptions {
+  readonly source?: string;
+  readonly client?: {
+    track?: (event: string, properties?: Readonly<Record<string, unknown>>) => void;
+  };
+}
+
+function emitCompressTelemetry(
+  telemetry: unknown,
+  properties: Readonly<Record<string, unknown>>,
+): void {
+  const options = telemetry as CompressTelemetryOptions | undefined;
+  options?.client?.track?.('image_compress', {
+    source: options.source ?? 'unknown',
+    ...properties,
+  });
 }
 
 export async function compressBase64ForModel(
