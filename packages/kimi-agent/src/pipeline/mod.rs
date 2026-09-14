@@ -56,6 +56,11 @@ pub struct EnginePipeline {
     /// background work that must not spend the session model's budget (the
     /// memory filing pass). `None` when no pool is configured.
     pub secondary_llm: Option<Arc<dyn LLM>>,
+    /// The MCP manager this pipeline connected from the spec's
+    /// `mcp_manager`. Handed back so an embedder can read the roster — the
+    /// manager is built once per pipeline, and without the handle a host had
+    /// no way to see servers the engine had already connected.
+    pub mcp_manager: Option<Arc<McpManager>>,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -329,8 +334,8 @@ pub async fn build_engine_pipeline(
                     });
                     secondary_llm = secondary_model.as_ref().and_then(|pool| pool.default_llm());
                     toolset = toolset.with_secondary_model(secondary_model);
-                    if let Some(manager) = mcp_manager {
-                        toolset = toolset.with_mcp(manager);
+                    if let Some(ref manager) = mcp_manager {
+                        toolset = toolset.with_mcp(manager.clone());
                     }
                     if let Some(ref runner) = task_runner {
                         // `[background]` knobs: the pipeline builds its own
@@ -475,6 +480,7 @@ pub async fn build_engine_pipeline(
         native_tool_count,
         hook_guard,
         secondary_llm,
+        mcp_manager,
     })
 }
 

@@ -60,7 +60,6 @@ import {
   SDKRpcClientBase,
   type ActivateSkillRpcInput,
   type ImportContextRpcInput,
-  type ReconnectMcpServerRpcInput,
   type ReloadSessionRpcInput,
   type SessionIdRpcInput,
   type SessionPromptRpcInput,
@@ -2968,8 +2967,14 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     return [];
   }
 
-  override async listMcpServers(_input: SessionIdRpcInput): Promise<readonly McpServerInfo[]> {
-    return [];
+  override async listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]> {
+    const meta = this.requireSession(input.sessionId);
+    if (meta.handle === undefined) return [];
+    // The engine connected these from `params.mcp_servers`; the host used to
+    // answer `[]` unconditionally, so a configured server was invisible to
+    // `/mcp` and to the VS Code MCP panel.
+    const entries = await meta.handle.mcpServers();
+    return entries as readonly McpServerInfo[];
   }
 
   override async listWorkspaceMcpServers(_workDir: string): Promise<readonly McpServerInfo[]> {
@@ -2986,15 +2991,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (input.persist) {
       await this.addGlobalMcpServer(input.server);
     }
+    // `pending`, not `connected`: this only records the configuration. The
+    // engine connects servers when it builds a session pipeline from
+    // `params.mcp_servers`, so nothing is connected yet — reporting
+    // `connected` with `toolCount: 0` claimed a live server that did not
+    // exist.
     return {
       name,
       transport: input.server.transport,
-      status: 'connected',
+      status: 'pending',
       toolCount: 0,
     };
   }
-
-  override async reconnectMcpServer(_input: ReconnectMcpServerRpcInput): Promise<void> {}
 
   override async testGlobalMcpServer(
     name: string,

@@ -1398,6 +1398,16 @@ export declare function sessionHistoryLen(sessionId: string): number
 export declare function sessionIsSettled(sessionId: string): boolean
 
 /**
+ * The MCP roster this session's pipeline connected, as a JSON array of
+ * `McpServerEntry` (name / transport / status / tool_count / error / tools).
+ *
+ * An empty array means the session was built without `mcp_servers` — the
+ * host used to answer `[]` unconditionally, so a configured server was
+ * invisible to `/mcp` and to the VS Code MCP panel.
+ */
+export declare function sessionMcpServers(sessionId: string): object
+
+/**
  * Release the quiescence window: held turns replay in FIFO order and the
  * pump wakes. A no-op when no guard is held.
  */

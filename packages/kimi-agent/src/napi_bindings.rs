@@ -1793,6 +1793,11 @@ struct SessionEntry {
     /// The live quiescence guard (M1c RAII). Acquire stores it; release drops
     /// it — the drop replays held turns and wakes the pump.
     quiescence_guard: Arc<Mutex<Option<crate::session::QuiescenceGuard>>>,
+    /// The MCP manager this session's pipeline connected from
+    /// `params.mcp_servers`. Kept so the host can read the roster: the manager
+    /// is built once per session, and without a handle the host had no way to
+    /// see servers the engine had already connected.
+    mcp_manager: Option<Arc<crate::mcp::McpManager>>,
 }
 
 fn session_entry(session_id: &str) -> napi::Result<SessionEntry> {
@@ -2000,6 +2005,7 @@ pub fn create_engine_session(
                         llm: pipeline.llm.clone(),
                         max_context_tokens: params.max_context_tokens,
                         quiescence_guard: Arc::new(Mutex::new(None)),
+                        mcp_manager: pipeline.mcp_manager.clone(),
                     },
                 );
             Ok(session_id)
@@ -2132,6 +2138,28 @@ pub fn session_status(session_id: String) -> napi::Result<JsSessionStatus> {
             }),
         })
     })
+}
+
+/// The MCP roster this session's pipeline connected, as a JSON array of
+/// `McpServerEntry` (name / transport / status / tool_count / error / tools).
+///
+/// An empty array means the session was built without `mcp_servers` — the
+/// host used to answer `[]` unconditionally, so a configured server was
+/// invisible to `/mcp` and to the VS Code MCP panel.
+#[napi]
+pub fn session_mcp_servers(env: Env, session_id: String) -> napi::Result<JsObject> {
+    let manager = session_entry(&session_id)?.mcp_manager;
+    env.execute_tokio_future(
+        async move {
+            let Some(manager) = manager else {
+                return Ok("[]".to_string());
+            };
+            let entries = manager.server_entries().await;
+            serde_json::to_string(&entries)
+                .map_err(|e| napi::Error::from_reason(format!("serialize MCP roster: {e}")))
+        },
+        |env, json: String| env.create_string(&json),
+    )
 }
 
 /// Whether the session is fully idle right now (nothing active, pending, or

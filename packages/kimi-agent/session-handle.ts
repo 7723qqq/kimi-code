@@ -131,6 +131,9 @@ export interface SessionNativeModule {
   sessionTurnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome>;
   sessionCancelTurn(sessionId: string, turnId?: number): boolean;
   sessionStatus(sessionId: string): SessionStatus;
+  /** The MCP roster this session's pipeline connected, as a JSON array of
+   *  `McpServerEntry`. `[]` when the session was built without `mcp_servers`. */
+  sessionMcpServers(sessionId: string): Promise<string>;
   sessionIsSettled(sessionId: string): boolean;
   sessionSettled(sessionId: string): Promise<void>;
   sessionTryAcquireQuiescence(sessionId: string): boolean;
@@ -293,6 +296,12 @@ export class EngineSessionHandle {
     return this.transport.status(this.id);
   }
 
+  /** The MCP roster this session's pipeline connected; `[]` when the
+   *  transport carries none. */
+  async mcpServers(): Promise<unknown[]> {
+    return (await this.transport.mcpServers?.(this.id)) ?? [];
+  }
+
   isSettled(): Promise<boolean> {
     return this.transport.isSettled(this.id);
   }
@@ -438,6 +447,8 @@ export interface SessionTransport {
   dispose(sessionId: string): Promise<void>;
   /** Optional: capabilities only the napi transport carries today (stdio parity pending). */
   startBtw?(sessionId: string): Promise<string>;
+  /** The MCP roster this session's pipeline connected. */
+  mcpServers?(sessionId: string): Promise<unknown[]>;
   btwPrompt?(
     sessionId: string,
     agentId: string,
@@ -534,6 +545,17 @@ class NapiSessionTransport implements SessionTransport {
 
   async status(sessionId: string): Promise<SessionStatus> {
     return this.mod.sessionStatus(sessionId);
+  }
+
+  /** The MCP roster this session's pipeline connected. */
+  async mcpServers(sessionId: string): Promise<unknown[]> {
+    const raw = await this.mod.sessionMcpServers(sessionId);
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 
   async isSettled(sessionId: string): Promise<boolean> {
