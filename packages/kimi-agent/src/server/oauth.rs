@@ -722,9 +722,180 @@ impl OAuthManager {
     }
 }
 
+// ── Region resolution (v2 `resolveKimiRegion`, packages/oauth/src/region.ts) ─
+//
+// The client resolves a region (`mainland-cn` | `global`) to pick CDN/site
+// hosts; the standalone server serves the same decision through
+// `GET /api/v1/oauth/region` so a fresh client lands on the right one.
+
+/// Marker file under the Kimi home dir: install scripts write a single line
+/// (`mainland-cn` or `global`) so a fresh client defaults to the region
+/// matching its install channel. Only consulted while the user has never
+/// logged in.
+pub const KIMI_REGION_MARKER_FILENAME: &str = "region";
+
+const OAUTH_HOST_MAINLAND_CN: &str = "https://auth.kimi.com";
+const OAUTH_HOST_GLOBAL: &str = "https://auth.kimi.ai";
+
+/// Normalize a host for comparison: trim, strip trailing slashes (v2
+/// `normalizeHost`).
+fn normalize_host(value: &str) -> &str {
+    value.trim().trim_end_matches('/')
+}
+
+/// Map an OAuth host onto its region (v2 `regionForOAuthHost`): an exact match
+/// against a region profile's host; anything else (custom/internal hosts) is
+/// `None`, which the resolver treats as "env keeps control, default applies".
+pub fn region_for_oauth_host(oauth_host: &str) -> Option<&'static str> {
+    let normalized = normalize_host(oauth_host);
+    match normalized {
+        OAUTH_HOST_MAINLAND_CN => Some("mainland-cn"),
+        OAUTH_HOST_GLOBAL => Some("global"),
+        _ => None,
+    }
+}
+
+/// Read the install-channel marker (`<kimi_home>/region`). Unreadable or
+/// unknown values mean "no signal", never an error (v2 `readRegionMarker`).
+fn read_region_marker(home_dir: &std::path::Path) -> Option<&'static str> {
+    let raw = std::fs::read_to_string(home_dir.join(KIMI_REGION_MARKER_FILENAME)).ok()?;
+    match raw.trim() {
+        "mainland-cn" => Some("mainland-cn"),
+        "global" => Some("global"),
+        _ => None,
+    }
+}
+
+/// Resolve the region, mirroring v2 `resolveKimiRegion`'s precedence:
+///
+/// 1. An env OAuth host that matches a profile pins the region. An **unknown**
+///    env host means a custom/internal environment — the per-endpoint env
+///    overrides keep working regardless of region, so skip straight to the
+///    default instead of letting a stale config/marker point CDN links
+///    somewhere odd.
+/// 2. A configured (config.toml) OAuth host that matches a profile wins next.
+/// 3. The default managed credential slot only ever holds a mainland-China
+///    login, so its presence is an explicit-mainland-cn signal that outranks
+///    the install-channel marker.
+/// 4. The install-channel marker file.
+/// 5. Default `mainland-cn`.
+pub fn resolve_kimi_region(
+    env_oauth_host: Option<&str>,
+    configured_oauth_host: Option<&str>,
+    configured_oauth_key: Option<&str>,
+    home_dir: &std::path::Path,
+) -> &'static str {
+    if let Some(host) = env_oauth_host.filter(|h| !h.trim().is_empty()) {
+        return region_for_oauth_host(host).unwrap_or("mainland-cn");
+    }
+    if let Some(host) = configured_oauth_host.filter(|h| !h.trim().is_empty())
+        && let Some(region) = region_for_oauth_host(host)
+    {
+        return region;
+    }
+    if configured_oauth_key == Some("oauth/kimi-code") {
+        return "mainland-cn";
+    }
+    read_region_marker(home_dir).unwrap_or("mainland-cn")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Region resolution ────────────────────────────────────────────────────
+
+    fn marker_home(region: Option<&str>) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        if let Some(region) = region {
+            std::fs::write(dir.path().join(KIMI_REGION_MARKER_FILENAME), region).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn env_host_matching_a_profile_pins_the_region() {
+        let dir = marker_home(Some("global"));
+        assert_eq!(
+            resolve_kimi_region(
+                Some("https://auth.kimi.ai"),
+                None,
+                None,
+                dir.path()
+            ),
+            "global"
+        );
+        assert_eq!(
+            resolve_kimi_region(
+                Some("https://auth.kimi.com/"),
+                None,
+                None,
+                dir.path()
+            ),
+            "mainland-cn"
+        );
+    }
+
+    #[test]
+    fn an_unknown_env_host_skips_config_and_marker() {
+        // A custom/internal environment: env keeps control of endpoints, so a
+        // stale marker must not point CDN links somewhere odd (v2 comment).
+        let dir = marker_home(Some("global"));
+        assert_eq!(
+            resolve_kimi_region(
+                Some("https://oauth.internal.example"),
+                Some("https://auth.kimi.ai"),
+                None,
+                dir.path()
+            ),
+            "mainland-cn"
+        );
+    }
+
+    #[test]
+    fn configured_host_and_default_credential_key_win_over_the_marker() {
+        let dir = marker_home(None);
+        assert_eq!(
+            resolve_kimi_region(
+                None,
+                Some("https://auth.kimi.ai"),
+                None,
+                dir.path()
+            ),
+            "global"
+        );
+        // The default slot only ever holds a mainland-China login.
+        assert_eq!(
+            resolve_kimi_region(
+                None,
+                None,
+                Some("oauth/kimi-code"),
+                dir.path()
+            ),
+            "mainland-cn"
+        );
+    }
+
+    #[test]
+    fn marker_and_default_apply_last() {
+        let global = marker_home(Some("global"));
+        assert_eq!(
+            resolve_kimi_region(None, None, None, global.path()),
+            "global"
+        );
+        // An unknown marker value is no signal at all.
+        let junk = marker_home(Some("antarctica"));
+        assert_eq!(
+            resolve_kimi_region(None, None, None, junk.path()),
+            "mainland-cn"
+        );
+        // No marker file either → default.
+        let empty = marker_home(None);
+        assert_eq!(
+            resolve_kimi_region(None, None, None, empty.path()),
+            "mainland-cn"
+        );
+    }
 
     /// One mock authorization server answering the three endpoints in
     /// sequence: device_authorization → pending ×2 → token success, plus

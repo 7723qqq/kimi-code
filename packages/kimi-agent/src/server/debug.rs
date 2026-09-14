@@ -348,6 +348,8 @@ pub async fn handle_debug_route(server: &HttpServer, req: &HttpRequest) -> Optio
                 },
                 "lifecycle": "active",
                 "program": Value::Null,
+                // Placeholders: no runtime/program registry exists server-side;
+                // only `metadata` and `sessions` below are read from the store.
                 "runtimes": [],
                 "sessions": matching_sessions,
             }),
@@ -397,6 +399,10 @@ pub async fn handle_debug_route(server: &HttpServer, req: &HttpRequest) -> Optio
                 .clone()
                 .unwrap_or_else(|| encode_workdir_key(&cwd));
             let available = server.engine().is_some();
+            // Contract-shaped constants, not measured values: a standalone
+            // engine has exactly one in-process runtime, so `runtimeId`,
+            // `generation` and `capabilities` are literals rather than probed
+            // facts. `available` is the only field derived from real state.
             return Some(HttpResponse::envelope_ok(
                 &json!({
                     "sessionId": session_id,

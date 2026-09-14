@@ -250,17 +250,69 @@ impl PluginManager {
         entries
     }
 
-    /// Enable or disable a plugin.
-    pub fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<(), rusqlite::Error> {
+    /// Install a plugin by id.
+    ///
+    /// The id must resolve against the marketplace catalog (or already be
+    /// installed — reinstalling keeps its recorded version). Returns `Ok(None)`
+    /// for an unknown id so the caller can answer 404 instead of inventing an
+    /// install record; the previous behaviour fabricated `enabled: true` plus a
+    /// hardcoded `version: "1.0.0"` for *any* string, which made the plugin
+    /// panel list plugins that were never installed.
+    pub fn install_plugin(
+        &self,
+        id: &str,
+    ) -> Result<Option<InstalledPluginInfo>, rusqlite::Error> {
+        let marketplace = load_marketplace(None);
+        let known = marketplace.iter().find(|m| m.id == id);
         let mut installed = self.load_installed_map();
-        let current = installed
-            .entry(id.to_string())
-            .or_insert_with(|| InstalledPluginInfo {
-                enabled,
-                version: Some("1.0.0".into()),
-            });
-        current.enabled = enabled;
-        self.save_installed_map(&installed)
+        let existing = installed.get(id).cloned();
+
+        if known.is_none() && existing.is_none() {
+            return Ok(None);
+        }
+
+        let info = InstalledPluginInfo {
+            enabled: existing.as_ref().map(|e| e.enabled).unwrap_or(true),
+            version: existing
+                .and_then(|e| e.version)
+                .or_else(|| known.and_then(|m| m.version.clone())),
+        };
+        installed.insert(id.to_string(), info.clone());
+        self.save_installed_map(&installed)?;
+        Ok(Some(info))
+    }
+
+    /// Enable or disable a plugin.
+    ///
+    /// Returns `Ok(false)` when the id is neither installed nor present in the
+    /// marketplace: an unknown id must not be recorded (the old code
+    /// `or_insert_with`'d a fake `version: "1.0.0"` entry for it).
+    pub fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<bool, rusqlite::Error> {
+        let mut installed = self.load_installed_map();
+        match installed.get_mut(id) {
+            Some(current) => {
+                current.enabled = enabled;
+                self.save_installed_map(&installed)?;
+                Ok(true)
+            }
+            None => {
+                // Not installed yet: only a catalogued plugin may be enabled,
+                // and it is recorded with the catalog's version.
+                let marketplace = load_marketplace(None);
+                let Some(entry) = marketplace.iter().find(|m| m.id == id) else {
+                    return Ok(false);
+                };
+                installed.insert(
+                    id.to_string(),
+                    InstalledPluginInfo {
+                        enabled,
+                        version: entry.version.clone(),
+                    },
+                );
+                self.save_installed_map(&installed)?;
+                Ok(true)
+            }
+        }
     }
 
     /// Remove an installed plugin.
@@ -354,48 +406,51 @@ mod tests {
 
         assert!(pm.list_plugins().is_empty());
 
-        // 1. Enable multiple plugins (one official, one custom third-party)
-        pm.set_plugin_enabled("kimi-webbridge", true).unwrap();
-        pm.set_plugin_enabled("custom-plugin-x", true).unwrap();
-
-        // Must be sorted alphabetically by id
+        // 1. A catalogued plugin can be enabled, and it is recorded with the
+        //    catalog's version — not a fabricated literal.
+        assert!(pm.set_plugin_enabled("kimi-webbridge", true).unwrap());
         let list1 = pm.list_plugins();
-        assert_eq!(list1.len(), 2);
-        assert_eq!(list1[0].id, "custom-plugin-x");
-        assert_eq!(list1[0].name, "custom-plugin-x");
-        assert_eq!(list1[0].source, "plugin:custom-plugin-x");
+        assert_eq!(list1.len(), 1);
+        assert_eq!(list1[0].id, "kimi-webbridge");
+        assert_eq!(list1[0].name, "Kimi WebBridge");
         assert!(list1[0].enabled);
+        assert_eq!(list1[0].version, "1.11.3");
 
-        assert_eq!(list1[1].id, "kimi-webbridge");
-        assert_eq!(list1[1].name, "Kimi WebBridge");
-        assert!(list1[1].enabled);
+        // 2. An id that is neither installed nor in the catalog is rejected and
+        //    must NOT be recorded (it used to get a fake `version: "1.0.0"`).
+        assert!(!pm.set_plugin_enabled("custom-plugin-x", true).unwrap());
+        assert_eq!(pm.list_plugins().len(), 1);
+        assert!(pm.list_plugins().iter().all(|p| p.id != "custom-plugin-x"));
 
-        // 2. Disable plugin
-        pm.set_plugin_enabled("kimi-webbridge", false).unwrap();
+        // 3. `install_plugin`: unknown → None; catalogued → recorded info.
+        assert!(pm.install_plugin("no-such-plugin").unwrap().is_none());
+        let installed = pm.install_plugin("superpowers").unwrap().unwrap();
+        assert_eq!(installed.version, None);
+        let ids: Vec<String> = pm.list_plugins().into_iter().map(|p| p.id).collect();
+        assert!(ids.contains(&"superpowers".to_string()));
+
+        // 4. Disable
+        assert!(pm.set_plugin_enabled("kimi-webbridge", false).unwrap());
         let list2 = pm.list_plugins();
-        assert_eq!(list2.len(), 2);
         let wb = list2.iter().find(|p| p.id == "kimi-webbridge").unwrap();
         assert!(!wb.enabled);
 
-        // 3. Marketplace merge status
+        // 5. Marketplace merge status
         let market = pm.list_marketplace();
         let wb_market = market.iter().find(|p| p.id == "kimi-webbridge").unwrap();
         assert_eq!(wb_market.installed.as_ref().map(|i| i.enabled), Some(false));
 
-        // 4. Persistence across fresh PluginManager instance with the same store
+        // 6. Persistence across a fresh PluginManager instance on the same store
         let pm_fresh = PluginManager::new(store);
-        let list_persisted = pm_fresh.list_plugins();
-        assert_eq!(list_persisted.len(), 2);
+        assert_eq!(pm_fresh.list_plugins().len(), 2);
 
-        // 5. Remove plugin
-        let removed = pm_fresh.remove_plugin("kimi-webbridge").unwrap();
-        assert!(removed);
+        // 7. Remove plugin
+        assert!(pm_fresh.remove_plugin("kimi-webbridge").unwrap());
         let list3 = pm_fresh.list_plugins();
         assert_eq!(list3.len(), 1);
-        assert_eq!(list3[0].id, "custom-plugin-x");
+        assert_eq!(list3[0].id, "superpowers");
 
         // Remove non-existent plugin returns false
-        let removed_missing = pm_fresh.remove_plugin("non-existent").unwrap();
-        assert!(!removed_missing);
+        assert!(!pm_fresh.remove_plugin("non-existent").unwrap());
     }
 }

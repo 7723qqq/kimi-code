@@ -227,6 +227,26 @@ pub struct WsOptions<'a> {
     pub store: Option<Arc<crate::session::sqlite_store::SqliteSessionStore>>,
     pub engine: Option<Arc<crate::server::engine::ServerEngine>>,
     pub terminal_manager: Option<Arc<crate::server::terminal::TerminalManager>>,
+    /// Backing for `watch_fs_add` / `watch_fs_remove` (#3502): registrations
+    /// land here and a poll task publishes `event.fs.changed`.
+    pub fs_watch: Arc<crate::server::fs_watch::FsWatchManager>,
+}
+
+/// The connection's `watch_fs` registrations plus a drop guard that mirrors
+/// removals into the shared [`crate::server::fs_watch::FsWatchManager`]. Without
+/// the guard a closed socket would leave its paths polled forever.
+struct WatchRegistry<'a> {
+    manager: &'a crate::server::fs_watch::FsWatchManager,
+    map: HashMap<String, HashSet<String>>,
+}
+
+impl Drop for WatchRegistry<'_> {
+    fn drop(&mut self) {
+        for (session_id, paths) in &self.map {
+            let owned: Vec<String> = paths.iter().cloned().collect();
+            self.manager.remove(session_id, &owned);
+        }
+    }
 }
 
 /// Serve the upgraded connection as an event stream until the peer closes it or
@@ -254,6 +274,7 @@ pub async fn serve_ws(
         store,
         engine,
         terminal_manager,
+        fs_watch,
     } = options;
     let key = request
         .headers
@@ -287,10 +308,15 @@ pub async fn serve_ws(
     // Highest sequence number delivered per session to this connection,
     // ensuring monotonic delivery and preventing replay/live duplicate events.
     let mut delivered_seq: HashMap<String, u64> = HashMap::new();
-    // Per-connection watch_fs registry (session_id -> watched paths). The
-    // control layer acks registrations; filesystem event emission is not
-    // wired yet (ROADMAP known-gaps).
-    let mut watched_paths: HashMap<String, HashSet<String>> = HashMap::new();
+    // Per-connection watch_fs registry (session_id -> watched paths).
+    // Registrations are mirrored into `fs_watch`, which polls them and
+    // publishes `event.fs.changed` on the session lane (#3502). The guard
+    // drops this connection's registrations on every exit path, so a closed
+    // socket cannot leave a path watched forever.
+    let mut watch_registry = WatchRegistry {
+        manager: fs_watch.as_ref(),
+        map: HashMap::new(),
+    };
 
     // Frame decoding lives in its own task so the main loop can await events and
     // inbound frames without cancelling a half-read frame —`read_frame` is not
@@ -375,12 +401,13 @@ pub async fn serve_ws(
                                 store.as_deref(),
                                 engine.as_ref(),
                                 terminal_manager.as_ref(),
+                                &fs_watch,
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
                                 &mut transcripts,
                                 &mut delivered_seq,
-                                &mut watched_paths,
+                                &mut watch_registry.map,
                             )
                             .await?;
                             if let Some(set) = &subscriptions {
@@ -416,12 +443,13 @@ pub async fn serve_ws(
                                 store.as_deref(),
                                 engine.as_ref(),
                                 terminal_manager.as_ref(),
+                                &fs_watch,
                                 &async_frame_tx,
                                 &mut writer,
                                 &mut subscriptions,
                                 &mut transcripts,
                                 &mut delivered_seq,
-                                &mut watched_paths,
+                                &mut watch_registry.map,
                             )
                             .await?;
                             if let Some(set) = &subscriptions {
@@ -520,6 +548,7 @@ async fn handle_inbound(
     store: Option<&crate::session::sqlite_store::SqliteSessionStore>,
     engine: Option<&Arc<crate::server::engine::ServerEngine>>,
     terminal_manager: Option<&Arc<crate::server::terminal::TerminalManager>>,
+    fs_watch: &crate::server::fs_watch::FsWatchManager,
     async_frame_tx: &mpsc::Sender<Vec<u8>>,
     writer: &mut WriteHalf<TcpStream>,
     subscriptions: &mut Option<HashSet<String>>,
@@ -1147,6 +1176,9 @@ async fn handle_inbound(
             for p in &paths {
                 entry.insert(p.clone());
             }
+            // Mirror into the shared watcher: the poll task turns mtime
+            // changes into `event.fs.changed` on this session's lane (#3502).
+            fs_watch.add(&session_id, &paths);
             let current: Vec<String> = entry.iter().cloned().collect();
             let ack = ws_protocol::ack(
                 &id,
@@ -1169,6 +1201,9 @@ async fn handle_inbound(
                 }
                 current = entry.iter().cloned().collect();
             }
+            // Drop the shared registrations too, so a removed path stops being
+            // polled while the connection lives on.
+            fs_watch.remove(&session_id, &paths);
             let ack = ws_protocol::ack(
                 &id,
                 ws_protocol::ACK_OK,

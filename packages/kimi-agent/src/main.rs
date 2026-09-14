@@ -1274,6 +1274,45 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         });
     }
     let shutdown = server.shutdown_token();
+
+    // Cron tick loop: the scheduler only fires when something calls `tick`, so
+    // the daemon drives it here and surfaces each firing as `cron.fired` on the
+    // global lane. Running the prompt as a turn is deliberately NOT done yet —
+    // that needs a session/workspace decision (see ROADMAP known gaps).
+    {
+        let cron_scheduler = server.cron_scheduler();
+        let cron_hub = server.hub();
+        tokio::spawn(async move {
+            let mut last_tick = chrono::Utc::now().timestamp_millis();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                let now = chrono::Utc::now().timestamp_millis();
+                let fired = {
+                    let mut scheduler = cron_scheduler.lock().await;
+                    scheduler.tick(last_tick, now)
+                };
+                last_tick = now;
+                for entry in fired {
+                    cron_hub.bus_for("global").publish(
+                        &kimi_agent::events::EngineEvent::CronFired {
+                            entry_id: entry.id,
+                            prompt: entry.prompt,
+                        },
+                    );
+                }
+            }
+        });
+    }
+
+    // Workspace watcher poll loop (upstream #3502): `watch_fs_*` registrations
+    // arrive over WebSocket; this task turns mtime changes into
+    // `event.fs.changed` on the session lane. Started here rather than in
+    // `HttpServer::new` so it is guaranteed to run inside the runtime.
+    let fs_watch_task = tokio::spawn(kimi_agent::server::fs_watch::run_poll_loop(
+        server.fs_watch(),
+        std::time::Duration::from_millis(750),
+    ));
+
     let handle = kimi_agent::server::http::serve(&address, server).await?;
     let credential = match &token_path {
         Some(path) => format!("bearer token {path:?}"),
@@ -1289,6 +1328,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // terminates the process directly (no signal handler on purpose). In-flight
     // connections finish on their own; there is no graceful turn drain yet.
     shutdown.cancelled().await;
+    fs_watch_task.abort();
     Ok(())
 }
 

@@ -744,6 +744,123 @@ pub fn handle_reveal(work_dir: &Path, body: &Value) -> HttpResponse {
     HttpResponse::ok(&json!({ "revealed": true }))
 }
 
+/// Content-Type for a served file, from its extension. Deliberately small:
+/// the caller (web UI) renders text itself, and `application/octet-stream` is
+/// the honest fallback for everything the map does not know.
+fn content_type_for(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("txt" | "md" | "log" | "json" | "toml" | "yaml" | "yml" | "csv" | "rs" | "ts"
+        | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "py" | "go" | "java" | "c" | "h" | "cpp"
+        | "html" | "css" | "sh") => "text/plain; charset=utf-8",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Handle `fs::content` — serve the raw bytes of a host file by **absolute**
+/// path (kap-server `fsContentQuerySchema`): `path` is required and must be
+/// absolute, the response is raw bytes with an ETag, `If-None-Match` yields a
+/// 304, and a single `Range: bytes=a-b` request yields a 206 slice.
+///
+/// Like `fs:home` / `fs:browse` this is a whole-host surface by design; the
+/// bearer auth at the HTTP layer is what gates it.
+pub fn handle_fs_content(
+    query_path: Option<&str>,
+    if_none_match: Option<&str>,
+    range: Option<&str>,
+) -> HttpResponse {
+    use std::time::UNIX_EPOCH;
+
+    let Some(raw_path) = query_path.map(str::trim).filter(|p| !p.is_empty()) else {
+        return HttpResponse::bad_request("Query parameter 'path' is required");
+    };
+    let path = Path::new(raw_path);
+    if !path.is_absolute() {
+        return HttpResponse::bad_request("Query parameter 'path' must be an absolute path");
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return HttpResponse::json(
+            404,
+            &json!({ "error": "FS_PATH_NOT_FOUND", "path": raw_path }),
+        );
+    };
+    if meta.is_dir() {
+        return HttpResponse::bad_request("FS_IS_DIRECTORY");
+    }
+    let len = meta.len() as usize;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let etag = format!("\"{mtime_ms:x}-{len:x}\"");
+
+    if let Some(inm) = if_none_match
+        && inm.split(',').any(|tag| tag.trim() == etag)
+    {
+        return HttpResponse::json(304, &Value::Null).with_header("ETag", etag.clone());
+    }
+
+    let Ok(bytes) = std::fs::read(path) else {
+        return HttpResponse::internal_error(format!("failed to read {raw_path}"));
+    };
+
+    // Single-range request (`bytes=a-b`, `bytes=a-`, `bytes=-suffix`). Anything
+    // else (multiple ranges, units other than bytes) is served in full, which
+    // is what a client that ignores 206 semantics expects anyway.
+    let range = range
+        .filter(|r| r.starts_with("bytes="))
+        .and_then(|r| r["bytes=".len()..].split(',').next().map(str::to_string));
+    if let Some(spec) = range.as_deref() {
+        let (start_str, end_str) = match spec.split_once('-') {
+            Some(pair) => pair,
+            None => return HttpResponse::bad_request("Malformed Range header"),
+        };
+        let parsed = match (start_str.parse::<usize>(), end_str.parse::<usize>()) {
+            (Ok(start), Ok(end)) if start <= end && end < len => Some((start, end)),
+            (Ok(start), Err(_)) if start < len => Some((start, len - 1)),
+            (Err(_), Ok(suffix)) if suffix > 0 => {
+                Some((len.saturating_sub(suffix), len.saturating_sub(1)))
+            }
+            _ => None,
+        };
+        if let Some((start, end)) = parsed {
+            let slice = bytes[start..=end].to_vec();
+            let mut resp = HttpResponse::json(206, &Value::Null);
+            resp.body = slice;
+            resp.headers
+                .insert("Content-Type".into(), content_type_for(path).into());
+            resp.headers.insert(
+                "Content-Range".into(),
+                format!("bytes {start}-{end}/{len}"),
+            );
+            resp.headers
+                .insert("Accept-Ranges".into(), "bytes".into());
+            resp.headers.insert("ETag".into(), etag);
+            return resp;
+        }
+    }
+
+    let mut resp = HttpResponse::json(200, &Value::Null);
+    resp.body = bytes;
+    resp.headers
+        .insert("Content-Type".into(), content_type_for(path).into());
+    resp.headers.insert("Accept-Ranges".into(), "bytes".into());
+    resp.headers.insert("ETag".into(), etag);
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,15 +1,33 @@
-//! Native pseudo-terminal and process lifecycle manager (P153).
+//! Native terminal and process lifecycle manager (P153).
 //!
 //! Provides in-process shell terminal management adhering to the kap-server
 //! `/api/v1/sessions/:id/terminals` REST and WebSocket contract.
+//!
+//! **Implemented on top of [`portable_pty`] (wezterm).** Each terminal is a
+//! real pseudo-terminal: on Windows this is a ConPTY (`conpty.dll` /
+//! `kernel32!CreatePseudoConsole`), on Unix a `fork`/`openpty` pty. The child
+//! therefore has a controlling terminal, so Ctrl-C, job control, `isatty`
+//! tests and full-screen TUI programs behave like a normal terminal.
+//!
+//! [`TerminalManager::resize`] now forwards the new geometry to the child
+//! through the pty: [`portable_pty::MasterPty::resize`] drives
+//! `TIOCSWINSZ` (Unix) / `ResizePseudoConsole` (Windows), and the running
+//! process is notified and re-lays out its screen.
+//!
+//! **Windows requirements:** ConPTY needs Windows 10 1809 (build 17763) or
+//! newer. On older Windows `native_pty_system()` will fail to load conpty and
+//! [`TerminalManager::create`] returns an error.
 
+use portable_pty::{
+    native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::process::Stdio;
-use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{RwLock, mpsc};
 
 use crate::events::EngineEvent;
@@ -47,7 +65,20 @@ struct TerminalEntry {
     /// `next_seq - dropped == buffer.len()`, which is what lets a caller's
     /// absolute `since_seq` be mapped onto a buffer index.
     dropped: usize,
+    /// The pty master end. Held so [`TerminalManager::resize`] can deliver a
+    /// real window-size change to the child. `MasterPty` is `Send` but not
+    /// `Sync`, so it is wrapped in a `Mutex` to keep the entry `Sync` enough
+    /// for the shared `RwLock`.
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    /// Cloneable handle used by [`TerminalManager::close`] to terminate the
+    /// child independently of the exit-watcher thread that owns the `Child`.
+    killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
+    /// Process id of the pty child, retained only as a best-effort fallback
+    /// for the Windows `taskkill /T` tree kill (see [`TerminalManager::close`]).
     child_pid: Option<u32>,
+    /// Set once the child has actually exited; lets the reader thread stop
+    /// promptly even if the pty read end does not report EOF immediately.
+    dead: Arc<AtomicBool>,
 }
 
 /// Central manager orchestrating session-scoped terminals.
@@ -93,7 +124,7 @@ impl TerminalManager {
         }
     }
 
-    /// Create and spawn a new terminal child process.
+    /// Create and spawn a new terminal child process inside a real pty.
     pub async fn create(
         &self,
         session_id: &str,
@@ -110,43 +141,47 @@ impl TerminalManager {
         let rows = rows_opt.unwrap_or(DEFAULT_ROWS);
         let created_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        let mut cmd = Command::new(&shell);
-        cmd.current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Open a native pty with the requested geometry.
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: rows as u16,
+                cols: cols as u16,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open pty for '{shell}': {e}"))?;
 
-        #[cfg(windows)]
-        {
-            // Set TERM environment if needed
-            cmd.env("TERM", "xterm-256color");
-        }
-        #[cfg(not(windows))]
-        {
-            cmd.env("TERM", "xterm-256color");
-        }
+        // Build the child command to run inside the pty.
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.cwd(Path::new(cwd));
+        // Inherit the base environment (computed by portable_pty from the
+        // process env / registry); just make sure TERM is set for TUIs.
+        cmd.env("TERM", "xterm-256color");
 
-        let mut child = cmd
-            .spawn()
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn shell '{shell}': {e}"))?;
-        let child_pid = child.id();
+        let child_pid = child.process_id();
+        // A cloneable killer that can signal the process without holding the
+        // `Child` (which is handed to the exit-watcher thread below).
+        let killer = child.clone_killer();
 
-        let mut child_stdin = child.stdin.take();
-        let mut child_stdout = child.stdout.take();
-        let mut child_stderr = child.stderr.take();
+        // Take the master's writer (stdin) and a readable clone (stdout/stderr
+        // are merged into the single pty stream).
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to take pty writer: {e}"))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to take pty reader: {e}"))?;
+        // Keep the master so resize() can reconfigure the window later.
+        let master: Box<dyn MasterPty + Send> = pair.master;
 
-        let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(128);
-
-        // Stdin forwarder
-        if let Some(mut cin) = child_stdin.take() {
-            tokio::spawn(async move {
-                while let Some(bytes) = stdin_rx.recv().await {
-                    if cin.write_all(&bytes).await.is_err() || cin.flush().await.is_err() {
-                        break;
-                    }
-                }
-            });
-        }
+        let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(128);
 
         let descriptor = TerminalDescriptor {
             id: term_id.clone(),
@@ -161,13 +196,18 @@ impl TerminalManager {
             exit_code: None,
         };
 
+        let dead = Arc::new(AtomicBool::new(false));
+
         let entry = TerminalEntry {
             descriptor: descriptor.clone(),
             stdin_tx: Some(stdin_tx),
             buffer: Vec::new(),
             next_seq: 0,
             dropped: 0,
+            master: Mutex::new(Some(master)),
+            killer: Mutex::new(Some(killer)),
             child_pid,
+            dead: dead.clone(),
         };
 
         {
@@ -175,45 +215,71 @@ impl TerminalManager {
             lock.insert(term_id.clone(), entry);
         }
 
-        // Stdout reader
-        let entries_stdout = self.entries.clone();
-        let hub_stdout = self.hub.clone();
-        let tid_stdout = term_id.clone();
-        let sid_stdout = session_id.to_string();
+        // --- Stdin forwarder thread -------------------------------------------
+        // Consumes the mpsc channel and writes into the pty master. Dropping
+        // the writer (when the channel closes on close/kill) sends EOF to the
+        // child, so this thread ends naturally once no more input is expected.
+        {
+            let mut writer = writer;
+            let mut stdin_rx = stdin_rx;
+            std::thread::spawn(move || {
+                while let Some(bytes) = stdin_rx.blocking_recv() {
+                    if writer.write_all(&bytes).is_err() || writer.flush().is_err() {
+                        break;
+                    }
+                }
+                // `writer` is dropped here, signalling EOF to the child's stdin.
+            });
+        }
 
-        if let Some(mut cout) = child_stdout.take() {
-            tokio::spawn(async move {
+        // --- Output reader thread ---------------------------------------------
+        // Reads the merged pty output stream and appends each chunk to the
+        // ring buffer, broadcasting it on the session bus. Exits when the child
+        // closes the pty (EOF) or when `dead` flips, so it never leaks.
+        {
+            let entries_out = self.entries.clone();
+            let hub_out = self.hub.clone();
+            let tid = term_id.clone();
+            let sid = session_id.to_string();
+            let dead_out = dead.clone();
+            let mut reader = reader;
+            std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
                 loop {
-                    match cout.read(&mut buf).await {
-                        Ok(0) => break,
+                    if dead_out.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    match reader.read(&mut buf) {
+                        Ok(0) => break, // child closed the pty: EOF
                         Ok(n) => {
                             let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let mut lock = entries_stdout.write().await;
-                            let out_seq;
-                            if let Some(e) = lock.get_mut(&tid_stdout) {
-                                e.next_seq += 1;
-                                out_seq = e.next_seq;
-                                if e.buffer.len() >= MAX_BUFFER_FRAMES {
-                                    e.buffer.remove(0);
-                                    e.dropped += 1;
+                            let out_seq = {
+                                let mut lock = entries_out.blocking_write();
+                                if let Some(e) = lock.get_mut(&tid) {
+                                    e.next_seq += 1;
+                                    let seq = e.next_seq;
+                                    if e.buffer.len() >= MAX_BUFFER_FRAMES {
+                                        e.buffer.remove(0);
+                                        e.dropped += 1;
+                                    }
+                                    e.buffer.push(text.clone());
+                                    seq
+                                } else {
+                                    0
                                 }
-                                e.buffer.push(text.clone());
-                            } else {
-                                out_seq = 0;
-                            }
+                            };
                             // Contract frame shape (ws-control.ts:418-428):
                             // {type: "terminal_output", seq, session_id,
                             //  terminal_id, timestamp, payload:{data}}.
                             let out_event = json!({
                                 "type": "terminal_output",
-                                "session_id": sid_stdout,
-                                "terminal_id": tid_stdout,
+                                "session_id": sid,
+                                "terminal_id": tid,
                                 "seq": out_seq,
                                 "data": text,
                             });
-                            hub_stdout
-                                .bus_for(&sid_stdout)
+                            hub_out
+                                .bus_for(&sid)
                                 .publish(&EngineEvent::Custom(out_event));
                         }
                         Err(_) => break,
@@ -222,83 +288,44 @@ impl TerminalManager {
             });
         }
 
-        // Stderr reader
-        let entries_stderr = self.entries.clone();
-        let hub_stderr = self.hub.clone();
-        let tid_stderr = term_id.clone();
-        let sid_stderr = session_id.to_string();
+        // --- Process exit watcher thread --------------------------------------
+        // Owns the `Child` so its blocking `wait()` runs off the async runtime.
+        // On exit it records the status and broadcasts `terminal_exit`.
+        {
+            let entries_exit = self.entries.clone();
+            let hub_exit = self.hub.clone();
+            let tid = term_id.clone();
+            let sid = session_id.to_string();
+            let dead_exit = dead.clone();
+            std::thread::spawn(move || {
+                let status = child.wait();
+                let exit_code = status.ok().map(|s| s.exit_code() as i32);
+                dead_exit.store(true, Ordering::SeqCst);
+                let exited_at =
+                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        if let Some(mut cerr) = child_stderr.take() {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match cerr.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let mut lock = entries_stderr.write().await;
-                            let out_seq;
-                            if let Some(e) = lock.get_mut(&tid_stderr) {
-                                e.next_seq += 1;
-                                out_seq = e.next_seq;
-                                if e.buffer.len() >= MAX_BUFFER_FRAMES {
-                                    e.buffer.remove(0);
-                                    e.dropped += 1;
-                                }
-                                e.buffer.push(text.clone());
-                            } else {
-                                out_seq = 0;
-                            }
-                            // Contract frame shape (ws-control.ts:418-428):
-                            // {type: "terminal_output", seq, session_id,
-                            //  terminal_id, timestamp, payload:{data}}.
-                            let out_event = json!({
-                                "type": "terminal_output",
-                                "session_id": sid_stderr,
-                                "terminal_id": tid_stderr,
-                                "seq": out_seq,
-                                "data": text,
-                            });
-                            hub_stderr
-                                .bus_for(&sid_stderr)
-                                .publish(&EngineEvent::Custom(out_event));
-                        }
-                        Err(_) => break,
+                {
+                    let mut lock = entries_exit.blocking_write();
+                    if let Some(e) = lock.get_mut(&tid) {
+                        e.descriptor.status = "exited".to_string();
+                        e.descriptor.exited_at = Some(exited_at.clone());
+                        e.descriptor.exit_code = exit_code;
+                        e.stdin_tx = None;
                     }
                 }
+
+                // Contract frame shape (ws-control.ts:433-441): payload.exit_code.
+                let exit_event = json!({
+                    "type": "terminal_exit",
+                    "session_id": sid,
+                    "terminal_id": tid,
+                    "payload": { "exit_code": exit_code },
+                });
+                hub_exit
+                    .bus_for(&sid)
+                    .publish(&EngineEvent::Custom(exit_event));
             });
         }
-
-        // Process exit watcher
-        let entries_exit = self.entries.clone();
-        let hub_exit = self.hub.clone();
-        let tid_exit = term_id.clone();
-        let sid_exit = session_id.to_string();
-
-        tokio::spawn(async move {
-            let status = child.wait().await;
-            let exit_code = status.ok().and_then(|s| s.code());
-            let exited_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-            let mut lock = entries_exit.write().await;
-            if let Some(e) = lock.get_mut(&tid_exit) {
-                e.descriptor.status = "exited".to_string();
-                e.descriptor.exited_at = Some(exited_at.clone());
-                e.descriptor.exit_code = exit_code;
-                e.stdin_tx = None;
-            }
-
-            // Contract frame shape (ws-control.ts:433-441): payload.exit_code.
-            let exit_event = json!({
-                "type": "terminal_exit",
-                "session_id": sid_exit,
-                "terminal_id": tid_exit,
-                "payload": { "exit_code": exit_code },
-            });
-            hub_exit
-                .bus_for(&sid_exit)
-                .publish(&EngineEvent::Custom(exit_event));
-        });
 
         Ok(descriptor)
     }
@@ -348,6 +375,11 @@ impl TerminalManager {
     }
 
     /// Resize terminal geometry (cols, rows).
+    ///
+    /// Unlike the old piped implementation, this now delivers the new window
+    /// size to the running child through the pty: [`portable_pty::MasterPty::resize`]
+    /// performs `TIOCSWINSZ` (Unix) / `ResizePseudoConsole` (Windows), and the
+    /// child receives `SIGWINCH` / a console resize event and re-lays out.
     pub async fn resize(
         &self,
         session_id: &str,
@@ -361,6 +393,16 @@ impl TerminalManager {
             .ok_or_else(|| "Terminal not found".to_string())?;
         if entry.descriptor.session_id != session_id {
             return Err("Terminal not found in session".to_string());
+        }
+        // Best-effort: forward the real resize to the child. If the pty is
+        // already gone we still record the requested geometry on the descriptor.
+        if let Some(ref mut master) = *entry.master.lock().unwrap() {
+            let _ = master.resize(PtySize {
+                rows: rows as u16,
+                cols: cols as u16,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
         }
         entry.descriptor.cols = cols;
         entry.descriptor.rows = rows;
@@ -380,20 +422,31 @@ impl TerminalManager {
             entry.descriptor.status = "exited".to_string();
             entry.descriptor.exited_at =
                 Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+            // Drop the stdin sender: the forwarder thread's channel closes and
+            // it exits, dropping the master writer (EOF to the child's stdin).
             entry.stdin_tx = None;
-            if let Some(pid) = entry.child_pid {
-                #[cfg(windows)]
-                {
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/T", "/PID", &pid.to_string()])
-                        .output();
-                }
-                #[cfg(not(windows))]
-                {
-                    unsafe {
-                        libc::kill(pid as i32, libc::SIGKILL);
-                    }
-                }
+
+            // Terminate the child via portable-pty's killer (TerminateProcess on
+            // Windows, SIGHUP+kill on Unix). Dropping the writer already sent
+            // stdin EOF; this guarantees the process tree is reaped.
+            let killer = entry.killer.lock().unwrap().take();
+            let pid = entry.child_pid;
+            // Flip the `dead` flag so the reader thread stops even if its read
+            // end does not observe EOF promptly after the kill.
+            entry.dead.store(true, Ordering::SeqCst);
+            drop(lock);
+
+            if let Some(mut k) = killer {
+                let _ = k.kill();
+            }
+            // Windows fallback: ConPTY's TerminateProcess cascades to the
+            // conhost, but a stubborn child tree (e.g. a shell that spawned
+            // grandchildren) is cleaned up by a tree kill. Best-effort only.
+            #[cfg(windows)]
+            if let Some(pid) = pid {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .output();
             }
         }
         Ok(())
@@ -469,7 +522,7 @@ mod tests {
         // Get with mismatched session returns None
         assert!(mgr.get("sess-wrong", &desc.id).await.is_none());
 
-        // 4. Resize
+        // 4. Resize — now delivered to the real pty, not just the descriptor.
         mgr.resize("sess-1", &desc.id, 120, 30).await.unwrap();
         let resized = mgr.get("sess-1", &desc.id).await.unwrap();
         assert_eq!(resized.cols, 120);

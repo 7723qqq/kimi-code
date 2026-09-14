@@ -36,6 +36,7 @@ clap = { version = "4", features = ["derive"] }
 fastrand = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "sync", "io-util", "io-std", "process", "time"] }
 tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json"] }
 rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
@@ -72,6 +73,7 @@ which = "6.0"
 tower-lsp = "0.20"
 lsp-types = "0.95"
 rquickjs = { version = "0.9", features = ["full-async", "futures", "macro", "array-buffer"], optional = true }
+portable-pty = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

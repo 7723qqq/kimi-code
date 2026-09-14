@@ -43,6 +43,7 @@ pub mod engine;
 pub mod envelope;
 pub mod files;
 pub mod fs_routes;
+pub mod fs_watch;
 pub mod http;
 pub mod hub;
 pub mod interaction;
@@ -52,6 +53,7 @@ pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
 pub mod prompt_queue;
+pub mod remote_control;
 pub mod provider_refresh;
 pub mod provider_write;
 pub mod router;
@@ -105,9 +107,17 @@ pub struct HttpServer {
     /// The `/api/v1/files` upload store.
     file_store: files::FileStore,
     terminal_manager: Arc<terminal::TerminalManager>,
+    /// Workspace watcher backing `watch_fs_add` / `watch_fs_remove` (#3502).
+    /// Registration is per connection; the poll loop is spawned by `run_serve`.
+    fs_watch: Arc<fs_watch::FsWatchManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
     /// Remote Control status state (#3594).
     remote_control_state: Arc<Mutex<RemoteControlStatusWire>>,
+    /// The live remote-control runtime (#3594), started by
+    /// `POST /api/v1/remote-control`. `None` until then; the status routes
+    /// read whichever of the two is live.
+    remote_control_runtime:
+        Arc<tokio::sync::Mutex<Option<crate::server::remote_control::RemoteControlHandle>>>,
     /// Cancelled by `POST /api/v1/shutdown`; the `http::serve` accept loop
     /// selects on it so the request actually stops the server.
     shutdown: tokio_util::sync::CancellationToken,
@@ -196,7 +206,14 @@ impl HttpServer {
             engine: None,
             auth: ServerAuth::disabled(),
             heartbeat: crate::server::ws_protocol::DEFAULT_HEARTBEAT,
-            cron_scheduler: Arc::new(Mutex::new(CronScheduler::new(Vec::new(), 0))),
+            // Reload the persisted server-scoped schedules here, in the one
+            // place every entry point constructs a server through — a caller
+            // that forgets a separate "reload" step must not silently drop
+            // every REST-created schedule on restart.
+            cron_scheduler: Arc::new(Mutex::new(CronScheduler::new(
+                Self::read_persisted_cron_entries(&store),
+                chrono::Local::now().offset().local_minus_utc(),
+            ))),
             task_runner: task_runner.clone(),
             server_id: format!("srv-{}", fastrand::u64(..)),
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -213,10 +230,12 @@ impl HttpServer {
             config_write_path: std::sync::Mutex::new(None),
             file_store: files::FileStore::new(),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
+            fs_watch: Arc::new(fs_watch::FsWatchManager::new(hub.clone())),
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
             ),
             remote_control_state: Arc::new(Mutex::new(RemoteControlStatusWire::off())),
+            remote_control_runtime: Arc::new(tokio::sync::Mutex::new(None)),
             shutdown: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -300,6 +319,12 @@ impl HttpServer {
 
     pub fn terminal_manager(&self) -> Arc<terminal::TerminalManager> {
         self.terminal_manager.clone()
+    }
+
+    /// The workspace watcher: WebSocket `watch_fs_*` registrations land here
+    /// and `run_serve` spawns its poll loop.
+    pub fn fs_watch(&self) -> Arc<fs_watch::FsWatchManager> {
+        self.fs_watch.clone()
     }
 
     pub fn server_id(&self) -> &str {
@@ -424,6 +449,31 @@ impl HttpServer {
 
     pub fn cron_scheduler(&self) -> Arc<Mutex<CronScheduler>> {
         self.cron_scheduler.clone()
+    }
+
+    /// Server-scoped cron persistence: entries live under state key
+    /// `("cron", "entries")` in the session store, so REST-created schedules
+    /// survive a restart and are reloaded by `run_serve`. (The model-facing
+    /// Cron* tools use the workspace file state store's `cron` domain instead —
+    /// a separate surface, unchanged here.)
+    pub fn load_cron_entries(&self) -> Vec<CronEntry> {
+        Self::read_persisted_cron_entries(&self.store)
+    }
+
+    fn read_persisted_cron_entries(store: &SqliteSessionStore) -> Vec<CronEntry> {
+        store
+            .get_state("cron", "entries")
+            .unwrap_or(None)
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn persist_cron_entries(&self, entries: &[CronEntry]) {
+        if let Ok(value) = serde_json::to_value(entries)
+            && let Err(e) = self.store.put_state("cron", "entries", &value)
+        {
+            tracing::warn!(error = %e, "persisting cron entries failed");
+        }
     }
 
     #[must_use]
@@ -800,6 +850,37 @@ fn apply_prompt_submission_options(
 /// Kept as a shared constant so GET and POST cannot drift into telling different
 /// stories about the same missing capability.
 const REMOTE_CONTROL_UNAVAILABLE: &str = "this standalone kimi-agent server has no remote-control runtime: no device registration, channel or heartbeat is implemented, so no remote session can be established";
+
+/// Generate a stable device id for remote control (TS `createKimiDeviceId`
+/// shape: a ULID).
+fn new_device_id() -> String {
+    ulid::Ulid::new().to_string()
+}
+
+/// The engine's built-in capabilities, served by `GET /api/v1/capabilities` and
+/// `GET /api/v1/capabilities/{id}`. A single source so the list route and the
+/// detail route cannot drift apart.
+const NATIVE_CAPABILITY_IDS: &[&str] = &[
+    "bash",
+    "file_history",
+    "read",
+    "write",
+    "edit",
+    "grep",
+    "glob",
+    "tools",
+    "native_tools",
+    "websocket_events",
+    "interaction_questions",
+    "interaction_approvals",
+    "task_runner",
+    "cron_scheduler",
+    "gui_store",
+    "mcp",
+    "plugins",
+    "terminals",
+    "subagents",
+];
 
 /// Parses a terminal dimension from a JSON body.
 ///
@@ -1320,29 +1401,41 @@ impl HttpServer {
                     "pid": std::process::id(),
                 }))
             }
+            // Static advertisement, not a probe: the list is a compile-time
+            // constant, so it does not reflect per-process availability (e.g. a
+            // build without the workflow engine still reports the same set).
+            // The detail route below answers from the same list.
             ("GET", "/api/v1/capabilities") => HttpResponse::ok(&json!({
-                "capabilities": [
-                    "bash",
-                    "file_history",
-                    "read",
-                    "write",
-                    "edit",
-                    "grep",
-                    "glob",
-                    "tools",
-                    "native_tools",
-                    "websocket_events",
-                    "interaction_questions",
-                    "interaction_approvals",
-                    "task_runner",
-                    "cron_scheduler",
-                    "gui_store",
-                    "mcp",
-                    "plugins",
-                    "terminals",
-                    "subagents"
-                ]
+                "capabilities": NATIVE_CAPABILITY_IDS
             })),
+            // One capability's readiness. Native built-ins are compiled in, so
+            // a known id is genuinely `ready`; an unknown id is a 404
+            // (kap-server's `CAPABILITY_NOT_FOUND`), not a fabricated record.
+            ("GET", p) if p.starts_with("/api/v1/capabilities/") => {
+                let id = p.trim_start_matches("/api/v1/capabilities/");
+                if NATIVE_CAPABILITY_IDS.contains(&id) {
+                    HttpResponse::ok(&json!({
+                        "id": id,
+                        "displayName": id,
+                        "description": format!("Built-in {id} capability of the native engine."),
+                        "supported": true,
+                        "state": "ready",
+                        "version": env!("CARGO_PKG_VERSION"),
+                        "steps": [],
+                        "install": { "progress": 100 }
+                    }))
+                } else {
+                    HttpResponse::not_found()
+                }
+            }
+            // kap-server's install action: the native engine has nothing to
+            // install (every capability ships compiled in), so the honest
+            // answer is "unsupported", not a fake install that claims to run.
+            ("POST", p) if p.starts_with("/api/v1/capabilities/") => {
+                HttpResponse::bad_request(
+                    "CAPABILITY_UNSUPPORTED: this standalone engine ships every capability built in; there is no installer to run",
+                )
+            }
             ("GET", "/api/v1/connections") => {
                 let connections: Vec<Value> = self
                     .hub
@@ -1829,24 +1922,42 @@ impl HttpServer {
             }
             // Remote-control runtime (#3594).
             //
-            // The REST surface exists, but this server has no remote-control
-            // runtime behind it: nothing registers a device, opens a persistent
-            // channel or serves a heartbeat. Reporting `state: "on"` plus a
-            // `https://code-rc.kimi.com/devices/<id>/` URL made the feature look
-            // live while nothing was listening — the client showed it as enabled
-            // and handed the user a dead link. Report the capability gap instead.
+            // Remote Control (#3594): the runtime behind this endpoint is now
+            // real (`server/remote_control.rs` — device registration, a relay
+            // WebSocket channel, reverse HTTP proxy and heartbeats). POST
+            // starts it (the caller must supply the Kimi login refresh token —
+            // the standalone server holds none of its own), GET reports the
+            // live status. The old `501 + available:false` responses existed
+            // because there was genuinely nothing listening behind them.
             ("GET", "/api/v1/remote-control") => {
-                let st = self.remote_control_state.lock().await.clone();
-                HttpResponse::ok(&json!({
-                    "enabled": false,
-                    "state": st.state,
-                    "url": Value::Null,
-                    "device_id": st.device_id,
-                    "device_name": st.device_name,
-                    "available": false,
-                    "reason": REMOTE_CONTROL_UNAVAILABLE,
-                    "error": st.error,
-                }))
+                let runtime = self.remote_control_runtime.lock().await;
+                match runtime.as_ref() {
+                    Some(handle) => {
+                        let st = handle.status();
+                        HttpResponse::ok(&json!({
+                            "enabled": st.enabled,
+                            "state": st.state,
+                            "url": st.url,
+                            "device_id": st.device_id,
+                            "device_name": st.device_name,
+                            "available": true,
+                            "error": st.error,
+                        }))
+                    }
+                    None => {
+                        let st = self.remote_control_state.lock().await.clone();
+                        HttpResponse::ok(&json!({
+                            "enabled": false,
+                            "state": st.state,
+                            "url": Value::Null,
+                            "device_id": st.device_id,
+                            "device_name": st.device_name,
+                            "available": false,
+                            "reason": REMOTE_CONTROL_UNAVAILABLE,
+                            "error": st.error,
+                        }))
+                    }
+                }
             }
             ("POST", "/api/v1/remote-control") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -1856,16 +1967,99 @@ impl HttpServer {
                 if body.get("enabled").and_then(|v| v.as_bool()).is_none() {
                     return HttpResponse::bad_request("Missing 'enabled' field");
                 }
-                HttpResponse::json(
-                    501,
-                    &json!({
+                let enabled = body["enabled"].as_bool().unwrap_or(false);
+                if !enabled {
+                    // Stop the runtime if one is live and report the off state.
+                    if let Some(handle) = self
+                        .remote_control_runtime
+                        .lock()
+                        .await
+                        .take()
+                    {
+                        handle.close().await;
+                    }
+                    {
+                        let mut st = self.remote_control_state.lock().await;
+                        *st = RemoteControlStatusWire::off();
+                    }
+                    return HttpResponse::ok(&json!({
                         "enabled": false,
                         "state": "off",
                         "url": Value::Null,
                         "available": false,
-                        "error": REMOTE_CONTROL_UNAVAILABLE,
-                    }),
-                )
+                    }));
+                }
+                // Start (or report the already-running) runtime.
+                let mut slot = self.remote_control_runtime.lock().await;
+                if let Some(handle) = slot.as_ref() {
+                    let st = handle.status();
+                    return HttpResponse::ok(&json!({
+                        "enabled": st.enabled,
+                        "state": st.state,
+                        "url": st.url,
+                        "device_id": st.device_id,
+                        "device_name": st.device_name,
+                        "available": true,
+                        "already_running": true,
+                        "error": st.error,
+                    }));
+                }
+                // The Kimi login refresh token is the WS-upgrade credential at
+                // the relay; the standalone server holds none of its own, so
+                // the caller (the web UI, which owns the user session) passes
+                // it in. Refusing without it is honest: an empty token would
+                // fail the upgrade mid-handshake anyway.
+                let refresh_token = body
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if refresh_token.trim().is_empty() {
+                    return HttpResponse::bad_request(
+                        "Field 'refresh_token' is required: remote control authenticates to the relay with the Kimi login credential",
+                    );
+                }
+                // Stable device id, persisted in the session store (TS:
+                // `createKimiDeviceId(homeDir)`).
+                let device_id = match self.store.get_state("remote-control", "device_id") {
+                    Ok(Some(value)) => value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(new_device_id),
+                    _ => {
+                        let id = new_device_id();
+                        let _ = self
+                            .store
+                            .put_state("remote-control", "device_id", &json!(id));
+                        id
+                    }
+                };
+                // Forward target: this server itself, as addressed by the
+                // caller (the Host header carries the loopback host:port).
+                let local_base_url = format!(
+                    "http://{}",
+                    req.header("host").unwrap_or("127.0.0.1")
+                );
+                let local_server_token = self.auth.token().unwrap_or_default().to_string();
+                let options = crate::server::remote_control::RemoteControlOptions {
+                    device_id: device_id.clone(),
+                    local_base_url,
+                    local_server_token,
+                    refresh_token,
+                    ..Default::default()
+                };
+                let handle = crate::server::remote_control::RemoteControlRuntime::start(options);
+                let st = handle.status();
+                *slot = Some(handle);
+                HttpResponse::ok(&json!({
+                    "enabled": st.enabled,
+                    "state": st.state,
+                    "url": st.url,
+                    "device_id": st.device_id,
+                    "device_name": st.device_name,
+                    "available": true,
+                    "error": st.error,
+                }))
             }
             // MCP endpoints
             ("GET", "/api/v1/mcp") => {
@@ -1957,15 +2151,28 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v1/mcp/auth-statuses") | ("GET", "/api/v2/mcp/auth-statuses") => {
+                // `authenticated` is a real probe, not key presence: the token
+                // is fetched through the OAuth service, which refreshes an
+                // expired one and returns `None` when the credential cannot be
+                // used. A stored-but-unusable key therefore reports
+                // `needs-auth` (v2 `McpServerStatus`) instead of a fabricated
+                // `true`. Shape note: v2 returned `data: McpServerAuthStatus[]`;
+                // this server keeps its own `{statuses:{<key>:{...}}}` object,
+                // which its clients and tests already consume.
                 let service = self.mcp_oauth.lock().await.clone();
-                let statuses: serde_json::Map<String, Value> = match service {
-                    Some(service) => service
-                        .list_keys()
-                        .into_iter()
-                        .map(|key| (key, json!({ "authenticated": true })))
-                        .collect(),
-                    None => serde_json::Map::new(),
-                };
+                let mut statuses = serde_json::Map::new();
+                if let Some(service) = service {
+                    for key in service.list_keys() {
+                        let authenticated = service.access_token(&key).await.is_some();
+                        statuses.insert(
+                            key,
+                            json!({
+                                "authenticated": authenticated,
+                                "status": if authenticated { "authenticated" } else { "needs-auth" },
+                            }),
+                        );
+                    }
+                }
                 HttpResponse::ok(&json!({ "statuses": statuses }))
             }
             ("POST", p)
@@ -2108,6 +2315,9 @@ impl HttpServer {
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
+                // Session-scoped in name only: the session is validated, but the
+                // payload is the engine-global MCP roster. Per-session MCP
+                // (different servers per workspace/session) is not implemented.
                 let servers = self.mcp_manager.server_entries().await;
                 HttpResponse::ok(&json!({ "servers": servers, "sessionId": session_id }))
             }
@@ -2224,6 +2434,17 @@ impl HttpServer {
                     "parent": effective_parent,
                     "entries": entries,
                 }))
+            }
+            // Raw file content by absolute path (kap-server `fsContent`): ETag
+            // revalidation and a single `Range` slice, everything else served
+            // in full. Auth is the bearer check at the HTTP layer — same trust
+            // level as `fs:browse`, which also walks the whole host.
+            ("GET", "/api/v1/fs::content") | ("GET", "/api/v1/fs:content") => {
+                crate::server::fs_routes::handle_fs_content(
+                    req.query_param("path").as_deref(),
+                    req.header("if-none-match"),
+                    req.header("range"),
+                )
             }
             ("POST", "/api/v1/search") | ("POST", "/api/v1/sessions:search") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -2390,13 +2611,19 @@ impl HttpServer {
                 let Some(id) = id else {
                     return HttpResponse::bad_request("Missing plugin id");
                 };
-                let _ = self.plugin_manager.set_plugin_enabled(id, true);
-                HttpResponse::ok(&json!({
-                    "id": id,
-                    "enabled": true,
-                    "version": "1.0.0",
-                    "installed": true
-                }))
+                // Install through the catalog: an unknown id is a 404, and the
+                // recorded version comes from the catalog (or the existing
+                // record), never from a hardcoded literal.
+                match self.plugin_manager.install_plugin(id) {
+                    Ok(Some(info)) => HttpResponse::ok(&json!({
+                        "id": id,
+                        "enabled": info.enabled,
+                        "version": info.version,
+                        "installed": true
+                    })),
+                    Ok(None) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
             }
             ("GET", "/api/v1/skills") => {
                 let extra = self.config().await.extra_skill_dirs_paths();
@@ -2452,16 +2679,20 @@ impl HttpServer {
                 };
 
                 match action {
+                    // `Ok(false)` = unknown plugin id: neither installed nor in
+                    // the catalog. Answer 404 rather than recording a fake entry.
                     "enable" => match self.plugin_manager.set_plugin_enabled(id, true) {
-                        Ok(_) => HttpResponse::ok(
+                        Ok(true) => HttpResponse::ok(
                             &json!({ "ok": true, "pluginId": id, "enabled": true }),
                         ),
+                        Ok(false) => HttpResponse::not_found(),
                         Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                     },
                     "disable" => match self.plugin_manager.set_plugin_enabled(id, false) {
-                        Ok(_) => HttpResponse::ok(
+                        Ok(true) => HttpResponse::ok(
                             &json!({ "ok": true, "pluginId": id, "enabled": false }),
                         ),
+                        Ok(false) => HttpResponse::not_found(),
                         Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                     },
                     "remove" => match self.plugin_manager.remove_plugin(id) {
@@ -2516,6 +2747,25 @@ impl HttpServer {
             ("GET", "/api/v1/oauth/usage") => {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
                 HttpResponse::ok(&self.oauth_manager.get_usage(&provider).await)
+            }
+            // Resolve the client region (mainland-cn/global), mirroring v2
+            // `resolveKimiRegion`'s precedence: env host > configured host/key >
+            // install-channel marker > default. The standalone server does not
+            // persist an oauth ref of its own, so the configured pair is `None`
+            // here — env and the marker still decide.
+            ("GET", "/api/v1/oauth/region") => {
+                let env_host = std::env::var("KIMI_CODE_OAUTH_HOST")
+                    .ok()
+                    .or_else(|| std::env::var("KIMI_OAUTH_HOST").ok())
+                    .filter(|v| !v.trim().is_empty());
+                let home = crate::workflow::kimi_home().unwrap_or_else(|| PathBuf::from("."));
+                let region = crate::server::oauth::resolve_kimi_region(
+                    env_host.as_deref(),
+                    None,
+                    None,
+                    &home,
+                );
+                HttpResponse::ok(&json!({ "region": region }))
             }
             ("GET", "/api/v1/oauth/user") | ("GET", "/api/v1/oauth/userinfo") => {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
@@ -2769,6 +3019,9 @@ impl HttpServer {
                 };
                 let mut scheduler = self.cron_scheduler.lock().await;
                 if scheduler.add_entry(entry) {
+                    // Persist so the schedule survives a restart and is
+                    // reloaded by `run_serve`.
+                    self.persist_cron_entries(&scheduler.list_entries());
                     HttpResponse::json(
                         201,
                         &json!({
@@ -2805,6 +3058,8 @@ impl HttpServer {
                 };
                 let mut scheduler = self.cron_scheduler.lock().await;
                 if scheduler.remove_entry(task_id) {
+                    // Keep the persisted set in sync with the in-memory one.
+                    self.persist_cron_entries(&scheduler.list_entries());
                     HttpResponse::ok(&json!({ "deleted": true, "taskId": task_id }))
                 } else {
                     HttpResponse::not_found()
@@ -5407,9 +5662,11 @@ mod tests {
         assert_eq!(res_get_after.status, 404);
     }
 
-    /// The REST surface for remote control exists (#3594) but the runtime does
-    /// not: the server must say so rather than mint a `state: "on"` status and a
-    /// device URL for a device that was never registered.
+    /// The REST surface for remote control (#3594) is backed by a real runtime
+    /// (`server/remote_control.rs`): enabling without the Kimi login credential
+    /// is refused honestly (the relay WS upgrade would fail anyway), and the
+    /// off state is reported as such. The `501` era is over — a start request
+    /// with a credential would actually arm the runtime.
     #[tokio::test]
     async fn test_remote_control_reports_the_missing_runtime() {
         let server = HttpServer::in_memory().unwrap();
@@ -5436,7 +5693,9 @@ mod tests {
             "the response must explain the gap: {val_get}"
         );
 
-        // Enabling is refused outright, and must not flip any state.
+        // Enabling requires the Kimi login credential: without it the relay
+        // WS upgrade would fail mid-handshake, so the honest answer is a 400
+        // naming the missing field — not a fabricated `state: "on"`.
         let req_enable = HttpRequest {
             method: "POST".into(),
             path: "/api/v1/remote-control".into(),
@@ -5445,13 +5704,15 @@ mod tests {
             body: serde_json::to_vec(&json!({ "enabled": true })).unwrap(),
         };
         let res_enable = server.handle_request(&req_enable).await;
-        assert_eq!(
-            res_enable.status, 501,
-            "enabling must be refused, not faked"
-        );
+        assert_eq!(res_enable.status, 400);
         let val_enable: Value = serde_json::from_slice(&res_enable.body).unwrap();
-        assert_eq!(val_enable["enabled"], false);
-        assert_eq!(val_enable["available"], false);
+        assert!(
+            val_enable["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("refresh_token"),
+            "{val_enable}"
+        );
 
         // A missing `enabled` field is still a client error.
         let req_missing = HttpRequest {
@@ -5468,6 +5729,20 @@ mod tests {
         let val_get2: Value = serde_json::from_slice(&res_get2.body).unwrap();
         assert_eq!(val_get2["state"], "off");
         assert_eq!(val_get2["enabled"], false);
+
+        // Disabling when nothing runs is an honest idempotent off.
+        let req_disable = HttpRequest {
+            method: "POST".into(),
+            path: "/api/v1/remote-control".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({ "enabled": false })).unwrap(),
+        };
+        let res_disable = server.handle_request(&req_disable).await;
+        assert_eq!(res_disable.status, 200);
+        let val_disable: Value = serde_json::from_slice(&res_disable.body).unwrap();
+        assert_eq!(val_disable["enabled"], false);
+        assert_eq!(val_disable["state"], "off");
     }
 
     #[tokio::test]
@@ -5925,6 +6200,63 @@ mod tests {
         assert!(caps.iter().any(|c| c == "task_runner"));
         assert!(caps.iter().any(|c| c == "cron_scheduler"));
         assert!(caps.iter().any(|c| c == "gui_store"));
+
+        // 6b. Capability detail route: a known id is `ready`, an unknown one is
+        // a 404, and the install action honestly refuses (nothing to install).
+        let res_cap_get = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/capabilities/bash".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_cap_get.status, 200);
+        let val_cap_get: Value = serde_json::from_slice(&res_cap_get.body).unwrap();
+        assert_eq!(val_cap_get["id"], "bash");
+        assert_eq!(val_cap_get["state"], "ready");
+        assert_eq!(val_cap_get["supported"], true);
+
+        let res_cap_missing = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/capabilities/no-such-capability".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_cap_missing.status, 404);
+
+        let res_cap_install = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/capabilities/bash:install".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_cap_install.status, 400);
+
+        // 6c. Region endpoint: resolves from env / marker / default.
+        let res_region = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/oauth/region".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_region.status, 200);
+        let val_region: Value = serde_json::from_slice(&res_region.body).unwrap();
+        assert!(
+            val_region["region"] == "mainland-cn" || val_region["region"] == "global",
+            "{}",
+            val_region["region"]
+        );
 
         // 7. Shutdown endpoint
         let res_sd = server
@@ -8136,6 +8468,133 @@ max_context_size = 128000
     }
 
     #[tokio::test]
+    /// `fs::content` serves raw bytes by absolute path, honours a single
+    /// `Range` slice, and revalidates with `If-None-Match` → 304. This route
+    /// used to be missing entirely, so the web UI had no way to read a file
+    /// it had browsed to.
+    async fn test_http_fs_content_raw_range_and_revalidate() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store);
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        std::fs::write(&file, "0123456789").unwrap();
+        let path = file.to_string_lossy().to_string();
+
+        let get = |query: Option<String>, extra: Vec<(&str, &str)>| {
+            let mut headers = HashMap::new();
+            for (k, v) in extra {
+                headers.insert(k.to_string(), v.to_string());
+            }
+            HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/fs::content".into(),
+                query,
+                headers,
+                body: Vec::new(),
+            }
+        };
+
+        // Full content + ETag.
+        let full = server
+            .handle_request(&get(Some(format!("path={path}")), vec![]))
+            .await;
+        assert_eq!(full.status, 200);
+        assert_eq!(full.body, b"0123456789".to_vec());
+        let etag = full
+            .headers
+            .get("ETag")
+            .cloned()
+            .expect("response carries an ETag");
+
+        // A single byte range is sliced with Content-Range.
+        let ranged = server
+            .handle_request(&get(
+                Some(format!("path={path}")),
+                vec![("Range", "bytes=2-4")],
+            ))
+            .await;
+        assert_eq!(ranged.status, 206);
+        assert_eq!(ranged.body, b"234".to_vec());
+        assert_eq!(
+            ranged.headers.get("Content-Range").map(String::as_str),
+            Some("bytes 2-4/10")
+        );
+
+        // Unchanged content revalidates to 304.
+        let revalidated = server
+            .handle_request(&get(
+                Some(format!("path={path}")),
+                vec![("If-None-Match", etag.as_str())],
+            ))
+            .await;
+        assert_eq!(revalidated.status, 304);
+
+        // Relative paths are rejected, directories are not served.
+        let relative = server
+            .handle_request(&get(Some("path=relative/file.txt".into()), vec![]))
+            .await;
+        assert_eq!(relative.status, 400);
+        let is_dir = server
+            .handle_request(&get(
+                Some(format!("path={}", dir.path().to_string_lossy())),
+                vec![],
+            ))
+            .await;
+        assert_eq!(is_dir.status, 400);
+    }
+
+    /// Cron entries created through the REST surface survive a restart: they
+    /// are persisted under `("cron", "entries")` and reloaded by `run_serve`.
+    /// Before this, the scheduler was built empty and never ticked, so
+    /// schedules were lost on restart and never fired.
+    #[tokio::test]
+    async fn test_cron_entries_persist_across_restart() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+
+        let created = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/cron".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "cron": "*/5 * * * *",
+                    "prompt": "standup notes",
+                    "recurring": true
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(created.status, 201);
+        let val: Value = serde_json::from_slice(&created.body).unwrap();
+        let id = val["id"].as_str().unwrap().to_string();
+
+        // Simulate a restart: a fresh server over the same store reloads the
+        // persisted entry into its scheduler.
+        let restarted = HttpServer::new(store.clone());
+        let entries = restarted.load_cron_entries();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].id, id);
+        assert_eq!(entries[0].prompt, "standup notes");
+        assert_eq!(entries[0].cron, "*/5 * * * *");
+        assert!(entries[0].recurring);
+
+        // Deleting through the REST surface also drops the persisted entry.
+        let deleted = restarted
+            .handle_request(&HttpRequest {
+                method: "DELETE".into(),
+                path: format!("/api/v1/cron/{id}"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(deleted.status, 200);
+        assert!(restarted.load_cron_entries().is_empty());
+    }
+
+    #[tokio::test]
     async fn test_http_plugins_endpoints() {
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let server = HttpServer::new(store.clone());
@@ -8260,7 +8719,11 @@ max_context_size = 128000
         assert_eq!(res_remove_again.status, 404);
 
         // 9. Install plugin via POST /api/v1/plugins
-        let res_install = server
+        //
+        // The id must resolve against the catalog (or already be installed):
+        // an unknown id is a 404, not a fabricated `installed: true` with a
+        // hardcoded version.
+        let res_install_unknown = server
             .handle_request(&HttpRequest {
                 method: "POST".into(),
                 path: "/api/v1/plugins".into(),
@@ -8269,10 +8732,23 @@ max_context_size = 128000
                 body: serde_json::to_vec(&json!({ "id": "test-new-plugin" })).unwrap(),
             })
             .await;
+        assert_eq!(res_install_unknown.status, 404);
+
+        let res_install = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/plugins".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "id": "kimi-webbridge" })).unwrap(),
+            })
+            .await;
         assert_eq!(res_install.status, 200);
         let val_inst: Value = serde_json::from_slice(&res_install.body).unwrap();
-        assert_eq!(val_inst["id"], "test-new-plugin");
+        assert_eq!(val_inst["id"], "kimi-webbridge");
         assert_eq!(val_inst["enabled"], true);
+        // The version comes from the catalog entry, never from a literal.
+        assert_eq!(val_inst["version"], "1.11.3");
 
         // 10. Global skills endpoint GET /api/v1/skills
         let res_skills = server
@@ -9427,6 +9903,10 @@ max_context_size = 128000
         let key =
             crate::mcp::oauth::mcp_oauth_store_key("srv", "https://example.test/mcp").unwrap();
         assert_eq!(statuses_body["statuses"][&key]["authenticated"], true);
+        assert_eq!(statuses_body["statuses"][&key]["status"], "authenticated");
+        // A usable token is required: an empty credentials dir reports no key
+        // at all, and a stored-but-unusable key must say `needs-auth` rather
+        // than a fabricated `true` (covered by the OAuth service's own tests).
 
         let reset = server
             .handle_request(&HttpRequest {
