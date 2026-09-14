@@ -5,12 +5,7 @@
 // exceptions are the legacy records below, which neither engine writes but
 // old (v1-written / pre-migration) wires still contain on disk.
 
-import type {
-  ContentPart,
-  Message,
-  ToolCall,
-  TokenUsage,
-} from '@moonshot-ai/kosong';
+import type { ContentPart, Message, ToolCall, TokenUsage } from '@moonshot-ai/kosong';
 
 import { WIRE_PROTOCOL_VERSION } from './v2-wire';
 export { WIRE_PROTOCOL_VERSION };
@@ -37,6 +32,8 @@ import type {
   ContextApplyCompactionPayload,
   ContextClear,
   ContextUndo,
+  FileHistoryCheckpointed,
+  FileHistoryTracked,
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
@@ -143,6 +140,8 @@ export type AgentRecord =
   | WireRecordOf<'cron.add', CronAddPayload>
   | WireRecordOf<'cron.cursor', CronCursorPayload>
   | WireRecordOf<'cron.delete', CronDeletePayload>
+  | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
+  | WireRecordOf<'file_history.tracked', FileHistoryTracked>
   | WireRecordOf<'forked', GoalForked>
   | WireRecordOf<'full_compaction.begin', FullCompactionBegin>
   | WireRecordOf<'full_compaction.cancel', FullCompactionCancel>
@@ -209,6 +208,14 @@ export type AgentRecordOf<K extends AgentRecord['type']> = Extract<
  * from the package entry. All fields optional-tolerant because the manifest
  * comes from another machine / kimi-code version.
  */
+export interface ImportShellEnv {
+  term?: string;
+  termProgram?: string;
+  termProgramVersion?: string;
+  multiplexer?: string;
+  shell?: string;
+}
+
 export interface ImportManifest {
   sessionId?: string;
   exportedAt?: string;
@@ -222,8 +229,11 @@ export interface ImportManifest {
   workspaceDir?: string;
   sessionLogPath?: string;
   globalLogPath?: string;
+  desktopLogPath?: string;
+  webLogPath?: string;
+  desktopVersion?: string;
   installSource?: string;
-  shellEnv?: unknown;
+  shellEnv?: ImportShellEnv;
 }
 
 /** vis-side bookkeeping for one imported bundle, written to
@@ -278,6 +288,9 @@ export interface AgentInfo {
   agentId: string;
   type: 'main' | 'sub' | 'independent';
   parentAgentId: string | null;
+  /** Profile the agent was bound to (`AgentMeta.labels.profileName`), or null
+   *  when the session predates profile labels or the value is unreadable. */
+  profileName: string | null;
   homedir: string;
   wireExists: boolean;
   wireRecordCount: number;

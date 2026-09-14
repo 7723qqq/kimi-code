@@ -109,6 +109,8 @@ export type LoopStepStopReason =
   | 'tool_use'
   | 'filtered'
   | 'paused'
+  | 'interrupted'
+  | 'error'
   | 'unknown';
 
 export interface LoopStepEndEvent {
@@ -134,6 +136,11 @@ export interface LoopStepEndEvent {
    */
   readonly llmServerDecodeMs?: number | undefined;
   readonly llmClientConsumeMs?: number | undefined;
+  /**
+   * Time the client's event loop spent on other work inside the decode
+   * window (server decode + client consume + blocked ≈ stream duration).
+   */
+  readonly llmClientBlockedMs?: number | undefined;
   /**
    * Provider diagnostics are optional and must not drive loop control.
    * Use `finishReason` for normalized behavior.
@@ -284,6 +291,9 @@ export interface PluginCommandOrigin {
 export interface InjectionOrigin {
   readonly kind: 'injection';
   readonly variant: string;
+  /** Prompt that owns this injection; an undo of that prompt also removes the
+   *  injection when it sits immediately before the prompt's anchor. */
+  readonly ownerPromptId?: string;
 }
 
 export interface ShellCommandOrigin {
@@ -362,6 +372,7 @@ export type PromptOrigin =
 // ════════════════════════════════════════════════════════════════════════════
 
 export type ContextMessage = Message & {
+  readonly id?: string;
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
   readonly toolCallDisplays?: Record<string, ToolInputDisplay>;

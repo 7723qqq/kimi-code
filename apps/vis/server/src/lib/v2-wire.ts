@@ -10,18 +10,10 @@
  * Only the subset used by vis is included.
  */
 
-import type {
-  ContentPart,
-  FinishReason,
-  TokenUsage,
-} from '@moonshot-ai/kosong';
+import type { ContentPart, FinishReason, TokenUsage } from '@moonshot-ai/kosong';
 import type { KimiErrorPayload } from '@moonshot-ai/protocol';
 
-import type {
-  ContextMessage,
-  LoopRecordedEvent,
-  PromptOrigin,
-} from './v1-compat';
+import type { ContextMessage, LoopRecordedEvent, PromptOrigin } from './v1-compat';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Wire protocol version
@@ -45,13 +37,7 @@ export interface WireMigration {
 // Agent task records
 // ════════════════════════════════════════════════════════════════════════════
 
-export type AgentTaskStatus =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'timed_out'
-  | 'killed'
-  | 'lost';
+export type AgentTaskStatus = 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
 
 export interface AgentTaskInfoBase {
   readonly taskId: string;
@@ -81,6 +67,7 @@ export interface SubagentTaskInfo extends AgentTaskInfoBase {
   readonly parentToolCallId?: string;
   readonly model?: string;
   readonly thinkingEffort?: string;
+  readonly stopCode?: string;
 }
 
 export interface QuestionTaskInfo extends AgentTaskInfoBase {
@@ -313,6 +300,35 @@ export interface McpToolsDiscovered {
   readonly tools: readonly MCPToolDefinition[];
   readonly enabledNames: readonly string[];
   readonly collisions?: readonly McpToolCollision[];
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// File-history records
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface FileBackupEntry {
+  readonly key: string | null;
+  readonly version: number;
+  readonly contentHash?: string;
+  readonly size?: number;
+  readonly oversize?: boolean;
+  readonly mtimeMs?: number;
+}
+
+export type FileHistoryCheckpointPhase = 'start' | 'end';
+
+export interface FileHistoryTracked {
+  readonly agentId: string;
+  readonly turnId: number;
+  readonly path: string;
+  readonly entry: FileBackupEntry;
+}
+
+export interface FileHistoryCheckpointed {
+  readonly agentId: string;
+  readonly turnId: number;
+  readonly phase?: FileHistoryCheckpointPhase;
+  readonly entries: Readonly<Record<string, FileBackupEntry>>;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -628,6 +644,8 @@ export interface TurnEnded {
   readonly error?: KimiErrorPayload;
   readonly durationMs?: number;
   readonly interruptReason?: TurnInterruptReason;
+  /** Engine-side stop detail (e.g. a repeat-breaker trip), when recorded. */
+  readonly stopReason?: string;
 }
 
 export interface TurnStepInterrupted {
@@ -748,6 +766,8 @@ export interface WireRecordEvents {
   'cron.add': CronAddPayload;
   'cron.cursor': CronCursorPayload;
   'cron.delete': CronDeletePayload;
+  'file_history.checkpoint': FileHistoryCheckpointed;
+  'file_history.tracked': FileHistoryTracked;
   forked: GoalForked;
   'full_compaction.begin': FullCompactionBegin;
   'full_compaction.cancel': FullCompactionCancel;
@@ -892,7 +912,11 @@ const migrateV1_3ToV1_4: WireMigration = {
           time: record['time'],
         } as WireMigrationRecord;
       case 'goal.clear':
-        return { type: 'goal.clear', agentId: record['agentId'], time: record['time'] } as WireMigrationRecord;
+        return {
+          type: 'goal.clear',
+          agentId: record['agentId'],
+          time: record['time'],
+        } as WireMigrationRecord;
       case 'goal.account_usage':
         return {
           type: 'goal.update',
@@ -914,7 +938,7 @@ const migrateV1_3ToV1_4: WireMigration = {
   },
 };
 
-const migrateV1_4ToV1_5: WireMigration = {
+export const migrateV1_4ToV1_5: WireMigration = {
   sourceVersion: '1.4',
   targetVersion: '1.5',
   migrateRecord(record: WireMigrationRecord): WireMigrationRecord {
@@ -974,7 +998,6 @@ export function migrateWireRecords(
   records: readonly WireMigrationRecord[],
   readVersion: string | undefined,
 ): WireMigrationRecord[] {
-  const migrations =
-    readVersion === undefined ? MIGRATIONS : resolveWireMigrations(readVersion);
+  const migrations = readVersion === undefined ? MIGRATIONS : resolveWireMigrations(readVersion);
   return records.map((record) => migrateWireRecord(record, migrations));
 }

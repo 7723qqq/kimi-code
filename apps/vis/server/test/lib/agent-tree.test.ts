@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgentTree, compareAgentIds } from '../../src/lib/agent-tree';
+
 import type { AgentInfo } from '../../src/lib/agent-record-types';
+import { buildAgentTree, compareAgentIds } from '../../src/lib/agent-tree';
 
 function info(overrides: Partial<AgentInfo> & Pick<AgentInfo, 'agentId'>): AgentInfo {
   return {
     type: 'sub',
     parentAgentId: null,
+    profileName: null,
     homedir: `/tmp/${overrides.agentId}`,
     wireExists: true,
     wireRecordCount: 0,
@@ -59,8 +61,15 @@ describe('agent-tree', () => {
 
   it('orders agents by numeric suffix, main first (agent-2 before agent-10)', () => {
     const mk = (id: string): AgentInfo => ({
-      agentId: id, type: id === 'main' ? 'main' : 'sub', parentAgentId: id === 'main' ? null : 'main',
-      homedir: '', wireExists: true, wireRecordCount: 0, wireProtocolVersion: null, swarmItem: null,
+      agentId: id,
+      type: id === 'main' ? 'main' : 'sub',
+      parentAgentId: id === 'main' ? null : 'main',
+      profileName: null,
+      homedir: '',
+      wireExists: true,
+      wireRecordCount: 0,
+      wireProtocolVersion: null,
+      swarmItem: null,
     });
     const tree = buildAgentTree([mk('main'), mk('agent-10'), mk('agent-2')]);
     const order = [tree[0]!.agentId, ...tree[0]!.children.map((c) => c.agentId)];

@@ -60,6 +60,7 @@ export interface StepNode {
   /** Decode split: server time awaiting parts vs. client time processing them. */
   llmServerDecodeMs?: number;
   llmClientConsumeMs?: number;
+  llmClientBlockedMs?: number;
   content: ContentSummary;
   toolCalls: ToolCallNode[];
 }
@@ -75,10 +76,15 @@ export interface TurnNode {
   steps: StepNode[];
   startTime?: number;
   endTime?: number;
-  /** endTime − startTime over the turn's steps (active execution time). */
+  /** Engine-reported duration, or endTime − startTime for legacy wires. */
   durationMs?: number;
   /** promptTime − previous turn's endTime (time the agent sat idle/waiting). */
   waitBeforeMs?: number;
+  /** Durable turn identity, available once `turn.ended` is recorded. */
+  turnId?: number;
+  endLineNo?: number;
+  outcome?: 'completed' | 'cancelled' | 'failed' | 'blocked';
+  stopReason?: string;
   /** Sum of this turn's step usages — total tokens processed (billing cost). */
   tokens: TokenUsage;
   toolCallCount: number;
@@ -200,7 +206,8 @@ function outputSize(output: unknown): number {
   if (Array.isArray(output)) {
     let n = 0;
     for (const part of output) {
-      const text = (part as { text?: string })?.text;
+      const candidate = part as { text?: string; think?: string } | undefined;
+      const text = candidate?.text ?? candidate?.think;
       n += typeof text === 'string' ? text.length : JSON.stringify(part ?? null).length;
     }
     return n;
@@ -220,6 +227,12 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
   const configChanges: ConfigChange[] = [];
 
   let current: TurnNode | null = null;
+  let pendingSteer: {
+    lineNo: number;
+    time: number | undefined;
+    text: string;
+    originKind: string | undefined;
+  } | null = null;
   let contextTokens = 0;
   let peakContext = 0;
   let firstTime: number | undefined;
@@ -268,7 +281,10 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           // A gap straddling a turn boundary is "waiting for the user"; a gap
           // inside a turn is the agent/tool being slow.
           kind:
-            rec.type === 'turn.prompt' || rec.type === 'turn.steer' ? 'between_turns' : 'in_turn',
+            rec.type === 'turn.prompt' ||
+            (rec.type === 'turn.steer' && (current === null || current.outcome !== undefined))
+              ? 'between_turns'
+              : 'in_turn',
         });
       }
       prevTime = t;
@@ -277,13 +293,43 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
 
     switch (rec.type) {
       case 'turn.prompt':
+        pendingSteer = null;
         current = startTurn('prompt', entry.lineNo, t, firstText(rec.input), rec.origin?.kind);
         break;
       case 'turn.steer':
-        current = startTurn('steer', entry.lineNo, t, firstText(rec.input), rec.origin?.kind);
+        if (current === null || current.outcome !== undefined) {
+          pendingSteer = null;
+          current = startTurn('steer', entry.lineNo, t, firstText(rec.input), rec.origin?.kind);
+        } else {
+          pendingSteer = {
+            lineNo: entry.lineNo,
+            time: t,
+            text: firstText(rec.input),
+            originKind: rec.origin?.kind,
+          };
+        }
         break;
       case 'turn.cancel':
-        if (current) current.cancelled = true;
+        if (
+          current !== null &&
+          rec.target !== 'queued' &&
+          (rec.turnId === undefined ||
+            current.turnId === undefined ||
+            current.turnId === rec.turnId)
+        ) {
+          current.cancelled = true;
+        }
+        break;
+      case 'turn.ended':
+        if (current !== null) {
+          current.turnId = rec.turnId;
+          current.endLineNo = entry.lineNo;
+          current.outcome = rec.reason;
+          current.stopReason = rec.stopReason;
+          current.cancelled ||= rec.reason === 'cancelled';
+          if (t !== undefined) current.endTime = t;
+          if (rec.durationMs !== undefined) current.durationMs = rec.durationMs;
+        }
         break;
 
       case 'context.update_token_count':
@@ -321,7 +367,13 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         // variants) — keep the prior count then.
         if (rec.tokensAfter !== undefined) {
           contextTokens = rec.tokensAfter;
-          contextSeries.push({ lineNo: entry.lineNo, time: t, turnIndex: current?.index ?? -1, step: -1, contextTokens });
+          contextSeries.push({
+            lineNo: entry.lineNo,
+            time: t,
+            turnIndex: current?.index ?? -1,
+            step: -1,
+            contextTokens,
+          });
           if (contextTokens > peakContext) peakContext = contextTokens;
         }
         break;
@@ -335,7 +387,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         if (effort !== undefined) changed.push({ field: 'thinking', value: effort });
         if (cwd !== undefined) changed.push({ field: 'cwd', value: cwd });
-        if (rec.systemPrompt !== undefined) changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
+        if (rec.systemPrompt !== undefined)
+          changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         if (changed.length > 0) configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
       }
@@ -344,10 +397,12 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         // v2 writes most initial config state on `profile.bind` rather than
         // `config.update`.
         const changed: { field: string; value: string }[] = [];
-        if (rec.profileName !== undefined) changed.push({ field: 'profile', value: rec.profileName });
+        if (rec.profileName !== undefined)
+          changed.push({ field: 'profile', value: rec.profileName });
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         changed.push({ field: 'thinking', value: rec.thinkingEffort });
-        if (rec.environmentDisclosure !== undefined) changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
+        if (rec.environmentDisclosure !== undefined)
+          changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
         changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
@@ -356,13 +411,31 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          current ??= startTurn(
-            'prompt',
-            entry.lineNo,
-            t,
-            '(no prompt record)',
-            undefined as string | undefined,
-          );
+          const parsedTurnId = ev.turnId === undefined ? undefined : Number.parseInt(ev.turnId, 10);
+          const validTurnId =
+            parsedTurnId !== undefined && Number.isInteger(parsedTurnId) ? parsedTurnId : undefined;
+          let turn: TurnNode | null = current;
+          if (
+            turn === null ||
+            turn.outcome !== undefined ||
+            (validTurnId !== undefined && turn.turnId !== undefined && turn.turnId !== validTurnId)
+          ) {
+            turn =
+              pendingSteer === null
+                ? startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined)
+                : startTurn(
+                    'steer',
+                    pendingSteer.lineNo,
+                    pendingSteer.time,
+                    pendingSteer.text,
+                    pendingSteer.originKind,
+                  );
+          }
+          pendingSteer = null;
+          current = turn;
+          if (validTurnId !== undefined) {
+            turn.turnId ??= validTurnId;
+          }
           const step: StepNode = {
             uuid: ev.uuid,
             // `step` / `turnId` are optional on v2 loop events; fall back so
@@ -375,8 +448,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             toolCalls: [],
           };
           stepByUuid.set(ev.uuid, step);
-          current.steps.push(step);
-          current.startTime ??= t;
+          turn.steps.push(step);
+          turn.startTime ??= t;
         } else if (ev.type === 'step.end') {
           const step = stepByUuid.get(ev.uuid);
           if (step) {
@@ -389,12 +462,10 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             step.llmServerFirstTokenMs = ev.llmServerFirstTokenMs;
             step.llmServerDecodeMs = ev.llmServerDecodeMs;
             step.llmClientConsumeMs = ev.llmClientConsumeMs;
+            step.llmClientBlockedMs = ev.llmClientBlockedMs;
             if (step.beginTime !== undefined && t !== undefined)
               step.durationMs = t - step.beginTime;
-            // Steps don't carry a generic 'error' finish reason (errors are
-            // thrown, not recorded). 'filtered' means the provider blocked the
-            // response — the closest persisted step-level failure signal.
-            step.isError = ev.finishReason === 'filtered';
+            step.isError = ev.finishReason === 'filtered' || ev.finishReason === 'error';
             if ('usage' in ev && ev.usage !== undefined) {
               step.usage = ev.usage;
               if (current) addUsage(current.tokens, ev.usage);
@@ -434,11 +505,13 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           if (current) current.toolCallCount += 1;
         } else if (ev.type === 'content.part') {
           const step = stepByUuid.get(ev.stepUuid);
-          const part = ev.part as { type?: string; text?: string } | undefined;
+          const part = ev.part as { type?: string; text?: string; think?: string } | undefined;
           if (step && part) {
-            const chars = typeof part.text === 'string' ? part.text.length : 0;
-            if (part.type === 'think') step.content.thinkChars += chars;
-            else step.content.textChars += chars;
+            if (part.type === 'think') {
+              step.content.thinkChars += typeof part.think === 'string' ? part.think.length : 0;
+            } else {
+              step.content.textChars += typeof part.text === 'string' ? part.text.length : 0;
+            }
           }
         } else if (ev.type === 'tool.result') {
           const node = toolByCallId.get(ev.toolCallId);
@@ -531,7 +604,11 @@ function summarize(
   let totalTokens = 0;
   let activeMs = 0;
   for (const turn of turns) {
-    if (turn.startTime !== undefined && turn.endTime !== undefined) {
+    if (
+      turn.durationMs === undefined &&
+      turn.startTime !== undefined &&
+      turn.endTime !== undefined
+    ) {
       turn.durationMs = turn.endTime - turn.startTime;
     }
     stepCount += turn.steps.length;
@@ -558,14 +635,12 @@ function summarize(
 }
 
 function cacheStats(c: TokenUsage): CacheStats {
-  // Exact cache hit rate: cache reads / (reads + creations). Plain input is
-  // not part of the cache system and must not dilute the ratio.
-  const cacheMissTokens = c.inputCacheRead + c.inputCacheCreation;
+  const inputTotal = c.inputOther + c.inputCacheRead + c.inputCacheCreation;
   return {
     inputOther: c.inputOther,
     inputCacheRead: c.inputCacheRead,
     inputCacheCreation: c.inputCacheCreation,
     output: c.output,
-    hitRate: cacheMissTokens > 0 ? c.inputCacheRead / cacheMissTokens : null,
+    hitRate: inputTotal > 0 ? c.inputCacheRead / inputTotal : null,
   };
 }

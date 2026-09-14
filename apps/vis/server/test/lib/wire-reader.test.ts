@@ -1,9 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSessionFixture } from '../fixtures/build';
+
+import { describe, it, expect, afterEach } from 'vitest';
+
 import { readAgentWire } from '../../src/lib/wire-reader';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('wire-reader', () => {
   let cleanup: (() => Promise<void>) | null = null;
@@ -76,7 +78,9 @@ describe('wire-reader', () => {
 
       // `raw` keeps the on-disk (nested) shape — this is what the "as
       // written" view in the detail panel relies on.
-      const rawMsg = (entry.raw as { message: { toolCalls: Array<{ function: unknown; name?: unknown }> } }).message;
+      const rawMsg = (
+        entry.raw as { message: { toolCalls: Array<{ function: unknown; name?: unknown }> } }
+      ).message;
       expect(rawMsg.toolCalls[0]).toHaveProperty('function');
       expect(rawMsg.toolCalls[0]!.function).toEqual({ name: 'Read', arguments: '{"path":"/x"}' });
       expect(rawMsg.toolCalls[0]).not.toHaveProperty('name');
@@ -96,9 +100,7 @@ describe('wire-reader', () => {
     const result = await readAgentWire(path);
     expect(result.metadata.protocolVersion).toBe('0.9');
     expect(result.records.length).toBeGreaterThan(0);
-    expect(result.warnings.some((w) => /unrecognised protocol_version.*0\.9/i.test(w))).toBe(
-      true,
-    );
+    expect(result.warnings.some((w) => /unrecognised protocol_version.*0\.9/i.test(w))).toBe(true);
   });
 
   it('passes v1.5 records through unchanged with no warnings', async () => {
@@ -126,6 +128,67 @@ describe('wire-reader', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('recovers a headerless journal with the same v1.4 assumption as core-v2', async () => {
+    const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const path = join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    await writeFile(
+      path,
+      JSON.stringify({
+        type: 'goal.create',
+        agentId: 'main',
+        goalId: 'goal-1',
+        objective: 'ship',
+        time: 40,
+      }) + '\n',
+    );
+
+    const result = await readAgentWire(path);
+
+    expect(result.metadata).toEqual({ protocolVersion: '1.4', createdAt: 0 });
+    expect(result.warnings).toEqual([
+      'line 1: missing metadata header — assuming protocol_version "1.4"',
+    ]);
+    expect(result.records[0]).toMatchObject({
+      lineNo: 1,
+      data: { type: 'goal.create', wallClockResumedAt: 40 },
+    });
+  });
+
+  it('normalizes legacy plan revision paths to the current storage key', async () => {
+    const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const path = join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    await writeFile(
+      path,
+      [
+        JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 }),
+        JSON.stringify({
+          type: 'plan.revision',
+          agentId: 'main',
+          id: 'demo-plan',
+          version: 2,
+          path: 'sessions/workspace/session_demo/agents/main/plan/demo-plan/v2.md',
+          sha256: 'abc',
+          bytes: 10,
+          time: 2,
+        }),
+      ].join('\n') + '\n',
+    );
+
+    const result = await readAgentWire(path);
+
+    expect(result.records[0]!.data).toMatchObject({
+      type: 'plan.revision',
+      key: 'plan/demo-plan/v2.md',
+    });
+    expect(result.records[0]!.data).not.toHaveProperty('path');
+    expect(result.records[0]!.raw).toHaveProperty(
+      'path',
+      'sessions/workspace/session_demo/agents/main/plan/demo-plan/v2.md',
+    );
   });
 
   it('collects warnings for malformed body lines', async () => {

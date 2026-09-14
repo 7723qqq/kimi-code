@@ -12,7 +12,7 @@ import {
 } from '../../lib/analysis';
 import type { WireEntry } from '../../types';
 import { formatDuration, formatTokens } from '../../util/time';
-import { Pill } from '../shared/Pill';
+import { Pill, type PillTone } from '../shared/Pill';
 import { formatBytes } from '../shared/SizePreview';
 
 interface TimelineTabProps {
@@ -57,7 +57,8 @@ export function TimelineTab({ sessionId }: TimelineTabProps) {
             {agents.length === 0 ? <option value={agentId}>{agentId}</option> : null}
             {agents.map((a) => (
               <option key={a.agentId} value={a.agentId}>
-                {a.agentId} ({a.type})
+                {a.agentId} ({a.type}
+                {a.profileName ? ` · ${a.profileName}` : ''})
               </option>
             ))}
           </select>
@@ -312,7 +313,7 @@ function TurnCard({ turn }: { turn: TurnNode }) {
       >
         <span className="text-fg-3">{open ? '▾' : '▸'}</span>
         <Pill tone={turn.trigger === 'steer' ? 'turn' : 'conversation'} variant="outline">
-          {t('timeline.turn', { index: turn.index })}
+          {t('timeline.turn', { index: turn.turnId ?? turn.index })}
           {turn.trigger === 'steer' ? t('timeline.steer') : ''}
         </Pill>
         {turn.originKind && turn.originKind !== 'user' ? (
@@ -320,7 +321,21 @@ function TurnCard({ turn }: { turn: TurnNode }) {
             {turn.originKind}
           </Pill>
         ) : null}
-        {turn.cancelled ? <Pill tone="warning">{t('timeline.cancelled')}</Pill> : null}
+        {turn.outcome !== undefined ? (
+          <Pill tone={outcomeTone(turn.outcome)}>{turn.outcome}</Pill>
+        ) : turn.cancelled ? (
+          <Pill tone="warning">{t('timeline.cancelled')}</Pill>
+        ) : null}
+        {turn.stopReason !== undefined ? (
+          <Pill
+            tone="warning"
+            variant="outline"
+            title={turn.stopReason}
+            className="max-w-64 truncate"
+          >
+            {turn.stopReason}
+          </Pill>
+        ) : null}
         {turn.toolErrorCount > 0 ? (
           <Pill tone="error">{t('timeline.err', { count: turn.toolErrorCount })}</Pill>
         ) : null}
@@ -356,6 +371,12 @@ function TurnCard({ turn }: { turn: TurnNode }) {
       ) : null}
     </div>
   );
+}
+
+function outcomeTone(outcome: NonNullable<TurnNode['outcome']>): PillTone {
+  if (outcome === 'completed') return 'success';
+  if (outcome === 'failed') return 'error';
+  return 'warning';
 }
 
 function StepRow({ step, turnDurationMs }: { step: StepNode; turnDurationMs?: number }) {
@@ -403,6 +424,9 @@ function StepRow({ step, turnDurationMs }: { step: StepNode; turnDurationMs?: nu
               server: step.llmServerDecodeMs,
               client: step.llmClientConsumeMs,
             })}
+            {step.llmClientBlockedMs !== undefined
+              ? t('timeline.decodeBusy', { ms: step.llmClientBlockedMs })
+              : ''}
           </span>
         ) : null}
         {step.contextTokens !== undefined ? (

@@ -1,11 +1,15 @@
 // apps/vis/server/test/lib/session-store.test.ts
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildSessionFixture } from '../fixtures/build';
+
 import { isSafeAgentId, listSessions, readSessionDetail } from '../../src/lib/session-store';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('session-store', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('lists native session with correct timestamps and counts', async () => {
     const { home, cleanup: c } = await buildSessionFixture('sample-main');
@@ -18,7 +22,7 @@ describe('session-store', () => {
     expect(s.lastPrompt).toBe('say hi');
     expect(s.agentCount).toBe(2);
     expect(s.mainAgentExists).toBe(true);
-    expect(s.mainWireRecordCount).toBe(10);  // 10 lines in main wire incl. metadata
+    expect(s.mainWireRecordCount).toBe(10); // 10 lines in main wire incl. metadata
     expect(s.wireProtocolVersion).toBe('1.1');
     expect(s.health).toBe('ok');
     expect(s.workDir).toBe('/tmp/work');
@@ -94,20 +98,61 @@ describe('session-store', () => {
     expect(sessions[0]!.mainWireRecordCount).toBe(0);
   });
 
-  it('marks a session broken_main_wire when the wire metadata header is malformed', async () => {
+  it('treats a headerless v1.4 wire as recoverable', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
     const { writeFile } = await import('node:fs/promises');
     const { join } = await import('node:path');
     const wirePath = join(sessionDir, 'agents', 'main', 'wire.jsonl');
-    // First line is not a `metadata` record — list health used to stay
-    // 'ok' while readAgentWire would fail on open.
-    await writeFile(
-      wirePath,
-      '{"type":"config.update","cwd":"/x","time":1}\n',
-    );
+    await writeFile(wirePath, '{"type":"config.update","cwd":"/x","time":1}\n');
     const sessions = await listSessions(home);
     expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.health).toBe('ok');
+    expect(sessions[0]!.wireProtocolVersion).toBe('1.4');
+  });
+
+  it('skips untyped JSON before valid wire metadata', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const { writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await writeFile(
+      join(sessionDir, 'agents', 'main', 'wire.jsonl'),
+      '{}\n{"type":"metadata","protocol_version":"1.5","created_at":1}\n',
+    );
+
+    const sessions = await listSessions(home);
+
+    expect(sessions[0]!.health).toBe('ok');
+    expect(sessions[0]!.wireProtocolVersion).toBe('1.5');
+    expect(sessions[0]!.mainWireRecordCount).toBe(1);
+  });
+
+  it('marks a session broken_main_wire when its wire has no typed records', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const { writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await writeFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n{}\n');
+
+    const sessions = await listSessions(home);
+
+    expect(sessions[0]!.health).toBe('broken_main_wire');
+    expect(sessions[0]!.mainWireRecordCount).toBe(0);
+  });
+
+  it.each([
+    '{"type":"metadata","created_at":1}\n',
+    '{"type":"metadata","protocol_version":"1.5","created_at":{}}\n',
+  ])('marks a session broken_main_wire when metadata is malformed', async (wire) => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const { writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await writeFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), wire);
+
+    const sessions = await listSessions(home);
+
     expect(sessions[0]!.health).toBe('broken_main_wire');
   });
 
@@ -179,10 +224,7 @@ describe('session-store', () => {
     const { join } = await import('node:path');
     // Break the SUBAGENT's wire metadata; main wire stays intact so the
     // session itself remains healthy.
-    await writeFile(
-      join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'),
-      'not even json\n',
-    );
+    await writeFile(join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'), 'not even json\n');
     const d = await readSessionDetail(home, 'session_fixture');
     expect(d).not.toBeNull();
     const sub = d!.agents.find((a) => a.agentId === 'agent-0')!;
@@ -281,6 +323,24 @@ describe('session-store', () => {
     expect(summary!.updatedAt).toBe(state.updatedAt);
   });
 
+  it('recovers the workDir from v2 state when the append index is unavailable', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const { readFile, rm, writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const statePath = join(sessionDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.cwd = '/workspace/from-state';
+    await writeFile(statePath, JSON.stringify(state));
+    await rm(join(home, 'session_index.jsonl'));
+
+    const [summary] = await listSessions(home);
+    const detail = await readSessionDetail(home, 'session_fixture');
+
+    expect(summary!.workDir).toBe('/workspace/from-state');
+    expect(detail!.workDir).toBe('/workspace/from-state');
+  });
+
   it('surfaces swarmItem from state.json onto AgentInfo (null when absent)', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
@@ -311,7 +371,11 @@ describe('session-store', () => {
     state.agents['agent-1'] = {
       type: 'sub',
       parentAgentId: 'main',
-      labels: { parentAgentId: 'agent-0', swarmItem: 'batch item' },
+      labels: {
+        parentAgentId: 'agent-0',
+        swarmItem: 'batch item',
+        profileName: 'explore',
+      },
     };
     await writeFile(statePath, JSON.stringify(state));
 
@@ -320,9 +384,47 @@ describe('session-store', () => {
     const nested = d!.agents.find((a) => a.agentId === 'agent-1')!;
     expect(nested.parentAgentId).toBe('agent-0');
     expect(nested.swarmItem).toBe('batch item');
+    expect(nested.profileName).toBe('explore');
     // agent-0 has no labels — the top-level v1 fields still apply.
     const flat = d!.agents.find((a) => a.agentId === 'agent-0')!;
     expect(flat.parentAgentId).toBe('main');
+  });
+
+  it('normalizes untrusted agent metadata before exposing it', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const { readFile, writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const statePath = join(sessionDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.agents.main.type = {};
+    state.agents.main.labels = {
+      parentAgentId: {},
+      profileName: {},
+      swarmItem: {},
+    };
+    state.agents['agent-0'].type = 'invalid';
+    state.agents['agent-0'].parentAgentId = [];
+    state.agents['agent-0'].swarmItem = 42;
+    state.agents['agent-0'].labels = { profileName: '   ' };
+    await writeFile(statePath, JSON.stringify(state));
+
+    const d = await readSessionDetail(home, 'session_fixture');
+
+    const main = d!.agents.find((a) => a.agentId === 'main')!;
+    expect(main).toMatchObject({
+      type: 'main',
+      parentAgentId: null,
+      profileName: null,
+      swarmItem: null,
+    });
+    const subagent = d!.agents.find((a) => a.agentId === 'agent-0')!;
+    expect(subagent).toMatchObject({
+      type: 'sub',
+      parentAgentId: null,
+      profileName: null,
+      swarmItem: null,
+    });
   });
 
   it('reads the legacy session-meta/state.json path when state.json is missing', async () => {
@@ -331,10 +433,7 @@ describe('session-store', () => {
     const { mkdir, rename } = await import('node:fs/promises');
     const { join } = await import('node:path');
     await mkdir(join(sessionDir, 'session-meta'), { recursive: true });
-    await rename(
-      join(sessionDir, 'state.json'),
-      join(sessionDir, 'session-meta', 'state.json'),
-    );
+    await rename(join(sessionDir, 'state.json'), join(sessionDir, 'session-meta', 'state.json'));
 
     const sessions = await listSessions(home);
 

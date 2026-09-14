@@ -320,9 +320,7 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             ) : null}
             {result.message !== undefined ? (
               <FieldRow label="message" wide>
-                <pre className="whitespace-pre-wrap break-words text-fg-1">
-                  {result.message}
-                </pre>
+                <pre className="whitespace-pre-wrap break-words text-fg-1">{result.message}</pre>
               </FieldRow>
             ) : null}
             {result.note !== undefined ? (
@@ -339,7 +337,7 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
               </SizePreview>
             ) : (
               <div className="space-y-1">
-                {output.map((p: ContentPart, i: number) => (
+                {output.map((p, i) => (
                   <ContentPartView key={i} part={p} />
                 ))}
               </div>
@@ -402,6 +400,11 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             {event.llmClientConsumeMs !== undefined ? (
               <FieldRow label="streamDuration/client">
                 <span className="text-fg-1">{event.llmClientConsumeMs} ms</span>
+              </FieldRow>
+            ) : null}
+            {event.llmClientBlockedMs !== undefined ? (
+              <FieldRow label="streamDuration/blocked">
+                <span className="text-fg-1">{event.llmClientBlockedMs} ms</span>
               </FieldRow>
             ) : null}
           </div>

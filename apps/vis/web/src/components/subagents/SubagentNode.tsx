@@ -35,6 +35,11 @@ export function SubagentNode({ node, sessionId }: Props) {
               {node.type}
             </Pill>
             <span className="font-mono text-[12px] text-fg-0">{node.agentId}</span>
+            {node.profileName ? (
+              <Pill tone="config" variant="outline">
+                {node.profileName}
+              </Pill>
+            ) : null}
             {node.swarmItem ? (
               <Pill tone="subagent" variant="outline" title={node.swarmItem}>
                 {node.swarmItem}
@@ -49,7 +54,9 @@ export function SubagentNode({ node, sessionId }: Props) {
               </Pill>
             ) : null}
             <span className="ml-auto font-mono text-[10.5px] text-fg-3 tabular">
-              {node.wireRecordCount} {t('wire.records', { count: node.wireRecordCount })}
+              {t(node.wireRecordCount === 1 ? 'subagentDetail.record' : 'subagentDetail.records', {
+                count: node.wireRecordCount,
+              })}
               {node.wireProtocolVersion !== null ? ` · v${node.wireProtocolVersion}` : ''}
             </span>
           </div>

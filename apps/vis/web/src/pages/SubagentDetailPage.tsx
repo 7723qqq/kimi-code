@@ -60,6 +60,11 @@ export function SubagentDetailPage() {
               <Pill tone={TYPE_TONE[agent.type]} variant="soft">
                 {agent.type}
               </Pill>
+              {agent.profileName ? (
+                <Pill tone="config" variant="outline">
+                  {agent.profileName}
+                </Pill>
+              ) : null}
               {agent.parentAgentId !== null ? (
                 <span className="font-mono text-[11px] text-fg-3">
                   {t('subagentDetail.parent')} ·{' '}
