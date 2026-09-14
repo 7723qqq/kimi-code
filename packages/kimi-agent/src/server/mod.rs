@@ -2315,11 +2315,69 @@ impl HttpServer {
                 if self.store.get_session(session_id).ok().flatten().is_none() {
                     return HttpResponse::not_found();
                 }
-                // Session-scoped in name only: the session is validated, but the
-                // payload is the engine-global MCP roster. Per-session MCP
-                // (different servers per workspace/session) is not implemented.
+                // The roster is engine-global: there is no per-workspace MCP
+                // config, so every session sees the same servers. The session
+                // is validated so a client cannot probe arbitrary ids, and the
+                // payload names the scope rather than implying it is per-session.
+                let servers = self.mcp_manager.server_entries().await;
+                HttpResponse::ok(&json!({
+                    "servers": servers,
+                    "sessionId": session_id,
+                    "scope": "engine-global",
+                }))
+            }
+            // The session-scoped MCP views the web UI calls. Same engine-global
+            // roster as above; the paths differ because the client asks per
+            // session, and the session is validated the same way.
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/mcp/servers") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 7 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
                 let servers = self.mcp_manager.server_entries().await;
                 HttpResponse::ok(&json!({ "servers": servers, "sessionId": session_id }))
+            }
+            ("GET", p) if p.starts_with("/api/v1/sessions/") && p.contains("/mcp/servers/") => {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 8 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let name = segments[7];
+                let servers = self.mcp_manager.server_entries().await;
+                match servers.into_iter().find(|entry| entry.name == name) {
+                    Some(entry) => HttpResponse::ok(&serde_json::to_value(&entry).unwrap_or(Value::Null)),
+                    None => HttpResponse::not_found(),
+                }
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/mcp/servers/")
+                    && (p.ends_with(":reconnect") || p.ends_with(":restart")) =>
+            {
+                let segments: Vec<&str> = p.split('/').collect();
+                if segments.len() != 8 {
+                    return HttpResponse::not_found();
+                }
+                let session_id = segments[4];
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                let name = segments[7]
+                    .strip_suffix(":reconnect")
+                    .or_else(|| segments[7].strip_suffix(":restart"))
+                    .unwrap_or_default();
+                match self.mcp_manager.reconnect(name).await {
+                    Ok(()) => HttpResponse::ok(&json!({ "reconnected": true })),
+                    Err(e) => HttpResponse::internal_error(e),
+                }
             }
             ("GET", "/api/v1/sessions") => match self.store.list_sessions() {
                 Ok(sessions) => {
@@ -7600,6 +7658,71 @@ max_context_size = 128000
         let val_sess_mcp: Value = serde_json::from_slice(&res_sess_mcp.body).unwrap();
         assert_eq!(val_sess_mcp["sessionId"], "sess-mcp");
         assert_eq!(val_sess_mcp["servers"].as_array().unwrap().len(), 1);
+        // The roster is engine-global and the payload says so, rather than
+        // leaving a client to assume the servers are session-scoped.
+        assert_eq!(val_sess_mcp["scope"], "engine-global");
+
+        // 4b. The session-scoped MCP views the web UI calls. Same roster, the
+        // paths the client actually requests.
+        let res_sess_servers = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-mcp/mcp/servers".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_sess_servers.status, 200);
+        let val_sess_servers: Value = serde_json::from_slice(&res_sess_servers.body).unwrap();
+        assert_eq!(val_sess_servers["servers"].as_array().unwrap().len(), 1);
+
+        let res_sess_detail = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-mcp/mcp/servers/github-mcp".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_sess_detail.status, 200);
+        let val_sess_detail: Value = serde_json::from_slice(&res_sess_detail.body).unwrap();
+        assert_eq!(val_sess_detail["name"], "github-mcp");
+        assert_eq!(val_sess_detail["tools"].as_array().unwrap().len(), 1);
+
+        let res_sess_unknown = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/sessions/sess-mcp/mcp/servers/nope".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_sess_unknown.status, 404);
+
+        let res_sess_reconnect = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-mcp/mcp/servers/github-mcp:reconnect".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        // The route reaches the manager, which refuses: the fixture added the
+        // client directly, so there is no spawn recipe to reconnect from. A
+        // 404 here would mean the path never matched.
+        assert_eq!(res_sess_reconnect.status, 500);
+        let val_sess_reconnect: Value = serde_json::from_slice(&res_sess_reconnect.body).unwrap();
+        assert!(
+            val_sess_reconnect["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("is not configured"),
+            "{val_sess_reconnect}"
+        );
 
         // 5. Session not found -> 404
         let res_sess_none = server
@@ -7612,6 +7735,23 @@ max_context_size = 128000
             })
             .await;
         assert_eq!(res_sess_none.status, 404);
+
+        // The session-scoped views validate the session the same way.
+        for path in [
+            "/api/v1/sessions/sess-missing/mcp/servers",
+            "/api/v1/sessions/sess-missing/mcp/servers/github-mcp",
+        ] {
+            let res = server
+                .handle_request(&HttpRequest {
+                    method: "GET".into(),
+                    path: path.into(),
+                    query: None,
+                    headers: HashMap::new(),
+                    body: Vec::new(),
+                })
+                .await;
+            assert_eq!(res.status, 404, "{path}");
+        }
 
         // 6. Test server probe: POST /api/v1/mcp/servers:test
         let res_test = server
