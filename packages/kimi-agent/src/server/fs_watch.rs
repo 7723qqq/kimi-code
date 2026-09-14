@@ -192,8 +192,21 @@ mod tests {
         // Baseline pass records the initial mtime and emits nothing.
         assert_eq!(mgr.poll_once().await, 0);
 
-        // Touch the file with a fresh mtime.
+        // Touch the file with a fresh mtime. The mtime is set explicitly
+        // instead of left to the write: two writes inside the same filesystem
+        // timestamp tick leave it unchanged, and the poll then correctly
+        // reports nothing — which is what made this test flaky on Windows.
+        let baseline = std::fs::metadata(&file).unwrap().modified().unwrap();
         std::fs::write(&file, "v2").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(baseline + std::time::Duration::from_secs(1)),
+            )
+            .unwrap();
 
         let mut sub = hub.attach();
         // The subscriber attaches after the baseline, so the change arrives live.
