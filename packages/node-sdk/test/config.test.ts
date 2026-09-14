@@ -8,6 +8,7 @@ import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-loc
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 import {
   buildPolicySnapshot,
+  normalizeBaseUrl,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   resolveMaxAttemptsPerStep,
@@ -615,6 +616,79 @@ maxRunningTasks = 2
     const rawModels = config.raw?.['models'] as Record<string, Record<string, unknown>>;
     expect(rawProviders['local']?.['unsupported_provider_field']).toBe('raw-only');
     expect(rawModels['camel-model']?.['custom_model_field']).toBe('raw-only');
+  });
+
+  describe('normalizeBaseUrl', () => {
+    it('appends /v1 to anthropic baseUrls that carry a path component', () => {
+      expect(normalizeBaseUrl('anthropic', 'https://api.minimaxi.com/anthropic')).toBe(
+        'https://api.minimaxi.com/anthropic/v1',
+      );
+    });
+
+    it('passes bare-host anthropic baseUrls through unchanged', () => {
+      expect(normalizeBaseUrl('anthropic', 'https://api.anthropic.com')).toBe(
+        'https://api.anthropic.com',
+      );
+    });
+
+    it('passes anthropic baseUrls with /v1 already through unchanged', () => {
+      expect(normalizeBaseUrl('anthropic', 'https://api.anthropic.com/v1')).toBe(
+        'https://api.anthropic.com/v1',
+      );
+    });
+
+    it('appends /v1 to bare-host openai baseUrls', () => {
+      expect(normalizeBaseUrl('openai', 'https://api.deepseek.com')).toBe(
+        'https://api.deepseek.com/v1',
+      );
+    });
+
+    it('passes openai baseUrls with /vN already through unchanged', () => {
+      expect(normalizeBaseUrl('openai', 'https://api.example.com/v1')).toBe(
+        'https://api.example.com/v1',
+      );
+      expect(normalizeBaseUrl('openai', 'https://api.z.ai/api/paas/v4')).toBe(
+        'https://api.z.ai/api/paas/v4',
+      );
+    });
+
+    it('appends /v1beta to bare-host google baseUrls', () => {
+      // The documented contract is host-root-only: the client appends the
+      // version segment. The native transport then builds
+      // `{base}/models/{model}:streamGenerateContent`, which is only an API route
+      // once `/v1beta` is there.
+      expect(normalizeBaseUrl('google', 'https://generativelanguage.googleapis.com')).toBe(
+        'https://generativelanguage.googleapis.com/v1beta',
+      );
+      expect(normalizeBaseUrl('google-genai', 'http://127.0.0.1:3001')).toBe(
+        'http://127.0.0.1:3001/v1beta',
+      );
+      expect(normalizeBaseUrl('gemini', 'http://107.173.87.151:8045')).toBe(
+        'http://107.173.87.151:8045/v1beta',
+      );
+    });
+
+    it('passes google baseUrls with a version segment through unchanged', () => {
+      expect(
+        normalizeBaseUrl('google-genai', 'https://generativelanguage.googleapis.com/v1beta'),
+      ).toBe('https://generativelanguage.googleapis.com/v1beta');
+      // A relay that serves `/v1` instead keeps its own choice.
+      expect(normalizeBaseUrl('google-genai', 'http://127.0.0.1:3001/v1')).toBe(
+        'http://127.0.0.1:3001/v1',
+      );
+      expect(normalizeBaseUrl('google-genai', 'https://proxy.example.com/v2alpha')).toBe(
+        'https://proxy.example.com/v2alpha',
+      );
+    });
+
+    it('strips trailing slashes before normalization', () => {
+      expect(normalizeBaseUrl('anthropic', 'https://api.minimaxi.com/anthropic/')).toBe(
+        'https://api.minimaxi.com/anthropic/v1',
+      );
+      expect(normalizeBaseUrl('openai', 'https://api.deepseek.com/')).toBe(
+        'https://api.deepseek.com/v1',
+      );
+    });
   });
 });
 

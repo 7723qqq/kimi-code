@@ -5,14 +5,9 @@
   "description": "Rust agent engine for Kimi Code",
   "type": "module",
   "exports": {
-    ".": "./rust-loop.ts",
     "./native": {
       "types": "./index.native.d.ts",
       "default": "./index.native.js"
-    },
-    "./rust-loop": {
-      "types": "./rust-loop.ts",
-      "default": "./rust-loop.ts"
     },
     "./session-handle": {
       "types": "./session-handle.ts",

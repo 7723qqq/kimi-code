@@ -61,9 +61,8 @@ jobs:
       - name: Build kimi-agent native addon
         run: cd packages/kimi-agent && bun run build
 
-      # The stdio-forcing TS suites (rust-loop staleness guard, …) spawn the
-      # CLI binary directly: without it `createRunTurnOverride` yields
-      # undefined and they fail instead of testing anything.
+      # No vitest suite spawns the CLI binary directly anymore; the step is
+      # kept so the stdio transport stays built on every PR.
       - name: Build kimi-agent CLI binary (debug)
         working-directory: packages/kimi-agent
         run: cargo build --features cli --bin kimi-agent-cli

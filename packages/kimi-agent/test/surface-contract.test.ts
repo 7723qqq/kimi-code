@@ -43,8 +43,8 @@ try {
  * - nativeIsSensitiveFile: wrapped through the latin1-bytes variant
  *   (nativeIsSensitiveFileBytes) to avoid UTF-16 conversion overhead.
  * - the engine-domain exports (turn loop / session handles / tracing):
- *   consumed through `rust-loop.ts` and `session-handle.ts`, not through the
- *   native-tools wrapper surface.
+ *   consumed through `session-handle.ts`, not through the native-tools wrapper
+ *   surface.
  */
 const UNWRAPPED_BINDINGS = new Set([
   'nativeBuildWorkspaceIndex',

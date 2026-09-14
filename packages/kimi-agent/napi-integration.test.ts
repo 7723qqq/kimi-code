@@ -6,7 +6,6 @@
  * 2. runTurnRust accepts valid params and callbacks via the callback registry
  * 3. JSON serialization round-trips correctly between JS and Rust
  * 4. Error handling works for invalid inputs
- * 5. createRunTurnOverride correctly selects the napi path
  */
 
 import { readdirSync } from 'node:fs';
@@ -39,7 +38,7 @@ interface NativeTurnResult {
   nativeToolCalls: number;
 }
 
-/** Direct native module access (bypasses rust-loop.ts adapter). */
+/** Direct native module access (bypasses the session handle). */
 function loadNativeModule(): SessionNativeModule & {
   runTurnRust: (...args: unknown[]) => Promise<NativeTurnResult>;
   cancelTurn: (turnId: string) => void;
@@ -635,53 +634,6 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — cancellation', () => {
     expect(result.llmRetries).toBe(0);
     expect(typeof result.eventsEmitted).toBe('number');
     expect(chatCallCount).toBe(1);
-  });
-});
-
-describe.skipIf(!nativeEntry)('createRunTurnOverride — engine selection', () => {
-  it('selects the napi path and returns a TurnEngine when the addon is available', async () => {
-    const { createRunTurnOverride } = await import('./rust-loop');
-    const engine = createRunTurnOverride();
-    expect(typeof engine).toBe('function');
-  });
-
-  it('drives a full turn through the napi path via the v2 TurnEngine contract', async () => {
-    const { createRunTurnOverride } = await import('./rust-loop');
-    const engine = createRunTurnOverride();
-    expect(typeof engine).toBe('function');
-
-    const events: string[] = [];
-    const input = {
-      turnId: 1,
-      signal: new AbortController().signal,
-      llm: {
-        modelAlias: 'test-model',
-        modelId: 'test-model',
-        systemPrompt: 'You are a test assistant.',
-        chat: () =>
-          Promise.resolve({
-            toolCalls: [],
-            providerFinishReason: 'stop',
-            usage: { inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0 },
-          }),
-      },
-      maxSteps: 1,
-      buildMessages: () => Promise.resolve([]),
-      buildTools: () => [],
-      dispatchEvent: (event: { type: string }) => {
-        events.push(event.type);
-        return Promise.resolve();
-      },
-      executeTool: () => Promise.resolve({ output: '' }),
-    };
-
-    const result = await engine!(input as never);
-    expect(result.stopReason).toBe('completed');
-    expect(result.steps).toBeGreaterThanOrEqual(1);
-    // The adapter opens/closes a step per llm_chat and reports content parts
-    // through the host event bridge.
-    expect(events).toContain('step.begin');
-    expect(events).toContain('step.end');
   });
 });
 

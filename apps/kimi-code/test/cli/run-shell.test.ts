@@ -127,11 +127,9 @@ vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
 });
 
 vi.mock('#/cli/rust-engine', () => ({
-  // `run-shell` imports only the check-only gate now; the adapter loader is
-  // covered by rust-engine.test.ts. Kept here too so any transitive importer
-  // of the module still resolves.
+  // `run-shell` imports only the check-only gate; mocking it keeps the module
+  // resolvable without touching the real bundle probe.
   assertRustEngineAvailable: vi.fn(),
-  maybeLoadRustEngine: vi.fn(async () => undefined),
 }));
 
 vi.mock('@moonshot-ai/kimi-telemetry', () => ({

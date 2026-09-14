@@ -103,7 +103,7 @@ function writeBunZip(dir: string, zipTarget: string, content: string): Promise<s
   zip.addBuffer(Buffer.from(content), memberName, { mode: 0o100755 });
   zip.end();
   const zipPath = join(dir, zipName);
-  return new Promise((resolveZip, rejectZip) => {
+  return new Promise<string>((resolveZip, rejectZip) => {
     zip.outputStream
       .pipe(createWriteStream(zipPath))
       .on('error', rejectZip)

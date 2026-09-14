@@ -91,12 +91,9 @@ export const nativeDeps = Object.freeze([
     name: () => '@moonshot-ai/kimi-agent',
     // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch)
     // plus the former kimi-native-tools surface (translations, compaction, fs
-    // search, goal accounting). tsdown leaves `@moonshot-ai/kimi-agent/rust-loop`
-    // as an external require;
-    // `bun build --compile` resolves it from the workspace node_modules and
-    // inlines the adapter into the executable. Only the `.node` binary is
-    // embedded here as a native asset, which the adapter locates at runtime
-    // through `__kimi_getNativePackageRoot`.
+    // search, goal accounting). Only the `.node` binary is embedded here as a
+    // native asset, which the runtime locates through
+    // `__kimi_getNativePackageRoot`.
     collect: 'native-files',
     parent: null,
   },
