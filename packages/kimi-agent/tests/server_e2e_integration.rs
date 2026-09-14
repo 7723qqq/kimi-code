@@ -229,7 +229,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .post(format!(
             "{base_url}/api/v1/sessions/{session_id}/approvals/{approval_id}:resolve"
         ))
-        .json(&json!({ "feedback": "Go ahead" }))
+        .json(&json!({ "decision": "approved", "feedback": "Go ahead" }))
         .send()
         .await
         .unwrap();
