@@ -1,16 +1,16 @@
 /**
  * select_tools progressive disclosure — kosong-side contract tests.
  *
- * Covers the three primitives this package contributes:
- *   - `Message.tools` serialization on the Kimi wire (`messages[].tools`,
- *     `{type:'function', function:{...}}` wrapping, no `content`, schema
- *     normalization and the `$` builtin branch shared with top-level tools);
+ * Covers the two primitives this package contributes:
  *   - `Tool.deferred` stripping in `generate()` (single strip point for every
  *     provider call — the marker itself must never reach the wire);
  *   - the `dynamically_loaded_tools` capability bit (unknown/default-off semantics).
+ *
+ * The per-wire `Message.tools` serialization assertions that used to live here
+ * went away with the standalone provider adapters.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/capability';
 import { catalogModelToCapability } from '#/catalog';
@@ -18,11 +18,6 @@ import { generate } from '#/generate';
 import { isToolDeclarationOnlyMessage } from '#/message';
 import type { Message, StreamedMessagePart } from '#/message';
 import type { ChatProvider, StreamedMessage, ThinkingEffort } from '#/provider';
-import { AnthropicChatProvider } from '#/providers/anthropic';
-import { messagesToGoogleGenAIContents } from '#/providers/google-genai';
-import { KimiChatProvider } from '#/providers/kimi';
-import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
-import { OpenAIResponsesChatProvider } from '#/providers/openai-responses';
 import type { Tool } from '#/tool';
 
 const ADD_TOOL: Tool = {
@@ -43,133 +38,6 @@ const BUILTIN_TOOL: Tool = {
   description: 'Search the web',
   parameters: { type: 'object', properties: {} },
 };
-
-function makeChatCompletionResponse() {
-  return {
-    id: 'chatcmpl-test123',
-    object: 'chat.completion',
-    created: 1234567890,
-    model: 'kimi-test',
-    choices: [
-      {
-        index: 0,
-        message: { role: 'assistant', content: 'Hello' },
-        finish_reason: 'stop',
-      },
-    ],
-    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-  };
-}
-
-async function captureRequestBody(
-  tools: Tool[],
-  history: Message[],
-): Promise<Record<string, unknown>> {
-  const provider = new KimiChatProvider({
-    model: 'kimi-test',
-    apiKey: 'test-key',
-    stream: false,
-  });
-  let capturedBody: Record<string, unknown> | undefined;
-  (provider as any)._client.chat.completions.create = vi
-    .fn()
-    .mockImplementation((params: unknown) => {
-      capturedBody = params as Record<string, unknown>;
-      // The Kimi provider consumes `APIPromise.withResponse()` to read the
-      // `x-trace-id` header, so the mock must expose that method.
-      return {
-        withResponse: () =>
-          Promise.resolve({
-            data: makeChatCompletionResponse(),
-            response: new Response(null),
-          }),
-      };
-    });
-  const stream = await provider.generate('system prompt', tools, history);
-  for await (const part of stream) {
-    void part;
-  }
-  if (capturedBody === undefined) {
-    throw new Error('Expected provider.generate() to call chat.completions.create');
-  }
-  return capturedBody;
-}
-
-describe('Kimi messages[].tools serialization', () => {
-  it('serializes a system message carrying tools with function wrapping and no content', async () => {
-    const history: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-      { role: 'system', content: [], toolCalls: [], tools: [ADD_TOOL] },
-    ];
-    const body = await captureRequestBody([], history);
-    const messages = body['messages'] as Array<Record<string, unknown>>;
-    // [system prompt, user, system+tools]
-    expect(messages).toHaveLength(3);
-    const toolsMessage = messages[2]!;
-    expect(toolsMessage['role']).toBe('system');
-    expect('content' in toolsMessage).toBe(false);
-    expect(toolsMessage['tools']).toEqual([
-      {
-        type: 'function',
-        function: {
-          name: 'add',
-          description: 'Add two integers.',
-          parameters: ADD_TOOL.parameters,
-        },
-      },
-    ]);
-  });
-
-  it('routes $-prefixed names through the builtin_function branch, same as top-level tools', async () => {
-    const history: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-      { role: 'system', content: [], toolCalls: [], tools: [BUILTIN_TOOL] },
-    ];
-    const body = await captureRequestBody([], history);
-    const messages = body['messages'] as Array<Record<string, unknown>>;
-    expect(messages[2]!['tools']).toEqual([
-      { type: 'builtin_function', function: { name: '$web_search' } },
-    ]);
-  });
-
-  it('leaves messages without tools untouched (no tools key)', async () => {
-    const history: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-    ];
-    const body = await captureRequestBody([ADD_TOOL], history);
-    const messages = body['messages'] as Array<Record<string, unknown>>;
-    for (const message of messages) {
-      expect('tools' in message).toBe(false);
-    }
-    // Top-level tools[] unchanged by the feature.
-    expect(body['tools']).toEqual([
-      {
-        type: 'function',
-        function: {
-          name: 'add',
-          description: 'Add two integers.',
-          parameters: ADD_TOOL.parameters,
-        },
-      },
-    ]);
-  });
-
-  it('does not serialize the deferred marker even if a marked tool reaches convertMessage', async () => {
-    const history: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-      {
-        role: 'system',
-        content: [],
-        toolCalls: [],
-        tools: [{ ...ADD_TOOL, deferred: true }],
-      },
-    ];
-    const body = await captureRequestBody([], history);
-    const messages = body['messages'] as Array<Record<string, unknown>>;
-    const serialized = JSON.stringify(messages[2]!['tools']);
-    expect(serialized).not.toContain('deferred');
-  });
-});
 
 describe('generate() deferred tool stripping', () => {
   function createCapturingProvider(): { provider: ChatProvider; seenTools: () => Tool[] } {
@@ -219,21 +87,23 @@ describe('generate() deferred tool stripping', () => {
   });
 });
 
-describe('providers without message-level tool declarations', () => {
+describe('tool-declaration-only message classification', () => {
   const TOOLS_ONLY_MESSAGE: Message = {
     role: 'system',
     content: [],
     toolCalls: [],
     tools: [ADD_TOOL],
   };
-  const HISTORY: Message[] = [
-    { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-    TOOLS_ONLY_MESSAGE,
-  ];
 
   it('classifies tool-declaration-only messages', () => {
     expect(isToolDeclarationOnlyMessage(TOOLS_ONLY_MESSAGE)).toBe(true);
-    expect(isToolDeclarationOnlyMessage(HISTORY[0]!)).toBe(false);
+    expect(
+      isToolDeclarationOnlyMessage({
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        toolCalls: [],
+      }),
+    ).toBe(false);
     // A message that also carries content is NOT skipped wholesale (only the
     // tools field stays off the wire via explicit field construction).
     expect(
@@ -242,101 +112,6 @@ describe('providers without message-level tool declarations', () => {
         content: [{ type: 'text', text: 'x' }],
       }),
     ).toBe(false);
-  });
-
-  it('anthropic skips the message instead of emitting a <system></system> husk', async () => {
-    const provider = new AnthropicChatProvider({ model: 'k25', apiKey: 'test-key', stream: false });
-    let captured: Record<string, unknown> | undefined;
-    (provider as any)._client.messages.create = vi.fn().mockImplementation((params: unknown) => {
-      captured = params as Record<string, unknown>;
-      return Promise.resolve({
-        id: 'msg_test_123',
-        type: 'message',
-        role: 'assistant',
-        model: 'k25',
-        content: [{ type: 'text', text: 'Hello' }],
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 10, output_tokens: 5 },
-      });
-    });
-    const stream = await provider.generate('sys', [], HISTORY);
-    for await (const part of stream) void part;
-    expect(JSON.stringify(captured!['messages'])).not.toContain('<system>');
-    expect(captured!['messages'] as unknown[]).toHaveLength(1);
-  });
-
-  it('openai chat completions skips the message instead of sending a content-free system entry', async () => {
-    const provider = new OpenAILegacyChatProvider({
-      model: 'gpt-4.1',
-      apiKey: 'test-key',
-      stream: false,
-    });
-    let captured: Record<string, unknown> | undefined;
-    (provider as any)._client.chat.completions.create = vi
-      .fn()
-      .mockImplementation((params: unknown) => {
-        captured = params as Record<string, unknown>;
-        return Promise.resolve({
-          id: 'chatcmpl-test123',
-          object: 'chat.completion',
-          created: 1234567890,
-          model: 'gpt-4.1',
-          choices: [
-            {
-              index: 0,
-              message: { role: 'assistant', content: 'Hello' },
-              finish_reason: 'stop',
-            },
-          ],
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-        });
-      });
-    const stream = await provider.generate('sys', [], HISTORY);
-    for await (const part of stream) void part;
-    const messages = captured!['messages'] as Array<Record<string, unknown>>;
-    // [system prompt, user] — no content-free leftover entry.
-    expect(messages).toHaveLength(2);
-    for (const message of messages) {
-      expect(message['content']).toBeDefined();
-    }
-  });
-
-  it('openai responses skips the message', async () => {
-    const provider = new OpenAIResponsesChatProvider({ model: 'gpt-4.1', apiKey: 'test-key' });
-    (provider as any)._stream = false;
-    let captured: Record<string, unknown> | undefined;
-    ((provider as any)._client.responses as Record<string, unknown>)['create'] = vi
-      .fn()
-      .mockImplementation((params: unknown) => {
-        captured = params as Record<string, unknown>;
-        return Promise.resolve({
-          id: 'resp_test123',
-          object: 'response',
-          created_at: 1234567890,
-          status: 'completed',
-          model: 'gpt-4.1',
-          output: [
-            {
-              type: 'message',
-              id: 'msg_test',
-              role: 'assistant',
-              content: [{ type: 'output_text', text: 'Hello', annotations: [] }],
-            },
-          ],
-          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-        });
-      });
-    const stream = await provider.generate('sys', [], HISTORY);
-    for await (const part of stream) void part;
-    // The tools-only message contributes no input item at all.
-    expect(captured!['input'] as unknown[]).toHaveLength(1);
-    expect(JSON.stringify(captured!['input'])).not.toContain('"tools"');
-  });
-
-  it('google genai skips the message explicitly (not just via the empty-text coincidence)', () => {
-    const contents = messagesToGoogleGenAIContents(HISTORY);
-    expect(contents).toHaveLength(1);
-    expect(JSON.stringify(contents)).not.toContain('<system>');
   });
 });
 

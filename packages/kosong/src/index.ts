@@ -25,25 +25,6 @@ export type {
 
 // Provider interfaces
 export * from './provider';
-/**
- * @deprecated The engine (agent-core-v2) composes providers through its
- * protocol-adapter registry instead of this factory; kept for the standalone
- * provider surface and tests.
- */
-export { createProvider, getModelCapability } from './providers';
-export type { ProviderConfig, ProviderType } from './providers';
-/**
- * @deprecated Legacy standalone Kimi provider class. The engine
- * (agent-core-v2) uses the trait-composed providers built from the shared
- * kosong contract layer; kept for the standalone `createProvider` surface.
- */
-export { KimiChatProvider } from './providers/kimi';
-export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from './providers/kimi';
-/**
- * @deprecated Import from `@moonshot-ai/kosong/providers/kimi-errors` instead
- * (the engine consumes the subpath).
- */
-export { classifyKimiQuotaError } from './providers/kimi-errors';
 
 // Model capability matrix
 export { UNKNOWN_CAPABILITY } from './capability';
@@ -80,12 +61,7 @@ export type {
   CatalogImportResolution,
 } from './catalog';
 
-// HTTP client
-/**
- * @deprecated No production consumer; the engine and node-sdk use their own
- * HTTP layers. Kept for the standalone provider surface and tests.
- */
-export { createSharedAgent, createSharedFetch, loadSystemCAs } from './http/undici-agent';
+// Stream driver
 export { generate } from './generate';
 export type { GenerateCallbacks, GenerateResult } from './generate';
 
@@ -128,10 +104,3 @@ export {
   sanitizeStatusErrorMessage,
   throwIfAbortError,
 } from './errors';
-
-/**
- * Concrete provider adapters stay off the root barrel because their SDK type
- * graphs pollute downstream declaration bundles. Import them from subpaths:
- * `@moonshot-ai/kosong/providers/kimi`,
- * `@moonshot-ai/kosong/providers/openai-legacy`, etc.
- */

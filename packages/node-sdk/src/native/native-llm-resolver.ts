@@ -64,7 +64,7 @@ export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
     // The GenerateContent API always carries a version segment, and the
     // documented contract is "give the host root only — the client appends the
     // API version segment itself" (kosong CHANGELOG #1269, mirrored by
-    // `packages/kosong/native/src/google_genai.rs`). The native transport
+    // `packages/kimi-agent/src/llm/google_genai.rs`). The native transport
     // builds `{base}/models/{model}:streamGenerateContent`, so a bare host root
     // otherwise requests a path that is not an API route at all — a
     // Gemini-compatible relay answers it from its catch-all and the SSE decoder

@@ -16,14 +16,8 @@ Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
   retry/telemetry classification). The engine re-exports the base classes
   unchanged.
 - **Pure functions** — the `generate()` stream driver, token estimation,
-  error classification, and the provider wire helpers (openai-common,
-  tool-call-id, request-auth, merge-user-messages, reasoning-key,
-  chat-completions-stream, anthropic-profile, kimi-schema, kimi-errors,
-  capability-registry).
-- **Standalone providers** — legacy `createProvider` surface
-  (`KimiChatProvider` etc.), kept for the standalone path and its tests.
-  The engine (agent-core-v2) composes its own trait-based providers from
-  the shared layer above instead.
+  error classification, and the surviving provider metadata helpers
+  (`anthropic-profile`, `astron-models`).
 
 ## Relationship to agent-core-v2
 

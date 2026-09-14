@@ -665,11 +665,12 @@ async fn read_brief_body(response: reqwest::Response) -> String {
 }
 
 /// Quota/arrears detection mirroring v2 `classifyKimiQuotaError`
-/// (providers/kimi-errors.ts:6-22) and `isOpenAIInsufficientQuotaError`
-/// (openai-common.ts:90): the structured Kimi code, the OpenAI
-/// `insufficient_quota` code, and the balance/billing message patterns.
-/// A hit means the request can never succeed without human action, so the
-/// retry loop must stand down even though the wire status looks transient.
+/// (the deleted `providers/kimi-errors.ts:6-22`) and
+/// `isOpenAIInsufficientQuotaError` (the deleted `openai-common.ts:90`): the
+/// structured Kimi code, the OpenAI `insufficient_quota` code, and the
+/// balance/billing message patterns. A hit means the request can never succeed
+/// without human action, so the retry loop must stand down even though the
+/// wire status looks transient.
 fn is_quota_exhaustion_error(error: &str) -> bool {
     const QUOTA_MARKERS: &[&str] = &[
         "exceeded_current_quota_error",

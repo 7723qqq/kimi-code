@@ -21,6 +21,34 @@ export interface JsonSchemaResponseFormat {
 export type ResponseFormat = JsonObjectResponseFormat | JsonSchemaResponseFormat;
 
 /**
+ * Wire protocol a provider speaks. The model catalog declares one of these per
+ * provider entry, and the host config layer keys provider selection off it.
+ */
+export type ProviderType =
+  | 'anthropic'
+  | 'openai'
+  | 'kimi'
+  | 'google-genai'
+  | 'openai_responses'
+  | 'vertexai'
+  | 'astron';
+
+/**
+ * Provider configuration as carried by the host config layer.
+ *
+ * The per-wire adapter option types that used to narrow this union were
+ * removed together with the standalone provider stack; what remains is the
+ * contract-level shape the surviving consumers construct.
+ */
+export interface ProviderConfig {
+  type: ProviderType;
+  model: string;
+  baseUrl?: string;
+  defaultHeaders?: Record<string, string>;
+  generationKwargs?: Record<string, unknown>;
+}
+
+/**
  * Thinking effort passed to {@link ChatProvider.generate} (or the legacy
  * {@link ChatProvider.withThinking} morph).
  *

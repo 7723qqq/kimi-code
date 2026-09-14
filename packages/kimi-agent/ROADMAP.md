@@ -32,6 +32,11 @@
 | **Google GenAI** | `packages/kosong/src/providers/google-genai/` | `kimi-agent/src/llm/google_genai.rs` | ✅ **100% 原生** | 原生 Gemini REST/SSE 协议，支持多模态 Part（inlineData 图片、fileData/fileUri URL 媒体、audio/video Part，mime 按扩展名推断）与 Function Calling（含工具名回查与 `thoughtSignature` 往返恢复）。SafetySettings 两侧均未实现。 |
 | **MultiLLM 竞速降级**| `packages/kosong/src/pure/generate.ts` | `kimi-agent/src/llm/multi.rs` | ✅ **100% 原生** | 支持多个 Provider 并发 First-past-the-post 竞速，锁定粒度是整个响应完成（非首包），竞速期间无 delta 流出；败者经 child CancellationToken 中断原生 HTTP 通道并回收，全失败合并错误。注：TS kosong 侧并无竞速实现（竞速是本 fork 的 Rust 端能力）。 |
 
+> **本表的「TypeScript 源码」列是上游原型的历史出处，不是本仓的活路径。**
+> 板块 2 列出的 `packages/kosong/src/providers/*` 已随 TS provider 栈一并删除
+> （`createProvider` 与各 wire 适配器零生产消费者，wire 层由 `kimi-agent/src/llm/` 独占）；
+> 板块 3 列出的 `agent-core-v2/*` 更早已物理删除。保留这些路径只为标明行为来源。
+
 ### 板块 3：原生基础工具链与沙箱执行网关
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |

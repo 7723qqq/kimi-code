@@ -18,7 +18,6 @@ import type {
   StreamedMessage,
   ThinkingEffort,
 } from '#/provider';
-import { normalizeOpenAIFinishReason } from '#/providers/openai-common';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
@@ -39,10 +38,10 @@ interface ParseResult {
  * optional token usage, and an optional finish_reason.
  *
  * The `finish_reason: <raw>` keyword sets the raw finish reason verbatim and
- * normalizes it via {@link normalizeOpenAIFinishReason} (because the echo
- * DSL mimics the OpenAI Chat Completions wire shape). When the keyword is
- * absent the result defaults to `'completed'` / `'stop'` so existing
- * fixtures keep their previous behavior.
+ * normalizes it via {@link normalizeFinishReason} (because the echo DSL mimics
+ * the OpenAI Chat Completions wire shape). When the keyword is absent the
+ * result defaults to `'completed'` / `'stop'` so existing fixtures keep their
+ * previous behavior.
  */
 export function parseEchoScript(script: string): ParseResult {
   const parts: StreamedMessagePart[] = [];
@@ -90,7 +89,7 @@ export function parseEchoScript(script: string): ParseResult {
         finishReason = null;
         rawFinishReason = null;
       } else {
-        const normalized = normalizeOpenAIFinishReason(rawValue);
+        const normalized = normalizeFinishReason(rawValue);
         finishReason = normalized.finishReason;
         rawFinishReason = normalized.rawFinishReason;
       }
@@ -102,6 +101,32 @@ export function parseEchoScript(script: string): ParseResult {
   }
 
   return { parts, messageId, usage, finishReason, rawFinishReason };
+}
+
+/**
+ * Map an OpenAI Chat Completions `finish_reason` onto the contract's
+ * {@link FinishReason}, preserving the raw string.
+ *
+ * Local to this fixture: the provider wire helpers that used to own this
+ * mapping were removed with the standalone provider stack.
+ */
+function normalizeFinishReason(raw: string): {
+  finishReason: FinishReason;
+  rawFinishReason: string;
+} {
+  switch (raw) {
+    case 'stop':
+      return { finishReason: 'completed', rawFinishReason: raw };
+    case 'tool_calls':
+    case 'function_call':
+      return { finishReason: 'tool_calls', rawFinishReason: raw };
+    case 'length':
+      return { finishReason: 'truncated', rawFinishReason: raw };
+    case 'content_filter':
+      return { finishReason: 'filtered', rawFinishReason: raw };
+    default:
+      return { finishReason: 'other', rawFinishReason: raw };
+  }
 }
 
 function parsePart(
