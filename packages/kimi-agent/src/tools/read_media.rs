@@ -1,15 +1,21 @@
-//! Read-on-image: the model asking to look at an image file.
+//! Read-on-media: the model asking to look at an image or video file.
 //!
 //! Ported from v2's `execute-media-read.ts`: sniff the file, gate on the
-//! model's image capability and the size limits, then hand the image to the
+//! model's media capability and the size limits, then hand the media to the
 //! conversation through a [`ToolDelivery`] — a follow-up user message, the
 //! only shape OpenAI-compatible APIs accept for tool-produced media.
 //!
-//! Three delivery shapes, exactly as v2:
+//! Images have three delivery shapes, exactly as v2:
 //! - default: compress to fit `[image].read_byte_budget` / `max_edge_px`;
 //! - `region`: crop the requested rectangle out of the original image;
 //! - `full_resolution`: send the original bytes untouched (region, when
 //!   present, keeps the crop at native resolution instead).
+//!
+//! Video has one: the original bytes, inline, gated on `video_in` and the
+//! provider's inline budget. Nothing here can re-encode or trim a video, so
+//! `region` is refused and `full_resolution` is a no-op. Providers without
+//! native video blocks degrade the block to a text notice at the wire layer
+//! (see `llm/anthropic.rs`), which is why the note says so.
 
 use std::path::Path;
 
@@ -156,6 +162,8 @@ pub struct ReadMediaLimits {
     /// `None` (unknown model) and `Some(true)` both allow it (v2's
     /// unknown-capability leniency).
     pub image_in: Option<bool>,
+    /// Session model video capability, resolved the same way as `image_in`.
+    pub video_in: Option<bool>,
     /// Provider type (e.g. "kimi").
     pub provider: Option<String>,
 }
@@ -365,10 +373,59 @@ pub fn read_image_media(
             return None;
         }
         FileKind::Video => {
-            return Some(err_result(format!(
-                "\"{}\" is a video file. Video reads are not supported yet — tell the user.",
-                path.display()
-            )));
+            if request.region.is_some() {
+                return Some(err_result(
+                    "Cropping a region is not supported for video files.".to_string(),
+                ));
+            }
+            if limits.video_in == Some(false) {
+                return Some(err_result(
+                    "The current model does not support video input. Tell the user to use a model with video input capability."
+                        .to_string(),
+                ));
+            }
+            let byte_size = std::fs::metadata(path).ok()?.len();
+            if byte_size == 0 {
+                return Some(err_result(format!("\"{}\" is empty.", path.display())));
+            }
+            if byte_size > MAX_MEDIA_BYTES {
+                return Some(err_result(format!(
+                    "\"{}\" is {byte_size} bytes, which exceeds the maximum {}MB for media files.",
+                    path.display(),
+                    MAX_MEDIA_BYTES / 1024 / 1024
+                )));
+            }
+            // Video cannot be re-encoded or trimmed here, so the only delivery
+            // is the original bytes — which must fit the provider's inline
+            // budget. `full_resolution` is a no-op: video is always sent as-is.
+            let inline_budget = inline_image_byte_budget(limits.provider.as_deref());
+            if byte_size > inline_budget {
+                return Some(err_result(format!(
+                    "\"{}\" is a {byte_size}-byte video, which exceeds the {inline_budget}-byte inline limit. Trim or re-encode it first, then read the smaller file.",
+                    path.display()
+                )));
+            }
+            let mime = resolve_mime(path, &header);
+            let data = std::fs::read(path).ok()?;
+            let base64 = BASE64_STANDARD.encode(&data);
+            return Some(ExecutableToolResult {
+                stop_turn: false,
+                content: format!(
+                    "<video path=\"{}\" mime=\"{mime}\" size=\"{byte_size}\" />",
+                    path.display()
+                ),
+                is_error: false,
+                note: Some(format!(
+                    "Read video file. Mime type: {mime}. Size: {byte_size} bytes. The attached video is the original file, not re-encoded or trimmed; providers without native video blocks receive a text notice in its place."
+                )),
+                delivery: Some(ToolDelivery {
+                    blocks: vec![ContentBlock::VideoUrl {
+                        url: format!("data:{mime};base64,{base64}"),
+                        id: None,
+                        name: None,
+                    }],
+                }),
+            });
         }
         FileKind::Image => {}
     }
@@ -626,6 +683,15 @@ mod tests {
         path
     }
 
+    /// The sniffer keys video off the extension, so the bytes only have to be
+    /// non-empty — nothing here decodes them.
+    fn temp_video(tag: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("kimi-read-media-{tag}-{}.mp4", fastrand::u32(..)));
+        std::fs::write(&path, bytes).expect("write video");
+        path
+    }
+
     fn default_request() -> ReadMediaRequest {
         ReadMediaRequest::default()
     }
@@ -635,6 +701,74 @@ mod tests {
         let path = std::env::temp_dir().join(format!("kimi-read-text-{}.txt", fastrand::u32(..)));
         std::fs::write(&path, "hello world\n").unwrap();
         assert!(read_image_media(&path, &default_request(), &ReadMediaLimits::default()).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn reads_a_video_into_a_delivery_block() {
+        let path = temp_video("basic", &vec![0u8; 4096]);
+        let result = read_image_media(&path, &default_request(), &ReadMediaLimits::default())
+            .expect("media result");
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("<video path="));
+        let note = result.note.expect("note");
+        assert!(note.contains("Read video file."));
+        let delivery = result.delivery.expect("delivery");
+        assert_eq!(delivery.blocks.len(), 1);
+        match &delivery.blocks[0] {
+            ContentBlock::VideoUrl { url, .. } => {
+                assert!(url.starts_with("data:video/mp4;base64,"), "{url}");
+            }
+            other => panic!("expected a video block, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_declared_model_without_video_input_is_refused() {
+        let path = temp_video("no-video-in", &vec![0u8; 4096]);
+        let limits = ReadMediaLimits {
+            video_in: Some(false),
+            ..Default::default()
+        };
+        let result = read_image_media(&path, &default_request(), &limits).expect("media result");
+        assert!(result.is_error);
+        assert!(result.content.contains("does not support video input"));
+        assert!(result.delivery.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_region_on_a_video_is_refused() {
+        let path = temp_video("region", &vec![0u8; 4096]);
+        let request = ReadMediaRequest {
+            region: Some(ImageRegion {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            }),
+            ..Default::default()
+        };
+        let result =
+            read_image_media(&path, &request, &ReadMediaLimits::default()).expect("media result");
+        assert!(result.is_error);
+        assert!(result.content.contains("not supported for video"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_video_past_the_inline_budget_is_refused() {
+        let path = temp_video("oversized", &vec![0u8; 4096]);
+        // `read_byte_budget` is the image delivery budget and cannot enlarge
+        // the fixed inline ceiling a video has to fit — video is never
+        // re-encoded down, so a small file still goes through.
+        let limits = ReadMediaLimits {
+            read_byte_budget: Some(1),
+            ..Default::default()
+        };
+        let result = read_image_media(&path, &default_request(), &limits).expect("media result");
+        assert!(!result.is_error, "{}", result.content);
         let _ = std::fs::remove_file(&path);
     }
 

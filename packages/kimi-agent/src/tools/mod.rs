@@ -578,13 +578,16 @@ impl NativeToolset {
     }
 
     fn read_media_limits(&self) -> read_media::ReadMediaLimits {
+        let capability = |name: &str| {
+            self.model_capabilities
+                .as_deref()
+                .map(|caps| caps.iter().any(|cap| cap == name))
+        };
         read_media::ReadMediaLimits {
             read_byte_budget: self.image_read_byte_budget,
             max_edge_px: self.image_max_edge_px,
-            image_in: self
-                .model_capabilities
-                .as_deref()
-                .map(|caps| caps.iter().any(|cap| cap == "image_in")),
+            image_in: capability("image_in"),
+            video_in: capability("video_in"),
             provider: self.provider.clone(),
         }
     }
