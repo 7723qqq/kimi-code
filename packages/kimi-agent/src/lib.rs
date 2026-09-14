@@ -228,7 +228,15 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
 
 use crate::engine::EngineConfig;
 
-/// 自治运行引擎核心结构体
+/// Legacy in-crate engine facade.
+///
+/// **Not on any production path.** Every consumer of this crate reaches the
+/// real engine through `crate::pipeline` (NAPI), `crate::server` (HTTP/WS) or
+/// `crate::repl`; `KimiEngine` is referenced only from this file's
+/// `#[cfg(test)] mod engine_tests`. It is kept as a test harness for the
+/// no-host pure-native callbacks. `run_turn_with_llm` below is a genuinely
+/// wired composite of `run_turn` + `NativeHostCallbacks`; `run_once` is not —
+/// see its own note.
 pub struct KimiEngine {
     store: Arc<dyn EventStore>,
     permission: Arc<PermissionEngine>,
@@ -296,60 +304,37 @@ impl KimiEngine {
         self
     }
 
-    /// 自主驱动单回合运行（简单文本闭环）
+    /// Scaffold turn driver that **cannot answer** — it fails instead of
+    /// fabricating.
+    ///
+    /// A reply requires an LLM, which this path does not have. It used to
+    /// invent `Engine response to '<prompt>'` and persist it as a real
+    /// `message.assistant`, which made a fake turn indistinguishable from a
+    /// real one in the transcript. It now evaluates the local permission engine
+    /// (the only meaningful step it owns) and returns an error; **nothing is
+    /// written to the event log**, so a failed call cannot wedge a session.
+    ///
+    /// Use [`KimiEngine::run_turn_with_llm`] or a production entry point
+    /// (`crate::pipeline` / `crate::server` / `crate::repl`) for real turns.
     pub async fn run_once(
         &self,
-        session_id: &str,
+        _session_id: &str,
         user_prompt: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
-
-        // 1. 将用户输入记入 SQLite 追加事件日志
-        self.store
-            .append_event(&RawWireEvent {
-                id: ulid::Ulid::new().to_string(),
-                session_id: session_id.to_string(),
-                event_type: "message.user".into(),
-                payload: serde_json::json!({ "content": user_prompt }),
-                is_checkpoint: true,
-                is_compaction: false,
-                created_at: now,
-            })
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        // 2. 自主从事件日志中流式折叠还原完整上下文
-        let _messages = self
-            .store
-            .fold_projection(session_id)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        // 3. 原生权限评估，必要时阻塞终端
+        // Native permission evaluation — the one real decision this path owns.
         if !self.permission.prompt_user_if_needed("agent_turn", None) {
             return Err("Execution denied by local permission engine".into());
         }
 
-        let assistant_reply = format!("Engine response to '{}'", user_prompt);
-
-        // 4. 将助手输出写入追加日志
-        self.store
-            .append_event(&RawWireEvent {
-                id: ulid::Ulid::new().to_string(),
-                session_id: session_id.to_string(),
-                event_type: "message.assistant".into(),
-                payload: serde_json::json!({ "content": assistant_reply }),
-                is_checkpoint: false,
-                is_compaction: false,
-                created_at: now + 1,
-            })
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        Ok(assistant_reply)
+        Err(format!(
+            "KimiEngine::run_once has no LLM bound, so it cannot answer '{user_prompt}'. \
+             Call run_turn_with_llm(llm) or use the production entry points \
+             (crate::pipeline / crate::server / crate::repl)."
+        )
+        .into())
     }
 
-    /// 原生全功能单回合循环驱动（直接驱动 3389 行真实 run_turn）
+    /// Drive one turn through the real native loop (`crate::turn_loop::run_turn`).
     pub async fn run_turn_with_llm(
         &self,
         session_id: &str,
@@ -644,14 +629,19 @@ mod engine_tests {
         let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
 
         let engine = KimiEngine::new(store.clone(), permission);
-        let reply = engine
+        // `run_once` has no LLM, so it refuses rather than inventing a reply...
+        let err = engine
             .run_once("session_test", "Hello Native Rust Engine")
             .await
-            .unwrap();
-        assert!(reply.contains("Hello Native Rust Engine"));
+            .expect_err("run_once must not fabricate a reply");
+        assert!(err.to_string().contains("has no LLM bound"), "{err}");
 
+        // ...and it must not leave a half-turn (user message, no answer) behind.
         let msgs = store.fold_projection("session_test").unwrap();
-        assert_eq!(msgs.len(), 2);
+        assert!(
+            msgs.is_empty(),
+            "a refused run_once must not persist anything: {msgs:?}"
+        );
     }
 
     struct MockLLM;
@@ -830,7 +820,6 @@ mod engine_tests {
 
         let custom_config = EngineConfig {
             max_tokens_limit: 50_000,
-            stop_hook: None,
         };
 
         let engine = KimiEngine::new(store.clone(), permission).with_engine_config(custom_config);
