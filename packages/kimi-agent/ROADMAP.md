@@ -408,9 +408,17 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    `llm.*` 用字符串，实体序号只取数字那个，`llm.*` 仅用于开 step，其自带序号不作实体序号（历史按位置编号，
    两者必须一致）。已知限制：该计数与存储位置在压缩/回退移除 turn 后不再一致；`tool.progress` 的载荷没有
    约定形状，故按 `custom` 原样携带而不拆成它可能没有的字段；`subagent.message` 属于子代理自己的时间线；
-   `config.changed`/`session.meta.updated`/`cron.fired`/goal 预算通知属全局或宿主态。待做：把连接/握手/
-   subscribe/背压建在既有 `hub.rs` 那条按序号排序、可游标回放的 lane 之上，并把 `in_flight` 接到历史路由）→
-   P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
+   `config.changed`/`session.meta.updated`/`cron.fired`/goal 预算通知属全局或宿主态。**端点已完成**
+   （`src/server/ws_v3.rs`，与 v1 并存）：一次连接一个 hub 订阅，按会话分发到各自的翻译器；`hello` 先发，
+   每个 `subscribe` 先回 `ack` 再回**恢复页**（就是历史路由会给出的那批实体，客户端等于从一页它本可自取的
+   位置续上），随后才是实时实体。两个细节让交接正确而非仅仅有序：**游标先读、订阅后挂**（其间发布的事件
+   落在订阅缓冲里，而游标及以下的都已在恢复页中，车道直接丢弃而不是追加第二遍）；**恢复页也过订阅过滤器**
+   （点名了一个 agent 就不该因为库里存着而收到另一个 agent 的时间线）。帧语义照上游：JSON 语法错是 40002，
+   未知/非法帧是 40001 并点名类型，会话不存在在 ack 里按 id 回 40401，心跳漏两次 pong 即断开。编解码器
+   （`read_frame`/`write_frame`/`FrameReader`/操作码常量）放开到 `pub(crate)`，两代协议共用一份。
+   本端点的留白（上游有、本 fork 暂无生产者）：全局 lane（`session`/`workspace`/`config`/`plugin`/
+   `model_catalog`/`capability`）未广播、实时 turn 的 `usage` 为空、`config.warning` 无来源、慢消费者尚未用
+   `WS_SLOW_CONSUMER 42903` 回告；`in_flight` 仍未接入历史路由）→ P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
    `web` 子命令；TUI/stdio 走 NAPI，不在内。另需在 `packages/protocol` 补 v3 实体联合类型与
    `HistoryResponse`：当前只有端点声明行，没有可供客户端导入的类型）。
    **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
