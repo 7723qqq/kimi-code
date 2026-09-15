@@ -73,6 +73,7 @@ struct TerminalEntry {
     killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
     /// Process id of the pty child, retained only as a best-effort fallback
     /// for the Windows `taskkill /T` tree kill (see [`TerminalManager::close`]).
+    #[cfg(windows)]
     child_pid: Option<u32>,
     /// Set once the child has actually exited; lets the reader thread stop
     /// promptly even if the pty read end does not report EOF immediately.
@@ -161,6 +162,7 @@ impl TerminalManager {
             .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn shell '{shell}': {e}"))?;
+        #[cfg(windows)]
         let child_pid = child.process_id();
         // A cloneable killer that can signal the process without holding the
         // `Child` (which is handed to the exit-watcher thread below).
@@ -204,6 +206,7 @@ impl TerminalManager {
             dropped: 0,
             master: Mutex::new(Some(master)),
             killer: Mutex::new(Some(killer)),
+            #[cfg(windows)]
             child_pid,
             dead: dead.clone(),
         };
