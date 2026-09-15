@@ -126,6 +126,10 @@ jobs:
       # `--no-default-features` drops `napi` for the same reason as the CLI
       # build in the `test` job: the test harnesses link the lib, and the
       # addon's symbols only exist inside a Node/Bun host.
+      - name: Build the CLI binary the integration tests spawn
+        working-directory: packages/kimi-agent
+        run: cargo build --no-default-features --features cli,workflow-js --bin kimi-agent-cli
+
       - name: Test Rust engine
         working-directory: packages/kimi-agent
         run: cargo test --no-default-features --features cli,workflow-js
