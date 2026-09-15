@@ -381,10 +381,30 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 3. **#3694 存储失败重建索引 / #3697 steer 打断后台等待 / #3688 MCP 附件原件保留 /
    #3720、#3717 任务通知时序 / #3648 tower 可靠性 / #3606 模型目录运行时 / #3681 `[models]` 告警**：
    已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
-4. **#3532 v3 扁平实体消息协议（WS + history API）**：Rust 服务端没有 `/api/v3` 或扁平实体
-   history 路由；`apps/kimi-inspect` 仍停在 #3532 之前的协议（缺 `src/transcript/channel.ts` 与
-   `plan.ts`，最后变更停在 0.42.0 合并 `4ee84f98b9`）。需要决策：跟进上游协议代际，还是明确声明
-   不跟并冻结客户端版本。
+4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
+   `transport/ws/` 下的 `v1`/`v3`/`debug` 三代并存命名，v3 即「扁平实体」代际（提交
+   `64505e36e3`，design revision 1094）：26 个 server 消息变体 + 2 个 client 帧，实体按
+   `agent_id:type:entity_id` 寻址，live WS 与 history 服务同一套消息形状。本 fork 的 kap-server
+   副本停在 #3532 之前（退役前 `transport/ws/` 下只有 `v1`），随后整包退役，因此 v3 从未进入 fork；
+   `apps/kimi-inspect` 也停在旧协议（缺 `src/transcript/channel.ts` 与 `plan.ts`）。
+   上游该提交量级：kap-server 84 文件 / +15,852 / −2,215，另加 kimi-inspect 客户端整轮重写。
+   **落地分期**：P0 Rust 契约层（`src/server/v3/entity.rs` 已完成：id 探针顺序 +
+   `entity_key`；消息变体与 JSON 契约镜像进行中）→ P1 `wire_events`/历史记录 → 扁平实体投影 →
+   P2 按 turn 分页的 history 路由 → P3 与 v1 并存的 `/api/v3/ws` → P4 客户端
+   （kimi-inspect、kimi-web、`apps/kimi-code` 的 `web` 子命令；TUI/stdio 走 NAPI，不在内）。
+   **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
+   `message.user`/`message.assistant`/`tool.result`/`subagent.message` 与 compaction 检查点
+   （`lib.rs`、`subagent/persistent.rs`、`native/event_store`）——`turn.started`、`step.begin`、
+   `content.part`、`tool.call` 这些词表项全部只存在于测试夹具中。因此投影**不以 wire_events 为
+   唯一来源**，而与现有冷重建同源：`server/mod.rs:3621` 起取 `LLMMessage` 历史交给
+   `transcript::build_items`，且 `paginate_turns`/`TurnPageQuery` 已实现按 turn 分页。实体来源：
+   `messages`（含 `blocks` → thinking）、`turns`（turn_number/status/usage）、
+   `state_entries`（goal/plan/task/todo → `agent_state`/`task`/`todo`）、sessions/workspaces/
+   session_file_history → session/workspace/step-usage 实体。
+   **已确认的硬缺口**：schema 中没有 approvals/questions 表（仅有 sessions、turns、messages、
+   state_entries、checkpoints、workspaces、session_file_history、wire_events），所以上游的
+   `interaction` 实体在 fork 里**只有 live 态**（`server/interaction.rs`），历史折叠无源；要补齐
+   必须新增持久化，或明确声明 history 不返回 interaction（客户端需容忍）。
 5. **ACP 宿主的部分对齐项（板块 8，已就地标注）**：`stopReason` 非 ACP 枚举（高）、
    `$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、`additionalDirectories` 被静默丢弃
    （中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、`session/set_model` 缺失（中）、
