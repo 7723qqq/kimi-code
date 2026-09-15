@@ -5,6 +5,14 @@
   "recordedAt": "2026-09-15",
   "entries": [
     {
+      "sha": "5653c739b9c0dbafd1e4b3d36edeb0fe44ec71f4",
+      "date": "2026-09-15",
+      "subject": "feat(agent-core-v2): upload images as file references for Kimi models (#3784)",
+      "verdict": "tracked",
+      "roadmap": "§6.1",
+      "note": "Upstream uploads images as file references for Kimi models and drops the oldest media (with a warning) when the accumulated request media exceed the size budget. The Rust engine still sends images inline as base64 data URLs (llm/openai.rs:145, llm/anthropic.rs:227) and has no media budget, so an oversized request fails instead of degrading."
+    },
+    {
       "sha": "7d174ac93352ccfc835d186ac7b8185d0194e6b5",
       "date": "2026-09-15",
       "subject": "perf(agent-core-v2): evict completed subagent scopes behind an LRU cache (#3778)",

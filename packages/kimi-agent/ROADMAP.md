@@ -623,6 +623,10 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
     `modelCatalog` 只有 `listModels`/`listProviders`），所以该面板当前是坏的。对齐上游需要调试面
     新增 `modelCatalog.ping`、`modelService.list`、`sessionManager.resume` 三个方法，再移植上游的
     视图（413 行）。
+17. **#3784 图片以文件引用上传 + 媒体请求预算**：上游把发给 Kimi 模型的图片改为文件引用上传，
+    并在累计媒体超出请求体积预算时**丢弃最旧的媒体并告警**（而不是让请求失败）。Rust 引擎仍以
+    内联 base64 发送（`llm/openai.rs:145`、`llm/anthropic.rs:227`），且没有媒体预算——超限请求
+    会直接失败而非降级。
 
 ### 6.2 本轮已修复（含证据）
 
