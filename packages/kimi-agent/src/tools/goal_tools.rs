@@ -860,6 +860,10 @@ mod tests {
             ])
         );
         assert_eq!(budget.input_schema["additionalProperties"], false);
-        assert!(budget.description.contains("There is no upper duration limit"));
+        assert!(
+            budget
+                .description
+                .contains("There is no upper duration limit")
+        );
     }
 }

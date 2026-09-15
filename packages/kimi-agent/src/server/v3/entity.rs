@@ -143,7 +143,10 @@ mod tests {
         // Session- and global-scoped entities keep their empty agent segment.
         assert_eq!(entity_key(None, "session", "s1"), ":session:s1");
         assert_eq!(entity_key(None, "config", ""), ":config:");
-        assert_ne!(entity_key(None, "session", "s1"), entity_key(Some("a1"), "session", "s1"));
+        assert_ne!(
+            entity_key(None, "session", "s1"),
+            entity_key(Some("a1"), "session", "s1")
+        );
     }
 
     #[test]

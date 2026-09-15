@@ -261,7 +261,9 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
             if recursive && force {
                 if !operands.is_empty()
-                    && operands.iter().all(|operand| is_safe_temp_rm_operand(operand))
+                    && operands
+                        .iter()
+                        .all(|operand| is_safe_temp_rm_operand(operand))
                 {
                     return DangerousVerdict::Safe;
                 }
