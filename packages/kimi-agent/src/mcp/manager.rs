@@ -1898,7 +1898,7 @@ mod tests {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
             std::fs::write(
                 &path,
-                format!("@echo {init}\r\n@echo {list}\r\n@exit /b 0\r\n"),
+                format!("@echo {init}\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"),
             )
             .expect("write die script");
             (
@@ -1908,7 +1908,10 @@ mod tests {
             )
         } else {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.sh", std::process::id()));
-            std::fs::write(&path, format!("echo '{init}'\necho '{list}'\nexit 0\n"))
+            // Stay alive through the handshake: a script that exits right after
+            // echoing makes the client's initialize write race the exit, and
+            // the connection then fails during configure instead of after it.
+            std::fs::write(&path, format!("echo '{init}'\necho '{list}'\nsleep 1\nexit 0\n"))
                 .expect("write die script");
             ("sh", vec![path.to_string_lossy().into_owned()], path)
         };
