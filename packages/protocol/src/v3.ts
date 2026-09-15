@@ -15,15 +15,23 @@
  * snapshot through these schemas, so a drift between the two is a test failure
  * rather than a rendering bug.
  *
- * Fields upstream types as a nested object or a JSON payload are carried as
- * `unknown`: the server passes them through, and a client that needs one of them
- * narrows it at the point of use.
+ * Payloads the fork already owns a schema for are wired in rather than
+ * re-declared: `tool_call.display` and an approval request's
+ * `tool_input_display` are `ToolInputDisplay`s (`display.ts`), an approval
+ * response is `approvalResponseSchema` (`approval.ts`), and a question
+ * response's answers are `questionAnswerSchema` (`question.ts`). Everything
+ * else upstream leaves opaque stays `unknown`, narrowed at the point of use.
  *
  *   WS      /api/v3/ws                 frames: ClientFrame / ServerMessage
  *   GET     /v1/sessions/{id}/history  query: HistoryQuery   data: HistoryResponse
  */
 
 import { z } from 'zod';
+
+import { approvalResponseSchema, type ApprovalResponse } from './approval';
+import { ToolInputDisplaySchema } from './display';
+import { questionAnswerSchema, questionAnswerMethodSchema } from './question';
+import { isoDateTimeSchema } from './time';
 
 /** Field names probed for an entity id, in the order the server probes them. */
 export const ENTITY_ID_FIELDS = [
@@ -74,6 +82,17 @@ const step = z.object({
   end_message: z.string().optional(),
 });
 
+const contentPart = z.object({
+  type: z.enum(['text', 'think', 'image', 'audio', 'video']),
+  text: z.string(),
+  meta: z.record(z.string(), z.unknown()),
+});
+
+const skillActivation = z.object({
+  skill_name: z.string(),
+  skill_args: z.string().optional(),
+});
+
 const user = z.object({
   session_id: z.string(),
   agent_id: z.string(),
@@ -82,9 +101,9 @@ const user = z.object({
   turn_id: z.string().optional(),
   status: z.enum(['unread', 'read']),
   timestamp: z.number().optional(),
-  text: payloadArray,
+  text: z.array(contentPart),
   attachment_ids: payloadArray.optional(),
-  skill_activations: payloadArray.optional(),
+  skill_activations: z.array(skillActivation).optional(),
   origin: payload.optional(),
 });
 
@@ -122,6 +141,19 @@ const thinkingDelta = z.object({
   text: z.string(),
 });
 
+const toolProgressPayload = z.object({
+  kind: z.enum(['stdout', 'stderr', 'progress', 'status', 'custom']),
+  text: z.string().optional(),
+  percent: z.number().optional(),
+  custom_kind: z.string().optional(),
+  custom_data: z.unknown().optional(),
+});
+
+const toolCallAgentRef = z.object({
+  agent_id: z.string(),
+  role: z.enum(['child', 'member']).optional(),
+});
+
 const toolCall = z.object({
   ...base,
   type: z.literal('tool_call'),
@@ -134,13 +166,13 @@ const toolCall = z.object({
   input: payload.optional(),
   input_text: z.string().optional(),
   output: payload.optional(),
-  display: payload.optional(),
+  display: ToolInputDisplaySchema.optional(),
   error: z.string().optional(),
-  progress: payload.optional(),
+  progress: toolProgressPayload.optional(),
   task_id: z.string().optional(),
   approval_id: z.string().optional(),
   todo_id: z.string().optional(),
-  agent_refs: payloadArray.optional(),
+  agent_refs: z.array(toolCallAgentRef).optional(),
 });
 
 const toolCallDelta = z.object({
@@ -154,7 +186,7 @@ const toolProgress = z.object({
   ...base,
   type: z.literal('tool.progress'),
   tool_call_id: z.string(),
-  progress: z.object({ kind: z.string() }).loose(),
+  progress: toolProgressPayload,
 });
 
 const system = z.object({
@@ -179,23 +211,72 @@ const system = z.object({
   payload: payload.optional(),
 });
 
-const interaction = z.object({
+const interactionStatus = z.enum([
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+  'answered',
+  'dismissed',
+]);
+
+const interactionApprovalRequest = z.object({
+  tool_name: z.string(),
+  action: z.string(),
+  tool_input_display: ToolInputDisplaySchema.optional(),
+  expires_at: isoDateTimeSchema.optional(),
+});
+
+const interactionQuestionOption = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+
+const interactionQuestionItem = z.object({
+  id: z.string(),
+  question: z.string(),
+  header: z.string().optional(),
+  body: z.string().optional(),
+  options: z.array(interactionQuestionOption),
+  multi_select: z.boolean().optional(),
+  allow_other: z.boolean().optional(),
+  other_label: z.string().optional(),
+  other_description: z.string().optional(),
+});
+
+const interactionQuestionRequest = z.object({
+  questions: z.array(interactionQuestionItem),
+});
+
+const interactionQuestionResponse = z.object({
+  answers: z.record(z.string(), questionAnswerSchema),
+  method: questionAnswerMethodSchema.optional(),
+  note: z.string().optional(),
+});
+
+const interactionBase = {
   ...base,
   type: z.literal('interaction'),
   interaction_id: z.string(),
-  status: z.enum([
-    'pending',
-    'approved',
-    'rejected',
-    'cancelled',
-    'answered',
-    'dismissed',
-  ]),
+  status: interactionStatus,
   tool_call_id: z.string().optional(),
-  kind: z.enum(['approval', 'question']),
-  request: payload.optional(),
-  response: payload.optional(),
-});
+};
+
+const interaction = z.discriminatedUnion('kind', [
+  z.object({
+    ...interactionBase,
+    kind: z.literal('approval'),
+    request: interactionApprovalRequest.optional(),
+    response: approvalResponseSchema.optional(),
+  }),
+  z.object({
+    ...interactionBase,
+    kind: z.literal('question'),
+    request: interactionQuestionRequest.optional(),
+    response: interactionQuestionResponse.optional(),
+  }),
+]);
 
 const task = z.object({
   ...base,
@@ -339,6 +420,23 @@ export const v3ServerMessageSchema = z.discriminatedUnion('type', [
   error,
 ]);
 
+/**
+ * The subset a history page can carry: persisted entities only, never the
+ * delta family (a page holds whole entities) and never a global frame.
+ */
+export const v3HistoryMessageSchema = z.discriminatedUnion('type', [
+  turn,
+  step,
+  user,
+  assistant,
+  thinking,
+  toolCall,
+  system,
+  interaction,
+  task,
+  todo,
+]);
+
 /** Every frame a client may send; anything else is a validation failure. */
 export const v3ClientFrameSchema = z.discriminatedUnion('type', [
   z.object({
@@ -377,12 +475,52 @@ export const v3HistoryQuerySchema = z.object({
 });
 
 export const v3HistoryResponseSchema = z.object({
-  messages: z.array(v3ServerMessageSchema),
+  messages: z.array(v3HistoryMessageSchema),
   has_more: z.boolean(),
   in_flight: z.object({ turn_id: z.string(), step_id: z.string() }).optional(),
 });
 
+export type TurnMessage = z.infer<typeof turn>;
+export type StepMessage = z.infer<typeof step>;
+export type UserMessage = z.infer<typeof user>;
+export type AssistantMessage = z.infer<typeof assistant>;
+export type AssistantDelta = z.infer<typeof assistantDelta>;
+export type ThinkingMessage = z.infer<typeof thinking>;
+export type ThinkingDelta = z.infer<typeof thinkingDelta>;
+export type ToolCallMessage = z.infer<typeof toolCall>;
+export type ToolCallDelta = z.infer<typeof toolCallDelta>;
+export type ToolProgress = z.infer<typeof toolProgress>;
+export type SystemMessage = z.infer<typeof system>;
+export type InteractionMessage = z.infer<typeof interaction>;
+export type TaskMessage = z.infer<typeof task>;
+export type TodoMessage = z.infer<typeof todo>;
+export type AgentStateMessage = z.infer<typeof agentState>;
+export type SessionStateMessage = z.infer<typeof sessionState>;
+export type SessionMessage = z.infer<typeof session>;
+export type WorkspaceMessage = z.infer<typeof workspace>;
+export type ConfigMessage = z.infer<typeof config>;
+export type ConfigWarningMessage = z.infer<typeof configWarning>;
+export type ModelCatalogMessage = z.infer<typeof modelCatalog>;
+export type PluginMessage = z.infer<typeof plugin>;
+export type CapabilityMessage = z.infer<typeof capability>;
+export type HelloMessage = z.infer<typeof hello>;
+export type AckMessage = z.infer<typeof ack>;
+export type ErrorMessage = z.infer<typeof error>;
+
+export type ContentPart = z.infer<typeof contentPart>;
+export type SkillActivation = z.infer<typeof skillActivation>;
+export type ToolProgressPayload = z.infer<typeof toolProgressPayload>;
+export type ToolCallAgentRef = z.infer<typeof toolCallAgentRef>;
+export type InteractionStatus = z.infer<typeof interactionStatus>;
+export type InteractionApprovalRequest = z.infer<typeof interactionApprovalRequest>;
+export type InteractionApprovalResponse = ApprovalResponse;
+export type InteractionQuestionOption = z.infer<typeof interactionQuestionOption>;
+export type InteractionQuestionItem = z.infer<typeof interactionQuestionItem>;
+export type InteractionQuestionRequest = z.infer<typeof interactionQuestionRequest>;
+export type InteractionQuestionResponse = z.infer<typeof interactionQuestionResponse>;
+
 export type V3ServerMessage = z.infer<typeof v3ServerMessageSchema>;
+export type V3HistoryMessage = z.infer<typeof v3HistoryMessageSchema>;
 export type V3ClientFrame = z.infer<typeof v3ClientFrameSchema>;
 export type V3HistoryQuery = z.infer<typeof v3HistoryQuerySchema>;
 export type V3HistoryResponse = z.infer<typeof v3HistoryResponseSchema>;
