@@ -106,30 +106,38 @@ describe('FooterComponent status_line items', () => {
   });
 
   it('honors the configured position of the tips slot', () => {
-    // The tip content itself rotates; locate it via a tips-only render.
-    const tipsOnly = plain(
-      new FooterComponent({
-        ...baseState,
-        statusLine: { items: ['tips'], command: null },
-      }).render(200)[0]!,
-    ).trim();
+    // The tip index comes from the wall clock (a 10s rotation), so the three
+    // renders below can straddle a boundary and pick different tips. Freeze it.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    try {
+      // The tip content itself rotates; locate it via a tips-only render.
+      const tipsOnly = plain(
+        new FooterComponent({
+          ...baseState,
+          statusLine: { items: ['tips'], command: null },
+        }).render(200)[0]!,
+      ).trim();
 
-    const tipsFirst = plain(
-      new FooterComponent({
-        ...baseState,
-        statusLine: { items: ['tips', 'model'], command: null },
-      }).render(200)[0]!,
-    );
-    const tipsLast = plain(
-      new FooterComponent({
-        ...baseState,
-        statusLine: { items: ['model', 'tips'], command: null },
-      }).render(200)[0]!,
-    );
+      const tipsFirst = plain(
+        new FooterComponent({
+          ...baseState,
+          statusLine: { items: ['tips', 'model'], command: null },
+        }).render(200)[0]!,
+      );
+      const tipsLast = plain(
+        new FooterComponent({
+          ...baseState,
+          statusLine: { items: ['model', 'tips'], command: null },
+        }).render(200)[0]!,
+      );
 
-    expect(tipsOnly.length).toBeGreaterThan(0);
-    expect(tipsFirst.indexOf(tipsOnly)).toBeLessThan(tipsFirst.indexOf('kimi-k2'));
-    expect(tipsLast.indexOf('kimi-k2')).toBeLessThan(tipsLast.indexOf(tipsOnly));
+      expect(tipsOnly.length).toBeGreaterThan(0);
+      expect(tipsFirst.indexOf(tipsOnly)).toBeLessThan(tipsFirst.indexOf('kimi-k2'));
+      expect(tipsLast.indexOf('kimi-k2')).toBeLessThan(tipsLast.indexOf(tipsOnly));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders nothing on line 1 for an empty items list', () => {
