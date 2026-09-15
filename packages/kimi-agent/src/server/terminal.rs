@@ -428,6 +428,7 @@ impl TerminalManager {
             // Windows, SIGHUP+kill on Unix). Dropping the writer already sent
             // stdin EOF; this guarantees the process tree is reaped.
             let killer = entry.killer.lock().unwrap().take();
+            #[cfg(windows)]
             let pid = entry.child_pid;
             // Flip the `dead` flag so the reader thread stops even if its read
             // end does not observe EOF promptly after the kill.
