@@ -1908,11 +1908,14 @@ mod tests {
             )
         } else {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.sh", std::process::id()));
-            // Stay alive through the handshake: a script that exits right after
-            // echoing makes the client's initialize write race the exit, and
-            // the connection then fails during configure instead of after it.
-            std::fs::write(&path, format!("echo '{init}'\necho '{list}'\nsleep 1\nexit 0\n"))
-                .expect("write die script");
+            // Answer each request as it arrives, then die: a script that echoes
+            // both responses up front races the client's second write, and the
+            // unmatched response is dropped, so the handshake never completes.
+            std::fs::write(
+                &path,
+                format!("read -r _; echo '{init}'\nread -r _; echo '{list}'\nsleep 1\nexit 0\n"),
+            )
+            .expect("write die script");
             ("sh", vec![path.to_string_lossy().into_owned()], path)
         };
 
