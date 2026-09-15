@@ -344,7 +344,9 @@ export class LockFile {
       await fs.writeFile(tmp, this.payload());
       // Windows: replacing our own lock can still clash with a co-process's
       // readFile/stat of it (EPERM) — the helper rides out such transients.
-      await renameReplace(tmp, this.path, { retries: 20 });
+      // The budget matches the helper's default: a scanner holding the file
+      // for longer than the tighter 20-retry window made renew fail outright.
+      await renameReplace(tmp, this.path);
     });
   }
 
