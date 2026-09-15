@@ -395,9 +395,14 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    `scripts/scan-parity.mjs` 的 v3 维度（双向 + 变体级/字段级；本地存在上游抽取时再对上游复核，
    CI 跳过该段）→ P1 历史 → 扁平实体投影（turn/step/user/assistant/thinking/tool_call 与状态域的
    todo/task 均已完成；`agent_state` 与 `interaction` 无历史源、`session_state` 只有部分来源，
-   见下）→ P2 按 turn 分页的 history 路由 →
+   见下）→ P2 按 turn 分页的 history 路由**已完成**（`GET /api/v1/sessions/{id}/history`：turn
+   边界整页、默认 50/上限 200、`before_turn`/`after_step` 互斥、错误码 40001/40401；该路由**始终**
+   回信封——上游如此，而 v1 客户端根本不会调它——但错误带真实 HTTP 状态，上游则恒回 200 只靠 `code`
+   表达失败。`in_flight` 暂不返回：实时侧还没按同一规则生成 step 字符串，给出错误的位置会让客户端把
+   后续增量接到错的 step 上）→
    P3 与 v1 并存的 `/api/v3/ws` → P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
-   `web` 子命令；TUI/stdio 走 NAPI，不在内）。
+   `web` 子命令；TUI/stdio 走 NAPI，不在内。另需在 `packages/protocol` 补 v3 实体联合类型与
+   `HistoryResponse`：当前只有端点声明行，没有可供客户端导入的类型）。
    **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
    `message.user`/`message.assistant`/`tool.result`/`subagent.message` 与 compaction 检查点
    （`lib.rs`、`subagent/persistent.rs`、`native/event_store`）——`turn.started`、`step.begin`、
