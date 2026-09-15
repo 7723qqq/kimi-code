@@ -9,7 +9,7 @@
 
 ## 1. 全架构 10 大子系统技术深度对齐矩阵（TS 源码 vs Rust 引擎）
 
-本矩阵从零系统性复盘 GitHub 上 TypeScript 核心源码（覆盖 `agent-core-v2`（1,018 个文件）、`kap-server`（164 个文件）、`klient`（50 个文件）、`kosong`（41 个文件）、`transcript`（25 个文件）、`minidb`（58 个文件）等全仓 1,400+ 个 TS 源文件），对标 Rust 引擎（`packages/kimi-agent`，含 `src/native/` 原生工具层）的实现深度：
+本矩阵从零系统性复盘 GitHub 上 TypeScript 核心源码（覆盖 `agent-core-v2`（1,544 个文件）、`kap-server`（314 个文件）、`klient`（94 个文件）、`acp-server`（49 个文件）、`kosong`（41 个文件）、`transcript`（25 个文件）、`minidb`（58 个文件）等全仓 1,400+ 个 TS 源文件），对标 Rust 引擎（`packages/kimi-agent`，含 `src/native/` 原生工具层）的实现深度（文件数于 2026-09-15 按 `upstream/main` 实际统计复核）：
 
 ### 板块 1：核心 Turn 循环与生命周期管理
 
@@ -31,8 +31,12 @@
 | **MultiLLM 竞速降级**| `packages/kosong/src/pure/generate.ts` | `kimi-agent/src/llm/multi.rs` | ✅ **100% 原生** | 支持多个 Provider 并发 First-past-the-post 竞速，锁定粒度是整个响应完成（非首包），竞速期间无 delta 流出；败者经 child CancellationToken 中断原生 HTTP 通道并回收，全失败合并错误。注：TS kosong 侧并无竞速实现（竞速是本 fork 的 Rust 端能力）。 |
 
 > **本表的「TypeScript 源码」列是上游原型的历史出处，不是本仓的活路径。**
-> 板块 2 列出的 `packages/kosong/src/providers/*` 已随 TS provider 栈一并删除
-> （`createProvider` 与各 wire 适配器零生产消费者，wire 层由 `kimi-agent/src/llm/` 独占）；
+> 板块 2 列出的 `packages/kosong/src/providers/*` 中的 wire 适配器栈已随 TS provider 栈一并删除
+> （`createProvider` 与各 wire 适配器零生产消费者，wire 层由 `kimi-agent/src/llm/` 独占）。
+> **2026-09-15 更正**：该目录并未整体消失——`providers/anthropic-profile.ts` 与
+> `providers/astron-models.ts` 仍在，且是**活代码**（`packages/node-sdk/src/model-alias.ts`、
+> `packages/oauth/src/open-platform.ts`、`packages/kosong/src/index.ts` 与
+> `kosong/tsdown.config.ts` 均引用它们）：它们是共享的模型元数据，不是 wire 适配器。
 > 板块 3 列出的 `agent-core-v2/*` 更早已物理删除。保留这些路径只为标明行为来源。
 
 ### 板块 3：原生基础工具链与沙箱执行网关
@@ -40,8 +44,8 @@
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
 | **文件读写与修改** | `agent-core-v2/src/agent/tools/os/`<br>`read/`, `write/`, `edit/` | `kimi-agent/src/native/read.rs`<br>`write.rs`, `edit.rs` | ✅ **100% 原生** | Read：行范围（`line_offset`/`n_lines`，上限1000行）、截断（2000字符）、编码侦测与媒体回退；Write：支持 append/overwrite 与原子写入；Edit：严格唯一匹配断言与 replace_all 模式。 |
-| **文件搜索与模式匹配**| `agent-core-v2/src/agent/tools/os/`<br>`grep/`, `glob/` | `kimi-agent/src/native/grep.rs`<br>`glob.rs` | ✅ **100% 原生** | Grep：内置 ripgrep 核心正则引擎，开启 `--hidden` 且完整移植 `isSensitiveFile` 敏感文件过滤与脱敏提示；Glob：基于 `ignore`/`globset` 遵循 `.gitignore`，目录折叠。 |
-| **命令执行与环境** | `agent-core-v2/src/agent/tools/os/bash/`<br>`packages/kaos/` | `kimi-agent/src/native/bash.rs`<br>`kimi-agent/src/tools/kaos.rs` | ✅ **100% 原生** | 原生执行平台 Bash（Windows 优先定位 MSYS2/Git Bash，拒绝 cmd），支持超时强制 Kill（默认 60s/上限 300s）、256KB 输出截断、非零退出码精确传播、实时输出流向 `tool.progress` 广播。 |
+| **文件搜索与模式匹配**| `agent-core-v2/src/agent/tools/os/`<br>`grep/`, `glob/` | `kimi-agent/src/native/grep.rs`<br>`src/tools/core_tool_defs.rs` + `src/tools/mod.rs` | ✅ **100% 原生** | Grep：内置 ripgrep 核心正则引擎，开启 `--hidden` 且完整移植 `isSensitiveFile` 敏感文件过滤与脱敏提示；Glob：基于 `ignore`/`globset` 遵循 `.gitignore`，目录折叠。**2026-09-15 更正路径**：`Glob` 工具的定义与派发在 `src/tools/core_tool_defs.rs` / `src/tools/mod.rs`，而 `src/native/glob.rs`（55 行）只是 MCP 工具名过滤与权限模式匹配用的 `glob_matches_any` 辅助，不是该工具的实现。 |
+| **命令执行与环境** | `agent-core-v2/src/agent/tools/os/bash/`<br>`packages/kaos/` | `kimi-agent/src/native/bash_spawn.rs`<br>`kimi-agent/src/tools/kaos.rs` | ✅ **100% 原生** | 原生执行平台 Bash（Windows 优先定位 MSYS2/Git Bash，拒绝 cmd），支持超时强制 Kill（默认 60s/上限 300s）、256KB 输出截断、非零退出码精确传播、实时输出流向 `tool.progress` 广播。**2026-09-15 更正路径**：真正的一次性命令执行在 `src/native/bash_spawn.rs`（618 行）；`src/native/bash.rs`（39 行）只保留超时常量与 `kill_process_tree`。 |
 | **沙箱隔离策略网关** | `agent-core-v2/src/workspace/sandbox/sandbox.ts` | `kimi-agent/src/tools/sandbox.rs` | ✅ **100% 原生** | P155 SandboxGuard：支持 Off / ReadOnly / WorkspaceWrite。规范化 Windows 盘符大小写不敏感匹配，越界写操作与命令执行 Fail-Closed 拦截，只读操作安全放行。 |
 
 ### 板块 4：权限决策引擎与 G-6 否决链全量收敛
@@ -61,8 +65,8 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`microCompaction/` | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，354 行 + 8 个单测）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**与 v2 的差异**：v2 额外以「检测到 prompt-cache miss」为触发条件，该信号尚未接入引擎，目前仅由开关决定。 |
-| **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs` | ✅ **100% 原生** | `<system-reminder>` 包装与识别。内置日期变更注入、工作区 AGENTS.md 动态提醒、Goal 预算耗尽与 Plan-Mode Cadence 节律注入，压缩操作不丢失注入块。 |
+| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`microCompaction/` | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，326 行 + 7 个单测，数字于 2026-09-15 复核）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**与 v2 的差异**：v2 额外以「检测到 prompt-cache miss」为触发条件，该信号尚未接入引擎，目前仅由开关决定。 |
+| **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs` | ⚠️ **部分对齐** | `<system-reminder>` 包装与识别。内置日期变更注入、工作区 AGENTS.md 动态提醒、Goal 预算耗尽与 Plan-Mode Cadence 节律注入，压缩操作不丢失注入块。**2026-09-15 更正**：v2 的 `permission_mode` 变体（`agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts`，进入/退出 auto 模式的两段提醒）在 fork 中**整体不存在**——`injection/` 无该变体，全仓（含 `apps/`）也搜不到 `permission-mode-auto-enter-reminder.md` 的文案。后果：auto 模式下模型从未被告知"不要调用 AskUserQuestion"（只会在调用后被 `AutoModeAskUserQuestionDeny` 拒绝而浪费一步），「自动批准的 ExitPlanMode 不代表用户同意执行」这一关键约定也从未传达。工单见 §6.1。 |
 
 ### 板块 6：系统提示词与 Profile 角色目录
 
@@ -87,7 +91,7 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **ACP 协议宿主** | `packages/acp-server/` | `kimi-agent/src/acp/mod.rs`<br>`src/acp/types.rs` | ✅ **100% 原生** | 原生 Agent Client Protocol (ACP) 规范实现，支持 Stdio 与网络通道，零 Node 依赖。 |
+| **ACP 协议宿主** | `packages/acp-server/` | `kimi-agent/src/acp/mod.rs`<br>`src/acp/types.rs` | ⚠️ **部分对齐** | 原生 Agent Client Protocol (ACP) 规范实现，支持 Stdio 与网络通道，零 Node 依赖。**2026-09-15 审计修正**（证据均为本轮独立抽验）：`stopReason` 用 `format!("{:?}")`（`src/server/engine.rs:1250`，测试断言 `"EndTurn"`，见 `:1770`），发的是 Rust 枚举名而非 ACP 的 `end_turn`/`cancelled`/`refusal`，严格客户端解析失败且被取消的回合不显示 cancelled；`$/cancel_request` 全仓零命中（取消请求得 -32601，回合继续消耗 token，只有 `session/cancel` 通知生效）；`terminal/kill` 仅定义无调用点（`src/acp/channel.rs:209-212`），客户端终端里挂死的命令无法终止；`additionalDirectories` 在 `src/acp` 零命中，编辑器传入的额外根目录被静默丢弃；Bash 反向改道硬编码 `sh -c`/`cmd /C` 且 `cwd=None`（`src/acp/permission.rs:89-105`），命令跑在客户端终端默认目录而非会话 cwd，`env` 与 4MiB 上限丢失；`session/set_model` 返回 -32601、`set_config_option` 只认 mode。反向 RPC 实为 **9** 个（原写 10/11）。工单见 §6.5。 |
 | **Stdio JSON-RPC** | `apps/kimi-code/src/cli/rust-engine.ts` | `kimi-agent/src/rpc/types.rs`<br>`src/main.rs` | ✅ **100% 原生** | 提供严格匹配 LSP/JSON-RPC 2.0 规范的 Stdio 双向通讯层，作为无 NAPI 运行环境的保底通道。 |
 | **客户端 SDK 门面** | `packages/klient/src/` | — | ✅ **已退役** | `packages/klient` 已按 P159 物理删除（连同 `agent-core-v2` / `acp-server` / `kap-server`）。消费方直连 Rust REST/WebSocket/NAPI。见本文件 §4 与「工作区状态」。 |
 
@@ -178,7 +182,7 @@
 
 1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。
 2. ~~kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。~~ **已解决**：event_store 经 `hub.set_persister` 对每个事件落账（server/mod.rs:88-104），fold/checkpoint/undo 已接入；session/patch.rs 由 REST state-PATCH/undo-redo（server/mod.rs:3345-3467）、sqlite_store.rs:1130-1153 与 state_store.rs:187-205 生产调用。persister 错误现已结构化记入 warn 日志；standalone 的 TaskRunner 为进程内内存任务提供生命周期事件分发。
-3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 10/11）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,107 项 + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）、`session/set_model`（引擎无运行时模型目录）。
+3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 9 个，其中 `terminal/kill` 无调用点）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,349 项（2026-09-15 复核，原写 2,107） + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）、`session/set_model`（引擎无运行时模型目录）。
 
 > **工作区状态（2026-09-06 更新）**：P157–P161 已落地——`agent-core-v2`/`klient`/`acp-server` 已物理删除，
 > `kimi-native-tools` 已并入 `packages/kimi-agent/src/native/`（单 crate、单 `.node`、单 npm 包），
@@ -266,14 +270,14 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 
 | 上游项 | 上游 v2 行为 | Rust 移植目标 | 状态 |
 |---|---|---|---|
-| #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 | **已完成**：`core_tool_defs.rs` 与 `tools/mod.rs` 新增 `NotifyUser` 原生工具，`builder.rs` 新增 `NOTIFY_USER_GUIDANCE` |
+| #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 | **已完成**：`src/tools/core_tool_defs.rs` 与 `tools/mod.rs` 新增 `NotifyUser` 原生工具，`builder.rs` 新增 `NOTIFY_USER_GUIDANCE` |
 | #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **仅 REST 表面（2026-09-13 修正）**：`server/mod.rs` 挂载了 `GET/POST /api/v1/remote-control`，但**没有任何运行时实现**（无设备注册、无通道、无心跳）。此前 POST 会把本地状态改成 `state:"on"` 并回一个 `https://code-rc.kimi.com/devices/<随机id>/` URL，客户端据此展示为「已开启」，实际没有任何监听方。现已修正为：GET 回 `enabled:false` + `available:false` + `reason`，POST 返 501（`REMOTE_CONTROL_UNAVAILABLE`），不再伪造状态。真正的 remote-control 运行时（上游 `@moonshot-ai/remote-control` manager 的等价物）**仍是缺失项**，见文末「未闭环项」。 |
 | #3630 会话删除与串行清理 | `deleteSession`、`event.session.deleted` 广播、`ISessionManager.onWillDeleteSession` | Rust server 会话删除端点 + 事件广播 | **已完成**：`server/mod.rs` 支持 `POST /api/v1/sessions/:id:delete`，`event.session.deleted` 携带 `workspaceId` |
 | #3548 保留媒体附件名 | 媒体引用新增 `name` 字段 | Rust 原生媒体块类型增加 name 并全链路透传 | **已完成**：`ContentBlock`、`ImageUrl` 等全类型透传 `name: Option<String>`，服务端全链路映射 |
-| #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 | **已完成**：BMP 编解码支持，`read_media.rs` 针对 Kimi 模型放行 BMP/HEIC/HEIF 并放宽至 5MB 预算 |
+| #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 | **已完成**：BMP 编解码支持，`src/tools/read_media.rs` 针对 Kimi 模型放行 BMP/HEIC/HEIF 并放宽至 5MB 预算（路径于 2026-09-15 更正：该文件在 `src/tools/`，不在 `src/native/`） |
 | #3537 compaction 恢复锚定最新用户消息 | 自动压缩后恢复正确请求 | `compaction/mod.rs` 恢复锚点 | **已完成**：实现 `compaction_continuation_message`，LLM 前压缩与紧急压缩均注入恢复锚点 |
 | #3645 大文件读取可续读 | 可恢复长行读取与重复截断修复 | `native/read.rs` | **已完成**：`Read` 工具增加 `column_offset` 与 `max_chars` 限制，超限提示断点续读参数 |
-| #3658 glob 超过 100 条 | 分页续取 | `native/glob.rs` | **已完成**：`Glob` 工具增加 `head_limit` 和 `offset`，支持分页切片与续取提示 |
+| #3658 glob 超过 100 条 | 分页续取 | `src/tools/core_tool_defs.rs` + `src/tools/mod.rs` | **已完成**：`Glob` 工具增加 `head_limit` 和 `offset`，支持分页切片与续取提示（`tools/mod.rs:1843,1954-1995`）。2026-09-15 更正：此处原先写作 `native/glob.rs`，那是模式匹配辅助，不是该工具实现 |
 | #3654 MCP 结构化结果去重 | 保留不同的结构化结果 | `mcp/*` | **已完成**：`McpToolCallResult` 新增 `structuredContent` 与 `_meta`，在 `<mcp-result-extras>` 保留完整数据 |
 | #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 | **已归位（措辞修正）**：`turn_step.rs` / `run_turn.rs` 自主驱动重试循环。原条目只写「已在…自主驱动」而无证据，保留为已归位。 |
 | #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | `kimi-agent/src/server/fs_watch.rs` | ✅ **已接线（2026-09-14，轮询实现）**：`watch_fs_add` / `watch_fs_remove` 注册进 `FsWatchManager`（`server/ws.rs` 镜像 + 连接断开时的 drop guard 清理引用），`run_serve` 启动 750ms 轮询任务，mtime 变化/出现/消失都会在会话 lane 上发布 `event.fs.changed`（`EngineEvent::Custom`，`event_type()` 即该字符串）。**实现说明（非隐瞒）**：用 mtime 轮询而非 inotify/ReadDirectoryChanges——crate 无 notify 依赖，延迟=轮询间隔；`fs_watch.rs` 模块头写明，若延迟敏感可换 OS 后端。测试 `server::fs_watch::tests` 覆盖基线/变更/消失/幂等/上限语义。 |
@@ -295,7 +299,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 > 以下为**逐条回源码复核**后的当前状态。
 
 1. ~~#3594 remote-control 的原生服务端运行时~~ **已解决（2026-09-14）**。
-   `server/remote_control.rs`（1339 行）是原生实现：设备注册、到 `code-rc.kimi.com` 的 WebSocket 中继
+   `server/remote_control.rs`（1317 行；2026-09-15 复核，原写 1339）是原生实现：设备注册、到 `code-rc.kimi.com` 的 WebSocket 中继
    （`tokio-tungstenite`）、心跳与有界指数退避重连、反向 HTTP 代理，由 `server/mod.rs` 持有
    `RemoteControlHandle` 并在 `/api/v1/remote-control` 上暴露真实状态（不再是 `enabled:false` 的诚实占位）。
    TS CLI 那条路径（`apps/kimi-code/src/cli/sub/web/remote-control.ts`）仍在，`kimi rc` /
@@ -335,3 +339,76 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
    tower-enter 侧无需退出；plan 退出后 tower 不自动恢复（与 v2 粘性一致，需手动 resume）。
    验证：`mode_mutex.rs` 6 项单测 + `tools/mod.rs` `mode_mutex_dispatch` 模块 7 项
    dispatch 集成测试（真实 git 仓库 + 真实 `execute_tool` 分支）全绿。
+
+---
+
+## 6. v2 对齐复核（2026-09-15）与未闭环工单
+
+> 复核方式：把 `upstream/main` 的 v2 源码全量抽出到 `.tmp/v2-ref/`（`agent-core-v2` 1,544 /
+> `kap-server` 314 / `klient` 94 / `acp-server` 49 文件），把本文件的每一条声明拿回两侧源码核对，
+> 而不是接受本文件自己的措辞。结论：**架构与功能面基本对齐，行为语义面存在已证实缺口。**
+
+### 6.0 缺口为什么会静默堆积（已修）
+
+fork 物理删除了四个被替代的包，于是上游改这些包的提交**不冲突、不报错、也没人看见**。
+本轮测得：fork 落后 `upstream/main` 29 个提交，其中 **22 个**改了上述包（merge base `6954d2c8bf`）。
+
+已加机械化门禁 `scripts/check-upstream-v2-delta.mjs`（接在 CI `lint` 作业）：列出 merge base
+之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
+裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照：
+`ported=2 | tracked=13 | not-applicable=7`。
+
+同时必须记住：`scripts/scan-parity.mjs` 的比对源**全部是 fork 自有声明**
+（`packages/protocol/src/rest/*.ts` 注释清单、`ws-event-contract.json`、`tool-name-contract.json`、
+`napi-contract.d.ts`、`node-sdk/src/config-local/schema.ts`），它**从不读取 upstream/v2**。
+它的绿灯只证明 fork 内部自洽，**不能**当作 v2 对齐的证据。
+
+### 6.1 未闭环工单（按优先级）
+
+1. **`permission_mode` 提醒注入整体缺失（上游 #3728 / v2 `PermissionModeInjection`）**——变体、
+   两段文案与状态键在 fork 中全部不存在（引擎与 app 都没有），因此只加
+   `KIMI_CODE_PERMISSION_MODE_REMINDER` 开关没有意义：没有可关闭的注入。
+   影响：auto 模式下模型从不被告知"不要调用 AskUserQuestion"（只会在调用后被
+   `AutoModeAskUserQuestionDeny` 拒绝、白费一步）；"自动批准的 ExitPlanMode 不代表用户同意执行"
+   这一约定从未传达，模型可能据自动批准就开始执行计划。
+   落地路径（跨层，宜作独立变更）：新增 `src/injection/permission_mode.rs`（两段文案 + 进入/退出
+   转移 + 历史基线扫描，仿 `scan_date_baseline` + env 门禁）→ `RunTurnInput.permission_mode`
+   （8 处构造点）→ `src/napi_bindings.rs` 的 `JsRunTurnParams` → `packages/kimi-agent/session-handle.ts`
+   → `apps/kimi-code` 传入当前模式；两侧都要补测试。
+2. **#3734 流式 attempt 状态未在重试时失效**：`turn_loop/retry.rs`（279 行 / 4 个 pub 项）没有
+   attempt-state 失效逻辑，`context_tokens.invalidate()` 属 token 记账而非流式增量。先确认 Rust
+   是否存在"被弃用 attempt 的增量泄漏到重试后消息"的路径，再决定是否移植。
+3. **#3694 存储失败重建索引 / #3697 steer 打断后台等待 / #3688 MCP 附件原件保留 /
+   #3720、#3717 任务通知时序 / #3648 tower 可靠性 / #3606 模型目录运行时 / #3681 `[models]` 告警**：
+   已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
+4. **#3532 v3 扁平实体消息协议（WS + history API）**：Rust 服务端没有 `/api/v3` 或扁平实体
+   history 路由；`apps/kimi-inspect` 仍停在 #3532 之前的协议（缺 `src/transcript/channel.ts` 与
+   `plan.ts`，最后变更停在 0.42.0 合并 `4ee84f98b9`）。需要决策：跟进上游协议代际，还是明确声明
+   不跟并冻结客户端版本。
+5. **ACP 宿主的部分对齐项（板块 8，已就地标注）**：`stopReason` 非 ACP 枚举（高）、
+   `$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、`additionalDirectories` 被静默丢弃
+   （中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、`session/set_model` 缺失（中）、
+   ACP `mcpServers` 写进程级 manager 与 v2 per-session ephemeral 语义相反（中）。
+
+### 6.2 本轮已修复（含证据）
+
+| 上游 | 修复 | 证据 |
+|---|---|---|
+| #3714 `rm -rf` 仅 `/tmp`、`/temp` 免审 | `RM_SAFE_TEMP_ROOTS` + `is_safe_temp_rm_operand` + `rm` 操作数收集（`--` 之后全为操作数），并把上游 `literalText` 的 `UNSAFE_OPERAND` 字面量判据折叠进操作数检查 | `src/native/permission_engine/dangerous_command.rs`；新增 `test_rm_rf_temp_paths_are_exempt`（7 个免审用例）与 `test_rm_rf_outside_temp_paths_stay_dangerous`（9 个危险用例） |
+| #3657 移除 wall-clock 时间预算上限 | 删除 `MAX_REASONABLE_TIME_BUDGET_MS`，只校验 `>= 1s` 且有限；工具描述逐字对齐上游 `set-goal-budget.md:15-17` | `src/goal/mod.rs`、`src/tools/goal_tools.rs`；新增 `test_set_budget_accepts_durations_above_the_former_24h_ceiling`，`storage/state_store.rs` 改为断言亚秒预算被拒 |
+
+验证：`cargo test --features cli --lib` → **2349 passed / 0 failed / 1 ignored**（2026-09-15）。
+
+### 6.3 文档失真清单（本轮已就地更正）
+
+`native/glob.rs` 与 `native/bash.rs` 曾被当作 Glob/Bash 工具的实现出处（实为 55 行与 39 行的
+模式匹配辅助、超时常量与 `kill_process_tree`）；`read_media.rs`、`core_tool_defs.rs` 的路径写成
+`src/native/` 与 `src/` 根（实在 `src/tools/`）；`compaction/micro.rs`"354 行 + 8 个单测"实为
+326 行 + 7 个；`server/remote_control.rs`"1339 行"实为 1317；`agent-core-v2`"1,018 个文件"实为
+1,544；"`packages/kosong/src/providers/*` 已随 TS provider 栈一并删除"不成立（两个模型元数据文件
+仍在且是活代码）；"客户端反向 RPC 10/11"实为 9 个且其中 `terminal/kill` 无调用点；"`cargo test
+--lib` 2,107 项"实为 2,349；`src/native/goal/accounting.rs` 模块头仍称"goal 状态由 TS runtime 持有"，
+而该 runtime 已不存在。
+
+由此定一条本文件的规矩：**矩阵里只写能从两侧代码指出行号的声明**；一切数字（行数、测试数、
+文件数、方法数）必须标注复核日期，否则一律视为陈旧。
