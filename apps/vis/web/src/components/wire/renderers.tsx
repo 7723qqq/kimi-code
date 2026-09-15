@@ -131,7 +131,7 @@ function valuePreview(value: unknown): string {
     const serialized = JSON.stringify(value);
     return serialized === undefined ? `[${typeof value}]` : truncate(serialized, 80);
   } catch {
-    return '[unserializable]';
+    return t('wirePart.unserializable');
   }
 }
 
@@ -169,7 +169,7 @@ function trackedStatus(value: unknown): { label: string; tone: PillTone } {
 }
 
 function snapshotKey(entry: UnknownObject | undefined): { label: string; dim: boolean } {
-  if (entry === undefined) return { label: '(entry unavailable)', dim: true };
+  if (entry === undefined) return { label: t('wireRenderer.entryUnavailable'), dim: true };
   if (entry.oversize === true) return { label: '(not captured: oversized)', dim: true };
   if (entry.key === null) return { label: '(file did not exist)', dim: true };
   if (typeof entry.key === 'string') return { label: entry.key, dim: false };
