@@ -69,4 +69,37 @@ describe('promptForInstallChoice', () => {
     expect(rendered).toContain(CHANGELOG_URL);
     expect(rendered).toContain('View changelog');
   });
+
+  it('restores raw mode outside the keypress handler', async () => {
+    const calls: string[] = [];
+    const input = Object.assign(new EventEmitter(), {
+      isRaw: false,
+      setRawMode: (mode: boolean) => {
+        calls.push(`setRawMode:${String(mode)}`);
+      },
+      resume: () => {},
+      off: () => {},
+    }) as unknown as NodeJS.ReadStream;
+
+    const output = { write: () => true } as unknown as NodeJS.WriteStream;
+
+    const promptPromise = promptForInstallChoice({
+      currentVersion: '0.4.0',
+      target: { version: '0.5.0' },
+      installCommand: 'npm install -g @moonshot-ai/kimi-code@0.5.0',
+      installSource: 'npm-global',
+      input,
+      output,
+    });
+
+    input.emit('keypress', '', { name: 'return' });
+
+    // Bun corrupts its TTY handle when setRawMode() runs synchronously inside
+    // the stdin data callback, so the restore must be deferred past the
+    // keypress handler — and the promise must not settle before it.
+    expect(calls).toEqual(['setRawMode:true']);
+
+    await expect(promptPromise).resolves.toBe('install');
+    expect(calls).toEqual(['setRawMode:true', 'setRawMode:false']);
+  });
 });

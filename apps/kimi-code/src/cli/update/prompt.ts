@@ -145,16 +145,23 @@ export async function promptForInstallChoice(
 
     const cleanup = (): void => {
       input.off('keypress', onKeypress);
-      if (canSetRawMode) {
-        input.setRawMode(hadRawMode);
-      }
       output.write(SHOW_CURSOR);
       output.write('\n');
     };
 
     const finish = (choice: InstallPromptChoiceValue): void => {
       cleanup();
-      resolve(choice);
+      // Restore raw mode outside the stdin data callback. Bun corrupts the
+      // TTY handle when setRawMode() runs synchronously inside a keypress
+      // handler — the process then segfaults a few hundred ms later, during
+      // TUI startup. Resolving only after the restore keeps the terminal
+      // state deterministic for the caller.
+      setImmediate(() => {
+        if (canSetRawMode) {
+          input.setRawMode(hadRawMode);
+        }
+        resolve(choice);
+      });
     };
 
     const render = (): void => {
