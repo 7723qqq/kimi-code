@@ -5,6 +5,13 @@
   "recordedAt": "2026-09-15",
   "entries": [
     {
+      "sha": "39a74556a662a96293e9838663e91b31dbdc7a0b",
+      "date": "2026-09-15",
+      "subject": "fix(plugins): rename WebBridge display name to Kimi Browser Extension (#3803)",
+      "verdict": "not-applicable",
+      "note": "The retired-package half is the capability entry displayName, which has no Rust counterpart (the plugin list comes from plugins/marketplace.json); the live-file half (marketplace.json, plugins-selector.ts, i18n) is not a retired-package delta and arrives with the normal upstream merge."
+    },
+    {
       "sha": "bb0c66a15b77af5185a9d44428c87310fa358394",
       "date": "2026-09-15",
       "subject": "feat(oauth): switch the managed usage payload to the quota model (#3787)",
