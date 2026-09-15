@@ -5,6 +5,28 @@
   "recordedAt": "2026-09-15",
   "entries": [
     {
+      "sha": "7d174ac93352ccfc835d186ac7b8185d0194e6b5",
+      "date": "2026-09-15",
+      "subject": "perf(agent-core-v2): evict completed subagent scopes behind an LRU cache (#3778)",
+      "verdict": "tracked",
+      "note": "The Rust engine retains every subagent instance (removed only on explicit destroy, subagent/manager.rs:1499); upstream bounds the completed-scope cache (default 32) and rebuilds evicted scopes from persisted state on demand.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "cb9ce61eaa5b16226f047f47cd22c5a01c0c567d",
+      "date": "2026-09-15",
+      "subject": "refactor(agent-core-v2): align request and recovery stage names (#3766)",
+      "verdict": "not-applicable",
+      "note": "Internal TS stage-name renames in the human LLM layer; no wire/protocol surface and no Rust counterpart."
+    },
+    {
+      "sha": "f2f9162dc136dd6417018c2a35e9f852c848a052",
+      "date": "2026-09-15",
+      "subject": "refactor(agent-core-v2): clarify human-layer names (#3727)",
+      "verdict": "not-applicable",
+      "note": "Internal TS human-layer renames; no Rust counterpart."
+    },
+    {
       "sha": "39a74556a662a96293e9838663e91b31dbdc7a0b",
       "date": "2026-09-15",
       "subject": "fix(plugins): rename WebBridge display name to Kimi Browser Extension (#3803)",

@@ -357,7 +357,7 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
 裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照（2026-09-15
 二次复核，merge base 不变、上游推进到 `a7bdabbe82`）：
-`ported=6 | tracked=20 | not-applicable=10`（36 条）。
+`ported=6 | tracked=21 | not-applicable=13`（40 条）。
 
 同时必须记住：`scripts/scan-parity.mjs` 的比对源**全部是 fork 自有声明**
 （`packages/protocol/src/rest/*.ts` 注释清单、`ws-event-contract.json`、`tool-name-contract.json`、
@@ -496,6 +496,11 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 12. **#3749 AI 会话标题**：`auto_session_title` 开关在 fork 原生注册表里本就不存在，但它门控的
     AI 标题路径未实现——`derive_session_title` 直接拒绝 `source=digest`
     （`session/sqlite_store.rs:1777`），`fetchChatTitle` 无消费者。
+13. **#3778 已完成 subagent scope 的 LRU 驱逐**：上游给已完成的 subagent scope 加了有界缓存
+    （`KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` 默认 32，超出后驱逐并在恢复时从持久化状态重建；
+    `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` 默认 15000）。Rust 引擎的 `instances`
+    只在显式销毁时移除（`subagent/manager.rs:1499`），长会话会为每个 spawn 过的 subagent
+    累积一条常驻记录。
 
 ### 6.2 本轮已修复（含证据）
 
