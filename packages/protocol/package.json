@@ -21,6 +21,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./v3": {
+      "types": "./src/v3.ts",
+      "default": "./src/v3.ts"
     }
   },
   "scripts": {

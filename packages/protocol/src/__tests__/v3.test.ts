@@ -12,7 +12,11 @@ import {
   v3HistoryResponseSchema,
   v3ServerMessageSchema,
   type InteractionMessage,
+  type SessionStateMessage,
+  type StepMessage,
   type ToolCallMessage,
+  type TurnMessage,
+  type UserMessage,
   type V3HistoryMessage,
 } from '../v3';
 
@@ -330,6 +334,90 @@ describe('v3 entity contract', () => {
         timestamp: 2,
         tool_call_id: 'c1',
         progress: { kind: 'nonsense' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('types the turn, step, user, and session.state payloads the chat view renders', () => {
+    const turnFrame = v3HistoryMessageSchema.parse({
+      type: 'turn',
+      session_id: 's1',
+      agent_id: 'main',
+      timestamp: 1,
+      turn_id: '1',
+      ordinal: 1,
+      status: 'completed',
+      origin: { kind: 'user' },
+      attachment_ids: ['att-1'],
+      usage: { input_tokens: 10, output_tokens: 4, cached_tokens: 2, cost: 0.001 },
+    });
+    if (turnFrame.type !== 'turn') throw new Error('unreachable');
+    const turn: TurnMessage = turnFrame;
+    expect(turn.usage?.input_tokens).toBe(10);
+    expect(turn.attachment_ids).toEqual(['att-1']);
+
+    const stepFrame = v3HistoryMessageSchema.parse({
+      type: 'step',
+      session_id: 's1',
+      agent_id: 'main',
+      timestamp: 2,
+      step_id: '1.1',
+      turn_id: '1',
+      ordinal: 1,
+      status: 'failed',
+      usage: { input_other: 1, output: 2, input_cache_read: 3, input_cache_creation: 4 },
+      timing: { llm_first_token_ms: 120 },
+      retry: {
+        failed_attempt: 1,
+        next_attempt: 2,
+        max_attempts: 3,
+        delay_ms: 500,
+        error_name: 'RateLimit',
+        error_message: 'slow down',
+      },
+    });
+    if (stepFrame.type !== 'step') throw new Error('unreachable');
+    const step: StepMessage = stepFrame;
+    expect(step.retry?.error_name).toBe('RateLimit');
+    expect(step.timing?.llm_first_token_ms).toBe(120);
+
+    const userFrame = v3HistoryMessageSchema.parse({
+      type: 'user',
+      session_id: 's1',
+      agent_id: 'main',
+      timestamp: 3,
+      message_id: 'm1',
+      status: 'read',
+      text: [{ type: 'text', text: 'hi', meta: {} }],
+      origin: { kind: 'task', task_id: 'k1', title: 't', body: 'b' },
+    });
+    if (userFrame.type !== 'user') throw new Error('unreachable');
+    const user: UserMessage = userFrame;
+    expect(user.origin?.kind).toBe('task');
+
+    const stateFrame = v3ServerMessageSchema.parse({
+      type: 'session.state',
+      session_id: 's1',
+      timestamp: 4,
+      status: 'running',
+      goal: { objective: 'ship it', status: 'active' },
+      modes: { plan: { review_path: '/tmp/plan.md' }, swarm: { trigger: 'manual' } },
+    });
+    if (stateFrame.type !== 'session.state') throw new Error('unreachable');
+    const sessionState: SessionStateMessage = stateFrame;
+    expect(sessionState.goal?.status).toBe('active');
+    expect(sessionState.modes?.plan?.review_path).toBe('/tmp/plan.md');
+
+    expect(
+      v3HistoryMessageSchema.safeParse({
+        type: 'user',
+        session_id: 's1',
+        agent_id: 'main',
+        timestamp: 5,
+        message_id: 'm2',
+        status: 'read',
+        text: [],
+        origin: { kind: 'nonsense' },
       }).success,
     ).toBe(false);
   });

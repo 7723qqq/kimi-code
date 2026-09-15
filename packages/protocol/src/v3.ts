@@ -50,6 +50,35 @@ const payload = z.unknown();
 const payloadArray = z.array(z.unknown());
 const base = { session_id: z.string(), agent_id: z.string(), timestamp: z.number() };
 
+const turnUsage = z.object({
+  input_tokens: z.number().optional(),
+  output_tokens: z.number().optional(),
+  cached_tokens: z.number().optional(),
+  cost: z.number().optional(),
+});
+
+const stepUsage = z.object({
+  input_other: z.number(),
+  output: z.number(),
+  input_cache_read: z.number(),
+  input_cache_creation: z.number(),
+});
+
+const stepTiming = z.object({
+  llm_first_token_ms: z.number().optional(),
+  llm_stream_duration_ms: z.number().optional(),
+});
+
+const stepRetry = z.object({
+  failed_attempt: z.number(),
+  next_attempt: z.number(),
+  max_attempts: z.number(),
+  delay_ms: z.number(),
+  error_name: z.string(),
+  error_message: z.string(),
+  status_code: z.number().optional(),
+});
+
 const turn = z.object({
   ...base,
   type: z.literal('turn'),
@@ -58,10 +87,10 @@ const turn = z.object({
   status: z.enum(['running', 'completed']),
   origin: z.object({ kind: z.string() }).loose(),
   user_message_id: z.string().optional(),
-  attachment_ids: payloadArray.optional(),
+  attachment_ids: z.array(z.string()).optional(),
   started_at: z.string().optional(),
   ended_at: z.string().optional(),
-  usage: payload.optional(),
+  usage: turnUsage.optional(),
   duration_ms: z.number().optional(),
 });
 
@@ -74,10 +103,10 @@ const step = z.object({
   status: z.enum(['running', 'completed', 'interrupted', 'failed']),
   started_at: z.string().optional(),
   ended_at: z.string().optional(),
-  usage: payload.optional(),
+  usage: stepUsage.optional(),
   finish_reason: z.string().optional(),
-  timing: payload.optional(),
-  retry: payload.optional(),
+  timing: stepTiming.optional(),
+  retry: stepRetry.optional(),
   end_reason: z.string().optional(),
   end_message: z.string().optional(),
 });
@@ -93,6 +122,37 @@ const skillActivation = z.object({
   skill_args: z.string().optional(),
 });
 
+const userMessageOrigin = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('user'),
+    cron_id: z.string().optional(),
+    schedule: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('cron'),
+    cron_id: z.string().optional(),
+    schedule: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('task'),
+    task_id: z.string(),
+    title: z.string(),
+    body: z.string(),
+    severity: z.string().optional(),
+    type: z.string().optional(),
+    source_kind: z.string().optional(),
+    source_id: z.string().optional(),
+    agent_id: z.string().optional(),
+    raw: z.unknown().optional(),
+  }),
+  z.object({
+    kind: z.literal('skill'),
+    skill_name: z.string(),
+    args: z.string().optional(),
+    trigger: z.string().optional(),
+  }),
+]);
+
 const user = z.object({
   session_id: z.string(),
   agent_id: z.string(),
@@ -102,9 +162,9 @@ const user = z.object({
   status: z.enum(['unread', 'read']),
   timestamp: z.number().optional(),
   text: z.array(contentPart),
-  attachment_ids: payloadArray.optional(),
+  attachment_ids: z.array(z.string()).optional(),
   skill_activations: z.array(skillActivation).optional(),
-  origin: payload.optional(),
+  origin: userMessageOrigin.optional(),
 });
 
 const assistant = z.object({
@@ -322,6 +382,28 @@ const agentState = z.object({
   turn: payload.optional(),
 });
 
+const sessionStateGoal = z.object({
+  objective: z.string(),
+  status: z.enum(['active', 'paused', 'blocked', 'complete']),
+  completion_criterion: z.string().optional(),
+  budget_used: z.number().optional(),
+  budget_limit: z.number().optional(),
+});
+
+const sessionStateModes = z.object({
+  plan: z
+    .object({
+      review_path: z.string().optional(),
+      version: z.number().optional(),
+    })
+    .optional(),
+  swarm: z
+    .object({
+      trigger: z.string().optional(),
+    })
+    .optional(),
+});
+
 const sessionState = z.object({
   session_id: z.string(),
   type: z.literal('session.state'),
@@ -334,8 +416,8 @@ const sessionState = z.object({
   usage: payload.optional(),
   context_tokens: z.number().optional(),
   max_context_tokens: z.number().optional(),
-  goal: payload.optional(),
-  modes: payload.optional(),
+  goal: sessionStateGoal.optional(),
+  modes: sessionStateModes.optional(),
 });
 
 const session = z.object({
@@ -509,6 +591,13 @@ export type ErrorMessage = z.infer<typeof error>;
 
 export type ContentPart = z.infer<typeof contentPart>;
 export type SkillActivation = z.infer<typeof skillActivation>;
+export type TurnUsage = z.infer<typeof turnUsage>;
+export type StepUsage = z.infer<typeof stepUsage>;
+export type StepTiming = z.infer<typeof stepTiming>;
+export type StepRetry = z.infer<typeof stepRetry>;
+export type UserMessageOrigin = z.infer<typeof userMessageOrigin>;
+export type SessionStateGoal = z.infer<typeof sessionStateGoal>;
+export type SessionStateModes = z.infer<typeof sessionStateModes>;
 export type ToolProgressPayload = z.infer<typeof toolProgressPayload>;
 export type ToolCallAgentRef = z.infer<typeof toolCallAgentRef>;
 export type InteractionStatus = z.infer<typeof interactionStatus>;
