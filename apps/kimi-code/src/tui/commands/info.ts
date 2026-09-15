@@ -3,6 +3,7 @@ import { release as osRelease, type as osType } from 'node:os';
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { openUrl } from '#/utils/open-url';
+import { quotaUsageRows } from '#/utils/usage/usage-format';
 
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
@@ -259,5 +260,5 @@ async function loadManagedUsageReport(
   if (res.kind === 'error') {
     return { error: res.message };
   }
-  return { usage: { summary: res.summary, limits: res.limits, extraUsage: res.extraUsage } };
+  return { usage: { rows: quotaUsageRows(res.quota), extraUsage: res.quota.extraUsage } };
 }

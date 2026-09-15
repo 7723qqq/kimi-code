@@ -801,7 +801,8 @@ max_context_size = 262144
       async (_input, _init) =>
         new Response(
           JSON.stringify({
-            usage: { used: 1, limit: 10, name: 'Weekly limit' },
+            goods_version: 2,
+            usages: { limit_5h: { used_ratio: 0.1, reset_time: '2026-09-11T18:00:00Z' } },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -813,7 +814,7 @@ max_context_size = 262144
 
     expect(result).toMatchObject({
       kind: 'ok',
-      summary: { name: 'Weekly limit', used: 1, limit: 10 },
+      quota: { usages: { limit5h: { usedRatio: 0.1, resetAt: '2026-09-11T18:00:00Z' } } },
     });
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const headers = new Headers((init.headers ?? {}) as Record<string, string>);
@@ -847,7 +848,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
-        return new Response(JSON.stringify({ usage: { used: 2, limit: 10, name: 'Dev limit' } }), {
+        return new Response(JSON.stringify({ usages: { limit_7d: { used_ratio: 0.2 } } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -862,7 +863,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
 
     await expect(harness.auth.getManagedUsage()).resolves.toMatchObject({
       kind: 'ok',
-      summary: { name: 'Dev limit', used: 2, limit: 10 },
+      quota: { usages: { limit7d: { usedRatio: 0.2 } } },
     });
     await expect(
       harness.auth.submitFeedback({
@@ -915,10 +916,13 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
-        return new Response(JSON.stringify({ usage: { used: 3, limit: 10, name: 'Env limit' } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ usages: { limit_month_total: { used_ratio: 0.3 } } }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
       return new Response(JSON.stringify({ feedback_id: 3 }), {
         status: 200,
@@ -946,7 +950,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     ).resolves.toBe('env-access-token');
     await expect(harness.auth.getManagedUsage()).resolves.toMatchObject({
       kind: 'ok',
-      summary: { name: 'Env limit', used: 3, limit: 10 },
+      quota: { usages: { monthTotal: { usedRatio: 0.3 } } },
     });
     await expect(
       harness.auth.submitFeedback({
