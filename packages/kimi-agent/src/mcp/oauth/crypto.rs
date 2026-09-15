@@ -176,7 +176,15 @@ mod tests {
     #[test]
     fn test_tampered_blob_fails_to_decrypt() {
         let mut blob = encrypt("secret").unwrap();
-        blob.data = format!("00{}", &blob.data[2..]);
+        // Flip the first byte to a value it does not already have: writing a
+        // fixed "00" is a no-op whenever the ciphertext happens to start with
+        // it, and the blob then decrypts.
+        let replacement = if blob.data.starts_with("00") {
+            "01"
+        } else {
+            "00"
+        };
+        blob.data = format!("{replacement}{}", &blob.data[2..]);
         assert!(decrypt(&blob).is_err());
     }
 }
