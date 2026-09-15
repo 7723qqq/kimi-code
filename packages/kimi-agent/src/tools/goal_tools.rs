@@ -144,8 +144,9 @@ pub async fn execute_set_goal_budget(
         return err_result("Invalid SetGoalBudget arguments: `value` must be positive.".into());
     }
     let normalized = normalize_budget_input(value, unit);
-    // v2 `budgetLimitsFromInput`: time budgets outside 1s..24h are not
-    // reasonable and the tool refuses before writing.
+    // v2 `budgetLimitsFromInput`: a time budget below the 1s floor (or not
+    // finite) is not reasonable and the tool refuses before writing. There is
+    // no upper bound.
     let Some(_) = crate::goal::budget_limits_from_input(normalized, unit) else {
         return err_result(format!(
             "Goal budget not set: {} is not a reasonable goal budget.",
@@ -337,9 +338,9 @@ Do not invent limits. Do not call this for vague wording such as "spend some tim
 If the user gives a compound time, convert it to one supported unit before calling this tool.
 For example, "2 hours and 3 minutes" can be set as `value: 123, unit: "minutes"`.
 
-A time budget must be between 1 second and 24 hours — the tool rejects anything shorter or
-longer, telling the user it is not a reasonable goal budget. Turn and token budgets are not
-bounded this way; they must be positive and are rounded to the nearest whole number (minimum 1).
+A time budget must be at least 1 second and convert to a finite number of milliseconds.
+There is no upper duration limit. Turn and token budgets must be positive and are rounded
+to the nearest whole number (minimum 1).
 
 Supported units:
 
@@ -710,6 +711,27 @@ mod tests {
         assert_eq!(result.content, "Goal budget set: 30 seconds.");
     }
 
+    /// Upstream removed the former 24h ceiling on wall-clock budgets, so any
+    /// finite duration at or above the 1s floor must reach the host.
+    #[tokio::test]
+    async fn test_set_budget_accepts_durations_above_the_former_24h_ceiling() {
+        for (value, unit, expected) in [
+            (25.0, "hours", "Goal budget set: 25 hours."),
+            (1000.0, "hours", "Goal budget set: 1000 hours."),
+        ] {
+            let (callbacks, _, write_received) =
+                scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
+            let result = execute_set_goal_budget(
+                &callbacks,
+                &serde_json::json!({ "value": value, "unit": unit }),
+            )
+            .await;
+            assert!(!result.is_error, "value: {value}");
+            assert_eq!(result.content, expected);
+            assert!(write_received.lock().unwrap().is_some());
+        }
+    }
+
     #[tokio::test]
     async fn test_set_budget_over_budget_renders_stop_notice() {
         let (callbacks, _, _) =
@@ -746,18 +768,11 @@ mod tests {
     async fn test_set_budget_unreasonable_time_returns_error_without_calling_host() {
         let (callbacks, _, write_received) =
             scripted(Err("not used".into()), write_ok(Value::Null));
-        for (value, unit, expected) in [
-            (
-                0.5,
-                "seconds",
-                "Goal budget not set: 0.5 seconds is not a reasonable goal budget.",
-            ),
-            (
-                25.0,
-                "hours",
-                "Goal budget not set: 25 hours is not a reasonable goal budget.",
-            ),
-        ] {
+        for (value, unit, expected) in [(
+            0.5,
+            "seconds",
+            "Goal budget not set: 0.5 seconds is not a reasonable goal budget.",
+        )] {
             let result = execute_set_goal_budget(
                 &callbacks,
                 &serde_json::json!({ "value": value, "unit": unit }),
@@ -845,6 +860,6 @@ mod tests {
             ])
         );
         assert_eq!(budget.input_schema["additionalProperties"], false);
-        assert!(budget.description.contains("1 second and 24 hours"));
+        assert!(budget.description.contains("There is no upper duration limit"));
     }
 }

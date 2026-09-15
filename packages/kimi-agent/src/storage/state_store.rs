@@ -1245,11 +1245,12 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.contains("-32004"));
-        // Unreasonable time budgets are rejected (-32003).
+        // Unreasonable time budgets are rejected (-32003). Only the 1s floor
+        // applies: the former 24h ceiling is gone, so long durations pass.
         let err = store
             .apply_write(
                 "goal",
-                &json!({ "action": "set_budget", "value": 25, "unit": "hours" }),
+                &json!({ "action": "set_budget", "value": 0.5, "unit": "seconds" }),
             )
             .unwrap_err();
         assert!(err.contains("-32003"));

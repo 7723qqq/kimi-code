@@ -262,11 +262,10 @@ impl BudgetUnit {
 }
 
 /// Smallest wall-clock budget the SetGoalBudget tool accepts (v2
-/// `MIN_REASONABLE_TIME_BUDGET_MS`).
+/// `MIN_REASONABLE_TIME_BUDGET_MS`). There is deliberately no upper bound:
+/// upstream removed its former `MAX_REASONABLE_TIME_BUDGET_MS` ceiling, so any
+/// finite duration at or above this floor is accepted.
 pub const MIN_REASONABLE_TIME_BUDGET_MS: u64 = 1_000;
-/// Largest wall-clock budget the SetGoalBudget tool accepts (v2
-/// `MAX_REASONABLE_TIME_BUDGET_MS`).
-pub const MAX_REASONABLE_TIME_BUDGET_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// Normalize a budget input value, mirroring v2 `normalizeBudgetInput`:
 /// turn/token budgets round to whole numbers and floor at 1; time units
@@ -295,8 +294,8 @@ pub fn to_milliseconds(value: f64, unit: BudgetUnit) -> Option<f64> {
 }
 
 /// Convert a normalized budget input into budget limits, mirroring v2
-/// `budgetLimitsFromInput`. Wall-clock budgets outside the reasonable
-/// window (1s..24h) yield `None`.
+/// `budgetLimitsFromInput`. Wall-clock budgets below the 1s floor, or not
+/// finite, yield `None`; there is no upper bound.
 pub fn budget_limits_from_input(value: f64, unit: BudgetUnit) -> Option<GoalBudgetLimits> {
     match unit {
         BudgetUnit::Turns => Some(GoalBudgetLimits {
@@ -312,8 +311,8 @@ pub fn budget_limits_from_input(value: f64, unit: BudgetUnit) -> Option<GoalBudg
         | BudgetUnit::Minutes
         | BudgetUnit::Hours => {
             let wall_clock_budget_ms = to_milliseconds(value, unit)?.round();
-            if wall_clock_budget_ms < MIN_REASONABLE_TIME_BUDGET_MS as f64
-                || wall_clock_budget_ms > MAX_REASONABLE_TIME_BUDGET_MS as f64
+            if !wall_clock_budget_ms.is_finite()
+                || wall_clock_budget_ms < MIN_REASONABLE_TIME_BUDGET_MS as f64
             {
                 return None;
             }
@@ -504,7 +503,6 @@ mod tests {
         assert_eq!(half_hour.wall_clock_budget_ms, Some(1_800_000));
 
         assert_eq!(budget_limits_from_input(0.9, BudgetUnit::Seconds), None);
-        assert_eq!(budget_limits_from_input(25.0, BudgetUnit::Hours), None);
         assert_eq!(
             budget_limits_from_input(1.0, BudgetUnit::Seconds)
                 .unwrap()
@@ -516,6 +514,23 @@ mod tests {
                 .unwrap()
                 .wall_clock_budget_ms,
             Some(86_400_000)
+        );
+        // There is no upper bound: the former 24h ceiling was removed upstream.
+        assert_eq!(
+            budget_limits_from_input(25.0, BudgetUnit::Hours)
+                .unwrap()
+                .wall_clock_budget_ms,
+            Some(90_000_000)
+        );
+        assert_eq!(
+            budget_limits_from_input(1000.0, BudgetUnit::Hours)
+                .unwrap()
+                .wall_clock_budget_ms,
+            Some(3_600_000_000)
+        );
+        assert_eq!(
+            budget_limits_from_input(f64::INFINITY, BudgetUnit::Hours),
+            None
         );
     }
 
