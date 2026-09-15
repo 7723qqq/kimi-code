@@ -92,12 +92,14 @@ function readAllowlist() {
   return JSON.parse(readFileSync(ALLOWLIST, 'utf8'));
 }
 
-function writeAllowlist(entries, mergeBase) {
+const DEFAULT_NOTE =
+  'Verdicts for upstream commits touching packages this fork deleted. ' +
+  'Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; ' +
+  'see scripts/upstream-v2-delta-allowlist.json for the verdict vocabulary.';
+
+function writeAllowlist(entries, mergeBase, note) {
   const payload = {
-    note:
-      'Verdicts for upstream commits touching packages this fork deleted. ' +
-      'Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; ' +
-      'see scripts/check-upstream-v2-delta.mjs for the gate itself.',
+    note: note ?? DEFAULT_NOTE,
     upstreamRef: UPSTREAM_REF,
     recordedMergeBase: mergeBase,
     recordedAt: new Date().toISOString().slice(0, 10),
@@ -126,7 +128,7 @@ if (process.argv.includes('--update')) {
       ...(previous?.roadmap === undefined ? {} : { roadmap: previous.roadmap }),
     };
   });
-  writeAllowlist(entries, mergeBase);
+  writeAllowlist(entries, mergeBase, allowlist.note);
   const pending = entries.filter((entry) => entry.verdict === 'pending').length;
   console.log(
     `check-upstream-v2-delta: recorded ${entries.length} delta(s) touching retired packages` +

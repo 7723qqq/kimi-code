@@ -66,7 +66,7 @@
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
 | **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`microCompaction/` | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，326 行 + 7 个单测，数字于 2026-09-15 复核）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**与 v2 的差异**：v2 额外以「检测到 prompt-cache miss」为触发条件，该信号尚未接入引擎，目前仅由开关决定。 |
-| **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs` | ⚠️ **部分对齐** | `<system-reminder>` 包装与识别。内置日期变更注入、工作区 AGENTS.md 动态提醒、Goal 预算耗尽与 Plan-Mode Cadence 节律注入，压缩操作不丢失注入块。**2026-09-15 更正**：v2 的 `permission_mode` 变体（`agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts`，进入/退出 auto 模式的两段提醒）在 fork 中**整体不存在**——`injection/` 无该变体，全仓（含 `apps/`）也搜不到 `permission-mode-auto-enter-reminder.md` 的文案。后果：auto 模式下模型从未被告知"不要调用 AskUserQuestion"（只会在调用后被 `AutoModeAskUserQuestionDeny` 拒绝而浪费一步），「自动批准的 ExitPlanMode 不代表用户同意执行」这一关键约定也从未传达。工单见 §6.1。 |
+| **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs`<br>`src/injection/permission_mode.rs` | ✅ **100% 原生** | `<system-reminder>` 包装与识别。内置日期变更注入、工作区 AGENTS.md 动态提醒、Goal 预算耗尽与 Plan-Mode Cadence 节律注入、权限模式进入/退出 auto 的两段提醒，压缩操作不丢失注入块。**2026-09-15 补齐**：v2 的 `permission_mode` 变体（`agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts`）此前在 fork 中整体缺失，现已落地为 `injection/permission_mode.rs`（两段文案 + 进入/退出转移 + 历史基线扫描 + `KIMI_CODE_PERMISSION_MODE_REMINDER` 门禁）。**与 v2 的差异**：v2 从 agent state 读 `permissionMode.lastMode`、从历史读该变体自己的 `injectedPositions`；fork 两者都从历史扫描恢复（`scan_permission_mode_baseline`），因此「提醒被压缩/撤销掉后重新宣告」与「恢复会话不重复宣告」两种行为都成立。模式来源是 host 传入的 `PolicySnapshot.mode`（`RunTurnInput.permission_mode`），不新增 napi 参数。 |
 
 ### 板块 6：系统提示词与 Profile 角色目录
 
@@ -355,8 +355,9 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 
 已加机械化门禁 `scripts/check-upstream-v2-delta.mjs`（接在 CI `lint` 作业）：列出 merge base
 之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
-裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照：
-`ported=2 | tracked=13 | not-applicable=7`。
+裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照（2026-09-15
+二次复核，merge base 不变、上游推进到 `a7bdabbe82`）：
+`ported=6 | tracked=20 | not-applicable=10`（36 条）。
 
 同时必须记住：`scripts/scan-parity.mjs` 的比对源**全部是 fork 自有声明**
 （`packages/protocol/src/rest/*.ts` 注释清单、`ws-event-contract.json`、`tool-name-contract.json`、
@@ -365,16 +366,26 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 
 ### 6.1 未闭环工单（按优先级）
 
-1. **`permission_mode` 提醒注入整体缺失（上游 #3728 / v2 `PermissionModeInjection`）**——变体、
-   两段文案与状态键在 fork 中全部不存在（引擎与 app 都没有），因此只加
-   `KIMI_CODE_PERMISSION_MODE_REMINDER` 开关没有意义：没有可关闭的注入。
-   影响：auto 模式下模型从不被告知"不要调用 AskUserQuestion"（只会在调用后被
-   `AutoModeAskUserQuestionDeny` 拒绝、白费一步）；"自动批准的 ExitPlanMode 不代表用户同意执行"
-   这一约定从未传达，模型可能据自动批准就开始执行计划。
-   落地路径（跨层，宜作独立变更）：新增 `src/injection/permission_mode.rs`（两段文案 + 进入/退出
-   转移 + 历史基线扫描，仿 `scan_date_baseline` + env 门禁）→ `RunTurnInput.permission_mode`
-   （8 处构造点）→ `src/napi_bindings.rs` 的 `JsRunTurnParams` → `packages/kimi-agent/session-handle.ts`
-   → `apps/kimi-code` 传入当前模式；两侧都要补测试。
+1. ~~**`permission_mode` 提醒注入整体缺失（上游 #3728 / v2 `PermissionModeInjection`）**~~ **已解决
+   （2026-09-15 后续变更）**。落地为 `src/injection/permission_mode.rs`：两段文案逐字对齐上游
+   `permission-mode-auto-enter-reminder.md` / `-exit-reminder.md`，`PermissionModeTracker` 复刻
+   `permissionModeInjection.ts` 的转移逻辑（同模式且已注入过则静默；进入 auto 注入 enter；离开 auto
+   注入 exit），`scan_permission_mode_baseline` 从历史恢复 v2 的 `permissionMode.lastMode` 与该变体
+   自己的 `injectedPositions`（v2 前者在 agent state、后者在历史，fork 两者都从历史扫描），
+   `KIMI_CODE_PERMISSION_MODE_REMINDER` 门禁按 v2 `parseBooleanEnv` 语义（仅显式 false 关闭）。
+   模式来源是 host 已有的 `PolicySnapshot.mode`：`RunTurnInput.permission_mode` 由
+   `EnginePipeline.permission_mode`（napi 两条路径）、`SessionConfig.permission_mode`（stdio/napi
+   会话）、`server/engine.rs` 与 REPL 的 policy snapshot 分别填入，**未新增 napi 参数**，因此
+   `JsRunTurnParams` / `session-handle.ts` / `apps/kimi-code` 无需改动（SDK 早已把
+   `meta.permissionMode` 写进 `policySnapshotJson`，`setPermission` 会重建会话）。
+   子代理轮次与 `lib.rs` 的纯原生路径无 policy snapshot，传 `None`（提醒面向主代理的
+   AskUserQuestion / ExitPlanMode 交互）。验证：`injection::permission_mode` 8 项单测 +
+   `pipeline::tests::pipeline_carries_the_policy_snapshot_mode`（snapshot → pipeline 的映射）+
+   `run_turn` 的 `test_permission_mode_reminders_follow_the_mode_transitions`（真实 turn 循环，
+   进入 auto → 注入、历史已含提醒 → 不重复、回到 manual → 注入 exit）。
+   **已知交互**：host 在 plan 模式下把 snapshot mode 写成 `plan`（引擎读作 `PermissionMode::Unknown`，
+   权限链按 manual 处理），因此 auto ↔ plan 切换会各发一次 exit/enter 提醒——这与引擎实际执行的
+   权限语义一致，但与 v2（plan 是独立轴、不触碰 permission mode）不同。
 2. **#3734 流式 attempt 状态未在重试时失效**：`turn_loop/retry.rs`（279 行 / 4 个 pub 项）没有
    attempt-state 失效逻辑，`context_tokens.invalidate()` 属 token 记账而非流式增量。先确认 Rust
    是否存在"被弃用 attempt 的增量泄漏到重试后消息"的路径，再决定是否移植。
@@ -459,6 +470,32 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    `$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、`additionalDirectories` 被静默丢弃
    （中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、`session/set_model` 缺失（中）、
    ACP `mcpServers` 写进程级 manager 与 v2 per-session ephemeral 语义相反（中）。
+6. **#3787 托管用量配额模型（客户端侧）**：Rust 路由已是平台原样透传
+   （`server/oauth.rs:653-664,698`），但 `packages/oauth/src/managed-usage.ts:170,183` 仍按旧的
+   `usage`/`limits` 形状解析，TUI `/usage` 面板（`usage-panel.ts:71-72`）在新 payload 下退化为
+   "无用量数据"。需迁移配额域模型（`limit_5h`/`limit_7d`/`limit_month_*` + `boosterWallet`）与
+   展示层，并在 `apps/kimi-code/src/utils/usage/usage-format.ts` 补 `quotaUsageRows`。
+   注意这是 app/oauth 侧债务，不是引擎债务。
+7. **#3785 `[secondary_model].default_effort` 快速失败**：Rust 接受任意字符串
+   （`config/mod.rs:1110-1148`），不校验 `support_efforts`/`always_thinking`；上游在池校验处
+   拒绝非法值。另缺 catalog 的 `adaptive_thinking` 字段（`server/model_catalog.rs:37-51`）。
+8. **#3752 tower 名册身份解析**：Rust 按首个匹配解析调用者（`tools/tower/store.rs:333`），
+   `register_agent`（`:345-355`）不退休同 id 旧条目；上游改为取最后一条并退休重复项。
+   触发条件在 Rust 侧潜伏（worker id 为随机 `subagent-<u64>`，`subagent/manager.rs:667`）。
+9. **#3667 动态工具与 MCP 延迟披露**：三部分全缺——官方模型的 `dynamically_loaded_tools`
+   能力（`server/provider_refresh.rs:83-141`）、每服务器 `deferred` 字段
+   （`config/mod.rs:155-198`）、`select_tools` 的广告位（可执行但从未进入
+   `tools/tool_policy.rs:128-165` 的工具表；`tools/select_tools.rs:19-26` 明确写着延迟披露
+   刻意未实现）。
+10. **#3747 提示队列折叠的两个行为差**：队列语义已一致，但 (a) 中止已结算提示 Rust 返回
+    40903（`server/mod.rs:5496-5505`），上游改为 40402；(b) 提示图片压缩说明在 Rust 媒体入口
+    完全缺失（`server/mod.rs:1011-1120`）。
+11. **#3750 压缩尝试上限可配置**：无 `loop_control.compaction_max_attempts` 键；摘要器硬编码
+    `RetryConfig::default()` = 10 次（`compaction/mod.rs:308`、`turn_loop/retry.rs:10`），
+    上游默认 5 且可配。
+12. **#3749 AI 会话标题**：`auto_session_title` 开关在 fork 原生注册表里本就不存在，但它门控的
+    AI 标题路径未实现——`derive_session_title` 直接拒绝 `source=digest`
+    （`session/sqlite_store.rs:1777`），`fetchChatTitle` 无消费者。
 
 ### 6.2 本轮已修复（含证据）
 

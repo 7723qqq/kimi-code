@@ -5,20 +5,125 @@
   "recordedAt": "2026-09-15",
   "entries": [
     {
+      "sha": "bb0c66a15b77af5185a9d44428c87310fa358394",
+      "date": "2026-09-15",
+      "subject": "feat(oauth): switch the managed usage payload to the quota model (#3787)",
+      "verdict": "tracked",
+      "note": "Rust /api/v1/oauth/usage is already a raw platform passthrough (server/oauth.rs:653-664,698); the fork's packages/oauth parser (managed-usage.ts:170,183) and the TUI usage panel still read the retired usage/limits shape, so /usage degrades against the new quota payload.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "513e71edac0bdbbfaf70d9e50b58568e3695ce4c",
+      "date": "2026-09-15",
+      "subject": "feat(agent-core-v2): fail fast on unsupported [secondary_model].default_effort (#3785)",
+      "verdict": "tracked",
+      "note": "Rust accepts any [secondary_model].default_effort string (config/mod.rs:1110-1148) with no support_efforts/always_thinking validation, and the assembled catalog model lacks adaptive_thinking (server/model_catalog.rs:37-51).",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "f2486241fb5e268d7a43cb589b5c2d59af8db571",
+      "date": "2026-09-15",
+      "subject": "perf(agent-core-v2): shard the session event bus by agent id (#3775)",
+      "verdict": "not-applicable",
+      "note": "TS-internal event-bus sharding; Rust fans out one subscriber per session lane (server/hub.rs:227) with per-connection bounded queues."
+    },
+    {
+      "sha": "48fad6e7d9cd00511c6118e84ae6d22dafb96be9",
+      "date": "2026-09-15",
+      "subject": "fix(agent-core-v2): release disposed agent scopes from the DI dependency graph (#3776)",
+      "verdict": "not-applicable",
+      "note": "No DI container or dependency graph in the Rust engine; subagent instance maps are deliberate resume state, not a disposed-scope leak."
+    },
+    {
+      "sha": "82ec469e47eed52feb664fd361e3d8dcb774596e",
+      "date": "2026-09-15",
+      "subject": "fix(agent-core-v2): keep swarm cancellation from crashing the CLI (#3779)",
+      "verdict": "ported",
+      "note": "Rust swarm cancellation is a typed result (swarm/agent_run_batch.rs:454-456,836); the unhandled-rejection crash has no analogue."
+    },
+    {
+      "sha": "0725ef1ce0a7f9c15db7ffc042f57308657b3ee6",
+      "date": "2026-09-15",
+      "subject": "fix(agent-core-v2): tower mode mistaking newly agents for previous name (#3752)",
+      "verdict": "tracked",
+      "note": "Rust tower resolves caller identity by first match (tools/tower/store.rs:333) and never retires duplicate agent ids (:345-355); the trigger is latent because worker ids are random (subagent/manager.rs:667).",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "1336be38777959cc558fed2b51dc53caa07da5db",
+      "date": "2026-09-14",
+      "subject": "fix(kap-server): verify indexed search results against session sources (#3631)",
+      "verdict": "ported",
+      "note": "Rust search reads the store directly (server/mod.rs:2644 -> session/sqlite_store.rs:1356) and session deletion cascades to messages (sqlite_store.rs:280,302-313), so stale-index hits cannot occur."
+    },
+    {
+      "sha": "2d4d799ac36abda19d3109513f777d82245811de",
+      "date": "2026-09-14",
+      "subject": "fix(kap-server): omit hidden thinking summaries from v1 session history fold (#3765)",
+      "verdict": "ported",
+      "note": "No hidden-think concept exists in the Rust engine (rpc/types.rs:487-491); llm/openai.rs never parses reasoning_details, so the history fold cannot emit hidden summaries."
+    },
+    {
+      "sha": "cd0d4a1d3e5d61ca47d6e92af68b0c505cef269a",
+      "date": "2026-09-14",
+      "subject": "fix(agent-core-v2): display reasoning_content over reasoning_details summary in chat completions (#3735)",
+      "verdict": "ported",
+      "note": "Rust already prefers reasoning_content (llm/openai.rs:380-390) and never reads reasoning_details; the hidden flag has no counterpart because no summary part is produced."
+    },
+    {
+      "sha": "9296e6877032328fcd9cf1d145f9286bec140897",
+      "date": "2026-09-14",
+      "subject": "feat: declare dynamically_loaded_tools for official models and add per-server MCP deferred disclosure (#3667)",
+      "verdict": "tracked",
+      "note": "All three parts absent: no dynamically_loaded_tools capability (server/provider_refresh.rs:83-141), no per-server deferred field (config/mod.rs:155-198), and select_tools is executable but never advertised (tools/tool_policy.rs:128-165).",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "46233953795c62051b433956db60c6c218d2cede",
+      "date": "2026-09-14",
+      "subject": "refactor(agent-core-v2): fold the prompt queue into the agent loop service (#3747)",
+      "verdict": "tracked",
+      "note": "The prompt-queue fold is internal (Rust queues/steers/aborts identically); the real deltas are the abort-of-settled-prompt code (Rust 40903 at server/mod.rs:5496-5505 vs upstream 40402) and the absent prompt-image compression caption.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "775a6c35de40e6dd8cc399cc848f95818733ee7c",
+      "date": "2026-09-14",
+      "subject": "feat(agent-core-v2): make the compaction attempt limit configurable (#3750)",
+      "verdict": "tracked",
+      "note": "No loop_control.compaction_max_attempts key; the summarizer hardcodes RetryConfig::default() = 10 attempts (compaction/mod.rs:308, turn_loop/retry.rs:10) where upstream defaults to 5.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "6126472c7af421070f09c470c5750455dd277657",
+      "date": "2026-09-14",
+      "subject": "feat(agent-core-v2): graduate AI session titles from experimental (#3749)",
+      "verdict": "tracked",
+      "note": "The auto_session_title flag is already absent from the fork's native registry, but the AI title path it gated is unimplemented: derive_session_title rejects source=digest (session/sqlite_store.rs:1777) and fetchChatTitle has no consumer.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "7d7e8de80cfc0c52577b5ba787bfcd917a1c6ef8",
+      "date": "2026-09-13",
+      "subject": "refactor(agent-core-v2): rebuild wire persistence and flip agents to session-spawned actors (#3737)",
+      "verdict": "not-applicable",
+      "note": "Internal TS persistence/DI rebuild; the removed checkpoint-depth undo clamp never existed in Rust and the new wire-journal record family has no Rust counterpart (Rust persists to SQLite)."
+    },
+    {
       "sha": "ee2cac102b835fcd7adb3d4b9bc3d62b0b71cdfd",
       "date": "2026-09-12",
       "subject": "fix(agent-core-v2): invalidate streamed attempt state when the llm requester retries below the turn (#3734)",
       "verdict": "tracked",
-      "roadmap": "§6.2",
-      "note": "Rust turn_loop/retry.rs has no attempt-state invalidation; streamed deltas from a discarded attempt may survive into the retry."
+      "note": "Rust turn_loop/retry.rs has no attempt-state invalidation; streamed deltas from a discarded attempt may survive into the retry.",
+      "roadmap": "§6.2"
     },
     {
       "sha": "b1807253c34e12b0ecf60c9b4da3890d0c80ce72",
       "date": "2026-09-11",
       "subject": "feat(agent-core-v2): add KIMI_CODE_PERMISSION_MODE_REMINDER env to disable auto-mode reminders (#3728)",
       "verdict": "tracked",
-      "roadmap": "§6.1",
-      "note": "The whole permission_mode reminder injection is absent from the fork (engine and app); the env flag is only its switch."
+      "note": "The whole permission_mode reminder injection is absent from the fork (engine and app); the env flag is only its switch.",
+      "roadmap": "§6.1"
     },
     {
       "sha": "72dbb9bb52dafcd1466f107c02c0e06fe52c0012",
@@ -32,24 +137,24 @@
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): suppress task notifications before loop quiescence on remove (#3720)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Task-notification timing nuance; Rust TaskRunner lifecycle not compared against this rule yet."
+      "note": "Task-notification timing nuance; Rust TaskRunner lifecycle not compared against this rule yet.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "f728cb158c42b0b27a14be799c37174a37a8d9e9",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): rebuild session and search indexes on storage failures, journal session-index freshness (#3694)",
       "verdict": "tracked",
-      "roadmap": "§6.2",
-      "note": "Rust session/sqlite_store.rs has no rebuild/reindex path on storage failure."
+      "note": "Rust session/sqlite_store.rs has no rebuild/reindex path on storage failure.",
+      "roadmap": "§6.2"
     },
     {
       "sha": "c250a31d068df60cfaeaec93a12577df746807d8",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): keep late task settlement silent after agent teardown (#3717)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Late-settlement silencing after teardown; Rust TaskRunner not compared against this rule yet."
+      "note": "Late-settlement silencing after teardown; Rust TaskRunner not compared against this rule yet.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "e348cf59ea1a9206e2d118cf54ba6e89a6e814c1",
@@ -98,56 +203,56 @@
       "date": "2026-09-10",
       "subject": "feat(kap-server): add flat entity message protocol (v3 WS + history API) (#3532)",
       "verdict": "tracked",
-      "roadmap": "§6.4",
-      "note": "Contract-generation gap: Rust server exposes no v3 flat-entity WS/history surface, and apps/kimi-inspect still matches the pre-#3532 protocol."
+      "note": "Contract-generation gap: Rust server exposes no v3 flat-entity WS/history surface, and apps/kimi-inspect still matches the pre-#3532 protocol.",
+      "roadmap": "§6.4"
     },
     {
       "sha": "5e452fc2ddf5a0d9feedfbf3c7cdde4246fc44b6",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): let steer interrupt background task waits (#3697)",
       "verdict": "tracked",
-      "roadmap": "§6.2",
-      "note": "Rust steer handling is goal-steering text only; no evidence a steer interrupts a background-task wait."
+      "note": "Rust steer handling is goal-steering text only; no evidence a steer interrupts a background-task wait.",
+      "roadmap": "§6.2"
     },
     {
       "sha": "2da4aa23b0d484312cc068b2d4b2a62e694a2bfe",
       "date": "2026-09-10",
       "subject": "feat(tower): reliability fixes (#3648)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Upstream rewrote tower protocol store/send/spawn; per-fix comparison against Rust tools/tower/ not done."
+      "note": "Upstream rewrote tower protocol store/send/spawn; per-fix comparison against Rust tools/tower/ not done.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "9f7e68e8bdb70d3e5cde5a924740e357ede2fc40",
       "date": "2026-09-10",
       "subject": "fix(mcp): preserve original attachments omitted from model output (#3688)",
       "verdict": "tracked",
-      "roadmap": "§6.2",
-      "note": "Rust preserves structuredContent/_meta but has no session-attachment original preservation."
+      "note": "Rust preserves structuredContent/_meta but has no session-attachment original preservation.",
+      "roadmap": "§6.2"
     },
     {
       "sha": "aad4a7df2f745cc2936ecc159df6607a74671ad0",
       "date": "2026-09-10",
       "subject": "feat(agent-core-v2): event-source the human agent state store (#3691)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Applies to the TS human agent machine (human/agent/), which has no Rust counterpart; needs a decision, not necessarily a port."
+      "note": "Applies to the TS human agent machine (human/agent/), which has no Rust counterpart; needs a decision, not necessarily a port.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "1306a9a8dbd5acd9532182c36edcabbc7e8de807",
       "date": "2026-09-09",
       "subject": "feat(agent-core-v2): warn on [models] entries missing the model field (#3681)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Config validation warning; Rust config/mod.rs not compared yet."
+      "note": "Config validation warning; Rust config/mod.rs not compared yet.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "6299cfda701c51c8b243c6c624d8dd73fea35bb4",
       "date": "2026-09-09",
       "subject": "feat(kap-server): stream raw xstate inspection events over /api/v1/debug/ws (#3687)",
       "verdict": "tracked",
-      "roadmap": "§6.4",
-      "note": "Debug WS inspection stream; Rust server/debug.rs exposes REST only."
+      "note": "Debug WS inspection stream; Rust server/debug.rs exposes REST only.",
+      "roadmap": "§6.4"
     },
     {
       "sha": "56ed9549c673767afd49a14e0bc73caf5637cd84",
@@ -161,8 +266,8 @@
       "date": "2026-09-09",
       "subject": "refactor(agent-core-v2): rewire the model catalog runtime onto the provider-catalog state machine (#3606)",
       "verdict": "tracked",
-      "roadmap": "§6.3",
-      "note": "Model-catalog runtime behavior; Rust catalog surface not compared against the state-machine semantics."
+      "note": "Model-catalog runtime behavior; Rust catalog surface not compared against the state-machine semantics.",
+      "roadmap": "§6.3"
     },
     {
       "sha": "68f8984a7ce8e690974e63389157e91428504ccb",

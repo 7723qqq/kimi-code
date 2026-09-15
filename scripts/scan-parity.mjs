@@ -19,11 +19,11 @@
  *   - v3 messages: `packages/kimi-agent/v3-message-contract.json` — the frozen
  *     snapshot of upstream's flat-entity union, per-variant fields included —
  *     vs the message enums and payload structs in `src/server/v3/messages.rs`.
- *     When the gitignored `.tmp/v2-ref` upstream extraction is present this
- *     also re-checks the snapshot against upstream's own schemas, which is what
- *     keeps a hand-transcribed snapshot from rotting between refreshes. That
- *     check is skipped where the extraction is absent (CI), so refreshing the
- *     snapshot stays a local, reviewable step.
+ *     The snapshot is also re-checked against upstream's own schemas — from the
+ *     gitignored `.tmp/v2-ref` extraction when present, otherwise from the
+ *     `upstream/main` git ref — which is what keeps a hand-transcribed snapshot
+ *     from rotting between refreshes. When neither source is available the
+ *     cross-check is skipped with a visible note instead of passing quietly.
  *
  * The client-facing event *vocabulary* is not duplicated here: it is already
  * pinned by `ws-event-contract.json` plus the Rust `web_events.rs` test and
@@ -35,6 +35,7 @@
  * matcher, not by weakening the contract.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -268,6 +269,35 @@ function collectRustV3Messages() {
   return { server: collect('ServerMessage'), client: collect('ClientMessage') };
 }
 
+/**
+ * Upstream's v3 message sources for the snapshot cross-check: the gitignored
+ * `.tmp/v2-ref` extraction when present, otherwise the `upstream/main` git ref.
+ * Returns null when neither is available.
+ */
+function readUpstreamV3Sources() {
+  const dir = 'packages/kap-server/src/protocol/messages';
+  const localDir = join(ROOT, '.tmp/v2-ref', dir);
+  if (existsSync(localDir)) {
+    return {
+      sources: readdirSync(localDir).map((file) => read(join(localDir, file))),
+      revision: 'local .tmp/v2-ref',
+    };
+  }
+  const ref = process.env.KIMI_UPSTREAM_REF ?? 'upstream/main';
+  const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  try {
+    const revision = git('rev-parse', '--short', ref).trim();
+    const sources = git('ls-tree', '--name-only', `${ref}:${dir}`)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .map((file) => git('show', `${ref}:${dir}/${file}`));
+    return { sources, revision };
+  } catch {
+    return null;
+  }
+}
+
 function main() {
   /** @type {string[]} */
   const failures = [];
@@ -380,18 +410,19 @@ function main() {
   }
 
   let upstreamV3Note = '';
-  const upstreamV3Dir = join(ROOT, '.tmp/v2-ref/packages/kap-server/src/protocol/messages');
-  if (existsSync(upstreamV3Dir)) {
+  const upstream = readUpstreamV3Sources();
+  if (upstream === null) {
+    upstreamV3Note = ' (upstream cross-check skipped: no .tmp/v2-ref and no upstream ref)';
+  } else {
     const upstreamTypes = new Set();
-    for (const file of readdirSync(upstreamV3Dir)) {
-      for (const m of read(join(upstreamV3Dir, file)).matchAll(/type:\s*z\.literal\('([a-z_.]+)'\)/g))
-        upstreamTypes.add(m[1]);
+    for (const source of upstream.sources) {
+      for (const m of source.matchAll(/type:\s*z\.literal\('([a-z_.]+)'\)/g)) upstreamTypes.add(m[1]);
     }
     for (const variant of [...V3MessageContract.server, ...V3MessageContract.client]) {
       if (!upstreamTypes.has(variant.type))
         failures.push(`V3    ${variant.type} is in the mirror but upstream declares no such message`);
     }
-    upstreamV3Note = ` (upstream ${upstreamTypes.size} literal types seen)`;
+    upstreamV3Note = ` (upstream ${upstreamTypes.size} literal types seen @ ${upstream.revision})`;
   }
 
   if (failures.length) {
