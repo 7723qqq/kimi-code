@@ -369,11 +369,10 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
             return Some(ERRORED.into());
         }
     };
-    if let Err(e) = stdin.write_all(payload_json.as_bytes()).await {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
-        return Some(format!("{ERRORED}: {e}"));
-    }
+    // v2 attaches an empty 'error' handler to the hook's stdin and ends the
+    // stream: a hook that exits without reading its input (EPIPE) must still
+    // have its exit code and stderr honored, so the write is best-effort.
+    let _ = stdin.write_all(payload_json.as_bytes()).await;
     drop(stdin);
 
     let stdout = child.stdout.take();
