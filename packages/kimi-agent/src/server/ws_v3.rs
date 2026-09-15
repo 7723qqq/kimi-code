@@ -303,7 +303,7 @@ impl Connection<'_> {
         let session_id = frame.session_id.clone();
         if self.store.get_session(&session_id).ok().flatten().is_none() {
             self.send_ack(
-                frame.id as i64,
+                frame.id,
                 error_codes::SESSION_NOT_FOUND,
                 Some("session not found"),
             )
@@ -325,7 +325,7 @@ impl Connection<'_> {
         let recovery = recovery_page(self.store, &session_id, &agent_id);
         let filter = SubscriptionFilter::new(frame.agent_ids.clone(), frame.omit.clone());
 
-        self.send_ack(frame.id as i64, ACK_SUCCESS, None).await;
+        self.send_ack(frame.id, ACK_SUCCESS, None).await;
         for entity in &recovery {
             if filter.allows(entity) {
                 self.send(entity).await;
@@ -345,7 +345,7 @@ impl Connection<'_> {
         // Dropping the stream is the whole release: the connection keeps its one
         // hub subscription, and an unknown session simply has no stream to drop.
         self.sessions.remove(&frame.session_id);
-        self.send_ack(frame.id as i64, ACK_SUCCESS, None).await;
+        self.send_ack(frame.id, ACK_SUCCESS, None).await;
     }
 
     async fn send(&self, entity: &ServerMessage) {
