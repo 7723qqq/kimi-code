@@ -146,30 +146,27 @@ pub fn detect_os() -> &'static str {
     }
 }
 
+/// The shell's display name: the last path component with a Windows `.exe`
+/// suffix trimmed. Splits on both separators so a Windows path handed to a
+/// POSIX build (WSL) still yields the bare name.
+fn shell_name_from_path(path: &str) -> String {
+    path.rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches(".exe")
+        .to_string()
+}
+
 /// Detect shell name and path, honoring explicit overrides and environment variables.
 pub fn detect_shell(override_shell: Option<&str>) -> (String, String) {
     if let Some(explicit) = override_shell {
-        let p = Path::new(explicit);
-        let name = p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(explicit)
-            .trim_end_matches(".exe")
-            .to_string();
-        return (name, explicit.to_string());
+        return (shell_name_from_path(explicit), explicit.to_string());
     }
 
     if let Ok(env_shell) = std::env::var("KIMI_SHELL_PATH")
         && !env_shell.is_empty()
     {
-        let p = Path::new(&env_shell);
-        let name = p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(&env_shell)
-            .trim_end_matches(".exe")
-            .to_string();
-        return (name, env_shell);
+        return (shell_name_from_path(&env_shell), env_shell);
     }
 
     #[cfg(target_os = "windows")]
@@ -198,12 +195,7 @@ pub fn detect_shell(override_shell: Option<&str>) -> (String, String) {
         if let Ok(sh) = std::env::var("SHELL")
             && !sh.is_empty()
         {
-            let name = Path::new(&sh)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("sh")
-                .to_string();
-            return (name, sh);
+            return (shell_name_from_path(&sh), sh);
         }
         ("bash".to_string(), "/bin/bash".to_string())
     }
