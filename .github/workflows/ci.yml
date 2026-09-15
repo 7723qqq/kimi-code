@@ -63,9 +63,14 @@ jobs:
 
       # No vitest suite spawns the CLI binary directly anymore; the step is
       # kept so the stdio transport stays built on every PR.
+      #
+      # `--no-default-features` drops the `napi` feature: the addon's symbols
+      # are provided by the Node/Bun host that dlopens the cdylib, so a
+      # standalone binary has nothing to resolve them against and the Linux
+      # link fails. The CLI never calls into the addon.
       - name: Build kimi-agent CLI binary (debug)
         working-directory: packages/kimi-agent
-        run: cargo build --features cli --bin kimi-agent-cli
+        run: cargo build --no-default-features --features cli,workflow-js --bin kimi-agent-cli
 
       # The vitest suite runs under the Bun runtime (`--bun`): Bun is the
       # canonical dev/test toolchain and the shards need no Node install.
@@ -117,9 +122,13 @@ jobs:
       # `--features cli` is what builds the `kimi-agent-cli` binary the
       # integration tests spawn. It sits behind `required-features`, so a bare
       # `cargo test` leaves a stale artifact in place — or none at all.
+      #
+      # `--no-default-features` drops `napi` for the same reason as the CLI
+      # build in the `test` job: the test harnesses link the lib, and the
+      # addon's symbols only exist inside a Node/Bun host.
       - name: Test Rust engine
         working-directory: packages/kimi-agent
-        run: cargo test --features cli
+        run: cargo test --no-default-features --features cli,workflow-js
 
       # The integration tests skip — and therefore pass — when that binary is
       # missing, which would turn this job green while it tested nothing.
@@ -205,21 +214,32 @@ jobs:
       # (agent-core-v2 / kimi-native-tools / klient / acp-server) may be
       # referenced from manifests, imports, tsconfigs, flake.nix, or CI.
       - run: bun scripts/check-no-legacy-engine.mjs
+      # Fetch upstream once: the parity cross-check and the retired-package delta
+      # ratchet both read it. Best-effort so an unreachable upstream cannot break
+      # the build, but each gate surfaces the skip instead of passing quietly.
+      - name: Fetch upstream for the parity cross-checks
+        run: |
+          git remote add upstream https://github.com/MoonshotAI/kimi-code.git 2>/dev/null || true
+          git fetch --no-tags upstream main
+        continue-on-error: true
       # Rust engine <-> TS interface parity: REST endpoints, WS events, tool
-      # names and napi exports must agree across the two sides.
+      # names and napi exports must agree across the two sides. The v3 snapshot
+      # is also re-checked against upstream's own schemas through the ref fetched
+      # above, so a hand-transcribed mirror cannot rot unnoticed.
       - run: bun scripts/scan-parity.mjs
+      # No-comment policy for packages/transcript (see the root AGENTS.md).
+      - run: bun scripts/check-no-comments.mjs
+      # Service naming conventions across the engine and the app.
+      - run: bun scripts/check-service-naming.mjs
+      # Every t() call must resolve to a locale key.
+      - run: bun scripts/check-t-call-coverage.mjs
+      # Hardcoded user-facing strings that duplicate an existing locale value.
+      - run: bun scripts/scan-hardcoded-v2.mjs
       # Retired-package delta ratchet: this fork deleted packages/agent-core-v2,
       # kap-server, klient and acp-server, so upstream commits touching them merge
       # silently and their behavior is never ported. Every such commit since the
       # merge base must carry a recorded verdict (ported / tracked /
       # not-applicable) in scripts/upstream-v2-delta-allowlist.json.
-      # The fetch is best-effort so an unreachable upstream cannot break the
-      # build, but the skip is surfaced as a warning instead of passing quietly.
-      - name: Fetch upstream for the retired-package delta ratchet
-        run: |
-          git remote add upstream https://github.com/MoonshotAI/kimi-code.git 2>/dev/null || true
-          git fetch --no-tags upstream main
-        continue-on-error: true
       - name: Check retired-package upstream delta
         run: |
           if git rev-parse --verify --quiet upstream/main >/dev/null; then
