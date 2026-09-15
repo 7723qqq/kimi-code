@@ -65,6 +65,7 @@ pub mod v3;
 pub mod web_events;
 pub mod ws;
 pub mod ws_protocol;
+pub mod ws_v3;
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

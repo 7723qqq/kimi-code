@@ -39,6 +39,7 @@ use tokio::time::{Duration, timeout};
 use crate::server::HttpServer;
 use crate::server::router::{HttpRequest, HttpResponse};
 use crate::server::ws;
+use crate::server::ws_v3;
 
 /// Hard cap on the request header block, including the request line.
 const MAX_HEADER_BYTES: usize = 16 * 1024;
@@ -159,6 +160,30 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
         if !decision.is_allowed() {
             let response = HttpResponse::unauthorized("Unauthorized");
             return write_response(&mut stream, &response).await;
+        }
+        // The v3 transport is a different frame contract, not a revision of v1,
+        // so it has its own loop and the two paths coexist.
+        if request.path == ws_v3::V3_WS_PATH {
+            return match ws_v3::serve_ws_v3(
+                stream,
+                &request,
+                leftover,
+                ws_v3::WsV3Options {
+                    hub: server.hub(),
+                    store: server.store_arc(),
+                    server_id: server.server_id().to_string(),
+                    heartbeat: server.heartbeat(),
+                },
+            )
+            .await
+            {
+                Ok(()) => Ok(()),
+                Err(ws::WsError::Io(error)) => Err(error),
+                Err(error) => {
+                    tracing::debug!(?error, "v3 websocket connection closed");
+                    Ok(())
+                }
+            };
         }
         return match ws::serve_ws(
             stream,

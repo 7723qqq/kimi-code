@@ -59,15 +59,15 @@ struct TranscriptSubscription {
 /// The magic value RFC 6455 §1.3 concatenates with the client key before SHA-1.
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-const OP_CONTINUATION: u8 = 0x0;
-const OP_TEXT: u8 = 0x1;
-const OP_BINARY: u8 = 0x2;
-const OP_CLOSE: u8 = 0x8;
-const OP_PING: u8 = 0x9;
-const OP_PONG: u8 = 0xA;
+pub(crate) const OP_CONTINUATION: u8 = 0x0;
+pub(crate) const OP_TEXT: u8 = 0x1;
+pub(crate) const OP_BINARY: u8 = 0x2;
+pub(crate) const OP_CLOSE: u8 = 0x8;
+pub(crate) const OP_PING: u8 = 0x9;
+pub(crate) const OP_PONG: u8 = 0xA;
 
 /// Cap on a single frame payload and on an assembled message.
-const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 
 /// Why the connection is being torn down, and the close code to send back.
 #[derive(Debug)]
@@ -1217,16 +1217,19 @@ async fn handle_inbound(
     }
 }
 
-async fn send_close(writer: &mut WriteHalf<TcpStream>, code: u16) -> Result<(), WsError> {
+pub(crate) async fn send_close(
+    writer: &mut WriteHalf<TcpStream>,
+    code: u16,
+) -> Result<(), WsError> {
     write_frame(writer, OP_CLOSE, &code.to_be_bytes()).await
 }
 
 /// True for codes a peer is allowed to put in a Close frame (§7.4).
-fn is_sendable_close(code: u16) -> bool {
+pub(crate) fn is_sendable_close(code: u16) -> bool {
     (1000..=4999).contains(&code) && !matches!(code, 1004 | 1005 | 1006 | 1015 | (1016..=2999))
 }
 
-async fn read_frame(reader: &mut FrameReader) -> Result<Frame, WsError> {
+pub(crate) async fn read_frame(reader: &mut FrameReader) -> Result<Frame, WsError> {
     let mut head = [0_u8; 2];
     reader.read_exact(&mut head).await?;
 
@@ -1287,7 +1290,7 @@ async fn read_frame(reader: &mut FrameReader) -> Result<Frame, WsError> {
     })
 }
 
-async fn write_frame(
+pub(crate) async fn write_frame(
     writer: &mut WriteHalf<TcpStream>,
     opcode: u8,
     payload: &[u8],
@@ -1314,14 +1317,14 @@ async fn write_frame(
 
 /// A buffered reader over the split socket, seeded with the bytes the HTTP
 /// layer already consumed from the packet but did not use.
-struct FrameReader {
+pub(crate) struct FrameReader {
     reader: ReadHalf<TcpStream>,
     buffer: Vec<u8>,
     position: usize,
 }
 
 impl FrameReader {
-    fn new(reader: ReadHalf<TcpStream>, seed: Vec<u8>) -> Self {
+    pub(crate) fn new(reader: ReadHalf<TcpStream>, seed: Vec<u8>) -> Self {
         Self {
             reader,
             buffer: seed,
