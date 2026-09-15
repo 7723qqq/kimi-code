@@ -64,17 +64,17 @@ if "%PURE_RUST%"=="1" (
     exit /b %errorlevel%
 )
 
-REM Ensure native module is built.
-REM napi-rs on Windows produces files named with -msvc suffix.
-set "NODE_FILE=%~dp0packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node"
+REM Ensure the native engine addon is built.
+REM napi-rs on Windows produces files named with the -msvc suffix.
+set "NODE_FILE=%~dp0packages\kimi-agent\kimi_agent.win32-x64-msvc.node"
 if not exist "%NODE_FILE%" (
     if not exist "%~dp0node_modules\@napi-rs\cli" (
         echo [ERROR] napi CLI not installed. Run `bun install` at the repo root first.
         pause
         exit /b 1
     )
-    echo Building native tools...
-    cd /d "%~dp0\packages\kimi-native-tools"
+    echo Building the native engine addon...
+    cd /d "%~dp0\packages\kimi-agent"
     bun run build 2>&1
     if errorlevel 1 (
         echo [ERROR] napi build failed. Make sure Rust and Visual Studio Build Tools are installed.

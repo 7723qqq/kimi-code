@@ -22,11 +22,11 @@ if not exist "%CLI_EXE%" (
     cd /d "%~dp0"
 )
 
-REM 2. Ensure native tools addon is built if needed
-set "NODE_FILE=%~dp0packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node"
+REM 2. Ensure the native engine addon is built if needed
+set "NODE_FILE=%~dp0packages\kimi-agent\kimi_agent.win32-x64-msvc.node"
 if not exist "%NODE_FILE%" (
-    echo Building native tools addon...
-    cd /d "%~dp0packages\kimi-native-tools"
+    echo Building the native engine addon...
+    cd /d "%~dp0packages\kimi-agent"
     bun run build 2>&1
     cd /d "%~dp0"
 )
