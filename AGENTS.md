@@ -94,7 +94,6 @@ src/
     commands.ts       — CLI command definitions
     options.ts        — CLI option parsing
     sub/              — Subcommands (acp, doctor, export, login, provider, upgrade, vis, web)
-    v2/               — V2 command implementation
     update/           — Self-update mechanism
   tui/                — Terminal UI mode
     kimi-tui.ts       — TUI initialization and main loop
@@ -285,11 +284,12 @@ To run a local build inside `~/.kimi-code/` instead of the released binary (Powe
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job installs Bun via `oven-sh/setup-bun`; no job installs Node:
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
-3. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
-4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
-5. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
-7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
+4. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
+5. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+7. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
+8. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
@@ -341,7 +341,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 ### General Coding Rules
 
-- `packages/transcript` is a comment-free zone: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
+- `packages/transcript` is a comment-free zone: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`; the CI lint job runs it as its own step.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`

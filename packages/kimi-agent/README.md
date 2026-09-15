@@ -1,8 +1,8 @@
 # @moonshot-ai/kimi-agent
 
-High-performance Rust agent engine for Kimi Code CLI, designed to progressively replace `packages/agent-core-v2`.
+High-performance Rust agent engine for Kimi Code CLI — the sole runtime since the TypeScript engine packages (`agent-core-v2`, `kap-server`, `klient`, `acp-server`) were retired.
 
-See [ROADMAP.md](./ROADMAP.md) for the active migration roadmap, milestones, architectural invariants, and phased transition plan.
+See [ROADMAP.md](./ROADMAP.md) for the upstream-alignment ledger, milestones, and architectural invariants.
 
 ## Architecture Overview
 
