@@ -13,8 +13,9 @@
 //! Module map:
 //!
 //! - [`entity`] — identity of one flat entity (probe order and key format).
-//! - `messages` — the server message variants and the two client frames.
+//! - [`messages`] — the server message variants and the two client frames.
 //! - `projection` — folds persisted `wire_events` rows into entity messages.
 //! - `history` — the paged cold/live rebuild behind the history route.
 
 pub mod entity;
+pub mod messages;
