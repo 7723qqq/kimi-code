@@ -61,6 +61,7 @@ pub mod router;
 pub mod static_files;
 pub mod terminal;
 pub mod transcript;
+pub mod v3;
 pub mod web_events;
 pub mod ws;
 pub mod ws_protocol;
