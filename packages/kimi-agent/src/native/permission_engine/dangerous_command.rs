@@ -1,7 +1,14 @@
-//! 原生危险命令词法分析器（对齐 TS dangerous-command-ask.ts 366行）。
+//! 原生危险命令词法分析器（对齐 v2 `dangerous-command-ask.ts`）。
 //!
 //! 负责分析 Bash 命令行，检测关机、重启、格式化、dd 物理设备覆盖、
 //! 以及透过 sudo / doas / nohup / bash -c 等包装的高危破坏性指令。
+//!
+//! `rm -rf` 自 upstream #3714 起有一个豁免：当**全部**操作数都是 `/tmp`
+//! 或 `/temp` 下的字面量路径（逐段比较前缀、不含 `..`、不含参数展开/通配
+//! 元字符）时不再判危险。Rust 侧没有 tree-sitter 的字面量元数据，因此把
+//! 上游 `literalText` 的 `UNSAFE_OPERAND` 判据折叠进操作数自身的检查里；
+//! 重定向目标会被朴素分词器当成操作数，故 `rm -rf /tmp/x > log` 在 Rust 侧
+//! 仍判危险（偏保守，fail-closed）。
 
 pub const SIMPLE_DANGEROUS_COMMANDS: &[&str] = &[
     "shutdown",
@@ -57,6 +64,16 @@ pub const WRAPPER_VALUE_OPTIONS: &[&str] = &[
 pub const NESTED_SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh", "ash"];
 
 pub const SYSTEMCTL_DANGEROUS_SUBCOMMANDS: &[&str] = &["poweroff", "reboot", "halt", "kexec"];
+
+/// Roots whose recursive force deletion is exempt from the dangerous-command
+/// ask (v2 `RM_SAFE_TEMP_ROOTS`, upstream #3714).
+pub const RM_SAFE_TEMP_ROOTS: &[&str] = &["/tmp", "/temp"];
+
+/// Characters that make an operand non-literal (v2 `UNSAFE_OPERAND`): parameter
+/// expansion, command substitution, globbing, character classes and `~`.
+/// Upstream decides this with tree-sitter's `literalText`; the native lexer has
+/// no syntax metadata, so the same character set is applied to the operand.
+const UNSAFE_OPERAND_CHARS: &[char] = &['$', '`', '*', '?', '[', ']', '~'];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DangerousVerdict {
@@ -135,6 +152,32 @@ pub fn normalize_command_name(raw: &str) -> String {
     lower
 }
 
+/// Whether `arg` is a short option cluster (`-rf`, `-Rfv`) as opposed to a long
+/// option or an operand (v2 regex `^-[a-zA-Z]+$`).
+fn is_short_option_cluster(arg: &str) -> bool {
+    let Some(flags) = arg.strip_prefix('-') else {
+        return false;
+    };
+    !flags.is_empty() && flags.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// Whether a single `rm` operand is a literal path under one of
+/// [`RM_SAFE_TEMP_ROOTS`] (v2 `isSafeTempRmOperand` plus the literal-ness rule
+/// that upstream tracks separately via `dropped`).
+fn is_safe_temp_rm_operand(operand: &str) -> bool {
+    if operand.is_empty() || operand.contains(UNSAFE_OPERAND_CHARS) {
+        return false;
+    }
+    if operand.split('/').any(|segment| segment == "..") {
+        return false;
+    }
+    RM_SAFE_TEMP_ROOTS.iter().any(|root| {
+        operand
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
+}
+
 fn check_single_command(cmd: &str) -> DangerousVerdict {
     let tokens = tokenize_command(cmd);
     if tokens.is_empty() {
@@ -186,27 +229,42 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         }
 
         // 5. rm -rf 危险删除拦截 (对齐 TS dangerous-command-ask rm 递归强制规范)
+        //    仅当全部操作数都是 /tmp、/temp 下的字面量路径时放行 (upstream #3714)。
         if first == "rm" {
             let mut recursive = false;
             let mut force = false;
+            let mut operands: Vec<&str> = Vec::new();
+            let mut options_ended = false;
             for arg in &current_tokens[1..] {
-                if arg == "--" {
-                    break;
+                if !options_ended && arg == "--" {
+                    options_ended = true;
+                    continue;
+                }
+                if options_ended {
+                    operands.push(arg);
+                    continue;
                 }
                 if arg == "--recursive" {
                     recursive = true;
                 } else if arg == "--force" {
                     force = true;
-                } else if arg.starts_with('-') && !arg.starts_with("--") {
+                } else if is_short_option_cluster(arg) {
                     if arg.contains('r') || arg.contains('R') {
                         recursive = true;
                     }
                     if arg.contains('f') {
                         force = true;
                     }
+                } else {
+                    operands.push(arg);
                 }
             }
             if recursive && force {
+                if !operands.is_empty()
+                    && operands.iter().all(|operand| is_safe_temp_rm_operand(operand))
+                {
+                    return DangerousVerdict::Safe;
+                }
                 return DangerousVerdict::Dangerous("rm -rf".into());
             }
         }
@@ -335,6 +393,46 @@ mod tests {
             analyze_bash_command("bash -c 'sudo dd if=/dev/zero of=/dev/sda bs=1M'"),
             DangerousVerdict::Dangerous("dd of=/dev/sda".into())
         );
+    }
+
+    #[test]
+    fn test_rm_rf_temp_paths_are_exempt() {
+        for allowed in [
+            "rm -rf /tmp/build",
+            "rm -rf /temp/cache",
+            "rm -rf /tmp",
+            "rm -rf -- /tmp/build",
+            "rm -r -f /tmp/a /tmp/b",
+            "sudo rm -rf /tmp/build",
+            "bash -c 'rm -rf /tmp/build'",
+        ] {
+            assert_eq!(
+                analyze_bash_command(allowed),
+                DangerousVerdict::Safe,
+                "expected safe: {allowed}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rm_rf_outside_temp_paths_stay_dangerous() {
+        for dangerous in [
+            "rm -rf /tmp/build /root",
+            "rm -rf /tmp/../etc/passwd",
+            "rm -rf /tmpfoo",
+            "rm -rf /tmp/$USER",
+            "rm -rf /tmp/*",
+            "rm -rf /tmp/`whoami`",
+            "rm -rf",
+            "rm -rf --",
+            "rm -rf -",
+        ] {
+            assert_eq!(
+                analyze_bash_command(dangerous),
+                DangerousVerdict::Dangerous("rm -rf".into()),
+                "expected dangerous: {dangerous}"
+            );
+        }
     }
 
     #[test]
