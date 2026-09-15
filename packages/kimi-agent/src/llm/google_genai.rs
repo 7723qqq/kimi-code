@@ -15,15 +15,38 @@ pub fn build_request(
     messages: &[WireMessage],
     tools: &[ToolInfo],
     thinking_budget: Option<u32>,
+    include_thoughts: bool,
 ) -> Value {
-    build_request_full(messages, tools, thinking_budget)
+    build_request_full(messages, tools, thinking_budget, include_thoughts)
+}
+
+/// Whether this Gemini model family can return thought summaries at all.
+///
+/// `thinkingConfig` is rejected outright by pre-2.5 generations, so the request
+/// only carries it for the families that actually reason. The host has already
+/// decided thinking is enabled (the effort is set); this is the model-side half
+/// of that decision, and it is deliberately generous because model aliases
+/// differ across relays while the capability boundary does not.
+pub fn model_supports_thoughts(model_id: &str) -> bool {
+    let id = model_id.to_ascii_lowercase();
+    id.contains("gemini-2.5")
+        || id.contains("gemini-3")
+        || id.contains("-latest")
+        || id.contains("thinking")
 }
 
 /// Build a full Google GenAI request body with optional thinking configuration.
+///
+/// `include_thoughts` must be set for the model to return its reasoning at all:
+/// `thinkingConfig.includeThoughts` defaults to **false**, so Gemini thinks
+/// silently and streams no `thought: true` part, which makes the accumulator's
+/// think branch below unreachable and shows an empty thinking block for every
+/// Gemini model no matter what the host's effort setting says.
 pub fn build_request_full(
     messages: &[WireMessage],
     tools: &[ToolInfo],
     thinking_budget: Option<u32>,
+    include_thoughts: bool,
 ) -> Value {
     let mut system = String::new();
     let mut contents: Vec<Value> = Vec::new();
@@ -164,7 +187,20 @@ pub fn build_request_full(
         req["tools"] = json!([{ "functionDeclarations": funcs }]);
     }
 
-    if let Some(budget) = thinking_budget
+    if include_thoughts {
+        // `includeThoughts` is what makes Gemini stream its reasoning back;
+        // the budget only bounds it, and Gemini picks a dynamic one when it is
+        // absent — which is the right default here, since the host never
+        // resolves an anthropic-style numeric budget for this protocol.
+        let mut thinking_config = serde_json::Map::new();
+        if let Some(budget) = thinking_budget
+            && budget > 0
+        {
+            thinking_config.insert("thinkingBudget".to_string(), json!(budget));
+        }
+        thinking_config.insert("includeThoughts".to_string(), json!(true));
+        req["generationConfig"] = json!({ "thinkingConfig": Value::Object(thinking_config) });
+    } else if let Some(budget) = thinking_budget
         && budget > 0
     {
         req["generationConfig"] = json!({
@@ -487,7 +523,7 @@ mod tests {
             input_schema: json!({ "type": "object" }),
         }];
 
-        let req = build_request_full(&messages, &tools, Some(2048));
+        let req = build_request_full(&messages, &tools, Some(2048), false);
         assert_eq!(
             req["systemInstruction"]["parts"][0]["text"],
             "You are a bot"
@@ -613,7 +649,7 @@ mod tests {
             },
         ];
 
-        let req = build_request(&msgs, &[], None);
+        let req = build_request(&msgs, &[], None, false);
         let contents = req["contents"].as_array().unwrap();
         assert_eq!(contents.len(), 3);
 
@@ -655,7 +691,7 @@ mod tests {
             ],
         )];
 
-        let req = build_request_full(&messages, &[], None);
+        let req = build_request_full(&messages, &[], None, false);
         let parts = req["contents"][0]["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 4);
 
@@ -709,7 +745,7 @@ mod tests {
                 extras: Some(json!({ "thought_signature_b64": "sig-b64" })),
             }],
         )];
-        let req = build_request_full(&messages, &[], None);
+        let req = build_request_full(&messages, &[], None, false);
         let fc = &req["contents"][0]["parts"][0]["functionCall"];
         assert_eq!(fc["name"], "Grep");
         assert_eq!(fc["thought_signature"], "sig-b64");
@@ -754,7 +790,7 @@ mod tests {
             "",
             finished.tool_calls.clone(),
         )];
-        let req = build_request_full(&messages, &[], None);
+        let req = build_request_full(&messages, &[], None, false);
         assert_eq!(
             req["contents"][0]["parts"][0]["functionCall"]["thought_signature"],
             "sig-stream"
@@ -781,5 +817,53 @@ mod tests {
             .as_ref()
             .expect("snake_case signature captured");
         assert_eq!(extras["thought_signature_b64"], "sig-snake");
+    }
+
+    /// Gemini returns no `thought` part unless the request asks for it, so the
+    /// thinking-enabled request must carry `includeThoughts: true` — without it
+    /// the whole think path below is dead and the TUI shows no reasoning.
+    #[test]
+    fn thinking_request_asks_for_thoughts() {
+        let messages = vec![WireMessage::text("user", "Hello")];
+
+        let req = build_request_full(&messages, &[], None, true);
+        assert_eq!(
+            req["generationConfig"]["thinkingConfig"]["includeThoughts"].as_bool(),
+            Some(true)
+        );
+        // No host-resolved budget for this protocol: Gemini picks a dynamic one
+        // rather than being pinned to an anthropic-shaped number.
+        assert!(
+            req["generationConfig"]["thinkingConfig"]
+                .get("thinkingBudget")
+                .is_none()
+        );
+
+        // A budget, when one is supplied, rides along with the flag.
+        let req = build_request_full(&messages, &[], Some(2048), true);
+        assert_eq!(
+            req["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            2048
+        );
+        assert_eq!(
+            req["generationConfig"]["thinkingConfig"]["includeThoughts"].as_bool(),
+            Some(true)
+        );
+
+        // Thinking off: untouched generationConfig, exactly as before.
+        let req = build_request_full(&messages, &[], None, false);
+        assert!(req.get("generationConfig").is_none());
+    }
+
+    /// `thinkingConfig` is rejected by pre-2.5 generations, so the model gate
+    /// must not enable it for them.
+    #[test]
+    fn model_gate_admits_reasoning_families_only() {
+        assert!(model_supports_thoughts("gemini-2.5-pro"));
+        assert!(model_supports_thoughts("gemini-2.5-flash"));
+        assert!(model_supports_thoughts("google/gemini-3-pro-preview"));
+        assert!(model_supports_thoughts("gemini-flash-latest"));
+        assert!(!model_supports_thoughts("gemini-2.0-flash"));
+        assert!(!model_supports_thoughts("gemini-1.5-pro"));
     }
 }

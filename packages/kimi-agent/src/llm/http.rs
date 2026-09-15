@@ -224,7 +224,27 @@ impl NativeHttpLlm {
                 self.config.reasoning_effort.as_deref(),
             )
         } else if is_google {
-            google_genai::build_request_full(&wire, &params.tools, self.config.thinking_budget)
+            // The host expresses "thinking on" as an *effort* for every
+            // non-anthropic protocol (`thinking_budget` stays None), so that —
+            // not the anthropic-only budget — is the signal that the request
+            // must ask Gemini for its reasoning. Without `includeThoughts` the
+            // response carries no `thought` part and the stream emits no think
+            // delta, which is exactly why Gemini showed no thinking in the TUI
+            // while the effort was configured and on.
+            let reasoning_on = self
+                .config
+                .reasoning_effort
+                .as_deref()
+                .is_some_and(|e| !e.is_empty() && e != "off" && e != "none")
+                || self.config.thinking_budget.is_some_and(|b| b > 0);
+            let include_thoughts =
+                reasoning_on && google_genai::model_supports_thoughts(&self.config.model);
+            google_genai::build_request_full(
+                &wire,
+                &params.tools,
+                self.config.thinking_budget,
+                include_thoughts,
+            )
         } else {
             openai::build_request_full(
                 &self.config.model,
