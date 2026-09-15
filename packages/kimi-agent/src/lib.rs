@@ -450,6 +450,9 @@ impl KimiEngine {
             tool_defs,
             max_steps,
             max_context_tokens: Some(self.engine_config.max_tokens_limit as u32),
+            // This path carries no `PolicySnapshot` (see the guard note above),
+            // so the permission-mode reminders stay off.
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,

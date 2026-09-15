@@ -395,6 +395,9 @@ pub async fn start_repl(
     ));
 
     let policy_snapshot = config.build_policy_snapshot(Some(workspace.clone()));
+    // The permission-mode reminders read the mode the snapshot resolved to;
+    // the snapshot itself moves into the engine below.
+    let permission_mode = Some(policy_snapshot.mode);
     // G-6 #6: PreToolUse hooks ride the same snapshot; the guard runs them
     // before native tool calls (the dummy host's own tool execution never
     // fires user hooks).
@@ -538,6 +541,7 @@ pub async fn start_repl(
         max_steps: config.resolve_max_steps_per_turn().unwrap_or(25),
         max_attempts: config.resolve_max_attempts_per_step(),
         max_context_tokens: None,
+        permission_mode,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
             let gh = gh_for_defs.clone();

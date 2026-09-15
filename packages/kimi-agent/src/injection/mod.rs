@@ -11,7 +11,8 @@
 //! Built-in injections live here: the date-change reminder (v2 `dateChange`
 //! variant) and the workspace-root AGENTS.md reminder (v2 `agents_md`
 //! variant). Goal/plan-mode providers are contributed by
-//! [`goal_plan`] (implemented separately).
+//! [`goal_plan`] (implemented separately), the permission-mode reminders by
+//! [`permission_mode`].
 
 use std::path::{Path, PathBuf};
 
@@ -25,6 +26,9 @@ pub const SYSTEM_REMINDER_SUFFIX: &str = "\n</system-reminder>";
 /// Goal/plan-mode injection providers (implemented separately from this
 /// module; see the injection-layer work item).
 pub mod goal_plan;
+
+/// Permission-mode injection providers (v2 `PermissionModeInjection`).
+pub mod permission_mode;
 
 /// Wrap an injection text in the `<system-reminder>` envelope. The content
 /// is trimmed and placed between the prefix and suffix, exactly like v2's

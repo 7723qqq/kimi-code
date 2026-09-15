@@ -846,6 +846,10 @@ pub struct RunTurnInput<'a> {
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's own default budget.
     pub max_context_tokens: Option<u32>,
+    /// The live permission mode for this turn, when the host carries a policy
+    /// snapshot. Drives the permission-mode reminders (v2
+    /// `PermissionModeInjection`); `None` leaves them off.
+    pub permission_mode: Option<crate::permission::PermissionMode>,
     /// Optional goal context for budget-aware execution and steering.
     /// When present, the loop checks budgets before each step and injects
     /// steering text into the system prompt.

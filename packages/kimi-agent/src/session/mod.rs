@@ -179,6 +179,9 @@ pub struct SessionConfig {
     /// Context window the host resolved for the session's model (v2
     /// `ModelCapability.max_context_tokens`); `None` keeps the engine default.
     pub max_context_tokens: Option<u32>,
+    /// The permission mode the session's policy snapshot resolved to, for the
+    /// permission-mode reminders. `None` leaves them off.
+    pub permission_mode: Option<crate::permission::PermissionMode>,
     /// Fresh tool definitions per turn (MCP tools can change mid-session;
     /// M1d replaces this provider with `host/list_tools`).
     pub tool_defs: ToolDefsProvider,
@@ -365,6 +368,9 @@ struct SessionContext {
     max_steps: u32,
     max_attempts: Option<u32>,
     max_context_tokens: Option<u32>,
+    /// Permission mode for the permission-mode reminders; see
+    /// [`SessionConfig::permission_mode`].
+    permission_mode: Option<crate::permission::PermissionMode>,
     /// P55: see [`SessionConfig::agent_cancel_slot`].
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Turn-lifecycle hook dispatch; see [`SessionConfig::hook_guard`].
@@ -419,6 +425,7 @@ impl EngineSession {
             max_steps: config.max_steps,
             max_attempts: config.max_attempts,
             max_context_tokens: config.max_context_tokens,
+            permission_mode: config.permission_mode,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
             hook_guard: config.hook_guard.clone(),
             print_background: config.print_background,
@@ -1501,6 +1508,7 @@ async fn run_session_turn(
         tool_defs,
         max_steps: ctx.max_steps,
         max_context_tokens: ctx.max_context_tokens,
+        permission_mode: ctx.permission_mode,
         goal,
         cancellation: Some(cancel),
         hook_guard: ctx.hook_guard.clone(),
@@ -1770,6 +1778,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
             on_before_turn: None,
@@ -1870,6 +1879,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
             on_before_turn: None,
@@ -1947,6 +1957,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: Some(goal),
             on_before_turn: None,

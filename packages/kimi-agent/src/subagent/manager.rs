@@ -354,6 +354,9 @@ async fn run_one(
         // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
         max_steps: u32::MAX,
         max_context_tokens: None,
+        // Subagent turns carry no policy snapshot, and the reminders address
+        // the main agent's user interaction (AskUserQuestion / ExitPlanMode).
+        permission_mode: None,
         goal: None,
         cancellation: Some(cancel_flag.clone()),
         // Lifecycle hooks (`UserPromptSubmit` / `PreCompact` / `Stop`) are
@@ -770,6 +773,7 @@ worktree root the tower assigns you as your full authority scope.";
                 tool_defs: Vec::new(),
                 max_steps: 15,
                 max_context_tokens: None,
+                permission_mode: None,
                 goal: None,
                 cancellation: cancel_flag,
                 hook_guard: None,
@@ -1406,6 +1410,7 @@ worktree root the tower assigns you as your full authority scope.";
             tool_defs: Vec::new(),
             max_steps: 15,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag.clone()),
             hook_guard: None,

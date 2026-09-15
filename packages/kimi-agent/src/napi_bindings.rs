@@ -1705,6 +1705,7 @@ async fn run_turn_rust_impl(
         // configured `maxStepsPerTurn`).
         max_steps: params.max_steps.unwrap_or(u32::MAX),
         max_context_tokens: params.max_context_tokens,
+        permission_mode: pipeline.permission_mode,
         goal,
         cancellation: Some(cancellation),
         hook_guard: hook_guard.clone(),
@@ -2010,6 +2011,7 @@ pub fn create_engine_session(
                 max_steps: params.max_steps.unwrap_or(u32::MAX),
                 max_attempts: params.max_attempts,
                 max_context_tokens: params.max_context_tokens,
+                permission_mode: pipeline.permission_mode,
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
                 on_before_turn: None,

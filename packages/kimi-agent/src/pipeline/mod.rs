@@ -56,6 +56,10 @@ pub struct EnginePipeline {
     /// background work that must not spend the session model's budget (the
     /// memory filing pass). `None` when no pool is configured.
     pub secondary_llm: Option<Arc<dyn LLM>>,
+    /// The permission mode the policy snapshot resolved to, for the turn
+    /// drivers to pass as `RunTurnInput.permission_mode`. `None` when the
+    /// spec carries no policy snapshot.
+    pub permission_mode: Option<crate::permission::PermissionMode>,
     /// The MCP manager this pipeline connected from the spec's
     /// `mcp_manager`. Handed back so an embedder can read the roster — the
     /// manager is built once per pipeline, and without the handle a host had
@@ -429,6 +433,7 @@ pub async fn build_engine_pipeline(
         native_tool_count,
         hook_guard,
         secondary_llm,
+        permission_mode: spec.policy_snapshot.as_ref().map(|snapshot| snapshot.mode),
         mcp_manager,
     })
 }
@@ -706,6 +711,39 @@ mod tests {
             .expect("host answers");
         assert_eq!(result.content, "Read ran on the host");
         assert_eq!(calls.lock().unwrap().as_slice(), ["execute_tool:Read"]);
+    }
+
+    #[tokio::test]
+    async fn pipeline_carries_the_policy_snapshot_mode() {
+        let (inner, _calls) = InProcessHost::new();
+        let pipeline = build_engine_pipeline(
+            &PipelineSpec {
+                policy_snapshot: Some(PolicySnapshot {
+                    mode: crate::permission::PermissionMode::Auto,
+                    ..Default::default()
+                }),
+                ..spec()
+            },
+            Arc::new(inner),
+            host(Arc::new(SubagentManager::new())),
+        )
+        .await
+        .expect("pipeline builds");
+        assert_eq!(
+            pipeline.permission_mode,
+            Some(crate::permission::PermissionMode::Auto),
+            "the turn drivers read the mode the permission engine enforces"
+        );
+
+        let (inner, _calls) = InProcessHost::new();
+        let bare = build_engine_pipeline(
+            &spec(),
+            Arc::new(inner),
+            host(Arc::new(SubagentManager::new())),
+        )
+        .await
+        .expect("pipeline builds");
+        assert_eq!(bare.permission_mode, None);
     }
 
     #[tokio::test]

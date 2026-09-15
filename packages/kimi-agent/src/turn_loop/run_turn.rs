@@ -353,6 +353,7 @@ pub fn run_turn_continued<'a>(
         max_context_tokens,
         goal,
         cancellation,
+        permission_mode,
         hook_guard,
     } = input;
     Box::pin(async move {
@@ -379,6 +380,7 @@ pub fn run_turn_continued<'a>(
                 max_context_tokens,
                 goal: goal.clone(),
                 cancellation: cancellation.clone(),
+                permission_mode,
                 hook_guard: hook_guard.take(),
             };
             let mut result = run_turn(iter_input, callbacks).await?;
@@ -526,6 +528,11 @@ pub fn run_turn<'a>(
     // turn body: a prior disclosure suppresses the per-turn baseline
     // re-injection until the date changes.
     let date_baseline = crate::injection::scan_date_baseline(&user_messages);
+    // Same for the permission-mode reminders: the mode the last reminder
+    // recorded survives across turns, so a resumed session does not
+    // re-announce a mode the model was already told about.
+    let permission_mode_baseline =
+        crate::injection::permission_mode::scan_permission_mode_baseline(&user_messages);
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
     let submitted_prompt = latest_user_text(&user_messages);
@@ -644,6 +651,11 @@ pub fn run_turn<'a>(
         // home-local directory would be a side effect with no consumer.
         let mut injection_registry =
             crate::injection::InjectionRegistry::with_defaults(date_baseline);
+        crate::injection::permission_mode::register_permission_mode_injection(
+            &mut injection_registry,
+            input.permission_mode,
+            permission_mode_baseline,
+        );
         let goal_plan_state = Arc::new(CallbackStateSnapshot::default());
         if input.llm.transport() != "host-proxy" {
             crate::injection::goal_plan::register_goal_plan_injections(
@@ -1578,6 +1590,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -1631,6 +1644,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: Some(guard),
@@ -1695,6 +1709,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
@@ -1742,6 +1757,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: Some(guard),
@@ -1781,6 +1797,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
@@ -1845,6 +1862,7 @@ mod tests {
             max_steps: 2,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -1901,6 +1919,7 @@ mod tests {
             max_steps: 1,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -1988,6 +2007,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2081,6 +2101,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -2123,6 +2144,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2169,6 +2191,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2237,6 +2260,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2265,6 +2289,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2293,6 +2318,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2373,6 +2399,7 @@ mod tests {
             max_steps: 3,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2471,6 +2498,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2569,6 +2597,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2679,6 +2708,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2794,6 +2824,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2908,6 +2939,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -2991,6 +3023,7 @@ mod tests {
             max_steps: 20,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -3103,6 +3136,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -3166,6 +3200,7 @@ mod tests {
             tool_defs: vec![],
             max_steps: 5,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -3220,6 +3255,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3268,6 +3304,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3319,6 +3356,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3379,6 +3417,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3430,6 +3469,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3520,6 +3560,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3567,6 +3608,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
@@ -3668,6 +3710,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: Some(cancellation),
             hook_guard: None,
@@ -3728,6 +3771,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -3767,6 +3811,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
@@ -3861,6 +3906,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
@@ -3936,6 +3982,7 @@ mod tests {
             max_steps: 3,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4129,6 +4176,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4227,6 +4275,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4249,6 +4298,93 @@ mod tests {
         assert_eq!(date_injection.role, "user");
         assert!(date_injection.content.starts_with("<system-reminder>\n"));
         assert!(date_injection.content.ends_with("\n</system-reminder>"));
+    }
+
+    /// The permission-mode reminders ride the same injection pass: entering
+    /// auto mode announces itself, a turn whose history already carries the
+    /// reminder does not repeat it, and leaving auto mode announces the exit.
+    #[tokio::test]
+    async fn test_permission_mode_reminders_follow_the_mode_transitions() {
+        use crate::permission::PermissionMode;
+
+        fn input<'a>(
+            llm: &'a PredictTestLlm,
+            messages: Vec<LLMMessage>,
+            mode: PermissionMode,
+        ) -> RunTurnInput<'a> {
+            RunTurnInput {
+                turn_id: "test-permission-mode".into(),
+                llm,
+                messages,
+                tools: &[],
+                tool_defs: vec![],
+                max_steps: 5,
+                max_attempts: None,
+                max_context_tokens: None,
+                permission_mode: Some(mode),
+                goal: None,
+                cancellation: None,
+                hook_guard: None,
+            }
+        }
+
+        fn count(messages: &[LLMMessage], marker: &str) -> usize {
+            messages
+                .iter()
+                .filter(|message| message.content.contains(marker))
+                .count()
+        }
+
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        let prompt = |text: &str| LLMMessage {
+            role: "user".into(),
+            content: text.into(),
+            ..Default::default()
+        };
+
+        let entered = run_turn(
+            input(&llm, vec![prompt("hi")], PermissionMode::Auto),
+            &callbacks,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            count(&entered.messages, "Auto permission mode is active."),
+            1,
+            "entering auto mode injects the enter reminder"
+        );
+
+        let mut history = entered.messages.clone();
+        history.push(prompt("again"));
+        let stayed = run_turn(input(&llm, history, PermissionMode::Auto), &callbacks)
+            .await
+            .unwrap();
+        assert_eq!(
+            count(&stayed.messages, "Auto permission mode is active."),
+            1,
+            "the reminder is not repeated while auto mode stays active"
+        );
+
+        let mut history = stayed.messages.clone();
+        history.push(prompt("back to manual"));
+        let exited = run_turn(input(&llm, history, PermissionMode::Manual), &callbacks)
+            .await
+            .unwrap();
+        assert_eq!(
+            count(
+                &exited.messages,
+                "Auto permission mode is no longer active."
+            ),
+            1,
+            "leaving auto mode injects the exit reminder"
+        );
     }
 
     // ── Telemetry emission tests (M1c `host/telemetry`) ─────────────────
@@ -4282,6 +4418,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4341,6 +4478,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
@@ -4397,6 +4535,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
@@ -4547,6 +4686,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4635,6 +4775,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4719,6 +4860,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,
@@ -4857,6 +4999,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: Some(100_000),
+            permission_mode: None,
             goal: None,
             cancellation: None,
             hook_guard: None,

@@ -1128,6 +1128,11 @@ impl ServerEngine {
             tool_defs: vec![],
             max_steps: self.max_steps,
             max_context_tokens: None,
+            permission_mode: self
+                .spec
+                .policy_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.mode),
             goal,
             cancellation: Some(cancel),
             hook_guard,
