@@ -183,7 +183,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Full history: the retired-package delta ratchet below needs the merge
+      # base with upstream/main.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -204,6 +208,25 @@ jobs:
       # Rust engine <-> TS interface parity: REST endpoints, WS events, tool
       # names and napi exports must agree across the two sides.
       - run: bun scripts/scan-parity.mjs
+      # Retired-package delta ratchet: this fork deleted packages/agent-core-v2,
+      # kap-server, klient and acp-server, so upstream commits touching them merge
+      # silently and their behavior is never ported. Every such commit since the
+      # merge base must carry a recorded verdict (ported / tracked /
+      # not-applicable) in scripts/upstream-v2-delta-allowlist.json.
+      # The fetch is best-effort so an unreachable upstream cannot break the
+      # build, but the skip is surfaced as a warning instead of passing quietly.
+      - name: Fetch upstream for the retired-package delta ratchet
+        run: |
+          git remote add upstream https://github.com/MoonshotAI/kimi-code.git 2>/dev/null || true
+          git fetch --no-tags upstream main
+        continue-on-error: true
+      - name: Check retired-package upstream delta
+        run: |
+          if git rev-parse --verify --quiet upstream/main >/dev/null; then
+            bun scripts/check-upstream-v2-delta.mjs
+          else
+            echo "::warning::upstream/main unreachable — the retired-package delta ratchet did not run"
+          fi
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
       - run: bun scripts/check-locale-keys.mjs
