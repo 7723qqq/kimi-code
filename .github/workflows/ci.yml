@@ -161,8 +161,6 @@ jobs:
 
   test-windows:
     runs-on: windows-latest
-    # Temporarily disabled while Windows tests are being stabilized.
-    if: false
 
     steps:
       - uses: actions/checkout@v4
@@ -173,16 +171,24 @@ jobs:
 
       - uses: actions/cache@v4
         with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/kimi-agent/target
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}-cargo-${{ hashFiles('packages/kimi-agent/Cargo.lock') }}
 
       # Same Bun-runtime note as the sharded test job.
       - run: bun install --frozen-lockfile
+
+      - name: Install Rust toolchain (kimi-agent)
+        uses: dtolnay/rust-toolchain@stable
+
+      # The suite exercises the engine through the napi addon; without this
+      # build the native-backed tests fail on a fresh checkout.
+      - name: Build kimi-agent native addon
+        run: cd packages/kimi-agent && bun run build
+
       # Windows runners are slower and run the whole suite (including
       # in-process e2e tests) under more contention, so the default 5s test
       # timeout causes flaky failures. Give it more headroom.

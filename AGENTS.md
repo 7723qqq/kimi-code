@@ -285,11 +285,12 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
-4. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
-5. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
-6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-7. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
-8. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
+5. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
+9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
