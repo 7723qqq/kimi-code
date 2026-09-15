@@ -160,6 +160,7 @@ async fn run_turn_sync(
         max_steps: steps,
         max_attempts: Some(1),
         max_context_tokens: None,
+        compaction_max_attempts: None,
         permission_mode: None,
         goal: None,
         cancellation: None,

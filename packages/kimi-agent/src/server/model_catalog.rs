@@ -48,6 +48,10 @@ struct ModelItem<'a> {
     support_efforts: Option<&'a Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     default_effort: Option<&'a str>,
+    /// Explicit adaptive-thinking support (v2 #3785 surfaces
+    /// `adaptiveThinking` on the assembled catalog model).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adaptive_thinking: Option<bool>,
 }
 
 /// Every `[models.*]` alias mapped to `ModelCatalogItem` (v2
@@ -72,6 +76,7 @@ pub fn models(config: &KimiConfig) -> Value {
             capabilities: alias.capabilities.as_ref(),
             support_efforts: alias.support_efforts.as_ref(),
             default_effort: alias.default_effort.as_deref(),
+            adaptive_thinking: alias.adaptive_thinking,
         })
         .collect();
     json!({ "items": items })
@@ -244,6 +249,7 @@ display_name = "K3"
 capabilities = ["tools", "thinking"]
 support_efforts = ["low", "high"]
 default_effort = "high"
+adaptive_thinking = true
 
 [models."kimi-code/fast"]
 provider = "kimi-code"
@@ -269,6 +275,7 @@ max_context_size = 200000
         assert_eq!(k3["max_context_size"], 200000);
         assert_eq!(k3["capabilities"], json!(["tools", "thinking"]));
         assert_eq!(k3["default_effort"], "high");
+        assert_eq!(k3["adaptive_thinking"], true);
 
         // The second alias has no display_name and declares no capabilities;
         // both fall back to the wire model name / stay omitted.
@@ -278,6 +285,7 @@ max_context_size = 200000
             .unwrap();
         assert_eq!(fast["display_name"], "k3-fast");
         assert!(fast.get("capabilities").is_none());
+        assert!(fast.get("adaptive_thinking").is_none());
     }
 
     #[test]

@@ -292,6 +292,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_defs,
                 max_steps,
                 max_context_tokens,
+                compaction_max_attempts: None,
                 permission_mode: input.policy_snapshot.as_ref().map(|snapshot| snapshot.mode),
                 goal: input.goal,
                 cancellation: Some(cancel.flag()),
@@ -404,6 +405,7 @@ async fn main() -> anyhow::Result<()> {
                     max_steps: input.max_steps.unwrap_or(u32::MAX),
                     max_attempts: input.max_attempts,
                     max_context_tokens: input.max_context_tokens,
+                    compaction_max_attempts: None,
                     permission_mode: input.policy_snapshot.as_ref().map(|snapshot| snapshot.mode),
                     tool_defs: tool_defs_provider,
                     goal: goal_provider,
@@ -419,6 +421,9 @@ async fn main() -> anyhow::Result<()> {
                         input.print_wait_ceiling_s,
                         input.print_max_turns,
                     ),
+                    // The host's session id is also the task-notification key:
+                    // the print settle drains only this session's completions.
+                    session_id: input.session_id.clone(),
                     task_runner: subagent_manager.get_task_runner_sync(),
                 })
                 .await;
@@ -1085,6 +1090,7 @@ fn with_standalone_limits(
     config: &kimi_agent::config::KimiConfig,
 ) -> kimi_agent::server::engine::ServerEngine {
     let engine = engine.with_max_attempts(config.resolve_max_attempts_per_step());
+    let engine = engine.with_compaction_max_attempts(config.resolve_compaction_max_attempts());
     let engine = match config.resolve_max_steps_per_turn() {
         Some(max_steps) => engine.with_max_steps(max_steps),
         None => engine,
@@ -1507,6 +1513,7 @@ async fn run_self_test() -> anyhow::Result<()> {
         tool_defs: vec![],
         max_steps: 5,
         max_context_tokens: None,
+        compaction_max_attempts: None,
         permission_mode: None,
         goal: None,
         cancellation: None,

@@ -26,7 +26,7 @@
  *   POST /v1/sessions/{sid}/prompts/{pid}:abort
  *     Body:  empty
  *     Reply: { aborted: true, at_seq: number }   (envelope code 0)
- *            { aborted: false, at_seq: number }  (envelope code 40903, idempotent)
+ *            envelope code 40402 when the prompt is unknown or already settled
  */
 
 import { z } from 'zod';

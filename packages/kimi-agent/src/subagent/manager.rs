@@ -1,9 +1,10 @@
 //! Subagent lifecycle and concurrency manager.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,143 @@ type InstanceEntry = (SubagentInstance, Arc<AtomicBool>);
 type InstanceMap = Arc<RwLock<HashMap<String, InstanceEntry>>>;
 type DefinitionMap = Arc<RwLock<HashMap<String, SubagentDefinition>>>;
 type PersistentMap = Arc<RwLock<HashMap<String, PersistentInstance>>>;
+
+/// How many completed subagent scopes stay resident for a fast resume
+/// (v2 `SUBAGENT_SCOPE_CACHE_SIZE_ENV`).
+pub const SUBAGENT_SCOPE_CACHE_SIZE_ENV: &str = "KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE";
+
+/// Wall-clock bound on a single scope eviction
+/// (v2 `SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV`).
+pub const SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV: &str = "KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS";
+
+pub const DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE: usize = 32;
+
+pub const DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS: u64 = 15_000;
+
+/// How often one scope may refuse eviction before it is left resident
+/// (v2 `MAX_EVICT_ATTEMPTS`).
+const MAX_SCOPE_EVICT_ATTEMPTS: u32 = 3;
+
+/// Parses `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` (v2
+/// `resolveSubagentScopeCacheSize`). Missing or blank values yield the
+/// default; a negative size means "never evict"; a non-integer errors.
+pub fn resolve_subagent_scope_cache_size(env: &HashMap<String, String>) -> Result<usize, String> {
+    let Some(raw) = env.get(SUBAGENT_SCOPE_CACHE_SIZE_ENV) else {
+        return Ok(DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE);
+    }
+    match trimmed.parse::<i64>() {
+        Ok(value) => Ok(value.max(0) as usize),
+        Err(_) => Err(format!(
+            "{SUBAGENT_SCOPE_CACHE_SIZE_ENV} must be an integer, got {raw:?}."
+        )),
+    }
+}
+
+/// Parses `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` (v2
+/// `resolveSubagentScopeEvictTimeoutMs`). Missing or blank values yield the
+/// default; anything but a positive integer errors.
+pub fn resolve_subagent_scope_evict_timeout_ms(
+    env: &HashMap<String, String>,
+) -> Result<u64, String> {
+    let Some(raw) = env.get(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV) else {
+        return Ok(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS);
+    }
+    match trimmed.parse::<u64>() {
+        Ok(value) if value > 0 => Ok(value),
+        _ => Err(format!(
+            "{SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV} must be a positive integer, got {raw:?}."
+        )),
+    }
+}
+
+/// Why a scope eviction did or did not happen (v2 `EvictOutcome`).
+enum EvictOutcome {
+    Removed,
+    Missing,
+    /// The scope is running again; it stays retired and is retried later.
+    Deferred,
+    /// The eviction did not finish inside the configured bound.
+    Timeout,
+}
+
+/// Completed-scope LRU (v2 `subagentScopeCacheService`): once more than
+/// `capacity` completed scopes are resident, the oldest completion is
+/// evicted. Only the resident instance and its in-memory conversation are
+/// dropped — the persisted resume record is left alone, so the next `resume`
+/// rebuilds both from it.
+struct ScopeCache {
+    capacity: usize,
+    evict_timeout: Duration,
+    /// Completed ids in least-recently-completed order, with the eviction
+    /// attempts already spent on each (v2 `retired`).
+    retired: Vec<(String, u32)>,
+    /// Set when the two env vars failed validation; the first spawn reports
+    /// it (v2 throws when the session scope is created).
+    error: Option<String>,
+}
+
+impl ScopeCache {
+    fn from_env() -> Self {
+        let env: HashMap<String, String> = std::env::vars().collect();
+        let resolved = resolve_subagent_scope_cache_size(&env).and_then(|capacity| {
+            resolve_subagent_scope_evict_timeout_ms(&env).map(|timeout_ms| (capacity, timeout_ms))
+        });
+        match resolved {
+            Ok((capacity, timeout_ms)) => Self {
+                capacity,
+                evict_timeout: Duration::from_millis(timeout_ms),
+                retired: Vec::new(),
+                error: None,
+            },
+            Err(error) => Self {
+                capacity: DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE,
+                evict_timeout: Duration::from_millis(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS),
+                retired: Vec::new(),
+                error: Some(error),
+            },
+        }
+    }
+
+    /// Move `id` to the most-recently-completed end (v2 `retire`).
+    fn retire(&mut self, id: &str) {
+        self.retired.retain(|(entry, _)| entry != id);
+        self.retired.push((id.to_string(), 0));
+    }
+
+    /// Drop `id` from the LRU (v2 `revive`): a scope that is live again must
+    /// not be evicted.
+    fn revive(&mut self, id: &str) {
+        self.retired.retain(|(entry, _)| entry != id);
+    }
+
+    /// The oldest entry still worth trying, skipping the ones this pass
+    /// already failed on and the ones that exhausted their attempts
+    /// (v2 `oldestCandidate`).
+    fn oldest_candidate(&self, skipped: &HashSet<String>) -> Option<(String, u32)> {
+        self.retired
+            .iter()
+            .find(|(id, attempts)| *attempts < MAX_SCOPE_EVICT_ATTEMPTS && !skipped.contains(id))
+            .cloned()
+    }
+
+    fn remove(&mut self, id: &str) {
+        self.retired.retain(|(entry, _)| entry != id);
+    }
+
+    fn reinsert(&mut self, id: &str, attempts: u32) {
+        if !self.retired.iter().any(|(entry, _)| entry == id) {
+            self.retired.push((id.to_string(), attempts));
+        }
+    }
+}
 
 /// The last non-empty assistant text of a turn — the subagent's summary
 /// the `Agent` tool reports to the caller (v2 `r.summary`).
@@ -235,6 +373,9 @@ pub struct SubagentManager {
     /// `None` keeps the previous behavior: the swarm follows the subagent
     /// timeout (or the 2h default).
     swarm_timeout_ms: Mutex<Option<u64>>,
+    /// Completed-scope LRU (v2 `subagentScopeCache`), resolved once at
+    /// construction.
+    scope_cache: Mutex<ScopeCache>,
 }
 
 /// A foreground subagent's resume record (P55).
@@ -354,6 +495,7 @@ async fn run_one(
         // timeout (v2 `resolveSubagentTimeoutMs`), not a step cap.
         max_steps: u32::MAX,
         max_context_tokens: None,
+        compaction_max_attempts: None,
         // Subagent turns carry no policy snapshot, and the reminders address
         // the main agent's user interaction (AskUserQuestion / ExitPlanMode).
         permission_mode: None,
@@ -512,6 +654,7 @@ worktree root the tower assigns you as your full authority scope.";
             session_store: RwLock::new(None),
             task_runner: RwLock::new(None),
             swarm_timeout_ms: Mutex::new(None),
+            scope_cache: Mutex::new(ScopeCache::from_env()),
         }
     }
 
@@ -678,6 +821,7 @@ worktree root the tower assigns you as your full authority scope.";
         type_name: &str,
         role: &str,
     ) -> Result<String, String> {
+        self.scope_cache_error()?;
         let defs = self.definitions.read().await;
         if !defs.contains_key(type_name) && type_name != "self" {
             return Err(format!("Unknown subagent type: '{type_name}'"));
@@ -701,6 +845,8 @@ worktree root the tower assigns you as your full authority scope.";
 
         let mut instances = self.instances.write().await;
         instances.insert(id.to_string(), (instance, cancellation));
+        drop(instances);
+        self.revive_scope(id);
 
         Ok(id.to_string())
     }
@@ -773,6 +919,7 @@ worktree root the tower assigns you as your full authority scope.";
                 tool_defs: Vec::new(),
                 max_steps: 15,
                 max_context_tokens: None,
+                compaction_max_attempts: None,
                 permission_mode: None,
                 goal: None,
                 cancellation: cancel_flag,
@@ -975,8 +1122,6 @@ worktree root the tower assigns you as your full authority scope.";
         match outcome {
             Ok(turn_res) => {
                 let summary = final_assistant_summary(&turn_res.messages);
-                self.update_state(id, SubagentState::Completed, Some(summary))
-                    .await;
                 // P55: keep the conversation for native `resume` calls.
                 self.foreground_histories
                     .lock()
@@ -1002,6 +1147,10 @@ worktree root the tower assigns you as your full authority scope.";
                         let _ = store.put_state("subagent_resume", id, &val);
                     }
                 }
+                // Completed last: the scope may be evicted right here, and
+                // only a durable resume record makes that safe.
+                self.update_state(id, SubagentState::Completed, Some(summary))
+                    .await;
                 Ok(ForegroundTurnOutcome::Completed(turn_res))
             }
             Err(RunExit::ParentCancelled) => {
@@ -1073,6 +1222,10 @@ worktree root the tower assigns you as your full authority scope.";
                 }
             }
         };
+        // v2 `rebuildSubagent`: an evicted scope is recreated from its
+        // persisted record before the resumed turn runs.
+        self.rebuild_instance(id, &record.profile_name, &record.role)
+            .await;
         let runtime = self.runtime().await?;
         let def = self
             .definition_for(&record.profile_name, &record.role)
@@ -1118,14 +1271,25 @@ worktree root the tower assigns you as your full authority scope.";
             // The parent-cancelled outcome flows through verbatim so the
             // tool result carries the v2 user-interruption message.
             Err(RunExit::ParentCancelled) => {
+                let _ = self.kill(id).await;
                 return Some(Ok(ForegroundTurnOutcome::ParentCancelled));
             }
-            Err(RunExit::Failed(message)) => return Some(Err(message)),
+            Err(RunExit::Failed(message)) => {
+                self.update_state(id, SubagentState::Failed, Some(format!("Error: {message}")))
+                    .await;
+                return Some(Err(message));
+            }
         };
         if matches!(
             turn_res.stop_reason,
             crate::turn_loop::types::LoopTurnStopReason::MaxTokens
         ) {
+            self.update_state(
+                id,
+                SubagentState::Failed,
+                Some(format!("Error: {SUBAGENT_MAX_TOKENS_ERROR}")),
+            )
+            .await;
             return Some(Err(SUBAGENT_MAX_TOKENS_ERROR.to_string()));
         }
         // P60: resume turns distill under the same policy as the initial
@@ -1145,17 +1309,24 @@ worktree root the tower assigns you as your full authority scope.";
                 match distilled {
                     Ok(turn) => turn,
                     Err(RunExit::ParentCancelled) => {
+                        let _ = self.kill(id).await;
                         return Some(Ok(ForegroundTurnOutcome::ParentCancelled));
                     }
-                    Err(RunExit::Failed(message)) => return Some(Err(message)),
+                    Err(RunExit::Failed(message)) => {
+                        self.update_state(
+                            id,
+                            SubagentState::Failed,
+                            Some(format!("Error: {message}")),
+                        )
+                        .await;
+                        return Some(Err(message));
+                    }
                 }
             }
             None => turn_res,
         };
 
         let summary = final_assistant_summary(&turn_res.messages);
-        self.update_state(id, SubagentState::Completed, Some(summary.clone()))
-            .await;
         self.foreground_histories
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1186,6 +1357,10 @@ worktree root the tower assigns you as your full authority scope.";
                 p.usage = turn_res.usage.clone();
             }
         }
+        // Completed last: the scope may be evicted right here, and only a
+        // durable resume record makes that safe.
+        self.update_state(id, SubagentState::Completed, Some(summary))
+            .await;
         Some(Ok(ForegroundTurnOutcome::Completed(turn_res)))
     }
 
@@ -1299,6 +1474,7 @@ worktree root the tower assigns you as your full authority scope.";
         llm: Arc<dyn crate::turn_loop::types::LLM>,
         callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
     ) -> Result<String, String> {
+        self.scope_cache_error()?;
         let defs = self.definitions.read().await;
         if !defs.contains_key(type_name) && type_name != "self" {
             return Err(format!("Unknown subagent type: '{type_name}'"));
@@ -1342,6 +1518,7 @@ worktree root the tower assigns you as your full authority scope.";
                 },
             );
         }
+        self.revive_scope(&id);
 
         Ok(id)
     }
@@ -1410,6 +1587,7 @@ worktree root the tower assigns you as your full authority scope.";
             tool_defs: Vec::new(),
             max_steps: 15,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag.clone()),
@@ -1497,6 +1675,8 @@ worktree root the tower assigns you as your full authority scope.";
         if removed {
             let mut instances = self.instances.write().await;
             instances.remove(id);
+            drop(instances);
+            self.revive_scope(id);
         }
         removed
     }
@@ -1531,14 +1711,21 @@ worktree root the tower assigns you as your full authority scope.";
         instances.get(id).map(|(inst, _)| inst.clone())
     }
 
-    /// Update the state of a subagent instance.
+    /// Update the state of a subagent instance. A terminal state retires the
+    /// scope into the completed-scope LRU (v2 `SubagentCompleted` /
+    /// `SubagentFailed` / `SubagentCancelled`).
     pub async fn update_state(&self, id: &str, state: SubagentState, result: Option<String>) {
-        let mut instances = self.instances.write().await;
-        if let Some((inst, _)) = instances.get_mut(id) {
-            inst.state = state;
-            if result.is_some() {
-                inst.last_result = result;
+        {
+            let mut instances = self.instances.write().await;
+            if let Some((inst, _)) = instances.get_mut(id) {
+                inst.state = state;
+                if result.is_some() {
+                    inst.last_result = result;
+                }
             }
+        }
+        if state.is_terminal() {
+            self.retire_completed_scope(id).await;
         }
     }
 
@@ -1548,14 +1735,175 @@ worktree root the tower assigns you as your full authority scope.";
         if let Some(r) = runner {
             let _ = r.stop(id, None).await;
         }
-        let mut instances = self.instances.write().await;
-        if let Some((inst, cancel_flag)) = instances.get_mut(id) {
-            cancel_flag.store(true, Ordering::SeqCst);
-            inst.state = SubagentState::Terminated;
-            Ok(true)
-        } else {
-            Ok(false)
+        let killed = {
+            let mut instances = self.instances.write().await;
+            match instances.get_mut(id) {
+                Some((inst, cancel_flag)) => {
+                    cancel_flag.store(true, Ordering::SeqCst);
+                    inst.state = SubagentState::Terminated;
+                    true
+                }
+                None => false,
+            }
+        };
+        if killed {
+            self.retire_completed_scope(id).await;
         }
+        Ok(killed)
+    }
+
+    /// The scope-cache env vars are validated once per manager; a bad value
+    /// fails the spawn that would create the first cached scope instead of
+    /// silently running without eviction.
+    fn scope_cache_error(&self) -> Result<(), String> {
+        let cache = self.scope_cache.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.error.as_ref() {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
+    /// Drop `id` from the LRU: a scope that is live again must not be evicted
+    /// (v2 `revive`).
+    fn revive_scope(&self, id: &str) {
+        self.scope_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .revive(id);
+    }
+
+    /// Retire a completed scope into the LRU and evict the overflow (v2
+    /// `retire` → `evictOverflow`). Persistent instances are excluded — their
+    /// conversation lives only in memory, so `destroy_persistent` stays their
+    /// single removal path — and so is every manager without a session store:
+    /// there the in-memory conversation is the only copy, so evicting it would
+    /// break `resume` instead of rebuilding it.
+    async fn retire_completed_scope(&self, id: &str) {
+        if self.persistent.read().await.contains_key(id) {
+            return;
+        }
+        if self.session_store.read().await.is_none() {
+            return;
+        }
+        {
+            let mut cache = self.scope_cache.lock().unwrap_or_else(|e| e.into_inner());
+            if cache.capacity == 0 || cache.error.is_some() {
+                return;
+            }
+            cache.retire(id);
+        }
+        self.evict_completed_scopes().await;
+    }
+
+    /// Evict completed scopes until the cache fits its capacity. A scope that
+    /// refuses eviction is skipped for the rest of this pass and retried on a
+    /// later one (v2 `evictOverflow`).
+    async fn evict_completed_scopes(&self) {
+        let mut skipped: HashSet<String> = HashSet::new();
+        loop {
+            let (timeout, candidate) = {
+                let cache = self.scope_cache.lock().unwrap_or_else(|e| e.into_inner());
+                if cache.retired.len() <= cache.capacity {
+                    return;
+                }
+                let Some(candidate) = cache.oldest_candidate(&skipped) else {
+                    return;
+                };
+                (cache.evict_timeout, candidate)
+            };
+            let (id, attempts) = candidate;
+            self.scope_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
+            match self.evict_scope(&id, timeout).await {
+                EvictOutcome::Removed | EvictOutcome::Missing => continue,
+                EvictOutcome::Deferred => {
+                    // Still running: keep it retired at the same attempt count
+                    // and move on (v2 defers without spending an attempt).
+                    skipped.insert(id.clone());
+                    self.scope_cache
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .reinsert(&id, attempts);
+                }
+                EvictOutcome::Timeout => {
+                    skipped.insert(id.clone());
+                    let next_attempt = attempts + 1;
+                    if next_attempt >= MAX_SCOPE_EVICT_ATTEMPTS {
+                        tracing::warn!(
+                            subagent = %id,
+                            attempts = next_attempt,
+                            "subagent scope eviction timed out; leaving it resident"
+                        );
+                    }
+                    self.scope_cache
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .reinsert(&id, next_attempt);
+                }
+            }
+        }
+    }
+
+    /// Drop one completed scope's resident state (v2 `evict`): the instance
+    /// entry and the in-memory conversation. The persisted resume record is
+    /// untouched — `resume` rebuilds both from it. The bound covers the whole
+    /// removal, so a scope whose locks stay contended is skipped rather than
+    /// stalling the queue.
+    async fn evict_scope(&self, id: &str, timeout: Duration) -> EvictOutcome {
+        {
+            let instances = self.instances.read().await;
+            match instances.get(id) {
+                None => return EvictOutcome::Missing,
+                Some((instance, _)) if instance.state == SubagentState::Running => {
+                    return EvictOutcome::Deferred;
+                }
+                Some(_) => {}
+            }
+        }
+        let removal = async {
+            let mut instances = self.instances.write().await;
+            instances.remove(id);
+            self.foreground_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id);
+        };
+        match tokio::time::timeout(timeout, removal).await {
+            Ok(()) => EvictOutcome::Removed,
+            Err(_) => EvictOutcome::Timeout,
+        }
+    }
+
+    /// Recreate the resident instance of a scope that was evicted (v2
+    /// `rebuildSubagent`): the persisted resume record carries the profile and
+    /// role, so the rebuilt instance is indistinguishable from the original
+    /// one for the resumed turn — and the rebuilt conversation is tracked by
+    /// the LRU again instead of leaking untracked.
+    async fn rebuild_instance(&self, id: &str, type_name: &str, role: &str) {
+        let mut instances = self.instances.write().await;
+        if instances.contains_key(id) {
+            return;
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        instances.insert(
+            id.to_string(),
+            (
+                SubagentInstance {
+                    id: id.to_string(),
+                    type_name: type_name.to_string(),
+                    role: role.to_string(),
+                    state: SubagentState::Running,
+                    created_at_ms: now_ms,
+                    last_result: None,
+                },
+                Arc::new(AtomicBool::new(false)),
+            ),
+        );
     }
 
     /// List summaries of all subagent instances.
@@ -2399,5 +2747,191 @@ mod tests {
             runner.wait(&id, 2000).await,
             crate::storage::TaskWaitResult::Completed(_)
         ));
+    }
+
+    /// A manager whose completed-scope cache uses explicit knobs instead of
+    /// the process environment (which the tests must not mutate).
+    fn manager_with_capacity(
+        store: Arc<SqliteSessionStore>,
+        capacity: usize,
+    ) -> Arc<SubagentManager> {
+        let manager = Arc::new(SubagentManager::with_store(store));
+        *manager.scope_cache.lock().unwrap() = ScopeCache {
+            capacity,
+            evict_timeout: Duration::from_millis(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS),
+            retired: Vec::new(),
+            error: None,
+        };
+        manager
+    }
+
+    #[test]
+    fn test_scope_cache_env_validation() {
+        let mut env = HashMap::new();
+        assert_eq!(
+            resolve_subagent_scope_cache_size(&env).unwrap(),
+            DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE
+        );
+        env.insert(SUBAGENT_SCOPE_CACHE_SIZE_ENV.into(), " 4 ".into());
+        assert_eq!(resolve_subagent_scope_cache_size(&env).unwrap(), 4);
+        // `0` and negative sizes both mean "never evict" (v2 `Math.max(0, …)`).
+        env.insert(SUBAGENT_SCOPE_CACHE_SIZE_ENV.into(), "0".into());
+        assert_eq!(resolve_subagent_scope_cache_size(&env).unwrap(), 0);
+        env.insert(SUBAGENT_SCOPE_CACHE_SIZE_ENV.into(), "-3".into());
+        assert_eq!(resolve_subagent_scope_cache_size(&env).unwrap(), 0);
+        env.insert(SUBAGENT_SCOPE_CACHE_SIZE_ENV.into(), "many".into());
+        assert!(resolve_subagent_scope_cache_size(&env).is_err());
+
+        let mut env = HashMap::new();
+        assert_eq!(
+            resolve_subagent_scope_evict_timeout_ms(&env).unwrap(),
+            DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS
+        );
+        env.insert(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV.into(), "250".into());
+        assert_eq!(resolve_subagent_scope_evict_timeout_ms(&env).unwrap(), 250);
+        env.insert(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV.into(), "0".into());
+        assert!(resolve_subagent_scope_evict_timeout_ms(&env).is_err());
+        env.insert(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV.into(), "-1".into());
+        assert!(resolve_subagent_scope_evict_timeout_ms(&env).is_err());
+    }
+
+    /// A rejected env value fails the spawn that would create the first
+    /// cached scope instead of silently running without eviction.
+    #[tokio::test]
+    async fn test_invalid_scope_cache_env_fails_the_spawn() {
+        let manager = Arc::new(SubagentManager::new());
+        manager.scope_cache.lock().unwrap().error = Some(format!(
+            "{SUBAGENT_SCOPE_CACHE_SIZE_ENV} must be an integer, got \"many\"."
+        ));
+
+        let error = manager
+            .spawn_with_id("subagent-bad-env", "research", "Researcher")
+            .await
+            .unwrap_err();
+        assert!(
+            error.contains(SUBAGENT_SCOPE_CACHE_SIZE_ENV),
+            "got: {error}"
+        );
+        assert!(manager.get_instance("subagent-bad-env").await.is_none());
+    }
+
+    /// A completed scope is evicted once the cache overflows, and the next
+    /// resume rebuilds it from the persisted record instead of failing.
+    #[tokio::test]
+    async fn test_completed_scopes_evict_and_rebuild_on_resume() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let manager = manager_with_capacity(store, 1);
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(MockCallbacks);
+        manager
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
+
+        for id in ["subagent-lru-1", "subagent-lru-2"] {
+            manager
+                .spawn_with_id(id, "research", "Researcher")
+                .await
+                .unwrap();
+            let outcome = manager
+                .run_foreground_turn(id, "first question", None)
+                .await
+                .unwrap();
+            assert!(matches!(outcome, ForegroundTurnOutcome::Completed(_)));
+        }
+
+        // The older completion is gone from memory; the newer one stays.
+        assert!(manager.get_instance("subagent-lru-1").await.is_none());
+        assert!(
+            !manager
+                .foreground_histories
+                .lock()
+                .unwrap()
+                .contains_key("subagent-lru-1")
+        );
+        assert!(manager.get_instance("subagent-lru-2").await.is_some());
+
+        // The persisted record survives eviction, so the resume rebuilds the
+        // scope and continues the conversation.
+        assert_eq!(
+            manager.resume_profile("subagent-lru-1").await.as_deref(),
+            Some("research")
+        );
+        let outcome = manager
+            .resume_foreground_turn("subagent-lru-1", "second question", None)
+            .await;
+        assert!(outcome.is_some());
+        assert!(matches!(
+            outcome.unwrap().unwrap(),
+            ForegroundTurnOutcome::Completed(_)
+        ));
+        assert!(manager.get_instance("subagent-lru-1").await.is_some());
+        // The resumed scope is the most recently used one, so the other
+        // completed scope is the one evicted now.
+        assert!(manager.get_instance("subagent-lru-2").await.is_none());
+    }
+
+    /// Without a persisted resume record the in-memory conversation is the
+    /// only copy, so nothing is evicted (the cache stays unbounded there).
+    #[tokio::test]
+    async fn test_completed_scopes_stay_resident_without_a_store() {
+        let manager = Arc::new(SubagentManager::new());
+        *manager.scope_cache.lock().unwrap() = ScopeCache {
+            capacity: 1,
+            evict_timeout: Duration::from_millis(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS),
+            retired: Vec::new(),
+            error: None,
+        };
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(MockCallbacks);
+        manager
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
+
+        for id in ["subagent-keep-1", "subagent-keep-2"] {
+            manager
+                .spawn_with_id(id, "research", "Researcher")
+                .await
+                .unwrap();
+            let outcome = manager
+                .run_foreground_turn(id, "first question", None)
+                .await
+                .unwrap();
+            assert!(matches!(outcome, ForegroundTurnOutcome::Completed(_)));
+        }
+
+        assert!(manager.get_instance("subagent-keep-1").await.is_some());
+        assert!(manager.get_instance("subagent-keep-2").await.is_some());
+    }
+
+    /// A persistent instance is never evicted: its conversation lives only in
+    /// memory, so `destroy_persistent` stays its single removal path.
+    #[tokio::test]
+    async fn test_persistent_instances_are_never_evicted() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let manager = manager_with_capacity(store, 1);
+        let llm = Arc::new(MockSubagentLlm);
+        let callbacks = Arc::new(MockCallbacks);
+        manager
+            .set_runtime(llm.clone(), callbacks.clone(), None)
+            .await;
+
+        let persistent = manager
+            .spawn_persistent("research", "Researcher", llm.clone(), callbacks.clone())
+            .await
+            .unwrap();
+        manager
+            .update_state(&persistent, SubagentState::Failed, None)
+            .await;
+        for id in ["subagent-fg-1", "subagent-fg-2"] {
+            manager
+                .spawn_with_id(id, "research", "Researcher")
+                .await
+                .unwrap();
+            manager
+                .update_state(id, SubagentState::Completed, None)
+                .await;
+        }
+
+        assert!(manager.get_instance(&persistent).await.is_some());
     }
 }

@@ -8,8 +8,8 @@
       "sha": "7d174ac93352ccfc835d186ac7b8185d0194e6b5",
       "date": "2026-09-15",
       "subject": "perf(agent-core-v2): evict completed subagent scopes behind an LRU cache (#3778)",
-      "verdict": "tracked",
-      "note": "The Rust engine retains every subagent instance (removed only on explicit destroy, subagent/manager.rs:1499); upstream bounds the completed-scope cache (default 32) and rebuilds evicted scopes from persisted state on demand.",
+      "verdict": "ported",
+      "note": "Ported as a completed-scope LRU in the Rust subagent manager: `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` (default 32, `0`/negative = never evict) and `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` (default 15000) are resolved once per manager and an invalid value fails the first spawn (packages/kimi-agent/src/subagent/manager.rs:39,58); a terminal instance is retired (manager.rs:1781) and the overflow evicts the oldest completion's resident instance plus its in-memory conversation (manager.rs:1801,1854), leaving the persisted `subagent_resume` record intact so `resume` rebuilds the instance from it (manager.rs:1884). Persistent instances are excluded (their conversation is memory-only) and so is every manager without a session store, where the in-memory history is the only copy.",
       "roadmap": "§6.1"
     },
     {
@@ -37,16 +37,16 @@
       "sha": "bb0c66a15b77af5185a9d44428c87310fa358394",
       "date": "2026-09-15",
       "subject": "feat(oauth): switch the managed usage payload to the quota model (#3787)",
-      "verdict": "tracked",
-      "note": "Rust /api/v1/oauth/usage is already a raw platform passthrough (server/oauth.rs:653-664,698); the fork's packages/oauth parser (managed-usage.ts:170,183) and the TUI usage panel still read the retired usage/limits shape, so /usage degrades against the new quota payload.",
+      "verdict": "ported",
+      "note": "Rust /api/v1/oauth/usage is already a raw platform passthrough (server/oauth.rs:653-664,698), so only the client side moved: packages/oauth/src/managed-usage.ts now parses the usages map (limit_5h/limit_7d/limit_month_total/limit_month_code with used_ratio/reset_time) plus boosterWallet into the zod quota model and fetchManagedUsage returns {kind:'ok', quota} (managed-usage.ts:99-144,146,286); toolkit.ts:101-106,318-333 propagates it. The TUI rebuilds the panel from it: quotaUsageRows in apps/kimi-code/src/utils/usage/usage-format.ts:95 emits one row per window the backend served, usage-panel.ts:49-52,117-161 renders them presence-driven with the monthly kimi/code breakdown line, and info.ts:263 assembles the report. Fork divergence: the row labels and the breakdown line go through the fork's i18n (tui.messages.usagePanel.limit5h/limitWeekly/monthlyLimit/monthlyBreakdown) instead of upstream's hardcoded English. Tests: packages/oauth/test/managed-usage.test.ts, packages/oauth/test/toolkit.test.ts, apps/kimi-code/test/utils/usage/usage-format.test.ts, apps/kimi-code/test/tui/components/messages/{usage-panel,status-panel}.test.ts.",
       "roadmap": "§6.1"
     },
     {
       "sha": "513e71edac0bdbbfaf70d9e50b58568e3695ce4c",
       "date": "2026-09-15",
       "subject": "feat(agent-core-v2): fail fast on unsupported [secondary_model].default_effort (#3785)",
-      "verdict": "tracked",
-      "note": "Rust accepts any [secondary_model].default_effort string (config/mod.rs:1110-1148) with no support_efforts/always_thinking validation, and the assembled catalog model lacks adaptive_thinking (server/model_catalog.rs:37-51).",
+      "verdict": "ported",
+      "note": "Ported to config/mod.rs:868 (validate_secondary_model_effort, called from extract_secondary_model_pool at :844) with model_supports_thinking (:1225) / model_supports_effort (:1244); the catalog model now carries adaptive_thinking (server/model_catalog.rs:54,79). Tests: config::tests::test_secondary_model_default_effort_validation.",
       "roadmap": "§6.1"
     },
     {
@@ -74,8 +74,8 @@
       "sha": "0725ef1ce0a7f9c15db7ffc042f57308657b3ee6",
       "date": "2026-09-15",
       "subject": "fix(agent-core-v2): tower mode mistaking newly agents for previous name (#3752)",
-      "verdict": "tracked",
-      "note": "Rust tower resolves caller identity by first match (tools/tower/store.rs:333) and never retires duplicate agent ids (:345-355); the trigger is latent because worker ids are random (subagent/manager.rs:667).",
+      "verdict": "ported",
+      "note": "The identity rules are ported: `resolve_caller_name` resolves an agent id to its latest roster entry (packages/kimi-agent/src/tools/tower/store.rs:338), `register_agent` retires same-agent-id entries before appending (:368), and `is_initialized` treats only a missing state file as uninitialized so an unreadable one cannot be re-initialized over (:68, used by `init`). No Rust counterpart for the died/revived bookkeeping (the Rust roster entry has no death fields), the ownership release/exit await (no owner session in `.tower/comms/state.json`), or the `enter()`/restore adoption split (TowerInit is the single activation path and already adopts the foreign roster).",
       "roadmap": "§6.1"
     },
     {
@@ -111,16 +111,16 @@
       "sha": "46233953795c62051b433956db60c6c218d2cede",
       "date": "2026-09-14",
       "subject": "refactor(agent-core-v2): fold the prompt queue into the agent loop service (#3747)",
-      "verdict": "tracked",
-      "note": "The prompt-queue fold is internal (Rust queues/steers/aborts identically); the real deltas are the abort-of-settled-prompt code (Rust 40903 at server/mod.rs:5496-5505 vs upstream 40402) and the absent prompt-image compression caption.",
+      "verdict": "ported",
+      "note": "The prompt-queue fold is internal (Rust queues/steers/aborts identically). The abort contract is ported: the `:abort` route now answers 40402 PROMPT_NOT_FOUND for an unknown or already-settled prompt (packages/kimi-agent/src/server/mod.rs:5497-5505), the Rust error-code table and packages/protocol drop 40903 / `prompt.already_completed`, and the kimi-web client's `allowCodes: [40903]` is gone. The absent prompt-image compression caption remains a pre-existing gap (ROADMAP §6.1 item 10b).",
       "roadmap": "§6.1"
     },
     {
       "sha": "775a6c35de40e6dd8cc399cc848f95818733ee7c",
       "date": "2026-09-14",
       "subject": "feat(agent-core-v2): make the compaction attempt limit configurable (#3750)",
-      "verdict": "tracked",
-      "note": "No loop_control.compaction_max_attempts key; the summarizer hardcodes RetryConfig::default() = 10 attempts (compaction/mod.rs:308, turn_loop/retry.rs:10) where upstream defaults to 5.",
+      "verdict": "ported",
+      "note": "Ported to LoopControlConfig.compaction_max_attempts (config/mod.rs:317-321) + resolve_compaction_max_attempts (:936), threaded through RunTurnInput.compaction_max_attempts (turn_loop/types.rs:852) into CompactionConfig.max_attempts (compaction/mod.rs:55) and summarize_with_llm (:315-320). The fork takes upstream's default of 5 (DEFAULT_COMPACTION_MAX_ATTEMPTS, compaction/mod.rs:30) instead of the former hardcoded 10. The napi path has no parameter for it yet and passes None.",
       "roadmap": "§6.1"
     },
     {
@@ -165,9 +165,9 @@
       "sha": "221d112f3a3cccd9724ef12e5883c5f08cdf8b43",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): suppress task notifications before loop quiescence on remove (#3720)",
-      "verdict": "tracked",
-      "note": "Task-notification timing nuance; Rust TaskRunner lifecycle not compared against this rule yet.",
-      "roadmap": "§6.3"
+      "verdict": "ported",
+      "note": "Session-scoped notification queue: a task completion is only ever drained by the session that spawned it (packages/kimi-agent/src/storage/task_runner.rs:650, session/mod.rs:1394), so a removed session's notifications reach no session. Difference from upstream: the queue retains them instead of dropping them at removal — the engine has no session-teardown hook (session_dispose only drops the registry entry, napi_bindings.rs:2309).",
+      "roadmap": "§6.1 item 15"
     },
     {
       "sha": "f728cb158c42b0b27a14be799c37174a37a8d9e9",
@@ -182,8 +182,8 @@
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): keep late task settlement silent after agent teardown (#3717)",
       "verdict": "tracked",
-      "note": "Late-settlement silencing after teardown; Rust TaskRunner not compared against this rule yet.",
-      "roadmap": "§6.3"
+      "note": "Notification half ported (same session-scoped drain, storage/task_runner.rs:650). The event half is not: settle still fires event.task.completed / background.task.terminated unconditionally (storage/task_runner.rs:617-630), because the engine has no session-liveness source — SESSION_REGISTRY is bin-crate-only and keyed by the engine's own session-{n} (main.rs:1463), EventHub lanes are never evicted (server/hub.rs:126), and EngineSession has no closed flag.",
+      "roadmap": "§6.1 item 15"
     },
     {
       "sha": "e348cf59ea1a9206e2d118cf54ba6e89a6e814c1",
@@ -271,9 +271,9 @@
       "sha": "1306a9a8dbd5acd9532182c36edcabbc7e8de807",
       "date": "2026-09-09",
       "subject": "feat(agent-core-v2): warn on [models] entries missing the model field (#3681)",
-      "verdict": "tracked",
-      "note": "Config validation warning; Rust config/mod.rs not compared yet.",
-      "roadmap": "§6.3"
+      "verdict": "ported",
+      "note": "Ported to KimiConfig::malformed_model_entries (config/mod.rs:570), emitted via tracing::warn! from from_file (:555). The engine has no config-warning channel (event.config.warning and the v3 config.warning message have no Rust producer), so the closest existing mechanism — the engine log — carries it. Reads the raw TOML so the unquoted-dotted-alias hint survives (dotted_alias_suffix, :1280). Tests: config::tests::test_malformed_model_entries_warn.",
+      "roadmap": "§6.1"
     },
     {
       "sha": "6299cfda701c51c8b243c6c624d8dd73fea35bb4",
@@ -295,8 +295,8 @@
       "date": "2026-09-09",
       "subject": "refactor(agent-core-v2): rewire the model catalog runtime onto the provider-catalog state machine (#3606)",
       "verdict": "tracked",
-      "note": "Model-catalog runtime behavior; Rust catalog surface not compared against the state-machine semantics.",
-      "roadmap": "§6.3"
+      "note": "Upstream removed the per-model inspector and replaced it with ping + session creation. The fork still ships the inspector, and it is broken: apps/kimi-inspect/src/components/ModelCatalogView.tsx:368,522 call IModelCatalog.inspect, which the Rust debug surface does not serve (server/debug.rs serves only modelCatalog.listModels/listProviders). Porting upstream needs modelCatalog.ping, modelService.list and sessionManager.resume on that surface.",
+      "roadmap": "§6.1"
     },
     {
       "sha": "68f8984a7ce8e690974e63389157e91428504ccb",

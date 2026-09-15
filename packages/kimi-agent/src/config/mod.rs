@@ -310,6 +310,15 @@ pub struct LoopControlConfig {
     pub max_attempts_per_step: Option<u32>,
     #[serde(rename = "max_retries_per_step", default)]
     pub max_retries_per_step: Option<u32>,
+    /// Total requests one compaction round may issue (v2 #3750
+    /// `loopControl.compactionMaxAttempts`); see
+    /// [`KimiConfig::resolve_compaction_max_attempts`].
+    #[serde(
+        rename = "compaction_max_attempts",
+        alias = "compactionMaxAttempts",
+        default
+    )]
+    pub compaction_max_attempts: Option<u32>,
 }
 
 /// The `[thinking]` section (v2 `thinking`): the enable switch and the
@@ -542,7 +551,48 @@ impl KimiConfig {
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config at {}: {e}", path.display()))?;
-        content.parse()
+        let config: Self = content.parse()?;
+        for warning in Self::malformed_model_entries(&content) {
+            tracing::warn!(path = %path.display(), "{warning}");
+        }
+        Ok(config)
+    }
+
+    /// `[models]` entries that declare no `model` field (v2 #3681
+    /// `collectMalformedModelEntries`): the entry cannot resolve to a wire
+    /// model, so it is inert. The usual cause is an unquoted dotted alias —
+    /// `[models.a.b]` parses as a nested table under `models.a` — which the
+    /// message spells out so the fix is a quoted table name.
+    ///
+    /// Reads the raw TOML rather than the deserialized config: serde drops the
+    /// nested table that makes the entry malformed, and with it the evidence
+    /// of what the alias was meant to be.
+    pub fn malformed_model_entries(raw_toml: &str) -> Vec<String> {
+        let Ok(value) = raw_toml.parse::<toml::Value>() else {
+            return Vec::new();
+        };
+        let Some(models) = value.get("models").and_then(toml::Value::as_table) else {
+            return Vec::new();
+        };
+        let mut warnings = Vec::new();
+        for (alias, entry) in models {
+            let Some(entry) = entry.as_table() else {
+                continue;
+            };
+            if entry.contains_key("model") {
+                continue;
+            }
+            let base = format!(
+                "[models] entry '{alias}' is missing the 'model' field and cannot be used as a model"
+            );
+            match dotted_alias_suffix(alias, entry) {
+                Some(dotted) => warnings.push(format!(
+                    "{base}; if the alias contains dots, quote the table name (e.g. [models.\"{dotted}\"])."
+                )),
+                None => warnings.push(format!("{base}.")),
+            }
+        }
+        warnings
     }
 
     /// 探测 `config.toml` 路径（严格支持环境变量隔离）：
@@ -700,7 +750,9 @@ impl KimiConfig {
     /// `Ok(None)` when the section is absent or carries no pool keys (a
     /// patch-only recipe stays inert). A malformed section is an error naming
     /// the offending entry, so the standalone entry points fail at startup
-    /// instead of silently disabling the user's configuration.
+    /// instead of silently disabling the user's configuration. The pool-wide
+    /// `default_effort` is validated against every resolved entry (v2 #3785
+    /// [`Self::validate_secondary_model_effort`]).
     pub fn extract_secondary_model_pool(
         &self,
         target_model: Option<&str>,
@@ -789,6 +841,14 @@ impl KimiConfig {
             })
             .collect::<Result<Vec<_>, String>>()?;
 
+        self.validate_secondary_model_effort(
+            section.default_effort.as_deref(),
+            &models
+                .iter()
+                .map(|entry| entry.alias.as_str())
+                .collect::<Vec<_>>(),
+        )?;
+
         Ok(Some(SecondaryModelPool {
             force,
             default_model: default_model.to_string(),
@@ -797,6 +857,50 @@ impl KimiConfig {
                 .or_else(|| self.default_model.clone()),
             models,
         }))
+    }
+
+    /// Reject a pool-wide `default_effort` no pool model can run (v2 #3785
+    /// `assertValidSubagentDefaultEffort`). The effort is applied to every
+    /// entry of the pool, so one model that cannot honor it would silently
+    /// degrade that subagent's thinking; failing at startup names the model
+    /// instead. Runs after the pool resolves, so an unknown alias still
+    /// reports as unresolvable rather than as an effort mismatch.
+    fn validate_secondary_model_effort(
+        &self,
+        effort: Option<&str>,
+        aliases: &[&str],
+    ) -> Result<(), String> {
+        let Some(effort) = effort
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase)
+        else {
+            return Ok(());
+        };
+        for alias in aliases {
+            let model = self.models.get(*alias);
+            if effort == "off" && model_always_thinks(model) {
+                return Err(format!(
+                    "[secondary_model].default_effort \"off\" cannot disable thinking for model \"{alias}\", which always reasons. Choose a concrete thinking effort instead of \"off\"."
+                ));
+            }
+            if model_supports_effort(&effort, model) {
+                continue;
+            }
+            if !model_supports_thinking(model) {
+                return Err(format!(
+                    "[secondary_model].default_effort \"{effort}\" is set but model \"{alias}\" does not support thinking."
+                ));
+            }
+            let supported = model
+                .and_then(|model| model.support_efforts.as_ref())
+                .map(|efforts| efforts.join(", "))
+                .unwrap_or_default();
+            return Err(format!(
+                "[secondary_model].default_effort \"{effort}\" is not supported by model \"{alias}\". Supported efforts: {supported}."
+            ));
+        }
+        Ok(())
     }
 
     /// Resolve the per-step LLM attempt cap (v2 `resolveMaxAttemptsPerStep`):
@@ -820,6 +924,18 @@ impl KimiConfig {
         env_non_negative("KIMI_LOOP_MAX_STEPS_PER_TURN")
             .or(self.loop_control.max_steps_per_turn)
             .or(self.loop_control.max_steps_per_run)
+            .filter(|value| *value > 0)
+    }
+
+    /// Resolve the total-request cap for one compaction round (v2 #3750
+    /// `loopControl.compactionMaxAttempts`). Upstream binds no env var to this
+    /// key, so the file is the only source. The schema floor is 1 (v2
+    /// `z.number().int().min(1)`), so a `0` is ignored rather than read as "no
+    /// attempts"; `None` keeps the engine default of
+    /// [`crate::compaction::DEFAULT_COMPACTION_MAX_ATTEMPTS`].
+    pub fn resolve_compaction_max_attempts(&self) -> Option<u32> {
+        self.loop_control
+            .compaction_max_attempts
             .filter(|value| *value > 0)
     }
 
@@ -1102,6 +1218,78 @@ fn normalize_base_url(url: &str, protocol: &str) -> String {
     }
 }
 
+/// Whether a `[models.<alias>]` entry declares thinking support (v2
+/// `modelSupportsThinking`): the `thinking` / `always_thinking` capability, or
+/// an explicit `adaptive_thinking`. The fork carries `always_thinking` as a
+/// capability string rather than a field of its own.
+fn model_supports_thinking(alias: Option<&ModelAliasConfig>) -> bool {
+    alias.is_some_and(|alias| {
+        alias.adaptive_thinking == Some(true)
+            || model_capabilities(alias).any(is_thinking_capability)
+    })
+}
+
+/// Whether the entry declares that it cannot stop reasoning (v2
+/// `alwaysThinking`).
+fn model_always_thinks(alias: Option<&ModelAliasConfig>) -> bool {
+    alias.is_some_and(|alias| {
+        model_capabilities(alias).any(|capability| capability == "always_thinking")
+    })
+}
+
+/// v2 `modelSupportsThinkingEffort(effort, model, true)`: `off` is always
+/// accepted, a model without thinking support never is, and an empty effort
+/// list means "any effort". Declared efforts are compared verbatim (upstream
+/// only normalizes the requested side).
+fn model_supports_effort(effort: &str, alias: Option<&ModelAliasConfig>) -> bool {
+    if effort == "off" {
+        return true;
+    }
+    if !model_supports_thinking(alias) {
+        return false;
+    }
+    let efforts: Vec<&str> = alias
+        .and_then(|alias| alias.support_efforts.as_ref())
+        .map(|efforts| {
+            efforts
+                .iter()
+                .map(|effort| effort.trim())
+                .filter(|effort| !effort.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    efforts.is_empty() || effort == "on" || efforts.contains(&effort)
+}
+
+fn model_capabilities(alias: &ModelAliasConfig) -> impl Iterator<Item = &str> {
+    alias
+        .capabilities
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|capability| capability.trim())
+}
+
+fn is_thinking_capability(capability: &str) -> bool {
+    capability == "thinking" || capability == "always_thinking"
+}
+
+/// The dotted alias a malformed `[models]` entry was probably meant to be: the
+/// first nested table it carries, walked to its deepest level. `None` when the
+/// entry has no nested table at all.
+fn dotted_alias_suffix(alias: &str, entry: &toml::value::Table) -> Option<String> {
+    for (key, value) in entry {
+        let Some(nested) = value.as_table() else {
+            continue;
+        };
+        return Some(
+            dotted_alias_suffix(&format!("{alias}.{key}"), nested)
+                .unwrap_or_else(|| format!("{alias}.{key}")),
+        );
+    }
+    None
+}
+
 /// Convert one resolved native model into the wire config, applying the
 /// pool-level `default_effort` the way the host's `resolveNativeLlmForAlias`
 /// does: an anthropic entry gets a thinking budget, an OpenAI-compatible one
@@ -1331,14 +1519,17 @@ base_url = "https://api.anthropic.com"
 [models.kimi-k2]
 provider = "kimi"
 model = "kimi-k2-0711"
+capabilities = ["thinking"]
 
 [models.fast]
 provider = "kimi"
 model = "kimi-k2-fast"
+capabilities = ["thinking"]
 
 [models.thinky]
 provider = "anthropic"
 model = "claude-sonnet"
+capabilities = ["thinking"]
 "#;
 
     #[test]
@@ -1585,6 +1776,181 @@ max_retries_per_step = 5
                 }
             }
         }
+    }
+
+    /// v2 #3750: `[loop_control].compaction_max_attempts` caps one compaction
+    /// round's total requests. Upstream binds no env var to the key, so the
+    /// file is the only source; the schema floor is 1, so a `0` is ignored
+    /// rather than read as "no attempts at all".
+    #[test]
+    fn test_resolve_compaction_max_attempts() {
+        let explicit = KimiConfig::from_str(
+            r#"
+[loop_control]
+compaction_max_attempts = 3
+"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.resolve_compaction_max_attempts(), Some(3));
+
+        // The camelCase spelling the TS schema writes round-trips too.
+        let camel = KimiConfig::from_str(
+            r#"
+[loop_control]
+compactionMaxAttempts = 4
+"#,
+        )
+        .unwrap();
+        assert_eq!(camel.resolve_compaction_max_attempts(), Some(4));
+
+        // Unset, empty, and below the schema floor all keep the engine default.
+        for raw in [
+            SAMPLE_CONFIG,
+            "[loop_control]\n",
+            "[loop_control]\ncompaction_max_attempts = 0\n",
+        ] {
+            assert_eq!(
+                KimiConfig::from_str(raw)
+                    .unwrap()
+                    .resolve_compaction_max_attempts(),
+                None,
+                "{raw}"
+            );
+        }
+    }
+
+    /// v2 #3785 `assertValidSubagentDefaultEffort`: a pool-wide
+    /// `default_effort` must be one every pool model can run, so a typo fails
+    /// at startup instead of silently degrading the subagent's thinking.
+    #[test]
+    fn test_secondary_model_default_effort_validation() {
+        const EFFORT_CONFIG: &str = r#"
+[providers.kimi]
+type = "openai"
+api_key = "sk-kimi-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.fast]
+provider = "kimi"
+model = "kimi-k2-fast"
+"#;
+        let config = |effort: &str, model_extra: &str| {
+            KimiConfig::from_str(&format!(
+                r#"{EFFORT_CONFIG}{model_extra}
+[secondary_model]
+default_model = "fast"
+default_effort = "{effort}"
+
+[secondary_model.models]
+"fast" = ""
+"#
+            ))
+            .unwrap()
+        };
+
+        // A thinking model that declares no effort list accepts any effort.
+        let no_list = config("xhigh", "capabilities = [\"thinking\"]\n");
+        assert!(no_list.extract_secondary_model_pool(None).is_ok());
+
+        // A declared list bounds it, and the error names the model and the
+        // supported set.
+        let bounded = config(
+            "xhigh",
+            "capabilities = [\"thinking\"]\nsupport_efforts = [\"low\", \"high\", \"max\"]\n",
+        );
+        let error = bounded.extract_secondary_model_pool(None).unwrap_err();
+        assert!(
+            error.contains("[secondary_model].default_effort \"xhigh\"")
+                && error.contains("\"fast\"")
+                && error.contains("low, high, max"),
+            "{error}"
+        );
+
+        // A model without thinking support rejects any concrete effort...
+        let plain = config("xhigh", "capabilities = [\"tools\"]\n");
+        let error = plain.extract_secondary_model_pool(None).unwrap_err();
+        assert!(error.contains("does not support thinking"), "{error}");
+
+        // ...but `off` is always acceptable for it.
+        let plain_off = config("off", "capabilities = [\"tools\"]\n");
+        assert!(plain_off.extract_secondary_model_pool(None).is_ok());
+
+        // `off` cannot silence a model that always reasons.
+        let always = config(
+            "off",
+            "capabilities = [\"thinking\", \"always_thinking\"]\n",
+        );
+        let error = always.extract_secondary_model_pool(None).unwrap_err();
+        assert!(
+            error.contains("cannot disable thinking") && error.contains("\"fast\""),
+            "{error}"
+        );
+
+        // `adaptive_thinking` alone counts as thinking support.
+        let adaptive = config("high", "adaptive_thinking = true\n");
+        assert!(adaptive.extract_secondary_model_pool(None).is_ok());
+
+        // The effort is normalized before comparison, so casing and padding
+        // do not turn a supported effort into a failure.
+        let padded = config(
+            "  HIGH  ",
+            "capabilities = [\"thinking\"]\nsupport_efforts = [\"low\", \"high\"]\n",
+        );
+        assert!(padded.extract_secondary_model_pool(None).is_ok());
+
+        // An unset effort skips the check entirely.
+        let unset = KimiConfig::from_str(&format!(
+            r#"{EFFORT_CONFIG}
+[secondary_model]
+default_model = "fast"
+"#
+        ))
+        .unwrap();
+        assert!(unset.extract_secondary_model_pool(None).is_ok());
+    }
+
+    /// v2 #3681 `collectMalformedModelEntries`: a `[models]` entry without a
+    /// `model` field cannot resolve, and the usual cause is an unquoted dotted
+    /// alias — the warning spells out the quoted table name to write instead.
+    #[test]
+    fn test_malformed_model_entries_warn() {
+        let warnings = KimiConfig::malformed_model_entries(
+            r#"
+[models.good]
+provider = "kimi"
+model = "kimi-k2"
+
+[models."dotted.alias"]
+provider = "kimi"
+model = "kimi-k2"
+
+[models.typo]
+provider = "kimi"
+max_context_size = 1000
+
+[models.unquoted.dotted]
+provider = "kimi"
+model = "kimi-k2"
+"#,
+        );
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(
+            warnings[0].contains("[models] entry 'typo' is missing the 'model' field")
+                && warnings[0].ends_with('.'),
+            "{}",
+            warnings[0]
+        );
+        assert!(
+            warnings[1].contains("[models] entry 'unquoted' is missing the 'model' field")
+                && warnings[1].contains(r#"[models."unquoted.dotted"]"#),
+            "{}",
+            warnings[1]
+        );
+
+        // A config with no `[models]` table, or one that is not TOML at all,
+        // produces nothing rather than a second error.
+        assert!(KimiConfig::malformed_model_entries("default_model = \"k2\"\n").is_empty());
+        assert!(KimiConfig::malformed_model_entries("not = = toml").is_empty());
     }
 
     #[test]

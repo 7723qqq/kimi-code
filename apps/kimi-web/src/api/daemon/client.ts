@@ -718,6 +718,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return { steered: data.steered, promptIds: data.prompt_ids };
   }
 
+  // POST /sessions/{id}/prompts/{pid}:abort — abort one prompt. An unknown or
+  // already-settled id fails PROMPT_NOT_FOUND (40402); callers treat that as a
+  // stale id and fall back to the session-level abort.
   async abortPrompt(
     sessionId: string,
     promptId: string,
@@ -725,9 +728,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     const data = await this.http.post<WireAbortResult>(
       `/sessions/${encodeURIComponent(sessionId)}/prompts/${encodeURIComponent(promptId)}:abort`,
       undefined,
-      { allowCodes: [40903] },
     );
-    // data.aborted is false when 40903 (prompt already completed) — that's correct
     return { aborted: data.aborted, atSeq: data.at_seq };
   }
 

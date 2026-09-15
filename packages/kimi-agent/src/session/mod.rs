@@ -179,6 +179,9 @@ pub struct SessionConfig {
     /// Context window the host resolved for the session's model (v2
     /// `ModelCapability.max_context_tokens`); `None` keeps the engine default.
     pub max_context_tokens: Option<u32>,
+    /// Total requests one compaction round may issue (v2 #3750
+    /// `loopControl.compactionMaxAttempts`); `None` keeps the engine default.
+    pub compaction_max_attempts: Option<u32>,
     /// The permission mode the session's policy snapshot resolved to, for the
     /// permission-mode reminders. `None` leaves them off.
     pub permission_mode: Option<crate::permission::PermissionMode>,
@@ -203,6 +206,12 @@ pub struct SessionConfig {
     /// `[background]`. `None` keeps the engine default: a turn receipt
     /// resolves as soon as the turn ends, whatever the background tasks do.
     pub print_background: Option<PrintBackgroundPolicy>,
+    /// The host's session id (`params.session_id`), the key the print settle
+    /// scopes task notifications by: it drains only this session's
+    /// completions, never another session's. `None` = the host attributed no
+    /// session, so no session-scoped delivery happens (see
+    /// [`crate::storage::TaskRunner::take_pending_notifications`]).
+    pub session_id: Option<String>,
     /// The process-wide task runner the print settle waits on. `None` outside
     /// a wired pipeline, where the wait is a no-op.
     pub task_runner: Option<Arc<crate::storage::TaskRunner>>,
@@ -362,12 +371,15 @@ fn maybe_settle_locked(core: &mut Core) {
 struct SessionContext {
     llm: Arc<dyn LLM>,
     callbacks: Arc<dyn HostCallbacks>,
+    /// The host's session id; see [`SessionConfig::session_id`].
+    session_id: Option<String>,
     tool_defs: ToolDefsProvider,
     goal: Option<GoalProvider>,
     on_before_turn: Option<Arc<dyn Fn() + Send + Sync>>,
     max_steps: u32,
     max_attempts: Option<u32>,
     max_context_tokens: Option<u32>,
+    compaction_max_attempts: Option<u32>,
     /// Permission mode for the permission-mode reminders; see
     /// [`SessionConfig::permission_mode`].
     permission_mode: Option<crate::permission::PermissionMode>,
@@ -425,10 +437,12 @@ impl EngineSession {
             max_steps: config.max_steps,
             max_attempts: config.max_attempts,
             max_context_tokens: config.max_context_tokens,
+            compaction_max_attempts: config.compaction_max_attempts,
             permission_mode: config.permission_mode,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
             hook_guard: config.hook_guard.clone(),
             print_background: config.print_background,
+            session_id: config.session_id,
             task_runner: config.task_runner.clone(),
             print_run: std::sync::Mutex::new(PrintRunState::default()),
         });
@@ -1285,7 +1299,8 @@ fn now_ms_epoch() -> i64 {
 /// waits without feeding back). A pending notification keeps for the
 /// follow-up turn's own settle round. Notifications are consumed only once
 /// their turn is actually admitted, so a budgeted-out run leaves them queued
-/// rather than dropping them silently.
+/// rather than dropping them silently. Only this session's completions are
+/// consumed; another session's stay queued for its own settle.
 fn maybe_enqueue_print_followup(
     ctx: &SessionContext,
     core: &mut Core,
@@ -1303,7 +1318,7 @@ fn maybe_enqueue_print_followup(
         && ctx
             .task_runner
             .as_ref()
-            .is_some_and(|runner| runner.pending_notification_count() > 0);
+            .is_some_and(|runner| runner.pending_notification_count(ctx.session_id.as_deref()) > 0);
     if goal_continuation.is_none() && cron_followups.is_empty() && !tasks_pending {
         return Vec::new();
     }
@@ -1370,10 +1385,13 @@ fn maybe_enqueue_print_followup(
     let Some(runner) = &ctx.task_runner else {
         return warnings;
     };
-    if runner.pending_notification_count() == 0 {
+    // This session's completions only: the runner is shared across sessions, so
+    // an unscoped drain would fold another session's task into this turn.
+    let session_id = ctx.session_id.as_deref();
+    if runner.pending_notification_count(session_id) == 0 {
         return warnings;
     }
-    let notifications = runner.take_pending_notifications();
+    let notifications = runner.take_pending_notifications(session_id);
     let Some(first) = notifications.first() else {
         return warnings;
     };
@@ -1508,6 +1526,7 @@ async fn run_session_turn(
         tool_defs,
         max_steps: ctx.max_steps,
         max_context_tokens: ctx.max_context_tokens,
+        compaction_max_attempts: ctx.compaction_max_attempts,
         permission_mode: ctx.permission_mode,
         goal,
         cancellation: Some(cancel),
@@ -1778,6 +1797,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
@@ -1785,6 +1805,7 @@ mod tests {
             agent_cancel_slot: None,
             hook_guard: None,
             print_background: None,
+            session_id: None,
             task_runner: None,
         };
         EngineSession::new(config).await
@@ -1838,6 +1859,7 @@ mod tests {
                 status: TaskStatus::Completed,
                 output_preview: Some("42 passing".into()),
                 ended_at: 100,
+                session_id: Some("sess-1".into()),
             },
             TaskNotification {
                 task_id: "t2".into(),
@@ -1845,6 +1867,7 @@ mod tests {
                 status: TaskStatus::Killed,
                 output_preview: None,
                 ended_at: 200,
+                session_id: Some("sess-1".into()),
             },
         ]);
         assert_eq!(
@@ -1861,11 +1884,18 @@ mod tests {
     async fn test_print_steer_feeds_task_notifications_back() {
         let runner = Arc::new(crate::storage::TaskRunner::new(None));
         runner
-            .spawn_task("t1".into(), "quick job".into(), async {
-                "done output".to_string()
-            })
+            .spawn_task_with_meta(
+                crate::storage::TaskSpawnMeta {
+                    session_id: Some("sess-steer"),
+                    kind: "bash",
+                    subagent_type: None,
+                },
+                "t1".into(),
+                "quick job".into(),
+                async { "done output".to_string() },
+            )
             .unwrap();
-        wait_until(|| runner.pending_notification_count() == 1).await;
+        wait_until(|| runner.pending_notification_count(Some("sess-steer")) == 1).await;
 
         let server = Arc::new(RpcServer::new());
         let llm = Arc::new(ScriptedLlm::simple(vec![
@@ -1879,6 +1909,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: None,
@@ -1890,6 +1921,7 @@ mod tests {
                 ceiling_s: 30,
                 max_turns: 5,
             }),
+            session_id: Some("sess-steer".into()),
             task_runner: Some(runner),
         };
         let session = EngineSession::new(config).await;
@@ -1917,6 +1949,89 @@ mod tests {
                 .iter()
                 .any(|m| m.role == "assistant" && m.content == "main-response"),
             "steer turn history missing the main turn's answer"
+        );
+    }
+
+    /// The runner is shared across sessions, so a print turn must not fold
+    /// another session's completed task into its own follow-up: the settle
+    /// drains only the notifications of the session it belongs to. Both
+    /// sessions have a completion pending, so the drain itself is exercised —
+    /// the steer turn carries this session's task and only that one.
+    #[tokio::test]
+    async fn test_print_steer_ignores_another_sessions_notifications() {
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        for (id, session, description) in [
+            ("t-mine", "sess-mine", "my job"),
+            ("t-other", "sess-other", "someone else's job"),
+        ] {
+            runner
+                .spawn_task_with_meta(
+                    crate::storage::TaskSpawnMeta {
+                        session_id: Some(session),
+                        kind: "bash",
+                        subagent_type: None,
+                    },
+                    id.into(),
+                    description.into(),
+                    async { "done output".to_string() },
+                )
+                .unwrap();
+        }
+        wait_until(|| runner.pending_notification_count(Some("sess-mine")) == 1).await;
+        wait_until(|| runner.pending_notification_count(Some("sess-other")) == 1).await;
+
+        let server = Arc::new(RpcServer::new());
+        let llm = Arc::new(ScriptedLlm::simple(vec![
+            text_response("main-response"),
+            text_response("steer-response"),
+        ]));
+        let requests = llm.requests.clone();
+        let config = SessionConfig {
+            llm,
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: None,
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            hook_guard: None,
+            print_background: Some(PrintBackgroundPolicy {
+                mode: PrintBackgroundMode::Steer,
+                ceiling_s: 30,
+                max_turns: 5,
+            }),
+            session_id: Some("sess-mine".into()),
+            task_runner: Some(runner.clone()),
+        };
+        let session = EngineSession::new(config).await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "hello"), Admission::NewTurn))
+            .unwrap();
+        let outcome = receipt.outcome().await.unwrap();
+        assert!(matches!(outcome, TurnOutcome::Ran(_)));
+
+        let calls = requests.lock().unwrap();
+        assert_eq!(calls.len(), 2, "this session's completion steers one turn");
+        let steer_call = &calls[1];
+        assert!(
+            steer_call
+                .iter()
+                .any(|m| m.role == "user" && m.content.contains("Background task t-mine")),
+            "steer turn missing this session's completion: {steer_call:?}"
+        );
+        assert!(
+            !steer_call.iter().any(|m| m.content.contains("t-other")),
+            "another session's completion must not reach this turn: {steer_call:?}"
+        );
+        assert_eq!(
+            runner.pending_notification_count(Some("sess-other")),
+            1,
+            "the other session's notification stays queued for its own settle"
         );
     }
 
@@ -1957,6 +2072,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
             goal: Some(goal),
@@ -1968,6 +2084,7 @@ mod tests {
                 ceiling_s: 30,
                 max_turns: 1,
             }),
+            session_id: Some("sess-goal".into()),
             task_runner: Some(Arc::new(crate::storage::TaskRunner::new(None))),
         };
         let session = EngineSession::new(config).await;

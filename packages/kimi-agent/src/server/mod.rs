@@ -4029,7 +4029,10 @@ impl HttpServer {
                     Some(engine) => match engine.session_llm(session_id).await {
                         Some(llm) => match self.store.load_session_history(session_id) {
                             Ok(history) => {
-                                let config = crate::compaction::CompactionConfig::default();
+                                let config = crate::compaction::CompactionConfig {
+                                    max_attempts: engine.compaction_max_attempts(),
+                                    ..crate::compaction::CompactionConfig::default()
+                                };
                                 let count = crate::compaction::compute_compact_count_manual(
                                     &history, &config,
                                 );
@@ -4041,6 +4044,7 @@ impl HttpServer {
                                         llm.as_ref(),
                                         instruction,
                                         None,
+                                        config.max_attempts,
                                     )
                                     .await
                                 }
@@ -5491,15 +5495,15 @@ impl HttpServer {
                     return HttpResponse::not_found();
                 }
                 let prompt_id = segments[6].trim_end_matches(":abort");
-                // An unknown / already-settled prompt is an idempotent no-op,
-                // reported with the dedicated code rather than a false success.
+                // An unknown / already-settled prompt is not in the queue, so
+                // the abort has no target: report it as a missing prompt
+                // rather than a false success.
                 if !self.prompt_queue.contains(session_id, prompt_id) {
                     return HttpResponse::json(
-                        409,
+                        404,
                         &json!({
-                            "code": crate::server::envelope::error_codes::PROMPT_ALREADY_COMPLETED,
-                            "msg": "prompt already completed",
-                            "data": { "aborted": false },
+                            "code": crate::server::envelope::error_codes::PROMPT_NOT_FOUND,
+                            "msg": "no prompt with the requested id",
                         }),
                     );
                 }
@@ -7339,7 +7343,7 @@ max_context_size = 128000
             .await;
         assert_eq!(steer.status, 404);
 
-        // Aborting an unknown prompt is the idempotent 40903 code.
+        // Aborting an unknown prompt is PROMPT_NOT_FOUND, not a fake success.
         let abort = server
             .handle_request(&HttpRequest {
                 method: "POST".into(),
@@ -7349,8 +7353,9 @@ max_context_size = 128000
                 body: Vec::new(),
             })
             .await;
+        assert_eq!(abort.status, 404);
         let abort_body: Value = serde_json::from_slice(&abort.body).unwrap();
-        assert_eq!(abort_body["code"], 40903);
+        assert_eq!(abort_body["code"], 40402);
     }
 
     #[tokio::test]

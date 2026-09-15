@@ -29,8 +29,7 @@ pub mod error_codes {
 
     pub const SESSION_BUSY: u32 = 40901;
     pub const APPROVAL_ALREADY_RESOLVED: u32 = 40902;
-    pub const PROMPT_ALREADY_COMPLETED: u32 = 40903;
-    pub const PROMPT_ID_CONFLICT: u32 = 40904;
+    pub const PROMPT_ID_CONFLICT: u32 = 40927;
     pub const QUESTION_DISMISSED: u32 = 40909;
     pub const PROVIDER_ALREADY_EXISTS: u32 = 40921;
     pub const REMOTE_CONTROL_ALREADY_RUNNING: u32 = 40928;

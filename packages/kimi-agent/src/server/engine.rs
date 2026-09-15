@@ -232,6 +232,9 @@ pub struct ServerEngine {
     /// default). Wired per host like `max_steps`; the session pump threads
     /// its own value instead.
     max_attempts: Option<u32>,
+    /// Host `loopControl.compactionMaxAttempts` override (`None` = the engine
+    /// default), wired through [`Self::with_compaction_max_attempts`].
+    compaction_max_attempts: Option<u32>,
     active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
     mcp_manager: Mutex<Option<Arc<McpManager>>>,
     interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
@@ -273,6 +276,7 @@ impl ServerEngine {
             store: store.clone(),
             max_steps: 32,
             max_attempts: None,
+            compaction_max_attempts: None,
             active_turns: Mutex::new(HashMap::new()),
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
@@ -590,6 +594,17 @@ impl ServerEngine {
     pub fn with_max_attempts(mut self, max_attempts: Option<u32>) -> Self {
         self.max_attempts = max_attempts;
         self
+    }
+
+    pub fn with_compaction_max_attempts(mut self, compaction_max_attempts: Option<u32>) -> Self {
+        self.compaction_max_attempts = compaction_max_attempts;
+        self
+    }
+
+    /// The host's compaction attempt cap, for the routes that summarize
+    /// outside a turn (the manual `:compact` endpoint).
+    pub fn compaction_max_attempts(&self) -> Option<u32> {
+        self.compaction_max_attempts
     }
 
     /// Host-resolved `[subagent] timeout_ms` (v2 `resolveSubagentTimeoutMs`):
@@ -1128,6 +1143,7 @@ impl ServerEngine {
             tool_defs: vec![],
             max_steps: self.max_steps,
             max_context_tokens: None,
+            compaction_max_attempts: self.compaction_max_attempts,
             permission_mode: self
                 .spec
                 .policy_snapshot

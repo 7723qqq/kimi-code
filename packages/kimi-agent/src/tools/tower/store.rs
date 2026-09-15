@@ -60,8 +60,21 @@ impl TowerStore {
         state_lock_for(&self.repo_root)
     }
 
-    pub async fn is_initialized(&self) -> bool {
-        fs::metadata(self.abs(STATE_FILE)).await.is_ok()
+    /// Whether this workspace has a tower state file. Only a *missing* file
+    /// counts as uninitialized: an existing but unstattable one (EACCES,
+    /// ELOOP, transient I/O) must not read as a fresh workspace, or `init`
+    /// would overwrite the foreign roster with a new one (v2 `adopt`'s
+    /// ENOENT-only rule).
+    pub async fn is_initialized(&self) -> Result<bool, String> {
+        let path = self.abs(STATE_FILE);
+        match fs::metadata(&path).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(format!(
+                "could not read the tower state at {}: {error}",
+                path.display()
+            )),
+        }
     }
 
     pub async fn init(
@@ -80,7 +93,7 @@ impl TowerStore {
                 "the repository has no commits yet — create an initial commit first".into(),
             );
         }
-        if self.is_initialized().await {
+        if self.is_initialized().await? {
             let mut state = self.load().await?;
             let retired_agents = self.adopt_foreign_roster(&mut state, session_id).await?;
             let checkout = self.checked_out_branch().await;
@@ -330,7 +343,17 @@ impl TowerStore {
         if agent_id == "main" {
             return Ok(TOWER_NAME.into());
         }
-        if let Some(entry) = state.roster.agents.iter().find(|a| a.agent_id == agent_id) {
+        // The latest registration wins: agent ids restart per session, so a
+        // stale entry carrying the same id can still sit in the roster, and a
+        // find-first lookup would resolve the caller to that dead agent's name
+        // (v2 `resolveAgent`).
+        if let Some(entry) = state
+            .roster
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.agent_id == agent_id)
+        {
             return Ok(entry.name.clone());
         }
         Err(format!(
@@ -344,6 +367,10 @@ impl TowerStore {
 
     pub async fn register_agent(&self, entry: TowerRosterEntry) -> Result<(), String> {
         let mut state = self.load().await?;
+        // Retire same-agent-id entries before appending: a re-registered id
+        // must leave exactly one live entry, or every later lookup resolves
+        // through the stale one.
+        state.roster.agents.retain(|a| a.agent_id != entry.agent_id);
         if self.find_agent(&state, &entry.name).is_some() {
             return Err(format!(
                 "tower agent name \"{}\" is already registered",
@@ -1456,4 +1483,128 @@ async fn read_git_dir(cwd: &Path) -> Option<String> {
     let raw = fs::read_to_string(cwd.join(".git")).await.ok()?;
     let line = raw.lines().find(|l| l.starts_with("gitdir:"))?;
     Some(line["gitdir:".len()..].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::tower::types::TowerAgentKind;
+
+    fn entry(name: &str, agent_id: &str) -> TowerRosterEntry {
+        TowerRosterEntry {
+            name: name.into(),
+            agent_id: agent_id.into(),
+            session_id: Some("session-1".into()),
+            kind: TowerAgentKind::Worker,
+            mission_id: None,
+            review_target: None,
+            worktree: None,
+            branch: None,
+            spawned_at: "2026-09-15T00:00:00Z".into(),
+        }
+    }
+
+    fn state_with(agents: Vec<TowerRosterEntry>) -> TowerState {
+        TowerState {
+            version: 1,
+            base: "main".into(),
+            mode: "branch".into(),
+            created_at: "2026-09-15T00:00:00Z".into(),
+            session_id: Some("session-1".into()),
+            roster: TowerRoster { agents },
+            missions: Vec::new(),
+        }
+    }
+
+    /// A store rooted at a fresh temp dir, with the state directory in place
+    /// so `save` can write.
+    async fn store_in(dir: &Path) -> TowerStore {
+        let store = TowerStore::new(dir);
+        let state_dir = store.abs(STATE_FILE).parent().unwrap().to_path_buf();
+        tokio::fs::create_dir_all(state_dir).await.unwrap();
+        store
+    }
+
+    /// Agent ids restart per session, so a freshly spawned worker can share an
+    /// id with a dead one still sitting in the roster. Resolving to the first
+    /// match handed the new worker the old agent's name — wrong inbox, wrong
+    /// sender, denied writes.
+    #[test]
+    fn resolve_caller_name_prefers_the_latest_registration() {
+        let store = TowerStore::new(std::env::temp_dir());
+        let state = state_with(vec![
+            entry("worker-a", "agent-0"),
+            entry("worker-b", "agent-0"),
+        ]);
+        assert_eq!(
+            store.resolve_caller_name(&state, "agent-0").unwrap(),
+            "worker-b"
+        );
+        assert_eq!(
+            store.resolve_caller_name(&state, "main").unwrap(),
+            TOWER_NAME
+        );
+        assert!(store.resolve_caller_name(&state, "agent-9").is_err());
+    }
+
+    #[tokio::test]
+    async fn register_agent_retires_entries_with_the_same_agent_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path()).await;
+        store
+            .save(&state_with(vec![entry("worker-a", "agent-0")]))
+            .await
+            .unwrap();
+
+        store
+            .register_agent(entry("worker-b", "agent-0"))
+            .await
+            .unwrap();
+
+        let state = store.load().await.unwrap();
+        assert_eq!(state.roster.agents.len(), 1);
+        assert_eq!(state.roster.agents[0].name, "worker-b");
+        assert_eq!(
+            store.resolve_caller_name(&state, "agent-0").unwrap(),
+            "worker-b"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_agent_still_rejects_a_duplicate_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path()).await;
+        store
+            .save(&state_with(vec![entry("worker-a", "agent-0")]))
+            .await
+            .unwrap();
+
+        let error = store
+            .register_agent(entry("worker-a", "agent-1"))
+            .await
+            .unwrap_err();
+        assert!(error.contains("already registered"), "got: {error}");
+        // The rejected registration must not have retired the live entry.
+        let state = store.load().await.unwrap();
+        assert_eq!(state.roster.agents.len(), 1);
+        assert_eq!(state.roster.agents[0].agent_id, "agent-0");
+    }
+
+    /// Only a missing state file means "uninitialized". An existing but
+    /// unstattable one used to read as a fresh workspace, and `init` then
+    /// overwrote the foreign roster with a new one.
+    #[tokio::test]
+    async fn is_initialized_only_treats_a_missing_state_file_as_uninitialized() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path()).await;
+        assert!(!store.is_initialized().await.unwrap());
+
+        store.save(&state_with(Vec::new())).await.unwrap();
+        assert!(store.is_initialized().await.unwrap());
+
+        // A NUL byte makes the path unstattable for a reason other than
+        // "missing" on every platform.
+        let unstattable = TowerStore::new(dir.path().join("bad\0root"));
+        assert!(unstattable.is_initialized().await.is_err());
+    }
 }

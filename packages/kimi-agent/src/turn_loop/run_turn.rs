@@ -351,6 +351,7 @@ pub fn run_turn_continued<'a>(
         max_steps,
         max_attempts,
         max_context_tokens,
+        compaction_max_attempts,
         goal,
         cancellation,
         permission_mode,
@@ -378,6 +379,7 @@ pub fn run_turn_continued<'a>(
                 max_steps,
                 max_attempts,
                 max_context_tokens,
+                compaction_max_attempts,
                 goal: goal.clone(),
                 cancellation: cancellation.clone(),
                 permission_mode,
@@ -639,7 +641,9 @@ pub fn run_turn<'a>(
 
         // Context compaction knobs. The window comes from the host's model
         // resolution; without it the budget falls back to the fixed default.
-        let compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
+        // The attempt cap rides the same host-resolved context (v2 #3750).
+        let mut compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
+        compaction_config.max_attempts = input.compaction_max_attempts;
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
@@ -1590,6 +1594,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1644,6 +1649,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1709,6 +1715,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1757,6 +1764,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1797,6 +1805,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1862,6 +1871,7 @@ mod tests {
             max_steps: 2,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -1919,6 +1929,7 @@ mod tests {
             max_steps: 1,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2007,6 +2018,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2101,6 +2113,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -2144,6 +2157,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2191,6 +2205,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2260,6 +2275,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2289,6 +2305,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2318,6 +2335,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2399,6 +2417,7 @@ mod tests {
             max_steps: 3,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2498,6 +2517,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2597,6 +2617,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2708,6 +2729,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2824,6 +2846,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -2939,6 +2962,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -3023,6 +3047,7 @@ mod tests {
             max_steps: 20,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -3136,6 +3161,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -3200,6 +3226,7 @@ mod tests {
             tool_defs: vec![],
             max_steps: 5,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -3255,6 +3282,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3304,6 +3332,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3356,6 +3385,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3417,6 +3447,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3469,6 +3500,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3560,6 +3592,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3608,6 +3641,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -3710,6 +3744,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: Some(cancellation),
@@ -3771,6 +3806,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -3811,6 +3847,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -3906,6 +3943,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: Some(goal),
             cancellation: None,
@@ -3982,6 +4020,7 @@ mod tests {
             max_steps: 3,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4176,6 +4215,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4275,6 +4315,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4321,6 +4362,7 @@ mod tests {
                 max_steps: 5,
                 max_attempts: None,
                 max_context_tokens: None,
+                compaction_max_attempts: None,
                 permission_mode: Some(mode),
                 goal: None,
                 cancellation: None,
@@ -4418,6 +4460,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4478,6 +4521,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4535,6 +4579,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: Some(cancel_flag),
@@ -4686,6 +4731,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4775,6 +4821,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4860,6 +4907,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: None,
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -4999,6 +5047,7 @@ mod tests {
             max_steps: 5,
             max_attempts: None,
             max_context_tokens: Some(100_000),
+            compaction_max_attempts: None,
             permission_mode: None,
             goal: None,
             cancellation: None,
@@ -5011,6 +5060,113 @@ mod tests {
         assert_eq!(
             result.messages.last().unwrap().content,
             "Recovered successfully"
+        );
+    }
+
+    /// v2 #3750: the host's `loopControl.compactionMaxAttempts` reaches the
+    /// summarizer through the turn loop, so a failing emergency compaction
+    /// stops at the configured request count instead of the engine default.
+    #[tokio::test]
+    async fn test_compaction_attempt_cap_reaches_the_turn_loop_summarizer() {
+        struct FailingSummarizerLlm {
+            summarizer_calls: AtomicU32,
+        }
+        impl LLM for FailingSummarizerLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "cap-model"
+            }
+            fn is_retryable_error(&self, error: &str) -> bool {
+                // Only the summarizer's 500 is retryable; the step's overflow
+                // must fail straight through so the test does not sit in the
+                // step-retry backoff.
+                error.contains("500")
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                // The summarizer prompt is the only call whose system message
+                // is the summarizer instruction; the step call carries the
+                // turn's own system prompt.
+                let is_summarizer = params
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.content.contains("conversation summarizer"));
+                if is_summarizer {
+                    self.summarizer_calls.fetch_add(1, Ordering::SeqCst);
+                }
+                Box::pin(async move {
+                    let message = if is_summarizer {
+                        "llm http status 500 summarizer unavailable"
+                    } else {
+                        "llm http status 400 Bad Request: context_length_exceeded"
+                    };
+                    Err(Box::new(std::io::Error::other(message))
+                        as Box<dyn std::error::Error + Send + Sync>)
+                })
+            }
+        }
+
+        let llm = FailingSummarizerLlm {
+            summarizer_calls: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            turn_id: "test-compaction-cap".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a1".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: "a2".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: "u3".into(),
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: Some(100_000),
+            compaction_max_attempts: Some(1),
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+        };
+
+        assert!(run_turn(input, &callbacks).await.is_err());
+        assert_eq!(
+            llm.summarizer_calls.load(Ordering::SeqCst),
+            1,
+            "the configured cap bounds the summarizer requests"
         );
     }
 }

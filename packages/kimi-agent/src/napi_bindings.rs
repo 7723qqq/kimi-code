@@ -1705,6 +1705,10 @@ async fn run_turn_rust_impl(
         // configured `maxStepsPerTurn`).
         max_steps: params.max_steps.unwrap_or(u32::MAX),
         max_context_tokens: params.max_context_tokens,
+        // The napi host passes its own `[loop_control]` caps through
+        // `max_attempts`; the compaction cap has no napi parameter yet, so this
+        // path keeps the engine default.
+        compaction_max_attempts: None,
         permission_mode: pipeline.permission_mode,
         goal,
         cancellation: Some(cancellation),
@@ -2011,6 +2015,7 @@ pub fn create_engine_session(
                 max_steps: params.max_steps.unwrap_or(u32::MAX),
                 max_attempts: params.max_attempts,
                 max_context_tokens: params.max_context_tokens,
+                compaction_max_attempts: None,
                 permission_mode: pipeline.permission_mode,
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
@@ -2018,6 +2023,9 @@ pub fn create_engine_session(
                 agent_cancel_slot: Some(agent_cancel_slot),
                 hook_guard: pipeline.hook_guard.clone(),
                 print_background: print_background_policy(&params),
+                // The host's session id is also the task-notification key: the
+                // print settle drains only this session's completions.
+                session_id: params.session_id.clone(),
                 task_runner: SUBAGENT_MANAGER.get_task_runner_sync(),
             })
             .await;

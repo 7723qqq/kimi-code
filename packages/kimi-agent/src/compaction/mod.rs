@@ -22,6 +22,13 @@ use tokio_util::sync::CancellationToken;
 /// `packages/kimi-native-tools/src/compaction.rs`.
 pub const DEFAULT_MAX_CONTEXT_TOKENS: u32 = 128 * 1024;
 
+/// Total requests one compaction round may issue when the host configures no
+/// cap (v2 #3750 `MAX_COMPACTION_RETRY_ATTEMPTS`). The fork takes upstream's
+/// 5 rather than the step-retry default of 10: a summarizer that failed five
+/// times is not going to succeed on the tenth, and every attempt re-sends the
+/// whole omitted prefix.
+pub const DEFAULT_COMPACTION_MAX_ATTEMPTS: u32 = 5;
+
 /// Knobs for the compaction algorithm, mirroring `DEFAULT_COMPACTION_CONFIG`
 /// in `packages/agent-core-v2/src/agent/fullCompaction/strategy.ts`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,6 +49,10 @@ pub struct CompactionConfig {
     pub max_recent_user_messages: u32,
     /// Fraction of the window the recent tail may occupy.
     pub max_recent_size_ratio: f64,
+    /// Total requests one compaction round may issue (v2 #3750
+    /// `loopControl.compactionMaxAttempts`); `None` keeps
+    /// [`DEFAULT_COMPACTION_MAX_ATTEMPTS`].
+    pub max_attempts: Option<u32>,
 }
 
 impl Default for CompactionConfig {
@@ -53,6 +64,7 @@ impl Default for CompactionConfig {
             max_recent_messages: 4,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.2,
+            max_attempts: None,
         }
     }
 }
@@ -297,15 +309,22 @@ fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Ve
 /// should only produce text. Retries honor the provider's `Retry-After`
 /// request, abort during the backoff wait, and — with
 /// `KIMI_CODE_INFINITE_RETRY` set (v2 #3240) — never exhaust their budget.
+/// `max_attempts` is the host's total-request cap (v2 #3750
+/// `loopControl.compactionMaxAttempts`); `None` keeps
+/// [`DEFAULT_COMPACTION_MAX_ATTEMPTS`].
 pub async fn summarize_with_llm(
     omitted: &[LLMMessage],
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
+    max_attempts: Option<u32>,
 ) -> Option<String> {
     let prompt: std::sync::Arc<[LLMMessage]> =
         std::sync::Arc::from(summarization_prompt(omitted, instruction));
-    let retry_config = RetryConfig::default();
+    let retry_config = RetryConfig {
+        max_attempts: max_attempts.unwrap_or(DEFAULT_COMPACTION_MAX_ATTEMPTS),
+        ..RetryConfig::default()
+    };
     let infinite = crate::turn_loop::retry::infinite_retry_enabled();
     let mut attempt: u32 = 0;
     loop {
@@ -384,7 +403,7 @@ pub async fn force_compact_messages_with_summary(
         return messages.to_vec();
     }
     let omitted = &messages[1..count as usize];
-    let summary = summarize_with_llm(omitted, llm, instruction, cancel)
+    let summary = summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts)
         .await
         .unwrap_or_else(|| summary_placeholder(omitted.len()));
     apply_compaction_with_summary(messages, count, summary)
@@ -406,7 +425,7 @@ pub async fn force_compact_messages_manual_with_summary(
         return messages.to_vec();
     }
     let omitted = &messages[1..count as usize];
-    let summary = summarize_with_llm(omitted, llm, instruction, cancel)
+    let summary = summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts)
         .await
         .unwrap_or_else(|| summary_placeholder(omitted.len()));
     apply_compaction_with_summary(messages, count, summary)
@@ -980,6 +999,7 @@ mod tests {
             max_recent_messages: 4,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         };
 
         let count = compute_compact_count(&messages, &config);
@@ -1066,6 +1086,7 @@ mod tests {
             max_recent_messages: 3,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         };
         let count_a = compute_compact_count(&messages, &config_a);
         assert_eq!(
@@ -1091,6 +1112,7 @@ mod tests {
             max_recent_messages: 6,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         };
         let count_b = compute_compact_count(&messages, &config_b);
         assert_eq!(count_b, 3, "compacts up to index 3 (sys + u1 + a1)");
@@ -1262,6 +1284,7 @@ mod tests {
             max_recent_messages: 2,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         };
         assert_eq!(compute_compact_count(&messages, &cfg_recent), 7);
 
@@ -1275,6 +1298,7 @@ mod tests {
             max_recent_messages: 10,
             max_recent_user_messages: 1,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         };
         assert_eq!(compute_compact_count(&messages, &cfg_user), 7);
 
@@ -1286,6 +1310,7 @@ mod tests {
             max_recent_messages: 10,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.02, // 2 tokens max for recent tail
+            max_attempts: None,
         };
         // Each message is >= 3 tokens, so first message already hits 2-token budget
         assert_eq!(compute_compact_count(&messages, &cfg_ratio), 7);
@@ -1566,6 +1591,7 @@ mod tests {
             max_recent_messages: 4,
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
+            max_attempts: None,
         }
     }
 
@@ -1577,7 +1603,7 @@ mod tests {
             msg("user", "user-2"),
         ];
         let llm = SummarizerMockLlm::ok("  Summary of earlier conversation.  ");
-        let result = summarize_with_llm(&omitted, &llm, None, None).await;
+        let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
         assert_eq!(result, Some("Summary of earlier conversation.".into()));
     }
 
@@ -1585,7 +1611,7 @@ mod tests {
     async fn test_summarize_with_llm_returns_none_on_empty_content() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::ok("");
-        let result = summarize_with_llm(&omitted, &llm, None, None).await;
+        let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
         assert_eq!(result, None);
     }
 
@@ -1593,7 +1619,7 @@ mod tests {
     async fn test_summarize_with_llm_returns_none_on_error() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::error();
-        let result = summarize_with_llm(&omitted, &llm, None, None).await;
+        let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
         assert_eq!(result, None);
     }
 
@@ -1798,9 +1824,45 @@ mod tests {
     async fn test_summarizer_retries_retryable_failure_then_succeeds() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::transient("Recovered summary.", 1);
-        let result = summarize_with_llm(&omitted, &llm, None, None).await;
+        let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
         assert_eq!(result, Some("Recovered summary.".into()));
         assert_eq!(llm.call_count(), 2, "one retry after the transient failure");
+    }
+
+    /// v2 #3750: the host's `loopControl.compactionMaxAttempts` is a true cap
+    /// on total requests, so a summarizer that never succeeds stops there
+    /// instead of at the engine default.
+    #[tokio::test]
+    async fn test_summarizer_honors_the_configured_attempt_cap() {
+        let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
+        let llm = SummarizerMockLlm::transient("never reached", u32::MAX);
+        let result = summarize_with_llm(&omitted, &llm, None, None, Some(2)).await;
+        assert_eq!(result, None);
+        assert_eq!(
+            llm.call_count(),
+            2,
+            "the configured cap bounds the requests"
+        );
+    }
+
+    /// The cap rides `CompactionConfig`, so the wrappers the turn loop calls
+    /// pass it through to the summarizer.
+    #[tokio::test]
+    async fn test_compaction_config_attempt_cap_reaches_the_summarizer() {
+        let messages = compactable_messages();
+        let config = CompactionConfig {
+            max_attempts: Some(1),
+            ..compacting_config()
+        };
+        let llm = SummarizerMockLlm::transient("never reached", u32::MAX);
+        let compacted =
+            force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
+        assert_eq!(llm.call_count(), 1, "one request, then the placeholder");
+        let count = compute_compact_count(&messages, &config);
+        assert_eq!(
+            compacted[1].content,
+            summary_placeholder(count as usize - 1)
+        );
     }
 
     #[tokio::test]
@@ -1810,7 +1872,7 @@ mod tests {
         let cancel = CancellationToken::new();
         cancel.cancel();
         let started = std::time::Instant::now();
-        let result = summarize_with_llm(&omitted, &llm, None, Some(&cancel)).await;
+        let result = summarize_with_llm(&omitted, &llm, None, Some(&cancel), None).await;
         assert_eq!(result, None);
         assert_eq!(llm.call_count(), 1, "cancel must not trigger more attempts");
         assert!(

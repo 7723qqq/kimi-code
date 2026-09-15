@@ -64,8 +64,6 @@ export const ErrorCode = {
   SESSION_BUSY: 40901,
   /** approval 已被其他 client 应答 */
   APPROVAL_ALREADY_RESOLVED: 40902,
-  /** prompt 已结束（abort 幂等返回 0） */
-  PROMPT_ALREADY_COMPLETED: 40903,
   /** task 已完结，无法取消 */
   TASK_ALREADY_FINISHED: 40904,
   /** mcp restart 时若已在 connecting/connected */
@@ -180,7 +178,6 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
 
   [ErrorCode.SESSION_BUSY]: 'session.busy',
   [ErrorCode.APPROVAL_ALREADY_RESOLVED]: 'approval.already_resolved',
-  [ErrorCode.PROMPT_ALREADY_COMPLETED]: 'prompt.already_completed',
   [ErrorCode.TASK_ALREADY_FINISHED]: 'task.already_finished',
   [ErrorCode.MCP_ALREADY_CONNECTED]: 'mcp.already_connected',
   [ErrorCode.FS_IS_DIRECTORY]: 'fs.is_directory',

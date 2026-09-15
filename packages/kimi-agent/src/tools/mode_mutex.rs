@@ -43,7 +43,7 @@ pub fn open_mission_ids(state: &TowerState) -> Vec<String> {
 pub async fn pause_tower_for_mode_enter(workspace_root: &Path, reason: &str) -> Vec<String> {
     let repo_root = resolve_tower_repo_root(&workspace_root.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
-    if !store.is_initialized().await {
+    if !store.is_initialized().await.unwrap_or(false) {
         return Vec::new();
     }
     // Same per-repo serialization as the `execute_tower_*` entry points.

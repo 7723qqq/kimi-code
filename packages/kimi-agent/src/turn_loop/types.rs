@@ -846,6 +846,10 @@ pub struct RunTurnInput<'a> {
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's own default budget.
     pub max_context_tokens: Option<u32>,
+    /// Total requests one compaction round may issue (v2 #3750
+    /// `loopControl.compactionMaxAttempts`). `None` keeps the engine default
+    /// of [`crate::compaction::DEFAULT_COMPACTION_MAX_ATTEMPTS`].
+    pub compaction_max_attempts: Option<u32>,
     /// The live permission mode for this turn, when the host carries a policy
     /// snapshot. Drives the permission-mode reminders (v2
     /// `PermissionModeInjection`); `None` leaves them off.

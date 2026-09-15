@@ -1029,7 +1029,7 @@ Submits a user prompt to the session. Media references are validated first, then
 | `session_id` | path | string | **Required.** Session id |
 | `content` | body | array | **Required.** Non-empty array of content parts; variants below |
 | `agent_id` | body | string | Target agent. Default the main agent |
-| `prompt_id` | body | string | Client-chosen prompt id for idempotent submission; an id already reserved by an in-flight prompt fails `40927`, one that has already completed fails `40903`. Cannot be combined with `skills` |
+| `prompt_id` | body | string | Client-chosen prompt id for idempotent submission; an id already reserved by an in-flight prompt fails `40927`. Cannot be combined with `skills` |
 | `skills` | body | array | Bundled skill activations, at least 1 entry of `{ name, args? }`; every skill must exist and be user-activatable |
 | `profile` | body | string | Agent profile to bind before submitting |
 | `model` | body | string | Model alias to switch the agent to |
@@ -1057,7 +1057,6 @@ On success, `data` is the accepted prompt `{ prompt_id, user_message_id, status,
 - `40401`: session not found
 - `40407`: a referenced `file_id` does not exist (or does not match the part's media kind)
 - `40415`: a `skills` entry names an unknown skill
-- `40903`: `prompt_id` belongs to an already-completed prompt; `data` carries `{ aborted: false }`
 - `40912`: the skill exists but cannot be activated by the user
 - `40927`: `prompt_id` is already reserved by an in-flight prompt
 
@@ -1088,8 +1087,7 @@ Aborts a running prompt. This endpoint and `:steer` below dispatch through one r
 On success, `data` is `{ aborted: true }`.
 
 - `40401`: session not found
-- `40402`: no prompt with that id
-- `40903`: the prompt already completed; `data` carries `{ aborted: false }`
+- `40402`: no prompt with that id — unknown, or already settled
 
 #### `POST /api/v1/sessions/{session_id}/prompts/{prompt_id}:steer`
 

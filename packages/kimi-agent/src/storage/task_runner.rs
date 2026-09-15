@@ -197,6 +197,10 @@ pub struct TaskNotification {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_preview: Option<String>,
     pub ended_at: u64,
+    /// The session the task was spawned for; `None` = server-level (see
+    /// [`TaskRunner::take_pending_notifications`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl TaskRunner {
@@ -606,6 +610,7 @@ impl TaskRunner {
                 status,
                 output_preview: output_preview.clone(),
                 ended_at,
+                session_id: session_id.clone(),
             });
         // Terminal facts, both vocabularies (mappers + projector).
         let session = session_id.as_deref();
@@ -630,16 +635,49 @@ impl TaskRunner {
         );
     }
 
-    /// Drain pending completion notifications. The runner retains nothing
-    /// after the call; consumers that need persistence persist themselves.
-    pub fn take_pending_notifications(&self) -> Vec<TaskNotification> {
-        std::mem::take(&mut *self.pending_notifications.lock().unwrap())
+    /// Drain the completion notifications **of one session**: only
+    /// notifications whose task was spawned for `session_id` are returned, and
+    /// they leave the queue. Another session's notification stays queued for
+    /// its own drain — the runner is server-scoped and shared across sessions,
+    /// so an unscoped drain lets one session's print turn consume another
+    /// session's completion and turn it into a follow-up turn.
+    ///
+    /// `None` (a caller with no session id) drains nothing: a task spawned
+    /// without a session id is server-level, and handing it to whichever
+    /// session drains first is exactly the cross-session leak this scoping
+    /// exists to prevent. Such notifications stay queued for a server-level
+    /// consumer.
+    pub fn take_pending_notifications(&self, session_id: Option<&str>) -> Vec<TaskNotification> {
+        let Some(session_id) = session_id else {
+            return Vec::new();
+        };
+        let mut queue = self.pending_notifications.lock().unwrap();
+        let mut taken = Vec::new();
+        let mut kept = Vec::with_capacity(queue.len());
+        for notification in queue.drain(..) {
+            if notification.session_id.as_deref() == Some(session_id) {
+                taken.push(notification);
+            } else {
+                kept.push(notification);
+            }
+        }
+        *queue = kept;
+        taken
     }
 
-    /// Pending notification count (for hosts that want to know whether to
-    /// poll without consuming the queue).
-    pub fn pending_notification_count(&self) -> usize {
-        self.pending_notifications.lock().unwrap().len()
+    /// Pending notification count for one session (for hosts that want to know
+    /// whether to poll without consuming the queue). Scoped like
+    /// [`Self::take_pending_notifications`], so a `None` caller counts nothing.
+    pub fn pending_notification_count(&self, session_id: Option<&str>) -> usize {
+        let Some(session_id) = session_id else {
+            return 0;
+        };
+        self.pending_notifications
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|notification| notification.session_id.as_deref() == Some(session_id))
+            .count()
     }
 
     /// The task entry as the state bridge wire value: `taskId` /
@@ -1183,5 +1221,80 @@ mod tests {
             TaskWaitResult::Completed(wire) => assert_eq!(wire["output"], "x"),
             other => panic!("expected completed, got {other:?}"),
         }
+    }
+
+    /// The settle path records the task's session on the notification, and the
+    /// drain hands a session only its own completions: the runner is shared
+    /// across sessions, so an unscoped drain would let one session's print turn
+    /// consume another session's task.
+    #[tokio::test]
+    async fn notifications_are_scoped_to_the_settling_tasks_session() {
+        let (_tmp, runner) = runner();
+        for (id, session) in [("task-a", "sess-a"), ("task-b", "sess-b")] {
+            runner
+                .spawn_task_with_meta(
+                    TaskSpawnMeta {
+                        session_id: Some(session),
+                        kind: "bash",
+                        subagent_type: None,
+                    },
+                    id.into(),
+                    format!("job {id}"),
+                    async { "done".to_string() },
+                )
+                .unwrap();
+        }
+        assert!(matches!(
+            runner.wait("task-a", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+        assert!(matches!(
+            runner.wait("task-b", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+
+        assert_eq!(runner.pending_notification_count(Some("sess-a")), 1);
+        assert_eq!(runner.pending_notification_count(Some("sess-b")), 1);
+
+        let drained = runner.take_pending_notifications(Some("sess-a"));
+        assert_eq!(drained.len(), 1, "only sess-a's completion may be drained");
+        assert_eq!(drained[0].task_id, "task-a");
+        assert_eq!(drained[0].session_id.as_deref(), Some("sess-a"));
+        assert_eq!(runner.pending_notification_count(Some("sess-a")), 0);
+        assert_eq!(
+            runner.pending_notification_count(Some("sess-b")),
+            1,
+            "sess-b's completion must survive sess-a's drain"
+        );
+
+        let drained = runner.take_pending_notifications(Some("sess-b"));
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].task_id, "task-b");
+        assert_eq!(drained[0].session_id.as_deref(), Some("sess-b"));
+    }
+
+    /// A task spawned without a session id is server-level: no session-scoped
+    /// drain may take it, and an unattributed caller takes nothing either.
+    #[tokio::test]
+    async fn unattributed_notifications_are_never_drained_by_a_session() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task("task-none".into(), "bash".into(), async { "x".to_string() })
+            .unwrap();
+        assert!(matches!(
+            runner.wait("task-none", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+
+        assert_eq!(runner.pending_notification_count(Some("sess-a")), 0);
+        assert!(runner.take_pending_notifications(Some("sess-a")).is_empty());
+        assert!(runner.take_pending_notifications(None).is_empty());
+        assert_eq!(
+            runner.pending_notification_count(None),
+            0,
+            "a caller with no session id counts nothing"
+        );
+        // The notification is still queued, not dropped by a foreign drain.
+        assert_eq!(runner.pending_notifications.lock().unwrap().len(), 1);
     }
 }

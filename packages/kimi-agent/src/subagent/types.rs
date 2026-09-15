@@ -109,6 +109,14 @@ pub enum SubagentState {
     Terminated,
 }
 
+impl SubagentState {
+    /// Terminal states retire the scope into the completed-scope LRU
+    /// (v2 `SubagentCompleted` / `SubagentFailed` / `SubagentCancelled`).
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Terminated)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubagentInstance {
     pub id: String,

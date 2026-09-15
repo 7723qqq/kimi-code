@@ -541,6 +541,7 @@ pub async fn start_repl(
         max_steps: config.resolve_max_steps_per_turn().unwrap_or(25),
         max_attempts: config.resolve_max_attempts_per_step(),
         max_context_tokens: None,
+        compaction_max_attempts: config.resolve_compaction_max_attempts(),
         permission_mode,
         tool_defs: Arc::new(move || {
             let mcp = mcp_for_defs.clone();
@@ -563,6 +564,8 @@ pub async fn start_repl(
         // Print mode (`kimi -p`) only: an interactive session's turn receipt
         // must never wait on background tasks.
         print_background: None,
+        // The REPL has no host session id, so it drains no task notifications.
+        session_id: None,
         task_runner: None,
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;

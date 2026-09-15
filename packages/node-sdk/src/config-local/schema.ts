@@ -179,6 +179,11 @@ export const LoopControlSchema = z.object({
   maxRalphIterations: z.number().int().min(-1).optional(), // -1 means unlimited
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
+  /**
+   * Total requests one compaction round may issue (v2 #3750). The engine
+   * floors it at 1; unset keeps the engine default.
+   */
+  compactionMaxAttempts: z.number().int().min(1).optional(),
 });
 
 export type LoopControl = z.infer<typeof LoopControlSchema>;

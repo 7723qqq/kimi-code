@@ -357,7 +357,7 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
 裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照（2026-09-15
 二次复核，merge base 不变、上游推进到 `a7bdabbe82`）：
-`ported=6 | tracked=21 | not-applicable=13`（40 条）。
+`ported=14 | tracked=13 | not-applicable=13`（40 条）。
 
 同时必须记住：`scripts/scan-parity.mjs` 的比对源**全部是 fork 自有声明**
 （`packages/protocol/src/rest/*.ts` 注释清单、`ws-event-contract.json`、`tool-name-contract.json`、
@@ -390,8 +390,9 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    attempt-state 失效逻辑，`context_tokens.invalidate()` 属 token 记账而非流式增量。先确认 Rust
    是否存在"被弃用 attempt 的增量泄漏到重试后消息"的路径，再决定是否移植。
 3. **#3694 存储失败重建索引 / #3697 steer 打断后台等待 / #3688 MCP 附件原件保留 /
-   #3720、#3717 任务通知时序 / #3648 tower 可靠性 / #3606 模型目录运行时 / #3681 `[models]` 告警**：
+   #3648 tower 可靠性 / #3606 模型目录运行时**：
    已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
+   （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条。）
 4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
    `transport/ws/` 下的 `v1`/`v3`/`debug` 三代并存命名，v3 即「扁平实体」代际（提交
    `64505e36e3`，design revision 1094）：26 个 server 消息变体 + 2 个 client 帧，实体按
@@ -470,37 +471,158 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    `$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、`additionalDirectories` 被静默丢弃
    （中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、`session/set_model` 缺失（中）、
    ACP `mcpServers` 写进程级 manager 与 v2 per-session ephemeral 语义相反（中）。
-6. **#3787 托管用量配额模型（客户端侧）**：Rust 路由已是平台原样透传
-   （`server/oauth.rs:653-664,698`），但 `packages/oauth/src/managed-usage.ts:170,183` 仍按旧的
-   `usage`/`limits` 形状解析，TUI `/usage` 面板（`usage-panel.ts:71-72`）在新 payload 下退化为
-   "无用量数据"。需迁移配额域模型（`limit_5h`/`limit_7d`/`limit_month_*` + `boosterWallet`）与
-   展示层，并在 `apps/kimi-code/src/utils/usage/usage-format.ts` 补 `quotaUsageRows`。
-   注意这是 app/oauth 侧债务，不是引擎债务。
-7. **#3785 `[secondary_model].default_effort` 快速失败**：Rust 接受任意字符串
+6. ~~**#3787 托管用量配额模型（客户端侧）**~~ **已解决（2026-09-15 后续变更）**。Rust 路由本就是平台
+   原样透传（`server/oauth.rs:653-664,698`），本次只补客户端：`packages/oauth/src/managed-usage.ts`
+   改为 zod 配额域模型（`managedQuotaEntrySchema`/`managedQuotaUsagesSchema`/`boosterWalletInfoSchema`/
+   `managedQuotaSchema`/`managedUsageResultSchema`，`:99-144`），`parseManagedUsagePayload`（`:146`）
+   读 `usages.limit_5h|limit_7d|limit_month_total|limit_month_code` 的 `used_ratio`/`reset_time`
+   （`parseQuotaUsages` `:156`、`parseQuotaEntry` `:166`，非记录或缺 `used_ratio` 的条目整条丢弃），
+   `fetchManagedUsage` 返回 `{kind:'ok', quota}`（`:286`），`toolkit.getManagedUsage` 的
+   `AuthManagedUsageResult` 同步为 `{kind:'ok', quota}`（`toolkit.ts:101-106,318-333`）。
+   展示层：`apps/kimi-code/src/utils/usage/usage-format.ts` 新增 `quotaUsageRows`（`:95`）按
+   「后端给了哪个窗口就渲染哪行」产出 `5h limit`/`Weekly limit`/`Monthly limit` 三行，月度行带
+   `monthlyBreakdown`（`:115`，`kimiRatio = monthTotal - monthCode`，两侧都过 `safeUsageRatio`）；
+   `usage-panel.ts` 的 `ManagedUsageReport` 改为 `{rows, extraUsage}`（`:49-52`），
+   `buildManagedUsageSection`（`:117`）按 `usedRatio` 直接画条并在月度行下补
+   `kimi X% · code Y%` 明细行（`:152-161`），`info.ts:263` 用 `quotaUsageRows(res.quota)` 组装。
+   **与上游的差异（有意）**：行标签与明细行走 fork 的 i18n（`tui.messages.usagePanel.limit5h` /
+   `limitWeekly` / `monthlyLimit` / `monthlyBreakdown`），上游是硬编码英文；`managed-usage.ts` 保留了
+   上游本次顺带删掉的两处与本变更无关的注释（base-url 归一化、托管端点严格匹配）。
+   验证：`packages/oauth/test/managed-usage.test.ts`（21 项，含新配额 payload、畸形 payload、
+   `managedUsageResultSchema`）、`packages/oauth/test/toolkit.test.ts`、
+   `apps/kimi-code/test/utils/usage/usage-format.test.ts` 的 `quotaUsageRows` 3 项、
+   `apps/kimi-code/test/tui/components/messages/{usage-panel,status-panel}.test.ts`。
+   （该债务在 app/oauth 侧，与引擎无关。）
+7. ~~**#3785 `[secondary_model].default_effort` 快速失败**：Rust 接受任意字符串
    （`config/mod.rs:1110-1148`），不校验 `support_efforts`/`always_thinking`；上游在池校验处
-   拒绝非法值。另缺 catalog 的 `adaptive_thinking` 字段（`server/model_catalog.rs:37-51`）。
-8. **#3752 tower 名册身份解析**：Rust 按首个匹配解析调用者（`tools/tower/store.rs:333`），
-   `register_agent`（`:345-355`）不退休同 id 旧条目；上游改为取最后一条并退休重复项。
-   触发条件在 Rust 侧潜伏（worker id 为随机 `subagent-<u64>`，`subagent/manager.rs:667`）。
+   拒绝非法值。另缺 catalog 的 `adaptive_thinking` 字段（`server/model_catalog.rs:37-51`）。~~
+   **已解决（2026-09-15 后续变更）**。落地为 `KimiConfig::validate_secondary_model_effort`
+   （`config/mod.rs:868`，由 `extract_secondary_model_pool` 在池解析成功后调用，`:844`）：
+   复刻上游 `assertValidSubagentDefaultEffort` 的三段判定——`off` 对「总是推理」的模型
+   （`capabilities` 含 `always_thinking`）报错；`model_supports_effort`（`:1244`）按
+   `modelSupportsThinkingEffort(effort, model, true)` 语义（`off` 恒通过、无 thinking 支持恒失败、
+   空 `support_efforts` 视为任意档位）；无 thinking 支持与「档位不在列表内」分别给出上游同款文案。
+   `model_supports_thinking`（`:1225`）把 fork 的 `capabilities` 字符串（`thinking` /
+   `always_thinking`）与 `adaptive_thinking` 一并认作 thinking 支持。catalog 侧
+   `ModelItem` 新增 `adaptive_thinking`（`server/model_catalog.rs:54,79`），
+   `packages/protocol/src/modelCatalog.ts` 同步该字段。
+   **与上游的差异（有意）**：fork 的 `[models.*].capabilities` 是可选的、且 catalog 不派生
+   provider-profile 默认值，因此「未声明任何 capabilities 的模型 + 具体档位」在 fork 会被拒
+   （上游同样拒，只是上游的 catalog 总能填出 capabilities）。验证：
+   `config::tests::test_secondary_model_default_effort_validation`（9 个分支）+
+   `server::model_catalog::tests::models_project_the_config_aliases` 的 `adaptive_thinking` 断言。
+8. ~~**#3752 tower 名册身份解析**~~ **已解决（2026-09-15 后续变更）**。落地为
+   `tools/tower/store.rs`：`resolve_caller_name`（`:338`）改为取同 agent id 的**最后**一条名册记录
+   （`.rev().find()`），`register_agent`（`:368`）在追加前先退休同 agent id 的旧条目（重名检查仍在其后，
+   被拒的注册不改动已存状态），`is_initialized`（`:68`）改为只把「文件不存在」当作未初始化——非 ENOENT
+   的 stat 失败向上传播，`init` 因此不会把不可读的 state.json 当成新工作区覆盖掉（`mode_mutex.rs:46`
+   的调用点按「降级为不暂停」处理）。**无 Rust 对应物的上游部分**：`died`/`clearAgentDied` 的
+   `findLastIndex`（Rust 名册条目没有死亡字段）、`exit()` 等待所有权释放（`.tower/comms/state.json`
+   没有 owner session 概念）、`enter()` 与恢复路径的 adopt 拆分（Rust 只有 TowerInit 一条激活路径，
+   它已经经 `init` → `adopt_foreign_roster` 收养工作区名册）。触发条件在 Rust 侧本就潜伏
+   （worker id 为随机 `subagent-<u64>`，`subagent/manager.rs:812`），本轮按规则移植。
+   验证：`tools::tower::store::tests` 4 项（最后注册优先、注册退休同 id 旧条目、重名仍被拒且不退休、
+   `is_initialized` 仅对缺失文件返回 false）。
 9. **#3667 动态工具与 MCP 延迟披露**：三部分全缺——官方模型的 `dynamically_loaded_tools`
    能力（`server/provider_refresh.rs:83-141`）、每服务器 `deferred` 字段
    （`config/mod.rs:155-198`）、`select_tools` 的广告位（可执行但从未进入
    `tools/tool_policy.rs:128-165` 的工具表；`tools/select_tools.rs:19-26` 明确写着延迟披露
    刻意未实现）。
-10. **#3747 提示队列折叠的两个行为差**：队列语义已一致，但 (a) 中止已结算提示 Rust 返回
-    40903（`server/mod.rs:5496-5505`），上游改为 40402；(b) 提示图片压缩说明在 Rust 媒体入口
-    完全缺失（`server/mod.rs:1011-1120`）。
-11. **#3750 压缩尝试上限可配置**：无 `loop_control.compaction_max_attempts` 键；摘要器硬编码
+10. **#3747 提示队列折叠的两个行为差**：(a) ~~中止已结算提示 Rust 返回 40903~~ **已解决
+    （2026-09-15 后续变更）**：`:abort` 路由对不在队列中的提示词改回 40402 `PROMPT_NOT_FOUND`
+    （HTTP 404，不再带 `{ aborted: false }`，`server/mod.rs:5497-5505`），Rust 错误码表与
+    `packages/protocol` 同步删除 40903 与 `prompt.already_completed`，kimi-web 客户端去掉
+    `allowCodes: [40903]`——40402 走它既有的 `PROMPT_NOT_FOUND_CODE` 分支，用户可见行为不变。
+    (b) 提示图片压缩说明在 Rust 媒体入口完全缺失（`server/mod.rs:1011-1120`），属既有缺口，
+    本轮未动。
+11. ~~**#3750 压缩尝试上限可配置**：无 `loop_control.compaction_max_attempts` 键；摘要器硬编码
     `RetryConfig::default()` = 10 次（`compaction/mod.rs:308`、`turn_loop/retry.rs:10`），
-    上游默认 5 且可配。
+    上游默认 5 且可配。~~
+    **已解决（2026-09-15 后续变更）**。落地为 `LoopControlConfig.compaction_max_attempts`
+    （`config/mod.rs:317-321`）+ `KimiConfig::resolve_compaction_max_attempts`（`:936`，上游未给该键
+    绑环境变量，故只读文件；schema 下限 1，`0` 视为未设）。摘要器不再硬编码：
+    `summarize_with_llm` 新增 `max_attempts` 参数（`compaction/mod.rs:315-320`），
+    `CompactionConfig.max_attempts`（`:55`）承载该值并由三个 wrapper 透传，
+    `DEFAULT_COMPACTION_MAX_ATTEMPTS = 5`（`:30`）**取上游默认而非 fork 原有的 10**——
+    摘要器失败五次后第十次也不会成功，而每次尝试都要重发整段被折叠的前缀。
+    宿主侧经 `RunTurnInput.compaction_max_attempts`（`turn_loop/types.rs:852`）→
+    `run_turn` 的 `compaction_config.max_attempts`（`turn_loop/run_turn.rs:646`）落地；
+    `--serve` 与 REPL 分别由 `with_standalone_limits`（`main.rs:1090`）与
+    `SessionConfig.compaction_max_attempts`（`session/mod.rs:184`、`repl/mod.rs:544`）从 config.toml 取值，
+    手动 `:compact` 端点复用 `ServerEngine::compaction_max_attempts`（`server/engine.rs:606`）。
+    **已知留白**：napi 路径（TUI）没有对应的 napi 参数，`napi_bindings.rs` 传 `None`，
+    因此该键在 TUI 下不生效——补它需要同时改 `napi-contract.d.ts` 与 node-sdk 的
+    `resolveMaxAttemptsPerStep` 同族解析器，不在本次范围内。验证：
+    `config::tests::test_resolve_compaction_max_attempts`、
+    `compaction::tests::test_summarizer_honors_the_configured_attempt_cap`、
+    `compaction::tests::test_compaction_config_attempt_cap_reaches_the_summarizer`、
+    `turn_loop::run_turn::tests::test_compaction_attempt_cap_reaches_the_turn_loop_summarizer`
+    （真实 turn 循环 + 真实溢出恢复路径，断言摘要器只被调用 1 次）。
 12. **#3749 AI 会话标题**：`auto_session_title` 开关在 fork 原生注册表里本就不存在，但它门控的
     AI 标题路径未实现——`derive_session_title` 直接拒绝 `source=digest`
     （`session/sqlite_store.rs:1777`），`fetchChatTitle` 无消费者。
-13. **#3778 已完成 subagent scope 的 LRU 驱逐**：上游给已完成的 subagent scope 加了有界缓存
-    （`KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` 默认 32，超出后驱逐并在恢复时从持久化状态重建；
-    `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` 默认 15000）。Rust 引擎的 `instances`
-    只在显式销毁时移除（`subagent/manager.rs:1499`），长会话会为每个 spawn 过的 subagent
-    累积一条常驻记录。
+13. ~~**#3778 已完成 subagent scope 的 LRU 驱逐**~~ **已解决（2026-09-15 后续变更）**。落地为
+    `subagent/manager.rs`：两个环境变量按上游默认值与校验解析（`KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE`
+    默认 32、`0`/负数 = 不驱逐；`KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` 默认 15000；非法值让首次
+    spawn 直接失败，`:39`/`:58`）；终态实例（Completed/Failed/Terminated，判据是 `subagent/types.rs:115`
+    的 `SubagentState::is_terminal`）进入 LRU（`:1781`），超出容量时驱逐最旧完成的**常驻**实例与内存会话
+    （`:1801`/`:1854`），持久化的 `subagent_resume` 记录不动，下一次 `resume` 从它重建实例
+    （`:1884`，`resume_foreground_turn` 在跑回合前重建，回合结束后重新入 LRU）。**与上游的差异（刻意）**：
+    持久实例（`spawn_persistent`，Team/btw 用）不参与驱逐——它们的会话只在内存里，`destroy_persistent`
+    仍是唯一移除路径；没挂 `SqliteSessionStore` 的 manager（TUI/NAPI 路径）也不驱逐，因为那里内存历史
+    是唯一副本，驱逐会直接破坏 resume。上游的 `closing`/`failed` 驱逐结果没有对应物（Rust 的驱逐是一次
+    map 移除，没有可失败的异步 teardown），超时只兜住锁竞争。
+    验证：`subagent::manager::tests` 5 项（环境变量校验、非法值让 spawn 失败、驱逐后 resume 重建且
+    LRU 顺序正确、无 store 时不驱逐、持久实例不被驱逐）。
+14. ~~**#3681 `[models]` 条目缺 `model` 字段时告警**~~ **已解决（2026-09-15 后续变更）**。落地为
+    `KimiConfig::malformed_model_entries`（`config/mod.rs:570`），由 `from_file`（`:555`）在真实加载
+    路径上逐条 `tracing::warn!`。**引擎没有 config 告警通道**：`packages/protocol/src/events.ts:641`
+    声明了 `event.config.warning`、v3 词表也有 `config.warning`，但 Rust 侧两者都**没有生产者**
+    （`server/ws_v3.rs:29` 自己写着 "config.warning has no source"），因此按任务约定取最接近的既有机制
+    ——引擎日志，而不是新造一条事件通道。判定读**原始 TOML**而非反序列化结果：serde 会丢掉让条目变形的
+    嵌套表，也就丢掉了「别名本来是什么」的证据；`dotted_alias_suffix`（`:1280`）复刻上游
+    `dottedAliasSuffix`，把未加引号的 `[models.a.b]` 还原成 `[models."a.b"]` 写进提示。
+    **与上游的差异**：上游的豁免条件是 `model` 或 `name` 二者之一存在，fork 的 `ModelAliasConfig`
+    没有 `name` 字段（`display_name` 是展示名，不构成可解析的模型），故只认 `model`。
+    验证：`config::tests::test_malformed_model_entries_warn`（正常条目/带点引号别名不告警、
+    缺字段告警、未加引号点号别名给出引号提示、无 `[models]` 表与非法 TOML 均不告警）。
+15. **#3720 移除前抑制任务通知 / #3717 拆除后迟到结算静默**（2026-09-15 后续变更）：
+   **通知一半已落地，事件一半仍缺会话存活源**。Rust 的 `TaskRunner` 是**服务级、跨会话共享**的
+   （`server/mod.rs:168` 建一次，`:220`/`:238` 分别交给 server 与 subagent manager），而
+   `TaskNotification` 原先不带会话、`take_pending_notifications` 整队排空，唯一排空点又是 print/steer
+   结算路径（`session/mod.rs:1394`）——于是**一个会话的 print 回合会消费另一个会话的任务完成通知，
+   并把它变成自己的后续回合**。落地：`TaskNotification.session_id`（`storage/task_runner.rs:203`，
+   结算路径 `:613` 从 `TaskEntry.session_id` 填入）、`take_pending_notifications(session_id)`
+   （`:650`）与 `pending_notification_count(session_id)`（`:671`）按会话过滤，
+   `SessionConfig.session_id`（`session/mod.rs:214`）→ `SessionContext.session_id`（`:375`，构造
+   `:445`）→ 排空点（`:1390`/`:1394`）与「模型是否被欠一个回合」的判据（`:1321`）。宿主 id 由
+   `main.rs:426`（stdio）与 `napi_bindings.rs:2028`（napi）填入，REPL 无宿主会话 id 故传 `None`
+   （`repl/mod.rs:568`）。
+   **`None` 语义（刻意）**：无会话 id 的任务是服务级的，**任何会话作用域的排空都不取它**——把它交给
+   「谁先排空谁拿到」正是本次要消除的跨会话泄漏；它留在队列里等服务级消费者。代价：宿主不传
+   `session_id` 的 stdio `session/create` 路径（`main.rs:354`，仓内无 TS 调用方）不再有 steer 回合，
+   因为该路径的任务同样没有会话归属。
+   **未落地（#3717 的事件一半）**：结算路径仍无条件发 `event.task.completed` /
+   `background.task.terminated`（`storage/task_runner.rs:617-630`），会话拆除后迟到的结算照样广播。
+   上游用 `sessionEventBus.isAgentActive(agent)`（`eventBusService.ts`）做存活判据，**Rust 没有等价物**：
+   `SESSION_REGISTRY`（`main.rs:1463`、`napi_bindings.rs:1803`）虽在 `session_dispose` 里移除条目
+   （`main.rs:691`、`napi_bindings.rs:2309`），但它在 bin crate 里、`TaskRunner` 够不到，且键是引擎
+   自造的 `session-{n}` 而通知带的是宿主 `params.session_id`（stdio 路径干脆是 `None`）；`EventHub`
+   的车道**从不驱逐**（`server/hub.rs:126` 自述），`lane_exists` 不是存活；`subscriber_count` 数的是
+   WS 连接；`ServerEngine.active_turns` 只表示「有回合在跑」；`EngineSession` 没有 closed/disposed
+   标志（`session_dispose` 只摘注册表条目，pump 永久 park）。**不新造信号**，故此项留待会话存活源。
+   验证：`storage::task_runner::tests::notifications_are_scoped_to_the_settling_tasks_session`、
+   `storage::task_runner::tests::unattributed_notifications_are_never_drained_by_a_session`、
+   `session::tests::test_print_steer_ignores_another_sessions_notifications`（真实 print 结算路径：
+   两个会话各有一条待排空通知，steer 回合只带本会话的 `t-mine`，`t-other` 不进入提示词且仍留在队列里）、
+   `session::tests::test_print_steer_feeds_task_notifications_back`（本会话的完成照常 steer）。
+16. **#3606 模型目录运行时重接 + 移除逐模型检视面板**：上游把目录运行时接到 provider-catalog
+    状态机，并**删掉**了逐模型检视（`IModelCatalog.inspect` 与 496 行 `inspection.ts`），换成
+    ping + 建会话动作。fork 的 `apps/kimi-inspect/src/components/ModelCatalogView.tsx:368,522`
+    仍在调 `IModelCatalog.inspect`，而 Rust 调试面**不服务该方法**（`server/debug.rs` 的
+    `modelCatalog` 只有 `listModels`/`listProviders`），所以该面板当前是坏的。对齐上游需要调试面
+    新增 `modelCatalog.ping`、`modelService.list`、`sessionManager.resume` 三个方法，再移植上游的
+    视图（413 行）。
 
 ### 6.2 本轮已修复（含证据）
 

@@ -241,7 +241,7 @@ describe('promptAbortResponseSchema', () => {
     expect(parsed.at_seq).toBe(7);
   });
 
-  it('parses { aborted: false } idempotent shape (used with envelope.code=40903)', () => {
+  it('parses { aborted: false } when no turn was running to cancel', () => {
     const parsed = promptAbortResponseSchema.parse({ aborted: false });
     expect(parsed.aborted).toBe(false);
   });
