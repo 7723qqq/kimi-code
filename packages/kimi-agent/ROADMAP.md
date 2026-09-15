@@ -393,8 +393,9 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    2 个 client 帧，按 `type` 内部标签解析，可选字段按上游语义写出而非写成 null）、
    `v3-message-contract.json`（冻结上游快照：commit、design revision 1094、逐变体字段），以及
    `scripts/scan-parity.mjs` 的 v3 维度（双向 + 变体级/字段级；本地存在上游抽取时再对上游复核，
-   CI 跳过该段）→ P1 历史 → 扁平实体投影（核心已完成：turn/step/user/assistant/thinking/tool_call；
-   待做 `state_entries` 侧的 todo/task/agent_state 与 interaction 决策）→ P2 按 turn 分页的 history 路由 →
+   CI 跳过该段）→ P1 历史 → 扁平实体投影（turn/step/user/assistant/thinking/tool_call 与状态域的
+   todo/task 均已完成；`agent_state` 与 `interaction` 无历史源、`session_state` 只有部分来源，
+   见下）→ P2 按 turn 分页的 history 路由 →
    P3 与 v1 并存的 `/api/v3/ws` → P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
    `web` 子命令；TUI/stdio 走 NAPI，不在内）。
    **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
@@ -414,6 +415,19 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    step → `{n}.{step}`、assistant/thinking → `{n}.{step}.assistant|thinking`、
    tool_call → provider 自己的 `tool_call_id`。序号取「保留历史中的位置」，压缩或回退之后与存储的
    `turn_number` 计数器不同，已在模块文档写明；实时侧（P3）必须按同一规则生成 step 字符串。
+   **2026-09-15 状态域投影（P1 续）**：`todo` 忠实可折——fork 存的是树（`parentId`/`kind`/
+   `progress`），上游 item 只有 `{title,status}`，故按深度优先展平并丢弃上游无处安放的字段；声明父项
+   不在列表中的条目按顶层处理而不消失，`parentId` 成环的条目由兜底扫描按文件顺序补发（此状态来自磁盘，
+   无人校验）。`task` 的存储条目是 v2 形状（`taskId`/`description`/`status`/`startedAt`/`endedAt`/
+   `stopReason`）：其中 `kind` 只有 live 事件携带、`detached` 无字段（该域全是后台任务），历史侧
+   分别固定为 `other`/`true`；`output_tail` 依赖调用方像 `StateStore::read_state` 那样合入
+   `read_task_output` 的预览（域里刻意不含 output 日志）；未知状态读作 `lost` 而非 `failed`。
+   **无历史源/部分有源（P2 需决策）**：`agent_state` 是纯 live 概念（main/btw/tool-swarm 子代理的
+   存活与状态），存储里没有任何对应记录。`session_state` 只有部分来源：`goal`/`modes` 可从 `goal`/
+   `plan` 域取，但 `permission` 与 `model` **在 fork 里根本没有落库**（`sessions` 表只有 session_id/
+   title/created_at/updated_at/archived/parent_session_id），只能由 live 侧提供。另外 `state_entries`
+   表的主键只有 `(domain, key)`、**没有 session_id**，即这些状态域实际是工作区/守护进程级而非会话级，
+   会话作用域的 v3 实体如何归属需要在 P2 明确（当前 `todo_id` 取会话 id）。
    **已确认的硬缺口**：schema 中没有 approvals/questions 表（仅有 sessions、turns、messages、
    state_entries、checkpoints、workspaces、session_file_history、wire_events），所以上游的
    `interaction` 实体在 fork 里**只有 live 态**（`server/interaction.rs`），历史折叠无源；要补齐
