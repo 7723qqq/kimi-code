@@ -9,6 +9,7 @@
  *   GET     /v1/sessions/{id}/children    query: ListSessions   data: Page<Session>
  *   POST    /v1/sessions/{id}/children    body: SessionChild    data: Session
  *   GET     /v1/sessions/{id}/status      -                     data: SessionStatusResponse
+ *   GET     /v1/sessions/{id}/history     query: HistoryQuery   data: HistoryResponse
  *   POST    /v1/sessions/{id}:compact     body: CompactSession  data: {}
  *   POST    /v1/sessions/{id}:undo        body: UndoSession     data: UndoSession
  *   POST    /v1/sessions/{id}:archive     -                     data: { archived: true }
