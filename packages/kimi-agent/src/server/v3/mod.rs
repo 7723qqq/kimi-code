@@ -15,8 +15,9 @@
 //! - [`entity`] — identity of one flat entity (probe order and key format).
 //! - [`messages`] — the server message variants and the two client frames.
 //! - [`projection`] — folds stored turns and messages into entity messages.
-//! - `history` — the paged rebuild behind the history route.
+//! - [`history`] — turn-boundary paging for the history route.
 
 pub mod entity;
+pub mod history;
 pub mod messages;
 pub mod projection;
