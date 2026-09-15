@@ -105,7 +105,9 @@ impl AcpClient {
         Some(())
     }
 
-    /// Read the next non-empty stdout line, bounded by a deadline.
+    /// Read the next non-empty stdout line, bounded by a deadline. The
+    /// deadline is generous because a cold CI runner can take seconds to
+    /// start the CLI binary before it answers the first request.
     fn read_line(&mut self, timeout: Duration) -> Option<serde_json::Value> {
         let deadline = Instant::now() + timeout;
         let mut buf = String::new();
@@ -135,7 +137,7 @@ impl AcpClient {
             "method": method,
             "params": params,
         }))?;
-        let response = self.read_line(Duration::from_secs(10))?;
+        let response = self.read_line(Duration::from_secs(30))?;
         assert_eq!(
             response["id"],
             serde_json::json!(id),
@@ -201,7 +203,7 @@ fn acp_notification_is_not_answered_on_stdio() {
         .expect("ping must be accepted");
 
     let next = client
-        .read_line(Duration::from_secs(10))
+        .read_line(Duration::from_secs(30))
         .expect("ping must answer");
     assert_eq!(
         next["id"],
@@ -273,7 +275,7 @@ fn acp_session_round_trip_with_content_blocks() {
     let mut replayed = Vec::new();
     let response = loop {
         let line = client
-            .read_line(Duration::from_secs(10))
+            .read_line(Duration::from_secs(30))
             .expect("session/load must answer");
         if line.get("method").is_some() {
             replayed.push(line);
@@ -316,7 +318,7 @@ fn acp_response_line_is_not_treated_as_a_request() {
         }))
         .expect("ping must be accepted");
     let next = client
-        .read_line(Duration::from_secs(10))
+        .read_line(Duration::from_secs(30))
         .expect("ping must answer");
     assert_eq!(
         next["id"],
@@ -351,10 +353,10 @@ fn acp_set_mode_notifies_on_stdio() {
         .expect("set_mode must be accepted");
 
     let first = client
-        .read_line(Duration::from_secs(10))
+        .read_line(Duration::from_secs(30))
         .expect("first line");
     let second = client
-        .read_line(Duration::from_secs(10))
+        .read_line(Duration::from_secs(30))
         .expect("second line");
     let (notification, response) = if first.get("method").is_some() {
         (first, second)
