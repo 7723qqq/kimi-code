@@ -5,12 +5,6 @@ import { basename, dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-const tsxCli = join(
-  dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))),
-  'dist',
-  'cli.mjs',
-);
-
 /**
  * Pick the runner for spawned worker processes.
  *
@@ -24,7 +18,13 @@ function workerRunner(): { readonly bin: string; readonly prefixArgs: readonly s
   if (basename(process.execPath).startsWith('bun')) {
     return { bin: process.execPath, prefixArgs: [] };
   }
-  return { bin: tsxCli, prefixArgs: [] };
+  return { bin: tsxCliPath(), prefixArgs: [] };
+}
+
+/** Resolved lazily: a Bun host never needs it, and resolving a hoisted
+ *  devDependency at module load fails on some hosts. */
+function tsxCliPath(): string {
+  return join(dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))), 'dist', 'cli.mjs');
 }
 
 export interface TempDirHandle {
