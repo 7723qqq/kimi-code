@@ -16,8 +16,10 @@
 //! - [`messages`] — the server message variants and the two client frames.
 //! - [`projection`] — folds stored turns and messages into entity messages.
 //! - [`history`] — turn-boundary paging for the history route.
+//! - [`route`] — the history route's query parsing and envelope shapes.
 
 pub mod entity;
 pub mod history;
 pub mod messages;
 pub mod projection;
+pub mod route;

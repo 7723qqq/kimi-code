@@ -59,10 +59,11 @@ pub struct HistoryInFlight {
     pub step_id: String,
 }
 
-/// The route's response body.
-#[derive(Debug, Clone, Serialize)]
-pub struct HistoryResponse {
-    pub messages: Vec<ServerMessage>,
+/// The route's response body: the page, plus where a live session's streaming has
+/// reached. Borrowed, so answering a request does not copy the page.
+#[derive(Debug, Serialize)]
+pub struct HistoryResponse<'a> {
+    pub messages: &'a [ServerMessage],
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_flight: Option<HistoryInFlight>,

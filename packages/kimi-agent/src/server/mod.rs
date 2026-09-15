@@ -3762,6 +3762,43 @@ impl HttpServer {
                     "pending_interactions": [],
                 }))
             }
+            ("GET", p) if extract_session_action(p, "history").is_some() => {
+                let session_id = extract_session_action(p, "history").unwrap();
+                let request_id = req.request_id();
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::envelope_err(
+                        404,
+                        crate::server::envelope::error_codes::SESSION_NOT_FOUND,
+                        format!("session {session_id} does not exist"),
+                        &request_id,
+                    );
+                }
+                let query =
+                    match crate::server::v3::route::parse_query(|name| req.query_param(name)) {
+                        Ok(query) => query,
+                        Err(issue) => return HttpResponse::json(400, &issue.envelope(&request_id)),
+                    };
+                let agent_id = query.agent_id.clone().unwrap_or_else(|| "main".to_string());
+                let turns = self.store.list_turns(session_id).unwrap_or_default();
+                let messages = self
+                    .store
+                    .load_session_messages(session_id)
+                    .unwrap_or_default();
+                let entities = crate::server::v3::projection::project_history(
+                    session_id, &agent_id, &turns, &messages,
+                );
+                let page = crate::server::v3::history::paginate_history(&entities, &query);
+                // A live session's streaming position stays out of the response
+                // for now: the live lane does not derive the same step ids yet
+                // (P3), and a wrong position would misplace the deltas a client
+                // appends after this page.
+                match crate::server::v3::route::response_data(&page, None) {
+                    Ok(data) => HttpResponse::envelope_ok(&data, &request_id),
+                    Err(error) => HttpResponse::internal_error(format!(
+                        "history response failed to serialize: {error}"
+                    )),
+                }
+            }
             ("POST", p) if extract_session_action(p, "abort").is_some() => {
                 let session_id = extract_session_action(p, "abort").unwrap();
                 if self.store.get_session(session_id).ok().flatten().is_none() {
@@ -11038,5 +11075,117 @@ max_context_size = 128000
             "{}",
             String::from_utf8_lossy(&res.body)
         );
+    }
+
+    #[tokio::test]
+    async fn v3_history_route_serves_entities_with_paging() {
+        use crate::turn_loop::types::LLMMessage;
+
+        async fn history_request(
+            server: &HttpServer,
+            session_id: &str,
+            query: Option<&str>,
+        ) -> HttpResponse {
+            server
+                .handle_request(&HttpRequest {
+                    method: "GET".into(),
+                    path: format!("/api/v1/sessions/{session_id}/history"),
+                    query: query.map(str::to_string),
+                    headers: HashMap::new(),
+                    body: Vec::new(),
+                })
+                .await
+        }
+
+        let server = HttpServer::in_memory().unwrap();
+        let session_id = "sess-v3-history";
+        let message = |role: &str, content: &str| LLMMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+            ..Default::default()
+        };
+        for (turn_id, number, prompt, answer) in [
+            ("turn-a", 1u32, "one", "two"),
+            ("turn-b", 2, "three", "four"),
+        ] {
+            server
+                .store
+                .save_turn(
+                    session_id,
+                    turn_id,
+                    number,
+                    &[message("user", prompt), message("assistant", answer)],
+                    None,
+                )
+                .unwrap();
+        }
+
+        let res = history_request(&server, session_id, None).await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 0, "this route always answers in an envelope");
+        let messages = body["data"]["messages"].as_array().unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .map(|entity| entity["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "turn",
+                "user",
+                "step",
+                "assistant",
+                "turn",
+                "user",
+                "step",
+                "assistant"
+            ]
+        );
+        assert_eq!(body["data"]["has_more"], false);
+        assert!(
+            body["data"].get("in_flight").is_none(),
+            "an idle session reports no streaming position"
+        );
+        assert_eq!(messages[0]["turn_id"], "1");
+        assert_eq!(messages[2]["step_id"], "1.1");
+        assert_ne!(
+            messages[0]["turn_id"], "turn-a",
+            "the store's own row key must not reach a client"
+        );
+
+        let res = history_request(&server, session_id, Some("page_size=1")).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let messages = body["data"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 4, "a page is whole turns");
+        assert_eq!(messages[0]["turn_id"], "2");
+        assert_eq!(body["data"]["has_more"], true);
+
+        let res = history_request(&server, session_id, Some("before_turn=1")).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body["data"]["messages"].as_array().unwrap().is_empty());
+        assert_eq!(body["data"]["has_more"], false);
+
+        let res = history_request(&server, "sess-v3-absent", None).await;
+        assert_eq!(res.status, 404);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(
+            body["code"],
+            crate::server::envelope::error_codes::SESSION_NOT_FOUND
+        );
+        assert!(body["data"].is_null());
+
+        let res = history_request(&server, session_id, Some("before_turn=1&after_step=1.1")).await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(
+            body["code"],
+            crate::server::envelope::error_codes::VALIDATION_FAILED
+        );
+        assert_eq!(body["details"][0]["path"], "before_turn");
+
+        let res = history_request(&server, session_id, Some("page_size=0")).await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["details"][0]["path"], "page_size");
     }
 }
