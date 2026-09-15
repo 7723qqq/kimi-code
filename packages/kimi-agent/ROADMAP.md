@@ -388,10 +388,14 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    副本停在 #3532 之前（退役前 `transport/ws/` 下只有 `v1`），随后整包退役，因此 v3 从未进入 fork；
    `apps/kimi-inspect` 也停在旧协议（缺 `src/transcript/channel.ts` 与 `plan.ts`）。
    上游该提交量级：kap-server 84 文件 / +15,852 / −2,215，另加 kimi-inspect 客户端整轮重写。
-   **落地分期**：P0 Rust 契约层（`src/server/v3/entity.rs` 已完成：id 探针顺序 +
-   `entity_key`；消息变体与 JSON 契约镜像进行中）→ P1 `wire_events`/历史记录 → 扁平实体投影 →
-   P2 按 turn 分页的 history 路由 → P3 与 v1 并存的 `/api/v3/ws` → P4 客户端
-   （kimi-inspect、kimi-web、`apps/kimi-code` 的 `web` 子命令；TUI/stdio 走 NAPI，不在内）。
+   **落地分期**：P0 Rust 契约层**已完成**（`44b56ee1bc`、`b558dae248`）——
+   `src/server/v3/entity.rs`（id 探针顺序与 `entity_key`）、`messages.rs`（26 个 server 变体 +
+   2 个 client 帧，按 `type` 内部标签解析，可选字段按上游语义写出而非写成 null）、
+   `v3-message-contract.json`（冻结上游快照：commit、design revision 1094、逐变体字段），以及
+   `scripts/scan-parity.mjs` 的 v3 维度（双向 + 变体级/字段级；本地存在上游抽取时再对上游复核，
+   CI 跳过该段）→ P1 历史记录 → 扁平实体投影（数据源见下）→ P2 按 turn 分页的 history 路由 →
+   P3 与 v1 并存的 `/api/v3/ws` → P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
+   `web` 子命令；TUI/stdio 走 NAPI，不在内）。
    **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
    `message.user`/`message.assistant`/`tool.result`/`subagent.message` 与 compaction 检查点
    （`lib.rs`、`subagent/persistent.rs`、`native/event_store`）——`turn.started`、`step.begin`、
