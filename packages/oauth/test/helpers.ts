@@ -24,7 +24,13 @@ function workerRunner(): { readonly bin: string; readonly prefixArgs: readonly s
 /** Resolved lazily: a Bun host never needs it, and resolving a hoisted
  *  devDependency at module load fails on some hosts. */
 function tsxCliPath(): string {
-  return join(dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))), 'dist', 'cli.mjs');
+  try {
+    return join(dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))), 'dist', 'cli.mjs');
+  } catch {
+    // The workspace is hoisted, so the root node_modules is the fallback when
+    // the resolver cannot see a devDependency of the root package.
+    return join(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs');
+  }
 }
 
 export interface TempDirHandle {
