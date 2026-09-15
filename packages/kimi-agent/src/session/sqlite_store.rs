@@ -200,7 +200,10 @@ fn extract_snippet(text: &str, query: &str, max_len: usize) -> String {
 }
 
 /// The synthetic turn id the compaction rewrite saves its summary under.
-const COMPACT_TURN_ID: &str = "turn-compact";
+/// Row key of the synthetic turn that carries a compaction summary. Callers
+/// outside this module need it to tell a compaction turn from a real one when
+/// they project history: the v3 `turn` entity has an origin for exactly that.
+pub const COMPACT_TURN_ID: &str = "turn-compact";
 
 pub struct SqliteSessionStore {
     conn: Mutex<Connection>,
@@ -216,6 +219,32 @@ pub struct CompactionReport {
     pub tokens_before: u32,
     pub tokens_after: u32,
     pub kept_user_message_count: usize,
+}
+
+/// One persisted message and the time the store appended it.
+///
+/// `load_session_history` reads the same rows but drops the timestamp, because
+/// the engine's `LLMMessage` has nowhere to carry it; a projection that has to
+/// date its entities needs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredMessage {
+    pub message: LLMMessage,
+    pub created_at: i64,
+}
+
+/// Execution metadata of one persisted turn, without its messages.
+///
+/// `turn_id` is this store's own opaque row key — `server/engine.rs` generates
+/// it as `turn-{random}`, so it is not an identity anything else can match.
+/// `turn_number` is: it is the number the live stream reports as `turnId`.
+#[derive(Debug, Clone)]
+pub struct TurnRecord {
+    pub turn_id: String,
+    pub turn_number: u32,
+    pub status: String,
+    pub started_at: i64,
+    pub completed_at: Option<i64>,
+    pub usage: Option<crate::rpc::types::TokenUsage>,
 }
 
 impl CompactionReport {
@@ -1014,6 +1043,67 @@ impl SqliteSessionStore {
         Ok(highest.max(0) as u32 + 1)
     }
 
+    /// Every message of a session with its append time, oldest first.
+    pub fn load_session_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<StoredMessage>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT role, content, tool_calls, tool_call_id, blocks, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok(StoredMessage {
+                message: LLMMessage {
+                    role: row.get(0)?,
+                    content: row.get(1)?,
+                    blocks: row
+                        .get::<_, Option<String>>(4)?
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                        .unwrap_or_default(),
+                    tool_calls: row
+                        .get::<_, Option<String>>(2)?
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                        .unwrap_or_default(),
+                    tool_call_id: row.get(3)?,
+                },
+                created_at: row.get(5)?,
+            })
+        })?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Every turn of a session, oldest first, with its execution metadata.
+    pub fn list_turns(&self, session_id: &str) -> Result<Vec<TurnRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT turn_id, turn_number, status, started_at, completed_at, usage
+             FROM turns WHERE session_id = ?1 ORDER BY turn_number ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            let usage: Option<String> = row.get(5)?;
+            Ok(TurnRecord {
+                turn_id: row.get(0)?,
+                turn_number: row.get::<_, i64>(1)?.max(0) as u32,
+                status: row.get(2)?,
+                started_at: row.get(3)?,
+                completed_at: row.get(4)?,
+                usage: usage.and_then(|s| serde_json::from_str(&s).ok()),
+            })
+        })?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Append turn messages and record turn execution metadata.
     pub fn save_turn(
         &self,
@@ -1080,42 +1170,19 @@ impl SqliteSessionStore {
     }
 
     /// Load the linear conversation history for a session.
+    /// The session history in the shape the engine replays it.
+    ///
+    /// Delegates to `load_session_messages` so the two reads cannot disagree
+    /// about how a row becomes a message; this one drops the timestamps.
     pub fn load_session_history(
         &self,
         session_id: &str,
     ) -> Result<Vec<LLMMessage>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT role, content, tool_calls, tool_call_id, blocks FROM messages WHERE session_id = ?1 ORDER BY id ASC",
-        )?;
-        let rows = stmt.query_map(params![session_id], |row| {
-            let role: String = row.get(0)?;
-            let content: String = row.get(1)?;
-            let tool_calls_str: Option<String> = row.get(2)?;
-            let tool_call_id: Option<String> = row.get(3)?;
-            let blocks_str: Option<String> = row.get(4)?;
-
-            let tool_calls = tool_calls_str
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default();
-            let blocks = blocks_str
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default();
-
-            Ok(LLMMessage {
-                role,
-                content,
-                blocks,
-                tool_call_id,
-                tool_calls,
-            })
-        })?;
-
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
+        Ok(self
+            .load_session_messages(session_id)?
+            .into_iter()
+            .map(|stored| stored.message)
+            .collect())
     }
 
     /// Put a key-value pair in a state domain (state bridge storage).
