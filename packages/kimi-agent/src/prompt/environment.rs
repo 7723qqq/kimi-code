@@ -150,7 +150,7 @@ pub fn detect_os() -> &'static str {
 /// suffix trimmed. Splits on both separators so a Windows path handed to a
 /// POSIX build (WSL) still yields the bare name.
 fn shell_name_from_path(path: &str) -> String {
-    path.rsplit(|c| c == '/' || c == '\\')
+    path.rsplit(['/', '\\'])
         .next()
         .unwrap_or(path)
         .trim_end_matches(".exe")
