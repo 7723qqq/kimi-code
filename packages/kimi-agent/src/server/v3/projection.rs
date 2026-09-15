@@ -215,21 +215,26 @@ pub fn project_history(
                     end_message: None,
                 }));
 
-                for block in &stored.message.blocks {
-                    if let ContentBlock::Think { think, .. } = block
-                        && !think.is_empty()
-                    {
-                        out.push(ServerMessage::Thinking(ThinkingMessage {
-                            session_id: session_id.to_string(),
-                            agent_id: agent_id.to_string(),
-                            timestamp: context.timestamp,
-                            message_id: thinking_entity_id(context.number, step_ordinal),
-                            turn_id: turn_entity_id(context.number),
-                            step_id: step_entity_id(context.number, step_ordinal),
-                            status: StreamStatus::Completed,
-                            text: think.clone(),
-                        }));
-                    }
+                let thinking: String = stored
+                    .message
+                    .blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Think { think, .. } => Some(think.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                if !thinking.is_empty() {
+                    out.push(ServerMessage::Thinking(ThinkingMessage {
+                        session_id: session_id.to_string(),
+                        agent_id: agent_id.to_string(),
+                        timestamp: context.timestamp,
+                        message_id: thinking_entity_id(context.number, step_ordinal),
+                        turn_id: turn_entity_id(context.number),
+                        step_id: step_entity_id(context.number, step_ordinal),
+                        status: StreamStatus::Completed,
+                        text: thinking,
+                    }));
                 }
 
                 if !stored.message.content.is_empty() {
@@ -475,30 +480,32 @@ fn user_text(message: &LLMMessage) -> Vec<ContentPart> {
         meta: std::collections::HashMap::new(),
     };
 
-    if message.blocks.is_empty() {
-        return (!message.content.is_empty())
-            .then(|| part(ContentPartType::Text, message.content.clone()))
-            .into_iter()
-            .collect();
+    // The HTTP prompt path stores the body separately from media-only blocks.
+    // Explicit text blocks still take precedence over the plain-text fallback.
+    let needs_text = !message.content.is_empty()
+        && !message
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Text { .. }));
+    let mut parts = Vec::with_capacity(message.blocks.len() + usize::from(needs_text));
+    if needs_text {
+        parts.push(part(ContentPartType::Text, message.content.clone()));
     }
 
-    message
-        .blocks
-        .iter()
-        .map(|block| match block {
-            ContentBlock::Text { text } => part(ContentPartType::Text, text.clone()),
-            ContentBlock::Think { think, .. } => part(ContentPartType::Think, think.clone()),
-            ContentBlock::Image {
-                media_type, data, ..
-            } => part(
-                ContentPartType::Image,
-                format!("data:{media_type};base64,{data}"),
-            ),
-            ContentBlock::ImageUrl { url, .. } => part(ContentPartType::Image, url.clone()),
-            ContentBlock::AudioUrl { url, .. } => part(ContentPartType::Audio, url.clone()),
-            ContentBlock::VideoUrl { url, .. } => part(ContentPartType::Video, url.clone()),
-        })
-        .collect()
+    parts.extend(message.blocks.iter().map(|block| match block {
+        ContentBlock::Text { text } => part(ContentPartType::Text, text.clone()),
+        ContentBlock::Think { think, .. } => part(ContentPartType::Think, think.clone()),
+        ContentBlock::Image {
+            media_type, data, ..
+        } => part(
+            ContentPartType::Image,
+            format!("data:{media_type};base64,{data}"),
+        ),
+        ContentBlock::ImageUrl { url, .. } => part(ContentPartType::Image, url.clone()),
+        ContentBlock::AudioUrl { url, .. } => part(ContentPartType::Audio, url.clone()),
+        ContentBlock::VideoUrl { url, .. } => part(ContentPartType::Video, url.clone()),
+    }));
+    parts
 }
 
 /// Upstream's timestamps are ISO strings; the store keeps milliseconds.
@@ -689,6 +696,42 @@ mod tests {
     }
 
     #[test]
+    fn multiple_thinking_blocks_form_one_complete_step_entity() {
+        let mut assistant = stored("assistant", "answer", 2);
+        assistant.message.blocks = vec![
+            ContentBlock::Think {
+                think: "first ".into(),
+                encrypted: None,
+            },
+            ContentBlock::Think {
+                think: String::new(),
+                encrypted: None,
+            },
+            ContentBlock::Think {
+                think: "second".into(),
+                encrypted: None,
+            },
+        ];
+        let messages = [stored("user", "go", 1), assistant];
+        let entities = project_history("s1", "main", &[], &messages);
+        let thinking: Vec<_> = entities
+            .iter()
+            .filter_map(|entity| match entity {
+                ServerMessage::Thinking(text) => {
+                    Some((text.message_id.as_str(), text.text.as_str(), &text.status))
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            thinking,
+            [("1.1.thinking", "first second", &StreamStatus::Completed)],
+            "one upsert must retain all thinking that the live deltas appended"
+        );
+    }
+
+    #[test]
     fn turn_metadata_comes_from_the_record() {
         let usage = TokenUsage {
             input_tokens: 1_200,
@@ -790,6 +833,36 @@ mod tests {
         assert_eq!(turns[0].1, &None, "a synthetic turn has no user entity");
         assert_eq!(turns[1].0, "2");
         assert_eq!(turns[1].1, &Some("2.user".to_string()));
+    }
+
+    #[test]
+    fn history_keeps_user_text_stored_separately_from_media_blocks() {
+        let mut user = stored("user", "describe the attachment", 1);
+        user.message.blocks = vec![ContentBlock::ImageUrl {
+            url: "https://example.test/attachment.png".into(),
+            name: None,
+        }];
+        let entities = project_history("s1", "main", &[], &[user]);
+        let ServerMessage::User(user) = &entities[1] else {
+            panic!("expected the opening user message");
+        };
+        let parts: Vec<_> = user
+            .text
+            .iter()
+            .map(|part| (&part.r#type, part.text.as_str()))
+            .collect();
+
+        assert_eq!(
+            parts,
+            [
+                (&ContentPartType::Text, "describe the attachment"),
+                (
+                    &ContentPartType::Image,
+                    "https://example.test/attachment.png"
+                ),
+            ],
+            "history must retain both the prompt body and its attachment"
+        );
     }
 
     #[test]
@@ -910,7 +983,7 @@ mod tests {
 
         assert_eq!(tasks[0].task_id, "task-1");
         assert_eq!(tasks[0].status, TaskStatus::Running);
-        assert_eq!(tasks[0].detached, true);
+        assert!(tasks[0].detached);
         assert_eq!(tasks[0].kind, TaskKind::Other);
         assert_eq!(tasks[0].state_reason.as_deref(), Some("user"));
         assert_eq!(tasks[0].ended_at, None);

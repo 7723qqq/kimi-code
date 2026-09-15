@@ -4,15 +4,18 @@
 //! a page is measured in *turns*, never split inside one: a client that paged
 //! into the middle of a turn would have to reassemble a step's thinking, text and
 //! tool calls from two responses. `paginate_history` therefore slices on turn
-//! entity boundaries, exactly as upstream's `paginateHistory` does.
+//! entity boundaries. The forward cursor deliberately differs from upstream's
+//! entity-count slice: a cut inside a step would make the next `after_step`
+//! request skip the rest of that step, permanently losing its entities.
 //!
 //! Three cursors, mutually exclusive in pairs the route validates:
 //!
 //! - no cursor — the newest `page_size` turns, the shape a client opens with;
 //! - `before_turn` — the `page_size` turns older than that turn, excluding the
 //!   cursor turn itself, which the client already has;
-//! - `after_step` — everything newer than the last entity carrying that step id,
-//!   which is how a reconnecting client catches up without refetching.
+//! - `after_step` — the next `page_size` turns after the last entity carrying
+//!   that step id, counting a remaining partial turn as one. A page extends past
+//!   prompt-only turns until it has a usable step cursor or reaches the end.
 //!
 //! The route advertises `page_size` as "default 200, max 500" while the service
 //! it calls defaults to 50 and clamps to 200; the numbers below follow the code.
@@ -31,7 +34,8 @@ use super::messages::ServerMessage;
 /// Turns returned when the client asks for no particular size.
 pub const DEFAULT_PAGE_SIZE: usize = 50;
 
-/// Upper bound on turns per page, whatever the client asks for.
+/// Upper bound on the requested turn budget. Forward pages may exceed it to
+/// finish on a usable reconnect cursor after prompt-only turns.
 pub const MAX_PAGE_SIZE: usize = 200;
 
 /// The parsed query of a history request. `agent_id` selects whose timeline to
@@ -108,7 +112,18 @@ pub fn paginate_history<'a>(
             return empty();
         };
         let start = index + 1;
-        let end = messages.len().min(start + page_size);
+        let anchors = turn_anchors(&messages[start..]);
+        // A cursor inside a turn leaves its remainder as the first page turn.
+        let full_turns = page_size - usize::from(anchors.first().is_some_and(|&i| i > 0));
+        // Prompt-only turns have no reconnect cursor. Include them with the
+        // next complete turn rather than returning a page that cannot advance
+        // (or whose trailing prompt would be repeated on the next request).
+        let end = anchors
+            .iter()
+            .skip(full_turns)
+            .map(|&anchor| start + anchor)
+            .find(|&end| step_of(&messages[end - 1]).is_some())
+            .unwrap_or(messages.len());
         return HistoryPage {
             messages: &messages[start..end],
             has_more: end < messages.len(),
@@ -293,20 +308,106 @@ mod tests {
     }
 
     #[test]
-    fn after_step_returns_what_follows_the_cursor() {
+    fn after_step_returns_whole_turns_and_allows_continued_paging() {
         let all = timeline();
 
-        let page = paginate_history(&all, &query(None, Some("1.1"), Some(2)));
+        let page = paginate_history(&all, &query(None, Some("1.1"), Some(1)));
         assert_eq!(
             ids(&page),
-            ["turn:2", "user:2.user"],
-            "paging resumes right after the entity carrying the step id"
+            ["turn:2", "user:2.user", "assistant:2.1.assistant"],
+            "the response must include the reply and the next reconnect cursor"
         );
         assert!(page.has_more);
+
+        let page = paginate_history(&all, &query(None, Some("2.1"), Some(1)));
+        assert_eq!(
+            ids(&page),
+            ["turn:3", "user:3.user", "assistant:3.1.assistant"]
+        );
+        assert!(!page.has_more);
 
         let page = paginate_history(&all, &query(None, Some("3.1"), None));
         assert!(page.messages.is_empty());
         assert!(!page.has_more, "nothing newer than the last step");
+    }
+
+    #[test]
+    fn forward_paging_preserves_multi_step_turns_and_small_pages() {
+        use crate::session::sqlite_store::StoredMessage;
+        use crate::turn_loop::types::LLMMessage;
+
+        let messages = [
+            ("user", "first"),
+            ("assistant", "first answer"),
+            ("user", "second"),
+            ("assistant", "second draft"),
+            ("assistant", "second answer"),
+            ("user", "third"),
+            ("assistant", "third answer"),
+        ]
+        .into_iter()
+        .map(|(role, content)| StoredMessage {
+            message: LLMMessage::new(role, content),
+            created_at: 1,
+        })
+        .collect::<Vec<_>>();
+        let all = crate::server::v3::projection::project_history("s1", "main", &[], &messages);
+
+        for page_size in [1, 2, 3] {
+            let mut cursor = "1.1".to_string();
+            let mut received = Vec::new();
+            for _ in 0..3 {
+                let page = paginate_history(&all, &query(None, Some(&cursor), Some(page_size)));
+                received.extend_from_slice(page.messages);
+                if !page.has_more {
+                    break;
+                }
+                let next = page
+                    .messages
+                    .iter()
+                    .rev()
+                    .find_map(step_of)
+                    .expect("next cursor");
+                assert_ne!(next, cursor);
+                cursor = next.to_string();
+            }
+            assert_eq!(
+                received,
+                all[4..],
+                "page_size={page_size} must not lose an entity"
+            );
+        }
+
+        let page = paginate_history(&all, &query(None, Some("2.1"), Some(1)));
+        assert_eq!(
+            page.messages,
+            &all[8..10],
+            "the rest of turn 2 stays on one page"
+        );
+        assert!(page.has_more);
+        let page = paginate_history(&all, &query(None, Some("2.2"), Some(1)));
+        assert_eq!(page.messages, &all[10..]);
+        assert!(!page.has_more);
+    }
+
+    #[test]
+    fn forward_paging_does_not_stop_on_a_turn_without_a_step() {
+        let mut all = timeline();
+        all.remove(5);
+
+        let page = paginate_history(&all, &query(None, Some("1.1"), Some(1)));
+        assert_eq!(
+            ids(&page),
+            [
+                "turn:2",
+                "user:2.user",
+                "turn:3",
+                "user:3.user",
+                "assistant:3.1.assistant",
+            ],
+            "a prompt-only turn cannot provide the cursor needed for another page"
+        );
+        assert!(!page.has_more);
     }
 
     #[test]
@@ -351,7 +452,10 @@ mod tests {
         );
 
         let page = paginate_history(&all, &query(None, Some("1.1"), Some(1)));
-        assert_eq!(ids(&page), ["turn:2"]);
+        assert_eq!(
+            ids(&page),
+            ["turn:2", "user:2.user", "assistant:2.1.assistant"]
+        );
         assert!(page.has_more);
     }
 }

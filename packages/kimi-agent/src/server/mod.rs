@@ -11080,6 +11080,7 @@ max_context_size = 128000
 
     #[tokio::test]
     async fn v3_history_route_serves_entities_with_paging() {
+        use crate::rpc::types::ContentBlock;
         use crate::turn_loop::types::LLMMessage;
 
         async fn history_request(
@@ -11161,6 +11162,25 @@ max_context_size = 128000
         assert_eq!(messages[0]["turn_id"], "2");
         assert_eq!(body["data"]["has_more"], true);
 
+        let res = history_request(&server, session_id, Some("after_step=1.1&page_size=1")).await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let messages = body["data"]["messages"].as_array().unwrap();
+        assert_eq!(
+            messages.len(),
+            4,
+            "forward paging must include the whole reply"
+        );
+        assert_eq!(messages[0]["turn_id"], "2");
+        assert_eq!(messages[3]["type"], "assistant");
+        assert_eq!(messages[3]["text"], "four");
+        assert_eq!(body["data"]["has_more"], false);
+
+        let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body["data"]["messages"].as_array().unwrap().is_empty());
+        assert_eq!(body["data"]["has_more"], false);
+
         let res = history_request(&server, session_id, Some("before_turn=1")).await;
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert!(body["data"]["messages"].as_array().unwrap().is_empty());
@@ -11188,5 +11208,40 @@ max_context_size = 128000
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(body["details"][0]["path"], "page_size");
+
+        let mut user = message("user", "describe the attachment");
+        user.blocks.push(ContentBlock::ImageUrl {
+            url: "https://example.test/attachment.png".into(),
+            name: None,
+        });
+        let mut assistant = message("assistant", "an attachment");
+        assistant.blocks = vec![
+            ContentBlock::Think {
+                think: "first ".into(),
+                encrypted: None,
+            },
+            ContentBlock::Think {
+                think: "second".into(),
+                encrypted: None,
+            },
+        ];
+        server
+            .store
+            .save_turn(session_id, "turn-c", 3, &[user, assistant], None)
+            .unwrap();
+
+        let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let messages = body["data"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[1]["type"], "user");
+        assert_eq!(messages[1]["text"][0]["text"], "describe the attachment");
+        assert_eq!(messages[1]["text"][1]["type"], "image");
+        assert_eq!(messages[3]["type"], "thinking");
+        assert_eq!(messages[3]["message_id"], "3.1.thinking");
+        assert_eq!(messages[3]["text"], "first second");
+        assert_eq!(messages[4]["text"], "an attachment");
+        assert_eq!(body["data"]["has_more"], false);
     }
 }
