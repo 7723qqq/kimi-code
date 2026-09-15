@@ -1470,12 +1470,28 @@ async fn build_engine_pipeline(
         rust_self_contained: params.rust_self_contained.unwrap_or(false),
         shell_path: params.shell_path.clone(),
         // The host hands the permission policy over as JSON (napi has no typed
-        // struct for it); an unparsable snapshot means host-side permission
-        // round-trips, not a local deny.
-        policy_snapshot: params
-            .policy_snapshot_json
-            .as_deref()
-            .and_then(|json| serde_json::from_str::<crate::permission::PolicySnapshot>(json).ok()),
+        // struct for it). A parse failure used to be swallowed by `.ok()`, which
+        // dropped the *whole* policy: with no local engine, every native tool
+        // call round-trips to the host's `check_permission`, so the user gets an
+        // approval prompt no matter which mode the UI shows. The failure and the
+        // symptom looked completely unrelated — and nothing was logged, so the
+        // engine's own view of the mode was unobservable. Report both.
+        policy_snapshot: params.policy_snapshot_json.as_deref().and_then(|json| {
+            match serde_json::from_str::<crate::permission::PolicySnapshot>(json) {
+                Ok(snapshot) => {
+                    tracing::debug!(mode = ?snapshot.mode, "native policy snapshot accepted");
+                    Some(snapshot)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "native policy snapshot rejected; no local permission engine, \
+                         so every tool call will ask the host for permission"
+                    );
+                    None
+                }
+            }
+        }),
         github_token: params.github_token.clone(),
         github_base_url: params.github_base_url.clone(),
         // `0` from the host means "no timeout" (v2 `taskService` arms only
