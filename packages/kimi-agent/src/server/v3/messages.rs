@@ -1977,15 +1977,6 @@ mod tests {
         ]
     }
 
-    fn sample_step_usage() -> StepUsage {
-        StepUsage {
-            input_other: 1,
-            output: 2,
-            input_cache_read: 3,
-            input_cache_creation: 4,
-        }
-    }
-
     fn sample_session_info() -> SessionInfo {
         SessionInfo {
             id: SESSION.into(),
