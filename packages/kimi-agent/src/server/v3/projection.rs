@@ -37,8 +37,9 @@ use crate::turn_loop::types::LLMMessage;
 
 use super::messages::{
     AssistantMessage, ContentPart, ContentPartType, ServerMessage, StepMessage, StepStatus,
-    StreamStatus, ThinkingMessage, ToolCallMessage, ToolCallStatus, TurnMessage, TurnOrigin,
-    TurnStatus, TurnUsage, UserMessage, UserMessageStatus,
+    StreamStatus, TaskKind, TaskMessage, TaskStatus, ThinkingMessage, TodoItem, TodoItemStatus,
+    TodoMessage, ToolCallMessage, ToolCallStatus, TurnMessage, TurnOrigin, TurnStatus, TurnUsage,
+    UserMessage, UserMessageStatus,
 };
 
 /// Identity of a turn entity: the number both the live stream and a reader of
@@ -293,6 +294,171 @@ pub fn project_history(
     }
 
     out
+}
+
+/// Project the stored `todo` domain into a v3 todo entity.
+///
+/// The fork keeps one todo tree — items carry `parentId`, `kind` and `progress`
+/// — while upstream's item is only `{title, status}`. The tree is flattened in
+/// depth-first order and the fields upstream has no home for are dropped, not
+/// smuggled into `title`.
+///
+/// `todo_id` is the session the list is served to, because the fork scopes this
+/// state per workspace and a session-scoped entity has no other list identity to
+/// carry.
+pub fn project_todo(
+    session_id: &str,
+    agent_id: &str,
+    timestamp: i64,
+    state: &Value,
+) -> Option<TodoMessage> {
+    let items = state.as_array()?;
+    let mut flattened = Vec::new();
+    let mut emitted = std::collections::HashSet::new();
+    collect_todo_items(items, None, &mut flattened, &mut emitted);
+    // Items inside a `parentId` cycle are reachable from no root at all; take
+    // them in file order instead of losing them.
+    for (index, item) in items.iter().enumerate() {
+        if emitted.contains(&index) {
+            continue;
+        }
+        emitted.insert(index);
+        push_todo_item(item, &mut flattened);
+    }
+    Some(TodoMessage {
+        session_id: session_id.to_string(),
+        agent_id: agent_id.to_string(),
+        timestamp,
+        todo_id: session_id.to_string(),
+        items: flattened,
+        updated_at: None,
+    })
+}
+
+/// Flatten one level of the todo tree, then recurse into each item's children.
+///
+/// An item whose declared parent is not in the list counts as top level rather
+/// than disappearing. Everything is tracked by *position*, so one pass emits
+/// each item exactly once even when the file repeats ids or omits them.
+fn collect_todo_items(
+    items: &[Value],
+    parent: Option<usize>,
+    out: &mut Vec<TodoItem>,
+    emitted: &mut std::collections::HashSet<usize>,
+) {
+    for (index, item) in items.iter().enumerate() {
+        let parent_index = item
+            .get("parentId")
+            .and_then(Value::as_str)
+            .and_then(|declared| {
+                items
+                    .iter()
+                    .position(|candidate| has_id(candidate, declared))
+            });
+        let belongs = match parent {
+            None => parent_index.is_none(),
+            Some(parent) => parent_index == Some(parent),
+        };
+        if !belongs || !emitted.insert(index) {
+            continue;
+        }
+        push_todo_item(item, out);
+        collect_todo_items(items, Some(index), out, emitted);
+    }
+}
+
+fn push_todo_item(item: &Value, out: &mut Vec<TodoItem>) {
+    if let Some(title) = item.get("title").and_then(Value::as_str) {
+        out.push(TodoItem {
+            title: title.to_string(),
+            status: todo_status(item.get("status").and_then(Value::as_str)),
+        });
+    }
+}
+
+fn has_id(item: &Value, id: &str) -> bool {
+    item.get("id").and_then(Value::as_str) == Some(id)
+}
+
+/// Upstream's item status has three values; a status this fork stores beyond
+/// them reads as `pending`, which is the state a client will act on anyway.
+fn todo_status(status: Option<&str>) -> TodoItemStatus {
+    match status {
+        Some("in_progress") => TodoItemStatus::InProgress,
+        Some("done") => TodoItemStatus::Done,
+        _ => TodoItemStatus::Pending,
+    }
+}
+
+/// Project the stored `task` domain into v3 task entities.
+///
+/// The stored entry is the fork's v2 shape — `taskId`, `description`, `status`,
+/// `startedAt`, `endedAt`, `stopReason` — plus the output snapshot when the
+/// caller merged one in, the way `StateStore::read_state` does for a single
+/// task; the domain itself never holds the output log.
+///
+/// Two v3 fields have no stored source, so history answers them by
+/// construction: `kind` is only carried by the live events, and everything in
+/// this domain is a background task, so `detached` is true.
+pub fn project_tasks(
+    session_id: &str,
+    agent_id: &str,
+    timestamp: i64,
+    state: &Value,
+) -> Vec<TaskMessage> {
+    state
+        .as_array()
+        .map(|tasks| {
+            tasks
+                .iter()
+                .filter_map(|task| task_entity(session_id, agent_id, timestamp, task))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn task_entity(
+    session_id: &str,
+    agent_id: &str,
+    timestamp: i64,
+    task: &Value,
+) -> Option<TaskMessage> {
+    Some(TaskMessage {
+        session_id: session_id.to_string(),
+        agent_id: agent_id.to_string(),
+        timestamp,
+        task_id: task.get("taskId").and_then(Value::as_str)?.to_string(),
+        kind: TaskKind::Other,
+        status: task_status(task.get("status").and_then(Value::as_str)),
+        detached: true,
+        description: text(task, "description"),
+        child_agent_id: None,
+        output_tail: text(task, "output").unwrap_or_default(),
+        started_at: task.get("startedAt").and_then(Value::as_i64).and_then(iso),
+        ended_at: task.get("endedAt").and_then(Value::as_i64).and_then(iso),
+        result_summary: None,
+        error: None,
+        state_reason: text(task, "stopReason"),
+        usage: None,
+        model: None,
+        thinking_effort: None,
+    })
+}
+
+/// The runner writes three of upstream's six statuses. A fourth value — or a
+/// missing one — is reported as `lost` rather than `failed`, because "this is
+/// not one of the states I know" is not the same claim as "this task failed".
+fn task_status(status: Option<&str>) -> TaskStatus {
+    match status {
+        Some("running") => TaskStatus::Running,
+        Some("completed") => TaskStatus::Completed,
+        Some("killed") => TaskStatus::Killed,
+        _ => TaskStatus::Lost,
+    }
+}
+
+fn text(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
 /// A user message's body as v3 content parts.
@@ -673,5 +839,99 @@ mod tests {
         assert_eq!(parts[1].text, "data:image/png;base64,aGk=");
         assert_eq!(parts[2].text, "https://example.test/a.png");
         assert!(parts.iter().all(|part| part.meta.is_empty()));
+    }
+
+    #[test]
+    fn todo_trees_are_flattened_in_order() {
+        let state = json!([
+            { "id": "T1", "parentId": null, "kind": "task", "title": "Read", "status": "in_progress", "progress": 40 },
+            { "id": "T2", "parentId": "T1", "kind": "task", "title": "Child", "status": "done" },
+            { "id": "T3", "parentId": null, "kind": "task", "title": "Write", "status": "pending" },
+        ]);
+
+        let todo = project_todo("s1", "main", 7, &state).expect("an array projects");
+        let titles: Vec<&str> = todo.items.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Read", "Child", "Write"],
+            "a child follows its parent"
+        );
+        assert_eq!(todo.items[0].status, TodoItemStatus::InProgress);
+        assert_eq!(todo.items[1].status, TodoItemStatus::Done);
+        assert_eq!(todo.items[2].status, TodoItemStatus::Pending);
+        assert_eq!(todo.todo_id, "s1");
+        assert_eq!(todo.timestamp, 7);
+    }
+
+    #[test]
+    fn todo_orphans_are_promoted_and_cycles_reach_the_wire() {
+        let state = json!([
+            { "id": "T1", "parentId": "T9", "title": "Orphan" },
+            { "id": "T2", "parentId": "T3", "title": "Loop a" },
+            { "id": "T3", "parentId": "T2", "title": "Loop b" },
+        ]);
+
+        let todo = project_todo("s1", "main", 1, &state).expect("an array projects");
+        let titles: Vec<&str> = todo.items.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Orphan", "Loop a", "Loop b"],
+            "an unreachable item is still reported, in file order"
+        );
+    }
+
+    #[test]
+    fn a_non_array_todo_state_is_not_an_entity() {
+        assert!(project_todo("s1", "main", 1, &json!({ "active": false })).is_none());
+    }
+
+    #[test]
+    fn tasks_carry_what_the_domain_stores() {
+        let state = json!([
+            {
+                "taskId": "task-1",
+                "description": "run the suite",
+                "status": "running",
+                "startedAt": 1_700_000_000_000i64,
+                "stopReason": "user",
+            },
+            {
+                "taskId": "task-2",
+                "description": "old",
+                "status": "killed",
+                "startedAt": 1_700_000_000_000i64,
+                "endedAt": 1_700_000_003_000i64,
+            },
+            { "description": "no id" },
+        ]);
+
+        let tasks = project_tasks("s1", "main", 1, &state);
+        assert_eq!(tasks.len(), 2, "an entry without a task id is skipped");
+
+        assert_eq!(tasks[0].task_id, "task-1");
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+        assert_eq!(tasks[0].detached, true);
+        assert_eq!(tasks[0].kind, TaskKind::Other);
+        assert_eq!(tasks[0].state_reason.as_deref(), Some("user"));
+        assert_eq!(tasks[0].ended_at, None);
+        assert_eq!(
+            tasks[0].output_tail, "",
+            "the domain never holds the output log"
+        );
+        assert_eq!(
+            tasks[1].started_at.as_deref(),
+            Some("2023-11-14T22:13:20.000Z")
+        );
+        assert_eq!(
+            tasks[1].ended_at.as_deref(),
+            Some("2023-11-14T22:13:23.000Z")
+        );
+    }
+
+    #[test]
+    fn an_unknown_task_status_reads_as_lost() {
+        assert_eq!(task_status(Some("timed_out")), TaskStatus::Lost);
+        assert_eq!(task_status(None), TaskStatus::Lost);
+        assert_eq!(task_status(Some("completed")), TaskStatus::Completed);
     }
 }
