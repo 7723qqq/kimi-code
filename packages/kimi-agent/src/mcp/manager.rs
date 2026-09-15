@@ -1898,7 +1898,9 @@ mod tests {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
             std::fs::write(
                 &path,
-                format!("@echo {init}\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"),
+                format!(
+                    "@echo {init}\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"
+                ),
             )
             .expect("write die script");
             (
