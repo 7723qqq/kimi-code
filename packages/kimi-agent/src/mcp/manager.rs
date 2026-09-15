@@ -1623,7 +1623,11 @@ mod tests {
             .await
             .expect("a disabled server never connects");
         let warnings = manager.session_warnings().await;
-        assert_eq!(warnings.len(), 1, "the disabled server adds nothing: {warnings:?}");
+        assert_eq!(
+            warnings.len(),
+            1,
+            "the disabled server adds nothing: {warnings:?}"
+        );
     }
 
     /// Reconnecting a disabled server is an error (v2 throws

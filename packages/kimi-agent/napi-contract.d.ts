@@ -391,6 +391,12 @@ export interface JsRunTurnParams {
   toolsVeto?: string
   todoToolVeto?: string
   towerWorktreeRoot?: string
+  /**
+   * Host-resolved tower enablement (`KIMI_CODE_EXPERIMENTAL_TOWER` /
+   * `[experimental].tower`). `None` falls back to the engine's own env
+   * probe.
+   */
+  towerEnabled?: boolean
   sandboxMode?: string
   callerAgentId?: string
   sessionId?: string

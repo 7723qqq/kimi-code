@@ -60,6 +60,14 @@ pub fn build_request_full(
             }
             "assistant" => {
                 let mut blocks: Vec<Value> = Vec::new();
+                // Thinking blocks first: Anthropic requires attested thinking
+                // (with its signature) ahead of text/tool_use in the message,
+                // and rejects follow-ups whose thinking does not round-trip.
+                for b in &m.blocks {
+                    if matches!(b, ContentBlock::Think { .. }) {
+                        blocks.push(project_block(b));
+                    }
+                }
                 if !m.content.is_empty() {
                     blocks.push(json!({ "type": "text", "text": m.content }));
                 }
@@ -1246,5 +1254,35 @@ mod tests {
         assert_eq!(asst_content.len(), 2);
         assert_eq!(asst_content[1]["type"], "tool_use");
         assert_eq!(asst_content[1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn test_assistant_thinking_blocks_round_trip_first_with_signature() {
+        use crate::rpc::types::ContentBlock;
+        // 回归：thinking 块（含 signature）必须原样回到下一次请求的最前面，
+        // 否则开启 thinking 的多步 tool 调用会被 provider 400 拒绝。
+        let msgs = vec![WireMessage {
+            role: "assistant".into(),
+            content: "Let me check.".into(),
+            blocks: vec![ContentBlock::Think {
+                think: "need to list files".into(),
+                encrypted: Some("sig-abc".into()),
+            }],
+            tool_calls: vec![ToolCall {
+                id: "call_ls".into(),
+                name: "glob".into(),
+                arguments: json!({ "pattern": "*.rs" }),
+                extras: None,
+            }],
+            tool_call_id: None,
+        }];
+        let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+        let asst_content = req["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(asst_content.len(), 3, "{asst_content:?}");
+        assert_eq!(asst_content[0]["type"], "thinking");
+        assert_eq!(asst_content[0]["thinking"], "need to list files");
+        assert_eq!(asst_content[0]["signature"], "sig-abc");
+        assert_eq!(asst_content[1]["type"], "text");
+        assert_eq!(asst_content[2]["type"], "tool_use");
     }
 }

@@ -314,4 +314,24 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
    附注：`acp/mod.rs` 早期在无 engine 时会伪造一份助手回复并 `save_turn` 落库，该行为**已删除**
    （全 crate 已无 `Response to:` 之类的伪造文本）。
 
-4. **`apps/vis` 整包回退**（上游 #3540 对齐）——仍待单独处理，见第 5 节末尾的「整包/整文件回退」清单。
+4. ~~**`apps/vis` 整包回退**（上游 #3540 对齐）——仍待单独处理，见第 5 节末尾的「整包/整文件回退」清单。~~
+   **已解决（2026-09-14）**：`452302a2b7 fix(vis): align with upstream #3540 and keep the fork i18n layer`
+   已把 #3540 增量重放到 fork 的 i18n 层之上（server：context-memory vendor + projector/task-store/wire-reader/session-store
+   对齐 + wire 契约补 `file_history.*` 等字段；web：analysis/各 Tab 对齐 + 全量 `t()` 化 + en/zh 新 key）。
+   验证：`apps/vis/server` 18 文件 181 项、`apps/vis/web` 7 文件 43 项测试全绿。
+
+5. **模式互斥（mode mutex）缺失（2026-09-14 域对照新增）**：v2 `agent/modeMutex/modeMutexService.ts`
+   在进入 plan/swarm 时自动退出 tower，进入 tower 时自动退出 plan + swarm；Rust 侧 plan/tower/swarm
+   三者进入路径之间零互斥逻辑（`plan_mode.rs`、`swarm_tool.rs`、`tools/tower/` 均无交叉退出）。
+   后果：plan 激活期间起 tower/swarm（或反之）两边同算 active，tower worker 的写可能撞上 plan guard。
+   **已落地（2026-09-14）**：`src/tools/mode_mutex.rs` + dispatch 接线（`tools/mod.rs` 的
+   enterplanmode/agentswarm/towerinit 分支）+ 门禁（`tower/mod.rs` 的 spawn-worker 与 merge
+   分支拒 paused 任务）。Rust 无 tower/swarm mode flag，互斥按引擎架构表达：plan-enter
+   与 swarm-dispatch 暂停开放 tower 任务（`Paused`，不删不 teardown；均限 main agent，
+   对齐 v2 的 Agent 作用域）；暂停是实的——TowerSpawn-worker 与 TowerMerge 在 paused
+   任务上拒绝并指引恢复；TowerMission status=active 可恢复（main 解析为 tower，
+   ownership 放行）；tower-init 成功进入后经 state bridge 退出 plan（`{active:false}`，
+   undoable；init 失败/被拒则不退出，对齐 v2「进入事件才退 plan」）。swarm 无持久模式，
+   tower-enter 侧无需退出；plan 退出后 tower 不自动恢复（与 v2 粘性一致，需手动 resume）。
+   验证：`mode_mutex.rs` 6 项单测 + `tools/mod.rs` `mode_mutex_dispatch` 模块 7 项
+   dispatch 集成测试（真实 git 仓库 + 真实 `execute_tool` 分支）全绿。

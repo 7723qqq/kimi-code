@@ -817,21 +817,11 @@ mod tests {
     fn env_host_matching_a_profile_pins_the_region() {
         let dir = marker_home(Some("global"));
         assert_eq!(
-            resolve_kimi_region(
-                Some("https://auth.kimi.ai"),
-                None,
-                None,
-                dir.path()
-            ),
+            resolve_kimi_region(Some("https://auth.kimi.ai"), None, None, dir.path()),
             "global"
         );
         assert_eq!(
-            resolve_kimi_region(
-                Some("https://auth.kimi.com/"),
-                None,
-                None,
-                dir.path()
-            ),
+            resolve_kimi_region(Some("https://auth.kimi.com/"), None, None, dir.path()),
             "mainland-cn"
         );
     }
@@ -856,22 +846,12 @@ mod tests {
     fn configured_host_and_default_credential_key_win_over_the_marker() {
         let dir = marker_home(None);
         assert_eq!(
-            resolve_kimi_region(
-                None,
-                Some("https://auth.kimi.ai"),
-                None,
-                dir.path()
-            ),
+            resolve_kimi_region(None, Some("https://auth.kimi.ai"), None, dir.path()),
             "global"
         );
         // The default slot only ever holds a mainland-China login.
         assert_eq!(
-            resolve_kimi_region(
-                None,
-                None,
-                Some("oauth/kimi-code"),
-                dir.path()
-            ),
+            resolve_kimi_region(None, None, Some("oauth/kimi-code"), dir.path()),
             "mainland-cn"
         );
     }

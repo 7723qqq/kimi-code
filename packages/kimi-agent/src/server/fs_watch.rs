@@ -141,13 +141,13 @@ impl FsWatchManager {
             };
 
             if changed {
-                self.hub.bus_for(&session_id).publish(&EngineEvent::Custom(
-                    json!({
+                self.hub
+                    .bus_for(&session_id)
+                    .publish(&EngineEvent::Custom(json!({
                         "type": "event.fs.changed",
                         "sessionId": session_id,
                         "path": path,
-                    }),
-                ));
+                    })));
             }
         }
         emitted
@@ -170,11 +170,7 @@ pub async fn run_poll_loop(manager: Arc<FsWatchManager>, interval: Duration) {
 mod tests {
     use super::*;
 
-    fn manager() -> (
-        tempfile::TempDir,
-        Arc<FsWatchManager>,
-        Arc<EventHub>,
-    ) {
+    fn manager() -> (tempfile::TempDir, Arc<FsWatchManager>, Arc<EventHub>) {
         let dir = tempfile::tempdir().unwrap();
         let hub = Arc::new(EventHub::new());
         let mgr = Arc::new(FsWatchManager::new(hub.clone()));
@@ -227,9 +223,9 @@ mod tests {
         std::fs::write(&file, "bye").unwrap();
         let path = file.to_string_lossy().into_owned();
 
-        assert_eq!(mgr.add("sess-fs", &[path.clone()]), 1);
+        assert_eq!(mgr.add("sess-fs", std::slice::from_ref(&path)), 1);
         // A duplicate registration of the same (session, path) is collapsed.
-        assert_eq!(mgr.add("sess-fs", &[path.clone()]), 1);
+        assert_eq!(mgr.add("sess-fs", std::slice::from_ref(&path)), 1);
         assert_eq!(mgr.watch_count(), 1);
 
         assert_eq!(mgr.poll_once().await, 0, "baseline");

@@ -30,13 +30,34 @@ fn supports_line_target(editor: &str) -> bool {
         || lower.contains("subl")
 }
 
-/// Quote a target for a shell command line (v2 `quoteShellArg`).
-fn quote_shell_arg(arg: &str) -> String {
-    if cfg!(windows) {
-        format!("\"{}\"", arg.replace('"', "\\\""))
-    } else {
-        format!("'{}'", arg.replace('\'', "'\\''"))
+/// Split a command line into executable and arguments, respecting quotes.
+fn split_command_line(cmd: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = ' ';
+
+    for c in cmd.chars() {
+        match c {
+            '"' | '\'' if in_quotes && c == quote_char => {
+                in_quotes = false;
+            }
+            '"' | '\'' if !in_quotes => {
+                in_quotes = true;
+                quote_char = c;
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
     }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
 }
 
 /// Resolve the editor command from the environment, if one is set.
@@ -80,42 +101,49 @@ fn explorer_select_arg(path: &Path) -> String {
 
 /// Launch a detached child. Returns the OS error string on failure.
 fn launch_detached(program: &str, args: &[String]) -> Result<(), String> {
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    command
-        .spawn()
-        .map(|_child| ())
-        .map_err(|e| format!("failed to launch {program}: {e}"))
+    #[cfg(test)]
+    {
+        // Avoid popping up actual GUI editor/file manager windows during test runs.
+        let _ = (program, args);
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        let mut command = Command::new(program);
+        command
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        command
+            .spawn()
+            .map(|_child| ())
+            .map_err(|e| format!("failed to launch {program}: {e}"))
+    }
 }
 
 /// `fs:open`: open the file in the user's editor, or the platform default.
 /// `line` is appended as `path:line` for editors that understand it.
 pub fn open_file(absolute: &Path, line: Option<u64>) -> Result<(), String> {
     if let Some(editor) = resolve_editor_command() {
-        let target = if line.is_some() && supports_line_target(&editor) {
-            format!("{}:{}", absolute.display(), line.unwrap_or(0))
-        } else {
-            absolute.display().to_string()
-        };
-        let command_line = format!("{editor} {}", quote_shell_arg(&target));
-        return if cfg!(windows) {
-            launch_detached("cmd", &["/c".into(), command_line])
-        } else {
-            launch_detached("sh", &["-c".into(), command_line])
-        };
+        let mut tokens = split_command_line(&editor);
+        if !tokens.is_empty() {
+            let program = tokens.remove(0);
+            let target = if line.is_some() && supports_line_target(&program) {
+                format!("{}:{}", absolute.display(), line.unwrap_or(0))
+            } else {
+                absolute.display().to_string()
+            };
+            tokens.push(target);
+            return launch_detached(&program, &tokens);
+        }
     }
 
     let path = absolute.display().to_string();
     if cfg!(target_os = "macos") {
         launch_detached("open", &[path])
     } else if cfg!(windows) {
-        // `cmd /c start "" <path>` — the empty first argument is the window
-        // title; without it `start` treats a quoted path as the title.
-        launch_detached("cmd", &["/c".into(), "start".into(), String::new(), path])
+        launch_detached("explorer.exe", &[path])
     } else {
         launch_detached("xdg-open", &[path])
     }
@@ -164,16 +192,11 @@ pub fn open_in_app(app_id: &str, absolute: &Path, line: Option<u64>) -> Result<(
     match app_id {
         "vscode" | "cursor" => {
             let binary = if app_id == "vscode" { "code" } else { "cursor" };
-            let (flag, target) = match line {
-                Some(line) => ("-g ", format!("{}:{line}", absolute.display())),
-                None => ("", path),
+            let args: Vec<String> = match line {
+                Some(line) => vec!["-g".into(), format!("{}:{line}", absolute.display())],
+                None => vec![path],
             };
-            let command_line = format!("{binary} {flag}{}", quote_shell_arg(&target));
-            if cfg!(windows) {
-                launch_detached("cmd", &["/c".into(), command_line])
-            } else {
-                launch_detached("sh", &["-c".into(), command_line])
-            }
+            launch_detached(binary, &args)
         }
         "finder" => {
             if absolute.is_dir() {
@@ -199,7 +222,10 @@ mod tests {
     fn open_in_app_rejects_unknown_id() {
         let err = open_in_app("photoshop", Path::new("/tmp/x"), None).unwrap_err();
         assert!(err.contains("Unsupported app"), "{err}");
-        assert!(err.contains("vscode"), "the error lists the valid ids: {err}");
+        assert!(
+            err.contains("vscode"),
+            "the error lists the valid ids: {err}"
+        );
     }
 
     #[test]
@@ -219,9 +245,13 @@ mod tests {
     }
 
     #[test]
-    fn quote_shell_arg_escapes_quotes() {
-        let quoted = quote_shell_arg("a'b");
-        assert!(quoted.contains("a"), "{quoted}");
-        assert!(!quoted.is_empty());
+    fn test_split_command_line() {
+        assert_eq!(split_command_line("code --wait"), vec!["code", "--wait"]);
+        assert_eq!(
+            split_command_line("\"C:\\Program Files\\app.exe\" -f \"file name\""),
+            vec!["C:\\Program Files\\app.exe", "-f", "file name"]
+        );
+        assert_eq!(split_command_line("  notepad  "), vec!["notepad"]);
+        assert!(split_command_line("   ").is_empty());
     }
 }

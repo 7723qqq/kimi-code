@@ -5,6 +5,7 @@
 //! take an explicit local-timezone offset (minutes east of UTC) because std
 //! has no local-time API; the caller supplies the host's offset.
 
+pub mod jitter;
 pub mod scheduler;
 
 use std::collections::BTreeSet;

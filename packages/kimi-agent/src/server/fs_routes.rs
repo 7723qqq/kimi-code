@@ -802,9 +802,11 @@ fn content_type_for(path: &Path) -> &'static str {
         .map(|e| e.to_ascii_lowercase())
         .as_deref()
     {
-        Some("txt" | "md" | "log" | "json" | "toml" | "yaml" | "yml" | "csv" | "rs" | "ts"
-        | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "py" | "go" | "java" | "c" | "h" | "cpp"
-        | "html" | "css" | "sh") => "text/plain; charset=utf-8",
+        Some(
+            "txt" | "md" | "log" | "json" | "toml" | "yaml" | "yml" | "csv" | "rs" | "ts" | "tsx"
+            | "js" | "jsx" | "mjs" | "cjs" | "py" | "go" | "java" | "c" | "h" | "cpp" | "html"
+            | "css" | "sh",
+        ) => "text/plain; charset=utf-8",
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
@@ -889,12 +891,9 @@ pub fn handle_fs_content(
             resp.body = slice;
             resp.headers
                 .insert("Content-Type".into(), content_type_for(path).into());
-            resp.headers.insert(
-                "Content-Range".into(),
-                format!("bytes {start}-{end}/{len}"),
-            );
             resp.headers
-                .insert("Accept-Ranges".into(), "bytes".into());
+                .insert("Content-Range".into(), format!("bytes {start}-{end}/{len}"));
+            resp.headers.insert("Accept-Ranges".into(), "bytes".into());
             resp.headers.insert("ETag".into(), etag);
             return resp;
         }

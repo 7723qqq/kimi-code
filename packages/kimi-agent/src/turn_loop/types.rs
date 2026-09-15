@@ -884,6 +884,12 @@ pub struct StepResult {
     /// Assistant text produced in this step (may be empty on the host-proxy
     /// path, where the host owns the transcript).
     pub content: String,
+    /// Provider reasoning blocks (Anthropic thinking+signature, OpenAI
+    /// reasoning, Gemini thought signatures). Carried so the turn loop can
+    /// fold them back into the assistant history — providers that attested
+    /// the reasoning require the exact blocks (signature included) on the
+    /// next request, otherwise the follow-up call is rejected.
+    pub thinking: Vec<ContentBlock>,
     /// LLM attempts used by this step (1 = no retry).
     pub attempts: u32,
     /// Provider finish reason for this step (`stop`, `length`, `max_tokens`,

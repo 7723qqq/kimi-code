@@ -740,6 +740,20 @@ impl SqliteSessionStore {
         Ok(out)
     }
 
+    /// Associate a child session with its parent.
+    pub fn set_parent_session_id(
+        &self,
+        session_id: &str,
+        parent_session_id: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE sessions SET parent_session_id = ?1 WHERE session_id = ?2",
+            params![parent_session_id, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Deterministic title derivation from the session's own history
     /// (v2 `title/generate` source=first_turn|user_prompts). The `digest`
     /// source needs a managed LLM call and is rejected here.

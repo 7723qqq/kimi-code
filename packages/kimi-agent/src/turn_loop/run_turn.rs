@@ -786,7 +786,11 @@ pub fn run_turn<'a>(
                 // same channel, so a mid-turn plan exit or goal pause shows up
                 // at this step head. A failed read keeps the previous value.
                 goal_plan_state.refresh(callbacks.as_ref()).await;
-                for text in injection_registry.build_injections(step_num == 1) {
+                // `step_num` is zero-based: the turn's first step is 0, not 1.
+                // Passing `step_num == 1` here made every turn-scoped provider
+                // (the goal reminder is the only one) inject a step late — so
+                // on a normal one-step turn it never fired at all.
+                for text in injection_registry.build_injections(step_num == 0) {
                     messages.push(crate::injection::injection_message(text));
                 }
             }
@@ -920,7 +924,10 @@ pub fn run_turn<'a>(
                         messages.push(LLMMessage {
                             role: "assistant".into(),
                             content: step_result.content.clone(),
-                            blocks: Vec::new(),
+                            // Fold the step's reasoning back in: providers
+                            // that attested it (Anthropic signature, Gemini
+                            // thought signature) reject follow-ups without it.
+                            blocks: step_result.thinking.clone(),
                             tool_calls: Vec::new(),
                             tool_call_id: None,
                         });
@@ -966,7 +973,7 @@ pub fn run_turn<'a>(
                     messages.push(LLMMessage {
                         role: "assistant".into(),
                         content: step_result.content.clone(),
-                        blocks: Vec::new(),
+                        blocks: step_result.thinking.clone(),
                         tool_calls: tool_calls.clone(),
                         tool_call_id: None,
                     });
@@ -2583,6 +2590,115 @@ mod tests {
                 && m.content == "stub"),
             "step 2 history must contain the tool result: {second:?}"
         );
+    }
+
+    /// Thinking round-trip: step 1's reasoning (with provider signature) must
+    /// reach step 2 inside the assistant history message — providers that
+    /// attested the thinking reject follow-ups without it.
+    #[tokio::test]
+    async fn test_thinking_blocks_round_trip_into_assistant_history() {
+        use crate::rpc::types::ContentBlock;
+        struct ThinkingLlm {
+            call: AtomicU32,
+            requests: std::sync::Mutex<Vec<Vec<LLMMessage>>>,
+        }
+        impl LLM for ThinkingLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "thinking-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(params.messages.to_vec());
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: "checking".into(),
+                            thinking: vec![ContentBlock::Think {
+                                think: "need to list files".into(),
+                                encrypted: Some("sig-abc".into()),
+                            }],
+                            tool_calls: vec![ToolCall {
+                                id: "tc1".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
+                            }],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+        let llm = ThinkingLlm {
+            call: AtomicU32::new(0),
+            requests: std::sync::Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-thinking-round-trip".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+        let requests = llm.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        let second = &requests[1];
+        let assistant = second
+            .iter()
+            .find(|m| m.role == "assistant" && m.tool_calls.iter().any(|tc| tc.id == "tc1"))
+            .expect("step 2 history must contain the assistant tool_calls message");
+        assert_eq!(assistant.blocks.len(), 1, "{assistant:?}");
+        match &assistant.blocks[0] {
+            ContentBlock::Think { think, encrypted } => {
+                assert_eq!(think, "need to list files");
+                assert_eq!(encrypted.as_deref(), Some("sig-abc"));
+            }
+            other => panic!("assistant history must carry the Think block, got {other:?}"),
+        }
     }
 
     // ── Tool-call dedup (v2 `toolDedupeService` mirror, G-6 #2) ─────────

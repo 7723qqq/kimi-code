@@ -136,7 +136,9 @@ function rustRouteFor(endpoint, routes) {
   for (const g of routes.guards) {
     if (g.method !== endpoint.method) continue;
     if (g.action) {
-      if (endpoint.path.endsWith(':' + g.action)) return { method: g.method, path: ':' + g.action };
+      if (endpoint.path.endsWith(':' + g.action) || endpoint.path.endsWith('/' + g.action)) {
+        return { method: g.method, path: ':' + g.action };
+      }
       continue;
     }
     if (g.sessionFs) {

@@ -1310,7 +1310,8 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
                     scheduler.tick(last_tick, now)
                 };
                 last_tick = now;
-                for entry in fired {
+                for fired in fired {
+                    let entry = &fired.entry;
                     cron_hub.bus_for("global").publish(
                         &kimi_agent::events::EngineEvent::CronFired {
                             entry_id: entry.id.clone(),
@@ -1330,7 +1331,11 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
                     let Ok(turn_number) = cron_store.next_turn_number(session_id) else {
                         continue;
                     };
-                    let prompt = kimi_agent::session::render_cron_fire(&entry);
+                    let prompt = kimi_agent::session::render_cron_fire(
+                        entry,
+                        fired.coalesced_count,
+                        fired.stale,
+                    );
                     if let Err(error) = engine
                         .run_turn(session_id, turn_number, history, &prompt)
                         .await

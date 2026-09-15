@@ -258,10 +258,7 @@ impl PluginManager {
     /// install record; the previous behaviour fabricated `enabled: true` plus a
     /// hardcoded `version: "1.0.0"` for *any* string, which made the plugin
     /// panel list plugins that were never installed.
-    pub fn install_plugin(
-        &self,
-        id: &str,
-    ) -> Result<Option<InstalledPluginInfo>, rusqlite::Error> {
+    pub fn install_plugin(&self, id: &str) -> Result<Option<InstalledPluginInfo>, rusqlite::Error> {
         let marketplace = load_marketplace(None);
         let known = marketplace.iter().find(|m| m.id == id);
         let mut installed = self.load_installed_map();

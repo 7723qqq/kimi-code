@@ -649,10 +649,7 @@ impl NativeToolset {
         session_id: impl Into<String>,
         turn_id: usize,
     ) {
-        *self
-            .file_history
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(FileHistoryCtx {
+        *self.file_history.lock().unwrap_or_else(|e| e.into_inner()) = Some(FileHistoryCtx {
             store,
             session_id: session_id.into(),
         });
@@ -1043,10 +1040,7 @@ impl NativeToolset {
                 // The loaded set is the toolset's shared, session-scoped one:
                 // a fresh set per call made `already_available` unreachable and
                 // reported every requested tool as newly loaded.
-                let mut loaded = self
-                    .loaded_tools
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
+                let mut loaded = self.loaded_tools.lock().unwrap_or_else(|e| e.into_inner());
                 Some(select_tools::execute_select_tools(
                     args,
                     &available,
@@ -3463,8 +3457,10 @@ mod tests {
 
         fn list_tools(
             &self,
-        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ListToolsResponse, String>>
-        {
+        ) -> crate::rpc::types::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ListToolsResponse, String>,
+        > {
             let tools = self.0.clone();
             Box::pin(async move { Ok(crate::rpc::types::ListToolsResponse { tools }) })
         }
@@ -3491,10 +3487,7 @@ mod tests {
         ])));
 
         let first = ts
-            .execute_tool(
-                "select_tools",
-                &json!({ "names": ["mcp__github__search"] }),
-            )
+            .execute_tool("select_tools", &json!({ "names": ["mcp__github__search"] }))
             .await
             .expect("select_tools is a native tool");
         assert!(!first.is_error, "{}", first.content);
@@ -3517,10 +3510,7 @@ mod tests {
 
         // Second call for the same name: remembered, not re-loaded.
         let second = ts
-            .execute_tool(
-                "select_tools",
-                &json!({ "names": ["mcp__github__search"] }),
-            )
+            .execute_tool("select_tools", &json!({ "names": ["mcp__github__search"] }))
             .await
             .expect("select_tools is a native tool");
         assert!(
@@ -3757,7 +3747,10 @@ mod tests {
             .with_turn_id(1);
 
         let overwritten = ts
-            .execute_mutating("Write", &json!({ "path": "kept.txt", "content": "changed" }))
+            .execute_mutating(
+                "Write",
+                &json!({ "path": "kept.txt", "content": "changed" }),
+            )
             .await
             .expect("write executes natively");
         assert!(!overwritten.is_error, "{}", overwritten.content);

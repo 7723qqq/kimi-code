@@ -61,8 +61,7 @@ pub struct ToolResultTruncator {
 /// How long a spilled tool result is kept under `<workspace>/.kimi/spill`.
 /// Pruned opportunistically whenever a truncator is rebuilt for the workspace
 /// (see [`ToolResultTruncator::for_workspace`]) — there is no background task.
-pub const SPILL_RETENTION: std::time::Duration =
-    std::time::Duration::from_secs(7 * 24 * 60 * 60);
+pub const SPILL_RETENTION: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
 
 impl ToolResultTruncator {
     pub fn new(spill_dir: PathBuf) -> Self {

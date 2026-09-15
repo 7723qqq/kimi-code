@@ -78,11 +78,14 @@ async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> Execut
     for patch in patches {
         let Some(obj) = patch.as_object() else {
             return err_result(
-                "Invalid TodoList arguments: each update must be an object with an `id`."
-                    .into(),
+                "Invalid TodoList arguments: each update must be an object with an `id`.".into(),
             );
         };
-        let Some(id) = obj.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) else {
+        let Some(id) = obj
+            .get("id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        else {
             return err_result(
                 "Invalid TodoList arguments: each update needs a non-empty `id`.".into(),
             );
@@ -100,9 +103,7 @@ async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> Execut
         };
         if let Some(title) = obj.get("title").and_then(|v| v.as_str()) {
             if title.is_empty() {
-                return err_result(
-                    "Invalid TodoList arguments: `title` must not be empty.".into(),
-                );
+                return err_result("Invalid TodoList arguments: `title` must not be empty.".into());
             }
             target.title = title.to_string();
         }
@@ -118,7 +119,9 @@ async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> Execut
         }
         if let Some(progress) = obj.get("progress").and_then(|v| v.as_f64()) {
             if !progress.is_finite() {
-                return err_result("Invalid TodoList arguments: `progress` must be a number.".into());
+                return err_result(
+                    "Invalid TodoList arguments: `progress` must be a number.".into(),
+                );
             }
             target.progress = Some(progress.round().clamp(0.0, 100.0) as u32);
         }
@@ -588,8 +591,15 @@ mod tests {
         )
         .await;
         assert!(!result.is_error, "{}", result.content);
-        assert!(result.content.contains("Todo list updated"), "{}", result.content);
-        assert!(read_received.lock().unwrap().is_some(), "the patch reads first");
+        assert!(
+            result.content.contains("Todo list updated"),
+            "{}",
+            result.content
+        );
+        assert!(
+            read_received.lock().unwrap().is_some(),
+            "the patch reads first"
+        );
         let request = write_received.lock().unwrap().clone().unwrap();
         // Untouched fields survive; the patched ones changed.
         assert_eq!(request.value[0]["title"], "Phase 1");
@@ -615,8 +625,16 @@ mod tests {
         )
         .await;
         assert!(result.is_error);
-        assert!(result.content.contains("Unknown todo id"), "{}", result.content);
-        assert!(result.content.contains("T1"), "the error names the known ids: {}", result.content);
+        assert!(
+            result.content.contains("Unknown todo id"),
+            "{}",
+            result.content
+        );
+        assert!(
+            result.content.contains("T1"),
+            "the error names the known ids: {}",
+            result.content
+        );
         assert!(
             write_received.lock().unwrap().is_none(),
             "a rejected patch must not write"
@@ -636,7 +654,11 @@ mod tests {
         )
         .await;
         assert!(result.is_error);
-        assert!(result.content.contains("mutually exclusive"), "{}", result.content);
+        assert!(
+            result.content.contains("mutually exclusive"),
+            "{}",
+            result.content
+        );
         assert!(read_received.lock().unwrap().is_none());
         assert!(write_received.lock().unwrap().is_none());
     }
@@ -645,7 +667,10 @@ mod tests {
     fn test_tool_def_advertises_updates_with_matching_shape() {
         let def = todo_list_tool_def();
         let updates = &def.input_schema["properties"]["updates"];
-        assert!(updates.is_object(), "the description promises updates; the schema must declare it");
+        assert!(
+            updates.is_object(),
+            "the description promises updates; the schema must declare it"
+        );
         assert_eq!(updates["items"]["required"][0], "id");
         assert_eq!(updates["items"]["properties"]["status"]["enum"][2], "done");
     }

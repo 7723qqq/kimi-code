@@ -266,7 +266,7 @@ impl SystemPromptBuilder {
             ("${os}", env.os_kind.as_str()),
             ("${shell}", shell_desc.as_str()),
             ("${windows_notes}", env.windows_notes.as_str()),
-            ("${runtime_notes}", ""),
+            ("${runtime_notes}", env.runtime_notes.as_str()),
             ("${cwd}", env.cwd.as_str()),
             ("${cwd_listing}", env.cwd_listing.as_str()),
             (

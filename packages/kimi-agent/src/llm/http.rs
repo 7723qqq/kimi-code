@@ -346,7 +346,8 @@ impl NativeHttpLlm {
                 break;
             }
             if let Some(delta) = acc.feed(&value)
-                && let Some(delta) = crate::llm::thinking_guard::gate_delta(&mut thinking_guard, delta)
+                && let Some(delta) =
+                    crate::llm::thinking_guard::gate_delta(&mut thinking_guard, delta)
             {
                 self.emit_delta(delta);
             }

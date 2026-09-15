@@ -54,9 +54,9 @@ pub mod model_catalog;
 pub mod oauth;
 pub mod plugins;
 pub mod prompt_queue;
-pub mod remote_control;
 pub mod provider_refresh;
 pub mod provider_write;
+pub mod remote_control;
 pub mod router;
 pub mod static_files;
 pub mod terminal;
@@ -1358,6 +1358,7 @@ fn format_wire_session(
         "main_turn_active": busy,
         "pending_interaction": pending_interaction,
         "archived": session.archived,
+        "parent_session_id": session.parent_session_id,
         "metadata": Value::Object(metadata_obj),
         "agent_config": Value::Object(config_obj),
         "usage": {
@@ -1535,11 +1536,9 @@ impl HttpServer {
             // kap-server's install action: the native engine has nothing to
             // install (every capability ships compiled in), so the honest
             // answer is "unsupported", not a fake install that claims to run.
-            ("POST", p) if p.starts_with("/api/v1/capabilities/") => {
-                HttpResponse::bad_request(
-                    "CAPABILITY_UNSUPPORTED: this standalone engine ships every capability built in; there is no installer to run",
-                )
-            }
+            ("POST", p) if p.starts_with("/api/v1/capabilities/") => HttpResponse::bad_request(
+                "CAPABILITY_UNSUPPORTED: this standalone engine ships every capability built in; there is no installer to run",
+            ),
             ("GET", "/api/v1/connections") => {
                 let connections: Vec<Value> = self
                     .hub
@@ -2072,12 +2071,7 @@ impl HttpServer {
                 let enabled = body["enabled"].as_bool().unwrap_or(false);
                 if !enabled {
                     // Stop the runtime if one is live and report the off state.
-                    if let Some(handle) = self
-                        .remote_control_runtime
-                        .lock()
-                        .await
-                        .take()
-                    {
+                    if let Some(handle) = self.remote_control_runtime.lock().await.take() {
                         handle.close().await;
                     }
                     {
@@ -2138,10 +2132,8 @@ impl HttpServer {
                 };
                 // Forward target: this server itself, as addressed by the
                 // caller (the Host header carries the loopback host:port).
-                let local_base_url = format!(
-                    "http://{}",
-                    req.header("host").unwrap_or("127.0.0.1")
-                );
+                let local_base_url =
+                    format!("http://{}", req.header("host").unwrap_or("127.0.0.1"));
                 let local_server_token = self.auth.token().unwrap_or_default().to_string();
                 let options = crate::server::remote_control::RemoteControlOptions {
                     device_id: device_id.clone(),
@@ -2164,7 +2156,9 @@ impl HttpServer {
                 }))
             }
             // MCP endpoints
-            ("GET", "/api/v1/mcp") => {
+            ("GET", "/api/v1/mcp")
+            | ("GET", "/api/v1/mcp/servers")
+            | ("GET", "/api/v2/mcp/servers") => {
                 let servers = self.mcp_manager.server_entries().await;
                 HttpResponse::ok(&json!({ "servers": servers }))
             }
@@ -2455,7 +2449,9 @@ impl HttpServer {
                 let name = segments[7];
                 let servers = self.mcp_manager.server_entries().await;
                 match servers.into_iter().find(|entry| entry.name == name) {
-                    Some(entry) => HttpResponse::ok(&serde_json::to_value(&entry).unwrap_or(Value::Null)),
+                    Some(entry) => {
+                        HttpResponse::ok(&serde_json::to_value(&entry).unwrap_or(Value::Null))
+                    }
                     None => HttpResponse::not_found(),
                 }
             }
@@ -3179,6 +3175,7 @@ impl HttpServer {
                     prompt: prompt.to_string(),
                     recurring,
                     session_id: owning_session.clone(),
+                    created_at: Some(chrono::Utc::now().timestamp_millis()),
                 };
                 let mut scheduler = self.cron_scheduler.lock().await;
                 if scheduler.add_entry(entry) {
@@ -3312,6 +3309,64 @@ impl HttpServer {
                 {
                     Ok(wire) => HttpResponse::ok(&json!({ "stopped": true, "task": wire })),
                     Err(_) => HttpResponse::not_found(),
+                }
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/tasks/")
+                    && p.ends_with(":cancel") =>
+            {
+                let remainder = &p["/api/v1/sessions/".len()..];
+                let (session_id, rest) = match remainder.split_once("/tasks/") {
+                    Some(pair) => pair,
+                    None => return HttpResponse::not_found(),
+                };
+                let task_id = match rest.strip_suffix(":cancel") {
+                    Some(tid) if !tid.is_empty() => tid,
+                    _ => return HttpResponse::not_found(),
+                };
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                if let Some(entry) = self.task_runner.entry(task_id) {
+                    let status = entry.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                    if status != "running" && status != "pending" {
+                        return HttpResponse::json(
+                            409,
+                            &json!({ "error": "task.already_finished", "code": 40904 }),
+                        );
+                    }
+                    let _ = self
+                        .task_runner
+                        .stop(task_id, Some("Cancelled by client"))
+                        .await;
+                    HttpResponse::ok(&json!({ "cancelled": true }))
+                } else {
+                    HttpResponse::json(404, &json!({ "error": "task.not_found", "code": 40406 }))
+                }
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/tasks/")
+                    && p.ends_with(":detach") =>
+            {
+                let remainder = &p["/api/v1/sessions/".len()..];
+                let (session_id, rest) = match remainder.split_once("/tasks/") {
+                    Some(pair) => pair,
+                    None => return HttpResponse::not_found(),
+                };
+                let task_id = match rest.strip_suffix(":detach") {
+                    Some(tid) if !tid.is_empty() => tid,
+                    _ => return HttpResponse::not_found(),
+                };
+                if self.store.get_session(session_id).ok().flatten().is_none() {
+                    return HttpResponse::not_found();
+                }
+                if let Some(entry) = self.task_runner.entry(task_id) {
+                    let status = entry.get("status").cloned().unwrap_or(json!("completed"));
+                    HttpResponse::ok(&json!({ "detached": false, "status": status }))
+                } else {
+                    HttpResponse::json(404, &json!({ "error": "task.not_found", "code": 40406 }))
                 }
             }
 
@@ -3812,6 +3867,48 @@ impl HttpServer {
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
+            ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/children") => {
+                let parent_session_id = p
+                    .strip_prefix("/api/v1/sessions/")
+                    .and_then(|rest| rest.strip_suffix("/children"))
+                    .unwrap_or_default();
+                let parent = match self.store.get_session(parent_session_id) {
+                    Ok(Some(s)) => s,
+                    Ok(None) => return HttpResponse::not_found(),
+                    Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
+                };
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let child_session_id = format!("sess-{}", fastrand::u64(..));
+                let title = body.get("title").and_then(|v| v.as_str());
+                let workspace_id = parent.workspace_id.as_deref();
+                if let Err(e) =
+                    self.store
+                        .create_session_with_workspace(&child_session_id, title, workspace_id)
+                {
+                    return HttpResponse::internal_error(format!("Database error: {e}"));
+                }
+                if let Err(e) = self
+                    .store
+                    .set_parent_session_id(&child_session_id, parent_session_id)
+                {
+                    return HttpResponse::internal_error(format!("Database error: {e}"));
+                }
+                if let Some(metadata) = body.get("metadata") {
+                    let _ = self
+                        .store
+                        .put_state("metadata", &child_session_id, metadata);
+                }
+                let created_session = self.store.get_session(&child_session_id).ok().flatten();
+                let session_val = if let Some(ref s) = created_session {
+                    format_wire_session(s, &self.store, self.engine.as_ref())
+                } else {
+                    json!(created_session)
+                };
+                HttpResponse::json(201, &session_val)
+            }
             ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/warnings") => {
                 let session_id = p
                     .strip_prefix("/api/v1/sessions/")
@@ -4126,6 +4223,44 @@ impl HttpServer {
                     "sessionId": session_id,
                     "skills": skills,
                 }))
+            }
+            ("POST", p)
+                if p.starts_with("/api/v1/sessions/")
+                    && p.contains("/skills/")
+                    && p.ends_with(":activate") =>
+            {
+                let remainder = &p["/api/v1/sessions/".len()..];
+                let (session_id, rest) = match remainder.split_once("/skills/") {
+                    Some(pair) => pair,
+                    None => return HttpResponse::not_found(),
+                };
+                let skill_name = match rest.strip_suffix(":activate") {
+                    Some(name) if !name.is_empty() => name,
+                    _ => return HttpResponse::not_found(),
+                };
+                let session = match self.store.get_session(session_id) {
+                    Ok(Some(s)) => s,
+                    Ok(None) => return HttpResponse::not_found(),
+                    Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
+                };
+                let ws_root = if let Some(ws_id) = session.workspace_id.as_deref() {
+                    self.store
+                        .get_workspace(ws_id)
+                        .ok()
+                        .flatten()
+                        .map(|w| std::path::PathBuf::from(w.root))
+                } else {
+                    None
+                };
+                let extra = self.config().await.extra_skill_dirs_paths();
+                let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
+                if !skills.iter().any(|s| s.name == skill_name) {
+                    return HttpResponse::json(
+                        404,
+                        &json!({ "error": "skill.not_found", "code": 40415 }),
+                    );
+                }
+                HttpResponse::ok(&json!({ "activated": true, "skill_name": skill_name }))
             }
             ("GET", p) if extract_session_action(p, "questions").is_some() => {
                 let session_id = extract_session_action(p, "questions").unwrap();
@@ -5756,6 +5891,33 @@ mod tests {
         assert_eq!(val_get["session"]["session_id"], sid);
         assert_eq!(val_get["session"]["title"], "Web REST Test");
 
+        // 4b. Create child session
+        let req_child = HttpRequest {
+            method: "POST".into(),
+            path: format!("/api/v1/sessions/{sid}/children"),
+            query: None,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({ "title": "Child Session" })).unwrap(),
+        };
+        let res_child = server.handle_request(&req_child).await;
+        assert_eq!(res_child.status, 201);
+        let val_child: Value = serde_json::from_slice(&res_child.body).unwrap();
+        assert_eq!(val_child["parent_session_id"], sid);
+        assert_eq!(val_child["title"], "Child Session");
+
+        // Verify child listed
+        let req_children = HttpRequest {
+            method: "GET".into(),
+            path: format!("/api/v1/sessions/{sid}/children"),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let res_children = server.handle_request(&req_children).await;
+        assert_eq!(res_children.status, 200);
+        let val_children: Value = serde_json::from_slice(&res_children.body).unwrap();
+        assert_eq!(val_children["children"].as_array().unwrap().len(), 1);
+
         // 5. Delete session
         let req_del = HttpRequest {
             method: "DELETE".into(),
@@ -6182,6 +6344,43 @@ mod tests {
             })
             .await;
         assert_eq!(res_missing.status, 404);
+
+        // 5. Create a session for session-scoped task routes
+        server.store.create_session("sess-task", None).unwrap();
+        runner
+            .spawn_task("task-cancel".into(), "cancel task".into(), async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                "ok".into()
+            })
+            .unwrap();
+
+        // 6. Cancel task: POST /api/v1/sessions/sess-task/tasks/task-cancel:cancel
+        let res_cancel = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-task/tasks/task-cancel:cancel".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_cancel.status, 200);
+        let val_cancel: Value = serde_json::from_slice(&res_cancel.body).unwrap();
+        assert_eq!(val_cancel["cancelled"], true);
+
+        // 7. Detach task: POST /api/v1/sessions/sess-task/tasks/task-cancel:detach
+        let res_detach = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-task/tasks/task-cancel:detach".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_detach.status, 200);
+        let val_detach: Value = serde_json::from_slice(&res_detach.body).unwrap();
+        assert_eq!(val_detach["detached"], false);
     }
 
     #[tokio::test]
@@ -7660,6 +7859,19 @@ max_context_size = 128000
         let val_mcp: Value = serde_json::from_slice(&res_mcp.body).unwrap();
         assert_eq!(val_mcp["servers"].as_array().unwrap().len(), 0);
 
+        let res_mcp_servers = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/mcp/servers".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res_mcp_servers.status, 200);
+        let val_mcp_servers: Value = serde_json::from_slice(&res_mcp_servers.body).unwrap();
+        assert_eq!(val_mcp_servers["servers"].as_array().unwrap().len(), 0);
+
         // 2. Add an MCP client to server's manager
         let client = crate::mcp::client::McpClient::mock("github-mcp");
         server.mcp_manager().add_client(client).await;
@@ -8216,6 +8428,21 @@ max_context_size = 128000
             })
             .await;
         assert_eq!(res_sess_none.status, 404);
+
+        // 5. POST activate skill -> 200
+        let res_act = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-skill/skills/test-skill:activate".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "args": "foo" })).unwrap(),
+            })
+            .await;
+        assert_eq!(res_act.status, 200);
+        let val_act: Value = serde_json::from_slice(&res_act.body).unwrap();
+        assert_eq!(val_act["activated"], true);
+        assert_eq!(val_act["skill_name"], "test-skill");
     }
 
     #[tokio::test]
@@ -8797,7 +9024,9 @@ max_context_size = 128000
     async fn test_session_scoped_cron_records_its_session() {
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let server = HttpServer::new(store.clone());
-        store.create_session("sess-cron", Some("Cron Session")).unwrap();
+        store
+            .create_session("sess-cron", Some("Cron Session"))
+            .unwrap();
 
         let scoped = server
             .handle_request(&HttpRequest {
@@ -8865,7 +9094,9 @@ max_context_size = 128000
     async fn test_session_warnings_route_reports_mcp_failures() {
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let server = HttpServer::new(store.clone());
-        store.create_session("sess-warn", Some("Warn Session")).unwrap();
+        store
+            .create_session("sess-warn", Some("Warn Session"))
+            .unwrap();
 
         // A healthy (empty) roster produces nothing.
         let res = server
@@ -8912,7 +9143,10 @@ max_context_size = 128000
         assert_eq!(list[0]["code"], "mcp.server_failed");
         assert_eq!(list[0]["severity"], "warning");
         assert!(
-            list[0]["message"].as_str().unwrap_or_default().contains("broken"),
+            list[0]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("broken"),
             "{val}"
         );
 
@@ -10166,10 +10400,8 @@ max_context_size = 128000
         fn llm_chat(
             &self,
             _: crate::rpc::types::LlmChatRequest,
-        ) -> crate::rpc::types::BoxFuture<
-            'static,
-            Result<crate::rpc::types::LlmChatResponse, String>,
-        > {
+        ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::LlmChatResponse, String>>
+        {
             let summary = self.summary.clone();
             Box::pin(async move {
                 Ok(crate::rpc::types::LlmChatResponse {
@@ -10691,7 +10923,10 @@ max_context_size = 128000
             "the fake enqueue receipt is still being served"
         );
 
-        server.store.create_session("sess-collection", Some("c")).unwrap();
+        server
+            .store
+            .create_session("sess-collection", Some("c"))
+            .unwrap();
         let unknown_session = server
             .handle_request(&HttpRequest {
                 method: "POST".into(),
@@ -10760,7 +10995,10 @@ max_context_size = 128000
                 body: serde_json::to_vec(&json!({ "path": "../../etc/passwd" })).unwrap(),
             })
             .await;
-        assert_ne!(traversal.status, 200, "a traversal path must not report success");
+        assert_ne!(
+            traversal.status, 200,
+            "a traversal path must not report success"
+        );
         assert!(
             !String::from_utf8_lossy(&traversal.body).contains("\"revealed\":true"),
             "the fake reveal success is still being served"

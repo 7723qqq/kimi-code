@@ -204,11 +204,16 @@ pub fn execute_loop_step_with_retry<'a>(
         let usage = response.usage.clone();
         let attempts = attempt;
         let finish_reason = response.finish_reason.clone();
+        // Reasoning blocks ride along untouched: the turn loop folds them
+        // into the assistant history so attested thinking (signature and all)
+        // round-trips on the next provider call.
+        let thinking = response.thinking.clone();
         if response.tool_calls.is_empty() {
             Ok(StepResult {
                 usage,
                 stop_reason: LoopStepStopReason::Complete,
                 content: response.content,
+                thinking,
                 attempts,
                 finish_reason,
             })
@@ -228,6 +233,7 @@ pub fn execute_loop_step_with_retry<'a>(
                 usage,
                 stop_reason: LoopStepStopReason::ToolCalls(tool_calls),
                 content: response.content,
+                thinking,
                 attempts,
                 finish_reason,
             })

@@ -256,7 +256,10 @@ mod tests {
         let replaced = &out.messages[0];
         assert_eq!(replaced.content, DEFAULT_TRUNCATED_MARKER);
         assert_eq!(replaced.tool_call_id.as_deref(), Some("call_42"));
-        assert!(replaced.blocks.is_empty(), "blocks must be cleared on replace");
+        assert!(
+            replaced.blocks.is_empty(),
+            "blocks must be cleared on replace"
+        );
         // The original large content must NOT survive in the replaced message.
         assert_ne!(replaced.content, "x".repeat(400));
     }
@@ -293,8 +296,7 @@ mod tests {
         // 396 ASCII alone is 99 (< 100), proving the single CJK char adds a
         // full token and pushes the result over the gate.
         let mixed = format!("{}{}", "z".repeat(396), "中");
-        let out_mixed =
-            apply_micro_compaction(&[LLMMessage::tool_result("e", mixed)], &cfg);
+        let out_mixed = apply_micro_compaction(&[LLMMessage::tool_result("e", mixed)], &cfg);
         assert!(
             out_mixed.changed,
             "396 ascii + 1 cjk = 100 tokens must be replaced"
@@ -321,10 +323,10 @@ mod tests {
         };
         let big = "x".repeat(400);
         let msgs = vec![
-            LLMMessage::user("prompt"),                       // index 0: not a tool
-            LLMMessage::tool_result("old_a", big.clone()),    // index 1: tool, old -> replace
-            LLMMessage::tool_result("old_b", big.clone()),    // index 2: tool, keepRecent tail
-            LLMMessage::tool_result("old_c", big.clone()),    // index 3: tool, keepRecent tail
+            LLMMessage::user("prompt"),                    // index 0: not a tool
+            LLMMessage::tool_result("old_a", big.clone()), // index 1: tool, old -> replace
+            LLMMessage::tool_result("old_b", big.clone()), // index 2: tool, keepRecent tail
+            LLMMessage::tool_result("old_c", big.clone()), // index 3: tool, keepRecent tail
         ];
         let out = apply_micro_compaction(&msgs, &cfg);
         assert_eq!(out.cutoff, 2);
@@ -343,10 +345,7 @@ mod tests {
     fn non_tool_messages_never_replaced() {
         // A huge user/assistant message below the keepRecent tail must survive.
         let big = "x".repeat(400);
-        let msgs = vec![
-            LLMMessage::user(big.clone()),
-            LLMMessage::assistant(big),
-        ];
+        let msgs = vec![LLMMessage::user(big.clone()), LLMMessage::assistant(big)];
         let out = apply_micro_compaction(&msgs, &config());
         assert!(!out.changed, "only tool messages are eligible");
         assert_eq!(out.replaced.len(), 0);

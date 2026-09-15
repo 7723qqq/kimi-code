@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -30,10 +30,10 @@ use serde_json::Value as JsonValue;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::http as ws_http;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http as ws_http;
 use url::Url;
 
 // Re-use the wire shape declared (and the `/api/v1/remote-control` endpoint)
@@ -349,7 +349,11 @@ impl std::error::Error for RegistrationError {}
 // ----------------------------------------------------------------------------
 
 /// Build the public Remote Control URL (ts:183-198).
-pub fn build_remote_control_url(device_id: &str, session_id: Option<&str>, relay_origin: &str) -> String {
+pub fn build_remote_control_url(
+    device_id: &str,
+    session_id: Option<&str>,
+    relay_origin: &str,
+) -> String {
     let mut url = match Url::parse(relay_origin) {
         Ok(u) => u,
         Err(_) => match Url::parse(REMOTE_CONTROL_RELAY_ORIGIN) {
@@ -443,7 +447,10 @@ pub fn filter_forward_request_headers(
     let mut out = Vec::new();
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
-        if BLOCKED_REQUEST_HEADERS.iter().any(|b| b.eq_ignore_ascii_case(&lower)) {
+        if BLOCKED_REQUEST_HEADERS
+            .iter()
+            .any(|b| b.eq_ignore_ascii_case(&lower))
+        {
             continue;
         }
         if connection.contains(&lower) {
@@ -451,7 +458,10 @@ pub fn filter_forward_request_headers(
         }
         out.push((name.clone(), value.clone()));
     }
-    out.push(("Authorization".to_string(), format!("Bearer {server_token}")));
+    out.push((
+        "Authorization".to_string(),
+        format!("Bearer {server_token}"),
+    ));
     out
 }
 
@@ -471,7 +481,10 @@ fn filter_response_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String,
     let mut out = Vec::new();
     for (name, value) in headers.iter() {
         let lower = name.as_str().to_ascii_lowercase();
-        if BLOCKED_RESPONSE_HEADERS.iter().any(|b| b.eq_ignore_ascii_case(&lower)) {
+        if BLOCKED_RESPONSE_HEADERS
+            .iter()
+            .any(|b| b.eq_ignore_ascii_case(&lower))
+        {
             continue;
         }
         if connection.contains(&lower) {
@@ -491,8 +504,7 @@ fn filter_response_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String,
 fn request_line_re() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| {
-        regex::Regex::new(r"^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (/[^\x00-\x20]*) HTTP/1\.[01]$")
-            .unwrap()
+        regex::Regex::new(r"^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (/[^\x00-\x20]*) HTTP/1\.[01]$").unwrap()
     })
 }
 
@@ -503,9 +515,12 @@ pub fn parse_raw_http_request(raw: &[u8]) -> Result<ParsedHttpRequest> {
     if sep > MAX_HTTP_HEADER_BYTES {
         bail!("invalid HTTP request headers");
     }
-    let head = std::str::from_utf8(&raw[..sep]).map_err(|_| anyhow!("invalid HTTP request headers"))?;
+    let head =
+        std::str::from_utf8(&raw[..sep]).map_err(|_| anyhow!("invalid HTTP request headers"))?;
     let mut lines = head.split("\r\n");
-    let request_line = lines.next().ok_or_else(|| anyhow!("invalid HTTP request line"))?;
+    let request_line = lines
+        .next()
+        .ok_or_else(|| anyhow!("invalid HTTP request line"))?;
     let caps = request_line_re()
         .captures(request_line)
         .ok_or_else(|| anyhow!("invalid HTTP request line"))?;
@@ -519,7 +534,9 @@ pub fn parse_raw_http_request(raw: &[u8]) -> Result<ParsedHttpRequest> {
         if line.is_empty() {
             continue;
         }
-        let colon = line.find(':').ok_or_else(|| anyhow!("invalid HTTP request header"))?;
+        let colon = line
+            .find(':')
+            .ok_or_else(|| anyhow!("invalid HTTP request header"))?;
         if colon == 0 {
             bail!("invalid HTTP request header");
         }
@@ -585,10 +602,16 @@ fn is_ws_protocol_token(token: &str) -> bool {
 /// Open a relay WebSocket, sending the bearer token via the
 /// `kimi-code.bearer.<token>` subprotocol when valid, else an `Authorization`
 /// header (ts:747-768).
-async fn connect_relay_url(url: &str, token: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+async fn connect_relay_url(
+    url: &str,
+    token: &str,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let mut builder = ws_http::Request::builder().uri(url);
     if is_ws_protocol_token(token) {
-        builder = builder.header("Sec-WebSocket-Protocol", format!("kimi-code.bearer.{token}"));
+        builder = builder.header(
+            "Sec-WebSocket-Protocol",
+            format!("kimi-code.bearer.{token}"),
+        );
     } else {
         builder = builder.header("Authorization", format!("Bearer {token}"));
     }
@@ -653,7 +676,14 @@ async fn run_state_machine(
         if shutdown.is_cancelled() {
             break;
         }
-        let result = serve_cycle(&opts, &status, &shutdown, &connected, &reconnect_immediately).await;
+        let result = serve_cycle(
+            &opts,
+            &status,
+            &shutdown,
+            &connected,
+            &reconnect_immediately,
+        )
+        .await;
         match result {
             Ok(()) => {
                 // Clean end (e.g. `disconnect` with server_shutting_down): reconnect.
@@ -719,9 +749,12 @@ async fn serve_cycle(
         .await
         .map_err(|_| anyhow!("management socket closed before register"))?;
 
-    let registration = tokio::time::timeout(Duration::from_millis(REGISTER_TIMEOUT_MS), next_json(&mut mgmt_read))
-        .await
-        .map_err(|_| anyhow!("registration timed out"))??;
+    let registration = tokio::time::timeout(
+        Duration::from_millis(REGISTER_TIMEOUT_MS),
+        next_json(&mut mgmt_read),
+    )
+    .await
+    .map_err(|_| anyhow!("registration timed out"))??;
     match registration.get("type").and_then(|v| v.as_str()) {
         Some("register_nak") => {
             let code = registration
@@ -744,7 +777,7 @@ async fn serve_cycle(
             return Err(anyhow!(
                 "expected register_ack, received {}",
                 other.unwrap_or("<none>")
-            ))
+            ));
         }
     }
 
@@ -825,13 +858,18 @@ async fn serve_cycle(
             }
         }
         if last_activity.elapsed() > silence {
-            return Err(anyhow!("relay connection silent for {}ms; reconnecting", opts.silence_timeout_ms));
+            return Err(anyhow!(
+                "relay connection silent for {}ms; reconnecting",
+                opts.silence_timeout_ms
+            ));
         }
     }
 }
 
 /// Read the next text/binary WS message and parse it as JSON (ts:898-903).
-async fn next_json<S>(read: &mut futures_util::stream::SplitStream<WebSocketStream<S>>) -> Result<JsonValue>
+async fn next_json<S>(
+    read: &mut futures_util::stream::SplitStream<WebSocketStream<S>>,
+) -> Result<JsonValue>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
@@ -839,7 +877,7 @@ where
         match read.next().await {
             Some(Ok(Message::Text(t))) => return Ok(serde_json::from_str(&t)?),
             Some(Ok(Message::Binary(b))) => {
-                return Ok(serde_json::from_str(std::str::from_utf8(&b)?)?)
+                return Ok(serde_json::from_str(std::str::from_utf8(&b)?)?);
             }
             Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
             Some(Ok(Message::Close(_))) => return Err(anyhow!("socket closed")),
@@ -865,13 +903,19 @@ async fn handle_mgmt(msg: Message, ctx: &CycleCtx<'_>) -> Result<()> {
                 .get("stream_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let path = payload.get("path").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = payload
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             match (stream_id, path) {
                 (Some(stream_id), Some(path))
                     if path.starts_with('/') && !path.starts_with("//") =>
                 {
                     let token = tokio_util::sync::CancellationToken::new();
-                    ctx.streams.lock().unwrap().insert(stream_id.clone(), token.clone());
+                    ctx.streams
+                        .lock()
+                        .unwrap()
+                        .insert(stream_id.clone(), token.clone());
                     let opts = ctx.opts.clone();
                     let mgmt_tx = ctx.mgmt_tx.clone();
                     tokio::spawn(bridge_stream(
@@ -886,7 +930,14 @@ async fn handle_mgmt(msg: Message, ctx: &CycleCtx<'_>) -> Result<()> {
                     s.state = "device_connected".to_string();
                 }
                 (Some(stream_id), _) => {
-                    send_open_ws_result(ctx.mgmt_tx, &stream_id, false, Some("LOCAL_WS_FAILED"), Some("invalid local WebSocket path")).await?;
+                    send_open_ws_result(
+                        ctx.mgmt_tx,
+                        &stream_id,
+                        false,
+                        Some("LOCAL_WS_FAILED"),
+                        Some("invalid local WebSocket path"),
+                    )
+                    .await?;
                 }
                 _ => {}
             }
@@ -966,7 +1017,12 @@ async fn handle_http(msg: Message, ctx: &CycleCtx<'_>) -> Result<()> {
         return Ok(());
     }
 
-    let mut raw = ctx.pending.lock().unwrap().remove(&request_id).unwrap_or_default();
+    let mut raw = ctx
+        .pending
+        .lock()
+        .unwrap()
+        .remove(&request_id)
+        .unwrap_or_default();
     raw.extend_from_slice(&chunk);
 
     match forward_http_request(ctx.opts, &raw, ctx.http_tx, &request_id).await {
@@ -1002,7 +1058,10 @@ async fn forward_http_request(
 }
 
 /// Perform the local HTTP request; on any error build an error response.
-async fn do_forward(opts: &Arc<RemoteControlOptions>, raw: &[u8]) -> std::result::Result<Vec<u8>, ForwardError> {
+async fn do_forward(
+    opts: &Arc<RemoteControlOptions>,
+    raw: &[u8],
+) -> std::result::Result<Vec<u8>, ForwardError> {
     let parsed = parse_raw_http_request(raw).map_err(|e| ForwardError {
         status: 400,
         reason: e.to_string(),
@@ -1054,7 +1113,11 @@ async fn do_forward(opts: &Arc<RemoteControlOptions>, raw: &[u8]) -> std::result
 }
 
 /// Build a raw `HTTP/1.1` response buffer (ts:940-947).
-fn build_http_response(status: reqwest::StatusCode, headers: &[(String, String)], body: &[u8]) -> Vec<u8> {
+fn build_http_response(
+    status: reqwest::StatusCode,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Vec<u8> {
     let reason = status.canonical_reason().unwrap_or("");
     let mut out = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), reason).into_bytes();
     for (k, v) in headers {
@@ -1067,7 +1130,11 @@ fn build_http_response(status: reqwest::StatusCode, headers: &[(String, String)]
 
 /// Build an empty error response (ts:1068-1071).
 fn build_error_response(status: u16) -> Vec<u8> {
-    let reason = if status == 400 { "Bad Request" } else { "Bad Gateway" };
+    let reason = if status == 400 {
+        "Bad Request"
+    } else {
+        "Bad Gateway"
+    };
     format!("HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\n\r\n").into_bytes()
 }
 
@@ -1149,7 +1216,14 @@ async fn bridge_stream(
             } else {
                 "TUNNEL_STREAM_FAILED"
             };
-            let _ = send_open_ws_result(&mgmt_tx, &stream_id, false, Some(code), Some(&e.to_string())).await;
+            let _ = send_open_ws_result(
+                &mgmt_tx,
+                &stream_id,
+                false,
+                Some(code),
+                Some(&e.to_string()),
+            )
+            .await;
         }
     }
     let mut s = status.lock().unwrap();
@@ -1158,7 +1232,11 @@ async fn bridge_stream(
 
 /// Bridge two WebSocket streams in both directions until either closes or the
 /// token is cancelled (ts:995-1026).
-async fn bridge_two<A, B>(a: WebSocketStream<A>, b: WebSocketStream<B>, token: tokio_util::sync::CancellationToken) -> Result<()>
+async fn bridge_two<A, B>(
+    a: WebSocketStream<A>,
+    b: WebSocketStream<B>,
+    token: tokio_util::sync::CancellationToken,
+) -> Result<()>
 where
     A: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     B: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -1235,9 +1313,10 @@ mod tests {
         // Connection-listed header removed.
         assert!(!out.iter().any(|(k, _)| k.eq_ignore_ascii_case("x-foo")));
         // Non-blocked custom header preserved.
-        assert!(out
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("x-custom") && v == "keep"));
+        assert!(
+            out.iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("x-custom") && v == "keep")
+        );
         // Exactly one Authorization, the reinjected bearer token.
         let auths: Vec<&String> = out
             .iter()
@@ -1277,14 +1356,18 @@ mod tests {
         let parsed = parse_raw_http_request(raw).unwrap();
         assert_eq!(parsed.method, "POST");
         assert_eq!(parsed.path, "/api/v1/foo?x=1");
-        assert!(parsed
-            .headers
-            .iter()
-            .any(|(k, v)| k == "Host" && v == "example"));
-        assert!(parsed
-            .headers
-            .iter()
-            .any(|(k, v)| k == "X-Test" && v == "a"));
+        assert!(
+            parsed
+                .headers
+                .iter()
+                .any(|(k, v)| k == "Host" && v == "example")
+        );
+        assert!(
+            parsed
+                .headers
+                .iter()
+                .any(|(k, v)| k == "X-Test" && v == "a")
+        );
         assert_eq!(parsed.body, b"hello");
 
         // Invalid: no header terminator.
@@ -1297,8 +1380,8 @@ mod tests {
     fn relay_websocket_url_converts_scheme_and_path() {
         let url = relay_websocket_url("https://code-rc.kimi.com", "/v1/remote/create").unwrap();
         assert!(url.starts_with("wss://code-rc.kimi.com/v1/remote/create"));
-        let url2 =
-            relay_websocket_url("https://code-rc.kimi.com", "/v1/remote/http?device_id=abc").unwrap();
+        let url2 = relay_websocket_url("https://code-rc.kimi.com", "/v1/remote/http?device_id=abc")
+            .unwrap();
         assert!(url2.contains("wss://"));
         assert!(url2.contains("device_id=abc"));
     }

@@ -192,7 +192,10 @@ pub fn goal_injection_text(goal_value: &Value) -> String {
     };
     let snapshot = to_snapshot(&state, state.wall_clock_ms);
     match state.status {
-        GoalStatus::Active => goal_active_reminder(&snapshot, false),
+        // `WaitFor` is a native tool on every engine path, so the guidance to
+        // wait inside the turn (v2 `isWaitForAvailable()`) always applies.
+        // Passing `false` here made `GOAL_WAIT_FOR_GUIDANCE` unreachable.
+        GoalStatus::Active => goal_active_reminder(&snapshot, true),
         GoalStatus::Blocked => goal_blocked_note(&snapshot),
         GoalStatus::Paused => goal_paused_note(&snapshot),
         GoalStatus::Complete | GoalStatus::BudgetLimited | GoalStatus::UsageLimited => {
@@ -540,8 +543,20 @@ Budget guidance: you are within budget. Make steady, focused progress toward the
 
 Before doing any goal work, check the objective and latest request for a clear hard budget limit. If one is present and the current goal does not already record that limit, call SetGoalBudget first. Do not invent budgets. If a requested budget is not reasonable, do not set it; tell the user it is not reasonable.
 
-Goal mode is iterative. Keep the self-audit brief each turn. Do not explore unrelated interpretations once the goal can be decided. If the objective is simple, already answered, impossible, unsafe, or contradictory, do not run another goal turn. Explain briefly if useful, then call UpdateGoal with `complete` or `blocked` in the same turn. Otherwise, choose one bounded, useful slice of work toward the objective. Do not try to finish a broad goal in one turn unless the whole goal is genuinely small. Most goal turns should not call UpdateGoal: after completing a useful slice, if material work remains, end the turn normally without calling UpdateGoal so the runtime can continue the goal in the next turn. Call UpdateGoal with `complete` only when all required work is done, any stated validation has passed, and there is no useful next action. Completion audit: before calling `complete`, verify the current state against the actual objective and every explicit requirement. Treat weak or indirect evidence as not complete. Do not mark complete after only producing a plan, summary, first pass, or partial result. Do not mark complete merely because a budget is nearly exhausted or you want to stop. Blocked audit: do not call UpdateGoal with `blocked` the first time you hit a blocker. Use `blocked` only for a genuine impasse: an external condition, required user input, missing credentials or permissions, or a persistent technical failure. For those non-terminal blockers, the same blocking condition must repeat for at least 3 consecutive goal turns before you call `blocked`, counting the original/user-triggered turn and automatic continuations. If a previously blocked goal is resumed, treat the resumed run as a fresh blocked audit. Exception: if the objective itself is impossible, unsafe, or contradictory, call UpdateGoal with `blocked` in the same turn; do not run more goal turns just to satisfy the audit. Do not use `blocked` because the work is large, hard, slow, uncertain, incomplete, still needs validation, would benefit from clarification, or needs more goal turns. Once the 3-turn threshold is met and you cannot make meaningful progress without user input or an external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while leaving the goal active.
+Goal mode is iterative. Keep the self-audit brief each turn. Do not explore unrelated interpretations once the goal can be decided. If the objective is simple, already answered, impossible, unsafe, or contradictory, do not run another goal turn. Explain briefly if useful, then call UpdateGoal with `complete` or `blocked` in the same turn. Otherwise, choose one bounded, useful slice of work toward the objective. Do not try to finish a broad goal in one turn unless the whole goal is genuinely small. Most goal turns should not call UpdateGoal: after completing a useful slice, if material work remains, end the turn normally without calling UpdateGoal so the runtime can continue the goal in the next turn. Call UpdateGoal with `complete` only when all required work is done, any stated validation has passed, and there is no useful next action. Completion audit: before calling `complete`, verify the current state against the actual objective and every explicit requirement. Treat weak or indirect evidence as not complete. Do not mark complete after only producing a plan, summary, first pass, or partial result. Do not mark complete merely because a budget is nearly exhausted or you want to stop. Blocked audit: do not call UpdateGoal with `blocked` the first time you hit a blocker. Use `blocked` only for a genuine impasse: an external condition, required user input, missing credentials or permissions, or a persistent technical failure. For those non-terminal blockers, the same blocking condition must repeat for at least 3 consecutive goal turns before you call `blocked`, counting the original/user-triggered turn and automatic continuations. If a previously blocked goal is resumed, treat the resumed run as a fresh blocked audit. Exception: if the objective itself is impossible, unsafe, or contradictory, call UpdateGoal with `blocked` in the same turn; do not run more goal turns just to satisfy the audit. Do not use `blocked` because the work is large, hard, slow, uncertain, incomplete, still needs validation, would benefit from clarification, or needs more goal turns. Once the 3-turn threshold is met and you cannot make meaningful progress without user input or an external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while leaving the goal active. If you are waiting for background sub-agents or bash tasks to finish, call WaitFor to wait for them inside this turn instead of ending the turn; ending the turn just gets you re-invoked again and again. You can also use the waiting time to do useful parallel work. Either way, make sure every goal turn is productive.
 "#
+        );
+    }
+
+    /// The `WaitFor` guidance must reach the model: `WaitFor` is a native tool
+    /// on every engine path, and the previous hardcoded `false` made this
+    /// paragraph unreachable in production.
+    #[test]
+    fn test_goal_active_injection_includes_the_wait_for_guidance() {
+        let text = goal_injection_text(&goal_value(&sample_state()));
+        assert!(
+            text.contains("call WaitFor to wait for them inside this turn"),
+            "the active-goal reminder must carry the WaitFor guidance"
         );
     }
 

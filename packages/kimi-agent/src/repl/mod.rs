@@ -349,12 +349,15 @@ pub async fn start_repl(
         let pending = cron_pending.clone();
         let tz_offset = chrono::Local::now().offset().local_minus_utc();
         let _cron_handle =
-            crate::cron::scheduler::CronScheduler::start(entries, tz_offset, move |entry| {
-                println!("\n⏰ [cron] {} — press Enter to run it.", entry.prompt);
+            crate::cron::scheduler::CronScheduler::start(entries, tz_offset, move |fired| {
+                println!(
+                    "\n⏰ [cron] {} — press Enter to run it.",
+                    fired.entry.prompt
+                );
                 pending
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .push(entry.prompt.clone());
+                    .push(fired.entry.prompt.clone());
             });
     }
 

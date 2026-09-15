@@ -960,16 +960,15 @@ impl ServerEngine {
         // on a detected prompt-cache miss; that signal is not threaded into the
         // engine yet, so the flag alone decides (see ROADMAP known gaps).
         if let Some(config) = self.micro_compaction_config().await {
-            let outcome =
-                crate::compaction::micro::apply_micro_compaction(&history, &config);
+            let outcome = crate::compaction::micro::apply_micro_compaction(&history, &config);
             if outcome.changed {
-                self.hub.bus_for(session_id).publish(
-                    &crate::events::EngineEvent::Custom(serde_json::json!({
+                self.hub
+                    .bus_for(session_id)
+                    .publish(&crate::events::EngineEvent::Custom(serde_json::json!({
                         "type": "micro_compaction.apply",
                         "sessionId": session_id,
                         "cutoff": outcome.cutoff,
-                    })),
-                );
+                    })));
                 history = outcome.messages;
             }
         }
@@ -1434,10 +1433,7 @@ mod tests {
         };
 
         assert!(
-            with_flag(None)
-                .micro_compaction_config()
-                .await
-                .is_none(),
+            with_flag(None).micro_compaction_config().await.is_none(),
             "unset flag stays off"
         );
         assert!(
@@ -1447,10 +1443,12 @@ mod tests {
                 .is_none(),
         );
         assert!(
-            with_flag(Some(crate::config::ExperimentalValue::String("false".into())))
-                .micro_compaction_config()
-                .await
-                .is_none(),
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "false".into()
+            )))
+            .micro_compaction_config()
+            .await
+            .is_none(),
         );
         assert!(
             with_flag(Some(crate::config::ExperimentalValue::Bool(true)))
@@ -1459,10 +1457,12 @@ mod tests {
                 .is_some(),
         );
         assert!(
-            with_flag(Some(crate::config::ExperimentalValue::String("true".into())))
-                .micro_compaction_config()
-                .await
-                .is_some(),
+            with_flag(Some(crate::config::ExperimentalValue::String(
+                "true".into()
+            )))
+            .micro_compaction_config()
+            .await
+            .is_some(),
         );
     }
 

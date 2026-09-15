@@ -1140,10 +1140,12 @@ async fn pending_cron_followups(
         crate::cron::scheduler::CronScheduler::new(tasks, local_utc_offset_minutes());
     let fired = scheduler.tick(fire_at - CRON_FIRE_GRACE_MS, now_ms_epoch());
     let mut followups = Vec::with_capacity(fired.len());
-    for entry in fired {
+    for fired_entry in fired {
+        let entry = &fired_entry.entry;
         // One-shot jobs auto-delete after firing (docs/reference/tools.md);
-        // best-effort — the host owns the registry and may reject.
-        if !entry.recurring {
+        // best-effort — the host owns the registry and may reject. Stale
+        // recurring jobs go the same way (v2 removes them after firing).
+        if !entry.recurring || fired_entry.stale {
             let _ = ctx
                 .callbacks
                 .state_write(crate::rpc::types::StateWriteRequest {
@@ -1156,7 +1158,10 @@ async fn pending_cron_followups(
                 })
                 .await;
         }
-        followups.push((render_cron_fire(&entry), cron_fire_origin(&entry)));
+        followups.push((
+            render_cron_fire(entry, fired_entry.coalesced_count, fired_entry.stale),
+            cron_fire_origin(entry, fired_entry.coalesced_count, fired_entry.stale),
+        ));
     }
     followups
 }
@@ -1192,6 +1197,7 @@ async fn read_cron_registry(
                         .and_then(serde_json::Value::as_bool)
                         .unwrap_or(true),
                     session_id: None,
+                    created_at: task.get("createdAt").and_then(serde_json::Value::as_i64),
                 })
             })
             .collect(),
@@ -1199,15 +1205,20 @@ async fn read_cron_registry(
 }
 
 /// The documented `<cron-fire>` envelope (docs/reference/tools.md): the fired
-/// prompt wrapped in attributes the renderers strip before display. One fire
-/// per tick here, so `coalescedCount` is always 1 and `stale` never applies
-/// (the 7-day stale rule belongs to the long-lived daemon).
+/// prompt wrapped in attributes the renderers strip before display.
+/// `coalesced_count` / `stale` are the real delivery metadata from the
+/// scheduler tick — v2 reports how many ideal fires one delivery covers and
+/// whether the task outlived the 7-day stale rule.
 ///
 /// Public because the daemon binary (`main.rs`) is a separate crate and wraps
 /// its own fired prompts with it.
-pub fn render_cron_fire(entry: &crate::cron::scheduler::CronEntry) -> String {
+pub fn render_cron_fire(
+    entry: &crate::cron::scheduler::CronEntry,
+    coalesced_count: u32,
+    stale: bool,
+) -> String {
     format!(
-        "<cron-fire jobId=\"{}\" cron=\"{}\" recurring=\"{}\" coalescedCount=\"1\" stale=\"false\">\n<prompt>\n{}\n</prompt>\n</cron-fire>",
+        "<cron-fire jobId=\"{}\" cron=\"{}\" recurring=\"{}\" coalescedCount=\"{coalesced_count}\" stale=\"{stale}\">\n<prompt>\n{}\n</prompt>\n</cron-fire>",
         entry.id, entry.cron, entry.recurring, entry.prompt
     )
 }
@@ -1215,14 +1226,18 @@ pub fn render_cron_fire(entry: &crate::cron::scheduler::CronEntry) -> String {
 /// `CronJobOrigin` (protocol `events.ts`) — the transcript folds these as
 /// cron cards rather than user prompts, exactly what a daemon-fired turn
 /// looked like.
-fn cron_fire_origin(entry: &crate::cron::scheduler::CronEntry) -> serde_json::Value {
+fn cron_fire_origin(
+    entry: &crate::cron::scheduler::CronEntry,
+    coalesced_count: u32,
+    stale: bool,
+) -> serde_json::Value {
     serde_json::json!({
         "kind": "cron_job",
         "jobId": entry.id,
         "cron": entry.cron,
         "recurring": entry.recurring,
-        "coalescedCount": 1,
-        "stale": false,
+        "coalescedCount": coalesced_count,
+        "stale": stale,
     })
 }
 
@@ -1984,13 +1999,14 @@ mod tests {
             prompt: "Check the deploy status".into(),
             recurring: true,
             session_id: None,
+            created_at: None,
         };
         assert_eq!(
-            render_cron_fire(&entry),
+            render_cron_fire(&entry, 1, false),
             "<cron-fire jobId=\"a3f9c2\" cron=\"*/5 * * * *\" recurring=\"true\" coalescedCount=\"1\" stale=\"false\">\n<prompt>\nCheck the deploy status\n</prompt>\n</cron-fire>"
         );
         assert_eq!(
-            cron_fire_origin(&entry),
+            cron_fire_origin(&entry, 1, false),
             serde_json::json!({
                 "kind": "cron_job",
                 "jobId": "a3f9c2",
@@ -1999,6 +2015,32 @@ mod tests {
                 "coalescedCount": 1,
                 "stale": false,
             })
+        );
+    }
+
+    /// A late delivery reports the real coalesced count and staleness instead
+    /// of the hardcoded `coalescedCount="1" stale="false"`.
+    #[test]
+    fn test_render_cron_fire_reports_coalesced_and_stale() {
+        let entry = crate::cron::scheduler::CronEntry {
+            id: "old".into(),
+            cron: "*/5 * * * *".into(),
+            prompt: "Check the deploy status".into(),
+            recurring: true,
+            session_id: None,
+            created_at: None,
+        };
+        assert_eq!(
+            render_cron_fire(&entry, 11, true),
+            "<cron-fire jobId=\"old\" cron=\"*/5 * * * *\" recurring=\"true\" coalescedCount=\"11\" stale=\"true\">\n<prompt>\nCheck the deploy status\n</prompt>\n</cron-fire>"
+        );
+        assert_eq!(
+            cron_fire_origin(&entry, 11, true)["stale"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            cron_fire_origin(&entry, 11, true)["coalescedCount"],
+            serde_json::json!(11)
         );
     }
 

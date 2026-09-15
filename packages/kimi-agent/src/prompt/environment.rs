@@ -16,6 +16,121 @@ pub struct EnvironmentInfo {
     pub cwd: String,
     pub cwd_listing: String,
     pub windows_notes: String,
+    pub runtime_notes: String,
+}
+
+/// One installed JavaScript runtime visible to the Bash tool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsRuntimeInfo {
+    pub name: String,
+    pub version: String,
+    pub path: String,
+}
+
+pub const BUN_STDLIB_NOTES: &str = "Bun 1.4 and newer ship built-in modules that replace common npm dependencies: `Bun.Image` (image processing), `Bun.markdown`, `Bun.Terminal` (PTY), `Bun.cron()`, `Bun.WebView` (headless browser). Before installing an npm package for one of these tasks, check whether Bun already provides it. Scripts using these APIs must be executed with the `bun` interpreter.";
+
+/// Whether a Bun version ships the built-in stdlib that replaces common npm
+/// dependencies (v2 `isBunStdlibCapable`): major > 1, or 1.x with minor >= 4.
+pub fn is_bun_stdlib_capable(version: &str) -> bool {
+    let mut parts = version.trim_start_matches('v').split('.');
+    let major: u64 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    let minor: u64 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    major > 1 || (major == 1 && minor >= 4)
+}
+
+/// Query `<binary> --version` and return the first whitespace-delimited
+/// version token. `bun --version` prints a bare `1.2.3`; node prints
+/// `v22.3.0`; deno prints `deno 2.1.0 (...)`.
+fn runtime_version(binary: &str) -> Option<String> {
+    let output = std::process::Command::new(binary)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first = stdout.split_whitespace().next()?;
+    if binary == "deno" {
+        // `deno 2.1.0 (...)`: the version is the second token.
+        stdout.split_whitespace().nth(1).map(str::to_string)
+    } else {
+        Some(first.to_string())
+    }
+}
+
+/// Look up a binary on PATH. Returns its name and resolved path when found.
+fn runtime_on_path(name: &str) -> Option<JsRuntimeInfo> {
+    let found = which_binary(name)?;
+    let version = runtime_version(&found).unwrap_or_else(|| "unknown".to_string());
+    Some(JsRuntimeInfo {
+        name: name.to_string(),
+        version,
+        path: found,
+    })
+}
+
+fn which_binary(name: &str) -> Option<String> {
+    let probe = if cfg!(windows) {
+        std::process::Command::new("where")
+            .arg(name)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .ok()?
+    } else {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {name}"))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .ok()?
+    };
+    if !probe.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&probe.stdout)
+        .lines()
+        .next()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+}
+
+/// Detect the JavaScript runtimes installed on PATH (v2 `jsRuntimes`): bun,
+/// node and deno, in that order. Each probe is best-effort and ignores
+/// failures — a runtime that cannot be versioned is simply absent.
+pub fn detect_js_runtimes() -> Vec<JsRuntimeInfo> {
+    ["bun", "node", "deno"]
+        .into_iter()
+        .filter_map(runtime_on_path)
+        .collect()
+}
+
+/// Render the `## JavaScript Runtimes` prompt section (v2
+/// `runtimeNotesFor`): empty when no runtime is installed.
+pub fn render_runtime_notes(runtimes: &[JsRuntimeInfo]) -> String {
+    if runtimes.is_empty() {
+        return String::new();
+    }
+    let listing = runtimes
+        .iter()
+        .map(|runtime| {
+            format!(
+                "**{} {}** (`{}`)",
+                runtime.name, runtime.version, runtime.path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let capability_notes = runtimes
+        .iter()
+        .find(|runtime| runtime.name == "bun")
+        .filter(|bun| is_bun_stdlib_capable(&bun.version))
+        .map(|_| format!("\n\n{BUN_STDLIB_NOTES}"))
+        .unwrap_or_default();
+    format!(
+        "\n\n## JavaScript Runtimes\n\nJavaScript runtimes available to Bash: {listing}.{capability_notes}\n\n"
+    )
 }
 
 /// Detect the operating system name matching product conventions.
@@ -129,6 +244,7 @@ pub fn collect_environment(workspace_root: &Path, override_shell: Option<&str>) 
         cwd,
         cwd_listing,
         windows_notes: win_notes,
+        runtime_notes: render_runtime_notes(&detect_js_runtimes()),
     }
 }
 
@@ -212,5 +328,64 @@ mod tests {
         } else {
             assert_eq!(env.windows_notes, "");
         }
+    }
+
+    #[test]
+    fn test_bun_stdlib_capability_gate_matches_v2() {
+        assert!(is_bun_stdlib_capable("1.4.0"));
+        assert!(is_bun_stdlib_capable("1.5.2"));
+        assert!(is_bun_stdlib_capable("2.0.0"));
+        assert!(is_bun_stdlib_capable("v1.4.1"));
+        assert!(!is_bun_stdlib_capable("1.3.9"));
+        assert!(!is_bun_stdlib_capable("0.9.0"));
+        assert!(!is_bun_stdlib_capable("unknown"));
+        assert!(!is_bun_stdlib_capable(""));
+    }
+
+    #[test]
+    fn test_runtime_notes_empty_without_runtimes() {
+        assert_eq!(render_runtime_notes(&[]), "");
+    }
+
+    #[test]
+    fn test_runtime_notes_lists_runtimes_and_bun_stdlib() {
+        let runtimes = vec![
+            JsRuntimeInfo {
+                name: "bun".into(),
+                version: "1.4.0".into(),
+                path: "/usr/local/bin/bun".into(),
+            },
+            JsRuntimeInfo {
+                name: "node".into(),
+                version: "v22.3.0".into(),
+                path: "/usr/local/bin/node".into(),
+            },
+        ];
+        let notes = render_runtime_notes(&runtimes);
+        assert!(notes.contains("## JavaScript Runtimes"), "{notes}");
+        assert!(
+            notes.contains("**bun 1.4.0** (`/usr/local/bin/bun`)"),
+            "{notes}"
+        );
+        assert!(
+            notes.contains("**node v22.3.0** (`/usr/local/bin/node`)"),
+            "{notes}"
+        );
+        assert!(
+            notes.contains("Bun 1.4 and newer ship built-in modules"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn test_runtime_notes_omits_stdlib_notes_for_old_bun() {
+        let runtimes = vec![JsRuntimeInfo {
+            name: "bun".into(),
+            version: "1.3.0".into(),
+            path: "/usr/local/bin/bun".into(),
+        }];
+        let notes = render_runtime_notes(&runtimes);
+        assert!(notes.contains("## JavaScript Runtimes"), "{notes}");
+        assert!(!notes.contains("Bun 1.4 and newer"), "{notes}");
     }
 }

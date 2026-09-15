@@ -154,7 +154,6 @@ impl StateStore {
         serde_json::from_str(&content).ok()
     }
 
-
     /// Write a domain's value atomically (tmp file + rename, so a crash
     /// mid-write never leaves a truncated domain file behind).
     pub fn write_domain(&self, domain: &str, value: &Value) -> Result<(), String> {
