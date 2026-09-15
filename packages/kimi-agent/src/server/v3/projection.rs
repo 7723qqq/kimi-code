@@ -502,7 +502,7 @@ fn user_text(message: &LLMMessage) -> Vec<ContentPart> {
 }
 
 /// Upstream's timestamps are ISO strings; the store keeps milliseconds.
-fn iso(ms: i64) -> Option<String> {
+pub(super) fn iso(ms: i64) -> Option<String> {
     chrono::DateTime::from_timestamp_millis(ms)
         .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }

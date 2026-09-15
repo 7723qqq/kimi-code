@@ -20,6 +20,7 @@
 
 pub mod entity;
 pub mod history;
+pub mod live;
 pub mod messages;
 pub mod projection;
 pub mod route;
