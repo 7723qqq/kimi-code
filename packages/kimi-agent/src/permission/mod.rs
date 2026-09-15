@@ -1616,4 +1616,104 @@ mod tests {
             assert_eq!(benign.decision, VerdictDecision::Allow, "benign command");
         }
     }
+
+    /// A benign command with a quoted, non-ASCII path is allowed in auto and
+    /// yolo and only asks in manual.
+    ///
+    /// This pins the chain's per-mode verdict for the shape behind the report
+    /// "switched to yolo and still got an approval prompt". If the engine starts
+    /// asking here, the regression is in the chain; while this stays green and
+    /// the CLI prompts anyway, the mode never reached the engine — which is what
+    /// the host-side `'plan'` mode used to do (see the snapshot test below).
+    #[test]
+    fn test_benign_command_verdict_tracks_permission_mode() {
+        let cmd = r#"ls "D:\work\示例 项目\src\machines" 2>&1 | head -50"#;
+        for (mode, policy, expected) in [
+            (PermissionMode::Manual, "FallbackAsk", VerdictDecision::Ask),
+            (
+                PermissionMode::Auto,
+                "AutoModeApprove",
+                VerdictDecision::Allow,
+            ),
+            (
+                PermissionMode::Yolo,
+                "YoloModeApprove",
+                VerdictDecision::Allow,
+            ),
+        ] {
+            let engine = PermissionEngine::new(PolicySnapshot {
+                mode,
+                ..Default::default()
+            });
+            // Both spellings reach the chain: the host advertises `Bash`, while
+            // the policy DSL also matches the lowercase tool name.
+            for tool in ["Bash", "bash"] {
+                let verdict = engine.evaluate(tool, &json!({ "command": cmd }));
+                assert_eq!(verdict.decision, expected, "{mode:?} / {tool} decision");
+                assert_eq!(verdict.policy_name, policy, "{mode:?} / {tool} policy");
+            }
+        }
+    }
+
+    /// Every shape the host's `buildPolicySnapshot` emits must deserialize.
+    ///
+    /// The napi boundary keeps only the parsed snapshot, so a single rejected
+    /// field used to drop the rules *and* the hooks with it and leave the engine
+    /// without a local chain — every tool call then round-tripped to the host's
+    /// `check_permission`, which prompts in every mode.
+    #[test]
+    fn test_host_policy_snapshot_shapes_deserialize() {
+        let full = json!({
+            "mode": "yolo",
+            "deny_rules": [],
+            "ask_rules": ["Bash(rm *)"],
+            "allow_rules": [],
+            "session_approvals": [],
+            "git_cwd": "/workspace",
+            "tools_filter": { "enabled": [], "disabled": [] },
+            "pre_tool_hooks": [
+                { "event": "PreToolUse", "matcher": "", "command": "echo hi",
+                  "timeout": 30, "cwd": null, "env": { "A": "1" } }
+            ]
+        });
+        let minimal = json!({ "mode": "yolo", "deny_rules": [], "ask_rules": [],
+                              "allow_rules": [], "session_approvals": [],
+                              "git_cwd": null, "pre_tool_hooks": [] });
+        // The host sends `meta.planMode ? 'plan' : meta.permissionMode`, and
+        // `plan` is not a mode this engine models: it must degrade to `Unknown`
+        // (the manual default) rather than failing the whole snapshot.
+        let plan = json!({ "mode": "plan", "deny_rules": [], "ask_rules": [],
+                           "allow_rules": [], "session_approvals": [],
+                           "git_cwd": null, "pre_tool_hooks": [] });
+
+        for (label, value, expected) in [
+            ("full", &full, PermissionMode::Yolo),
+            ("minimal", &minimal, PermissionMode::Yolo),
+            ("plan", &plan, PermissionMode::Unknown),
+        ] {
+            let snapshot: PolicySnapshot = serde_json::from_value(value.clone())
+                .unwrap_or_else(|error| panic!("{label} snapshot rejected: {error}"));
+            assert_eq!(snapshot.mode, expected, "{label} mode");
+        }
+
+        // Nothing else rides on the mode: rules and hooks survive the round
+        // trip, so a snapshot can never cost the user their configured policy.
+        let snapshot: PolicySnapshot = serde_json::from_value(full).expect("full snapshot");
+        assert_eq!(snapshot.ask_rules, vec!["Bash(rm *)".to_string()]);
+        assert_eq!(snapshot.pre_tool_hooks.len(), 1);
+        assert_eq!(snapshot.pre_tool_hooks[0].timeout, Some(30));
+        assert_eq!(
+            snapshot.pre_tool_hooks[0]
+                .env
+                .as_ref()
+                .and_then(|env| env.get("A"))
+                .map(String::as_str),
+            Some("1")
+        );
+
+        // An unmodelled mode must not inherit yolo's auto-approval.
+        let engine = PermissionEngine::new(serde_json::from_value(plan).expect("plan snapshot"));
+        let verdict = engine.evaluate("Bash", &json!({ "command": "ls -la" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask, "plan mode asks");
+    }
 }
