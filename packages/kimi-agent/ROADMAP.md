@@ -400,7 +400,17 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    回信封——上游如此，而 v1 客户端根本不会调它——但错误带真实 HTTP 状态，上游则恒回 200 只靠 `code`
    表达失败。`in_flight` 暂不返回：实时侧还没按同一规则生成 step 字符串，给出错误的位置会让客户端把
    后续增量接到错的 step 上）→
-   P3 与 v1 并存的 `/api/v3/ws` → P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
+   P3 与 v1 并存的 `/api/v3/ws`（实时翻译器**已完成**：`src/server/v3/live.rs` 把引擎事件折成 v3
+   实体，实体 id 与历史投影同源。两个此引擎特有的事实决定了它的形状：**流式帧不带 step**——`assistant.delta`／
+   `thinking.delta` 只有 turn 和 delta，所以 step 只存在于读的人脑里，翻译器替它记住：turn 开始后或工具轮次
+   结束后出现的第一段文本开新 step，工具调用开始时关闭当前 step（与历史「每个 assistant 消息一个 step」
+   一致）；**词汇里有两种 turn id**——`turn.*`/`assistant.delta`/`tool.call.*` 用活动追踪器的数字计数，
+   `llm.*` 用字符串，实体序号只取数字那个，`llm.*` 仅用于开 step，其自带序号不作实体序号（历史按位置编号，
+   两者必须一致）。已知限制：该计数与存储位置在压缩/回退移除 turn 后不再一致；`tool.progress` 的载荷没有
+   约定形状，故按 `custom` 原样携带而不拆成它可能没有的字段；`subagent.message` 属于子代理自己的时间线；
+   `config.changed`/`session.meta.updated`/`cron.fired`/goal 预算通知属全局或宿主态。待做：把连接/握手/
+   subscribe/背压建在既有 `hub.rs` 那条按序号排序、可游标回放的 lane 之上，并把 `in_flight` 接到历史路由）→
+   P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
    `web` 子命令；TUI/stdio 走 NAPI，不在内。另需在 `packages/protocol` 补 v3 实体联合类型与
    `HistoryResponse`：当前只有端点声明行，没有可供客户端导入的类型）。
    **2026-09-15 可行性核查（决定数据源）**：生产路径的 `wire_events` 只写
