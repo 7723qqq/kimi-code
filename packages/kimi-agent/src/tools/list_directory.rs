@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::native::shell_path_bridge::ShellPathBridge;
 use crate::turn_loop::types::ExecutableToolResult;
 
 pub const LIST_DIR_ROOT_WIDTH: usize = 30;
@@ -29,6 +30,7 @@ struct Entry {
 pub fn execute_list_directory(
     root_dir: &Path,
     extra_roots: &[std::path::PathBuf],
+    bridge: &ShellPathBridge,
     args: &Value,
 ) -> Option<ExecutableToolResult> {
     let raw_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -40,11 +42,10 @@ pub fn execute_list_directory(
     let target_dir = if raw_path.is_empty() || raw_path == "." {
         root_dir.to_path_buf()
     } else {
-        let candidate = if Path::new(raw_path).is_absolute() {
-            Path::new(raw_path).to_path_buf()
-        } else {
-            root_dir.join(raw_path)
-        };
+        // Same resolution as the other file tools: a shell-dialect path
+        // (`/g/kimi`, `/tmp/x`) is not absolute on Windows, and `join` would
+        // relocate it onto the workspace's drive.
+        let candidate = super::NativeToolset::candidate_path(root_dir, bridge, raw_path);
         match std::fs::canonicalize(&candidate) {
             Ok(p) => {
                 let authorized =

@@ -255,12 +255,13 @@ fn plan_mode_guard(
     store: &crate::storage::state_store::StateStore,
     tool_name: &str,
     args: &serde_json::Value,
+    bridge: &crate::native::shell_path_bridge::ShellPathBridge,
 ) -> Option<String> {
     if !crate::tools::plan_mode::plan_guarded_tool(tool_name) {
         return None;
     }
     let plan = store.read_state("plan", "plan").ok()?;
-    crate::tools::plan_mode::plan_denial(&plan, tool_name, args, store.state_dir().parent())
+    crate::tools::plan_mode::plan_denial(&plan, tool_name, args, store.state_dir().parent(), bridge)
 }
 
 /// All tool definitions exposed to the model in the REPL: the core native
@@ -491,13 +492,15 @@ pub async fn start_repl(
             .with_callbacks(base_callbacks.clone())
             .with_github_credentials(github_credentials.clone()),
     );
+    let shell_bridge = toolset.shell_bridge();
     let plan_guard_store = state_store.clone();
+    let plan_bridge = shell_bridge.clone();
     // Stale-write gate (v2 `staleGuardService`, G-6 #3): one REPL process =
     // one session; the gate's plan exemption reads through the local store
     // via the dummy host's `state_read`, same seam as the product paths.
     let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(
         Some(workspace.clone()),
-        toolset.shell_bridge(),
+        shell_bridge.clone(),
     ));
     // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8). The REPL's
     // dummy host cannot execute CreateGoal, so non-auto routing stays off —
@@ -516,7 +519,8 @@ pub async fn start_repl(
             let store = plan_guard_store.clone();
             let tool_name = tool_name.to_string();
             let args = args.clone();
-            Box::pin(async move { plan_mode_guard(&store, &tool_name, &args) })
+            let bridge = plan_bridge.clone();
+            Box::pin(async move { plan_mode_guard(&store, &tool_name, &args, &bridge) })
         })),
         stale_guard: Some(stale_gate),
         goal_guard: Some(goal_guard),
@@ -853,6 +857,14 @@ mod tests {
     use super::*;
     use crate::rpc::types::{AskQuestionItem, AskQuestionOption};
 
+    /// The tests resolve real paths on the host, so they use the same
+    /// bridge the toolset builds.
+    fn bridge() -> crate::native::shell_path_bridge::ShellPathBridge {
+        crate::native::shell_path_bridge::ShellPathBridge::new(
+            &crate::native::shell::resolve_shell(None).program,
+        )
+    }
+
     fn question(text: &str, options: &[&str]) -> AskQuestionItem {
         AskQuestionItem {
             question: text.into(),
@@ -1099,9 +1111,15 @@ mod tests {
         let store =
             crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         assert!(
-            plan_mode_guard(&store, "write", &serde_json::json!({ "path": "a.txt" })).is_none()
+            plan_mode_guard(
+                &store,
+                "write",
+                &serde_json::json!({ "path": "a.txt" }),
+                &bridge()
+            )
+            .is_none()
         );
-        assert!(plan_mode_guard(&store, "taskstop", &serde_json::json!({})).is_none());
+        assert!(plan_mode_guard(&store, "taskstop", &serde_json::json!({}), &bridge()).is_none());
     }
 
     #[test]
@@ -1145,15 +1163,32 @@ mod tests {
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
         let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
-        let denied =
-            plan_mode_guard(&store, "write", &serde_json::json!({ "path": "other.txt" })).unwrap();
+        let denied = plan_mode_guard(
+            &store,
+            "write",
+            &serde_json::json!({ "path": "other.txt" }),
+            &bridge(),
+        )
+        .unwrap();
         assert!(denied.contains("Plan mode is active"));
         assert!(denied.contains(&plan_path));
         assert!(
-            plan_mode_guard(&store, "edit", &serde_json::json!({ "path": "other.txt" })).is_some()
+            plan_mode_guard(
+                &store,
+                "edit",
+                &serde_json::json!({ "path": "other.txt" }),
+                &bridge()
+            )
+            .is_some()
         );
         assert!(
-            plan_mode_guard(&store, "read", &serde_json::json!({ "path": "other.txt" })).is_none()
+            plan_mode_guard(
+                &store,
+                "read",
+                &serde_json::json!({ "path": "other.txt" }),
+                &bridge()
+            )
+            .is_none()
         );
     }
 
@@ -1168,7 +1203,13 @@ mod tests {
         store.write_domain("plan", &outcome.stored).unwrap();
         let plan_path = outcome.stored["path"].as_str().unwrap().to_string();
         assert!(
-            plan_mode_guard(&store, "write", &serde_json::json!({ "path": plan_path })).is_none()
+            plan_mode_guard(
+                &store,
+                "write",
+                &serde_json::json!({ "path": plan_path }),
+                &bridge()
+            )
+            .is_none()
         );
         let workspace = store.state_dir().parent().unwrap();
         let relative = std::path::Path::new(&plan_path)
@@ -1177,7 +1218,13 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         assert!(
-            plan_mode_guard(&store, "edit", &serde_json::json!({ "path": relative })).is_none()
+            plan_mode_guard(
+                &store,
+                "edit",
+                &serde_json::json!({ "path": relative }),
+                &bridge()
+            )
+            .is_none()
         );
     }
 
@@ -1191,14 +1238,14 @@ mod tests {
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
         for tool in ["TaskStop", "taskstop", "task_stop"] {
-            let denial = plan_mode_guard(&store, tool, &serde_json::json!({})).unwrap();
+            let denial = plan_mode_guard(&store, tool, &serde_json::json!({}), &bridge()).unwrap();
             assert!(
                 denial.contains("TaskStop is not available in plan mode"),
                 "tool: {tool}"
             );
         }
         for tool in ["CronCreate", "cron_create", "CronDelete", "cron_delete"] {
-            let denial = plan_mode_guard(&store, tool, &serde_json::json!({})).unwrap();
+            let denial = plan_mode_guard(&store, tool, &serde_json::json!({}), &bridge()).unwrap();
             assert!(
                 denial.contains("would mutate scheduled work"),
                 "tool: {tool}"
@@ -1215,8 +1262,13 @@ mod tests {
             .apply_write("plan", &serde_json::json!({ "active": true }))
             .unwrap();
         store.write_domain("plan", &outcome.stored).unwrap();
-        let denied =
-            plan_mode_guard(&store, "taskstop", &serde_json::json!({ "id": "t1" })).unwrap();
+        let denied = plan_mode_guard(
+            &store,
+            "taskstop",
+            &serde_json::json!({ "id": "t1" }),
+            &bridge(),
+        )
+        .unwrap();
         assert!(denied.contains("TaskStop is not available in plan mode"));
     }
 }

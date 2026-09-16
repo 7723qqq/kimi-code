@@ -9,6 +9,7 @@
 use serde_json::Value;
 
 use crate::callbacks::HostCallbacks;
+use crate::native::shell_path_bridge::ShellPathBridge;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -45,6 +46,7 @@ pub fn plan_denial(
     tool_name: &str,
     args: &Value,
     workspace_root: Option<&std::path::Path>,
+    bridge: &ShellPathBridge,
 ) -> Option<String> {
     if plan.get("active").and_then(|v| v.as_bool()) != Some(true) {
         return None;
@@ -53,12 +55,15 @@ pub fn plan_denial(
     match tool_name.to_ascii_lowercase().as_str() {
         "write" | "edit" => {
             let path = args.get("path").and_then(|p| p.as_str())?;
-            let resolved = if std::path::Path::new(path).is_absolute() {
-                path.to_string()
-            } else if let Some(root) = workspace_root {
-                root.join(path).to_string_lossy().into_owned()
-            } else {
-                path.to_string()
+            // Resolved the way the writer will resolve it: the model may
+            // spell the plan file in the shell's dialect (`/c/Users/...`),
+            // which is not absolute on Windows and would otherwise be
+            // relocated onto the workspace's drive and denied.
+            let resolved = match workspace_root {
+                Some(root) => super::NativeToolset::candidate_path(root, bridge, path)
+                    .to_string_lossy()
+                    .into_owned(),
+                None => path.to_string(),
             };
             let Some(plan_path) = plan_path else {
                 return Some(format!(
@@ -225,6 +230,12 @@ mod tests {
     use super::*;
     use crate::rpc::types::{BoxFuture, PermissionDecision, StateReadResponse, StateWriteResponse};
     use std::sync::Arc;
+
+    /// The tests resolve real paths on the host, so they use the same
+    /// bridge the toolset builds.
+    fn bridge() -> ShellPathBridge {
+        ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
 
     /// Scripted callbacks: records the received state requests and answers
     /// with canned responses.
@@ -451,11 +462,14 @@ mod tests {
                     &plan,
                     "write",
                     &serde_json::json!({ "path": "a.txt" }),
-                    None
+                    None,
+                    &bridge(),
                 )
                 .is_none()
             );
-            assert!(plan_denial(&plan, "taskstop", &serde_json::json!({}), None).is_none());
+            assert!(
+                plan_denial(&plan, "taskstop", &serde_json::json!({}), None, &bridge()).is_none()
+            );
         }
     }
 
@@ -471,7 +485,7 @@ mod tests {
             "exitplanmode",
         ] {
             assert!(
-                plan_denial(&plan, tool, &serde_json::json!({}), None).is_none(),
+                plan_denial(&plan, tool, &serde_json::json!({}), None, &bridge()).is_none(),
                 "tool: {tool}"
             );
         }
@@ -485,7 +499,8 @@ mod tests {
                 &plan,
                 "Write",
                 &serde_json::json!({ "path": "/w/plans/plan-1.md" }),
-                None
+                None,
+                &bridge(),
             )
             .is_none()
         );
@@ -494,7 +509,8 @@ mod tests {
                 &plan,
                 "Edit",
                 &serde_json::json!({ "path": "/w/plans/plan-1.md" }),
-                None
+                None,
+                &bridge(),
             )
             .is_none()
         );
@@ -508,6 +524,7 @@ mod tests {
             "Write",
             &serde_json::json!({ "path": "/w/src/main.rs" }),
             None,
+            &bridge(),
         );
         assert_eq!(
             denial.unwrap(),
@@ -524,7 +541,8 @@ mod tests {
                 &plan,
                 "write",
                 &serde_json::json!({ "path": "plans/plan-1.md" }),
-                Some(root)
+                Some(root),
+                &bridge(),
             )
             .is_none()
         );
@@ -533,7 +551,8 @@ mod tests {
                 &plan,
                 "write",
                 &serde_json::json!({ "path": "src/main.rs" }),
-                Some(root)
+                Some(root),
+                &bridge(),
             )
             .is_some()
         );
@@ -547,6 +566,7 @@ mod tests {
             "write",
             &serde_json::json!({ "path": "a.txt" }),
             None,
+            &bridge(),
         );
         assert_eq!(
             denial.unwrap(),
@@ -558,7 +578,7 @@ mod tests {
     fn test_plan_denial_denies_taskstop_and_cron_mutations() {
         let plan = active_plan("/w/plans/plan-1.md");
         for tool in ["TaskStop", "taskstop", "task_stop"] {
-            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None);
+            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None, &bridge());
             assert!(
                 denial
                     .unwrap()
@@ -566,7 +586,7 @@ mod tests {
             );
         }
         for tool in ["CronCreate", "cron_create", "CronDelete", "cron_delete"] {
-            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None);
+            let denial = plan_denial(&plan, tool, &serde_json::json!({}), None, &bridge());
             assert!(
                 denial.unwrap().contains("would mutate scheduled work"),
                 "tool: {tool}"

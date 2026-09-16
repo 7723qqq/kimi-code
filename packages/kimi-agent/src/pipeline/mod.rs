@@ -286,9 +286,11 @@ pub async fn build_engine_pipeline(
                     let plan_callbacks = base_callbacks.clone();
                     let plan_workspace = spec.workspace_root.clone();
                     // Stale-write gate (v2 `staleGuardService`, G-6 #3).
+                    let shell_bridge = toolset.shell_bridge();
+                    let plan_bridge = shell_bridge.clone();
                     let stale_gate = Arc::new(StaleGate::new(
                         spec.workspace_root.clone().map(std::path::PathBuf::from),
-                        toolset.shell_bridge(),
+                        shell_bridge.clone(),
                     ));
                     // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8):
                     // non-auto CreateGoal routes to the host; stale goal mutations
@@ -392,6 +394,7 @@ pub async fn build_engine_pipeline(
                             let tool_name = tool_name.to_string();
                             let args = args.clone();
                             let workspace = plan_workspace.clone();
+                            let plan_bridge = plan_bridge.clone();
                             Box::pin(async move {
                                 let request = crate::rpc::types::StateReadRequest {
                                     domain: "plan".into(),
@@ -405,6 +408,7 @@ pub async fn build_engine_pipeline(
                                         &tool_name,
                                         &args,
                                         workspace.as_deref().map(std::path::Path::new),
+                                        &plan_bridge,
                                     ),
                                     Err(_) => None,
                                 }

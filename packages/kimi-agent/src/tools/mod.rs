@@ -826,9 +826,12 @@ impl NativeToolset {
                 .or_else(|| Self::read(&sandbox, &self.shell_bridge, args)),
             "grep" => Self::grep(&sandbox, &self.shell_bridge, args),
             "glob" => Self::glob(&sandbox, &self.shell_bridge, args),
-            "listdirectory" | "list_directory" => {
-                list_directory::execute_list_directory(&self.root, &self.extra_roots, args)
-            }
+            "listdirectory" | "list_directory" => list_directory::execute_list_directory(
+                &self.root,
+                &self.extra_roots,
+                &self.shell_bridge,
+                args,
+            ),
             _ => None,
         }
     }
@@ -923,12 +926,15 @@ impl NativeToolset {
                 self.run_readonly_file_tool_on_blocking_pool(args, Self::glob)
                     .await
             }
-            "listdirectory" | "list_directory" => {
-                list_directory::execute_list_directory(&self.root, &self.extra_roots, args)
-            }
+            "listdirectory" | "list_directory" => list_directory::execute_list_directory(
+                &self.root,
+                &self.extra_roots,
+                &self.shell_bridge,
+                args,
+            ),
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args, tool_call_id).await,
             "websearch" | "web_search" => web_search::execute_web_search(args, tool_call_id).await,
-            "lsp" => lsp_tool::execute_lsp_tool(&self.root, args).await,
+            "lsp" => lsp_tool::execute_lsp_tool(&self.root, &self.shell_bridge, args).await,
             "invokesubagent" | "invoke_subagent" => {
                 let mgr = self.subagent_manager.as_ref()?;
                 Some(subagent_tools::execute_invoke_subagent(mgr, args).await)

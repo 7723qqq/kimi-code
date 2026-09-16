@@ -3,10 +3,11 @@
 //! 允许模型通过标准协议向语言服务器查询定义位置（Definition）、引用等。
 
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use crate::native::lsp::{LanguageServerManager, LspClientSession};
+use crate::native::shell_path_bridge::ShellPathBridge;
 use crate::turn_loop::types::ExecutableToolResult;
 
 /// 推断文件扩展名对应的编程语言标识符
@@ -32,7 +33,11 @@ const SUPPORTED_ACTIONS: &[&str] = &[
 ];
 
 /// 执行 LSP 原生工具调用
-pub async fn execute_lsp_tool(workspace_root: &Path, args: &Value) -> Option<ExecutableToolResult> {
+pub async fn execute_lsp_tool(
+    workspace_root: &Path,
+    bridge: &ShellPathBridge,
+    args: &Value,
+) -> Option<ExecutableToolResult> {
     let action = match args.get("action").and_then(|v| v.as_str()) {
         Some(a) => a,
         None => {
@@ -71,11 +76,10 @@ pub async fn execute_lsp_tool(workspace_root: &Path, args: &Value) -> Option<Exe
         }
     };
 
-    let target_path = if Path::new(raw_path).is_absolute() {
-        PathBuf::from(raw_path)
-    } else {
-        workspace_root.join(raw_path)
-    };
+    // Same resolution as the other file tools: a shell-dialect path
+    // (`/g/kimi`, `/tmp/x`) is not absolute on Windows, and `join` would
+    // relocate it onto the workspace's drive.
+    let target_path = super::NativeToolset::candidate_path(workspace_root, bridge, raw_path);
 
     if !target_path.exists() {
         return Some(ExecutableToolResult {
@@ -249,6 +253,13 @@ pub async fn execute_lsp_tool(workspace_root: &Path, args: &Value) -> Option<Exe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    /// The tests resolve real paths on the host, so they use the same
+    /// bridge the toolset builds.
+    fn bridge() -> ShellPathBridge {
+        ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
 
     #[test]
     fn test_detect_language_id() {
@@ -264,15 +275,19 @@ mod tests {
     #[tokio::test]
     async fn test_lsp_tool_missing_params() {
         let root = PathBuf::from(".");
-        let res1 = execute_lsp_tool(&root, &serde_json::json!({}))
+        let res1 = execute_lsp_tool(&root, &bridge(), &serde_json::json!({}))
             .await
             .unwrap();
         assert!(res1.is_error);
         assert!(res1.content.contains("Missing required parameter 'action'"));
 
-        let res2 = execute_lsp_tool(&root, &serde_json::json!({ "action": "definition" }))
-            .await
-            .unwrap();
+        let res2 = execute_lsp_tool(
+            &root,
+            &bridge(),
+            &serde_json::json!({ "action": "definition" }),
+        )
+        .await
+        .unwrap();
         assert!(res2.is_error);
         assert!(res2.content.contains("Missing required parameter 'path'"));
     }
@@ -282,6 +297,7 @@ mod tests {
         let root = PathBuf::from(".");
         let res = execute_lsp_tool(
             &root,
+            &bridge(),
             &serde_json::json!({
                 "action": "definition",
                 "path": "non_existent_file.rs"
@@ -303,6 +319,7 @@ mod tests {
         std::fs::write(&file, "placeholder").unwrap();
         let res = execute_lsp_tool(
             dir.path(),
+            &bridge(),
             &serde_json::json!({
                 "action": "definition",
                 "path": file.to_string_lossy()
@@ -324,6 +341,7 @@ mod tests {
         std::fs::write(&file, "pub fn placeholder() {}\n").unwrap();
         let res = execute_lsp_tool(
             dir.path(),
+            &bridge(),
             &serde_json::json!({
                 "action": "unknown_action_xyz",
                 "path": file.to_string_lossy()

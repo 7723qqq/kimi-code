@@ -164,7 +164,12 @@ pub fn stale_denial(
 /// active. v2 short-circuits its veto chain via planService `allow()` in
 /// that case, so the stale guard must not fire — the host creates the plan
 /// file and the model writes it without a prior read.
-pub fn plan_file_write_exempt(plan: &Value, args: &Value, workspace_root: Option<&Path>) -> bool {
+pub fn plan_file_write_exempt(
+    plan: &Value,
+    args: &Value,
+    workspace_root: Option<&Path>,
+    bridge: &ShellPathBridge,
+) -> bool {
     if plan.get("active").and_then(|v| v.as_bool()) != Some(true) {
         return false;
     }
@@ -174,12 +179,15 @@ pub fn plan_file_write_exempt(plan: &Value, args: &Value, workspace_root: Option
     let Some(raw) = args.get("path").and_then(|p| p.as_str()) else {
         return false;
     };
-    let resolved = if Path::new(raw).is_absolute() {
-        raw.to_string()
-    } else if let Some(root) = workspace_root {
-        root.join(raw).to_string_lossy().into_owned()
-    } else {
-        raw.to_string()
+    // Resolved the way the writer will resolve it: the model may spell the
+    // plan file in the shell's dialect (`/c/Users/...`), which is not
+    // absolute on Windows and would otherwise be relocated onto the
+    // workspace's drive and miss the exemption.
+    let resolved = match workspace_root {
+        Some(root) => super::NativeToolset::candidate_path(root, bridge, raw)
+            .to_string_lossy()
+            .into_owned(),
+        None => raw.to_string(),
     };
     // Component-wise comparison: the host's plan path and the model's
     // argument may mix separators (`/` vs `\` on Windows).
@@ -253,6 +261,7 @@ impl StaleGate {
                     &response.value,
                     args,
                     self.workspace_root.as_deref(),
+                    &self.bridge,
                 ) =>
             {
                 None
@@ -447,23 +456,44 @@ mod tests {
         let args = json!({ "path": plan_file.to_string_lossy() });
 
         let active = json!({ "active": true, "path": plan_file.to_string_lossy() });
-        assert!(plan_file_write_exempt(&active, &args, Some(dir.path())));
+        assert!(plan_file_write_exempt(
+            &active,
+            &args,
+            Some(dir.path()),
+            &bridge()
+        ));
 
         let inactive = json!({ "active": false, "path": plan_file.to_string_lossy() });
-        assert!(!plan_file_write_exempt(&inactive, &args, Some(dir.path())));
+        assert!(!plan_file_write_exempt(
+            &inactive,
+            &args,
+            Some(dir.path()),
+            &bridge()
+        ));
 
         let no_path = json!({ "active": true });
-        assert!(!plan_file_write_exempt(&no_path, &args, Some(dir.path())));
+        assert!(!plan_file_write_exempt(
+            &no_path,
+            &args,
+            Some(dir.path()),
+            &bridge()
+        ));
 
         let other =
             json!({ "active": true, "path": dir.path().join("other.md").to_string_lossy() });
-        assert!(!plan_file_write_exempt(&other, &args, Some(dir.path())));
+        assert!(!plan_file_write_exempt(
+            &other,
+            &args,
+            Some(dir.path()),
+            &bridge()
+        ));
 
         let relative_args = json!({ "path": "plan.md" });
         assert!(plan_file_write_exempt(
             &active,
             &relative_args,
-            Some(dir.path())
+            Some(dir.path()),
+            &bridge(),
         ));
     }
 
