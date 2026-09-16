@@ -95,6 +95,19 @@ pub trait LLM: Send + Sync {
     fn transport(&self) -> &'static str {
         "custom"
     }
+    /// What the media resolver needs to know about the model behind this LLM
+    /// (v2 `ModelRequester.model`): which media it accepts, and where an
+    /// upload would go. `None` accepts everything and uploads nothing — a
+    /// test stub or a host-proxy transport must not silently drop media.
+    fn media_target(&self) -> Option<crate::llm::media_resolver::MediaTarget> {
+        None
+    }
+    /// The credential a provider-side media upload would use, when this LLM's
+    /// provider takes media by reference. `None` disables uploads, and the
+    /// resolver inlines instead.
+    fn media_upload_credential(&self) -> Option<crate::llm::files_upload::CredentialFuture<'_>> {
+        None
+    }
     /// Send a chat request and get a response.
     fn chat(
         &self,
@@ -868,6 +881,15 @@ pub struct RunTurnInput<'a> {
     /// subagent turns always pass `None`, so lifecycle hooks are main-turn
     /// scoped while `PreToolUse` gating still applies inside subagents.
     pub hook_guard: Option<std::sync::Arc<crate::tools::external_hooks::HookGuard>>,
+    /// Resolves the media references the request carries, and weighs the
+    /// result against the request media budget. `None` leaves references
+    /// unresolved — a caller with no daemon file store behind it.
+    pub media: Option<&'a crate::llm::media_resolver::MediaResolver>,
+    /// The media keys an earlier turn already omitted (v2
+    /// `media.budgetDropped` is agent state; the engine's turn loop is
+    /// stateless, so the caller owns the record and the budget writes every
+    /// new omission through to it).
+    pub media_dropped: Option<crate::llm::media_budget::DroppedMedia>,
 }
 
 /// Host-injected context for the engine's turn telemetry (M1c). The host

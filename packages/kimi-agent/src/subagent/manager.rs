@@ -348,6 +348,12 @@ pub struct SubagentRuntime {
     /// The parent session this runtime was built for, so background
     /// subagent tasks attribute their lifecycle events to the right lane.
     pub session_id: Option<String>,
+    /// Resolves the media references a subagent turn carries (v2
+    /// `AgentMediaResolverService`).
+    pub media: crate::llm::media_resolver::MediaResolver,
+    /// The runtime's cross-turn record of omitted media (v2
+    /// `media.budgetDropped`).
+    pub media_dropped: crate::llm::media_budget::DroppedMedia,
 }
 
 pub struct SubagentManager {
@@ -506,6 +512,8 @@ async fn run_one(
         // `PreToolUse` gating still applies through the tool callbacks.
         // Keep `run_turn` (not `run_turn_continued`) for the same reason.
         hook_guard: None,
+        media: Some(&runtime.media),
+        media_dropped: Some(runtime.media_dropped.clone()),
     };
     let run_future = crate::turn_loop::run_turn::run_turn(run_input, callbacks);
     tokio::pin!(run_future);
@@ -765,6 +773,8 @@ worktree root the tower assigns you as your full authority scope.";
             llm,
             callbacks,
             session_id,
+            media: crate::llm::media_resolver::MediaResolver::new(),
+            media_dropped: Default::default(),
         }));
     }
 
@@ -924,6 +934,8 @@ worktree root the tower assigns you as your full authority scope.";
                 goal: None,
                 cancellation: cancel_flag,
                 hook_guard: None,
+                media: None,
+                media_dropped: None,
             };
 
             let run_result = crate::tools::CALLER_AGENT_ID
@@ -1028,6 +1040,8 @@ worktree root the tower assigns you as your full authority scope.";
                 llm,
                 callbacks: runtime.callbacks.clone(),
                 session_id: runtime.session_id.clone(),
+                media: crate::llm::media_resolver::MediaResolver::new(),
+                media_dropped: runtime.media_dropped.clone(),
             }),
             None => runtime,
         };
@@ -1592,6 +1606,8 @@ worktree root the tower assigns you as your full authority scope.";
             goal: None,
             cancellation: Some(cancel_flag.clone()),
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let run_result = crate::tools::CALLER_AGENT_ID
             .scope(

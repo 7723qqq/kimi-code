@@ -13,6 +13,7 @@ import {
   PRINT_WAIT_CEILING_S_DEFAULT,
   resolveMaxAttemptsPerStep,
   resolveMaxStepsPerTurn,
+  resolveNativeLlmForAlias,
   resolvePrintBackground,
   resolveSecondaryModelPool,
 } from '#/native/native-llm-resolver';
@@ -616,6 +617,199 @@ maxRunningTasks = 2
     const rawModels = config.raw?.['models'] as Record<string, Record<string, unknown>>;
     expect(rawProviders['local']?.['unsupported_provider_field']).toBe('raw-only');
     expect(rawModels['camel-model']?.['custom_model_field']).toBe('raw-only');
+  });
+
+  describe('resolveNativeLlmForAlias', () => {
+    const RESOLVER_TOML = `
+default_model = "gateway/alias"
+
+[providers.gateway]
+type = "openai"
+base_url = "https://example.test/v1"
+api_key = "provider-key"
+
+[models."gateway/alias"]
+provider = "gateway"
+model = "wire-model"
+max_context_size = 200000
+`;
+
+    it('sends the record name, never the alias', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/named"]
+provider = "gateway"
+model = "wire-model"
+name = "wire-name"
+max_context_size = 200000
+`,
+        'resolver-name.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/named')?.model).toBe('wire-name');
+      // Without a `name` the wire model is the record's own `model`.
+      expect(resolveNativeLlmForAlias(config, 'gateway/alias')?.model).toBe('wire-model');
+    });
+
+    it('applies the overrides block before reading the model fields', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/overridden"]
+provider = "gateway"
+model = "wire-model"
+max_context_size = 200000
+max_output_size = 4096
+capabilities = ["image_in"]
+
+[models."gateway/overridden".overrides]
+max_output_size = 8192
+capabilities = ["thinking"]
+max_input_size = 100000
+reasoning_key = "reasoning_content"
+off_effort = "none"
+adaptive_thinking = true
+`,
+        'resolver-overrides.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/overridden')).toMatchObject({
+        maxTokens: 8192,
+        capabilities: ['thinking'],
+        maxInputSize: 100000,
+        reasoningKey: 'reasoning_content',
+        offEffort: 'none',
+        adaptiveThinking: true,
+      });
+      expect(resolveNativeLlmForAlias(config, 'gateway/alias')?.maxTokens).toBeUndefined();
+    });
+
+    it('lets a per-model apiKey outrank the provider key', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/byok"]
+provider = "gateway"
+model = "wire-model"
+api_key = "model-key"
+max_context_size = 200000
+`,
+        'resolver-byok.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/byok')?.apiKey).toBe('model-key');
+      expect(resolveNativeLlmForAlias(config, 'gateway/alias')?.apiKey).toBe('provider-key');
+    });
+
+    it('routes a per-model oauth binding through the token channel', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/oauth"]
+provider = "gateway"
+model = "wire-model"
+max_context_size = 200000
+
+[models."gateway/oauth".oauth]
+storage = "file"
+key = "kimi"
+oauth_host = "https://auth.example.test"
+`,
+        'resolver-oauth.toml',
+      );
+
+      // The model's own OAuth binding replaces the provider's static key.
+      expect(config.models?.['gateway/oauth']?.oauth?.oauthHost).toBe(
+        'https://auth.example.test',
+      );
+      expect(resolveNativeLlmForAlias(config, 'gateway/oauth')).toMatchObject({
+        apiKey: '',
+        authProvider: 'gateway',
+      });
+    });
+
+    it('resolves the provider through providerId before provider', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[providers.other]
+type = "anthropic"
+base_url = "https://other.test/v1"
+api_key = "other-key"
+
+[models."gateway/via-id"]
+provider = "gateway"
+provider_id = "other"
+model = "wire-model"
+max_context_size = 200000
+`,
+        'resolver-provider-id.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/via-id')).toMatchObject({
+        protocol: 'anthropic',
+        baseUrl: 'https://other.test/v1',
+        apiKey: 'other-key',
+      });
+    });
+
+    it('carries the alias system prompt and its declared capabilities', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/prompted"]
+provider = "gateway"
+model = "wire-model"
+system_prompt = "You are a reviewer."
+capabilities = ["image_in", "thinking"]
+max_context_size = 200000
+`,
+        'resolver-prompt.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/prompted')).toMatchObject({
+        systemPrompt: 'You are a reviewer.',
+        capabilities: ['image_in', 'thinking'],
+      });
+      // A model that declares nothing stays unknown, so the engine's
+      // image-read gate keeps allowing image reads.
+      expect(resolveNativeLlmForAlias(config, 'gateway/alias')?.capabilities).toBeUndefined();
+    });
+
+    it('keeps the anthropic profile out of the declared capabilities', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[providers.claude]
+type = "anthropic"
+base_url = "https://api.anthropic.com"
+api_key = "sk-ant"
+
+[models."claude/sonnet"]
+provider = "claude"
+model = "claude-sonnet-4-5"
+max_context_size = 200000
+`,
+        'resolver-profile.toml',
+      );
+
+      const llm = resolveNativeLlmForAlias(config, 'claude/sonnet');
+      // The profile's `thinking` capability is a UI affordance; the image-read
+      // gate reads the declared set only, so it must not travel on the wire.
+      expect(llm?.capabilities).toBeUndefined();
+      // The profile's effort still reaches the wire, matching the UI.
+      expect(llm?.thinkingBudget).toBe(32000);
+    });
+
+    it('resolves an entry through one of its declared aliases', () => {
+      const config = parseConfigString(
+        `${RESOLVER_TOML}
+[models."gateway/aliased"]
+provider = "gateway"
+model = "wire-model"
+aliases = ["gateway/short"]
+max_context_size = 200000
+`,
+        'resolver-aliases.toml',
+      );
+
+      expect(resolveNativeLlmForAlias(config, 'gateway/short')?.model).toBe('wire-model');
+      expect(resolveNativeLlmForAlias(config, 'gateway/missing')).toBeUndefined();
+    });
   });
 
   describe('normalizeBaseUrl', () => {

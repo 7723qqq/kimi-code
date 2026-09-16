@@ -426,6 +426,9 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
 
 function transformModelData(data: Record<string, unknown>): Record<string, unknown> {
   const out = transformPlainObject(data);
+  if (isPlainObject(out['oauth'])) {
+    out['oauth'] = transformPlainObject(out['oauth']);
+  }
   if (isPlainObject(out['overrides'])) {
     out['overrides'] = transformPlainObject(out['overrides']);
   }
@@ -669,6 +672,8 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
     } else if (key === 'overrides' && isPlainObject(value)) {
       const rawOverrides = isPlainObject(rawModel) ? rawModel['overrides'] : undefined;
       out['overrides'] = modelOverridesToToml(value, rawOverrides);
+    } else if (key === 'oauth' && value !== undefined) {
+      out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
     } else {
       setDefined(out, camelToSnake(key), value);
     }

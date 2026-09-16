@@ -134,6 +134,15 @@ async fn main() -> anyhow::Result<()> {
                     auth_provider: native.auth_provider.clone(),
                     thinking_keep: config.resolve_thinking_keep(),
                     beta_api: native.beta_api,
+                    capabilities: native.capabilities.clone(),
+                    system_prompt: native.system_prompt.clone(),
+                    max_input_size: native.max_input_size,
+                    adaptive_thinking: native.adaptive_thinking,
+                    reasoning_key: native.reasoning_key.clone(),
+                    // `resolve_effort` above already applied the declared
+                    // off-effort, so the transport's gap-fill must not re-apply
+                    // it when thinking is on with no explicit effort.
+                    off_effort: None,
                 }),
                 workspace_root: Some(workspace.display().to_string()),
                 native_tools: true,
@@ -297,6 +306,8 @@ async fn main() -> anyhow::Result<()> {
                 goal: input.goal,
                 cancellation: Some(cancel.flag()),
                 hook_guard: pipeline.hook_guard.clone(),
+                media: Some(&pipeline.media),
+                media_dropped: Some(pipeline.media_dropped.clone()),
             };
 
             let result = match input.telemetry {
@@ -1195,6 +1206,13 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             auth_provider: native.auth_provider.clone(),
             thinking_keep: config.resolve_thinking_keep(),
             beta_api: native.beta_api,
+            capabilities: native.capabilities.clone(),
+            system_prompt: native.system_prompt.clone(),
+            max_input_size: native.max_input_size,
+            adaptive_thinking: native.adaptive_thinking,
+            reasoning_key: native.reasoning_key.clone(),
+            // `resolve_effort` above already applied the declared off-effort.
+            off_effort: None,
         }),
         workspace_root: Some(workspace.display().to_string()),
         native_tools: true,
@@ -1518,6 +1536,8 @@ async fn run_self_test() -> anyhow::Result<()> {
         goal: None,
         cancellation: None,
         hook_guard: None,
+        media: None,
+        media_dropped: None,
     };
 
     // Create a minimal server for the test

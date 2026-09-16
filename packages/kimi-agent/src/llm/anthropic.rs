@@ -245,6 +245,13 @@ fn project_block(b: &ContentBlock) -> Value {
             }
             obj
         }
+        // A reference that reached the wire was never resolved: the resolver
+        // runs before every request. Degrade visibly rather than hand the
+        // provider a `kimi-file://` URL it cannot fetch.
+        ContentBlock::MediaRef { kind, .. } => json!({
+            "type": "text",
+            "text": crate::llm::media_resolver::unavailable_text(*kind),
+        }),
     }
 }
 

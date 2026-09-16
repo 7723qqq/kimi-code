@@ -393,6 +393,12 @@ struct SessionContext {
     task_runner: Option<Arc<crate::storage::TaskRunner>>,
     /// Cross-turn settle budget of the current print run; see [`PrintRunState`].
     print_run: std::sync::Mutex<PrintRunState>,
+    /// Resolves the media references a turn carries (v2
+    /// `AgentMediaResolverService`).
+    media: crate::llm::media_resolver::MediaResolver,
+    /// The session's cross-turn record of omitted media (v2
+    /// `media.budgetDropped`).
+    media_dropped: crate::llm::media_budget::DroppedMedia,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -445,6 +451,8 @@ impl EngineSession {
             session_id: config.session_id,
             task_runner: config.task_runner.clone(),
             print_run: std::sync::Mutex::new(PrintRunState::default()),
+            media: crate::llm::media_resolver::MediaResolver::new(),
+            media_dropped: Default::default(),
         });
         let wakeup = Arc::new(Notify::new());
         let callbacks = ctx.callbacks.clone();
@@ -1531,6 +1539,8 @@ async fn run_session_turn(
         goal,
         cancellation: Some(cancel),
         hook_guard: ctx.hook_guard.clone(),
+        media: Some(&ctx.media),
+        media_dropped: Some(ctx.media_dropped.clone()),
     };
     let result = run_turn_continued(input, &ctx.callbacks)
         .await
@@ -2597,18 +2607,71 @@ mod tests {
         }
         assert_eq!(
             turn_end_error_payload(&Stop::MaxSteps, 7),
-            Some(serde_json::json!(
-                "Turn exceeded maxSteps=7. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\"."
-            )),
+            Some(serde_json::json!({
+                "type": "error",
+                "code": "loop.max_steps_exceeded",
+                "message": "Turn exceeded maxSteps=7. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\".",
+                "retryable": false,
+            })),
             "the max_steps payload mirrors createMaxStepsExceededError (loop.ts:20-27)"
         );
         assert_eq!(
             turn_end_error_payload(&Stop::Filtered, 3),
-            Some(serde_json::json!(
-                "Provider safety policy blocked the response."
-            ))
+            Some(serde_json::json!({
+                "type": "error",
+                "code": "provider.filtered",
+                "message": "Provider safety policy blocked the response.",
+                "retryable": false,
+            }))
         );
         assert_eq!(turn_end_error_payload(&Stop::EndTurn, 3), None);
+    }
+
+    #[test]
+    fn test_turn_failure_payload_classifies_the_llm_status() {
+        // The LLM layer's transport failures carry the HTTP status in the
+        // message (llm/http.rs:287); everything else falls back to `internal`.
+        let cases = [
+            (
+                "llm http status 401 Unauthorized: bad key",
+                "provider.auth_error",
+            ),
+            (
+                "llm http status 403 Forbidden: no access",
+                "provider.auth_error",
+            ),
+            (
+                "llm http status 404 Not Found: no such model",
+                "provider.not_found",
+            ),
+            (
+                "llm http status 429 Too Many Requests: slow down",
+                "provider.rate_limit",
+            ),
+            (
+                "llm http status 503 Service Unavailable: busy",
+                "provider.overloaded",
+            ),
+            (
+                "llm http status 400 Bad Request: invalid schema",
+                "provider.api_error",
+            ),
+            ("connection reset by peer", "provider.connection_error"),
+            ("request timed out after 60s", "provider.connection_error"),
+            ("tool registry is empty", "internal"),
+        ];
+        for (message, expected) in cases {
+            assert_eq!(turn_failure_code(message), expected, "{message}");
+        }
+        assert_eq!(
+            turn_failure_payload("llm http status 400 Bad Request: invalid schema"),
+            serde_json::json!({
+                "type": "error",
+                "code": "provider.api_error",
+                "message": "llm http status 400 Bad Request: invalid schema",
+                "retryable": false,
+            })
+        );
     }
 
     struct FailingLlm;

@@ -457,6 +457,8 @@ impl KimiEngine {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         // 4. 驱动原生 run_turn 循环

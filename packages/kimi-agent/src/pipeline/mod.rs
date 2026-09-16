@@ -65,6 +65,12 @@ pub struct EnginePipeline {
     /// manager is built once per pipeline, and without the handle a host had
     /// no way to see servers the engine had already connected.
     pub mcp_manager: Option<Arc<McpManager>>,
+    /// Resolves the media references a turn carries (v2
+    /// `AgentMediaResolverService`).
+    pub media: crate::llm::media_resolver::MediaResolver,
+    /// The pipeline's cross-turn record of omitted media (v2
+    /// `media.budgetDropped`).
+    pub media_dropped: crate::llm::media_budget::DroppedMedia,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -298,7 +304,7 @@ pub async fn build_engine_pipeline(
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
                         .with_parent_cancel_slot_if(parent_cancel_slot)
                         .with_image_limits(spec.image_read_byte_budget, spec.image_max_edge_px)
-                        .with_model_capabilities(spec.model_capabilities.clone())
+                        .with_model_capabilities(effective_model_capabilities(spec))
                         .with_bash_auto_background(spec.background.bash_auto_background_on_timeout)
                         .with_bash_task_timeout(spec.background.bash_task_timeout_s)
                         .with_callbacks(base_callbacks.clone())
@@ -435,6 +441,19 @@ pub async fn build_engine_pipeline(
         secondary_llm,
         permission_mode: spec.policy_snapshot.as_ref().map(|snapshot| snapshot.mode),
         mcp_manager,
+        media: crate::llm::media_resolver::MediaResolver::new(),
+        media_dropped: Default::default(),
+    })
+}
+
+/// The model capabilities the image-read gate runs with: the host's explicit
+/// set wins, and the transport config's declared set is the fallback — the
+/// addon carries them on the transport config rather than in the run params.
+fn effective_model_capabilities(spec: &PipelineSpec) -> Option<Vec<String>> {
+    spec.model_capabilities.clone().or_else(|| {
+        spec.native_llm
+            .as_ref()
+            .and_then(|cfg| cfg.capabilities.clone())
     })
 }
 
@@ -594,6 +613,30 @@ mod tests {
         );
         assert_eq!(print_timeout_default(None, true), Some(0));
         assert_eq!(print_timeout_default(None, false), None);
+    }
+
+    /// The image-read gate reads the model's declared capabilities: the host's
+    /// explicit set wins, and the transport config's set is the fallback.
+    #[test]
+    fn model_capabilities_fall_back_to_the_transport_config() {
+        let mut from_transport = spec();
+        from_transport.native_llm = Some(NativeLlmConfig {
+            capabilities: Some(vec!["image_in".into()]),
+            ..Default::default()
+        });
+        assert_eq!(
+            effective_model_capabilities(&from_transport),
+            Some(vec!["image_in".to_string()])
+        );
+
+        let mut explicit = from_transport;
+        explicit.model_capabilities = Some(vec!["thinking".into()]);
+        assert_eq!(
+            effective_model_capabilities(&explicit),
+            Some(vec!["thinking".to_string()])
+        );
+
+        assert_eq!(effective_model_capabilities(&spec()), None);
     }
 
     fn spec() -> PipelineSpec {

@@ -1,6 +1,9 @@
 pub mod anthropic;
+pub mod files_upload;
 pub mod google_genai;
 pub mod http;
+pub mod media_budget;
+pub mod media_resolver;
 pub mod multi;
 pub mod openai;
 pub mod openai_responses;

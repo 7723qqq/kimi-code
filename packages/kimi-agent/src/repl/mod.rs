@@ -390,6 +390,13 @@ pub async fn start_repl(
             auth_provider: None,
             thinking_keep: config.resolve_thinking_keep(),
             beta_api: native_llm_def.beta_api,
+            capabilities: native_llm_def.capabilities.clone(),
+            system_prompt: native_llm_def.system_prompt.clone(),
+            max_input_size: native_llm_def.max_input_size,
+            adaptive_thinking: native_llm_def.adaptive_thinking,
+            reasoning_key: native_llm_def.reasoning_key.clone(),
+            // `resolve_effort` above already applied the declared off-effort.
+            off_effort: None,
         },
         "You are Kimi, a helpful agentic coding assistant.".to_string(),
     ));

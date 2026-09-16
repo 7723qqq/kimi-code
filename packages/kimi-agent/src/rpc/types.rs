@@ -443,6 +443,27 @@ pub struct AuthTokenResponse {
 
 // ── Message content blocks (multimodal) ─────────────────────────────────
 
+/// The media family a [`ContentBlock::MediaRef`] belongs to (v2 `MediaKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaKind {
+    Image,
+    Video,
+    Audio,
+}
+
+impl MediaKind {
+    /// The lowercase name used in `<image path="…">` tags and in the
+    /// omission placeholders (v2 `MediaKind`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Video => "video",
+            Self::Audio => "audio",
+        }
+    }
+}
+
 /// A single content block within a message. Text-only messages keep using
 /// the plain `content` string; multimodal messages carry ordered blocks in
 /// addition (blocks win over `content` when non-empty).
@@ -458,9 +479,25 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
-    /// Image referenced by URL (https or data URL).
+    /// Media that lives in the daemon's file store, carried as a reference
+    /// instead of bytes.
+    ///
+    /// The host emits this and the engine resolves it at request time (v2
+    /// `kimi-file://` daemon refs): inline base64, a provider-side `ms://`
+    /// reference, or a `<image path="…">` tag when the model cannot take it.
+    /// Keeping the reference — rather than inlining at the host boundary —
+    /// is what lets the resolver pick per model, key the request media budget
+    /// by file identity, and name the saved path in an omission. The store
+    /// holds the media type and the blob path, so the reference carries only
+    /// what the store cannot say: which file, and which media family the
+    /// submitting part claimed.
+    MediaRef { file_id: String, kind: MediaKind },
+    /// Image referenced by URL (https, data URL, or a provider-side
+    /// `ms://<id>` reference), with an optional provider-side id.
     ImageUrl {
         url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
@@ -537,6 +574,33 @@ pub struct NativeLlmConfig {
     /// managed aliases declare this. Ignored for non-anthropic protocols.
     #[serde(default)]
     pub beta_api: bool,
+    /// The model's declared capabilities (`[models.<alias>].capabilities`):
+    /// the image-read gate refuses a declared set that lacks `image_in`.
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    /// The model's own system prompt (`[models.<alias>].system_prompt`),
+    /// replacing the session prompt for this model's transport.
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Declared input cap when below the window
+    /// (`[models.<alias>].max_input_size`): the compaction budget prefers it
+    /// over the host's total window.
+    #[serde(default)]
+    pub max_input_size: Option<u32>,
+    /// Explicit adaptive-thinking support, overriding the model-name version
+    /// inference (`[models.<alias>].adaptive_thinking`).
+    #[serde(default)]
+    pub adaptive_thinking: Option<bool>,
+    /// The wire field carrying reasoning content
+    /// (`[models.<alias>].reasoning_key`); the built-in probe list is the
+    /// fallback when the model declares none.
+    #[serde(default)]
+    pub reasoning_key: Option<String>,
+    /// The effort value that encodes "thinking off" on the wire
+    /// (`[models.<alias>].off_effort`): it fills in only when the host sent no
+    /// `reasoning_effort`.
+    #[serde(default)]
+    pub off_effort: Option<String>,
 }
 
 /// One `[secondary_model.models]` pool entry: the alias the model passes via
@@ -1286,6 +1350,7 @@ mod tests {
                     content: "see".into(),
                     blocks: vec![ContentBlock::ImageUrl {
                         url: "https://example.com/a.png".into(),
+                        id: None,
                         name: None,
                     }],
                 },

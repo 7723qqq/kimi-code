@@ -1,7 +1,7 @@
 import { unlink } from 'node:fs/promises';
 
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
-import { effectiveModelAlias, log } from '@moonshot-ai/kimi-code-sdk';
+import { effectiveModelAlias, log, lookupModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type {
   BackgroundTaskInfo,
   CreateSessionOptions,
@@ -1517,9 +1517,12 @@ export class KimiTUI {
     const startupModel = startup.model ?? config.defaultModel;
     if (startupModel !== undefined) {
       patch.model = startupModel;
-      const selected = config.models?.[startupModel];
-      if (selected?.maxContextSize !== undefined) {
-        patch.maxContextTokens = selected.maxContextSize;
+      const selected = lookupModelAlias(config, startupModel);
+      if (selected !== undefined) {
+        const window = effectiveModelAlias(selected).maxContextSize;
+        if (window !== undefined) {
+          patch.maxContextTokens = window;
+        }
       }
     } else {
       // The default disappeared from config (edited externally): clear the
@@ -1548,9 +1551,9 @@ export class KimiTUI {
     } else if (startupModel !== undefined) {
       // No concrete effort configured: mirror the engine, which resolves the
       // model's default effort at createSession time.
-      const raw = config.models?.[startupModel];
+      const raw = lookupModelAlias(config, startupModel);
       if (raw !== undefined) {
-        const providerType = config.providers?.[raw.provider]?.type;
+        const providerType = config.providers?.[raw.providerId ?? raw.provider]?.type;
         patch.thinkingEffort = defaultThinkingEffortFor(
           effectiveModelAlias(raw, providerType ?? raw.protocol),
         );

@@ -863,6 +863,19 @@ pub struct JsRunTurnParams {
     pub print_max_turns: Option<i64>,
 }
 
+/// The compaction window for one run: the model's declared input cap wins over
+/// the host's total window (schema `models.*.maxInputSize`: prompt-budget
+/// checks prefer it, completion budgeting keeps the window), and the host
+/// window is the fallback.
+fn compaction_window(
+    native_llm: Option<&JsNativeLlmConfig>,
+    host_window: Option<u32>,
+) -> Option<u32> {
+    native_llm
+        .and_then(|cfg| cfg.max_input_size)
+        .or(host_window)
+}
+
 /// Resolve the `[background]` print policy carried by the session params.
 ///
 /// `None` (no `print_background_mode`) leaves the engine untouched: a turn
@@ -985,6 +998,22 @@ pub struct JsNativeLlmConfig {
     /// Route an anthropic-protocol model through the beta Messages API
     /// (`POST {base}/messages?beta=true`); absent means the standard endpoint.
     pub beta_api: Option<bool>,
+    /// The model's declared capabilities (`[models.<alias>].capabilities`).
+    pub capabilities: Option<Vec<String>>,
+    /// The model's own system prompt (`[models.<alias>].system_prompt`).
+    pub system_prompt: Option<String>,
+    /// Declared input cap when below the window
+    /// (`[models.<alias>].max_input_size`).
+    pub max_input_size: Option<u32>,
+    /// Explicit adaptive-thinking support
+    /// (`[models.<alias>].adaptive_thinking`).
+    pub adaptive_thinking: Option<bool>,
+    /// The wire field carrying reasoning content
+    /// (`[models.<alias>].reasoning_key`).
+    pub reasoning_key: Option<String>,
+    /// The effort value that encodes "thinking off" on the wire
+    /// (`[models.<alias>].off_effort`).
+    pub off_effort: Option<String>,
 }
 
 /// One host-resolved `[services.moonshot_*]` entry (v2 `configSection.ts`):
@@ -1463,6 +1492,12 @@ async fn build_engine_pipeline(
             auth_provider: cfg.auth_provider.clone(),
             thinking_keep: cfg.thinking_keep.clone(),
             beta_api: cfg.beta_api.unwrap_or(false),
+            capabilities: cfg.capabilities.clone(),
+            system_prompt: cfg.system_prompt.clone(),
+            max_input_size: cfg.max_input_size,
+            adaptive_thinking: cfg.adaptive_thinking,
+            reasoning_key: cfg.reasoning_key.clone(),
+            off_effort: cfg.off_effort.clone(),
         }),
         workspace_root: params.workspace_root.clone(),
         native_tools: params.native_tools.unwrap_or(false),
@@ -1643,6 +1678,9 @@ async fn run_turn_rust_impl(
     let turn_event_count = pipeline.turn_event_count;
     let native_tool_count = pipeline.native_tool_count;
     let hook_guard = pipeline.hook_guard.clone();
+    // Read before `params.goal` is moved out below.
+    let max_context_tokens =
+        compaction_window(params.native_llm.as_ref(), params.max_context_tokens);
 
     let messages: Vec<LLMMessage> = params
         .messages
@@ -1704,7 +1742,7 @@ async fn run_turn_rust_impl(
         // None = unbounded, mirroring the JS loop (which only stops on a
         // configured `maxStepsPerTurn`).
         max_steps: params.max_steps.unwrap_or(u32::MAX),
-        max_context_tokens: params.max_context_tokens,
+        max_context_tokens,
         // The napi host passes its own `[loop_control]` caps through
         // `max_attempts`; the compaction cap has no napi parameter yet, so this
         // path keeps the engine default.
@@ -1713,6 +1751,8 @@ async fn run_turn_rust_impl(
         goal,
         cancellation: Some(cancellation),
         hook_guard: hook_guard.clone(),
+        media: Some(&pipeline.media),
+        media_dropped: Some(pipeline.media_dropped.clone()),
     };
 
     let telemetry_context = params.telemetry.map(|t| TelemetryContext {
@@ -2014,7 +2054,10 @@ pub fn create_engine_session(
                 callbacks: pipeline.callbacks.clone(),
                 max_steps: params.max_steps.unwrap_or(u32::MAX),
                 max_attempts: params.max_attempts,
-                max_context_tokens: params.max_context_tokens,
+                max_context_tokens: compaction_window(
+                    params.native_llm.as_ref(),
+                    params.max_context_tokens,
+                ),
                 compaction_max_attempts: None,
                 permission_mode: pipeline.permission_mode,
                 tool_defs: tool_defs_provider,
@@ -2042,7 +2085,10 @@ pub fn create_engine_session(
                         native_tool_count: pipeline.native_tool_count,
                         llm_transport: pipeline.llm.transport().to_string(),
                         llm: pipeline.llm.clone(),
-                        max_context_tokens: params.max_context_tokens,
+                        max_context_tokens: compaction_window(
+                            params.native_llm.as_ref(),
+                            params.max_context_tokens,
+                        ),
                         quiescence_guard: Arc::new(Mutex::new(None)),
                         mcp_manager: pipeline.mcp_manager.clone(),
                     },
@@ -2065,8 +2111,11 @@ pub fn session_enqueue_turn(
 ) -> napi::Result<f64> {
     guard_sync_panic(|| {
         let entry = session_entry(&session_id)?;
-        let prompt: LLMMessage = serde_json::from_str(&prompt)
+        let mut prompt: LLMMessage = serde_json::from_str(&prompt)
             .map_err(|e| napi::Error::from_reason(format!("prompt parse: {e}")))?;
+        // A client submits an uploaded file as a `kimi-file://` media URL; the
+        // engine is the side that knows it is a daemon reference.
+        prompt.blocks = crate::llm::media_resolver::normalize_media_refs(prompt.blocks);
         let admission = match admission.as_str() {
             "newTurn" => Admission::NewTurn,
             "activeOrNewTurn" => Admission::ActiveOrNewTurn,
@@ -2653,6 +2702,48 @@ pub fn background_task_stop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn js_native_llm() -> JsNativeLlmConfig {
+        JsNativeLlmConfig {
+            protocol: "openai".into(),
+            base_url: "https://api.example.com/v1".into(),
+            api_key: "test-key".into(),
+            model: "test-model".into(),
+            max_tokens: None,
+            custom_headers: None,
+            reasoning_effort: None,
+            thinking_budget: None,
+            auth_provider: None,
+            thinking_keep: None,
+            beta_api: None,
+            capabilities: None,
+            system_prompt: None,
+            max_input_size: None,
+            adaptive_thinking: None,
+            reasoning_key: None,
+            off_effort: None,
+        }
+    }
+
+    /// A model that declares an input cap below its window compacts against the
+    /// cap; without one the host's total window stands.
+    #[test]
+    fn a_declared_input_cap_narrows_the_compaction_window() {
+        let mut native_llm = js_native_llm();
+        native_llm.max_input_size = Some(272_000);
+        assert_eq!(
+            compaction_window(Some(&native_llm), Some(400_000)),
+            Some(272_000)
+        );
+
+        native_llm.max_input_size = None;
+        assert_eq!(
+            compaction_window(Some(&native_llm), Some(400_000)),
+            Some(400_000)
+        );
+        assert_eq!(compaction_window(None, Some(400_000)), Some(400_000));
+        assert_eq!(compaction_window(None, None), None);
+    }
 
     /// Pruning must drop the OLDEST payloads. Iterating a HashMap yields ids
     /// in arbitrary order, which used to let the prune discard payloads JS had

@@ -13,6 +13,7 @@
 //! Tooling is delegated to the JS host through [`HostCallbacks`]; this
 //! module only drives control flow and applies conflict scheduling.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use super::retry::RetryConfig;
@@ -20,6 +21,8 @@ use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
 use crate::callbacks::HostCallbacks;
+use crate::llm::media_budget::{MEDIA_BUDGET_EXCEEDED_CODE, MediaBudget};
+use crate::llm::media_resolver::{MediaResolver, ResolvedRequest, has_media_refs, inline_entries};
 use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
 
 /// Goal/plan state snapshot backed by the host callbacks.
@@ -322,6 +325,51 @@ fn strip_rebuilt_system_message(messages: Vec<LLMMessage>) -> Vec<LLMMessage> {
     messages.into_iter().skip(1).collect()
 }
 
+/// The messages one request carries, after media resolution and the media
+/// budget have had their say, with the omission warning surfaced as a
+/// `WarningEvent` (protocol `events.ts`) — the channel the host already
+/// renders turn warnings on.
+async fn budgeted_request<'a>(
+    budget: &mut MediaBudget,
+    resolver: Option<&MediaResolver>,
+    llm: &dyn LLM,
+    messages: &'a [LLMMessage],
+    callbacks: &dyn HostCallbacks,
+) -> Cow<'a, [LLMMessage]> {
+    let target = llm.media_target();
+    let mut request = match resolver {
+        Some(resolver) => {
+            // The credential is only worth a host round-trip when this
+            // request actually carries a reference the provider would take
+            // by value.
+            let credential = match (target.as_ref(), has_media_refs(messages)) {
+                (Some(target), true) if target.uploads_media => {
+                    match llm.media_upload_credential() {
+                        Some(future) => future.await.ok(),
+                        None => None,
+                    }
+                }
+                _ => None,
+            };
+            resolver
+                .resolve(messages, target.as_ref(), credential.as_deref())
+                .await
+        }
+        None => ResolvedRequest {
+            messages: Cow::Borrowed(messages),
+            entries: inline_entries(messages),
+        },
+    };
+    if let Some(message) = budget.apply(&mut request.messages, &request.entries) {
+        callbacks.emit_event(serde_json::json!({
+            "type": "warning",
+            "code": MEDIA_BUDGET_EXCEEDED_CODE,
+            "message": message,
+        }));
+    }
+    request.messages
+}
+
 /// Run a turn to completion, transparently consuming at most one Stop-hook
 /// continuation inside it (v2 `runStopHooks` + `stopHookContinuationUsed`).
 ///
@@ -356,6 +404,8 @@ pub fn run_turn_continued<'a>(
         cancellation,
         permission_mode,
         hook_guard,
+        media,
+        media_dropped,
     } = input;
     Box::pin(async move {
         let mut messages = messages;
@@ -384,6 +434,8 @@ pub fn run_turn_continued<'a>(
                 cancellation: cancellation.clone(),
                 permission_mode,
                 hook_guard: hook_guard.take(),
+                media,
+                media_dropped: media_dropped.clone(),
             };
             let mut result = run_turn(iter_input, callbacks).await?;
             steps += result.steps;
@@ -675,6 +727,15 @@ pub fn run_turn<'a>(
         // when the turn id changes), so the guard lives only in this call.
         let mut tool_dedupe = crate::tools::tool_dedupe::DedupeGuard::new();
 
+        // Request media budget (upstream #3784): a request whose images and
+        // videos exceed the budget is degraded, not failed. The record of
+        // what an earlier request already omitted is seeded from the caller
+        // and lives for the whole turn.
+        let mut media_budget = match input.media_dropped.clone() {
+            Some(shared) => MediaBudget::shared(shared),
+            None => MediaBudget::default(),
+        };
+
         for step_num in 0..max_steps {
             steps = step_num + 1;
             let turn_wall_clock_ms = elapsed_wall_clock_ms(turn_started);
@@ -828,11 +889,19 @@ pub fn run_turn<'a>(
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
             let telemetry = |event: serde_json::Value| callbacks.telemetry(event);
+            let request_messages = budgeted_request(
+                &mut media_budget,
+                input.media,
+                input.llm,
+                &messages,
+                callbacks.as_ref(),
+            )
+            .await;
             let step_result = match execute_loop_step_with_retry(
                 &turn_id,
                 step_num,
                 input.llm,
-                &messages,
+                &request_messages,
                 input.tools,
                 &step_tool_defs,
                 &retry_config,
@@ -894,11 +963,19 @@ pub fn run_turn<'a>(
                             messages.push(crate::compaction::compaction_continuation_message());
                             context_tokens.invalidate();
                             messages.extend(injections);
+                            let request_messages = budgeted_request(
+                                &mut media_budget,
+                                input.media,
+                                input.llm,
+                                &messages,
+                                callbacks.as_ref(),
+                            )
+                            .await;
                             match execute_loop_step_with_retry(
                                 &turn_id,
                                 step_num,
                                 input.llm,
-                                &messages,
+                                &request_messages,
                                 input.tools,
                                 &step_tool_defs,
                                 &retry_config,
@@ -1599,6 +1676,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -1654,6 +1733,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: Some(guard),
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -1720,6 +1801,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
+            media: None,
+            media_dropped: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -1769,6 +1852,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: Some(guard),
+            media: None,
+            media_dropped: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -1810,6 +1895,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
+            media: None,
+            media_dropped: None,
         };
 
         let turn = run_turn_continued(input, &callbacks).await.unwrap();
@@ -1876,6 +1963,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -1934,6 +2023,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let _ = run_turn(input, &callbacks).await;
@@ -2023,6 +2114,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -2118,6 +2211,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2162,6 +2257,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2210,6 +2307,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2280,6 +2379,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxTokens));
@@ -2310,6 +2411,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxTokens));
@@ -2340,6 +2443,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::Filtered));
@@ -2422,6 +2527,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert_eq!(turn.steps, 3);
@@ -2522,6 +2629,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert_eq!(turn.usage.input_tokens, 18);
@@ -2622,6 +2731,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
         let requests = llm.requests.lock().unwrap();
@@ -2734,6 +2845,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
         let requests = llm.requests.lock().unwrap();
@@ -2851,6 +2964,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let result = run_turn(input, &callbacks).await.unwrap();
 
@@ -2967,6 +3082,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -3052,6 +3169,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let result = run_turn(input, &callbacks).await.unwrap();
 
@@ -3166,6 +3285,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3231,6 +3352,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -3287,6 +3410,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3337,6 +3462,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3390,6 +3517,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &capturing).await.unwrap();
@@ -3452,6 +3581,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3505,6 +3636,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3597,6 +3730,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -3646,6 +3781,8 @@ mod tests {
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3749,6 +3886,8 @@ mod tests {
             goal: None,
             cancellation: Some(cancellation),
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks)
@@ -3811,6 +3950,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks)
@@ -3852,6 +3993,8 @@ mod tests {
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3948,6 +4091,8 @@ mod tests {
             goal: Some(goal),
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4025,6 +4170,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4220,6 +4367,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4320,6 +4469,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4367,6 +4518,8 @@ mod tests {
                 goal: None,
                 cancellation: None,
                 hook_guard: None,
+                media: None,
+                media_dropped: None,
             }
         }
 
@@ -4465,6 +4618,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4526,6 +4681,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: Some(stop_hook_guard()),
+            media: None,
+            media_dropped: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4584,6 +4741,8 @@ mod tests {
             goal: None,
             cancellation: Some(cancel_flag),
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4736,6 +4895,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -4826,6 +4987,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -4912,6 +5075,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -5052,6 +5217,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -5160,6 +5327,8 @@ mod tests {
             goal: None,
             cancellation: None,
             hook_guard: None,
+            media: None,
+            media_dropped: None,
         };
 
         assert!(run_turn(input, &callbacks).await.is_err());
@@ -5167,6 +5336,144 @@ mod tests {
             llm.summarizer_calls.load(Ordering::SeqCst),
             1,
             "the configured cap bounds the summarizer requests"
+        );
+    }
+
+    /// The media budget degrades an over-budget request instead of failing it:
+    /// the oldest media leave the request, the history keeps them, and the
+    /// omission reaches the user as a `warning` event.
+    #[tokio::test]
+    async fn test_over_budget_media_are_omitted_from_the_request_and_warned_about() {
+        use std::sync::Mutex;
+
+        struct CaptureLlm {
+            captured: Arc<Mutex<Vec<LLMMessage>>>,
+        }
+        impl LLM for CaptureLlm {
+            fn system_prompt(&self) -> &str {
+                "base prompt"
+            }
+            fn model_name(&self) -> &str {
+                "capture"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let captured = self.captured.clone();
+                Box::pin(async move {
+                    *captured.lock().unwrap() = params.messages.to_vec();
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        thinking: vec![],
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage {
+                            input_tokens: 5,
+                            output_tokens: 3,
+                            total_tokens: 8,
+                            ..Default::default()
+                        },
+                    })
+                })
+            }
+        }
+
+        let image = |tag: &str, bytes: usize| LLMMessage {
+            role: "user".into(),
+            content: String::new(),
+            blocks: vec![ContentBlock::Image {
+                media_type: "image/png".into(),
+                data: format!("{tag}{}", "A".repeat(bytes)),
+                name: None,
+            }],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        };
+        let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = CaptureLlm {
+            captured: captured.clone(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            turn_id: "test-media-budget".into(),
+            llm: &llm,
+            messages: vec![
+                image("a", 8 * 1024 * 1024),
+                image("b", 8 * 1024 * 1024),
+                image("c", 8 * 1024 * 1024),
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 1,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+        };
+
+        let turn = run_turn(input, &callbacks).await.unwrap();
+
+        let sent = captured.lock().unwrap().clone();
+        let omitted = |message: &LLMMessage| {
+            matches!(
+                message.blocks.first(),
+                Some(ContentBlock::Text { text })
+                    if text == "[image omitted: dropped to fit the request media budget]"
+            )
+        };
+        // The turn head is the rebuilt system message, and the loop injects a
+        // date reminder of its own — the media are the messages that carry a
+        // media block or the placeholder one left behind.
+        let media: Vec<&LLMMessage> = sent
+            .iter()
+            .filter(|m| {
+                omitted(m)
+                    || m.blocks
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::Image { .. }))
+            })
+            .collect();
+        assert_eq!(media.len(), 3, "{sent:?}");
+        assert!(omitted(media[0]), "the oldest media leaves the request");
+        assert!(omitted(media[1]));
+        assert!(
+            !omitted(media[2]),
+            "the newest media stays: {:?}",
+            media[2].blocks
+        );
+        assert!(
+            turn.messages
+                .iter()
+                .filter(|m| m.role == "user")
+                .all(|m| !omitted(m)),
+            "the history keeps every block, so a later request can still see them"
+        );
+        let warnings: Vec<serde_json::Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.get("type").and_then(|t| t.as_str()) == Some("warning"))
+            .cloned()
+            .collect();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0]["code"], "media-budget-exceeded");
+        assert_eq!(
+            warnings[0]["message"],
+            "Conversation media exceeded the 20 MB per-request budget; \
+             2 older media item(s) were omitted."
         );
     }
 }

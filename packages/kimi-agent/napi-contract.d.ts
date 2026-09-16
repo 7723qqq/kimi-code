@@ -275,6 +275,30 @@ export interface JsNativeLlmConfig {
    * (`POST {base}/messages?beta=true`); absent means the standard endpoint.
    */
   betaApi?: boolean
+  /** The model's declared capabilities (`[models.<alias>].capabilities`). */
+  capabilities?: Array<string>
+  /** The model's own system prompt (`[models.<alias>].system_prompt`). */
+  systemPrompt?: string
+  /**
+   * Declared input cap when below the window
+   * (`[models.<alias>].max_input_size`).
+   */
+  maxInputSize?: number
+  /**
+   * Explicit adaptive-thinking support
+   * (`[models.<alias>].adaptive_thinking`).
+   */
+  adaptiveThinking?: boolean
+  /**
+   * The wire field carrying reasoning content
+   * (`[models.<alias>].reasoning_key`).
+   */
+  reasoningKey?: string
+  /**
+   * The effort value that encodes "thinking off" on the wire
+   * (`[models.<alias>].off_effort`).
+   */
+  offEffort?: string
 }
 
 export interface JsRunTurnParams {

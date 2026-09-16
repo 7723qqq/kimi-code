@@ -1980,6 +1980,7 @@ mod tests {
                     },
                     ContentBlock::ImageUrl {
                         url: "https://example.com/cat.png".into(),
+                        id: None,
                         name: None,
                     },
                 ],
@@ -2042,6 +2043,7 @@ mod tests {
             loaded[0].blocks[1],
             ContentBlock::ImageUrl {
                 url: "https://example.com/cat.png".into(),
+                id: None,
                 name: None,
             }
         );

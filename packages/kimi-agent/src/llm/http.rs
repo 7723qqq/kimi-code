@@ -72,7 +72,7 @@ impl Accumulator {
 /// a client per LLM instance dropped that pool on every rebuild, so each turn
 /// paid a fresh connect + TLS handshake before its first token. Keep-alive
 /// reuse is what lets the host transport (Node fetch) start streaming sooner.
-static SHARED_HTTP_CLIENT: once_cell::sync::Lazy<reqwest::Client> =
+pub(crate) static SHARED_HTTP_CLIENT: once_cell::sync::Lazy<reqwest::Client> =
     once_cell::sync::Lazy::new(|| {
         reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(15))
@@ -100,7 +100,20 @@ pub struct NativeHttpLlm {
 }
 
 impl NativeHttpLlm {
-    pub fn new(config: NativeLlmConfig, system_prompt: String) -> Self {
+    /// Build the transport for one config. The model's own system prompt and
+    /// off-effort are resolved here, so every construction site — the session
+    /// model, a `[secondary_model]` pool alias, the REPL — gets the same
+    /// effective config.
+    pub fn new(mut config: NativeLlmConfig, system_prompt: String) -> Self {
+        // A model's own system prompt replaces the session prompt for its
+        // transport; without one the session prompt stands.
+        let system_prompt = config.system_prompt.clone().unwrap_or(system_prompt);
+        // The host resolves `reasoning_effort` itself (its thinking state is
+        // not visible here), so a model that encodes "thinking off" as an
+        // effort value only fills the gap when the host sent none.
+        if config.reasoning_effort.is_none() {
+            config.reasoning_effort = config.off_effort.clone();
+        }
         let client = SHARED_HTTP_CLIENT.clone();
         Self {
             config,
@@ -294,7 +307,10 @@ impl NativeHttpLlm {
         } else if is_google {
             Accumulator::Google(google_genai::StreamAccumulator::new())
         } else {
-            Accumulator::OpenAI(openai::StreamAccumulator::new())
+            Accumulator::OpenAI(
+                openai::StreamAccumulator::new()
+                    .with_reasoning_key(self.config.reasoning_key.as_deref()),
+            )
         };
 
         let content_type = response
@@ -721,6 +737,34 @@ impl LLM for NativeHttpLlm {
         "native-http"
     }
 
+    fn media_target(&self) -> Option<crate::llm::media_resolver::MediaTarget> {
+        let capabilities = self.config.capabilities.as_deref().unwrap_or_default();
+        let declares = |name: &str| capabilities.iter().any(|c| c == name);
+        Some(crate::llm::media_resolver::MediaTarget {
+            protocol: self.config.protocol.clone(),
+            base_url: self.config.base_url.clone(),
+            provider_key: self
+                .config
+                .auth_provider
+                .clone()
+                .unwrap_or_else(|| self.config.protocol.clone()),
+            // An undeclared capability set accepts everything: the host only
+            // sends a set when it means to narrow the model.
+            image_in: capabilities.is_empty() || declares("image_in"),
+            video_in: capabilities.is_empty() || declares("video_in"),
+            audio_in: capabilities.is_empty() || declares("audio_in"),
+            // v2 gates the upload on the provider being OAuth-managed
+            // (`modelSource === 'oauth-catalog'`); `auth_provider` is the
+            // engine's marker for the same set.
+            uploads_media: self.config.auth_provider.is_some(),
+        })
+    }
+
+    fn media_upload_credential(&self) -> Option<crate::llm::files_upload::CredentialFuture<'_>> {
+        self.config.auth_provider.as_ref()?;
+        Some(Box::pin(async move { self.credential().await }))
+    }
+
     fn is_retryable_error(&self, error: &str) -> bool {
         // Status-coded errors are classified by code, not by body. Scanning
         // the body for keywords would retry a 400 whose text happens to
@@ -871,6 +915,12 @@ mod tests {
             auth_provider: None,
             thinking_keep: None,
             beta_api: false,
+            capabilities: None,
+            system_prompt: None,
+            max_input_size: None,
+            adaptive_thinking: None,
+            reasoning_key: None,
+            off_effort: None,
         }
     }
 
@@ -994,6 +1044,30 @@ mod tests {
         let llm = NativeHttpLlm::new(config("openai", "https://api.example.com/v1"), "sys".into());
         assert_eq!(llm.model_name(), "test-model");
         assert_eq!(llm.system_prompt(), "sys");
+    }
+
+    #[test]
+    fn a_models_own_system_prompt_replaces_the_session_prompt() {
+        let mut cfg = config("openai", "https://api.example.com/v1");
+        cfg.system_prompt = Some("model prompt".into());
+        let llm = NativeHttpLlm::new(cfg, "session prompt".into());
+        assert_eq!(llm.system_prompt(), "model prompt");
+    }
+
+    #[test]
+    fn off_effort_fills_a_missing_reasoning_effort() {
+        let mut cfg = config("openai", "https://api.example.com/v1");
+        cfg.off_effort = Some("none".into());
+        let llm = NativeHttpLlm::new(cfg, String::new());
+        assert_eq!(llm.config.reasoning_effort.as_deref(), Some("none"));
+
+        // An effort the host resolved itself wins: the off-effort only fills
+        // the gap, it never overrides a chosen effort.
+        let mut declared = config("openai", "https://api.example.com/v1");
+        declared.off_effort = Some("none".into());
+        declared.reasoning_effort = Some("high".into());
+        let llm = NativeHttpLlm::new(declared, String::new());
+        assert_eq!(llm.config.reasoning_effort.as_deref(), Some("high"));
     }
 
     #[tokio::test]

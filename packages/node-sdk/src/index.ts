@@ -99,6 +99,8 @@ export {
   type PrintBackgroundSettings,
   PRINT_WAIT_CEILING_S_DEFAULT,
   resolveModelCapabilities,
+  resolveModelContextWindow,
+  lookupModelAlias,
   resolveWebSearchService,
   resolveWebFetchService,
   type WebServiceConfig,

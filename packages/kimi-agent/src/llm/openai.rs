@@ -144,10 +144,13 @@ fn project_block(b: &ContentBlock) -> Value {
             "type": "image_url",
             "image_url": { "url": format!("data:{media_type};base64,{data}") },
         }),
-        ContentBlock::ImageUrl { url, .. } => json!({
-            "type": "image_url",
-            "image_url": { "url": url },
-        }),
+        ContentBlock::ImageUrl { url, id, .. } => {
+            let mut image = json!({ "url": url });
+            if let Some(id) = id {
+                image["id"] = Value::String(id.clone());
+            }
+            json!({ "type": "image_url", "image_url": image })
+        }
         ContentBlock::AudioUrl { url, id, .. } => {
             let mut audio = json!({ "url": url });
             if let Some(id) = id {
@@ -163,6 +166,13 @@ fn project_block(b: &ContentBlock) -> Value {
             json!({ "type": "video_url", "video_url": video })
         }
         ContentBlock::Think { think, .. } => json!({ "type": "text", "text": think }),
+        // A reference that reached the wire was never resolved: the resolver
+        // runs before every request. Degrade visibly rather than hand the
+        // provider a `kimi-file://` URL it cannot fetch.
+        ContentBlock::MediaRef { kind, .. } => json!({
+            "type": "text",
+            "text": crate::llm::media_resolver::unavailable_text(*kind),
+        }),
     }
 }
 
@@ -314,11 +324,38 @@ pub struct StreamAccumulator {
     tool_calls: Vec<PartialToolCall>,
     finish_reason: Option<String>,
     usage: TokenUsage,
+    /// The wire field carrying reasoning content for this model
+    /// (`[models.<alias>].reasoning_key`); the built-in probe list is the
+    /// fallback when the model declares none.
+    reasoning_key: Option<String>,
 }
 
 impl StreamAccumulator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Declare the model's reasoning field: it is then the only field read, so
+    /// a gateway that returns reasoning under a non-standard name still
+    /// surfaces it as thinking.
+    pub fn with_reasoning_key(mut self, key: Option<&str>) -> Self {
+        self.reasoning_key = key.map(str::to_string);
+        self
+    }
+
+    /// The reasoning text in one delta: the model's declared field when it
+    /// declares one, otherwise the probe list of names gateways are known to
+    /// use.
+    fn reasoning_delta<'a>(&self, delta: &'a Value) -> Option<&'a str> {
+        if let Some(key) = self.reasoning_key.as_deref() {
+            return delta.get(key).and_then(|c| c.as_str());
+        }
+        delta
+            .get("reasoning_content")
+            .and_then(|c| c.as_str())
+            .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
+            .or_else(|| delta.get("reasoning_text").and_then(|c| c.as_str()))
+            .or_else(|| delta.get("thought").and_then(|c| c.as_str()))
     }
 
     /// Resolve the tool-call slot for a streamed index, or `None` when the
@@ -377,12 +414,7 @@ impl StreamAccumulator {
             }
         }
 
-        if let Some(think) = delta
-            .get("reasoning_content")
-            .and_then(|c| c.as_str())
-            .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
-            .or_else(|| delta.get("reasoning_text").and_then(|c| c.as_str()))
-            .or_else(|| delta.get("thought").and_then(|c| c.as_str()))
+        if let Some(think) = self.reasoning_delta(delta)
             && !think.is_empty()
         {
             self.thinking.push_str(think);
@@ -606,6 +638,7 @@ mod tests {
                 },
                 ContentBlock::ImageUrl {
                     url: "https://example.com/x.png".into(),
+                    id: None,
                     name: None,
                 },
             ],
@@ -797,6 +830,24 @@ mod tests {
                 encrypted: None,
             }
         );
+    }
+
+    #[test]
+    fn declared_reasoning_key_is_read_before_the_probe_list() {
+        // A gateway that returns reasoning under a non-standard field: the
+        // declared key wins over the built-in probe list.
+        let mut declared = StreamAccumulator::new().with_reasoning_key(Some("thinking_text"));
+        let delta = declared.feed(&json!({
+            "choices": [{ "delta": { "thinking_text": "step by step" } }]
+        }));
+        assert_eq!(delta, Some(StreamDelta::Think("step by step".into())));
+
+        // Without a declared key the probe list still applies.
+        let mut probed = StreamAccumulator::new();
+        let delta = probed.feed(&json!({
+            "choices": [{ "delta": { "reasoning_content": "probed" } }]
+        }));
+        assert_eq!(delta, Some(StreamDelta::Think("probed".into())));
     }
 
     #[test]

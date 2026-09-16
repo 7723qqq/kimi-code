@@ -1,5 +1,6 @@
 import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 import type { KimiConfig, KimiConfigPatch, ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import { lookupModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
 import { getRecommendedEffortStateFile } from '#/utils/paths';
@@ -22,9 +23,9 @@ function eligibleModelEntry(config: KimiConfig): ModelAlias | undefined {
   if (config.thinking?.enabled === false) return undefined;
   const alias = config.defaultModel;
   if (alias === undefined) return undefined;
-  const entry = config.models?.[alias];
+  const entry = lookupModelAlias(config, alias);
   if (entry === undefined) return undefined;
-  const baseUrl = entry.baseUrl ?? config.providers[entry.provider]?.baseUrl;
+  const baseUrl = entry.baseUrl ?? config.providers[entry.providerId ?? entry.provider]?.baseUrl;
   return isManagedKimiCodeBaseUrl(baseUrl) ? entry : undefined;
 }
 

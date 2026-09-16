@@ -756,7 +756,7 @@ fn extract_session_subaction<'a>(path: &'a str, action: &str, sub: &str) -> Opti
     Some(id)
 }
 
-fn infer_media_type(path: &Path) -> String {
+pub(crate) fn infer_media_type(path: &Path) -> String {
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -782,74 +782,64 @@ fn infer_media_type(path: &Path) -> String {
     .to_string()
 }
 
-fn media_block_from_bytes(
-    name: &str,
-    media_type: &str,
-    bytes: &[u8],
-    kind_hint: &str,
-) -> crate::rpc::types::ContentBlock {
-    use crate::rpc::types::ContentBlock;
-    use base64::Engine as _;
-    let media_type = if media_type.is_empty() {
-        "application/octet-stream".to_string()
-    } else {
-        media_type.to_string()
-    };
-    let name_opt = if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    };
-    if media_type.starts_with("image/") || kind_hint == "image" {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        return ContentBlock::Image {
-            media_type,
-            data: encoded,
-            name: name_opt,
-        };
-    }
-    if media_type.starts_with("audio/") || kind_hint == "audio" {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        return ContentBlock::AudioUrl {
-            url: format!("data:{media_type};base64,{encoded}"),
-            id: None,
-            name: name_opt,
-        };
-    }
-    if media_type.starts_with("video/") || kind_hint == "video" {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        return ContentBlock::VideoUrl {
-            url: format!("data:{media_type};base64,{encoded}"),
-            id: None,
-            name: name_opt,
-        };
-    }
-    ContentBlock::Text {
-        text: format!(
-            "[Attached file: {name} ({media_type}, {} bytes)]",
-            bytes.len()
-        ),
+/// The media family a part's `type` names. Anything that is not video or
+/// audio is treated as an image, matching the intake's historical default.
+fn media_kind_of(kind: &str) -> crate::rpc::types::MediaKind {
+    match kind {
+        "video" => crate::rpc::types::MediaKind::Video,
+        "audio" => crate::rpc::types::MediaKind::Audio,
+        _ => crate::rpc::types::MediaKind::Image,
     }
 }
 
-fn file_block_from_store(
+/// The media family a MIME type names, or `None` for a type the engine has no
+/// media block for (the caller keeps its text placeholder).
+fn media_kind_for_type(media_type: &str) -> Option<crate::rpc::types::MediaKind> {
+    use crate::rpc::types::MediaKind;
+    if media_type.starts_with("image/") {
+        Some(MediaKind::Image)
+    } else if media_type.starts_with("video/") {
+        Some(MediaKind::Video)
+    } else if media_type.starts_with("audio/") {
+        Some(MediaKind::Audio)
+    } else {
+        None
+    }
+}
+
+/// A reference to a file already in the store. The bytes stay where they are:
+/// the engine's resolver reads them at request time, once it knows which model
+/// the turn runs on.
+fn file_ref_from_store(
     store: &crate::server::files::FileStore,
     file_id: &str,
     kind_hint: &str,
 ) -> Result<crate::rpc::types::ContentBlock, String> {
     let (meta, path) = store.get(file_id).map_err(|error| error.2.to_string())?;
-    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
     let media_type = if meta.media_type.is_empty() {
         infer_media_type(&path)
     } else {
         meta.media_type.clone()
     };
-    Ok(media_block_from_bytes(
-        &meta.name,
-        &media_type,
-        &bytes,
-        kind_hint,
-    ))
+    let kind = match media_kind_for_type(&media_type) {
+        Some(kind) => kind,
+        // A part that names its own family still gets a reference: the store
+        // may hold a type the MIME prefix cannot place.
+        None if !kind_hint.is_empty() => media_kind_of(kind_hint),
+        // A plain attachment has no media block; the model reads it by name.
+        None => {
+            return Ok(crate::rpc::types::ContentBlock::Text {
+                text: format!(
+                    "[Attached file: {} ({media_type}, {} bytes)]",
+                    meta.name, meta.size
+                ),
+            });
+        }
+    };
+    Ok(crate::rpc::types::ContentBlock::MediaRef {
+        file_id: file_id.to_string(),
+        kind,
+    })
 }
 
 /// Convert a protocol `MessageContent[]` prompt submission into the engine's
@@ -1045,22 +1035,34 @@ fn prompt_content_to_blocks(
                 match source_kind {
                     "url" => {
                         if let Some(url) = source.get("url").and_then(|value| value.as_str()) {
-                            blocks.push(match kind {
-                                "image" => ContentBlock::ImageUrl {
-                                    url: url.to_string(),
-                                    name,
-                                },
-                                "audio" => ContentBlock::AudioUrl {
-                                    url: url.to_string(),
-                                    id: None,
-                                    name,
-                                },
-                                _ => ContentBlock::VideoUrl {
-                                    url: url.to_string(),
-                                    id: None,
-                                    name,
-                                },
-                            });
+                            // A `kimi-file://` URL is a daemon reference, not a
+                            // URL a provider could fetch.
+                            if let Some(file_id) =
+                                crate::llm::media_resolver::parse_daemon_file_url(url)
+                            {
+                                blocks.push(ContentBlock::MediaRef {
+                                    file_id: file_id.to_string(),
+                                    kind: media_kind_of(kind),
+                                });
+                            } else {
+                                blocks.push(match kind {
+                                    "image" => ContentBlock::ImageUrl {
+                                        url: url.to_string(),
+                                        id: None,
+                                        name,
+                                    },
+                                    "audio" => ContentBlock::AudioUrl {
+                                        url: url.to_string(),
+                                        id: None,
+                                        name,
+                                    },
+                                    _ => ContentBlock::VideoUrl {
+                                        url: url.to_string(),
+                                        id: None,
+                                        name,
+                                    },
+                                });
+                            }
                         }
                     }
                     "base64" => {
@@ -1100,7 +1102,7 @@ fn prompt_content_to_blocks(
                             .get("file_id")
                             .and_then(|value| value.as_str())
                             .unwrap_or("");
-                        blocks.push(file_block_from_store(files, file_id, kind)?);
+                        blocks.push(file_ref_from_store(files, file_id, kind)?);
                     }
                     "path" => {
                         let path = source
@@ -1108,13 +1110,22 @@ fn prompt_content_to_blocks(
                             .and_then(|value| value.as_str())
                             .unwrap_or("");
                         let path = Path::new(path);
+                        // Materialize the file into the store so the reference
+                        // has an identity the resolver and the budget can key
+                        // on (v2's prompt intake does the same).
                         let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
                         let name = path
                             .file_name()
                             .and_then(|value| value.to_str())
                             .unwrap_or("attachment");
                         let media_type = infer_media_type(path);
-                        blocks.push(media_block_from_bytes(name, &media_type, &bytes, kind));
+                        let meta = files
+                            .save(name, &media_type, None, &bytes)
+                            .map_err(|error| error.2)?;
+                        blocks.push(ContentBlock::MediaRef {
+                            file_id: meta.id,
+                            kind: media_kind_of(kind),
+                        });
                     }
                     _ => {}
                 }
@@ -1126,7 +1137,7 @@ fn prompt_content_to_blocks(
                     .and_then(|value| value.as_str())
                     .unwrap_or("");
                 if let Some(file_id) = part.get("file_id").and_then(|value| value.as_str()) {
-                    match file_block_from_store(files, file_id, "") {
+                    match file_ref_from_store(files, file_id, "") {
                         Ok(block) => blocks.push(block),
                         Err(error) => {
                             if let Some(name) = name {
@@ -1151,12 +1162,23 @@ fn prompt_content_to_blocks(
                     } else {
                         media_type.to_string()
                     };
-                    blocks.push(media_block_from_bytes(
-                        file_name,
-                        &resolved_type,
-                        &bytes,
-                        "",
-                    ));
+                    match media_kind_for_type(&resolved_type) {
+                        Some(kind) => {
+                            let meta = files
+                                .save(file_name, &resolved_type, None, &bytes)
+                                .map_err(|error| error.2)?;
+                            blocks.push(ContentBlock::MediaRef {
+                                file_id: meta.id,
+                                kind,
+                            });
+                        }
+                        None => blocks.push(ContentBlock::Text {
+                            text: format!(
+                                "[Attached file: {file_name} ({resolved_type}, {} bytes)]",
+                                bytes.len()
+                            ),
+                        }),
+                    }
                 }
             }
             _ => {}
@@ -10914,17 +10936,14 @@ max_context_size = 128000
         let (prompt, blocks) = prompt_content_to_blocks(&content, &files).unwrap();
         assert_eq!(prompt, "look at this");
         assert_eq!(blocks.len(), 2);
+        // The bytes stay in the store: the engine's resolver reads them once
+        // it knows which model the turn runs on.
         match &blocks[0] {
-            crate::rpc::types::ContentBlock::Image {
-                media_type,
-                data,
-                name,
-            } => {
-                assert_eq!(media_type, "image/png");
-                assert_eq!(data, "iVBORw==");
-                assert_eq!(name.as_deref(), Some("photo.png"));
+            crate::rpc::types::ContentBlock::MediaRef { file_id, kind } => {
+                assert_eq!(file_id, &png.id);
+                assert_eq!(*kind, crate::rpc::types::MediaKind::Image);
             }
-            other => panic!("expected image block, got {other:?}"),
+            other => panic!("expected a media reference, got {other:?}"),
         }
         match &blocks[1] {
             crate::rpc::types::ContentBlock::Text { text } => {
@@ -11217,6 +11236,7 @@ max_context_size = 128000
         let mut user = message("user", "describe the attachment");
         user.blocks.push(ContentBlock::ImageUrl {
             url: "https://example.test/attachment.png".into(),
+            id: None,
             name: None,
         });
         let mut assistant = message("assistant", "an attachment");

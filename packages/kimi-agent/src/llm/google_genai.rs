@@ -145,6 +145,11 @@ pub fn build_request_full(
                             parts.push(convert_media_url(url, "video/mp4"));
                         }
                         ContentBlock::Think { .. } => {}
+                        // A reference that reached the wire was never
+                        // resolved: the resolver runs before every request.
+                        ContentBlock::MediaRef { kind, .. } => parts.push(json!({
+                            "text": crate::llm::media_resolver::unavailable_text(*kind),
+                        })),
                     }
                 }
                 if parts.is_empty() {
@@ -672,6 +677,7 @@ mod tests {
             vec![
                 ContentBlock::ImageUrl {
                     url: "https://example.com/photo.png".into(),
+                    id: None,
                     name: None,
                 },
                 ContentBlock::AudioUrl {
@@ -686,6 +692,7 @@ mod tests {
                 },
                 ContentBlock::ImageUrl {
                     url: "https://example.com/unknown.bin".into(),
+                    id: None,
                     name: None,
                 },
             ],

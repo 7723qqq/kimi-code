@@ -390,9 +390,10 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    attempt-state 失效逻辑，`context_tokens.invalidate()` 属 token 记账而非流式增量。先确认 Rust
    是否存在"被弃用 attempt 的增量泄漏到重试后消息"的路径，再决定是否移植。
 3. **#3694 存储失败重建索引 / #3697 steer 打断后台等待 / #3688 MCP 附件原件保留 /
-   #3648 tower 可靠性 / #3606 模型目录运行时**：
+   #3648 tower 可靠性**：
    已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
-   （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条。）
+   （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条；
+   #3606 模型目录运行时已落地，见第 16 条。）
 4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
    `transport/ws/` 下的 `v1`/`v3`/`debug` 三代并存命名，v3 即「扁平实体」代际（提交
    `64505e36e3`，design revision 1094）：26 个 server 消息变体 + 2 个 client 帧，实体按
@@ -467,10 +468,19 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    state_entries、checkpoints、workspaces、session_file_history、wire_events），所以上游的
    `interaction` 实体在 fork 里**只有 live 态**（`server/interaction.rs`），历史折叠无源；要补齐
    必须新增持久化，或明确声明 history 不返回 interaction（客户端需容忍）。
-5. **ACP 宿主的部分对齐项（板块 8，已就地标注）**：`stopReason` 非 ACP 枚举（高）、
-   `$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、`additionalDirectories` 被静默丢弃
-   （中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、`session/set_model` 缺失（中）、
-   ACP `mcpServers` 写进程级 manager 与 v2 per-session ephemeral 语义相反（中）。
+5. ~~**ACP 宿主的部分对齐项（板块 8，已就地标注）**~~ **已解决（2026-09-16 后续变更）**。原列七项：
+   `stopReason` 非 ACP 枚举（高）、`$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、
+   `additionalDirectories` 被静默丢弃（中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、
+   `session/set_model` 缺失（中）、ACP `mcpServers` 写进程级 manager 与 v2 per-session ephemeral
+   语义相反（中）。前六项由本轮 ACP 对齐落地（见 `.changeset/acp-protocol-alignment.md`），
+   第七项本次落地：`ServerEngine` 新增 `session_mcp`（`server/engine.rs:239`）与
+   `set_session_mcp_manager` / `mcp_manager_for`（`:576,589`），`session/new` 带 `mcpServers` 时
+   为该会话新建一个 `McpManager` 并在其上 `configure`（`acp/mod.rs:252`），会话的 pipeline 经
+   `mcp_manager_for(session_id)`（`:1015`）取到它；未带该字段的会话仍用进程级 manager。
+   **注册即定作用域**：连接失败的服务器照样留在该会话的 roster 上（状态 `failed`），与 v2 把
+   `mcpServers` 交给 `sessions.create` 后由引擎连接、失败只影响状态的行为一致。
+   验证：`acp::tests::test_acp_new_session_scopes_mcp_servers_to_the_session`（带 `mcpServers` 的
+   会话拿到自己的 manager 且共享 manager 不被污染；不带的会话仍 `Arc::ptr_eq` 共享 manager）。
 6. ~~**#3787 托管用量配额模型（客户端侧）**~~ **已解决（2026-09-15 后续变更）**。Rust 路由本就是平台
    原样透传（`server/oauth.rs:653-664,698`），本次只补客户端：`packages/oauth/src/managed-usage.ts`
    改为 zod 配额域模型（`managedQuotaEntrySchema`/`managedQuotaUsagesSchema`/`boosterWalletInfoSchema`/
@@ -616,17 +626,118 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    `session::tests::test_print_steer_ignores_another_sessions_notifications`（真实 print 结算路径：
    两个会话各有一条待排空通知，steer 回合只带本会话的 `t-mine`，`t-other` 不进入提示词且仍留在队列里）、
    `session::tests::test_print_steer_feeds_task_notifications_back`（本会话的完成照常 steer）。
-16. **#3606 模型目录运行时重接 + 移除逐模型检视面板**：上游把目录运行时接到 provider-catalog
-    状态机，并**删掉**了逐模型检视（`IModelCatalog.inspect` 与 496 行 `inspection.ts`），换成
-    ping + 建会话动作。fork 的 `apps/kimi-inspect/src/components/ModelCatalogView.tsx:368,522`
-    仍在调 `IModelCatalog.inspect`，而 Rust 调试面**不服务该方法**（`server/debug.rs` 的
-    `modelCatalog` 只有 `listModels`/`listProviders`），所以该面板当前是坏的。对齐上游需要调试面
-    新增 `modelCatalog.ping`、`modelService.list`、`sessionManager.resume` 三个方法，再移植上游的
-    视图（413 行）。
-17. **#3784 图片以文件引用上传 + 媒体请求预算**：上游把发给 Kimi 模型的图片改为文件引用上传，
-    并在累计媒体超出请求体积预算时**丢弃最旧的媒体并告警**（而不是让请求失败）。Rust 引擎仍以
-    内联 base64 发送（`llm/openai.rs:145`、`llm/anthropic.rs:227`），且没有媒体预算——超限请求
-    会直接失败而非降级。
+16. ~~**#3606 模型目录运行时重接 + 移除逐模型检视面板**~~ **已解决（2026-09-15 后续变更）**。
+    上游把目录运行时接到 provider-catalog 状态机，并**删掉**了逐模型检视（`IModelCatalog.inspect`
+    与 496 行 `inspection.ts`），换成 ping + 建会话动作。fork 的
+    `apps/kimi-inspect/src/components/ModelCatalogView.tsx:368,522` 仍在调 `IModelCatalog.inspect`，
+    而 Rust 调试面**不服务该方法**（`server/debug.rs` 的 `modelCatalog` 只有
+    `listModels`/`listProviders`），所以该面板当时是坏的。本次落地：
+    **调试面三个新方法**——`modelCatalog.ping`（`server/debug.rs:669` 调度 → `ping_model`
+    `:70`，经 `ServerEngine::llm_for_model`（`server/engine.rs:921`）复用 turn 的 LLM 选择链
+    （`resolved_native_llm` + `build_llm_for_spec`），发一条 `"ping"` 用户消息、空工具表，
+    回 `{ok, durationMs, text, finishReason, usage}` 或 provider 自己的错误文本；模型解析不到
+    provider 时回 `ok:false` 并点名模型，**不伪造 pong**）、`modelService.list`
+    （`:684` → `model_records` `:122`，按 alias id 投影 `[models.*]` 原始记录，`providerId`
+    取 alias 的 provider 或全局 `default_provider`，**不投影 apiKey**）、
+    `sessionManager.resume`（`:597`，standalone 服务端没有可实例化的 per-session 运行时——
+    会话作用域路由一律按需读库——故「resume」= 会话存在且可达；未知会话回 400 错误而非静默成功，
+    404 在本面保留给「未知方法」）。三者均已登记进 `describe_all_channels()`
+    （`:184,189,197`）与描述符/调度一致性测试的 `dispatched` 表（`:1080,1082,1083`）。
+    **顺带对齐**：`modelCatalog.listProviders` 原先返回 `{id,name,type,base_url,oauth}`，
+    与 fork 自己的 `compat/v2.ts` 声明（`ProviderCatalogItem` 的 `status`/`default_model`/
+    `has_api_key`/`models`）不符，导致移植后的 provider 状态徽章与 default 标记、以及
+    `Sidebar.resolveDefaultModel`（`Sidebar.tsx:108-114`）都读不到值；现改为复用 REST 侧已有的
+    `model_catalog::providers`（`server/model_catalog.rs:141`）。
+    **视图移植**：`apps/kimi-inspect/src/components/ModelCatalogView.tsx`（608 → 381 行）换成上游
+    413 行版本的三栏→两栏形态（左列表 + 每模型 Ping / + Session 动作），纯分组与上下文长度标签
+    抽到 `src/components/modelCatalog.ts`（`groupModelsByProvider` `:25`、`formatContextSize`
+    `:51`，配 `modelCatalog.test.ts` 5 项），全部用户可见文案走 `t()`
+    （`src/i18n/locales/{en,zh}.ts` 新增 `modelCatalog` 命名空间 20 键），
+    `compat/v2.ts` 删掉已无人调用的 `IModelCatalog.inspect` 与 `ModelInspection`/
+    `InspectionSource` 声明（正是它们让坏调用看起来合法）。文档同步：
+    `apps/kimi-inspect/AGENTS.md` 与 `README.md` 的 Model Catalog 段落。
+    验证：`server::debug::tests::debug_model_records_and_session_resume_are_real`、
+    `debug_model_ping_never_fakes_a_pong`、`debug_channel_descriptor_matches_dispatch`、
+    `server::engine::tests::llm_for_model_resolves_a_named_alias_and_refuses_an_unknown_one`；
+    `cd apps/kimi-inspect && bun run test` 115 项全绿、`bun run typecheck` 干净。
+17. ~~**#3784 图片以文件引用上传 + 媒体请求预算**~~ **已解决（2026-09-16 后续变更）**。
+    **先说基础错误**：本条原先的落地是照着一份**过期参照**写的。`.tmp/v2-ref` 的抽取时间是
+    2026-09-12 01:27，而 `upstream/main` 是 `5653c739b9`（2026-09-15 21:32），晚 32 个提交，
+    其中就有本条要移植的 `5653c739b9 feat(agent-core-v2): upload images as file references for
+    Kimi models (#3784)`。三条硬证据：过期树里 `human/llm-kimi/files.ts` 只有 `uploadVideo`
+    （`uploadImage` 是 #3784 带进来的）；过期树里 `agent/media/mediaResolverService.ts` 中
+    `"media budget"` 命中 0 次（上游版本有 `REQUEST_MEDIA_BUDGET_BYTES` /
+    `REQUEST_MEDIA_BUDGET_LOW_BYTES` / `mediaBudgetDroppedKey`）；原条目声称预算常量「逐字对齐上游」
+    并引用 `KimiFiles.uploadImage`，两者在写作时所依据的那棵树里都不存在。`.tmp/v2-ref` 已重新抽取，
+    旧树留在 `.tmp/v2-ref-2026-09-12`。
+
+    **真正的结构错误**：媒体身份在 host 边界被销毁。原 `media_block_from_bytes`
+    （`server/mod.rs:785`）把字节 base64 编码进 `ContentBlock::Image { media_type, data, name }`，
+    `fileId` 与 path 就在那一行丢掉，下游再也拿不回来。v2 相反：消息里存的是**引用**
+    （`image_url.url = "kimi-file://<fileId>"`），到请求时才由 `AgentMediaResolverService.resolve()`
+    解析成内联 base64、provider 侧 `ms://<id>`、或 `<image path="…">` 标签。原条目里被写成
+    「引擎结构所限，非疏漏」的每一条差异，都是这一个原因的派生——补症状是错的，所以本轮重建了引用模型。
+
+    **落地**：
+    - **协议**：`ContentBlock::MediaRef { file_id, kind }`（`rpc/types.rs:451`）与 `MediaKind`
+      （`:444`）。三种状态由此显式：内联（`Image`）、引用（`MediaRef`）、已解析的远端
+      （`ImageUrl`/`VideoUrl`/`AudioUrl`）。`ImageUrl` 补上 `id`（`:487`），openai 投影带上
+      `image_url.id`（`llm/openai.rs:147`），anthropic 与 v2 一致不带（`llm/anthropic.rs:229`）。
+    - **host 边界**：`file_ref_from_store`（`server/mod.rs:785`）与 `path` 分支不再读字节，改发
+      `MediaRef`；`path` 来源先 `FileStore::save` 落库再引用（v2 的「materialize the session copy」）。
+      非媒体类型（PDF 等）仍走 `[Attached file: …]` 文本占位。客户端提交的 `kimi-file://<id>` URL 由
+      `normalize_media_refs`（`llm/media_resolver.rs:120`）在 napi `session_enqueue_turn`
+      （`napi_bindings.rs:2112`）与 HTTP `prompt_content_to_blocks`（`server/mod.rs:1046`）两处入口
+      转成引用——**此前这类 URL 会被原样发给 provider**（napi 路径）或**被静默丢弃**（HTTP 路径
+      不认 `image_url` 部件）。
+    - **解析器**：`src/llm/media_resolver.rs`，对齐 `AgentMediaResolverService`。读 `file_id` →
+      `FileStore::get` 取元数据与 blob 路径 → 模型不接受该媒体族时给 `<image path="…">` 标签
+      （`build_media_path_tag`，属性转义对齐 v2 `escapeMediaAttribute`）→ 否则读字节、按
+      `MediaTarget` 决定上传或内联；blob 丢失时给 v2 的
+      `[image|video|audio omitted: the uploaded file is no longer available]`。解析结果按
+      `(fileId, providerKey)` 记忆（v2 `media.resolved`）。
+    - **provider 侧上传**：`src/llm/files_upload.rs`。`POST {base}/files` multipart
+      （`purpose=image|video`），multipart 体手写——daemon 接收侧本来就是手写解析
+      （`server/files.rs:321`），两侧保持对称，不引入 `reqwest` 的 `multipart` feature。
+      `files_base_url` 实现 v2 `kimiFilesBaseUrl`（anthropic 路由补回被剥掉的 `/v1`）；凭据复用
+      `NativeHttpLlm::credential()`（OAuth 刷新走既有单飞通道），经 `LLM::media_upload_credential`
+      （`turn_loop/types.rs:99`）暴露。门与 v2 的 `modelSource === 'oauth-catalog'` 对齐：
+      `NativeLlmConfig.auth_provider.is_some()`。错误分类对齐 v2：401/403 → `Auth`（降级为路径标签，
+      真正的鉴权错误由随后的 chat 请求报出）、404/405/501 → `Unsupported`（记住该 provider 不再尝试，
+      v2 `imageUploadUnsupported`）、其余 → 内联兜底。
+    - **预算**：`src/llm/media_budget.rs` 重写。key 改为**引用用 fileId、内联用
+      `inline\0<sha256(kind\0payload)>`**（v2 `inlineMediaBudgetEntry`）；被丢弃的引用替换为
+      `<image path="…">` 标签（路径未知时给 unavailable 文案），内联仍用
+      `[image|video omitted: dropped to fit the request media budget]`；告警按 v2 补上从句——
+      全部被丢弃项都有 fileId 时结尾是 ` and remain available at their saved paths.`，否则是 `.`；
+      零字节项（provider 侧引用）跳过不丢。**跨 turn 粘滞**：`MediaBudget::shared` 写穿到调用方的
+      `DroppedMedia`（`Arc<Mutex<HashSet<String>>>`），`ServerEngine.media_dropped` 按会话持有
+      （`server/engine.rs:243`），生命周期与 v2 的 agent state 一致（进程内，不落库）。
+    - **接入点**：turn loop 每次 LLM 调用前（`run_turn.rs:893` 正常步、`:967` 紧急压缩重试步），
+      `budgeted_request` 先解析再计预算，告警仍走 `WarningEvent` 通道。
+
+    **验证**：`llm::media_resolver` 13 项（内联/路径标签/blob 丢失/借用快路径/内联计费/远程 URL 不计/
+      记忆/属性转义/URL 解析与归一化/上传得引用/无凭据内联）、`llm::media_budget` 10 项（含零字节项
+      不丢、引用丢弃留路径、粘滞种子）、`llm::files_upload` 6 项（anthropic `/v1`、multipart 体与二进制
+      载荷、文件名、响应 id、状态分类）、`turn_loop::run_turn::tests::
+      test_over_budget_media_are_omitted_from_the_request_and_warned_about`（真实 turn 循环）、
+      `server::tests::prompt_content_maps_uploaded_files_to_media_blocks`（host 边界发引用）、
+      `acp::tests::test_acp_new_session_scopes_mcp_servers_to_the_session`。全量
+      `cargo test --no-default-features --features cli,workflow-js` 2488 项通过（`bash` 需解析到
+      Git Bash；PATH 上是 WSL 时 `tools::tests::bash_streams_output_chunks_to_the_progress_callback`
+      会因 WSL 的 localhost 代理告警失败，与本轮无关），`bun scripts/scan-parity.mjs` 通过。
+
+    **与上游仍存的差异**（本轮未消除，均为可观测行为差异）：
+    ① **上传缓存不落库**。v2 把 fileId 写进 blob store 的 `image-upload-cache` scope，重启后仍复用；
+    fork 只在解析器的进程内记忆里缓存，重启后首次请求会重新上传。要补齐需把 `SqliteSessionStore`
+    接进解析器（`state_entries` 的 domain 可复用）。
+    ② **`displayPaths` 未接到 UI**。解析器已暴露 `MediaResolver::display_path`（`media_resolver.rs:262`），
+    但 v2 用它喂 context projector 的媒体降级路径（`mediaProjection.ts` 的 `degradeOlderMediaParts` /
+    `stripMediaPartsBySnapshot`），fork 没有这套降级，也没有把「引用 → 保存路径」映射送到 TUI 的协议面。
+    ③ **上传鉴权失败降级而非抛出**。v2 `isMediaUploadAuthError` 直接 throw；fork 降级为路径标签，
+    真正的鉴权错误由随后的 chat 请求报出（用户仍能看到，但失败点不同）。
+    ④ **预算只覆盖 image/video/audio 的内联形态**，与 v2 的 image/video 一致（audio 在 v2 不计，
+    fork 把 audio 的 data URL 也计入了——这是 fork 多出的一项，不是缺失）。
 
 ### 6.2 本轮已修复（含证据）
 

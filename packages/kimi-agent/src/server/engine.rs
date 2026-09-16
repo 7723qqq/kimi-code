@@ -260,6 +260,19 @@ pub struct ServerEngine {
     /// machine), shared with the interaction manager so a pending
     /// approval/question moves the phase too.
     activity_registry: Arc<crate::server::activity::ActivityRegistry>,
+    /// Per-session MCP managers for servers a client injected on
+    /// `session/new`. v2 makes ACP `mcpServers` ephemeral per-session servers
+    /// (connected for that session only, never persisted), so they must not
+    /// land on the process-wide manager every other session shares.
+    session_mcp: Mutex<HashMap<String, Arc<McpManager>>>,
+    /// Resolves the media references a turn carries (v2
+    /// `AgentMediaResolverService`). One per engine, so the memo it keeps
+    /// survives across turns.
+    media: crate::llm::media_resolver::MediaResolver,
+    /// Per-session media the request budget already omitted (v2
+    /// `media.budgetDropped` is agent state; the engine keeps the same
+    /// lifetime — the process, not the turn).
+    media_dropped: Mutex<HashMap<String, crate::llm::media_budget::DroppedMedia>>,
 }
 
 /// Builds the host callbacks for one session.
@@ -286,7 +299,41 @@ impl ServerEngine {
             config_source: Mutex::new(None),
             host_factory: Mutex::new(None),
             status_hashes: Mutex::new(HashMap::new()),
+            media: crate::llm::media_resolver::MediaResolver::new(),
+            media_dropped: Mutex::new(HashMap::new()),
+            session_mcp: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Install the MCP manager one session's turns run with. ACP
+    /// `session/new` uses this so the client's `mcpServers` stay scoped to
+    /// that session (v2 `sessions.create({ mcpServers })`).
+    pub fn set_session_mcp_manager(&self, session_id: &str, manager: Arc<McpManager>) {
+        self.session_mcp
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session_id.to_string(), manager);
+    }
+
+    /// The MCP manager a session's turns run with: its own when a client
+    /// injected servers for it, the process-wide one otherwise.
+    pub(crate) fn mcp_manager_for(&self, session_id: &str) -> Option<Arc<McpManager>> {
+        self.session_mcp
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
+            .or_else(|| self.mcp_manager())
+    }
+
+    /// The session's cross-turn record of omitted media, created on first use.
+    fn media_dropped_for(&self, session_id: &str) -> crate::llm::media_budget::DroppedMedia {
+        self.media_dropped
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(session_id.to_string())
+            .or_default()
+            .clone()
     }
 
     /// Install a per-session host factory (ACP permission bridge).
@@ -480,6 +527,13 @@ impl ServerEngine {
             auth_provider: native.auth_provider.clone(),
             thinking_keep: config.resolve_thinking_keep(),
             beta_api: native.beta_api,
+            capabilities: native.capabilities.clone(),
+            system_prompt: native.system_prompt.clone(),
+            max_input_size: native.max_input_size,
+            adaptive_thinking: native.adaptive_thinking,
+            reasoning_key: native.reasoning_key.clone(),
+            // `resolve_effort` above already applied the declared off-effort.
+            off_effort: None,
         })
     }
 
@@ -774,20 +828,29 @@ impl ServerEngine {
     /// summarizer — resolves it the same way instead of a second copy.
     async fn session_spec(&self, session_id: &str) -> PipelineSpec {
         let mut policy_snapshot = self.spec.policy_snapshot.clone().unwrap_or_default();
+        let session_metadata = self
+            .store
+            .get_state("metadata", session_id)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         if policy_snapshot.mode == crate::permission::PermissionMode::Manual {
             if std::env::var("KIMI_AUTO_APPROVE")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or(false)
             {
                 policy_snapshot.mode = crate::permission::PermissionMode::Auto;
-            } else if let Ok(Some(meta_val)) = self.store.get_state("metadata", session_id) {
-                if let Some(mode_str) = meta_val.get("permission_mode").and_then(|v| v.as_str()) {
+            } else {
+                if let Some(mode_str) = session_metadata
+                    .get("permission_mode")
+                    .and_then(|v| v.as_str())
+                {
                     match mode_str.to_ascii_lowercase().as_str() {
                         "auto" => policy_snapshot.mode = crate::permission::PermissionMode::Auto,
                         "yolo" => policy_snapshot.mode = crate::permission::PermissionMode::Yolo,
                         _ => {}
                     }
-                } else if meta_val.get("yolo").and_then(|v| v.as_bool()) == Some(true) {
+                } else if session_metadata.get("yolo").and_then(|v| v.as_bool()) == Some(true) {
                     policy_snapshot.mode = crate::permission::PermissionMode::Yolo;
                 }
             }
@@ -813,6 +876,19 @@ impl ServerEngine {
             system_prompt: session_system_prompt,
             ..clone_spec(&self.spec)
         };
+        // Extra workspace roots the session was created with (`/add-dir`, ACP
+        // `additionalDirectories`). They extend the engine-wide list: the
+        // sandbox and the directory listing both read `extra_roots`, so a root
+        // recorded here is authorized for this session only.
+        if let Some(dirs) = session_metadata
+            .get("additional_dirs")
+            .and_then(|v| v.as_array())
+        {
+            spec.extra_roots.extend(
+                dirs.iter()
+                    .filter_map(|dir| dir.as_str().map(str::to_string)),
+            );
+        }
         // The session's persisted profile (`agent_config`) overrides the
         // engine-wide spec for this turn: the REST prompt/profile surface
         // writes model / thinking / disabled-tools there and the standalone
@@ -890,6 +966,24 @@ impl ServerEngine {
         crate::pipeline::build_llm_for_spec(&spec, &callbacks).ok()
     }
 
+    /// The LLM one model alias resolves to, without a session or a pipeline.
+    ///
+    /// `None` when the alias resolves to no reachable provider — the caller
+    /// reports that instead of a transport error. The callbacks are the
+    /// session-less standalone host: a one-shot request needs neither a
+    /// session's state store nor its interaction manager.
+    pub async fn llm_for_model(&self, model: &str) -> Option<Arc<dyn LLM>> {
+        let native = self.resolved_native_llm(model).await?;
+        let mut spec = clone_spec(&self.spec);
+        spec.model_name = model.to_string();
+        spec.native_llm = Some(native);
+        // The named model is the target; a provider race would ignore it.
+        spec.providers.clear();
+        let callbacks: Arc<dyn HostCallbacks> =
+            Arc::new(ServerHost::standalone().with_oauth(self.oauth_manager()));
+        crate::pipeline::build_llm_for_spec(&spec, &callbacks).ok()
+    }
+
     /// Build an engine context for one turn and run it.
     ///
     /// The pipeline is rebuilt per turn, as the legacy stdio entry does: the
@@ -945,7 +1039,7 @@ impl ServerEngine {
                 subagent_manager: self.subagent_manager.clone(),
                 parent_cancel: None,
                 parent_cancel_slot: None,
-                mcp_manager: self.mcp_manager(),
+                mcp_manager: self.mcp_manager_for(session_id),
                 // This session's lane, so the turn's events carry its session id
                 // and its seq. Every connection still sees every lane.
                 event_bus: Some(self.hub.bus_for(session_id)),
@@ -1152,6 +1246,8 @@ impl ServerEngine {
             goal,
             cancellation: Some(cancel),
             hook_guard,
+            media: Some(&self.media),
+            media_dropped: Some(self.media_dropped_for(session_id)),
         };
 
         // Flatten the loop error before any later await: `Box<dyn StdError>`
@@ -1675,6 +1771,34 @@ model = "gpt-x"
         assert_eq!(native.base_url, "https://api.example.test/v1");
         assert_eq!(native.model, "gpt-x");
         assert_eq!(native.api_key, "k");
+    }
+
+    /// `llm_for_model` resolves the named alias through the same chain a turn
+    /// uses, and reports an unresolvable one as `None` instead of a transport
+    /// error — the debug surface's ping turns that into an honest failure.
+    #[tokio::test]
+    async fn llm_for_model_resolves_a_named_alias_and_refuses_an_unknown_one() {
+        let engine = engine();
+        let config: crate::config::KimiConfig = r#"
+[providers.acme]
+type = "openai"
+api_key = "k"
+base_url = "https://api.example.test/v1"
+
+[models.alias-2]
+provider = "acme"
+model = "gpt-x"
+"#
+        .parse()
+        .expect("parse config");
+        engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+
+        let llm = engine
+            .llm_for_model("alias-2")
+            .await
+            .expect("alias resolves to its provider");
+        assert_eq!(llm.model_name(), "gpt-x");
+        assert!(engine.llm_for_model("no-such-alias").await.is_none());
     }
 
     struct ScriptedLlm;

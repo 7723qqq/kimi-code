@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 
-import type { KimiConfig } from '#/config-local';
+import type { KimiConfig, ModelAlias } from '#/config-local';
 import { ErrorCodes, KimiError } from '#/error-protocol';
+import { effectiveModelAlias } from '#/model-alias';
 
 // The engine's transports own these headers (openai/anthropic auth, the
 // anthropic-version pin, the google api-key); reqwest appends rather than
@@ -34,6 +35,35 @@ export interface JsNativeLlmConfig {
    * `/v1/messages?beta=true` instead of the standard endpoint.
    */
   betaApi?: boolean;
+  /**
+   * The alias's declared capabilities (`[models.<alias>].capabilities`) after
+   * the `overrides` merge. `undefined`/empty means the file declares none —
+   * the engine's image-read gate then allows image reads.
+   */
+  capabilities?: string[];
+  /**
+   * The alias's own system prompt (`[models.<alias>].systemPrompt`).
+   */
+  systemPrompt?: string;
+  /**
+   * Declared prompt/input cap when below the total window
+   * (`[models.<alias>].maxInputSize`).
+   */
+  maxInputSize?: number;
+  /**
+   * Explicit adaptive-thinking support, overriding the model-name version
+   * inference (`[models.<alias>].adaptiveThinking`).
+   */
+  adaptiveThinking?: boolean;
+  /**
+   * The wire field carrying reasoning content (`[models.<alias>].reasoningKey`).
+   */
+  reasoningKey?: string;
+  /**
+   * The effort value that encodes "thinking off" on the wire
+   * (`[models.<alias>].offEffort`).
+   */
+  offEffort?: string;
 }
 
 export interface PolicySnapshotDto {
@@ -102,8 +132,10 @@ export function resolveNativeLlmForAlias(
   effortOverride?: string,
   defaultHeaders?: Record<string, string>,
 ): JsNativeLlmConfig | undefined {
-  const modelConfig = config.models?.[alias];
-  const providerName = modelConfig?.provider ?? config.agent?.nativeLlmProvider;
+  const modelConfig = lookupModelAlias(config, alias);
+  // v2 `providerNameFromFlatModel`: `providerId` is an alias for `provider`.
+  const providerName =
+    modelConfig?.providerId ?? modelConfig?.provider ?? config.agent?.nativeLlmProvider;
   if (!providerName) return undefined;
 
   const provider = config.providers?.[providerName];
@@ -137,18 +169,30 @@ export function resolveNativeLlmForAlias(
             : undefined);
   if (!protocol) return undefined;
 
-  // Static key or OAuth-managed auth (managed logins write `oauth` with an
-  // empty `apiKey`); a provider with neither cannot authenticate natively.
-  const apiKey = typeof provider.apiKey === 'string' ? provider.apiKey : '';
-  const hasOAuth = provider.oauth !== undefined;
+  // The `overrides` merge the TUI's footer / model picker already read, so the
+  // wire and the UI cannot disagree about an alias's caps, effort, or output
+  // budget (v2 `effectiveRecordOf` + `withAnthropicProfile`).
+  const effective =
+    modelConfig === undefined ? undefined : effectiveModelAlias(modelConfig, provider.type);
+
+  // Per-model credentials outrank the provider's (v2 `resolveModelAuthMaterial`):
+  // a model-level `apiKey` wins, a model-level `oauth` suppresses the
+  // provider's static key, and either OAuth binding rides the token channel.
+  const modelOAuth = modelConfig?.oauth;
+  const apiKey =
+    nonBlank(modelConfig?.apiKey) ??
+    (modelOAuth === undefined ? (typeof provider.apiKey === 'string' ? provider.apiKey : '') : '');
+  const hasOAuth = modelOAuth !== undefined || provider.oauth !== undefined;
   if (apiKey.length === 0 && !hasOAuth) return undefined;
 
-  let model = modelConfig?.model ?? provider.defaultModel;
+  // v2 `buildModel`: the name sent to the provider is the record's `name`
+  // first, then `model` — never the alias.
+  let model = effective?.name ?? effective?.model ?? provider.defaultModel;
   if (!model && config.models) {
     const aliasEntry = Object.entries(config.models).find(
-      ([, entry]) => entry.provider === providerName,
+      ([, entry]) => (entry.providerId ?? entry.provider) === providerName,
     );
-    if (aliasEntry) model = aliasEntry[1].model;
+    if (aliasEntry) model = aliasEntry[1].name ?? aliasEntry[1].model;
   }
   if (!model) return undefined;
 
@@ -165,7 +209,7 @@ export function resolveNativeLlmForAlias(
   let thinkingBudget: number | undefined;
 
   const thinkingConfig = config.thinking;
-  const modelEffort = effortOverride ?? modelConfig?.defaultEffort ?? thinkingConfig?.effort;
+  const modelEffort = effortOverride ?? effective?.defaultEffort ?? thinkingConfig?.effort;
 
   if (
     thinkingConfig?.enabled !== false &&
@@ -190,19 +234,59 @@ export function resolveNativeLlmForAlias(
     }
   }
 
+  // The engine's image-read gate reads the *declared* set (v2
+  // `effectiveRecordOf`: `overrides.capabilities ?? capabilities`), so the
+  // anthropic profile's injected `thinking` capability — a UI affordance —
+  // must not travel here.
+  const capabilities = modelConfig?.overrides?.capabilities ?? modelConfig?.capabilities;
+
   return {
     protocol,
     baseUrl: normalizeBaseUrl(protocol, rawBaseUrl),
     apiKey,
     model,
-    maxTokens: modelConfig?.maxOutputSize ?? provider.maxTokens,
+    maxTokens: effective?.maxOutputSize ?? provider.maxTokens,
     customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : undefined,
     reasoningEffort,
     thinkingBudget,
     authProvider: hasOAuth ? providerName : undefined,
     thinkingKeep: resolveThinkingKeep(config),
     betaApi: modelConfig?.betaApi === true ? true : undefined,
+    capabilities:
+      capabilities !== undefined && capabilities.length > 0 ? [...capabilities] : undefined,
+    systemPrompt: modelConfig?.systemPrompt,
+    maxInputSize: effective?.maxInputSize,
+    adaptiveThinking: effective?.adaptiveThinking,
+    reasoningKey: effective?.reasoningKey,
+    offEffort: effective?.offEffort,
   };
+}
+
+/**
+ * Resolve one `[models]` key to its entry. v2's `findByName` also matches a
+ * record's `aliases`, so an entry can be reached by any name it declares —
+ * `default_model` may point at an alias rather than the table key.
+ */
+export function lookupModelAlias(config: KimiConfig, alias: string): ModelAlias | undefined {
+  const direct = config.models?.[alias];
+  if (direct !== undefined) return direct;
+  return Object.values(config.models ?? {}).find((entry) => entry.aliases?.includes(alias));
+}
+
+/**
+ * The context window a `[models]` key resolves to, `overrides` applied. Every
+ * caller that needs the window must go through this: indexing `config.models`
+ * directly misses both an `aliases` name and an `overrides.maxContextSize`,
+ * so the session would report a 0-token window for a model it can run.
+ */
+export function resolveModelContextWindow(
+  config: KimiConfig,
+  alias: string | undefined,
+): number {
+  if (alias === undefined) return 0;
+  const entry = lookupModelAlias(config, alias);
+  if (entry === undefined) return 0;
+  return effectiveModelAlias(entry).maxContextSize ?? 0;
 }
 
 export function buildPolicySnapshot(config: KimiConfig, workDir: string): PolicySnapshotDto {
@@ -288,6 +372,12 @@ function nativeLlmWire(config: JsNativeLlmConfig): Record<string, unknown> {
     auth_provider: config.authProvider,
     thinking_keep: config.thinkingKeep,
     beta_api: config.betaApi ?? false,
+    capabilities: config.capabilities,
+    system_prompt: config.systemPrompt,
+    max_input_size: config.maxInputSize,
+    adaptive_thinking: config.adaptiveThinking,
+    reasoning_key: config.reasoningKey,
+    off_effort: config.offEffort,
   };
 }
 
@@ -613,7 +703,7 @@ export function resolveModelCapabilities(
 ): string[] | undefined {
   const key = alias ?? config.defaultModel;
   if (key === undefined) return undefined;
-  const capabilities = config.models?.[key]?.capabilities;
+  const capabilities = lookupModelAlias(config, key)?.capabilities;
   return capabilities !== undefined && capabilities.length > 0 ? [...capabilities] : undefined;
 }
 

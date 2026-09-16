@@ -115,6 +115,7 @@ pub fn estimate_message_tokens(message: &LLMMessage) -> u32 {
         tokens += match block {
             ContentBlock::Text { text } => estimate_tokens(text),
             ContentBlock::Image { .. }
+            | ContentBlock::MediaRef { .. }
             | ContentBlock::ImageUrl { .. }
             | ContentBlock::AudioUrl { .. }
             | ContentBlock::VideoUrl { .. } => MEDIA_TOKEN_ESTIMATE,
@@ -816,6 +817,7 @@ mod tests {
         let mut m_img_url = msg("user", "");
         m_img_url.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/pic.png".into(),
+            id: None,
             name: None,
         });
         assert_eq!(estimate_message_tokens(&m_img_url), MEDIA_TOKEN_ESTIMATE);
@@ -847,6 +849,7 @@ mod tests {
         });
         m_combo.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/img.jpg".into(), // 2000 tokens
+            id: None,
             name: None,
         });
         assert_eq!(estimate_message_tokens(&m_combo), 1 + 1 + 1 + 2000);

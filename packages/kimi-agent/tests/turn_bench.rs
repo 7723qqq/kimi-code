@@ -165,6 +165,8 @@ async fn run_turn_sync(
         goal: None,
         cancellation: None,
         hook_guard: None,
+        media: None,
+        media_dropped: None,
     };
     run_turn(black_box(input), callbacks)
         .await

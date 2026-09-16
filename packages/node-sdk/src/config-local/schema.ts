@@ -58,6 +58,20 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 const ModelAliasBaseSchema = z.object({
   provider: z.string(),
   model: z.string(),
+  // v2's `providerId` is an alias for `provider` (`providerNameFromFlatModel`);
+  // the resolver reads it first so a catalog-imported entry keeps working.
+  providerId: z.string().optional(),
+  // Per-model credentials outrank the provider's (v2 `resolveModelAuthMaterial`).
+  apiKey: z.string().optional(),
+  oauth: OAuthRefSchema.optional(),
+  // The wire-facing name when it differs from `model`: v2 `buildModel` sends
+  // `name ?? model`, never the alias.
+  name: z.string().optional(),
+  // Extra names this entry can be looked up by (v2 `findByName`).
+  aliases: z.array(z.string()).optional(),
+  // The alias's own system prompt, replacing the session prompt for this
+  // model's transport (`[models.<alias>].system_prompt`).
+  systemPrompt: z.string().optional(),
   maxContextSize: z.number().int().min(1),
   // Declared prompt/input cap when below the total window (e.g. gpt-5: 400k
   // window, 272k input). Compaction and other prompt-budget checks prefer it
@@ -99,6 +113,14 @@ export const ModelAliasOverrideSchema = ModelAliasBaseSchema.omit({
   protocol: true,
   betaApi: true,
   baseUrl: true,
+  // Identity, credentials, and the model's own prompt are not overridable
+  // (v2 `ModelOverrideSchema`).
+  providerId: true,
+  apiKey: true,
+  oauth: true,
+  name: true,
+  aliases: true,
+  systemPrompt: true,
 }).partial();
 
 export type ModelAliasOverrides = z.infer<typeof ModelAliasOverrideSchema>;

@@ -39,8 +39,28 @@ pub struct ProviderConfig {
 pub struct ModelAliasConfig {
     #[serde(default)]
     pub provider: Option<String>,
+    /// The document schema's spelling of `provider` (v2
+    /// `ModelRecord.providerId`); it wins when both are set.
+    #[serde(rename = "provider_id", alias = "providerId", default)]
+    pub provider_id: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// The wire-facing model name (v2 `ModelRecord.name`): the name sent to
+    /// the provider, ahead of `model`. Never the alias.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Extra names this entry can be looked up by (v2 `ModelRecord.aliases`).
+    #[serde(default)]
+    pub aliases: Option<Vec<String>>,
+    /// Per-model credential (v2 `ModelRecord.apiKey`): wins over the
+    /// provider's key.
+    #[serde(rename = "api_key", alias = "apiKey", default)]
+    pub api_key: Option<String>,
+    /// Per-model OAuth binding (v2 `ModelRecord.oauth`), same shape as
+    /// `[providers.*].oauth`: its presence marks the model
+    /// OAuth-authenticated even without a static key.
+    #[serde(default)]
+    pub oauth: Option<serde_json::Value>,
     #[serde(rename = "system_prompt", alias = "systemPrompt", default)]
     pub system_prompt: Option<String>,
     /// Catalog fields the REST surface exposes (v2 `ModelRecord`).
@@ -82,6 +102,81 @@ pub struct ModelAliasConfig {
     /// instead of omitting the effort field.
     #[serde(rename = "off_effort", alias = "offEffort", default)]
     pub off_effort: Option<String>,
+    /// Catalog fields overridden on top of the base record (v2
+    /// `ModelRecord.overrides`): a provider-model refresh may rewrite the base
+    /// fields, so a user override is the only value that survives it.
+    #[serde(default)]
+    pub overrides: Option<ModelOverrideConfig>,
+}
+
+/// `[models.<alias>.overrides]` (v2 `ModelOverrideSchema`): the catalog fields
+/// an override may shadow. Identity and routing fields are deliberately absent
+/// — an override cannot repoint a model at another provider, endpoint, or wire
+/// protocol.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelOverrideConfig {
+    #[serde(rename = "max_context_size", alias = "maxContextSize", default)]
+    pub max_context_size: Option<u32>,
+    #[serde(rename = "max_input_size", alias = "maxInputSize", default)]
+    pub max_input_size: Option<u32>,
+    #[serde(rename = "max_output_size", alias = "maxOutputSize", default)]
+    pub max_output_size: Option<u32>,
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    #[serde(rename = "display_name", alias = "displayName", default)]
+    pub display_name: Option<String>,
+    #[serde(rename = "reasoning_key", alias = "reasoningKey", default)]
+    pub reasoning_key: Option<String>,
+    #[serde(rename = "adaptive_thinking", alias = "adaptiveThinking", default)]
+    pub adaptive_thinking: Option<bool>,
+    #[serde(rename = "support_efforts", alias = "supportEfforts", default)]
+    pub support_efforts: Option<Vec<String>>,
+    #[serde(rename = "default_effort", alias = "defaultEffort", default)]
+    pub default_effort: Option<String>,
+    #[serde(rename = "off_effort", alias = "offEffort", default)]
+    pub off_effort: Option<String>,
+}
+
+impl ModelAliasConfig {
+    /// The entry with its `overrides` block applied (v2 `effectiveRecordOf`):
+    /// an override wins over the base field it shadows, an absent one leaves
+    /// the base value. Identity and routing fields are not overridable, so they
+    /// always come from the base record.
+    fn effective(&self) -> Self {
+        let Some(overrides) = self.overrides.as_ref() else {
+            return self.clone();
+        };
+        let mut effective = self.clone();
+        effective.max_context_size = overrides.max_context_size.or(self.max_context_size);
+        effective.max_input_size = overrides.max_input_size.or(self.max_input_size);
+        effective.max_output_size = overrides.max_output_size.or(self.max_output_size);
+        effective.capabilities = overrides
+            .capabilities
+            .clone()
+            .or_else(|| self.capabilities.clone());
+        effective.display_name = overrides
+            .display_name
+            .clone()
+            .or_else(|| self.display_name.clone());
+        effective.reasoning_key = overrides
+            .reasoning_key
+            .clone()
+            .or_else(|| self.reasoning_key.clone());
+        effective.adaptive_thinking = overrides.adaptive_thinking.or(self.adaptive_thinking);
+        effective.support_efforts = overrides
+            .support_efforts
+            .clone()
+            .or_else(|| self.support_efforts.clone());
+        effective.default_effort = overrides
+            .default_effort
+            .clone()
+            .or_else(|| self.default_effort.clone());
+        effective.off_effort = overrides
+            .off_effort
+            .clone()
+            .or_else(|| self.off_effort.clone());
+        effective
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -651,9 +746,32 @@ impl KimiConfig {
             .or(self.default_model.as_deref())
             .unwrap_or("default");
 
-        let (provider_name, wire_model) = if let Some(alias) = self.models.get(model_key) {
-            let p = alias.provider.as_deref().unwrap_or(model_key);
-            let m = alias.model.as_deref().unwrap_or(model_key);
+        // v2 `findByName`: the table key first, then any entry that declares
+        // the name in its `aliases`, so `default_model` may point at an alias
+        // rather than the table key.
+        let entry = self.models.get_key_value(model_key).or_else(|| {
+            self.models.iter().find(|(_, entry)| {
+                entry
+                    .aliases
+                    .as_ref()
+                    .is_some_and(|names| names.iter().any(|name| name == model_key))
+            })
+        });
+
+        let (provider_name, wire_model) = if let Some((key, alias)) = entry {
+            // v2 `buildModel`: `providerId` is the document schema's spelling of
+            // `provider`, and the wire name is `name` first, then `model` —
+            // never the alias.
+            let p = alias
+                .provider_id
+                .as_deref()
+                .or(alias.provider.as_deref())
+                .unwrap_or(key.as_str());
+            let m = alias
+                .name
+                .as_deref()
+                .or(alias.model.as_deref())
+                .unwrap_or(key.as_str());
             (p, m)
         } else if let Some((p_name, _)) = self.providers.iter().find(|(name, _)| *name == model_key)
         {
@@ -664,7 +782,11 @@ impl KimiConfig {
         };
 
         let provider = self.providers.get(provider_name)?;
-        let alias = self.models.get(model_key);
+        // v2 `effectiveRecordOf`: the entry's `overrides` block wins over the
+        // base fields it shadows, so every catalog read below sees the
+        // effective value.
+        let effective = entry.map(|(_, alias)| alias.effective());
+        let alias = effective.as_ref();
         // A declared alias endpoint wins: gateway providers serve one alias
         // over a different path than the provider default
         // (schema `models.*.baseUrl`).
@@ -683,15 +805,25 @@ impl KimiConfig {
                 (p_type == "google" || p_type == "google-genai" || p_type == "gemini")
                     .then_some("https://generativelanguage.googleapis.com")
             })?;
-        let api_key = provider.api_key.clone().unwrap_or_default();
-        // A static key wins; an OAuth-bound provider (`[providers.*].oauth`)
-        // authenticates through the host token channel instead, so the static
-        // key is optional for it. A provider with neither cannot serve a
-        // request, so the model does not resolve.
-        let auth_provider = if !api_key.is_empty() {
-            None
+        // v2 `resolveModelAuthMaterial`: a model-level credential wins over the
+        // provider's, and a static key wins over an OAuth binding at the same
+        // level. An OAuth-bound model authenticates through the host token
+        // channel instead, so its static key is optional; a model with neither
+        // credential of its own falls back to the provider's, and one with no
+        // credential anywhere cannot serve a request, so it does not resolve.
+        let model_api_key = alias
+            .and_then(|alias| alias.api_key.clone())
+            .filter(|key| !key.is_empty());
+        let model_oauth = alias.and_then(|alias| alias.oauth.as_ref());
+        let provider_api_key = provider.api_key.clone().unwrap_or_default();
+        let (api_key, auth_provider) = if let Some(key) = model_api_key {
+            (key, None)
+        } else if model_oauth.is_some() {
+            (String::new(), Some(provider_name.to_string()))
+        } else if !provider_api_key.is_empty() {
+            (provider_api_key, None)
         } else if provider.oauth.is_some() {
-            Some(provider_name.to_string())
+            (String::new(), Some(provider_name.to_string()))
         } else {
             return None;
         };
@@ -878,7 +1010,11 @@ impl KimiConfig {
             return Ok(());
         };
         for alias in aliases {
-            let model = self.models.get(*alias);
+            // The effort is checked against the effective record: an override
+            // that adds or narrows `support_efforts` is what the model runs
+            // with, so validating the base fields would reject a valid pool.
+            let effective = self.models.get(*alias).map(ModelAliasConfig::effective);
+            let model = effective.as_ref();
             if effort == "off" && model_always_thinks(model) {
                 return Err(format!(
                     "[secondary_model].default_effort \"off\" cannot disable thinking for model \"{alias}\", which always reasons. Choose a concrete thinking effort instead of \"off\"."
@@ -1312,6 +1448,12 @@ fn native_llm_config(
         auth_provider: None,
         thinking_keep: thinking_keep.map(str::to_string),
         beta_api: resolved.beta_api,
+        capabilities: resolved.capabilities,
+        system_prompt: resolved.system_prompt,
+        max_input_size: resolved.max_input_size,
+        adaptive_thinking: resolved.adaptive_thinking,
+        reasoning_key: resolved.reasoning_key,
+        off_effort: resolved.off_effort,
     };
     if let Some(effort) = effort
         && effort != "off"
@@ -2613,5 +2755,190 @@ default_model = "fast"
                 None => std::env::remove_var(key),
             }
         }
+    }
+
+    /// A one-provider config with the `[models.alias]` body appended, so each
+    /// test below states only the fields it is about.
+    fn alias_config(body: &str) -> KimiConfig {
+        KimiConfig::from_str(&format!(
+            r#"
+default_model = "alias"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-provider-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.alias]
+provider = "kimi"
+model = "kimi-k2-0711"
+{body}
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn model_name_wins_over_model_for_the_wire_name() {
+        let named = alias_config("name = \"kimi-k2-0905\"\n");
+        assert_eq!(
+            named.extract_native_llm(None).unwrap().model,
+            "kimi-k2-0905"
+        );
+        // Without `name` the entry's `model` is the wire name.
+        assert_eq!(
+            alias_config("").extract_native_llm(None).unwrap().model,
+            "kimi-k2-0711"
+        );
+    }
+
+    #[test]
+    fn provider_id_is_an_alias_for_provider() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "alias"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-provider-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.alias]
+provider_id = "kimi"
+model = "kimi-k2-0711"
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(native.api_key, "sk-provider-key");
+        assert_eq!(native.base_url, "https://api.moonshot.cn/v1");
+    }
+
+    #[test]
+    fn model_overrides_shadow_the_base_catalog_fields() {
+        let config = alias_config(
+            r#"max_output_size = 4096
+max_input_size = 262144
+capabilities = ["thinking"]
+reasoning_key = "reasoning_content"
+off_effort = "none"
+
+[models.alias.overrides]
+max_output_size = 8192
+capabilities = ["thinking", "image_in"]
+reasoning_key = "reasoning"
+"#,
+        );
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(native.max_output_size, Some(8192));
+        assert_eq!(native.reasoning_key.as_deref(), Some("reasoning"));
+        assert_eq!(
+            native.capabilities.as_deref(),
+            Some(&["thinking".to_string(), "image_in".to_string()][..])
+        );
+        // A field the override does not mention keeps the base value.
+        assert_eq!(native.max_input_size, Some(262144));
+        assert_eq!(native.off_effort.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn a_declared_alias_resolves_to_its_entry() {
+        let config = alias_config("aliases = [\"kimi-latest\"]\n");
+        // The table key still resolves directly.
+        assert_eq!(
+            config.extract_native_llm(Some("alias")).unwrap().model,
+            "kimi-k2-0711"
+        );
+        // A declared alias reaches the same entry.
+        let via_alias = config.extract_native_llm(Some("kimi-latest")).unwrap();
+        assert_eq!(via_alias.model, "kimi-k2-0711");
+        assert_eq!(via_alias.api_key, "sk-provider-key");
+        // An undeclared name still resolves to nothing.
+        assert!(config.extract_native_llm(Some("nope")).is_none());
+    }
+
+    #[test]
+    fn model_api_key_wins_over_the_providers() {
+        let native = alias_config("api_key = \"sk-model-key\"\n")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.api_key, "sk-model-key");
+        assert_eq!(native.auth_provider, None);
+    }
+
+    #[test]
+    fn model_oauth_wins_over_the_providers_static_key() {
+        let native = alias_config("oauth = { provider = \"kimi\" }\n")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.api_key, "");
+        assert_eq!(native.auth_provider.as_deref(), Some("kimi"));
+    }
+
+    #[test]
+    fn model_oauth_resolves_without_a_provider_credential() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "alias"
+
+[providers.kimi]
+type = "openai"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.alias]
+provider = "kimi"
+model = "kimi-k2-0711"
+oauth = { provider = "kimi" }
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(native.api_key, "");
+        assert_eq!(native.auth_provider.as_deref(), Some("kimi"));
+    }
+
+    #[test]
+    fn secondary_pool_entries_carry_the_model_catalog_fields() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "kimi-k2"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-kimi-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[models.kimi-k2]
+provider = "kimi"
+model = "kimi-k2-0711"
+
+[models.fast]
+provider = "kimi"
+model = "kimi-k2-fast"
+name = "kimi-k2-fast-0905"
+capabilities = ["thinking", "image_in"]
+system_prompt = "Be terse."
+max_input_size = 131072
+adaptive_thinking = true
+reasoning_key = "reasoning"
+off_effort = "none"
+
+[secondary_model]
+default_model = "fast"
+"#,
+        )
+        .unwrap();
+        let pool = config.extract_secondary_model_pool(None).unwrap().unwrap();
+        let fast = &pool.models[0].llm;
+        assert_eq!(fast.model, "kimi-k2-fast-0905");
+        assert_eq!(fast.max_input_size, Some(131072));
+        assert_eq!(fast.adaptive_thinking, Some(true));
+        assert_eq!(fast.reasoning_key.as_deref(), Some("reasoning"));
+        assert_eq!(fast.off_effort.as_deref(), Some("none"));
+        assert_eq!(fast.system_prompt.as_deref(), Some("Be terse."));
+        assert_eq!(
+            fast.capabilities.as_deref(),
+            Some(&["thinking".to_string(), "image_in".to_string()][..])
+        );
     }
 }

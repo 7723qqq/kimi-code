@@ -139,6 +139,7 @@ import {
   resolveImageReadByteBudget,
   resolveImageMaxEdgePx,
   resolveModelCapabilities,
+  resolveModelContextWindow,
   resolveBackgroundLimits,
   resolvePrintBackground,
   type JsNativeLlmConfig,
@@ -242,8 +243,7 @@ function initialRuntimeState(config: KimiConfig, model: string | undefined) {
     planMode: (config.defaultPermissionMode as string | undefined) === 'plan',
     swarmMode: false,
     towerMode: false,
-    maxContextTokens:
-      (config.defaultModel ? config.models?.[config.defaultModel]?.maxContextSize : undefined) ?? 0,
+    maxContextTokens: resolveModelContextWindow(config, config.defaultModel),
     contextTokens: 0,
     usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
     goal: null,
@@ -252,16 +252,23 @@ function initialRuntimeState(config: KimiConfig, model: string | undefined) {
 }
 
 /**
- * Apply a session's live model / thinking overrides to the config-resolved
- * native LLM. setModel / setThinking mutate meta and rebuild the handle, so the
- * rebuilt pipeline must carry the session's choice, not the config default. The
- * thinking-budget re-derivation mirrors native-llm-resolver's.
+ * Apply a session's live thinking override to the config-resolved native LLM.
+ * setThinking mutates meta and rebuilds the handle, so the rebuilt pipeline
+ * must carry the session's choice, not the config default. The thinking-budget
+ * re-derivation mirrors native-llm-resolver's.
+ *
+ * The model is deliberately NOT overridden here: `meta.model` is a `[models]`
+ * alias (`ollama/deepseek-v4.1-flash`), while `llm.model` is the wire model
+ * that alias resolves to (`deepseek-v4.1-flash`). buildHandle already resolves
+ * the LLM from `meta.model`, so copying the alias over `llm.model` sent the
+ * alias to the provider — every alias whose wire model differs from its own
+ * name came back as "model not found".
  */
 function applySessionLlmOverrides(
   llm: JsNativeLlmConfig,
-  meta: { model: string | undefined; thinkingEffort: string },
+  meta: { thinkingEffort: string },
 ): JsNativeLlmConfig {
-  const out: JsNativeLlmConfig = { ...llm, model: meta.model ?? llm.model };
+  const out: JsNativeLlmConfig = { ...llm };
   const effort = meta.thinkingEffort;
   const thinkingOn = effort !== '' && effort !== 'off' && effort !== 'none';
   if (out.protocol === 'anthropic') {
@@ -1285,9 +1292,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         planMode: persisted?.planMode ?? false,
         swarmMode: false,
         towerMode: false,
-        maxContextTokens:
-          (config.defaultModel ? config.models?.[config.defaultModel]?.maxContextSize : undefined) ??
-          0,
+        maxContextTokens: resolveModelContextWindow(config, config.defaultModel),
         contextTokens: persisted?.contextTokens ?? 0,
         usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
         goal: persisted?.goal ?? null,

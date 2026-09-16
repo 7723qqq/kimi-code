@@ -31,7 +31,7 @@
 
 use serde_json::Value;
 
-use crate::rpc::types::{ContentBlock, TokenUsage};
+use crate::rpc::types::{ContentBlock, MediaKind, TokenUsage};
 use crate::session::sqlite_store::{COMPACT_TURN_ID, StoredMessage, TurnRecord};
 use crate::turn_loop::types::LLMMessage;
 
@@ -504,6 +504,16 @@ fn user_text(message: &LLMMessage) -> Vec<ContentPart> {
         ContentBlock::ImageUrl { url, .. } => part(ContentPartType::Image, url.clone()),
         ContentBlock::AudioUrl { url, .. } => part(ContentPartType::Audio, url.clone()),
         ContentBlock::VideoUrl { url, .. } => part(ContentPartType::Video, url.clone()),
+        // The transcript shows the reference, not the bytes: the client
+        // fetches it from the daemon's file store by id.
+        ContentBlock::MediaRef { file_id, kind } => {
+            let kind = match kind {
+                MediaKind::Image => ContentPartType::Image,
+                MediaKind::Video => ContentPartType::Video,
+                MediaKind::Audio => ContentPartType::Audio,
+            };
+            part(kind, format!("kimi-file://{file_id}"))
+        }
     }));
     parts
 }
@@ -840,6 +850,7 @@ mod tests {
         let mut user = stored("user", "describe the attachment", 1);
         user.message.blocks = vec![ContentBlock::ImageUrl {
             url: "https://example.test/attachment.png".into(),
+            id: None,
             name: None,
         }];
         let entities = project_history("s1", "main", &[], &[user]);
@@ -883,6 +894,7 @@ mod tests {
             },
             ContentBlock::ImageUrl {
                 url: "https://example.test/a.png".into(),
+                id: None,
                 name: None,
             },
             ContentBlock::AudioUrl {

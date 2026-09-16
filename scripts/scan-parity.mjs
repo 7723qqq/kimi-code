@@ -82,6 +82,31 @@ const normalizePath = (p) => p.replace(/\{[^}]+\}/g, '*');
  */
 const KNOWN_TS_ONLY_CONFIG_KEYS = new Set(['raw']);
 
+/**
+ * `[models.<alias>]` fields v2 declares that the fork does not model yet.
+ * Every entry is a known gap, not a licence: the list may only shrink, and a
+ * field that disappears from v2 must be removed from here too (the check
+ * reports stale entries).
+ */
+/** @type {Set<string>} */
+const KNOWN_MODEL_FIELD_GAPS = new Set();
+
+/**
+ * Native-LLM transport fields one Rust shape carries and another does not.
+ * A field here means the TUI and the standalone CLI disagree about the same
+ * model — the split this check exists to surface.
+ */
+/** @type {Set<string>} */
+const KNOWN_NATIVE_LLM_FIELD_GAPS = new Set();
+
+/**
+ * The same concept under two names. `ResolvedNativeLlm` keeps the config-file
+ * spelling (`max_output_size`); the transport's `NativeLlmConfig` names the
+ * wire parameter it becomes (`max_tokens`). Compared by concept so a rename
+ * cannot masquerade as a missing field.
+ */
+const NATIVE_LLM_FIELD_EQUIVALENTS = new Map([['max_output_size', 'max_tokens']]);
+
 /** REST endpoints declared by the TS protocol header manifests. */
 function collectTsRestEndpoints() {
   const endpoints = [];
@@ -231,6 +256,91 @@ function collectRustConfigKeys() {
   return keys;
 }
 
+/** `z.object({...})` keys of a named schema in a TS source file. */
+function tsSchemaKeys(text, schemaName) {
+  const block =
+    text.match(new RegExp(`const ${schemaName} = z\\.object\\(\\{([\\s\\S]*?)\\n\\}\\);`))?.[1] ?? '';
+  return new Set([...block.matchAll(/^\s{2}([A-Za-z_][A-Za-z0-9_]*):/gm)].map((m) => m[1]));
+}
+
+/** The fork's `[models.<alias>]` schema keys, plus the nested `overrides` block. */
+function collectTsModelFields() {
+  const text = read(join(ROOT, 'packages/node-sdk/src/config-local/schema.ts'));
+  const fields = tsSchemaKeys(text, 'ModelAliasBaseSchema');
+  fields.add('overrides');
+  return fields;
+}
+
+/** The Rust `ModelAliasConfig` wire names (serde rename + alias). */
+function collectRustModelFields() {
+  const text = read(join(AGENT, 'src/config/mod.rs'));
+  const struct = text.match(/pub struct ModelAliasConfig \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  /** @type {Set<string>} */
+  const fields = new Set();
+  for (const m of struct.matchAll(/#\[serde\(([^)]*)\)\]\s*pub\s+([a-z_0-9]+)/g)) {
+    const rename = m[1].match(/rename\s*=\s*"([^"]+)"/);
+    fields.add(rename ? rename[1] : m[2]);
+    for (const a of m[1].matchAll(/alias\s*=\s*"([^"]+)"/g)) fields.add(a[1]);
+  }
+  for (const m of struct.matchAll(/^\s*pub\s+([a-z_0-9]+)\s*:/gm)) fields.add(m[1]);
+  return fields;
+}
+
+/** v2's `ModelRecord` field set, from the local extraction or the upstream ref. */
+function collectV2ModelFields() {
+  const rel = 'packages/agent-core-v2/src/app/kosongConfig/configSection.ts';
+  const local = join(ROOT, '.tmp/v2-ref', rel);
+  let text;
+  let revision;
+  if (existsSync(local)) {
+    text = read(local);
+    revision = 'local .tmp/v2-ref';
+  } else {
+    const ref = process.env.KIMI_UPSTREAM_REF ?? 'upstream/main';
+    try {
+      text = execFileSync('git', ['show', `${ref}:${rel}`], { cwd: ROOT, encoding: 'utf8' });
+      revision = `upstream ${execFileSync('git', ['rev-parse', '--short', ref], { cwd: ROOT, encoding: 'utf8' }).trim()}`;
+    } catch {
+      return null;
+    }
+  }
+  const fields = tsSchemaKeys(text, 'ModelBaseSchema');
+  if (fields.size === 0) return null;
+  fields.add('overrides');
+  return { fields, revision };
+}
+
+/**
+ * The native-LLM transport config the host hands the engine. The Rust side
+ * carries two shapes for the same thing — `ResolvedNativeLlm` (the standalone
+ * config path) and `NativeLlmConfig` (what the transports read) — and the napi
+ * boundary adds a third, `JsNativeLlmConfig`. A field present in one and
+ * missing from another is a silent behaviour split between the TUI and the
+ * standalone CLI, so all three are compared.
+ */
+function collectTsNativeLlmFields() {
+  const text = read(join(ROOT, 'packages/node-sdk/src/native/native-llm-resolver.ts'));
+  const block = text.match(/export interface JsNativeLlmConfig \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  return new Set([...block.matchAll(/^\s{2}([A-Za-z_][A-Za-z0-9_]*)\??:/gm)].map((m) => m[1]));
+}
+
+function collectRustStructFields(structName) {
+  const text =
+    read(join(AGENT, 'src/config/mod.rs')) +
+    read(join(AGENT, 'src/rpc/types.rs')) +
+    readTree(join(AGENT, 'src/llm'), '.rs');
+  const struct = text.match(new RegExp(`pub struct ${structName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
+  /** @type {Set<string>} */
+  const fields = new Set();
+  for (const m of struct.matchAll(/#\[serde\(([^)]*)\)\]\s*pub\s+([a-z_0-9]+)/g)) {
+    const rename = m[1].match(/rename\s*=\s*"([^"]+)"/);
+    fields.add(rename ? rename[1] : m[2]);
+    for (const a of m[1].matchAll(/alias\s*=\s*"([^"]+)"/g)) fields.add(a[1]);
+  }
+  for (const m of struct.matchAll(/^\s*pub\s+([a-z_0-9]+)\s*:/gm)) fields.add(m[1]);
+  return fields;
+}
+
 /**
  * The v3 message enums and, per variant, the payload struct it wraps and the
  * wire names of that struct's fields. Each variant is internally tagged
@@ -376,6 +486,51 @@ function main() {
       );
   }
 
+  // ── Per-model config fields ─────────────────────────────────────────────
+  // `models` is a single key on both sides, so the top-level check above is
+  // blind to everything inside a model entry. This is where the fork's native
+  // resolver had drifted from v2.
+  const tsModelFields = collectTsModelFields();
+  const rustModelFields = collectRustModelFields();
+  const v2Model = collectV2ModelFields();
+  let upstreamModelNote = '';
+  if (v2Model === null) {
+    upstreamModelNote = ' (v2 model cross-check skipped: no .tmp/v2-ref and no upstream ref)';
+  } else {
+    const has = (set, field) => [...set].some((f) => normalizeKey(f) === normalizeKey(field));
+    for (const field of v2Model.fields) {
+      if (KNOWN_MODEL_FIELD_GAPS.has(field)) continue;
+      if (!has(tsModelFields, field))
+        failures.push(`MODEL ${field} is in v2's ModelRecord but not in ModelAliasBaseSchema`);
+      if (!has(rustModelFields, field))
+        failures.push(`MODEL ${field} is in v2's ModelRecord but not in Rust ModelAliasConfig`);
+    }
+    for (const field of KNOWN_MODEL_FIELD_GAPS) {
+      if (!v2Model.fields.has(field))
+        failures.push(`MODEL ${field} is a stale KNOWN_MODEL_FIELD_GAPS entry — v2 no longer declares it`);
+    }
+    upstreamModelNote = ` (v2 model ${v2Model.fields.size} fields @ ${v2Model.revision})`;
+  }
+
+  // ── Native-LLM transport fields ─────────────────────────────────────────
+  const tsNativeLlm = collectTsNativeLlmFields();
+  const rustResolvedLlm = collectRustStructFields('ResolvedNativeLlm');
+  const rustNativeLlm = collectRustStructFields('NativeLlmConfig');
+  const hasLlm = (set, field) =>
+    [...set].some((f) => normalizeKey(f) === normalizeKey(field)) ||
+    [...set].some((f) => normalizeKey(f) === normalizeKey(NATIVE_LLM_FIELD_EQUIVALENTS.get(field) ?? ''));
+  for (const field of rustResolvedLlm) {
+    if (KNOWN_NATIVE_LLM_FIELD_GAPS.has(field)) continue;
+    if (!hasLlm(tsNativeLlm, field))
+      failures.push(`NLLM  ${field} is in ResolvedNativeLlm but not in JsNativeLlmConfig`);
+    if (!hasLlm(rustNativeLlm, field))
+      failures.push(`NLLM  ${field} is in ResolvedNativeLlm but not in NativeLlmConfig`);
+  }
+  for (const field of KNOWN_NATIVE_LLM_FIELD_GAPS) {
+    if (!rustResolvedLlm.has(field))
+      failures.push(`NLLM  ${field} is a stale KNOWN_NATIVE_LLM_FIELD_GAPS entry`);
+  }
+
   // ── v3 flat-entity messages ─────────────────────────────────────────────
   // The v3 contract is a frozen snapshot of upstream's union, so this checks it
   // both ways against the Rust types, and — when the upstream extraction is
@@ -435,7 +590,7 @@ function main() {
 
   console.log('✅ Rust <-> TS interface parity OK:');
   console.log(
-    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | v3 ${V3MessageContract.server.length}+${V3MessageContract.client.length} messages${upstreamV3Note}`,
+    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | model ${tsModelFields.size}/${rustModelFields.size} fields | nllm ${tsNativeLlm.size}/${rustResolvedLlm.size} fields | v3 ${V3MessageContract.server.length}+${V3MessageContract.client.length} messages${upstreamV3Note}${upstreamModelNote}`,
   );
 }
 
