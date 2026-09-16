@@ -79,19 +79,6 @@ export interface AgentRuntimeBindingSnapshot {
   };
 }
 
-export type InspectionSourceKind =
-  | 'config'
-  | 'override'
-  | 'builtin'
-  | 'env'
-  | 'synthesized'
-  | 'none';
-
-export interface InspectionSource {
-  readonly kind: InspectionSourceKind;
-  readonly detail?: string;
-}
-
 export interface TokenUsage {
   readonly input: number;
   readonly output: number;
@@ -198,18 +185,6 @@ export interface ModelPingResult {
   readonly finishReason?: string;
   readonly usage?: TokenUsage;
   readonly error?: string;
-}
-
-export interface ModelInspection {
-  readonly model: string;
-  readonly provider: string;
-  readonly resolved: {
-    readonly config?: unknown;
-    readonly override?: unknown;
-    readonly builtin?: unknown;
-    readonly env?: unknown;
-  };
-  readonly sources: Readonly<Record<string, InspectionSource>>;
 }
 
 export interface ModelCatalogItem {
@@ -353,7 +328,6 @@ export interface IConfigServiceContract {
 export interface IModelCatalogContract {
   readonly _serviceBrand: undefined;
   get(id: string): unknown;
-  inspect(id: string): ModelInspection;
   ping(id: string): Promise<ModelPingResult>;
   findByName(name: string): readonly string[];
   listModels(): Promise<readonly ModelCatalogItem[]>;

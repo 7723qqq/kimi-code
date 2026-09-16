@@ -6,8 +6,10 @@
 use serde_json::{Value, json};
 
 use crate::server::HttpServer;
+use crate::server::engine::ServerEngine;
 use crate::server::router::{HttpRequest, HttpResponse};
 use crate::session::sqlite_store::{SqliteSessionStore, encode_workdir_key};
+use crate::turn_loop::types::{LLMChatParams, LLMMessage};
 
 fn iso_to_millis(value: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(value)
@@ -61,6 +63,93 @@ fn debug_graph(server: &HttpServer) -> (Vec<Value>, Vec<Value>) {
     (nodes, edges)
 }
 
+/// `IModelCatalog.ping`: one minimal chat request to `model`, timed, carrying
+/// the provider's own error text on failure. It reuses the engine's LLM
+/// selection (`ServerEngine::llm_for_model`) instead of a second transport, so
+/// a ping exercises the same base URL, credential and protocol a turn would.
+async fn ping_model(engine: &ServerEngine, model: &str) -> Value {
+    let Some(llm) = engine.llm_for_model(model).await else {
+        return json!({
+            "ok": false,
+            "durationMs": 0,
+            "error": format!("model {model} resolves to no reachable provider"),
+        });
+    };
+    let params = LLMChatParams {
+        messages: std::sync::Arc::from(vec![LLMMessage::user("ping")]),
+        tools: std::sync::Arc::from(Vec::new()),
+        cancel: None,
+    };
+    let started = std::time::Instant::now();
+    match llm.chat(params).await {
+        Ok(response) => {
+            let mut result = json!({
+                "ok": true,
+                "durationMs": started.elapsed().as_millis() as u64,
+                "text": response.content,
+                "usage": usage_wire(&response.usage),
+            });
+            if let Some(reason) = response.finish_reason {
+                result["finishReason"] = Value::String(reason);
+            }
+            result
+        }
+        Err(error) => json!({
+            "ok": false,
+            "durationMs": started.elapsed().as_millis() as u64,
+            "error": error.to_string(),
+        }),
+    }
+}
+
+/// The v2 `TokenUsage` shape kimi-inspect reads: `input` is the prompt total,
+/// `inputOther` the uncached remainder the engine's `input_tokens` holds.
+fn usage_wire(usage: &crate::rpc::types::TokenUsage) -> Value {
+    json!({
+        "input": usage.input_tokens + usage.input_cache_read + usage.input_cache_creation,
+        "output": usage.output_tokens,
+        "inputCacheRead": usage.input_cache_read,
+        "inputCacheCreation": usage.input_cache_creation,
+        "inputOther": usage.input_tokens,
+    })
+}
+
+/// `IModelService.list`: the raw `[models.*]` records keyed by alias id. The
+/// inspector groups models by `providerId` when `listModels`' own `provider`
+/// is absent, so the resolved provider id is the field that matters here.
+/// Credentials are never projected: the record shape has an `apiKey` slot and
+/// this surface has no reason to fill it.
+fn model_records(config: &crate::config::KimiConfig) -> Value {
+    let mut records = serde_json::Map::new();
+    for (id, alias) in &config.models {
+        let mut record = serde_json::Map::new();
+        record.insert("name".into(), json!(id));
+        record.insert(
+            "model".into(),
+            json!(alias.model.clone().unwrap_or_else(|| id.clone())),
+        );
+        if let Some(provider_id) = alias
+            .provider
+            .clone()
+            .or_else(|| config.default_provider.clone())
+        {
+            record.insert("providerId".into(), json!(provider_id));
+            record.insert("provider".into(), json!(provider_id));
+        }
+        if let Some(size) = alias.max_context_size.or(alias.max_input_size) {
+            record.insert("maxContextSize".into(), json!(size));
+        }
+        if let Some(capabilities) = &alias.capabilities {
+            record.insert("capabilities".into(), json!(capabilities));
+        }
+        if let Some(protocol) = &alias.protocol {
+            record.insert("protocol".into(), json!(protocol));
+        }
+        records.insert(id.clone(), Value::Object(record));
+    }
+    Value::Object(records)
+}
+
 /// Describe wire channels matching `ChannelDescriptor` in `apps/kimi-inspect`.
 pub fn describe_all_channels() -> Value {
     json!([
@@ -92,7 +181,24 @@ pub fn describe_all_channels() -> Value {
             "methods": [
                 { "name": "listModels", "kind": "method", "arity": 0, "params": "()" },
                 { "name": "listProviders", "kind": "method", "arity": 0, "params": "()" },
+                { "name": "ping", "kind": "method", "arity": 1, "params": "(model)" },
                 { "name": "setDefaultModel", "kind": "method", "arity": 1, "params": "(model)" }
+            ]
+        },
+        {
+            "name": "modelService",
+            "scope": "app",
+            "domain": "model",
+            "methods": [
+                { "name": "list", "kind": "method", "arity": 0, "params": "()" }
+            ]
+        },
+        {
+            "name": "sessionManager",
+            "scope": "app",
+            "domain": "session",
+            "methods": [
+                { "name": "resume", "kind": "method", "arity": 1, "params": "(sessionId)" }
             ]
         },
         {
@@ -488,6 +594,30 @@ pub async fn handle_debug_route(server: &HttpServer, req: &HttpRequest) -> Optio
             let session = server.store().get_session(session_id).ok().flatten();
             json!(session)
         }
+        ("sessionManager", "resume") => {
+            let session_id = body
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // A standalone server keeps no per-session runtime to materialize:
+            // every session-scoped route reads the store on demand, so
+            // "resumed" means the session exists and is reachable. A missing
+            // one is an error rather than a silent no-op — the caller's next
+            // step is a session-scoped call that would fail anyway. 400, not
+            // 404: this surface reserves 404 for an unknown method.
+            match server.store().get_session(session_id).ok().flatten() {
+                Some(session) => json!({ "id": session.session_id, "resumed": true }),
+                None => {
+                    return Some(HttpResponse::envelope_err(
+                        400,
+                        40000,
+                        format!("session not found: {session_id}"),
+                        &req_id,
+                    ));
+                }
+            }
+        }
         ("modelCatalog", "listModels") => {
             let config = server.config().await;
             let default_model = config.default_model.clone();
@@ -530,23 +660,30 @@ pub async fn handle_debug_route(server: &HttpServer, req: &HttpRequest) -> Optio
         }
         ("modelCatalog", "listProviders") => {
             let config = server.config().await;
-            let providers: Vec<Value> = config
-                .providers
-                .iter()
-                .map(|(name, provider)| {
-                    json!({
-                        "id": name,
-                        "name": name,
-                        "type": provider
-                            .provider_type
-                            .clone()
-                            .unwrap_or_else(|| "openai".to_string()),
-                        "base_url": provider.base_url,
-                        "oauth": provider.oauth.is_some(),
-                    })
-                })
-                .collect();
-            json!(providers)
+            let has_cached_token = |provider: &str| server.has_cached_token(provider);
+            // The contract-shaped projection (`ProviderCatalogItem`): the
+            // inspector's provider badge and default marker read `status` and
+            // `default_model`, which the REST route already serves.
+            crate::server::model_catalog::providers(&config, &has_cached_token)["items"].clone()
+        }
+        ("modelCatalog", "ping") => {
+            let model = body
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match server.engine() {
+                Some(engine) => ping_model(&engine, model).await,
+                None => json!({
+                    "ok": false,
+                    "durationMs": 0,
+                    "error": "this server has no engine to send a request from",
+                }),
+            }
+        }
+        ("modelService", "list") => {
+            let config = server.config().await;
+            model_records(&config)
         }
         ("agentLoopService", "getModel") => {
             let model = session_id
@@ -811,6 +948,7 @@ pub async fn handle_debug_route(server: &HttpServer, req: &HttpRequest) -> Optio
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_debug_surface_endpoints() {
@@ -939,7 +1077,10 @@ mod tests {
             ("sessionIndex", "restore"),
             ("modelCatalog", "listModels"),
             ("modelCatalog", "listProviders"),
+            ("modelCatalog", "ping"),
             ("modelCatalog", "setDefaultModel"),
+            ("modelService", "list"),
+            ("sessionManager", "resume"),
             ("workspaceService", "list"),
             ("workspaceService", "get"),
             ("workspaceService", "update"),
@@ -1149,6 +1290,165 @@ mod tests {
                 body: Vec::new(),
             })
             .await
+    }
+
+    async fn post(server: &HttpServer, path: &str, args: Value) -> HttpResponse {
+        server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: path.into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&args).unwrap(),
+            })
+            .await
+    }
+
+    /// An engine that resolves no model: the ping's "nothing to send from"
+    /// paths need a real `ServerEngine`, and every other field is irrelevant
+    /// to them.
+    fn engine_without_a_model(
+        store: Arc<SqliteSessionStore>,
+        hub: Arc<crate::server::hub::EventHub>,
+    ) -> ServerEngine {
+        ServerEngine::new(
+            crate::pipeline::PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "test-model".into(),
+                providers: Vec::new(),
+                native_llm: None,
+                workspace_root: None,
+                native_tools: false,
+                extra_roots: Vec::new(),
+                rust_self_contained: false,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                tower_enabled: false,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+                secondary_model: None,
+                image_read_byte_budget: None,
+                image_max_edge_px: None,
+                model_capabilities: None,
+                skill_dirs: Vec::new(),
+                background: crate::storage::BackgroundLimits::default(),
+            },
+            hub,
+            store,
+        )
+    }
+
+    /// `modelService.list` projects the raw `[models.*]` records the inspector
+    /// groups by, and `sessionManager.resume` reports a real session as
+    /// resumed while refusing an unknown one.
+    #[tokio::test]
+    async fn debug_model_records_and_session_resume_are_real() {
+        let server = HttpServer::in_memory().unwrap();
+        let config: crate::config::KimiConfig = r#"
+default_provider = "acme"
+
+[providers.acme]
+type = "openai"
+api_key = "sk-secret"
+base_url = "https://api.example.test/v1"
+
+[models.alias-2]
+provider = "acme"
+model = "gpt-x"
+max_context_size = 200000
+capabilities = ["tools"]
+
+[models.inherited]
+model = "gpt-y"
+"#
+        .parse()
+        .expect("parse config");
+        *server.config_override.lock().await = Some(config);
+
+        let res = post(&server, "/api/v1/debug/modelService/list", json!([])).await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        let records = &val["data"];
+        assert_eq!(records["alias-2"]["providerId"], "acme");
+        assert_eq!(records["alias-2"]["model"], "gpt-x");
+        assert_eq!(records["alias-2"]["maxContextSize"], 200000);
+        assert_eq!(records["alias-2"]["capabilities"], json!(["tools"]));
+        // An alias with no provider of its own inherits the global default.
+        assert_eq!(records["inherited"]["providerId"], "acme");
+        // Credentials are never projected onto this surface.
+        assert!(records["alias-2"].get("apiKey").is_none());
+
+        server.store().create_session("sess-resume", None).unwrap();
+        let res = post(
+            &server,
+            "/api/v1/debug/sessionManager/resume",
+            json!(["sess-resume"]),
+        )
+        .await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(val["data"]["id"], "sess-resume");
+        assert_eq!(val["data"]["resumed"], true);
+
+        // An unknown session is an error, not a silent success — and not a
+        // 404, which this surface reserves for an unknown method.
+        let res = post(
+            &server,
+            "/api/v1/debug/sessionManager/resume",
+            json!(["nope"]),
+        )
+        .await;
+        assert_eq!(res.status, 400);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_ne!(val["code"], 0);
+        assert!(val["msg"].as_str().unwrap().contains("nope"));
+    }
+
+    /// `modelCatalog.ping` reports an honest failure — never a fabricated
+    /// pong — when the server has no engine or the model resolves to no
+    /// reachable provider.
+    #[tokio::test]
+    async fn debug_model_ping_never_fakes_a_pong() {
+        let no_engine = HttpServer::in_memory().unwrap();
+        let res = post(
+            &no_engine,
+            "/api/v1/debug/modelCatalog/ping",
+            json!(["alias-2"]),
+        )
+        .await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(val["data"]["ok"], false);
+        assert_eq!(val["data"]["durationMs"], 0);
+        assert!(val["data"]["error"].as_str().unwrap().contains("no engine"));
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let hub = Arc::new(crate::server::hub::EventHub::new());
+        let server = HttpServer::with_hub(store.clone(), hub.clone())
+            .with_engine(engine_without_a_model(store, hub));
+        let res = post(
+            &server,
+            "/api/v1/debug/modelCatalog/ping",
+            json!(["alias-2"]),
+        )
+        .await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(val["data"]["ok"], false);
+        let error = val["data"]["error"].as_str().unwrap();
+        assert!(
+            error.contains("alias-2"),
+            "error must name the model: {error}"
+        );
     }
 
     #[tokio::test]
