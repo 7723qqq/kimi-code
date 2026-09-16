@@ -991,12 +991,18 @@ async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Noti
                 duration_ms: Some(turn_duration_ms),
             });
         } else if let Err(e) = &outcome {
+            let payload = turn_failure_payload(e);
             ctx.callbacks.turn_event(TurnEvent::Ended {
                 turn_id,
                 reason: TurnEndReason::Failed,
-                error: Some(serde_json::Value::String(e.clone())),
+                error: Some(payload.clone()),
                 duration_ms: Some(turn_duration_ms),
             });
+            // v2 dispatches a separate `AgentErrorEvent` alongside the failed
+            // `turn.ended` (loopService.ts:1533-1537); the host renders that
+            // one, so a turn that dies before producing any output is not
+            // silent.
+            ctx.callbacks.emit_event(payload);
         }
         for warning in print_warnings {
             ctx.callbacks.emit_event(warning);
@@ -1498,14 +1504,64 @@ fn turn_end_error_payload(
 ) -> Option<serde_json::Value> {
     use crate::turn_loop::types::LoopTurnStopReason as Stop;
     match stop {
-        Stop::MaxSteps => Some(serde_json::Value::String(format!(
-            "Turn exceeded maxSteps={steps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\"."
-        ))),
-        Stop::Filtered => Some(serde_json::Value::String(
-            "Provider safety policy blocked the response.".into(),
+        Stop::MaxSteps => Some(error_payload(
+            "loop.max_steps_exceeded",
+            format!(
+                "Turn exceeded maxSteps={steps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run \"/update-config\" to update it, then \"/reload\"."
+            ),
+        )),
+        Stop::Filtered => Some(error_payload(
+            "provider.filtered",
+            "Provider safety policy blocked the response.".to_string(),
         )),
         _ => None,
     }
+}
+
+/// A protocol `KimiErrorPayload` (events.ts) — the shape `turn.ended.error`
+/// and the `error` event both carry. `retryable` is false throughout: the
+/// engine has already exhausted its own retry budget by the time a turn
+/// fails, so the host must not offer another attempt.
+fn error_payload(code: &str, message: String) -> serde_json::Value {
+    serde_json::json!({
+        "type": "error",
+        "code": code,
+        "message": message,
+        "retryable": false,
+    })
+}
+
+/// Classify a failed turn's error string onto a protocol error code. The
+/// engine's LLM layer reports transport failures as `llm http status <code>
+/// <reason>: <body>` (llm/http.rs:287) and everything else as a plain
+/// message, so the status line is the only structured signal available.
+fn turn_failure_code(message: &str) -> &'static str {
+    let Some(rest) = message.strip_prefix("llm http status ") else {
+        return if message.contains("connection") || message.contains("timed out") {
+            "provider.connection_error"
+        } else {
+            "internal"
+        };
+    };
+    let status: u16 = rest
+        .split_whitespace()
+        .next()
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    match status {
+        401 | 403 => "provider.auth_error",
+        404 => "provider.not_found",
+        429 => "provider.rate_limit",
+        500..=599 => "provider.overloaded",
+        _ => "provider.api_error",
+    }
+}
+
+/// The `error` payload for a turn that failed outright (the engine returned
+/// `Err`). The message is the engine's own error text, kept verbatim so the
+/// provider's response body reaches the user.
+fn turn_failure_payload(message: &str) -> serde_json::Value {
+    error_payload(turn_failure_code(message), message.to_string())
 }
 
 async fn run_session_turn(
@@ -2402,18 +2458,39 @@ mod tests {
     /// fixed value, so clock hydration and event dispatch share one harness.
     struct TurnRecordingCallbacks {
         events: Arc<Mutex<Vec<TurnEvent>>>,
+        emitted: Arc<Mutex<Vec<serde_json::Value>>>,
         turn_state: serde_json::Value,
     }
 
+    type RecordedEvents = Arc<Mutex<Vec<TurnEvent>>>;
+    type EmittedEvents = Arc<Mutex<Vec<serde_json::Value>>>;
+
     impl TurnRecordingCallbacks {
-        fn new(turn_state: serde_json::Value) -> (Self, Arc<Mutex<Vec<TurnEvent>>>) {
+        fn new(turn_state: serde_json::Value) -> (Self, RecordedEvents) {
             let events = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
                     events: events.clone(),
+                    emitted: Arc::new(Mutex::new(Vec::new())),
                     turn_state,
                 },
                 events,
+            )
+        }
+
+        fn new_with_emitted(
+            turn_state: serde_json::Value,
+        ) -> (Self, RecordedEvents, EmittedEvents) {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let emitted = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    events: events.clone(),
+                    emitted: emitted.clone(),
+                    turn_state,
+                },
+                events,
+                emitted,
             )
         }
     }
@@ -2450,6 +2527,9 @@ mod tests {
         }
         fn turn_event(&self, event: TurnEvent) {
             self.events.lock().unwrap().push(event);
+        }
+        fn emit_event(&self, event: serde_json::Value) {
+            self.emitted.lock().unwrap().push(event);
         }
     }
 
@@ -2702,7 +2782,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_turn_reports_ended_with_error() {
-        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let (callbacks, events, emitted) =
+            TurnRecordingCallbacks::new_with_emitted(serde_json::json!({}));
         let session = make_session(Arc::new(FailingLlm), Arc::new(callbacks)).await;
         let mut receipt = session
             .enqueue_turn(TurnRequest::user(msg("user", "boom"), Admission::NewTurn))
@@ -2719,6 +2800,32 @@ mod tests {
                 })
             ),
             "a turn that never produced a stop reason must still close: {seen:?}"
+        );
+        // The payload is a protocol `KimiErrorPayload`, not a bare string: the
+        // host's terminal-state display reads `error.code` off it.
+        let Some(TurnEvent::Ended {
+            error: Some(payload),
+            ..
+        }) = seen.last()
+        else {
+            panic!("expected a failed turn.ended: {seen:?}");
+        };
+        assert_eq!(payload["code"], "internal");
+        assert_eq!(payload["message"], "provider is offline");
+        assert_eq!(payload["retryable"], false);
+        // v2 dispatches a separate error event alongside the failed turn
+        // (loopService.ts:1533-1537); without it a turn that dies before any
+        // output leaves the user with no explanation at all.
+        let emitted = emitted.lock().unwrap().clone();
+        assert_eq!(
+            emitted,
+            vec![serde_json::json!({
+                "type": "error",
+                "code": "internal",
+                "message": "provider is offline",
+                "retryable": false,
+            })],
+            "the failure must reach the host's error channel"
         );
     }
 

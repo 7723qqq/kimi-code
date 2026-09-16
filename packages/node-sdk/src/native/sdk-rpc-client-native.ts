@@ -34,8 +34,8 @@ import {
   parseKimiCodeCustomHeaders,
 } from '@moonshot-ai/kimi-code-oauth';
 import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
-import type { TurnEndReason } from '@moonshot-ai/protocol';
-import { mcpOAuthStoreKey } from '@moonshot-ai/protocol';
+import type { KimiErrorCode, TurnEndReason } from '@moonshot-ai/protocol';
+import { kimiErrorCodeSchema, mcpOAuthStoreKey } from '@moonshot-ai/protocol';
 import { ZipFile } from 'yazl';
 
 import { KimiAuthFacade } from '#/auth';
@@ -174,6 +174,16 @@ function toTurnEndReason(raw: unknown): TurnEndReason {
     return 'blocked';
   }
   return 'completed';
+}
+
+/**
+ * The engine reports error codes as free-form strings; the protocol union is
+ * closed, so an unrecognized code degrades to `internal` rather than dropping
+ * the message that came with it.
+ */
+function toKimiErrorCode(raw: unknown): KimiErrorCode {
+  const parsed = kimiErrorCodeSchema.safeParse(raw);
+  return parsed.success ? parsed.data : 'internal';
 }
 
 /**
@@ -1031,6 +1041,31 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             };
             this.persistMeta(meta);
           }
+        } else if (parsed.type === 'warning') {
+          // Engine-side turn warnings (media budget, MCP startup, …). Without
+          // this arm they were dropped on the floor: the engine emitted them
+          // and no consumer ever saw one.
+          this.receiveEvent({
+            sessionId,
+            agentId: eventAgentId,
+            type: 'warning',
+            message: String(parsed.message ?? ''),
+            ...(typeof parsed.code === 'string' ? { code: parsed.code } : {}),
+          });
+        } else if (parsed.type === 'error') {
+          // A turn that failed outright (session/mod.rs emits this beside the
+          // failed `turn.ended`, mirroring v2's AgentErrorEvent). The code is
+          // engine-supplied and validated against the protocol union by the
+          // consumer, so an unknown one degrades to `internal` rather than
+          // dropping the message.
+          this.receiveEvent({
+            sessionId,
+            agentId: eventAgentId,
+            type: 'error',
+            code: toKimiErrorCode(parsed.code),
+            message: String(parsed.message ?? ''),
+            retryable: parsed.retryable === true,
+          });
         }
       },
       checkPermission: async (req: string) => {

@@ -485,8 +485,19 @@ export class SessionEventHandler {
     // would otherwise leave a stale start timestamp that a later same-id
     // result could match — drop the whole map at the turn boundary.
     this.toolStartTimes.clear();
-    if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
-      this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
+    if (event.reason === 'failed') {
+      // A failed turn must never end silently: the engine reports the reason
+      // on `turn.ended.error` (a protocol KimiErrorPayload), and a turn that
+      // dies before producing any output would otherwise leave the user with
+      // an empty transcript and no explanation.
+      if (event.error?.code === 'provider.filtered') {
+        this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
+      } else {
+        const formatted = formatErrorPayload(event.error);
+        if (formatted.length > 0) {
+          this.host.showError(formatted);
+        }
+      }
     }
     if (event.reason === 'blocked') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedBlocked'), 'error');
