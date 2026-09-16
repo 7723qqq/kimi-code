@@ -315,14 +315,25 @@ fn latest_user_text(user_messages: &[LLMMessage]) -> String {
 }
 
 /// Drop the rebuilt system message (index 0) before a Stop-hook
-/// continuation pass; `run_turn` rebuilds it, and the caller splits out
-/// stale injections afterwards.
+/// continuation pass; `run_turn` rebuilds it.
 fn strip_rebuilt_system_message(messages: Vec<LLMMessage>) -> Vec<LLMMessage> {
     debug_assert!(
         messages.first().is_none_or(|m| m.role == "system"),
         "turn head must be the rebuilt system message"
     );
     messages.into_iter().skip(1).collect()
+}
+
+/// Where a compaction continuation belongs: right after the last message that
+/// is not a reminder, so the handoff precedes the reminders the step head
+/// appended (v2 `compactionRearmPending` re-injects after the splice). The
+/// continuation text is itself a `<system-reminder>`, so it cannot simply be
+/// pushed — that would leave it after the reminders it must precede.
+fn continuation_anchor(messages: &[LLMMessage]) -> usize {
+    messages
+        .iter()
+        .rposition(|message| !crate::injection::is_system_reminder(&message.content))
+        .map_or(0, |at| at + 1)
 }
 
 /// The messages one request carries, after media resolution and the media
@@ -445,12 +456,14 @@ pub fn run_turn_continued<'a>(
             // back out — see the `None` arm below.
             match result.stop_hook_continuation.take() {
                 Some(text) => {
-                    // The next pass re-derives the system message and stale
-                    // injections; each continuation iteration gets a fresh
-                    // step window under the same turn id (v2 re-arms the
-                    // loop the same way).
+                    // The next pass re-derives the system message; each
+                    // continuation iteration gets a fresh step window under
+                    // the same turn id (v2 re-arms the loop the same way).
+                    // Reminders stay where they were appended — dropping them
+                    // here would shift the indices the caller folds the turn
+                    // result by, and the step-head pass re-derives whatever
+                    // the next iteration needs.
                     messages = strip_rebuilt_system_message(result.messages);
-                    crate::injection::split_injections(&mut messages);
                     messages.push(LLMMessage::user(&text));
                 }
                 None => {
@@ -582,6 +595,10 @@ pub fn run_turn<'a>(
     // turn body: a prior disclosure suppresses the per-turn baseline
     // re-injection until the date changes.
     let date_baseline = crate::injection::scan_date_baseline(&user_messages);
+    // Same for the workspace AGENTS.md reminder: the paths an earlier reminder
+    // already named are not suggested again (v2 reads the same set off the
+    // last injection's `origin.disclosure`).
+    let agents_md_baseline = crate::injection::scan_agents_md_baseline(&user_messages);
     // Same for the permission-mode reminders: the mode the last reminder
     // recorded survives across turns, so a resumed session does not
     // re-announce a mode the model was already told about.
@@ -706,7 +723,7 @@ pub fn run_turn<'a>(
         // here: in the product the state lives host-side and a workspace- or
         // home-local directory would be a side effect with no consumer.
         let mut injection_registry =
-            crate::injection::InjectionRegistry::with_defaults(date_baseline);
+            crate::injection::InjectionRegistry::with_defaults(date_baseline, agents_md_baseline);
         crate::injection::permission_mode::register_permission_mode_injection(
             &mut injection_registry,
             input.permission_mode,
@@ -816,11 +833,13 @@ pub fn run_turn<'a>(
             // overflow. Independent of the goal budget check above: the
             // goal budget stops the turn, compaction keeps it running.
             //
-            // Injection messages never participate in compaction trimming
-            // (v2 classifies them with `origin.kind === 'injection'`): they
-            // are pulled out before compacting and re-appended after, so
-            // reminders survive the windowing.
-            let injections = crate::injection::split_injections(&mut messages);
+            // Per-turn reminders are appended in place and stay in the
+            // history (v2 `reminderService.append`), so `messages` is always
+            // `[system] + carried history + what this turn appended` — the
+            // shape the callers fold the turn result by. Compaction sees them
+            // like any other message; v2 re-injects after a compaction splice
+            // (`compactionRearmPending`), which the step-head pass below does
+            // by re-deriving them.
             context_tokens.sync(&messages);
             if let Some(compacted) = crate::compaction::compact_messages_with_summary_at(
                 &messages,
@@ -847,9 +866,16 @@ pub fn run_turn<'a>(
                 }
                 context_tokens.invalidate();
                 messages = compacted;
-                messages.push(crate::compaction::compaction_continuation_message());
+                // v2 `compactionRearmPending`: the continuation is anchored
+                // before the reminders the step head appended, so the model
+                // reads the handoff first. Inserting rather than re-appending
+                // leaves every other message where it was — moving the
+                // reminders would break `messages` = `[system] + carried
+                // history + new`, which is what the callers' fold index
+                // assumes.
+                let at = continuation_anchor(&messages);
+                messages.insert(at, crate::compaction::compaction_continuation_message());
             }
-            messages.extend(injections);
 
             // ── Injection pass ───────────────────────────────────────────
             // Mirror v2's `onWillBeginStep` injection gate: build this
@@ -941,7 +967,6 @@ pub fn run_turn<'a>(
                         ));
                     }
                     if crate::compaction::is_context_overflow_error(&err_str) {
-                        let injections = crate::injection::split_injections(&mut messages);
                         let force_compacted =
                             crate::compaction::force_compact_messages_with_summary(
                                 &messages,
@@ -960,9 +985,11 @@ pub fn run_turn<'a>(
                                 "recovered from context overflow via emergency compaction"
                             );
                             messages = force_compacted;
-                            messages.push(crate::compaction::compaction_continuation_message());
                             context_tokens.invalidate();
-                            messages.extend(injections);
+                            // v2 `compactionRearmPending`, as above.
+                            let at = continuation_anchor(&messages);
+                            messages
+                                .insert(at, crate::compaction::compaction_continuation_message());
                             let request_messages = budgeted_request(
                                 &mut media_budget,
                                 input.media,

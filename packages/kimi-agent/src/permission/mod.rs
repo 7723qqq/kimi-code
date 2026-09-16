@@ -25,6 +25,59 @@ use serde_json::Value;
 
 use crate::native::permission_engine::dangerous_command::{DangerousVerdict, analyze_bash_command};
 
+/// The tools that run without an approval prompt in every permission mode
+/// (v2 `DEFAULT_APPROVE_TOOLS`, `default-tool-approve.ts`). Both spellings of
+/// each multi-word name are listed because [`PermissionEngine::evaluate`]
+/// lowercases without squashing underscores, so `ReadMediaFile` and
+/// `read_media_file` are different keys. `ListDirectory` is the fork's own
+/// read-only extra — v2 folds directory listing into `Glob`.
+const DEFAULT_APPROVE_TOOLS: &[&str] = &[
+    "read",
+    "grep",
+    "glob",
+    "readmediafile",
+    "read_media_file",
+    "settodolist",
+    "set_todo_list",
+    "todolist",
+    "todo_list",
+    "tasklist",
+    "task_list",
+    "taskoutput",
+    "task_output",
+    "waitfor",
+    "wait_for",
+    "cronlist",
+    "cron_list",
+    "websearch",
+    "web_search",
+    "fetchurl",
+    "fetch_url",
+    "agent",
+    "agentswarm",
+    "agent_swarm",
+    "askuserquestion",
+    "ask_user_question",
+    "notifyuser",
+    "notify_user",
+    "skill",
+    "enterplanmode",
+    "enter_plan_mode",
+    "exitplanmode",
+    "exit_plan_mode",
+    "creategoal",
+    "create_goal",
+    "getgoal",
+    "get_goal",
+    "setgoalbudget",
+    "set_goal_budget",
+    "updategoal",
+    "update_goal",
+    "select_tools",
+    "listdirectory",
+    "list_directory",
+];
+
 /// Permission mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -392,19 +445,16 @@ impl PermissionEngine {
             };
         }
 
-        // 11. DefaultToolApprove (Read-only tools are approved by default)
-        if matches!(
-            tool_lower.as_str(),
-            "read"
-                | "grep"
-                | "glob"
-                | "listdirectory"
-                | "list_directory"
-                | "fetchurl"
-                | "fetch_url"
-                | "websearch"
-                | "web_search"
-        ) || crate::tools::github::is_readonly_tool(tool_name)
+        // 11. DefaultToolApprove (v2 `DEFAULT_APPROVE_TOOLS`,
+        //     default-tool-approve.ts): the tools that run without an approval
+        //     prompt in every permission mode. The fork's list had drifted to
+        //     the read-only file tools alone, so TodoList, the plan tools, the
+        //     goal tools, Agent / Skill and the task readers all fell through
+        //     to `FallbackAsk` — a prompt v2 never shows. Both spellings are
+        //     listed because `evaluate` lowercases without squashing
+        //     underscores, so `ReadMediaFile` and `read_media_file` differ.
+        if DEFAULT_APPROVE_TOOLS.contains(&tool_lower.as_str())
+            || crate::tools::github::is_readonly_tool(tool_name)
         {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
@@ -934,18 +984,18 @@ mod tests {
             Some("Auto mode cannot ask interactive questions".into())
         );
 
-        // In Manual mode, AskUserQuestion falls back to FallbackAsk (not AutoModeAskUserQuestionDeny)
+        // In Manual mode, AskUserQuestion is approved by DefaultToolApprove —
+        // v2 lists it in `DEFAULT_APPROVE_TOOLS`, so asking the user a
+        // question never itself needs approval. Only Auto mode denies it
+        // (AutoModeAskUserQuestionDeny runs first).
         let engine_manual = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Manual,
             ..Default::default()
         });
         let verdict_manual = engine_manual.evaluate("AskUserQuestion", &json!({}));
-        assert_eq!(verdict_manual.decision, VerdictDecision::Ask);
-        assert_eq!(verdict_manual.policy_name, "FallbackAsk");
-        assert_eq!(
-            verdict_manual.reason,
-            Some("Tool execution requires approval: AskUserQuestion".into())
-        );
+        assert_eq!(verdict_manual.decision, VerdictDecision::Allow);
+        assert_eq!(verdict_manual.policy_name, "DefaultToolApprove");
+        assert_eq!(verdict_manual.reason, None);
 
         // In Yolo mode, AskUserQuestion is allowed by YoloModeApprove
         let engine_yolo = PermissionEngine::new(PolicySnapshot {

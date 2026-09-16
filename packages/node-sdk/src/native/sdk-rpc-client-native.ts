@@ -1122,11 +1122,40 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         // rebuilding the handle. Every other domain is engine-owned (todo /
         // goal / cron / task / turn): error so the Rust StateStoreCallbacks
         // falls back to its local store.
+        //
+        // The plan id and path ride along: `EnterPlanMode` renders its
+        // workflow message from them, and without them the model is told to
+        // wait for a plan file the host has already prepared.
         const parsed = JSON.parse(req) as { domain?: string };
         if (parsed.domain === 'plan') {
-          return JSON.stringify({ value: { active: meta.planMode } });
+          return JSON.stringify({
+            value: { active: meta.planMode, id: meta.plan?.id, path: meta.plan?.path },
+          });
         }
         throw new Error('host does not support state bridge');
+      },
+      stateWrite: async (req: string) => {
+        // The plan domain is host-owned, so the engine's EnterPlanMode /
+        // ExitPlanMode write through this bridge and the host is what owns the
+        // plan document and the `agent.status.updated` the UI switches on.
+        // Without this arm the write fell through to the engine's local store
+        // while the read came from here: EnterPlanMode reported success (and
+        // wrote a plan file under the engine's own state dir), then
+        // ExitPlanMode read `active: false` and refused to run.
+        const parsed = JSON.parse(req) as { domain?: string; value?: { active?: boolean } };
+        if (parsed.domain !== 'plan') {
+          throw new Error('host does not support state bridge');
+        }
+        await this.setPlanMode({ sessionId, enabled: parsed.value?.active === true });
+        const current = this.requireSession(sessionId);
+        return JSON.stringify({
+          ok: true,
+          value: {
+            active: current.planMode,
+            id: current.plan?.id,
+            path: current.plan?.path,
+          },
+        });
       },
       goal: async () => {
         // Fresh goal snapshot per turn (snake_case wire). Only an active goal

@@ -127,13 +127,18 @@ impl InjectionRegistry {
     /// reminder and the workspace-root AGENTS.md reminder. The workspace
     /// root defaults to the process working directory. `date_baseline` seeds
     /// the date-change tracker with a previously disclosed date (scanned
-    /// from history) so the baseline is not re-injected every turn.
-    pub fn with_defaults(date_baseline: Option<String>) -> Self {
+    /// from history) so the baseline is not re-injected every turn;
+    /// `agents_md_baseline` does the same for the AGENTS.md paths an earlier
+    /// reminder already named.
+    pub fn with_defaults(date_baseline: Option<String>, agents_md_baseline: Vec<String>) -> Self {
         let mut registry = Self::new();
         registry.register("date_change", Box::new(date_change_provider(date_baseline)));
         registry.register(
             "agents_md",
-            Box::new(agents_md_provider(std::env::current_dir().ok())),
+            Box::new(agents_md_provider(
+                std::env::current_dir().ok(),
+                agents_md_baseline,
+            )),
         );
         registry
     }
@@ -315,7 +320,15 @@ pub fn find_agents_md(root: &Path) -> Option<PathBuf> {
 /// variant): injects once per turn when the workspace root contains an
 /// AGENTS.md instruction file that was not part of the injected instructions.
 /// `root` is `None` when the process working directory is unavailable.
-fn agents_md_provider(root: Option<PathBuf>) -> impl FnMut(&InjectionContext) -> Option<String> {
+/// `disclosed` carries the paths an earlier reminder already named — v2 reads
+/// the same set off the last injection's `origin.disclosure`
+/// (`agentsMdReminderService.injectReminder`), and the reminder promises
+/// "Each file is suggested at most once per agent". The per-turn flag alone
+/// re-injected it on every turn.
+fn agents_md_provider(
+    root: Option<PathBuf>,
+    disclosed: Vec<String>,
+) -> impl FnMut(&InjectionContext) -> Option<String> {
     // Resolve the file once and cache the miss too: otherwise a workspace with
     // no AGENTS.md would stat() two candidate paths on every step.
     let mut resolved: Option<Option<PathBuf>> = None;
@@ -327,13 +340,41 @@ fn agents_md_provider(root: Option<PathBuf>) -> impl FnMut(&InjectionContext) ->
         let path = resolved.get_or_insert_with(|| root.as_deref().and_then(find_agents_md));
         let path = path.as_ref()?;
         injected = true;
+        let path = path.to_string_lossy();
+        if disclosed.iter().any(|seen| seen == path.as_ref()) {
+            return None;
+        }
         Some(format!(
             "The workspace root is covered by an AGENTS.md instruction file that was not \
-             part of the injected instructions:\n- {}\nRead it before making changes in \
-             that directory. Each file is suggested at most once per agent.",
-            path.display()
+             part of the injected instructions:\n- {path}\nRead it before making changes in \
+             that directory. Each file is suggested at most once per agent."
         ))
     }
+}
+
+/// The AGENTS.md paths an earlier reminder already disclosed. v2 keeps the set
+/// on the injection message's `origin.disclosure`; the fork's messages carry
+/// no origin, so the reminder text is scanned instead — the same shape as
+/// [`scan_date_baseline`].
+pub fn scan_agents_md_baseline(messages: &[LLMMessage]) -> Vec<String> {
+    const MARKER: &str = "The workspace root is covered by an AGENTS.md instruction file";
+    let mut disclosed: Vec<String> = Vec::new();
+    for message in messages {
+        let content = message.content.as_str();
+        if !content.contains(MARKER) {
+            continue;
+        }
+        for line in content.lines() {
+            let Some(path) = line.strip_prefix("- ") else {
+                continue;
+            };
+            let path = path.trim();
+            if !path.is_empty() && !disclosed.iter().any(|seen| seen == path) {
+                disclosed.push(path.to_string());
+            }
+        }
+    }
+    disclosed
 }
 
 #[cfg(test)]
@@ -570,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_with_defaults_registers_builtins_and_builds() {
-        let mut registry = InjectionRegistry::with_defaults(None);
+        let mut registry = InjectionRegistry::with_defaults(None, Vec::new());
         assert_eq!(registry.names(), vec!["date_change", "agents_md"]);
 
         let texts = registry.build_injections(true);
@@ -741,7 +782,7 @@ mod tests {
         let agents_path = dir.path().join("AGENTS.md");
         std::fs::write(&agents_path, "# Instructions").unwrap();
 
-        let mut provider = agents_md_provider(Some(dir.path().to_path_buf()));
+        let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), Vec::new());
         let ctx = InjectionContext {
             is_new_turn: true,
             injected: &[],
@@ -758,11 +799,12 @@ mod tests {
 
         assert_eq!(provider(&ctx), None, "at most once per turn");
 
-        let mut none_provider = agents_md_provider(None);
+        let mut none_provider = agents_md_provider(None, Vec::new());
         assert_eq!(none_provider(&ctx), None);
 
         let empty_dir = tempfile::tempdir().unwrap();
-        let mut missing_provider = agents_md_provider(Some(empty_dir.path().to_path_buf()));
+        let mut missing_provider =
+            agents_md_provider(Some(empty_dir.path().to_path_buf()), Vec::new());
         assert_eq!(missing_provider(&ctx), None);
     }
 

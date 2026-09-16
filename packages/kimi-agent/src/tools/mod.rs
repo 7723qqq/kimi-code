@@ -1486,11 +1486,19 @@ impl NativeToolset {
         let (line_offset, tail_lines) = match args.get("line_offset") {
             None | Some(Value::Null) => (1i64, 0usize),
             Some(v) => {
-                let n = v.as_i64()?;
+                let Some(n) = v.as_i64() else {
+                    return Some(err_result(format!(
+                        "\"line_offset\" must be an integer, got {v}."
+                    )));
+                };
                 if n == 0 {
-                    return None;
+                    // v2 `readTool` reads forward from `line_offset ?? 1`, so 0
+                    // is the start of the file. Declining it here forwarded the
+                    // call to a host with no file-tool runtime.
+                    (1i64, 0usize)
+                } else {
+                    (n, n.unsigned_abs() as usize)
                 }
-                (n, n.unsigned_abs() as usize)
             }
         };
         let mut offset = if line_offset > 0 {
@@ -1513,26 +1521,43 @@ impl NativeToolset {
             Some(v) => (v.as_u64()? as usize).min(READ_MAX_LINES),
         };
 
-        let resolved = Self::resolve(sandbox, path)?;
-        let meta = std::fs::metadata(&resolved).ok()?;
+        // A path the engine cannot resolve is a tool error, not a call the
+        // engine cannot serve (v2 `readTool`: `"<path>" does not exist.`).
+        // Returning `None` here made the engine forward the call to the host,
+        // which has no file-tool runtime — the model saw `tool "Read" is
+        // host-owned and not yet wired on the native harness` instead of the
+        // path being wrong.
+        let Some(resolved) = Self::resolve(sandbox, path) else {
+            return Some(err_result(format!("\"{path}\" does not exist.")));
+        };
+        let Ok(meta) = std::fs::metadata(&resolved) else {
+            return Some(err_result(format!("\"{path}\" does not exist.")));
+        };
         if !meta.is_file() {
-            return None;
+            return Some(err_result(format!("\"{path}\" is not a file.")));
         }
 
         // Encoding detection needs only the first bytes — reads are ranged
         // (v2 #3645), so a 30MB+ file must never load whole just to be read.
-        let mut file = std::fs::File::open(&resolved).ok()?;
+        let Ok(mut file) = std::fs::File::open(&resolved) else {
+            return Some(err_result(format!("\"{path}\" could not be opened.")));
+        };
         let sample_len = (meta.len() as usize).min(encoding::ENCODING_DETECTION_SAMPLE_BYTES);
         let mut header = vec![0u8; sample_len];
-        if sample_len > 0 {
-            std::io::Read::read_exact(&mut file, &mut header).ok()?;
-            // The sample consumed the handle's position: rewind so the line
-            // stream starts at line 1, not after the header.
-            std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).ok()?;
+        if sample_len > 0
+            && (std::io::Read::read_exact(&mut file, &mut header).is_err()
+                || std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).is_err())
+        {
+            return Some(err_result(format!("\"{path}\" could not be read.")));
         }
         let detection = encoding::detect_text_encoding(&header);
         if detection.seems_binary {
-            return None;
+            // v2 `readTool` refuses a file whose type it cannot place
+            // (`notReadableFileOutput`); returning `None` sent it to a host
+            // with no file-tool runtime instead.
+            return Some(err_result(format!(
+                "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
+            )));
         }
 
         // Tail reads on UTF-8/ASCII files: count lines in a streaming pass
@@ -4026,12 +4051,19 @@ mod tests {
     }
 
     #[test]
-    fn read_binary_nul_falls_back_to_host() {
+    fn read_binary_nul_reports_not_readable() {
+        // v2 `readTool` refuses a file it cannot place (`notReadableFileOutput`)
+        // instead of declining the call: a `None` here made the engine forward
+        // it to a host with no file-tool runtime, and the model saw
+        // `tool "Read" is host-owned and not yet wired on the native harness`.
         let (_dir, ts) = setup();
         std::fs::write(_dir.path().join("bin.dat"), b"plain prefix\x00\x01").unwrap();
+        let result = ts.execute("Read", &json!({ "path": "bin.dat" })).unwrap();
+        assert!(result.is_error, "content: {}", result.content);
         assert!(
-            ts.execute("Read", &json!({ "path": "bin.dat" })).is_none(),
-            "binary files stay on the host"
+            result.content.contains("is not readable as UTF-8 text"),
+            "content: {}",
+            result.content
         );
     }
 

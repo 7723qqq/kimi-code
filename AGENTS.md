@@ -497,6 +497,15 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 - When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
 - Push every commit to `origin` immediately after `git commit`. Never let local and remote diverge — applies to feature, fix, and experimental branches alike, so local work is never lost and the remote does not fall behind.
 
+## Verification Standard (normative)
+
+**A passing suite is a possible result, not the target result.** The target is the user's actual scenario working end to end. A green suite says only that the paths it exercises still behave as they did — when the implementation is wrong, the test encodes the wrongness and stays green.
+
+- **Empirical, not plausible.** Before claiming a behavior works, drive it through the real path — the real engine, the real host seam, the real config — and observe the outcome. Reading the code and concluding "this should work" is not verification. Neither is a unit test whose inputs you constructed to match the implementation.
+- **v2 is the behavioral reference.** Where the fork reimplements a v2 behavior, read v2's wiring first (`.tmp/v2-ref/`, refreshed from `upstream/main`) and compare against it — the policy order, the tool list, the event that drives the UI. Do not infer the intended behavior from the fork's own code; that only re-derives the fork's bugs.
+- **Reproduce before fixing.** A reported bug is not understood until it is reproduced on demand. If it cannot be reproduced, say so and ask for the exact sequence rather than fixing a guess.
+- **Name what was not verified.** When a path could not be exercised, state it plainly instead of implying coverage.
+
 ## Workflow Requirements
 
 - Prefer `rg` / `rg --files` when reading code.

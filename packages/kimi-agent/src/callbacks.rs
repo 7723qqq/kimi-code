@@ -2212,9 +2212,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sandbox_escape_is_not_reported_as_native_execution() {
-        // A call the sandbox declines to handle runs on the host instead, so
-        // it must not inflate native_tool_calls — otherwise the turn result
-        // would claim a path that never served the call.
+        // A call the engine does not own runs on the host instead, so it must
+        // not inflate native_tool_calls — otherwise the turn result would
+        // claim a path that never served the call.
         let (_dir, native, _permission_calls, executed, native_count) =
             gate_setup(PermissionDecision {
                 decision: "allow".into(),
@@ -2224,15 +2224,15 @@ mod tests {
             .execute_tool(ToolExecuteRequest {
                 turn_id: "t".into(),
                 tool_call_id: "c4".into(),
-                tool_name: "Read".into(),
-                arguments: serde_json::json!({ "path": "../outside.txt" }),
+                tool_name: "SomeHostTool".into(),
+                arguments: serde_json::json!({}),
             })
             .await
             .unwrap();
         assert_eq!(
             executed.load(Ordering::Relaxed),
             1,
-            "the host picks up what the sandbox escapes"
+            "the host picks up what the engine does not own"
         );
         assert_eq!(native_count.load(Ordering::Relaxed), 0);
         assert!(!response.is_error);
@@ -2437,10 +2437,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stale_guard_records_host_forwarded_reads() {
-        // A binary Read is not decodable as text, so the native text read
-        // declines it and the host serves the call; the gate must still
-        // record it so a later native Write to the same file passes.
+    async fn test_stale_guard_ignores_a_read_that_failed() {
+        // A read the engine could not serve is a tool error now, not a host
+        // fallback — and a failed read must not count as having read the file,
+        // so the guard still blocks the write that follows.
         let (dir, native, executed, _native_count, _events, _state_reads) = stale_gate_setup(
             PermissionDecision {
                 decision: "allow".into(),
@@ -2458,11 +2458,9 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(!read.is_error);
-        assert_eq!(
-            executed.load(Ordering::Relaxed),
-            1,
-            "the binary read runs on the host"
+        assert!(
+            read.is_error,
+            "a binary read is a tool error, not a host fallback: {read:?}"
         );
         let write = native
             .execute_tool(ToolExecuteRequest {
@@ -2474,9 +2472,10 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            !write.is_error,
-            "a host-served read must clear the native write: {write:?}"
+            write.is_error && write.content.contains("has not been read"),
+            "a failed read must not clear the guard: {write:?}"
         );
+        assert_eq!(executed.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]

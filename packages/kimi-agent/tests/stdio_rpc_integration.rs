@@ -1534,9 +1534,9 @@ fn run_turn_native_write_denied_after_external_modification() {
     );
 }
 
-/// A read the HOST served (the native text read declines binary files) must
-/// also clear a later native Write — the gate observes host-forwarded
-/// executions.
+/// A read the engine cannot serve is a tool error, not a host fallback — and
+/// a failed read must not clear the guard, so the write that follows is still
+/// refused.
 #[test]
 fn run_turn_native_host_read_clears_native_write() {
     let workspace = tempfile::tempdir().expect("unique workspace dir");
@@ -1567,17 +1567,18 @@ fn run_turn_native_host_read_clears_native_write() {
     );
     assert_eq!(
         observation.execute_tool_requests.len(),
-        1,
-        "the binary read runs on the host"
+        0,
+        "a binary read is served natively as a tool error, not forwarded"
     );
     assert_eq!(
         std::fs::read_to_string(dir.join("blob.bin")).unwrap(),
-        "updated",
-        "the write must land after the host-served read"
+        "plain prefix\u{0}\u{1}",
+        "the write must not land: the read never succeeded"
     );
     let native_events = multi_native_events_of(&observation);
-    assert_eq!(native_events.len(), 1, "only the write is native");
-    assert_eq!(native_events[0]["is_error"], false);
+    assert_eq!(native_events.len(), 2, "both calls are native");
+    assert_eq!(native_events[0]["is_error"], true);
+    assert_eq!(native_events[1]["is_error"], true);
 }
 
 /// The stale table lives on the session pipeline (M1d 3b session RPC): a
