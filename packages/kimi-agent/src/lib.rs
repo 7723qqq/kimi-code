@@ -394,6 +394,7 @@ impl KimiEngine {
                 if let Some(mcp) = self.mcp.clone() {
                     toolset = toolset.with_mcp(mcp);
                 }
+                let shell_bridge = toolset.shell_bridge();
                 let toolset = Arc::new(toolset);
                 Arc::new(crate::callbacks::NativeToolCallbacks {
                     inner: base_callbacks.clone(),
@@ -406,9 +407,10 @@ impl KimiEngine {
                     // need a `PolicySnapshot` this path does not carry.
                     permission_engine: None,
                     plan_guard: None,
-                    stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
-                        self.permission.workspace_root().to_path_buf(),
-                    )))),
+                    stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(
+                        Some(self.permission.workspace_root().to_path_buf()),
+                        shell_bridge,
+                    ))),
                     goal_guard: Some(Arc::new(crate::tools::goal_guard::GoalGuard::new(
                         None, false,
                     ))),

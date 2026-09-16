@@ -495,9 +495,10 @@ pub async fn start_repl(
     // Stale-write gate (v2 `staleGuardService`, G-6 #3): one REPL process =
     // one session; the gate's plan exemption reads through the local store
     // via the dummy host's `state_read`, same seam as the product paths.
-    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
-        workspace.clone(),
-    )));
+    let stale_gate = Arc::new(crate::tools::stale_guard::StaleGate::new(
+        Some(workspace.clone()),
+        toolset.shell_bridge(),
+    ));
     // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8). The REPL's
     // dummy host cannot execute CreateGoal, so non-auto routing stays off —
     // goal creation remains native; the stale mutation veto still applies.

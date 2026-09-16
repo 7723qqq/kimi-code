@@ -524,11 +524,9 @@ pub(crate) const RG_FILE_TYPES: &[(&str, &[&str])] = &[
 
 /// Look up a ripgrep file type by name (case-sensitive, matching ripgrep's
 /// `--type` resolution). Returns `None` for an unknown type, which the caller
-/// answers with a host fallback (`None` out of `NativeToolset::grep`): this
-/// table is a fast path transcribed from one rg release, while the host runs
-/// whatever rg is on `PATH` and additionally honours user `--type-add`
-/// definitions from `.ripgreprc`. Synthesising rg's `unrecognized file type`
-/// error here would turn a valid host-side search into a hard failure.
+/// reports as `unrecognized file type: <name>`: this table is a fast path
+/// transcribed from one rg release, while a host running rg on `PATH` would
+/// additionally honour user `--type-add` definitions from `.ripgreprc`.
 pub(crate) fn rg_type_globs(name: &str) -> Option<&'static [&'static str]> {
     RG_FILE_TYPES
         .iter()
@@ -545,7 +543,7 @@ mod tests {
     fn lookup_is_case_sensitive_like_ripgrep() {
         assert_eq!(rg_type_globs("rust"), Some(["*.rs"].as_slice()));
         // rg resolves `--type` case-sensitively; a different spelling is an
-        // unknown type (and therefore a host fallback), not a near miss.
+        // unknown type (and therefore an error), not a near miss.
         assert_eq!(rg_type_globs("Rust"), None);
         assert_eq!(rg_type_globs(""), None);
         assert_eq!(rg_type_globs("kimiunknown"), None);

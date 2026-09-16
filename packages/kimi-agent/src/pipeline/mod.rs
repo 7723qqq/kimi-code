@@ -288,6 +288,7 @@ pub async fn build_engine_pipeline(
                     // Stale-write gate (v2 `staleGuardService`, G-6 #3).
                     let stale_gate = Arc::new(StaleGate::new(
                         spec.workspace_root.clone().map(std::path::PathBuf::from),
+                        toolset.shell_bridge(),
                     ));
                     // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8):
                     // non-auto CreateGoal routes to the host; stale goal mutations

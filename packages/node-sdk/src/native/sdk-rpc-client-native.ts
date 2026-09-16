@@ -732,7 +732,14 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
 
   for (const [name, srv] of Object.entries(servers)) {
     if ((srv as { enabled?: boolean }).enabled === false) continue;
-    if (srv.transport === 'stdio' && srv.command) {
+    // v2 `McpServerConfigSchema` infers the transport when the entry omits it
+    // (`mcpCore/config-schema.ts`): a `command` means stdio, a `url` means
+    // http. Requiring the field explicitly dropped every server written in the
+    // standard MCP shape — `{"mcpServers":{"x":{"command":"…","args":[…]}}}` —
+    // silently, so the session started with no MCP servers and nothing said so.
+    const transport =
+      srv.transport ?? (typeof srv.command === 'string' ? 'stdio' : typeof srv.url === 'string' ? 'http' : undefined);
+    if (transport === 'stdio' && srv.command) {
       result.push({
         name,
         transport: 'stdio',
@@ -740,7 +747,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
         ...(srv.args ? { args: srv.args } : {}),
         ...(srv.env ? { env: srv.env } : {}),
       });
-    } else if ((srv.transport === 'http' || srv.transport === 'sse') && srv.url) {
+    } else if ((transport === 'http' || transport === 'sse') && srv.url) {
       result.push({
         name,
         transport: 'sse',
@@ -3079,7 +3086,21 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // answer `[]` unconditionally, so a configured server was invisible to
     // `/mcp` and to the VS Code MCP panel.
     const entries = await meta.handle.mcpServers();
-    return entries as readonly McpServerInfo[];
+    // The engine serialises its own `McpServerEntry` (`tool_count`, `tools` as
+    // `{name, description}`); the public shape is camelCase, so passing the raw
+    // entry through left `/mcp` reporting "0 tools" for every connected server.
+    return entries.map((entry) => {
+      const raw = entry as Record<string, unknown>;
+      const tools = Array.isArray(raw['tools']) ? (raw['tools'] as readonly unknown[]) : undefined;
+      return {
+        ...raw,
+        name: String(raw['name']),
+        transport: String(raw['transport']),
+        status: raw['status'] as McpServerInfo['status'],
+        toolCount: typeof raw['tool_count'] === 'number' ? raw['tool_count'] : (tools?.length ?? 0),
+        tools,
+      } as McpServerInfo;
+    });
   }
 
   override async listWorkspaceMcpServers(_workDir: string): Promise<readonly McpServerInfo[]> {

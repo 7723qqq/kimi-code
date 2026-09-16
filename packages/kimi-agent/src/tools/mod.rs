@@ -5,16 +5,23 @@
 //! (`Write` / `Edit` / `Bash`) do too, but only after the host granted
 //! permission for the specific call (see
 //! [`crate::callbacks::HostCallbacks::check_permission`]). Execution is
-//! sandboxed to the workspace root; anything outside it (or any argument
-//! shape this module does not understand) returns `None`, which makes the
-//! caller fall back to the host path — the host then applies its full
-//! permission system.
+//! sandboxed to the workspace root.
+//!
+//! `None` means "this module cannot serve the call" — a tool it does not
+//! implement, or a host-owned interaction (an image read's `region`, a
+//! background Bash task). It is *not* an error channel: the native harness
+//! has no host tool runtime, so a `None` for a call the engine should have
+//! answered reaches the model as `tool "X" is host-owned and not yet wired on
+//! the native harness`. A bad path, a mistyped argument, or a file that is
+//! not readable text is an error result.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+
+use crate::native::shell_path_bridge::ShellPathBridge;
 
 /// P57: mid-execution output stream callback (bash stdout/stderr chunks).
 pub type OutputUpdate<'a> = &'a (dyn Fn(&str, &str) + Send + Sync);
@@ -414,6 +421,10 @@ pub struct NativeToolset {
     bash_task_timeout_s: Option<u64>,
     /// Bound provider type (e.g. "kimi").
     provider: Option<String>,
+    /// Translates the POSIX path dialect the shell speaks into native win32
+    /// paths (v2 `shellPathBridge`). Built from the resolved shell, because
+    /// `cygpath.exe` lives beside it.
+    shell_bridge: std::sync::Arc<crate::native::shell_path_bridge::ShellPathBridge>,
 }
 
 /// Bundle the native file-history recorder needs: the store handle plus
@@ -469,6 +480,11 @@ impl NativeToolset {
         Some(Self {
             root,
             extra_roots: Vec::new(),
+            shell_bridge: std::sync::Arc::new(
+                crate::native::shell_path_bridge::ShellPathBridge::new(
+                    shell.as_deref().unwrap_or_default(),
+                ),
+            ),
             shell,
             subagent_manager: None,
             mcp_manager: None,
@@ -516,6 +532,13 @@ impl NativeToolset {
             primary: self.root.clone(),
             extra: self.extra_roots.clone(),
         }
+    }
+
+    /// The shell path bridge this toolset resolves arguments through. Shared
+    /// with the stale-write gate so both agree on what a path names — the
+    /// gate's map key and the writer's target must be the same file.
+    pub fn shell_bridge(&self) -> Arc<ShellPathBridge> {
+        self.shell_bridge.clone()
     }
 
     /// Apply the host-resolved `[image]` limits for model-initiated reads
@@ -798,9 +821,11 @@ impl NativeToolset {
     pub fn execute(&self, tool_name: &str, args: &Value) -> Option<ExecutableToolResult> {
         let sandbox = self.sandbox();
         match tool_name.to_ascii_lowercase().as_str() {
-            "read" => self.read_media(args).or_else(|| Self::read(&sandbox, args)),
-            "grep" => Self::grep(&sandbox, args),
-            "glob" => Self::glob(&sandbox, args),
+            "read" => self
+                .read_media(args)
+                .or_else(|| Self::read(&sandbox, &self.shell_bridge, args)),
+            "grep" => Self::grep(&sandbox, &self.shell_bridge, args),
+            "glob" => Self::glob(&sandbox, &self.shell_bridge, args),
             "listdirectory" | "list_directory" => {
                 list_directory::execute_list_directory(&self.root, &self.extra_roots, args)
             }
@@ -1318,9 +1343,16 @@ impl NativeToolset {
     async fn run_readonly_file_tool_on_blocking_pool(
         &self,
         args: &Value,
-        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &ShellPathBridge, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
-        match Self::spawn_file_tool(self.sandbox(), args.clone(), tool).await {
+        match Self::spawn_file_tool(
+            self.sandbox(),
+            self.shell_bridge.clone(),
+            args.clone(),
+            tool,
+        )
+        .await
+        {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(false, e.to_string()),
         }
@@ -1336,7 +1368,7 @@ impl NativeToolset {
             Err(message) => return Some(err_result(message)),
         };
         let path = args.get("path")?.as_str()?;
-        let resolved = Self::resolve(&self.sandbox(), path)?;
+        let resolved = Self::resolve(&self.sandbox(), &self.shell_bridge, path)?;
         read_media::read_image_media(&resolved, &request, &self.read_media_limits())
     }
 
@@ -1349,7 +1381,7 @@ impl NativeToolset {
             Err(message) => return Some(err_result(message)),
         };
         let path = args.get("path")?.as_str()?;
-        let resolved = Self::resolve(&self.sandbox(), path)?;
+        let resolved = Self::resolve(&self.sandbox(), &self.shell_bridge, path)?;
         let limits = self.read_media_limits();
         match tokio::task::spawn_blocking(move || {
             read_media::read_image_media(&resolved, &request, &limits)
@@ -1363,10 +1395,11 @@ impl NativeToolset {
 
     async fn spawn_file_tool(
         sandbox: Sandbox,
+        bridge: Arc<ShellPathBridge>,
         args: Value,
-        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &ShellPathBridge, &Value) -> Option<ExecutableToolResult>,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
-        tokio::task::spawn_blocking(move || tool(&sandbox, &args)).await
+        tokio::task::spawn_blocking(move || tool(&sandbox, &bridge, &args)).await
     }
 
     /// Run a synchronous mutating file-I/O tool (`write` / `edit`) on tokio's
@@ -1377,7 +1410,7 @@ impl NativeToolset {
     async fn run_mutating_file_tool_on_blocking_pool(
         &self,
         args: &Value,
-        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &ShellPathBridge, &Value) -> Option<ExecutableToolResult>,
     ) -> Option<ExecutableToolResult> {
         let ctx = self
             .file_history
@@ -1385,7 +1418,15 @@ impl NativeToolset {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let turn_id = self.effective_turn_id();
-        match Self::spawn_mutating_file_tool(self.sandbox(), args.clone(), tool, ctx, turn_id).await
+        match Self::spawn_mutating_file_tool(
+            self.sandbox(),
+            self.shell_bridge.clone(),
+            args.clone(),
+            tool,
+            ctx,
+            turn_id,
+        )
+        .await
         {
             Ok(result) => result,
             Err(e) => blocking_pool_failure(true, e.to_string()),
@@ -1394,8 +1435,9 @@ impl NativeToolset {
 
     async fn spawn_mutating_file_tool(
         sandbox: Sandbox,
+        bridge: Arc<ShellPathBridge>,
         args: Value,
-        tool: fn(&Sandbox, &Value) -> Option<ExecutableToolResult>,
+        tool: fn(&Sandbox, &ShellPathBridge, &Value) -> Option<ExecutableToolResult>,
         ctx: Option<FileHistoryCtx>,
         turn_id: usize,
     ) -> Result<Option<ExecutableToolResult>, tokio::task::JoinError> {
@@ -1408,7 +1450,7 @@ impl NativeToolset {
             // `with_file_history`, in which case nothing is recorded.
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = ctx);
             TURN_ID.with(|cell| *cell.borrow_mut() = turn_id);
-            let result = tool(&sandbox, &args);
+            let result = tool(&sandbox, &bridge, &args);
             FILE_HISTORY.with(|cell| *cell.borrow_mut() = None);
             TURN_ID.with(|cell| *cell.borrow_mut() = 0);
             result
@@ -1418,12 +1460,16 @@ impl NativeToolset {
 
     /// Resolve a path argument inside the sandbox. `None` when the path
     /// escapes every authorized root or does not exist.
-    fn resolve(sandbox: &Sandbox, path: &str) -> Option<PathBuf> {
+    fn resolve(
+        sandbox: &Sandbox,
+        bridge: &crate::native::shell_path_bridge::ShellPathBridge,
+        path: &str,
+    ) -> Option<PathBuf> {
         // Reads are not path-gated: v2's sandbox only covers writes
         // (`sandboxWriteGuard`), and gating reads here turned every
         // out-of-workspace read into a silent host fallback — the host has no
         // file-tool runtime, so the read simply vanished.
-        let candidate = Self::candidate_path(sandbox.primary(), path);
+        let candidate = Self::candidate_path(sandbox.primary(), bridge, path);
         std::fs::canonicalize(&candidate).ok()
     }
 
@@ -1431,12 +1477,16 @@ impl NativeToolset {
     /// the nearest existing ancestor, canonicalizes it (resolving any
     /// symlink escapes), then rejoins the missing tail. `None` when the
     /// existing ancestor lies outside the sandbox.
-    fn resolve_for_write(sandbox: &Sandbox, path: &str) -> Option<PathBuf> {
+    fn resolve_for_write(
+        sandbox: &Sandbox,
+        bridge: &crate::native::shell_path_bridge::ShellPathBridge,
+        path: &str,
+    ) -> Option<PathBuf> {
         // Write confinement belongs to the SandboxMode gateway
         // (`SandboxExecutionPolicy::sandbox_write_guard`, Off by default —
         // mirroring v2), not to this resolver: an unconditional root check here
         // also blocked writes the configured mode had already allowed.
-        let candidate = Self::candidate_path(sandbox.primary(), path);
+        let candidate = Self::candidate_path(sandbox.primary(), bridge, path);
         if let Ok(resolved) = std::fs::canonicalize(&candidate) {
             return Some(resolved);
         }
@@ -1459,18 +1509,52 @@ impl NativeToolset {
         }
     }
 
-    fn candidate_path(root: &Path, path: &str) -> PathBuf {
-        if Path::new(path).is_absolute() {
-            PathBuf::from(path)
+    fn candidate_path(
+        root: &Path,
+        bridge: &crate::native::shell_path_bridge::ShellPathBridge,
+        path: &str,
+    ) -> PathBuf {
+        // Git Bash / Cygwin spellings (`/g/kimi`, `/cygdrive/g/kimi`) are not
+        // absolute on Windows: they carry a root but no drive prefix, so
+        // `Path::is_absolute` is false and `join` *replaces* the root with the
+        // drive root — `/g/kimi/x` under `G:/ws` silently became `G:/g/kimi/x`.
+        // The tool descriptions already promise both spellings
+        // (`core_tool_defs.rs`: "the `path` argument accepts both Windows paths
+        // and POSIX-style paths").
+        //
+        // v2 resolves through `shellPathBridge.fromShellPath` first
+        // (`path-access.ts` `resolvePathAccess`): the lexical drive forms are
+        // rewritten in place, and a root-relative path the lexical pass cannot
+        // place (`/tmp/x`, `/usr/bin`) goes through `cygpath -w` next to the
+        // probed bash. `normalize_user_path` alone only covers the lexical
+        // half, so `/tmp/x` still landed on `<drive-root>/tmp/x`.
+        let bridged = bridge.to_native_path(path);
+        let class = if cfg!(windows) {
+            crate::native::path_access::PathClass::Win32
         } else {
-            root.join(path)
+            crate::native::path_access::PathClass::Posix
+        };
+        let normalized = crate::native::path_access::normalize_user_path(&bridged, class);
+        let candidate = Path::new(&normalized);
+        if candidate.is_absolute() {
+            PathBuf::from(candidate)
+        } else {
+            root.join(candidate)
         }
     }
 
     // ── Read ───────────────────────────────────────────────────────────
 
-    fn read(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
-        let path = args.get("path")?.as_str()?;
+    fn read(
+        sandbox: &Sandbox,
+        bridge: &ShellPathBridge,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        let Some(path) = args.get("path").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"path\" is required and must be a string.".into(),
+            ));
+        };
         // The dispatcher's media path owns `region` / `full_resolution` and
         // is consulted before every call that reaches this text read; decline
         // them here anyway so a direct caller cannot half-handle an image.
@@ -1510,15 +1594,36 @@ impl NativeToolset {
         };
         let column_offset = match args.get("column_offset") {
             None | Some(Value::Null) => 0usize,
-            Some(v) => v.as_u64().unwrap_or(0) as usize,
+            Some(v) => match v.as_u64() {
+                Some(n) => n as usize,
+                None => {
+                    return Some(err_result(format!(
+                        "\"column_offset\" must be a non-negative integer, got {v}."
+                    )));
+                }
+            },
         };
         let max_chars = match args.get("max_chars") {
             None | Some(Value::Null) => 100_000usize,
-            Some(v) => (v.as_u64().unwrap_or(100_000) as usize).clamp(1, 500_000),
+            Some(v) => match v.as_u64() {
+                Some(n) => (n as usize).clamp(1, 500_000),
+                None => {
+                    return Some(err_result(format!(
+                        "\"max_chars\" must be a non-negative integer, got {v}."
+                    )));
+                }
+            },
         };
         let n_lines = match args.get("n_lines") {
             None | Some(Value::Null) => READ_MAX_LINES,
-            Some(v) => (v.as_u64()? as usize).min(READ_MAX_LINES),
+            Some(v) => match v.as_u64() {
+                Some(n) => (n as usize).min(READ_MAX_LINES),
+                None => {
+                    return Some(err_result(format!(
+                        "\"n_lines\" must be a non-negative integer, got {v}."
+                    )));
+                }
+            },
         };
 
         // A path the engine cannot resolve is a tool error, not a call the
@@ -1527,7 +1632,7 @@ impl NativeToolset {
         // which has no file-tool runtime — the model saw `tool "Read" is
         // host-owned and not yet wired on the native harness` instead of the
         // path being wrong.
-        let Some(resolved) = Self::resolve(sandbox, path) else {
+        let Some(resolved) = Self::resolve(sandbox, bridge, path) else {
             return Some(err_result(format!("\"{path}\" does not exist.")));
         };
         let Ok(meta) = std::fs::metadata(&resolved) else {
@@ -1595,9 +1700,19 @@ impl NativeToolset {
             usize,
         ) = if detection.encoding != encoding::UtfTextEncoding::Utf8 {
             if meta.len() > READ_MAX_BYTES {
-                return None;
+                // v2 `readTool` refuses a transcode it cannot afford
+                // (`TRANSCODE_MAX_BYTES`); returning `None` sent the call to a
+                // host with no file-tool runtime.
+                return Some(err_result(format!(
+                    "\"{path}\" is {} text but too large to transcode ({} bytes > {}). Convert it to UTF-8 first (e.g. with `iconv`).",
+                    detection.encoding.display_name(),
+                    meta.len(),
+                    READ_MAX_BYTES
+                )));
             }
-            let bytes = std::fs::read(&resolved).ok()?;
+            let Ok(bytes) = std::fs::read(&resolved) else {
+                return Some(err_result(format!("\"{path}\" could not be read.")));
+            };
             let text = encoding::decode_utf_text(&bytes, detection.encoding);
             let text_lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
             let total = text_lines.len();
@@ -1634,7 +1749,11 @@ impl NativeToolset {
                     continue;
                 }
                 if raw.contains(&0) {
-                    return None;
+                    // v2 `readTool` refuses a NUL-bearing line
+                    // (`notReadableFileOutput`) rather than declining the call.
+                    return Some(err_result(format!(
+                        "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
+                    )));
                 }
                 let mut l = raw.clone();
                 if l.last() == Some(&b'\n') {
@@ -1642,7 +1761,15 @@ impl NativeToolset {
                 }
                 match std::str::from_utf8(&l) {
                     Ok(text) => all.push(text.to_string()),
-                    Err(_) => return None,
+                    // v2 `readTool` rejects invalid UTF-8 instead of returning
+                    // replacement characters; `None` here reached the model as
+                    // `tool "Read" is host-owned and not yet wired on the
+                    // native harness`.
+                    Err(_) => {
+                        return Some(err_result(format!(
+                            "\"{path}\" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. with `iconv`)."
+                        )));
+                    }
                 }
             }
             (all, None, total)
@@ -1826,47 +1953,101 @@ impl NativeToolset {
     /// otherwise owns. Each maps to the exact host rg flag: `type` -> `--type`,
     /// `include_ignored` -> `--no-ignore`, `multiline` -> `-U
     /// --multiline-dotall`.
-    fn grep(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
+    fn grep(
+        sandbox: &Sandbox,
+        bridge: &ShellPathBridge,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
         // Argument typing is strict on purpose: the engine short-circuits ahead
-        // of the host's zod validation, so a present-but-mistyped argument has
-        // to return `None` (host fallback, which reports the schema error)
-        // instead of being silently dropped and reported as a successful
-        // search. Absent and explicit `null` both mean "the schema default".
-        let pattern = args.get("pattern")?.as_str()?;
+        // of the host's zod validation, so a present-but-mistyped argument is
+        // reported here rather than silently dropped and reported as a
+        // successful search. It used to return `None` for the host to report,
+        // but the native harness has no host tool runtime — the model saw
+        // `tool "Grep" is host-owned and not yet wired on the native harness`
+        // instead of the argument that was wrong. Absent and explicit `null`
+        // both mean "the schema default".
+        let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"pattern\" is required and must be a string.".into(),
+            ));
+        };
         // `type` -> rg `--type NAME`: restrict the walk to files whose basename
         // matches the type's globs. [`grep_types::RG_FILE_TYPES`] is only a
         // fast path transcribed from one rg release — the host runs whatever rg
         // is on PATH and honours user `--type-add` definitions (`.ripgreprc`),
-        // so an unknown name falls back rather than synthesising rg's error.
+        // so an unknown name is reported the way rg reports it rather than
+        // silently searching everything.
         let type_filter = match args.get("type") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(build_type_glob(grep_types::rg_type_globs(
-                value.as_str()?,
-            )?)?),
+            Some(value) => {
+                let Some(name) = value.as_str() else {
+                    return Some(err_result(format!(
+                        "\"type\" must be a string, got {value}."
+                    )));
+                };
+                let Some(globs) = grep_types::rg_type_globs(name) else {
+                    return Some(err_result(format!("unrecognized file type: {name}")));
+                };
+                let Some(glob) = build_type_glob(globs) else {
+                    return Some(err_result(format!("invalid file type glob for: {name}")));
+                };
+                Some(glob)
+            }
         };
         // `multiline` -> rg `-U --multiline-dotall`: the pattern may span
         // newlines and `.` also matches `\n`. Matching crosses line boundaries,
         // so the scan buffers the whole file (a separate path, still bounded by
         // GREP_MAX_FILE_BYTES and the binary-skip contract).
-        let multiline = bool_arg(args, "multiline", false)?;
+        let multiline = match bool_arg(args, "multiline", false) {
+            Ok(value) => value,
+            Err(message) => return Some(err_result(message)),
+        };
         // `include_ignored` -> rg `--no-ignore`: don't respect ignore files
         // (.gitignore/.ignore/.rgignore and friends). VCS metadata dirs and
         // sensitive files stay filtered regardless.
-        let include_ignored = bool_arg(args, "include_ignored", false)?;
-        let case_insensitive = bool_arg(args, "-i", false)?;
-        let line_numbers = bool_arg(args, "-n", true)?;
+        let include_ignored = match bool_arg(args, "include_ignored", false) {
+            Ok(value) => value,
+            Err(message) => return Some(err_result(message)),
+        };
+        let case_insensitive = match bool_arg(args, "-i", false) {
+            Ok(value) => value,
+            Err(message) => return Some(err_result(message)),
+        };
+        let line_numbers = match bool_arg(args, "-n", true) {
+            Ok(value) => value,
+            Err(message) => return Some(err_result(message)),
+        };
         let output_mode = match args.get("output_mode") {
             None | Some(Value::Null) => "files_with_matches",
-            Some(value) => match value.as_str()? {
-                mode @ ("files_with_matches" | "content" | "count_matches") => mode,
-                _ => return None,
+            Some(value) => match value.as_str() {
+                Some(mode @ ("files_with_matches" | "content" | "count_matches")) => mode,
+                _ => {
+                    return Some(err_result(format!(
+                        "\"output_mode\" must be one of files_with_matches, content, count_matches; got {value}."
+                    )));
+                }
             },
         };
-        let context_both = u64_arg(args, "-C", 0)? as usize;
-        let context_after = (u64_arg(args, "-A", 0)? as usize).max(context_both);
-        let context_before = (u64_arg(args, "-B", 0)? as usize).max(context_both);
-        let head_limit = u64_arg(args, "head_limit", GREP_HEAD_LIMIT as u64)? as usize;
-        let page_offset = u64_arg(args, "offset", 0)? as usize;
+        let context_both = match u64_arg(args, "-C", 0) {
+            Ok(value) => value as usize,
+            Err(message) => return Some(err_result(message)),
+        };
+        let context_after = match u64_arg(args, "-A", 0) {
+            Ok(value) => (value as usize).max(context_both),
+            Err(message) => return Some(err_result(message)),
+        };
+        let context_before = match u64_arg(args, "-B", 0) {
+            Ok(value) => (value as usize).max(context_both),
+            Err(message) => return Some(err_result(message)),
+        };
+        let head_limit = match u64_arg(args, "head_limit", GREP_HEAD_LIMIT as u64) {
+            Ok(value) => value as usize,
+            Err(message) => return Some(err_result(message)),
+        };
+        let page_offset = match u64_arg(args, "offset", 0) {
+            Ok(value) => value as usize,
+            Err(message) => return Some(err_result(message)),
+        };
 
         let mut builder = regex::RegexBuilder::new(pattern);
         builder.case_insensitive(case_insensitive);
@@ -1883,12 +2064,34 @@ impl NativeToolset {
         };
         let glob_filter = match args.get("glob") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(build_glob(value.as_str()?)?),
+            Some(value) => {
+                let Some(pattern) = value.as_str() else {
+                    return Some(err_result(format!(
+                        "\"glob\" must be a string, got {value}."
+                    )));
+                };
+                let Some(glob) = build_glob(pattern) else {
+                    return Some(err_result(format!("invalid glob pattern: {pattern}")));
+                };
+                Some(glob)
+            }
         };
 
         let search_root = match args.get("path") {
             None | Some(Value::Null) => sandbox.primary().to_path_buf(),
-            Some(value) => Self::resolve(sandbox, value.as_str()?)?,
+            Some(value) => {
+                let Some(path) = value.as_str() else {
+                    return Some(err_result("\"path\" must be a string.".into()));
+                };
+                // A path the engine cannot resolve is a tool error, not a call
+                // it cannot serve: returning `None` forwarded it to a host with
+                // no file-tool runtime, and the model saw `tool "Grep" is
+                // host-owned and not yet wired on the native harness`.
+                let Some(resolved) = Self::resolve(sandbox, bridge, path) else {
+                    return Some(err_result(format!("\"{path}\" does not exist.")));
+                };
+                resolved
+            }
         };
 
         let mode = match output_mode {
@@ -2058,8 +2261,16 @@ impl NativeToolset {
 
     // ── Glob ───────────────────────────────────────────────────────────
 
-    fn glob(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
-        let pattern = args.get("pattern")?.as_str()?;
+    fn glob(
+        sandbox: &Sandbox,
+        bridge: &ShellPathBridge,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"pattern\" is required and must be a string.".into(),
+            ));
+        };
         let include_ignored = args
             .get("include_ignored")
             .is_some_and(|v| v.as_bool() == Some(true));
@@ -2069,9 +2280,19 @@ impl NativeToolset {
             None => 100,
         };
         let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let glob = build_glob(pattern)?;
+        let Some(glob) = build_glob(pattern) else {
+            return Some(err_result(format!("invalid glob pattern: {pattern}")));
+        };
         let search_root = match args.get("path").and_then(|p| p.as_str()) {
-            Some(p) => Self::resolve(sandbox, p)?,
+            Some(p) => {
+                // A path the engine cannot resolve is a tool error, not a call
+                // it cannot serve — `None` forwarded it to a host with no
+                // file-tool runtime.
+                let Some(resolved) = Self::resolve(sandbox, bridge, p) else {
+                    return Some(err_result(format!("\"{p}\" does not exist.")));
+                };
+                resolved
+            }
             None => sandbox.primary().to_path_buf(),
         };
 
@@ -2194,16 +2415,47 @@ impl NativeToolset {
         }
     }
 
-    fn write(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
-        let path = args.get("path")?.as_str()?;
-        let content = args.get("content")?.as_str()?;
+    fn write(
+        sandbox: &Sandbox,
+        bridge: &ShellPathBridge,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        let Some(path) = args.get("path").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"path\" is required and must be a string.".into(),
+            ));
+        };
+        let Some(content) = args.get("content").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"content\" is required and must be a string.".into(),
+            ));
+        };
         let mode = match args.get("mode") {
             None | Some(Value::Null) => "overwrite",
-            Some(v) => v.as_str()?,
+            Some(v) => match v.as_str() {
+                Some(mode @ ("overwrite" | "append")) => mode,
+                _ => {
+                    return Some(err_result(format!(
+                        "\"mode\" must be one of overwrite, append; got {v}."
+                    )));
+                }
+            },
         };
-        let resolved = Self::resolve_for_write(sandbox, path)?;
-        if let Some(parent) = resolved.parent() {
-            std::fs::create_dir_all(parent).ok()?;
+        // A path the sandbox refuses is a tool error, not a call the engine
+        // cannot serve: `None` forwarded it to a host with no file-tool
+        // runtime, and the model saw `tool "Write" is host-owned and not yet
+        // wired on the native harness` instead of the boundary it crossed.
+        let Some(resolved) = Self::resolve_for_write(sandbox, bridge, path) else {
+            return Some(err_result(format!(
+                "\"{path}\" is outside the workspace and cannot be written."
+            )));
+        };
+        if let Some(parent) = resolved.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            return Some(err_result(format!(
+                "\"{path}\" could not be written: {error}"
+            )));
         }
         // Snapshot the pre-image before the write so the recorder can store
         // the diff (v2 `fileHistoryService.onWillExecuteTool` capture).
@@ -2212,22 +2464,27 @@ impl NativeToolset {
         } else {
             None
         };
-        let bytes_written = match mode {
-            "overwrite" => std::fs::write(&resolved, content)
-                .ok()
-                .map(|_| content.len()),
+        let written = match mode {
+            "overwrite" => std::fs::write(&resolved, content).map(|()| content.len()),
             "append" => {
                 use std::io::Write;
                 std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&resolved)
-                    .ok()
-                    .and_then(|mut f| f.write_all(content.as_bytes()).ok().map(|_| content.len()))
+                    .and_then(|mut f| f.write_all(content.as_bytes()).map(|()| content.len()))
             }
-            // Unknown mode — the host validates the enum; be safe.
-            _ => return None,
-        }?;
+            // Unreachable: `mode` was narrowed to the schema's enum above.
+            _ => unreachable!("mode is validated against the schema enum"),
+        };
+        let bytes_written = match written {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Some(err_result(format!(
+                    "\"{path}\" could not be written: {error}"
+                )));
+            }
+        };
         Self::record_file_history(&resolved, pre_image.as_deref(), Some(content));
         // Output format mirrors the host Write tool.
         Some(ok_result(format!(
@@ -2242,19 +2499,45 @@ impl NativeToolset {
 
     // ── Edit ───────────────────────────────────────────────────────────
 
-    fn edit(sandbox: &Sandbox, args: &Value) -> Option<ExecutableToolResult> {
-        let path = args.get("path")?.as_str()?;
-        let old = args.get("old_string")?.as_str()?;
-        let new = args.get("new_string")?.as_str()?;
+    fn edit(
+        sandbox: &Sandbox,
+        bridge: &ShellPathBridge,
+        args: &Value,
+    ) -> Option<ExecutableToolResult> {
+        let Some(path) = args.get("path").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"path\" is required and must be a string.".into(),
+            ));
+        };
+        let Some(old) = args.get("old_string").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"old_string\" is required and must be a string.".into(),
+            ));
+        };
+        let Some(new) = args.get("new_string").and_then(Value::as_str) else {
+            return Some(err_result(
+                "\"new_string\" is required and must be a string.".into(),
+            ));
+        };
         let replace_all = args
             .get("replace_all")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let resolved = Self::resolve_for_write(sandbox, path)?;
+        let Some(resolved) = Self::resolve_for_write(sandbox, bridge, path) else {
+            return Some(err_result(format!(
+                "\"{path}\" is outside the workspace and cannot be edited."
+            )));
+        };
 
-        let bytes = std::fs::read(&resolved).ok()?;
+        let Ok(bytes) = std::fs::read(&resolved) else {
+            return Some(err_result(format!("\"{path}\" does not exist.")));
+        };
         if bytes.contains(&0) {
-            return None; // binary files are the host's job
+            // v2 `readTool` refuses a file it cannot place; the host has no
+            // file-tool runtime to hand it to.
+            return Some(err_result(format!(
+                "\"{path}\" is not readable as UTF-8 text. Only text files can be edited."
+            )));
         }
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let occurrence_count = text.matches(old).count();
@@ -2273,7 +2556,11 @@ impl NativeToolset {
         };
         // `text` is the pre-image; capture the diff before writing.
         Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
-        std::fs::write(&resolved, updated).ok()?;
+        if let Err(error) = std::fs::write(&resolved, updated) {
+            return Some(err_result(format!(
+                "\"{path}\" could not be written: {error}"
+            )));
+        }
         let display = resolved
             .strip_prefix(sandbox.primary())
             .unwrap_or(&resolved)
@@ -2300,7 +2587,7 @@ impl NativeToolset {
         // stay inside it. Returns `None` (host fallback) on escape — the
         // host applies its own cwd policy there.
         let working_dir = match args.get("cwd").and_then(|c| c.as_str()) {
-            Some(cwd) => Self::resolve(&self.sandbox(), cwd)?,
+            Some(cwd) => Self::resolve(&self.sandbox(), &self.shell_bridge, cwd)?,
             None => self.root.clone(),
         };
 
@@ -2642,24 +2929,29 @@ impl NativeToolset {
 
 // ── Grep parallel-scan helpers ───────────────────────────────────────────
 
-/// Boolean tool argument: absent or explicit `null` yields `default`; a value
-/// that is present but not a boolean yields `None`, which the caller turns into
-/// a host fallback so the host's zod schema reports the malformed input instead
-/// of the engine silently ignoring it.
-fn bool_arg(args: &Value, key: &str, default: bool) -> Option<bool> {
+/// Boolean tool argument. Absent and explicit `null` both mean "the schema
+/// default"; a present-but-mistyped value is an error the engine reports
+/// itself. The host fallback this used to rely on does not exist on the
+/// native harness, where the call came back as `tool "Grep" is host-owned and
+/// not yet wired on the native harness` instead of naming the argument.
+fn bool_arg(args: &Value, key: &str, default: bool) -> Result<bool, String> {
     match args.get(key) {
-        None | Some(Value::Null) => Some(default),
-        Some(value) => value.as_bool(),
+        None | Some(Value::Null) => Ok(default),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| format!("\"{key}\" must be a boolean, got {value}.")),
     }
 }
 
 /// Non-negative integer tool argument, with the same absent/null versus
 /// mistyped distinction as [`bool_arg`] (the host schema is
 /// `z.number().int().nonnegative()`).
-fn u64_arg(args: &Value, key: &str, default: u64) -> Option<u64> {
+fn u64_arg(args: &Value, key: &str, default: u64) -> Result<u64, String> {
     match args.get(key) {
-        None | Some(Value::Null) => Some(default),
-        Some(value) => value.as_u64(),
+        None | Some(Value::Null) => Ok(default),
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| format!("\"{key}\" must be a non-negative integer, got {value}.")),
     }
 }
 
@@ -3434,6 +3726,12 @@ mod tests {
         setup_with_shell(None)
     }
 
+    /// A bridge for the tests that call a static tool directly. The tests run
+    /// on the host's real shell, so this is the same bridge the toolset builds.
+    fn bridge() -> ShellPathBridge {
+        ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
+
     fn setup_with_shell(shell: Option<&str>) -> (tempfile::TempDir, NativeToolset) {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "alpha\nbeta\ngamma\n").unwrap();
@@ -3737,15 +4035,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn write_unknown_mode_falls_back() {
+    #[tokio::test]
+    async fn write_unknown_mode_is_reported() {
+        // v2 validates `mode` against `z.enum(['overwrite','append'])` before
+        // the tool runs; the engine is the only validator on the native
+        // harness, so it reports the enum instead of forwarding the call.
         let (_dir, ts) = setup();
-        assert!(
-            ts.execute(
+        let result = ts
+            .execute_mutating(
                 "Write",
-                &json!({ "path": "a.txt", "content": "x", "mode": "truncate-half" })
+                &json!({ "path": "a.txt", "content": "x", "mode": "truncate-half" }),
             )
-            .is_none()
+            .await
+            .expect("native write handled");
+        assert!(result.is_error, "content: {}", result.content);
+        assert!(
+            result
+                .content
+                .contains("\"mode\" must be one of overwrite, append"),
+            "content: {}",
+            result.content
         );
     }
 
@@ -4068,12 +4377,18 @@ mod tests {
     }
 
     #[test]
-    fn read_invalid_utf8_falls_back_to_host() {
+    fn read_invalid_utf8_reports_not_decodable() {
+        // v2 `readTool` rejects invalid UTF-8 instead of returning replacement
+        // characters; a `None` here made the engine forward the call to a host
+        // with no file-tool runtime.
         let (_dir, ts) = setup();
         std::fs::write(_dir.path().join("bad.txt"), b"a\xffb").unwrap();
+        let result = ts.execute("Read", &json!({ "path": "bad.txt" })).unwrap();
+        assert!(result.is_error, "content: {}", result.content);
         assert!(
-            ts.execute("Read", &json!({ "path": "bad.txt" })).is_none(),
-            "non-UTF-8 text stays on the host (full error contract)"
+            result.content.contains("is not valid UTF-8 or UTF-16 text"),
+            "content: {}",
+            result.content
         );
     }
 
@@ -4468,16 +4783,22 @@ m2
     }
 
     #[test]
-    fn grep_with_unknown_type_falls_back_to_the_host() {
+    fn grep_with_unknown_type_is_reported() {
         let (_dir, ts) = setup();
         // The static type table only covers one rg release, while the host runs
         // whatever rg is on PATH and also honours user `--type-add` definitions
-        // from `.ripgreprc`. An unknown name therefore hands the call back to
-        // the host instead of synthesising rg's "unrecognized file type" error.
+        // from `.ripgreprc`. The native harness has no host to hand the call to,
+        // so an unknown name is reported the way rg reports it.
+        let unknown = ts
+            .execute("Grep", &json!({ "pattern": "x", "type": "kimiunknown" }))
+            .unwrap();
+        assert!(unknown.is_error, "content: {}", unknown.content);
         assert!(
-            ts.execute("Grep", &json!({ "pattern": "x", "type": "kimiunknown" }))
-                .is_none(),
-            "unknown type must fall back to the host"
+            unknown
+                .content
+                .contains("unrecognized file type: kimiunknown"),
+            "content: {}",
+            unknown.content
         );
         // A known type is still served natively (the table is a fast path).
         assert!(
@@ -4485,12 +4806,11 @@ m2
                 .is_some(),
             "known type must stay native"
         );
-        // A mistyped `type` argument is a schema error the host owns.
-        assert!(
-            ts.execute("Grep", &json!({ "pattern": "x", "type": 7 }))
-                .is_none(),
-            "non-string type must fall back to the host"
-        );
+        // A mistyped `type` argument is reported by the engine.
+        let mistyped = ts
+            .execute("Grep", &json!({ "pattern": "x", "type": 7 }))
+            .unwrap();
+        assert!(mistyped.is_error, "content: {}", mistyped.content);
     }
 
     #[tokio::test]
@@ -5612,7 +5932,11 @@ m2
 
     /// A panic inside `spawn_blocking` surfaces to the awaiting task as a real
     /// `JoinError`, which is exactly the failure mode the split has to handle.
-    fn panicking_tool(_sandbox: &Sandbox, _args: &Value) -> Option<ExecutableToolResult> {
+    fn panicking_tool(
+        _sandbox: &Sandbox,
+        _bridge: &ShellPathBridge,
+        _args: &Value,
+    ) -> Option<ExecutableToolResult> {
         panic!("synthetic blocking-pool failure");
     }
 
@@ -5659,15 +5983,17 @@ m2
         );
     }
 
-    // ── Malformed arguments belong to the host's zod schema ─────────────
+    // ── Malformed arguments are reported by the engine ──────────────────
 
     #[test]
     fn grep_rejects_mistyped_arguments_instead_of_ignoring_them() {
         let (_dir, ts) = setup();
-        // The engine short-circuits ahead of the host's zod validation, so a
-        // present-but-mistyped argument has to fall back; coercing it would
-        // report a successful search that ignored what the model asked for
-        // (`{"multiline":"true"}` silently meaning `false`).
+        // The engine short-circuits ahead of the host's zod validation, and the
+        // native harness has no host tool runtime to fall back to — returning
+        // `None` surfaced as `tool "Grep" is host-owned and not yet wired on
+        // the native harness` instead of naming the argument. Coercing the
+        // value instead would report a successful search that ignored what the
+        // model asked for (`{"multiline":"true"}` silently meaning `false`).
         let malformed = [
             json!({ "pattern": "beta", "multiline": "true" }),
             json!({ "pattern": "beta", "include_ignored": 1 }),
@@ -5687,10 +6013,11 @@ m2
             json!({}),
         ];
         for args in malformed {
-            assert!(
-                ts.execute("Grep", &args).is_none(),
-                "malformed args must fall back to the host: {args}"
-            );
+            let result = match ts.execute("Grep", &args) {
+                Some(result) => result,
+                None => panic!("malformed args must be reported, not forwarded: {args}"),
+            };
+            assert!(result.is_error, "malformed args must be an error: {args}");
         }
     }
 
@@ -6005,7 +6332,8 @@ m2
         let sandbox = Sandbox::new(std::fs::canonicalize(root).unwrap());
 
         // 1. Glob for ci.yml: should find .github/workflows/ci.yml, NOT .git/hooks/ci.yml
-        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/ci.yml" })).unwrap();
+        let res =
+            NativeToolset::glob(&sandbox, &bridge(), &json!({ "pattern": "**/ci.yml" })).unwrap();
         assert!(res.content.contains("ci.yml"));
         assert!(res.content.contains(".github"));
         assert!(!res.content.contains("hooks"));
@@ -6014,14 +6342,15 @@ m2
         }
 
         // 2. Glob for sensitive file: should filter it out and report filtered
-        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/.env" })).unwrap();
+        let res =
+            NativeToolset::glob(&sandbox, &bridge(), &json!({ "pattern": "**/.env" })).unwrap();
         assert!(
             res.content
                 .contains("No non-sensitive matches found (1 sensitive file(s) filtered)")
         );
 
         // 3. Glob matching both normal and sensitive file:
-        let res = NativeToolset::glob(&sandbox, &json!({ "pattern": "**/*" })).unwrap();
+        let res = NativeToolset::glob(&sandbox, &bridge(), &json!({ "pattern": "**/*" })).unwrap();
         assert!(res.content.contains("hello.txt"));
         assert!(res.content.contains("Filtered 1 sensitive file(s)."));
     }

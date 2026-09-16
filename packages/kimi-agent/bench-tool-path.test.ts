@@ -97,10 +97,10 @@ beforeAll(() => {
   fitName = 'fits.txt';
   escapeName = 'binary_fallback.bin';
   writeFileSync(join(workspace, fitName), syntheticFile(50_000));
-  // ~13 MB of binary (NUL-bearing) bytes. Native Read declines binary files
-  // at the encoding sniff, so this exercises the native→host fallback arm.
-  // (A large TEXT file no longer falls back: reads stream line-by-line since
-  // ranged reads, so size alone cannot trigger the fallback path anymore.)
+  // ~13 MB of binary (NUL-bearing) bytes. Native Read refuses a file it
+  // cannot place as text (`notReadableFileOutput`), so this arm measures the
+  // cost of a native refusal — no host crossing, because the native harness
+  // has no host tool runtime to cross to.
   const binary = Buffer.alloc(13 * 1024 * 1024, 0xab);
   binary.writeUInt8(0, 1024);
   binary.writeUInt8(0, 8 * 1024 * 1024);
@@ -210,7 +210,7 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
       const viaHost = await measure(mod, fitName, false);
       const viaNative = await measure(mod, fitName, true);
       const oversizedHost = await measure(mod, escapeName, false);
-      const nativeFallsBack = await measure(mod, escapeName, true);
+      const nativeRefuses = await measure(mod, escapeName, true);
 
       const toolCost = (turn: { medianMs: number }): number => turn.medianMs - control.medianMs;
 
@@ -219,8 +219,8 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
         `host  read in-cap file            ${viaHost.medianMs.toFixed(2)} ms  (tool ${toolCost(viaHost).toFixed(2)} ms)`,
         `native read in-cap file           ${viaNative.medianMs.toFixed(2)} ms  (tool ${toolCost(viaNative).toFixed(2)} ms)`,
         `host  read binary file            ${oversizedHost.medianMs.toFixed(2)} ms  (tool ${toolCost(oversizedHost).toFixed(2)} ms)`,
-        `native binary → falls back       ${nativeFallsBack.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeFallsBack).toFixed(2)} ms)`,
-        `fallback tax vs same-size host    ${(nativeFallsBack.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
+        `native binary → refused           ${nativeRefuses.medianMs.toFixed(2)} ms  (tool ${toolCost(nativeRefuses).toFixed(2)} ms)`,
+        `refusal vs same-size host         ${(nativeRefuses.medianMs - oversizedHost.medianMs).toFixed(2)} ms`,
       ];
       console.log(`\n── tool-execution path baseline (${REPS} reps/arm) ──\n${lines.join('\n')}\n`);
 
@@ -229,16 +229,20 @@ describe.skipIf(!nativeEntry)('tool-execution path baseline (scripted LLM, no pr
       expect(routed(viaHost.counts)).toEqual({ host: REPS, permission: 0 });
       expect(routed(viaNative.counts)).toEqual({ host: 0, permission: REPS });
       expect(routed(oversizedHost.counts)).toEqual({ host: REPS, permission: 0 });
-      expect(routed(nativeFallsBack.counts)).toEqual({ host: REPS, permission: REPS });
+      // A binary read is answered natively with an error result, not handed to
+      // the host: the native harness has no host tool runtime, so a `None`
+      // there reached the model as `tool "Read" is host-owned and not yet
+      // wired on the native harness`.
+      expect(routed(nativeRefuses.counts)).toEqual({ host: 0, permission: REPS });
 
       // The engine's own report must agree with what the callbacks observed:
-      // only the in-cap native arm executed anything in-process, and a
+      // only the two native arms executed anything in-process, and a
       // never-reported field would surface as a negative total here.
       expect(control.counts.engineNativeTotal).toBe(0);
       expect(viaHost.counts.engineNativeTotal).toBe(0);
       expect(viaNative.counts.engineNativeTotal).toBe(REPS);
       expect(oversizedHost.counts.engineNativeTotal).toBe(0);
-      expect(nativeFallsBack.counts.engineNativeTotal).toBe(0);
+      expect(nativeRefuses.counts.engineNativeTotal).toBe(REPS);
 
       // Guard against measuring unequal work: the native arm must hand back the
       // same 1000 numbered lines the host arm does, not a shorter payload.

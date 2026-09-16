@@ -202,6 +202,32 @@ describe('global MCP configuration (persisted user entries)', () => {
   });
 });
 
+describe('standard MCP config shape (transport inferred)', () => {
+  it('connects a server whose entry omits `transport`', async () => {
+    // The standard MCP shape spells stdio as `command` + `args` with no
+    // `transport` field. Requiring the field dropped every such entry
+    // silently, so a session started with no MCP servers and nothing said so.
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    await writeMcpConfig(homeDir, {
+      mcpServers: {
+        probe: { command: process.execPath, args: [stdioFixture] },
+      },
+    });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_mcp_inferred', workDir });
+
+      await expect(session.listMcpServers()).resolves.toMatchObject([
+        { name: 'probe', transport: 'stdio', status: 'connected', toolCount: 4 },
+      ]);
+    } finally {
+      await harness.close();
+    }
+  }, 15_000);
+});
+
 describe('standalone MCP check (connection result)', () => {
   it('reports discovered tools when a stdio server connects', async () => {
     const homeDir = await makeTempDir();

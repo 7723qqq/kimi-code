@@ -22,10 +22,11 @@ mod llm_stream;
 #[cfg(feature = "napi")]
 mod napi_bindings;
 mod output_truncate;
-mod path_access;
+pub(crate) mod path_access;
 mod permission;
 mod read;
 pub mod shell;
+pub(crate) mod shell_path_bridge;
 mod tokens;
 mod tool_access;
 pub(crate) mod tool_naming;

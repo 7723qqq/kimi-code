@@ -150,7 +150,7 @@ fn join_path(base: &str, rel: &str, path_class: PathClass) -> String {
     }
 }
 
-fn normalize_path(path: &str, path_class: PathClass) -> String {
+pub(crate) fn normalize_path(path: &str, path_class: PathClass) -> String {
     let sep = if path_class == PathClass::Win32 {
         '\\'
     } else {

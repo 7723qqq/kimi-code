@@ -17,6 +17,8 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
+use crate::native::shell_path_bridge::ShellPathBridge;
+
 /// mtime as (secs, nanos) since the Unix epoch — exact comparison, no float
 /// hazard. The value never crosses the wire, so it does not need to match
 /// v2's `mtimeMs` float representation.
@@ -85,12 +87,19 @@ fn mtime_of(path: &Path) -> Option<Mtime> {
 /// Canonicalized absolute path used as the map key. `None` when the target
 /// does not exist yet (new-file Write is exempt) or cannot be canonicalized.
 /// Canonicalization converges symlink spellings onto one key.
-fn key_path(path: &str, workspace_root: Option<&Path>) -> Option<PathBuf> {
-    let candidate = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        workspace_root?.join(path)
-    };
+///
+/// Resolution goes through the toolset's own `candidate_path`: the gate's key
+/// and the writer's target must name the same file, and a raw
+/// `Path::is_absolute` check disagrees with it on every shell-dialect path
+/// (`/tmp/x` became `<drive-root>/tmp/x` here while the writer resolved it
+/// through `cygpath`).
+fn key_path(
+    path: &str,
+    workspace_root: Option<&Path>,
+    bridge: &ShellPathBridge,
+) -> Option<PathBuf> {
+    let root = workspace_root?;
+    let candidate = super::NativeToolset::candidate_path(root, bridge, path);
     std::fs::canonicalize(candidate).ok()
 }
 
@@ -104,6 +113,7 @@ pub fn observe_execution(
     args: &Value,
     is_error: bool,
     workspace_root: Option<&Path>,
+    bridge: &ShellPathBridge,
 ) {
     if is_error || !observed_tool(tool_name) {
         return;
@@ -111,7 +121,7 @@ pub fn observe_execution(
     let Some(raw) = args.get("path").and_then(|p| p.as_str()) else {
         return;
     };
-    let Some(key) = key_path(raw, workspace_root) else {
+    let Some(key) = key_path(raw, workspace_root, bridge) else {
         return;
     };
     let Some(mtime) = mtime_of(&key) else {
@@ -129,12 +139,13 @@ pub fn stale_denial(
     tool_name: &str,
     args: &Value,
     workspace_root: Option<&Path>,
+    bridge: &ShellPathBridge,
 ) -> Option<String> {
     if !stale_guarded_tool(tool_name) {
         return None;
     }
     let raw = args.get("path").and_then(|p| p.as_str())?;
-    let key = key_path(raw, workspace_root)?;
+    let key = key_path(raw, workspace_root, bridge)?;
     // stat failure / non-regular file / pre-epoch clock — the new-file
     // Write exemption (v2 `checkWritable`).
     let current = mtime_of(&key)?;
@@ -183,13 +194,17 @@ pub fn plan_file_write_exempt(plan: &Value, args: &Value, workspace_root: Option
 pub struct StaleGate {
     pub state: Arc<StaleGuardState>,
     pub workspace_root: Option<PathBuf>,
+    /// Shared with the toolset so the gate's map key and the writer's target
+    /// resolve a shell-dialect path to the same file.
+    pub bridge: Arc<ShellPathBridge>,
 }
 
 impl StaleGate {
-    pub fn new(workspace_root: Option<PathBuf>) -> Self {
+    pub fn new(workspace_root: Option<PathBuf>, bridge: Arc<ShellPathBridge>) -> Self {
         Self {
             state: Arc::new(StaleGuardState::new()),
             workspace_root,
+            bridge,
         }
     }
 
@@ -204,6 +219,7 @@ impl StaleGate {
             args,
             is_error,
             self.workspace_root.as_deref(),
+            &self.bridge,
         );
     }
 
@@ -218,7 +234,13 @@ impl StaleGate {
         tool_name: &str,
         args: &Value,
     ) -> Option<String> {
-        let denial = stale_denial(&self.state, tool_name, args, self.workspace_root.as_deref())?;
+        let denial = stale_denial(
+            &self.state,
+            tool_name,
+            args,
+            self.workspace_root.as_deref(),
+            &self.bridge,
+        )?;
         let request = crate::rpc::types::StateReadRequest {
             domain: "plan".into(),
             key: "plan".into(),
@@ -247,6 +269,12 @@ mod tests {
     use serde_json::json;
     use std::time::Duration;
 
+    /// The tests resolve real paths on the host, so they use the same
+    /// bridge the toolset builds.
+    fn bridge() -> ShellPathBridge {
+        ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
+
     fn write_file(dir: &Path, name: &str, content: &str) -> PathBuf {
         let path = dir.join(name);
         std::fs::write(&path, content).unwrap();
@@ -260,13 +288,16 @@ mod tests {
         let state = StaleGuardState::new();
         let args = json!({ "path": path.to_string_lossy() });
 
-        let denial = stale_denial(&state, "Write", &args, Some(dir.path()));
+        let denial = stale_denial(&state, "Write", &args, Some(dir.path()), &bridge());
         assert!(denial.unwrap().ends_with(
             "\" has not been read by this agent yet. Read the file before writing to it."
         ));
 
-        observe_execution(&state, "Read", &args, false, Some(dir.path()));
-        assert_eq!(stale_denial(&state, "Write", &args, Some(dir.path())), None);
+        observe_execution(&state, "Read", &args, false, Some(dir.path()), &bridge());
+        assert_eq!(
+            stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()),
+            None
+        );
     }
 
     #[test]
@@ -276,8 +307,8 @@ mod tests {
         let state = StaleGuardState::new();
         let args = json!({ "path": path.to_string_lossy() });
 
-        observe_execution(&state, "Read", &args, true, Some(dir.path()));
-        let denial = stale_denial(&state, "Write", &args, Some(dir.path())).unwrap();
+        observe_execution(&state, "Read", &args, true, Some(dir.path()), &bridge());
+        let denial = stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()).unwrap();
         assert!(denial.contains("has not been read"));
     }
 
@@ -289,7 +320,7 @@ mod tests {
         let args = json!({ "path": path.to_string_lossy() });
 
         assert_eq!(
-            stale_denial(&state, "Write", &args, Some(dir.path())).unwrap(),
+            stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()).unwrap(),
             format!(
                 "\"{}\" has not been read by this agent yet. Read the file before writing to it.",
                 path.to_string_lossy()
@@ -307,7 +338,7 @@ mod tests {
 
         state.record(key, (0, 0));
         assert_eq!(
-            stale_denial(&state, "Edit", &args, Some(dir.path())).unwrap(),
+            stale_denial(&state, "Edit", &args, Some(dir.path()), &bridge()).unwrap(),
             format!(
                 "\"{}\" has been modified on disk since this agent last read it. Read the file again before writing to it.",
                 path.to_string_lossy()
@@ -322,11 +353,11 @@ mod tests {
         let state = StaleGuardState::new();
         let args = json!({ "path": path.to_string_lossy() });
 
-        observe_execution(&state, "Read", &args, false, Some(dir.path()));
+        observe_execution(&state, "Read", &args, false, Some(dir.path()), &bridge());
         std::thread::sleep(Duration::from_millis(50));
         std::fs::write(&path, "changed").unwrap();
 
-        let denial = stale_denial(&state, "Write", &args, Some(dir.path())).unwrap();
+        let denial = stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()).unwrap();
         assert!(denial.contains("has been modified on disk"));
     }
 
@@ -337,18 +368,24 @@ mod tests {
         let state = StaleGuardState::new();
         let args = json!({ "path": path.to_string_lossy() });
 
-        observe_execution(&state, "Read", &args, false, Some(dir.path()));
-        assert_eq!(stale_denial(&state, "Write", &args, Some(dir.path())), None);
+        observe_execution(&state, "Read", &args, false, Some(dir.path()), &bridge());
+        assert_eq!(
+            stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()),
+            None
+        );
 
         std::thread::sleep(Duration::from_millis(50));
         std::fs::write(&path, "first").unwrap();
-        observe_execution(&state, "Write", &args, false, Some(dir.path()));
-        assert_eq!(stale_denial(&state, "Write", &args, Some(dir.path())), None);
+        observe_execution(&state, "Write", &args, false, Some(dir.path()), &bridge());
+        assert_eq!(
+            stale_denial(&state, "Write", &args, Some(dir.path()), &bridge()),
+            None
+        );
 
         std::thread::sleep(Duration::from_millis(50));
         std::fs::write(&path, "second").unwrap();
         assert!(
-            stale_denial(&state, "Write", &args, Some(dir.path()))
+            stale_denial(&state, "Write", &args, Some(dir.path()), &bridge())
                 .unwrap()
                 .contains("has been modified on disk")
         );
@@ -361,13 +398,13 @@ mod tests {
 
         let missing = json!({ "path": dir.path().join("new.txt").to_string_lossy() });
         assert_eq!(
-            stale_denial(&state, "Write", &missing, Some(dir.path())),
+            stale_denial(&state, "Write", &missing, Some(dir.path()), &bridge()),
             None
         );
 
         let directory = json!({ "path": dir.path().to_string_lossy() });
         assert_eq!(
-            stale_denial(&state, "Write", &directory, Some(dir.path())),
+            stale_denial(&state, "Write", &directory, Some(dir.path()), &bridge()),
             None
         );
     }
@@ -384,10 +421,11 @@ mod tests {
             &json!({ "path": "a.txt" }),
             false,
             Some(dir.path()),
+            &bridge(),
         );
         let absolute = json!({ "path": dir.path().join("a.txt").to_string_lossy() });
         assert_eq!(
-            stale_denial(&state, "Write", &absolute, Some(dir.path())),
+            stale_denial(&state, "Write", &absolute, Some(dir.path()), &bridge()),
             None
         );
     }
@@ -491,7 +529,7 @@ mod tests {
     async fn gate_denial_consults_plan_only_when_it_would_deny() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_file(dir.path(), "a.txt", "hello");
-        let gate = StaleGate::new(Some(dir.path().to_path_buf()));
+        let gate = StaleGate::new(Some(dir.path().to_path_buf()), Arc::new(bridge()));
         let args = json!({ "path": path.to_string_lossy() });
         let host = PlanScriptCallbacks {
             plan: std::sync::Mutex::new(Some(json!({ "active": false }))),
@@ -509,14 +547,14 @@ mod tests {
         assert_eq!(host.reads.load(std::sync::atomic::Ordering::Relaxed), 1);
 
         // Plan-mode plan-file write: exempt even without a prior read.
-        let fresh = StaleGate::new(Some(dir.path().to_path_buf()));
+        let fresh = StaleGate::new(Some(dir.path().to_path_buf()), Arc::new(bridge()));
         *host.plan.lock().unwrap() =
             Some(json!({ "active": true, "path": path.to_string_lossy() }));
         assert_eq!(fresh.denial(&host, "Write", &args).await, None);
 
         // Broken state bridge fails open.
         *host.plan.lock().unwrap() = None;
-        let fresher = StaleGate::new(Some(dir.path().to_path_buf()));
+        let fresher = StaleGate::new(Some(dir.path().to_path_buf()), Arc::new(bridge()));
         assert_eq!(fresher.denial(&host, "Write", &args).await, None);
     }
 
@@ -524,17 +562,17 @@ mod tests {
     fn gate_observe_skips_errors_and_non_file_tools() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_file(dir.path(), "a.txt", "hello");
-        let gate = StaleGate::new(Some(dir.path().to_path_buf()));
+        let gate = StaleGate::new(Some(dir.path().to_path_buf()), Arc::new(bridge()));
         let args = json!({ "path": path.to_string_lossy() });
 
         gate.observe("Bash", &args, false);
         gate.observe("Read", &args, true);
-        let denial = stale_denial(&gate.state, "Write", &args, Some(dir.path()));
+        let denial = stale_denial(&gate.state, "Write", &args, Some(dir.path()), &bridge());
         assert!(denial.unwrap().contains("has not been read"));
 
         gate.observe("Read", &args, false);
         assert_eq!(
-            stale_denial(&gate.state, "Write", &args, Some(dir.path())),
+            stale_denial(&gate.state, "Write", &args, Some(dir.path()), &bridge()),
             None
         );
     }

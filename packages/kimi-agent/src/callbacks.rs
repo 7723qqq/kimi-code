@@ -2315,6 +2315,7 @@ mod tests {
     ) {
         let dir = tempfile::tempdir().unwrap();
         let toolset = Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap());
+        let shell_bridge = toolset.shell_bridge();
         let permission_calls = Arc::new(AtomicU32::new(0));
         let executed = Arc::new(AtomicU32::new(0));
         let native_count = Arc::new(AtomicU32::new(0));
@@ -2334,9 +2335,10 @@ mod tests {
             truncator: None,
             permission_engine: None,
             plan_guard: None,
-            stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(Some(
-                dir.path().to_path_buf(),
-            )))),
+            stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(
+                Some(dir.path().to_path_buf()),
+                shell_bridge,
+            ))),
             goal_guard: None,
             hook_guard: None,
             agent_tool_veto: None,
