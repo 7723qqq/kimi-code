@@ -1536,24 +1536,41 @@ fn error_payload(code: &str, message: String) -> serde_json::Value {
 /// <reason>: <body>` (llm/http.rs:287) and everything else as a plain
 /// message, so the status line is the only structured signal available.
 fn turn_failure_code(message: &str) -> &'static str {
-    let Some(rest) = message.strip_prefix("llm http status ") else {
-        return if message.contains("connection") || message.contains("timed out") {
-            "provider.connection_error"
-        } else {
-            "internal"
+    // The transport wraps its own error (`LLM call failed after N attempts:
+    // llm transport error connect: …`), so the marker is searched for rather
+    // than stripped from the head.
+    if let Some(rest) = message.split("llm http status ").nth(1) {
+        let status: u16 = rest
+            .split_whitespace()
+            .next()
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        return match status {
+            401 | 403 => "provider.auth_error",
+            404 => "provider.not_found",
+            429 => "provider.rate_limit",
+            500..=599 => "provider.overloaded",
+            _ => "provider.api_error",
         };
-    };
-    let status: u16 = rest
-        .split_whitespace()
-        .next()
-        .and_then(|code| code.parse().ok())
-        .unwrap_or(0);
-    match status {
-        401 | 403 => "provider.auth_error",
-        404 => "provider.not_found",
-        429 => "provider.rate_limit",
-        500..=599 => "provider.overloaded",
-        _ => "provider.api_error",
+    }
+    if let Some(rest) = message.split("llm transport error ").nth(1) {
+        let kind = rest
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches(':');
+        return match kind {
+            // The endpoint never answered: unreachable, refused, or too slow.
+            "connect" | "timeout" | "transport" => "provider.connection_error",
+            // The endpoint answered with something unparseable, or the request
+            // could not be built — the provider's answer either way, not ours.
+            _ => "provider.api_error",
+        };
+    }
+    if message.contains("connection") || message.contains("timed out") {
+        "provider.connection_error"
+    } else {
+        "internal"
     }
 }
 
@@ -2739,6 +2756,25 @@ mod tests {
             ("connection reset by peer", "provider.connection_error"),
             ("request timed out after 60s", "provider.connection_error"),
             ("tool registry is empty", "internal"),
+            // The shapes the native transport actually produces, wrapped by
+            // the retry layer the way a real turn sees them.
+            (
+                "LLM call failed after 1 attempts: llm transport error connect: \
+                 error sending request for url (http://127.0.0.1:1/v1/chat/completions)",
+                "provider.connection_error",
+            ),
+            (
+                "LLM call failed after 3 attempts: llm transport error timeout: operation timed out",
+                "provider.connection_error",
+            ),
+            (
+                "LLM call failed after 1 attempts: llm transport error decode: invalid json body",
+                "provider.api_error",
+            ),
+            (
+                "LLM call failed after 1 attempts: llm transport error invalid_request: bad url",
+                "provider.api_error",
+            ),
         ];
         for (message, expected) in cases {
             assert_eq!(turn_failure_code(message), expected, "{message}");
