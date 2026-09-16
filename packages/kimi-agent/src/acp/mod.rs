@@ -11,7 +11,7 @@
 //! notifications while a turn runs, plus server-initiated requests
 //! (`session/request_permission`, see `permission.rs`).
 //!
-//! Still missing: the fs/terminal reverse RPCs and the auth gate.
+//! Still missing: the auth gate.
 
 pub mod channel;
 pub mod events_map;
@@ -39,6 +39,10 @@ pub struct AcpServer {
     channel: AcpChannel,
     /// Current ACP mode per session (v2 `AcpSession.currentModeId`).
     modes: Mutex<HashMap<String, String>>,
+    /// In-flight `session/prompt` requests, keyed by the JSON-RPC request id
+    /// rendered as a string, valued by session id. A `$/cancel_request` names
+    /// the request to abort, so this is how the notification finds the turn.
+    in_flight_prompts: Mutex<HashMap<String, String>>,
     /// Client capabilities declared on `initialize` (drives which reverse
     /// RPCs — client fs / terminal — the agent may issue). Shared with the
     /// session host so an ACP-advertised fs can own Read/Write execution.
@@ -62,6 +66,7 @@ impl AcpServer {
             engine: None,
             channel: AcpChannel::new(),
             modes: Mutex::new(HashMap::new()),
+            in_flight_prompts: Mutex::new(HashMap::new()),
             client_capabilities: Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
             disable_auth: false,
         }
@@ -84,6 +89,7 @@ impl AcpServer {
             engine: Some(engine),
             channel: AcpChannel::new(),
             modes: Mutex::new(HashMap::new()),
+            in_flight_prompts: Mutex::new(HashMap::new()),
             client_capabilities: Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
             disable_auth: false,
         }
@@ -101,12 +107,16 @@ impl AcpServer {
         let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default()));
         let factory_channel = channel.clone();
         let factory_capabilities = capabilities.clone();
+        // The reverse Bash path runs in the client's terminal, which needs the
+        // session's cwd (v2 `AcpSessionRuntime` is constructed with it).
+        let factory_store = store.clone();
         engine.set_host_factory(Arc::new(move |session_id: &str| {
             Arc::new(permission::AcpPermissionHost::new(
                 Arc::new(crate::server::engine::ServerHost::standalone()),
                 factory_channel.clone(),
                 session_id.to_string(),
                 factory_capabilities.clone(),
+                session_cwd_of(&factory_store, session_id),
             ))
         }));
         Self {
@@ -114,6 +124,7 @@ impl AcpServer {
             engine: Some(engine),
             channel,
             modes: Mutex::new(HashMap::new()),
+            in_flight_prompts: Mutex::new(HashMap::new()),
             client_capabilities: capabilities,
             disable_auth: false,
         }
@@ -129,6 +140,28 @@ impl AcpServer {
             .unwrap_or_else(|| "default".to_string())
     }
 
+    /// The model this session runs on: the `agent_config` override the
+    /// per-session model switch writes, else the engine's own model.
+    fn session_model(&self, session_id: &str) -> String {
+        self.store
+            .get_state("agent_config", session_id)
+            .ok()
+            .flatten()
+            .and_then(|profile| {
+                profile
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .filter(|model| !model.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                self.engine
+                    .as_ref()
+                    .map(|engine| engine.model_name().to_string())
+            })
+            .unwrap_or_default()
+    }
+
     /// Snapshot the ACP `SessionModeState` for a session.
     fn mode_state(&self, session_id: &str) -> serde_json::Value {
         json!({
@@ -140,17 +173,14 @@ impl AcpServer {
     /// Build the ACP `SessionConfigOption[]` surface advertised on
     /// `session/new` / `session/load` / `session/resume` / `session/fork`
     /// (v2 `buildSessionConfigOptions`, config-options.ts). This host has no
-    /// model catalog, so the `model` arm is a single row for the engine's one
-    /// model (empty when no engine is attached) and the `thinking` arm is
-    /// omitted 鈥?its presence depends on a catalog row we do not have, and v2
-    /// omits it when the model is not `thinkingSupported`. The `mode` arm
-    /// projects the canonical four modes.
+    /// model catalog, so the `model` arm is a single row for the session's
+    /// model — the `agent_config` override when one was set, else the engine's
+    /// (empty when no engine is attached) — and the `thinking` arm is omitted:
+    /// its presence depends on a catalog row we do not have, and v2 omits it
+    /// when the model is not `thinkingSupported`. The `mode` arm projects the
+    /// canonical four modes.
     fn config_options(&self, session_id: &str) -> serde_json::Value {
-        let model_name = self
-            .engine
-            .as_ref()
-            .map(|engine| engine.model_name().to_string())
-            .unwrap_or_default();
+        let model_name = self.session_model(session_id);
         let model_option = json!({
             "type": "select",
             "id": "model",
@@ -219,13 +249,18 @@ impl AcpServer {
             .clone()
     }
 
-    /// Connect the `mcpServers` a client passed on `session/new`. Without an
-    /// attached engine (or its MCP manager) there is nowhere to register them,
+    /// Connect the `mcpServers` a client passed on `session/new` as ephemeral
+    /// per-session servers (v2 `sessions.create({ mcpServers })`): they are
+    /// connected for this session only and never persisted, so they get a
+    /// manager of their own rather than the process-wide one every session
+    /// shares. Without an attached engine there is nowhere to register them,
     /// so this is a no-op.
-    async fn register_session_mcp_servers(&self, servers: &[serde_json::Value]) {
-        let Some(manager) = self.engine.as_ref().and_then(|engine| engine.mcp_manager()) else {
+    async fn register_session_mcp_servers(&self, session_id: &str, servers: &[serde_json::Value]) {
+        let Some(engine) = self.engine.as_ref() else {
             return;
         };
+        let manager = std::sync::Arc::new(crate::mcp::manager::McpManager::new());
+        let mut registered = false;
         for server in servers {
             let Some(name) = server.get("name").and_then(|value| value.as_str()) else {
                 continue;
@@ -233,9 +268,16 @@ impl AcpServer {
             let Some(recipe) = acp_mcp_recipe(server) else {
                 continue;
             };
+            // A server that fails to connect is still registered — it shows
+            // as failed on this session's roster, exactly as v2's session
+            // overlay does. Only the registration decides the scoping.
+            registered = true;
             let _ = manager
                 .configure(name, recipe, McpServerOptions::default())
                 .await;
+        }
+        if registered {
+            engine.set_session_mcp_manager(session_id, manager);
         }
     }
 
@@ -276,7 +318,7 @@ impl AcpServer {
     /// Run the ACP server reading from stdin and writing to stdout. Responses
     /// and server-initiated notifications share one writer so their JSON lines
     /// never interleave.
-    pub async fn run_stdio(&self) -> Result<(), std::io::Error> {
+    pub async fn run_stdio(self: Arc<Self>) -> Result<(), std::io::Error> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
@@ -307,18 +349,32 @@ impl AcpServer {
 
         let stdin = tokio::io::stdin();
         let mut reader = BufReader::new(stdin).lines();
+        // Each line is dispatched on its own task: a `session/prompt` runs for
+        // as long as the turn does, and a reader that awaited it inline could
+        // not deliver the `session/cancel` / `$/cancel_request` that is
+        // supposed to stop it. Responses are correlated by JSON-RPC id, so
+        // out-of-order completion is fine.
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
         while let Some(line) = reader.next_line().await? {
-            let trimmed = line.trim();
+            let trimmed = line.trim().to_string();
             if trimmed.is_empty() {
                 continue;
             }
-            if let Some(resp) = self.handle_line(trimmed).await {
-                let _ = tx.send(AcpOutbound::Response(resp));
-            }
+            let server = self.clone();
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                if let Some(resp) = server.handle_line(&trimmed).await {
+                    let _ = tx.send(AcpOutbound::Response(resp));
+                }
+            }));
+            tasks.retain(|task| !task.is_finished());
         }
         // Drop the sink's clone too, otherwise the writer task never ends.
         self.channel.clear_sink();
         drop(tx);
+        for task in tasks {
+            let _ = task.await;
+        }
         let _ = writer.await;
         Ok(())
     }
@@ -326,23 +382,50 @@ impl AcpServer {
     /// ACP `SessionInfo.cwd`: the session's workspace root, else its recorded
     /// cwd, else the empty string (v2 `sessionSummaryToSessionInfo`).
     fn session_cwd(&self, session_id: &str) -> String {
-        if let Ok(Some(session)) = self.store.get_session(session_id)
-            && let Some(workspace_id) = session.workspace_id.as_deref()
-            && let Ok(Some(workspace)) = self.store.get_workspace(workspace_id)
-        {
-            return workspace.root;
+        session_cwd_of(&self.store, session_id)
+    }
+
+    /// Reserve a session for an in-flight `session/prompt`, keyed by the
+    /// request id. `false` when another prompt is already running for it
+    /// (v2 `assertNoActiveTurn`, session.ts:632-639): the engine keeps one
+    /// cancel token per session, so a second concurrent turn would overwrite
+    /// the first one's and neither would settle correctly.
+    fn begin_prompt(&self, request_key: &str, session_id: &str) -> bool {
+        let mut in_flight = self
+            .in_flight_prompts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if in_flight.values().any(|active| active == session_id) {
+            return false;
         }
-        self.store
-            .get_state("metadata", session_id)
-            .ok()
-            .flatten()
-            .and_then(|metadata| {
-                metadata
-                    .get("cwd")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_default()
+        in_flight.insert(request_key.to_string(), session_id.to_string());
+        true
+    }
+
+    fn end_prompt(&self, request_key: &str) {
+        self.in_flight_prompts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(request_key);
+    }
+
+    /// Cancel the turn behind a `$/cancel_request` notification: the
+    /// notification names the *request* to abort, so the in-flight prompt's
+    /// session is looked up and its turn cancelled. The prompt itself then
+    /// settles with `stopReason: "cancelled"`, which is the response the ACP
+    /// cancellation contract asks for.
+    fn cancel_requested(&self, request_id: &serde_json::Value) -> bool {
+        let key = request_key(request_id);
+        let session_id = self
+            .in_flight_prompts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .cloned();
+        match (session_id, self.engine.as_ref()) {
+            (Some(session_id), Some(engine)) => engine.cancel_turn(&session_id),
+            _ => false,
+        }
     }
 
     /// Apply an ACP session mode (v2 `setSessionMode` + `setMode` +
@@ -401,6 +484,50 @@ impl AcpServer {
             }),
         );
         Ok(mode_id.to_string())
+    }
+
+    /// Apply an ACP per-session model switch (v2 `AcpSession.setModel` +
+    /// `setSessionModel`): validate the session and model id, persist the
+    /// override the engine reads at turn start, and push
+    /// `config_option_update` so the client's picker follows.
+    fn apply_session_model(
+        &self,
+        session_id: Option<&str>,
+        model_id: Option<&str>,
+    ) -> Result<(), (i64, String)> {
+        let Some(session_id) = session_id else {
+            return Err((-32602, "Invalid params: sessionId is required".to_string()));
+        };
+        let Some(model_id) = model_id.filter(|model| !model.is_empty()) else {
+            return Err((-32602, "Invalid params: modelId is required".to_string()));
+        };
+        if self.store.get_session(session_id).ok().flatten().is_none() {
+            return Err((-32602, format!("Unknown sessionId: {session_id}")));
+        }
+
+        let mut profile = self
+            .store
+            .get_state("agent_config", session_id)
+            .ok()
+            .flatten()
+            .filter(|value| value.is_object())
+            .unwrap_or_else(|| json!({}));
+        if let Some(object) = profile.as_object_mut() {
+            object.insert("model".into(), json!(model_id));
+        }
+        let _ = self.store.put_state("agent_config", session_id, &profile);
+
+        self.channel.notify(
+            "session/update",
+            json!({
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "config_option_update",
+                    "configOptions": self.config_options(session_id),
+                },
+            }),
+        );
+        Ok(())
     }
 
     /// Process an incoming JSON-RPC 2.0 message and return an optional response.
@@ -462,6 +589,10 @@ impl AcpServer {
                                 "close": {},
                                 "delete": {},
                                 "fork": {},
+                                // Honored on `session/new` only — the engine
+                                // merges additional roots at session create
+                                // (v2 `warnIgnoredAdditionalDirs`).
+                                "additionalDirectories": {},
                             },
                             "mcpCapabilities": { "http": true, "sse": true },
                             "auth": { "logout": {} },
@@ -505,6 +636,20 @@ impl AcpServer {
                     .and_then(|value| value.as_array())
                     .cloned()
                     .unwrap_or_default();
+                // Extra workspace roots the editor hands over. The engine
+                // merges them into the session's authorized boundary at turn
+                // start (v2 `sessions.create({ additionalDirs })`).
+                let additional_dirs: Vec<String> = req
+                    .params
+                    .as_ref()
+                    .and_then(|params| params.get("additionalDirectories"))
+                    .and_then(|value| value.as_array())
+                    .map(|dirs| {
+                        dirs.iter()
+                            .filter_map(|dir| dir.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
                 let created = match cwd.as_deref() {
                     Some(root) => match self.store.create_workspace(root, None) {
@@ -520,15 +665,19 @@ impl AcpServer {
 
                 match created {
                     Ok(_) => {
+                        let mut metadata = json!({});
                         if let Some(root) = cwd.as_deref() {
-                            let _ = self.store.put_state(
-                                "metadata",
-                                &session_id,
-                                &json!({ "cwd": root }),
-                            );
+                            metadata["cwd"] = json!(root);
+                        }
+                        if !additional_dirs.is_empty() {
+                            metadata["additional_dirs"] = json!(additional_dirs);
+                        }
+                        if metadata.as_object().is_some_and(|map| !map.is_empty()) {
+                            let _ = self.store.put_state("metadata", &session_id, &metadata);
                         }
                         if !mcp_servers.is_empty() {
-                            self.register_session_mcp_servers(&mcp_servers).await;
+                            self.register_session_mcp_servers(&session_id, &mcp_servers)
+                                .await;
                         }
                         self.modes
                             .lock()
@@ -596,37 +745,50 @@ impl AcpServer {
                 match (session_id, prompt) {
                     (Some(sid), Some((p, media))) => {
                         if let Some(ref engine) = self.engine {
-                            let history = self.store.load_session_history(sid).unwrap_or_default();
-                            let turn_number = self.store.next_turn_number(sid).unwrap_or(1);
-                            // Stream this session's events as ACP
-                            // `session/update` notifications while the turn runs.
-                            let bus = engine.hub().bus_for(sid);
-                            let subscription = self.forward_session_events(sid, &bus);
-                            let result = engine
-                                .run_turn_with_media(sid, turn_number, history, &p, media)
-                                .await;
-                            bus.unsubscribe(subscription);
-                            match result {
-                                Ok(report) => JsonRpcResponse::success(
+                            let request_key = req.id.as_ref().map(request_key).unwrap_or_default();
+                            if !self.begin_prompt(&request_key, sid) {
+                                JsonRpcResponse::error(
                                     req.id,
-                                    json!({
-                                        "sessionId": sid,
-                                        "turnId": report.turn_id,
-                                        "stopReason": report.stop_reason,
-                                        "content": report.reply,
-                                        "steps": report.steps,
-                                        "usage": {
-                                            "inputTokens": report.usage.input_tokens,
-                                            "outputTokens": report.usage.output_tokens,
-                                            "totalTokens": report.usage.total_tokens,
-                                        }
-                                    }),
-                                ),
-                                Err(err) => JsonRpcResponse::error(
-                                    req.id,
-                                    -32000,
-                                    format!("Turn execution failed: {err}"),
-                                ),
+                                    -32600,
+                                    "another turn is already in progress",
+                                )
+                            } else {
+                                let history =
+                                    self.store.load_session_history(sid).unwrap_or_default();
+                                let turn_number = self.store.next_turn_number(sid).unwrap_or(1);
+                                // Stream this session's events as ACP
+                                // `session/update` notifications while the turn runs.
+                                let bus = engine.hub().bus_for(sid);
+                                let subscription = self.forward_session_events(sid, &bus);
+                                let result = engine
+                                    .run_turn_with_media(sid, turn_number, history, &p, media)
+                                    .await;
+                                bus.unsubscribe(subscription);
+                                self.end_prompt(&request_key);
+                                match result {
+                                    Ok(report) => JsonRpcResponse::success(
+                                        req.id,
+                                        json!({
+                                            "sessionId": sid,
+                                            "turnId": report.turn_id,
+                                            "stopReason": events_map::turn_stop_reason_to_acp(
+                                                &report.stop_reason
+                                            ),
+                                            "content": report.reply,
+                                            "steps": report.steps,
+                                            "usage": {
+                                                "inputTokens": report.usage.input_tokens,
+                                                "outputTokens": report.usage.output_tokens,
+                                                "totalTokens": report.usage.total_tokens,
+                                            }
+                                        }),
+                                    ),
+                                    Err(err) => JsonRpcResponse::error(
+                                        req.id,
+                                        -32000,
+                                        format!("Turn execution failed: {err}"),
+                                    ),
+                                }
                             }
                         } else {
                             // No engine is wired (e.g. no model could be
@@ -657,6 +819,7 @@ impl AcpServer {
                     return Some(JsonRpcResponse::error(req.id, code, message));
                 }
                 let params = req.params.as_ref();
+                warn_ignored_additional_dirs("session/load", params);
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
                     .and_then(|v| v.as_str());
@@ -732,6 +895,7 @@ impl AcpServer {
                     return Some(JsonRpcResponse::error(req.id, code, message));
                 }
                 let params = req.params.as_ref();
+                warn_ignored_additional_dirs("session/resume", params);
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
                     .and_then(|v| v.as_str());
@@ -768,6 +932,7 @@ impl AcpServer {
                     return Some(JsonRpcResponse::error(req.id, code, message));
                 }
                 let params = req.params.as_ref();
+                warn_ignored_additional_dirs("session/fork", params);
                 let session_id = params
                     .and_then(|p| p.get("sessionId").or_else(|| p.get("session_id")))
                     .and_then(|v| v.as_str());
@@ -894,6 +1059,18 @@ impl AcpServer {
                 }
                 JsonRpcResponse::success(req.id, json!({ "cancelled": true }))
             }
+            // Protocol-level cancellation: the client names the *request* it
+            // wants aborted, not the session. The prompt it names settles with
+            // `stopReason: "cancelled"`, which is the response the ACP
+            // cancellation contract requires.
+            "$/cancel_request" => {
+                let request_id = req
+                    .params
+                    .as_ref()
+                    .and_then(|params| params.get("requestId"));
+                let cancelled = request_id.is_some_and(|id| self.cancel_requested(id));
+                JsonRpcResponse::success(req.id, json!({ "cancelled": cancelled }))
+            }
             "session/set_mode" => {
                 let params = req.params.as_ref();
                 let session_id = params
@@ -907,8 +1084,24 @@ impl AcpServer {
                     Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
                 }
             }
-            // The `mode` arm of `session/set_config_option` funnels into the
-            // same path (v2 `setSessionConfigOption`, server.ts:471-513).
+            // The custom `session/set_model` extension (dropped from the ACP
+            // SDK's typed method set; v2 registers it by hand, server.ts:663-687).
+            "session/set_model" => {
+                let params = req.params.as_ref();
+                let session_id = params
+                    .and_then(|p| p.get("sessionId"))
+                    .and_then(|v| v.as_str());
+                let model_id = params
+                    .and_then(|p| p.get("modelId"))
+                    .and_then(|v| v.as_str());
+                match self.apply_session_model(session_id, model_id) {
+                    Ok(()) => JsonRpcResponse::success(req.id, json!({})),
+                    Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                }
+            }
+            // The `mode` / `model` arms of `session/set_config_option` funnel
+            // into the same paths (v2 `setSessionConfigOption`,
+            // server.ts:471-513).
             "session/set_config_option" => {
                 let params = req.params.as_ref();
                 let session_id = params
@@ -918,17 +1111,26 @@ impl AcpServer {
                     .and_then(|p| p.get("configId"))
                     .and_then(|v| v.as_str());
                 let value = params.and_then(|p| p.get("value")).and_then(|v| v.as_str());
-                if config_id != Some("mode") {
-                    JsonRpcResponse::error(
+                match config_id {
+                    Some("mode") => match self.apply_session_mode(session_id, value) {
+                        Ok(mode) => JsonRpcResponse::success(req.id, json!({ "modeId": mode })),
+                        Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                    },
+                    Some("model") => match self.apply_session_model(session_id, value) {
+                        Ok(()) => {
+                            let session_id = session_id.unwrap_or_default();
+                            JsonRpcResponse::success(
+                                req.id,
+                                json!({ "configOptions": self.config_options(session_id) }),
+                            )
+                        }
+                        Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
+                    },
+                    _ => JsonRpcResponse::error(
                         req.id,
                         -32602,
                         format!("Unsupported configId: {}", config_id.unwrap_or_default()),
-                    )
-                } else {
-                    match self.apply_session_mode(session_id, value) {
-                        Ok(mode) => JsonRpcResponse::success(req.id, json!({ "modeId": mode })),
-                        Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
-                    }
+                    ),
                 }
             }
             // `authenticate` re-checks the gate after the client runs the
@@ -965,6 +1167,55 @@ impl AcpServer {
             return None;
         }
         Some(resp)
+    }
+}
+
+/// ACP `SessionInfo.cwd`: the session's workspace root, else its recorded
+/// cwd, else the empty string (v2 `sessionSummaryToSessionInfo`).
+fn session_cwd_of(store: &SqliteSessionStore, session_id: &str) -> String {
+    if let Ok(Some(session)) = store.get_session(session_id)
+        && let Some(workspace_id) = session.workspace_id.as_deref()
+        && let Ok(Some(workspace)) = store.get_workspace(workspace_id)
+    {
+        return workspace.root;
+    }
+    store
+        .get_state("metadata", session_id)
+        .ok()
+        .flatten()
+        .and_then(|metadata| {
+            metadata
+                .get("cwd")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+/// A JSON-RPC id as a map key. ACP `RequestId` is `string | number`, and the
+/// two sides of a `$/cancel_request` round trip must normalize identically.
+fn request_key(id: &serde_json::Value) -> String {
+    match id {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The engine merges additional roots only at session create, so
+/// load / resume / fork cannot honor `additionalDirectories` — say so instead
+/// of dropping the field in silence (v2 `warnIgnoredAdditionalDirs`,
+/// server.ts:654-659).
+fn warn_ignored_additional_dirs(method: &str, params: Option<&serde_json::Value>) {
+    let dirs = params
+        .and_then(|params| params.get("additionalDirectories"))
+        .and_then(|value| value.as_array())
+        .filter(|dirs| !dirs.is_empty());
+    if let Some(dirs) = dirs {
+        tracing::warn!(
+            method,
+            dirs = ?dirs,
+            "acp: ignoring additionalDirectories (the engine merges roots only on session create)"
+        );
     }
 }
 
@@ -1821,7 +2072,31 @@ mod tests {
             "params": { "sessionId": sid, "configId": "model", "value": "kimi-k2" }
         });
         let resp = server.handle_message(&model_req.to_string()).await.unwrap();
-        assert_eq!(resp.error.unwrap().message, "Unsupported configId: model");
+        // The `model` arm switches the session's model and answers with the
+        // refreshed option set (v2 `setSessionConfigOption`).
+        let options = resp.result.unwrap()["configOptions"].clone();
+        let model_option = options
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "model")
+            .expect("the model option is advertised");
+        assert_eq!(model_option["currentValue"], "kimi-k2");
+
+        let unknown_req = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/set_config_option",
+            "params": { "sessionId": sid, "configId": "nonsense", "value": "x" }
+        });
+        let resp = server
+            .handle_message(&unknown_req.to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.error.unwrap().message,
+            "Unsupported configId: nonsense"
+        );
     }
 
     /// Engine events reach the client as `session/update` notifications while
@@ -2243,5 +2518,479 @@ mod tests {
         });
         let resp = server.handle_message(&unknown.to_string()).await.unwrap();
         assert_eq!(resp.error.unwrap().message, "Unknown sessionId: sess-nope");
+    }
+
+    /// `session/new` records `additionalDirectories` on the session so the
+    /// engine can merge them into the authorized boundary at turn start
+    /// (v2 `sessions.create({ additionalDirs })`).
+    #[tokio::test]
+    async fn test_acp_new_session_records_additional_directories() {
+        let server = AcpServer::in_memory().unwrap();
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {
+                "cwd": "/tmp/ws",
+                "additionalDirectories": ["/tmp/extra-a", "/tmp/extra-b"]
+            }
+        });
+        let resp = server.handle_message(&req.to_string()).await.unwrap();
+        let sid = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let metadata = server.store.get_state("metadata", &sid).unwrap().unwrap();
+        assert_eq!(metadata["cwd"], "/tmp/ws");
+        assert_eq!(
+            metadata["additional_dirs"],
+            json!(["/tmp/extra-a", "/tmp/extra-b"])
+        );
+
+        // A session created without the field carries no empty list.
+        let plain = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "session/new", "params": {}
+        });
+        let resp = server.handle_message(&plain.to_string()).await.unwrap();
+        let plain_sid = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            server
+                .store
+                .get_state("metadata", &plain_sid)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// ACP `mcpServers` are ephemeral per-session servers (v2
+    /// `sessions.create({ mcpServers })`): they must not land on the
+    /// process-wide manager every other session shares.
+    #[tokio::test]
+    async fn test_acp_new_session_scopes_mcp_servers_to_the_session() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = engine_with_native_llm(&store, "http://127.0.0.1:1/v1");
+        let shared = Arc::new(crate::mcp::manager::McpManager::new());
+        engine.set_mcp_manager(shared.clone());
+        let server = AcpServer::with_engine(store, engine.clone());
+
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/new",
+            "params": {
+                "mcpServers": [{
+                    "name": "editor-tools",
+                    "command": "node",
+                    "args": ["server.js"]
+                }]
+            }
+        });
+        let resp = server.handle_message(&req.to_string()).await.unwrap();
+        let sid = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let session_manager = engine
+            .mcp_manager_for(&sid)
+            .expect("the session has a manager");
+        assert!(
+            !Arc::ptr_eq(&session_manager, &shared),
+            "the client's servers must not land on the shared manager"
+        );
+        let names = |entries: Vec<crate::mcp::manager::McpServerEntry>| {
+            entries
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            names(session_manager.server_entries().await).contains(&"editor-tools".to_string()),
+            "the session's own manager carries the client's server"
+        );
+        assert!(
+            !names(shared.server_entries().await).contains(&"editor-tools".to_string()),
+            "the shared manager stays untouched"
+        );
+
+        // A session created without the field keeps the shared manager.
+        let plain = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "session/new", "params": {}
+        });
+        let resp = server.handle_message(&plain.to_string()).await.unwrap();
+        let plain_sid = resp.result.unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(Arc::ptr_eq(
+            &engine.mcp_manager_for(&plain_sid).unwrap(),
+            &shared
+        ));
+    }
+
+    /// `session/set_model` (the custom extension) and the `model` arm of
+    /// `session/set_config_option` both persist the per-session override and
+    /// push `config_option_update` (v2 `setSessionModel` /
+    /// `setSessionConfigOption`).
+    #[tokio::test]
+    async fn test_acp_set_model_persists_and_notifies() {
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let new_req = json!({
+            "jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {}
+        });
+        let sid = server
+            .handle_message(&new_req.to_string())
+            .await
+            .unwrap()
+            .result
+            .unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let set_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/set_model",
+            "params": { "sessionId": sid, "modelId": "kimi-k2" }
+        });
+        let resp = server.handle_message(&set_req.to_string()).await.unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap(), json!({}));
+        assert_eq!(
+            server
+                .store
+                .get_state("agent_config", &sid)
+                .unwrap()
+                .unwrap()["model"],
+            "kimi-k2"
+        );
+        assert_eq!(server.session_model(&sid), "kimi-k2");
+
+        match rx.try_recv().expect("config_option_update") {
+            AcpOutbound::Notification(note) => {
+                assert_eq!(note.method, "session/update");
+                let params = note.params.unwrap();
+                assert_eq!(params["update"]["sessionUpdate"], "config_option_update");
+                assert_eq!(params["update"]["configOptions"][0]["id"], "model");
+                assert_eq!(
+                    params["update"]["configOptions"][0]["currentValue"],
+                    "kimi-k2"
+                );
+            }
+            other => panic!("unexpected outbound message: {other:?}"),
+        }
+
+        // The config-option route reaches the same state and answers with the
+        // refreshed option surface.
+        let config_req = json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/set_config_option",
+            "params": { "sessionId": sid, "configId": "model", "value": "kimi-k3" }
+        });
+        let resp = server
+            .handle_message(&config_req.to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.result.unwrap()["configOptions"][0]["currentValue"],
+            "kimi-k3"
+        );
+        assert_eq!(server.session_model(&sid), "kimi-k3");
+
+        // Unknown ids and unknown config ids stay invalid params.
+        let unknown_session = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/set_model",
+            "params": { "sessionId": "sess-nope", "modelId": "kimi-k2" }
+        });
+        assert_eq!(
+            server
+                .handle_message(&unknown_session.to_string())
+                .await
+                .unwrap()
+                .error
+                .unwrap()
+                .message,
+            "Unknown sessionId: sess-nope"
+        );
+        let unknown_config = json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "session/set_config_option",
+            "params": { "sessionId": sid, "configId": "thinking", "value": "on" }
+        });
+        assert_eq!(
+            server
+                .handle_message(&unknown_config.to_string())
+                .await
+                .unwrap()
+                .error
+                .unwrap()
+                .message,
+            "Unsupported configId: thinking"
+        );
+    }
+
+    /// A second `session/prompt` for a session that already has one running is
+    /// refused instead of racing the first turn's cancel token
+    /// (v2 `assertNoActiveTurn`).
+    #[tokio::test]
+    async fn test_acp_second_prompt_for_a_busy_session_is_refused() {
+        let server = AcpServer::in_memory().unwrap();
+        assert!(server.begin_prompt("7", "sess-1"));
+        assert!(
+            !server.begin_prompt("8", "sess-1"),
+            "one turn per session at a time"
+        );
+        assert!(
+            server.begin_prompt("9", "sess-2"),
+            "a different session is unaffected"
+        );
+        server.end_prompt("7");
+        assert!(server.begin_prompt("10", "sess-1"));
+    }
+
+    /// `$/cancel_request` names the request to abort; the in-flight prompt's
+    /// session is what actually gets cancelled, and the notification itself is
+    /// never answered.
+    #[tokio::test]
+    async fn test_acp_cancel_request_targets_the_named_prompt() {
+        let server = AcpServer::in_memory().unwrap();
+        assert!(server.begin_prompt("7", "sess-1"));
+
+        let cancel = json!({
+            "jsonrpc": "2.0",
+            "method": "$/cancel_request",
+            "params": { "requestId": 7 }
+        });
+        assert!(
+            server.handle_message(&cancel.to_string()).await.is_none(),
+            "a notification must never be answered"
+        );
+
+        // The same message as a request answers, and an unknown request id is
+        // reported as not cancelled rather than as a method-not-found.
+        let unknown = json!({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "$/cancel_request",
+            "params": { "requestId": "no-such-request" }
+        });
+        let resp = server.handle_message(&unknown.to_string()).await.unwrap();
+        assert_eq!(resp.result.unwrap()["cancelled"], false);
+    }
+
+    /// A local OpenAI-compatible SSE endpoint that streams one delta and then
+    /// holds the connection open: only a cancellation can end the turn.
+    async fn spawn_hanging_openai_server() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf).await;
+            let body = "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n";
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{body}"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.flush().await;
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        (format!("http://{addr}/v1"), server)
+    }
+
+    /// A local OpenAI-compatible SSE endpoint that answers a complete turn.
+    async fn spawn_completing_openai_server() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf).await;
+            let body = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n\
+                        data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+                        data: [DONE]\n\n";
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{body}"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.flush().await;
+        });
+        (format!("http://{addr}/v1"), server)
+    }
+
+    /// An engine whose one model is the local mock endpoint.
+    fn engine_with_native_llm(
+        store: &Arc<SqliteSessionStore>,
+        base_url: &str,
+    ) -> Arc<crate::server::engine::ServerEngine> {
+        use crate::pipeline::PipelineSpec;
+        use crate::server::engine::ServerEngine;
+
+        Arc::new(ServerEngine::new(
+            PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "mock-model".into(),
+                providers: Vec::new(),
+                native_llm: Some(crate::rpc::types::NativeLlmConfig {
+                    protocol: "openai".into(),
+                    base_url: base_url.to_string(),
+                    api_key: "test-key".into(),
+                    model: "mock-model".into(),
+                    ..Default::default()
+                }),
+                workspace_root: None,
+                native_tools: false,
+                extra_roots: Vec::new(),
+                rust_self_contained: true,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                tower_enabled: false,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+                secondary_model: None,
+                image_read_byte_budget: None,
+                image_max_edge_px: None,
+                model_capabilities: None,
+                skill_dirs: Vec::new(),
+                background: crate::storage::BackgroundLimits::default(),
+            },
+            Arc::new(crate::server::hub::EventHub::new()),
+            store.clone(),
+        ))
+    }
+
+    /// A completed turn answers with the ACP `end_turn`, not the engine's Rust
+    /// enum name — a strict client parses `stopReason` against the ACP enum.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_acp_prompt_reports_acp_stop_reason() {
+        let (base_url, mock) = spawn_completing_openai_server().await;
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = engine_with_native_llm(&store, &base_url);
+        let server = AcpServer::with_engine(store, engine);
+
+        let new_req = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {}
+        });
+        let sid = server
+            .handle_message(&new_req.to_string())
+            .await
+            .unwrap()
+            .result
+            .unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let prompt = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/prompt",
+            "params": { "sessionId": sid, "prompt": "hello" }
+        });
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            server.handle_message(&prompt.to_string()),
+        )
+        .await
+        .expect("the turn must settle")
+        .unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap()["stopReason"], "end_turn");
+
+        mock.abort();
+    }
+
+    /// `$/cancel_request` reaches a turn that is still streaming and settles
+    /// the prompt with the ACP `cancelled` stop reason — the response the ACP
+    /// cancellation contract requires.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_acp_cancel_request_stops_a_running_turn() {
+        let (base_url, mock) = spawn_hanging_openai_server().await;
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = engine_with_native_llm(&store, &base_url);
+        let server = Arc::new(AcpServer::with_engine(store, engine.clone()));
+
+        let new_req = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {}
+        });
+        let sid = server
+            .handle_message(&new_req.to_string())
+            .await
+            .unwrap()
+            .result
+            .unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // The prompt runs on its own task, exactly as `run_stdio` dispatches
+        // it: the reader has to stay free to deliver the cancellation.
+        let prompt_server = server.clone();
+        let prompt_sid = sid.clone();
+        let prompt = tokio::spawn(async move {
+            prompt_server
+                .handle_message(
+                    &json!({
+                        "jsonrpc": "2.0",
+                        "id": 7,
+                        "method": "session/prompt",
+                        "params": { "sessionId": prompt_sid, "prompt": "hello" }
+                    })
+                    .to_string(),
+                )
+                .await
+        });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !engine.is_turn_active(&sid) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the turn never started"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let cancel = json!({
+            "jsonrpc": "2.0",
+            "method": "$/cancel_request",
+            "params": { "requestId": 7 }
+        });
+        assert!(
+            server.handle_message(&cancel.to_string()).await.is_none(),
+            "a notification must never be answered"
+        );
+
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(20), prompt)
+            .await
+            .expect("a cancelled prompt must settle promptly")
+            .unwrap()
+            .unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+        assert_eq!(resp.result.unwrap()["stopReason"], "cancelled");
+
+        mock.abort();
     }
 }

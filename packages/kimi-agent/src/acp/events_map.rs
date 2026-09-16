@@ -36,6 +36,26 @@ fn stringify_args(args: &Value) -> String {
     serde_json::to_string(args).unwrap_or_default()
 }
 
+/// Map the engine's `LoopTurnStopReason` (Rust `Debug` name, the vocabulary
+/// `TurnReport` carries) onto the ACP `StopReason` enum (v2
+/// `turnEndReasonToStopReason`, events-map.ts:61-76).
+///
+/// v2 collapses everything that is not a cancellation or a provider filter
+/// into `end_turn` because its `TurnEndReason` is only
+/// `completed`/`cancelled`/`failed`/`blocked`. The native loop distinguishes
+/// the two terminal states ACP names explicitly — the token ceiling and the
+/// step budget — so those keep their own variants instead of being reported
+/// as a clean completion.
+pub fn turn_stop_reason_to_acp(reason: &str) -> &'static str {
+    match reason {
+        "Aborted" => "cancelled",
+        "Filtered" => "refusal",
+        "MaxTokens" => "max_tokens",
+        "MaxSteps" => "max_turn_requests",
+        _ => "end_turn",
+    }
+}
+
 /// Project one engine event onto ACP `session/update` params, or `None` when
 /// the event has no ACP projection.
 pub fn engine_event_to_session_update(session_id: &str, event: &EngineEvent) -> Option<Value> {
@@ -219,5 +239,26 @@ mod tests {
             prompt: Some("hi".into()),
         };
         assert!(engine_event_to_session_update("sess-1", &event).is_none());
+    }
+
+    /// Every `LoopTurnStopReason` variant reaches a real ACP `StopReason`
+    /// value — a strict client parses the response, so an unmapped name would
+    /// fail the whole `session/prompt` call.
+    #[test]
+    fn test_turn_stop_reason_maps_to_acp_enum() {
+        use crate::turn_loop::types::LoopTurnStopReason;
+        use crate::turn_loop::types::LoopTurnStopReason::*;
+        let acp = |reason: LoopTurnStopReason| turn_stop_reason_to_acp(&format!("{reason:?}"));
+        assert_eq!(acp(EndTurn), "end_turn");
+        assert_eq!(acp(Aborted), "cancelled");
+        assert_eq!(acp(Filtered), "refusal");
+        assert_eq!(acp(MaxTokens), "max_tokens");
+        assert_eq!(acp(MaxSteps), "max_turn_requests");
+        assert_eq!(acp(Paused), "end_turn");
+        assert_eq!(acp(Unknown), "end_turn");
+        assert_eq!(acp(BudgetLimited), "end_turn");
+        assert_eq!(acp(RepeatBreaker), "end_turn");
+        // An unrecognized reason must still be a parseable ACP value.
+        assert_eq!(turn_stop_reason_to_acp("SomethingNew"), "end_turn");
     }
 }

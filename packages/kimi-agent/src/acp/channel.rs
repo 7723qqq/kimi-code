@@ -143,13 +143,23 @@ impl AcpChannel {
     }
 
     /// `terminal/create`: the client spawns the terminal and returns its id.
+    /// `env` and `output_byte_limit` are the ACP `env` / `outputByteLimit`
+    /// fields — the client's terminal is a different process tree, so the
+    /// engine's spawn environment and output budget have to travel with the
+    /// request (v2 `AcpProcessService.spawn`, acpTerminalRunner.ts:52-70).
     pub async fn create_terminal(
         &self,
         session_id: &str,
         command: &str,
         args: &[String],
         cwd: Option<&str>,
+        env: &[(String, String)],
+        output_byte_limit: usize,
     ) -> Result<String, String> {
+        let env: Vec<serde_json::Value> = env
+            .iter()
+            .map(|(name, value)| serde_json::json!({ "name": name, "value": value }))
+            .collect();
         let result = self
             .request(
                 "terminal/create",
@@ -157,7 +167,9 @@ impl AcpChannel {
                     "sessionId": session_id,
                     "command": command,
                     "args": args,
+                    "env": env,
                     "cwd": cwd,
+                    "outputByteLimit": output_byte_limit,
                 }),
             )
             .await?;
@@ -354,7 +366,14 @@ mod tests {
             let channel = channel.clone();
             tokio::spawn(async move {
                 channel
-                    .create_terminal("s1", "bash", &["-lc".to_string(), "ls".to_string()], None)
+                    .create_terminal(
+                        "s1",
+                        "bash",
+                        &["-lc".to_string(), "ls".to_string()],
+                        Some("/work"),
+                        &[("NO_COLOR".to_string(), "1".to_string())],
+                        4 * 1024 * 1024,
+                    )
                     .await
             })
         };
@@ -367,6 +386,10 @@ mod tests {
         assert_eq!(method, "terminal/create");
         assert_eq!(params["command"], "bash");
         assert_eq!(params["args"][1], "ls");
+        assert_eq!(params["cwd"], "/work");
+        assert_eq!(params["env"][0]["name"], "NO_COLOR");
+        assert_eq!(params["env"][0]["value"], "1");
+        assert_eq!(params["outputByteLimit"], 4 * 1024 * 1024);
         assert_eq!(pending.await.unwrap().unwrap(), "term-7");
     }
 

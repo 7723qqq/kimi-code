@@ -76,27 +76,69 @@ fn dismissed_question_response() -> AskQuestionResponse {
     }
 }
 
+/// Cap on the output the client's terminal retains (v2 `OUTPUT_BYTE_LIMIT`,
+/// acpTerminalRunner.ts:22).
+const TERMINAL_OUTPUT_BYTE_LIMIT: usize = 4 * 1024 * 1024;
+/// Foreground Bash budget, mirroring the native tool's own bounds
+/// (`BASH_MAX_SECONDS` and the 60s default in `tools/mod.rs`).
+const BASH_DEFAULT_TIMEOUT_S: u64 = 60;
+const BASH_MAX_TIMEOUT_S: u64 = 300;
+
+/// The environment the native Bash spawn sets (`tools/mod.rs`): colors and
+/// prompts corrupt output parsing, and git must never hang on a credential
+/// prompt. The client's terminal is a separate process tree, so these travel
+/// with `terminal/create` instead of being inherited.
+fn bash_terminal_env(shell: &str) -> Vec<(String, String)> {
+    vec![
+        ("NO_COLOR".to_string(), "1".to_string()),
+        ("TERM".to_string(), "dumb".to_string()),
+        ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
+        ("SHELL".to_string(), shell.to_string()),
+    ]
+}
+
 /// Run a Bash call on the client's terminal (`terminal/create` →
 /// `wait_for_exit` → `output` → `release`). Falls back to the native Bash when
 /// the client advertised a terminal but could not create one.
 async fn run_bash_on_terminal(
     channel: AcpChannel,
     session_id: String,
+    session_cwd: String,
     inner: Arc<dyn HostCallbacks>,
     fallback: ToolExecuteRequest,
     command: String,
 ) -> Result<ToolExecuteResponse, String> {
-    #[cfg(windows)]
-    let (shell, flag) = ("cmd", "/C");
-    #[cfg(not(windows))]
-    let (shell, flag) = ("sh", "-c");
+    // The engine resolves the shell the same way the native Bash tool does
+    // (`NativeToolset::new` falls back to `resolve_shell(None)`), so the
+    // client's terminal runs the flavor this session is configured for
+    // instead of a hardcoded `sh -c` / `cmd /C`.
+    let shell = crate::native::shell::resolve_shell(None);
+    let mut args = shell.args_prefix();
+    args.push(command.clone());
+    // The tool's own `cwd` wins; otherwise the command runs in the session's
+    // working directory, not the client terminal's default one.
+    let cwd = fallback
+        .arguments
+        .get("cwd")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| Some(session_cwd).filter(|value| !value.is_empty()));
+    let timeout_s = fallback
+        .arguments
+        .get("timeout")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(BASH_DEFAULT_TIMEOUT_S)
+        .clamp(1, BASH_MAX_TIMEOUT_S);
 
     let terminal_id = match channel
         .create_terminal(
             &session_id,
-            shell,
-            &[flag.to_string(), command.clone()],
-            None,
+            &shell.program,
+            &args,
+            cwd.as_deref(),
+            &bash_terminal_env(&shell.program),
+            TERMINAL_OUTPUT_BYTE_LIMIT,
         )
         .await
     {
@@ -104,17 +146,32 @@ async fn run_bash_on_terminal(
         Err(_) => return inner.execute_tool(fallback).await,
     };
 
-    let exit = channel
-        .wait_for_terminal_exit(&session_id, &terminal_id)
-        .await;
+    let exit = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_s),
+        channel.wait_for_terminal_exit(&session_id, &terminal_id),
+    )
+    .await;
     let output = channel
         .terminal_output(&session_id, &terminal_id)
         .await
         .unwrap_or_default();
+    let timed_out = exit.is_err();
+    if timed_out {
+        // A hung command has to be terminated, not merely abandoned: without
+        // `terminal/kill` it keeps running in the client's terminal long after
+        // the tool call has failed.
+        let _ = channel.kill_terminal(&session_id, &terminal_id).await;
+    }
     let _ = channel.release_terminal(&session_id, &terminal_id).await;
 
+    if timed_out {
+        return Ok(tool_error(format!(
+            "Command killed by timeout ({timeout_s}s)"
+        )));
+    }
     let exit_code = exit
         .ok()
+        .and_then(Result::ok)
         .and_then(|value| value.get("exitCode").and_then(serde_json::Value::as_i64));
     Ok(ToolExecuteResponse {
         delivery: None,
@@ -180,6 +237,9 @@ pub struct AcpPermissionHost {
     inner: Arc<dyn HostCallbacks>,
     channel: AcpChannel,
     session_id: String,
+    /// The session's working directory, used as the reverse Bash path's cwd
+    /// when the tool call does not name one.
+    session_cwd: String,
     /// Tools the user approved with `approve_always` in this session.
     approved_tools: Arc<Mutex<HashSet<String>>>,
     /// The client's declared capabilities; drives whether the client owns
@@ -193,11 +253,13 @@ impl AcpPermissionHost {
         channel: AcpChannel,
         session_id: String,
         capabilities: Arc<std::sync::Mutex<AcpClientCapabilities>>,
+        session_cwd: String,
     ) -> Self {
         Self {
             inner,
             channel,
             session_id,
+            session_cwd,
             approved_tools: Arc::new(Mutex::new(HashSet::new())),
             capabilities,
         }
@@ -241,6 +303,7 @@ impl HostCallbacks for AcpPermissionHost {
         }
         let channel = self.channel.clone();
         let session_id = self.session_id.clone();
+        let session_cwd = self.session_cwd.clone();
         let inner = self.inner.clone();
         if tool == "bash" {
             let fallback = request.clone();
@@ -251,7 +314,8 @@ impl HostCallbacks for AcpPermissionHost {
                 .unwrap_or("")
                 .to_string();
             return Box::pin(async move {
-                run_bash_on_terminal(channel, session_id, inner, fallback, command).await
+                run_bash_on_terminal(channel, session_id, session_cwd, inner, fallback, command)
+                    .await
             });
         }
         let write = tool == "write";
@@ -466,6 +530,7 @@ mod tests {
             channel.clone(),
             "sess-1".into(),
             Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
+            "/work".into(),
         ));
         let request = PermissionCheckRequest {
             tool_name: "Write".into(),
@@ -526,6 +591,7 @@ mod tests {
             channel.clone(),
             "sess-1".into(),
             Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
+            "/work".into(),
         ));
         let request = PermissionCheckRequest {
             tool_name: "Bash".into(),
@@ -570,6 +636,7 @@ mod tests {
             channel.clone(),
             "sess-fs".into(),
             capabilities,
+            "/work".into(),
         ));
 
         assert!(host.owns_tool("Read"));
@@ -636,6 +703,7 @@ mod tests {
             AcpChannel::new(),
             "sess-native".into(),
             Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default())),
+            "/work".into(),
         );
         assert!(!host.owns_tool("Read"));
         assert!(!host.owns_tool("Write"));
@@ -657,6 +725,7 @@ mod tests {
             channel.clone(),
             "sess-term".into(),
             capabilities,
+            "/work".into(),
         ));
         assert!(host.owns_tool("Bash"));
 
@@ -674,6 +743,7 @@ mod tests {
         };
 
         let mut methods = Vec::new();
+        let mut create_params = serde_json::Value::Null;
         for answer in [
             json!({ "terminalId": "term-1" }),
             json!({ "exitCode": 0 }),
@@ -682,6 +752,9 @@ mod tests {
         ] {
             let id = match rx.recv().await.expect("a terminal request") {
                 crate::acp::channel::AcpOutbound::Request(request) => {
+                    if request.method == "terminal/create" {
+                        create_params = request.params.clone().unwrap_or_default();
+                    }
                     methods.push(request.method.clone());
                     request.id.unwrap().as_u64().unwrap()
                 }
@@ -698,10 +771,126 @@ mod tests {
                 "terminal/release",
             ]
         );
+        // The command runs in the session's cwd, with the engine's spawn env
+        // and the 4 MiB output budget — not in the client terminal's default
+        // directory with no env at all.
+        assert_eq!(create_params["cwd"], "/work");
+        assert_eq!(create_params["outputByteLimit"], 4 * 1024 * 1024);
+        let env = create_params["env"].as_array().expect("env array");
+        assert!(
+            env.iter()
+                .any(|entry| entry["name"] == "NO_COLOR" && entry["value"] == "1")
+        );
+        assert!(
+            env.iter()
+                .any(|entry| entry["name"] == "GIT_TERMINAL_PROMPT" && entry["value"] == "0")
+        );
+        // The shell is the engine's resolved one, not a hardcoded `sh -c`.
+        let shell = crate::native::shell::resolve_shell(None);
+        assert_eq!(create_params["command"], shell.program);
+        assert_eq!(
+            create_params["args"].as_array().unwrap().len(),
+            shell.args_prefix().len() + 1,
+            "the shell prefix plus the command text"
+        );
+        assert_eq!(
+            create_params["args"].as_array().unwrap().last().unwrap(),
+            "echo hi"
+        );
 
         let response = pending.await.unwrap().unwrap();
         assert_eq!(response.content, "hi\n");
         assert!(!response.is_error);
+    }
+
+    /// The tool call's own `cwd` wins over the session's, and a command that
+    /// outlives its timeout is killed through `terminal/kill` before the
+    /// terminal is released.
+    #[tokio::test]
+    async fn bash_timeout_kills_the_client_terminal() {
+        let channel = AcpChannel::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        channel.set_sink(tx);
+        let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities {
+            terminal: true,
+            ..Default::default()
+        }));
+        let host = Arc::new(AcpPermissionHost::new(
+            Arc::new(crate::server::engine::ServerHost::standalone()),
+            channel.clone(),
+            "sess-timeout".into(),
+            capabilities,
+            "/work".into(),
+        ));
+
+        let pending = {
+            let host = host.clone();
+            tokio::spawn(async move {
+                host.execute_tool(ToolExecuteRequest {
+                    turn_id: "t".into(),
+                    tool_call_id: "c".into(),
+                    tool_name: "Bash".into(),
+                    arguments: json!({ "command": "sleep 999", "cwd": "/elsewhere", "timeout": 1 }),
+                })
+                .await
+            })
+        };
+
+        let mut methods = Vec::new();
+        let mut create_params = serde_json::Value::Null;
+        let mut hanging_wait: Option<u64> = None;
+        // `terminal/wait_for_exit` is deliberately left unanswered: the
+        // command hangs, so the tool's own timeout has to fire. Every other
+        // request is answered — an unanswered one would block the tool
+        // forever, since `AcpChannel::request` has no timeout of its own.
+        while methods.len() < 5 {
+            let id = match rx.recv().await.expect("a terminal request") {
+                crate::acp::channel::AcpOutbound::Request(request) => {
+                    if request.method == "terminal/create" {
+                        create_params = request.params.clone().unwrap_or_default();
+                    }
+                    methods.push(request.method.clone());
+                    request.id.unwrap().as_u64().unwrap()
+                }
+                other => panic!("unexpected outbound: {other:?}"),
+            };
+            match methods.last().map(String::as_str) {
+                Some("terminal/create") => {
+                    channel
+                        .resolve(id, json!({ "terminalId": "term-hang" }))
+                        .await;
+                }
+                Some("terminal/wait_for_exit") => hanging_wait = Some(id),
+                Some("terminal/output") => {
+                    channel.resolve(id, json!({ "output": "partial\n" })).await;
+                }
+                _ => {
+                    channel.resolve(id, json!({})).await;
+                }
+            }
+        }
+        assert_eq!(create_params["cwd"], "/elsewhere");
+        assert!(
+            hanging_wait.is_some(),
+            "the hanging wait must stay unanswered for the timeout to fire"
+        );
+
+        let response = pending.await.unwrap().unwrap();
+        assert!(
+            response.is_error,
+            "a timed-out command is a failed tool call"
+        );
+        assert_eq!(response.content, "Command killed by timeout (1s)");
+        assert_eq!(
+            methods,
+            vec![
+                "terminal/create",
+                "terminal/wait_for_exit",
+                "terminal/output",
+                "terminal/kill",
+                "terminal/release",
+            ]
+        );
     }
 
     fn ask_question_request() -> AskQuestionRequest {
@@ -743,6 +932,7 @@ mod tests {
             channel.clone(),
             "sess-q".into(),
             capabilities,
+            "/work".into(),
         ));
 
         let pending = {
@@ -781,6 +971,7 @@ mod tests {
             channel.clone(),
             "sess-q2".into(),
             capabilities,
+            "/work".into(),
         ));
 
         let pending = {
