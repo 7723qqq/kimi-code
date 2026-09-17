@@ -107,7 +107,11 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
-    expect(settingsOutput).toContain('    Turn automatic CLI updates on or off.');
+    // "Automatic updates" sits past the first page now that the list paginates
+    // at eight entries; page right to reach it.
+    settings.handleInput('\x1b[C');
+    const settingsPage2 = settings.render(120).map(strip);
+    expect(settingsPage2).toContain('    Turn automatic CLI updates on or off.');
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
       currentValue: true,

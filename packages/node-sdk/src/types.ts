@@ -465,6 +465,12 @@ export interface SkillSummary {
   readonly enabled?: boolean;
   readonly source?: string;
   readonly type?: string;
+  /**
+   * UI surfaces the skill is offered in (`tui` / `web`); absent means every
+   * surface. The native engine's skill catalog does not carry this yet — see
+   * the ROADMAP work item for #3843 — so callers must treat it as optional.
+   */
+  readonly scopes?: readonly string[];
   readonly isSubSkill?: boolean;
   readonly disableModelInvocation?: boolean;
   readonly [key: string]: unknown;

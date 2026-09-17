@@ -304,6 +304,20 @@ fn emit_failed(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str, 
     );
 }
 
+/// A subagent the user interrupted is not a failure: v2 emitted a distinct
+/// `subagent.cancelled` event for it, which the TUI renders as a cancelled
+/// member rather than a failed one. Emitted in addition to the tool result's
+/// interruption text, which stays the model-visible outcome.
+fn emit_cancelled(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str) {
+    emit_subagent_event(
+        callbacks,
+        serde_json::json!({
+            "type": "subagent.cancelled",
+            "subagent_id": agent_id,
+        }),
+    );
+}
+
 pub(crate) fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::Value {
     serde_json::json!({
         "input_tokens": usage.input_tokens,
@@ -606,10 +620,11 @@ pub async fn execute_agent(
                     }
                 }
                 Ok(ForegroundTurnOutcome::ParentCancelled) => {
+                    // The user interrupted this background subagent: report it as
+                    // cancelled (not failed), matching the foreground path.
                     cb.emit_event(serde_json::json!({
-                        "type": "subagent.failed",
+                        "type": "subagent.cancelled",
                         "subagent_id": agent,
-                        "error": USER_INTERRUPTED_SUBAGENT_MESSAGE,
                     }));
                     USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string()
                 }
@@ -719,6 +734,7 @@ pub async fn execute_agent(
             if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
                 let interrupted = parent_cancel.is_some_and(|signal| signal.triggered());
                 let message = if interrupted {
+                    emit_cancelled(runtime.callbacks.as_ref(), &agent_id);
                     USER_INTERRUPTED_SUBAGENT_MESSAGE
                 } else {
                     SUBAGENT_STOPPED_MESSAGE
@@ -742,8 +758,11 @@ pub async fn execute_agent(
             }
         }
         Ok(Ok(ForegroundTurnOutcome::ParentCancelled)) => {
-            // v2 suppresses the failure event for aborts; the user-interruption
-            // message still becomes the tool result.
+            // The user interrupted the subagent: v2 emitted a distinct
+            // `subagent.cancelled` here instead of a failure, so the TUI can
+            // mark the member cancelled. The user-interruption message still
+            // becomes the tool result.
+            emit_cancelled(runtime.callbacks.as_ref(), &agent_id);
             (
                 format_failure(
                     &agent_id,

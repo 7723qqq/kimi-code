@@ -400,6 +400,7 @@ export class SessionEventHandler {
       case 'subagent.suspended':
       case 'subagent.completed':
       case 'subagent.failed':
+      case 'subagent.cancelled':
         this.subAgentEventHandler.handleLifecycleEvent(event);
         break;
       case 'background.task.started':

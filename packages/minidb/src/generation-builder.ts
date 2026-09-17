@@ -243,7 +243,8 @@ export interface GenerationBuilderDeps<V> {
   /** Called when a build fails for ANY reason (abort included), so the
    *  owner's runtime WAL-growth trigger can back off instead of re-kicking
    *  a build every interval on a hopelessly churning writer. */
-  noteBuildFailure?: () => void;
+  noteBuildFailure?: (error?: unknown) => void;
+  noteBuildSuccess?: () => void;
 }
 
 export class GenerationBuilder<V> {
@@ -953,6 +954,7 @@ export class GenerationBuilder<V> {
       };
       this.deps.stats.generationBuilds++;
       this.deps.stats.generationBuildDurationMs += performance.now() - t0;
+      this.deps.noteBuildSuccess?.();
 
       // Retention: keep the new and the previously-published generation; sweep
       // everything else (stray tmp dirs included). Best-effort, async.
@@ -992,7 +994,7 @@ export class GenerationBuilder<V> {
         return;
       }
       this.deps.stats.generationBuildErrors++;
-      this.deps.noteBuildFailure?.();
+      this.deps.noteBuildFailure?.(error);
       throw error;
     } finally {
       if (this.genBuild === gb) this.genBuild = null;

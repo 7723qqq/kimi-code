@@ -535,7 +535,7 @@ describe('CLI options parsing', () => {
 
   describe('sub-commands', () => {
     it('routes upgrade without calling the main action', () => {
-      let upgradeCalls = 0;
+      const upgradeYes: boolean[] = [];
       const program = createProgram(
         '0.0.0',
         () => {
@@ -543,8 +543,8 @@ describe('CLI options parsing', () => {
         },
         () => {},
         () => {},
-        () => {
-          upgradeCalls += 1;
+        (yes) => {
+          upgradeYes.push(yes);
         },
       );
       program.exitOverride();
@@ -555,11 +555,11 @@ describe('CLI options parsing', () => {
 
       program.parse(['node', 'kimi', 'upgrade']);
 
-      expect(upgradeCalls).toBe(1);
+      expect(upgradeYes).toEqual([false]);
     });
 
     it('routes update alias to the upgrade handler', () => {
-      let upgradeCalls = 0;
+      const upgradeYes: boolean[] = [];
       const program = createProgram(
         '0.0.0',
         () => {
@@ -567,8 +567,8 @@ describe('CLI options parsing', () => {
         },
         () => {},
         () => {},
-        () => {
-          upgradeCalls += 1;
+        (yes) => {
+          upgradeYes.push(yes);
         },
       );
       program.exitOverride();
@@ -577,9 +577,9 @@ describe('CLI options parsing', () => {
         writeErr: () => {},
       });
 
-      program.parse(['node', 'kimi', 'update']);
+      program.parse(['node', 'kimi', 'update', '-y']);
 
-      expect(upgradeCalls).toBe(1);
+      expect(upgradeYes).toEqual([true]);
     });
 
     it('registers the visible sub-commands', () => {
@@ -607,6 +607,7 @@ describe('CLI options parsing', () => {
         'login',
         'doctor',
         'vis',
+        'install-app',
         'upgrade',
       ]);
     });

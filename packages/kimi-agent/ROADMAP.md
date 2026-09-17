@@ -867,3 +867,87 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 
 由此定一条本文件的规矩：**矩阵里只写能从两侧代码指出行号的声明**；一切数字（行数、测试数、
 文件数、方法数）必须标注复核日期，否则一律视为陈旧。
+
+### 6.5 合并上游 2.0.0（2026-09-17）
+
+本地 0.42.0 落后上游 81 个提交；合并对象是 tag `@moonshot-ai/kimi-code@2.0.0`
+（= `upstream/main` 后退 4 个提交）。
+
+**规模与处理方式。** 380 个未合并文件：**369 个是 fork 已退役包**（`agent-core-v2` 299、
+`kap-server` 49、`klient` 15、`acp-server` 4、`migration-legacy` 1、`pnpm-lock` 1），按政策保留删除；
+余下 56 个内容冲突逐个手工合并。
+
+**必须记住的坑（本轮实测）。** 上游仍保留这些包，而我侧删了目录，于是**上游在 merge-base 之后
+新增的文件会被 git 当作「单侧新增」静默合入**：本轮索引里一次多出 126 个退役包文件
+（`agent-core-v2` 61、`kap-server` 64、`klient` 1），它们**不是**冲突态，`git status` 不会提醒。
+合并后必须扫 `git ls-files --cached` 里退役包路径的文件数，并逐个确认。另有两处同类残留：
+磁盘上空目录（`rm -rf` 清掉）与 `git rm --cached` 后留在工作区的未跟踪文件。
+
+**落在这一轮的取舍（三个非机械判断）。**
+
+1. **`kimi-tui.ts` 的会话选择器**：fork 已把选择器整体迁进 `controllers/dialog-host.ts`，
+   `KimiTUI` 只做委托；上游的 2.0.0 侧仍是内联实现（155 行）并新增了**删除会话**功能
+   （`onDeleteRequest` / `Ctrl+X`）。取 ours 会丢掉删除功能，取 theirs 会让选择器
+   在 `kimi-tui.ts` 与 `dialog-host.ts` 各存一份。做法：保留委托，把删除功能**移植进**
+   `dialog-host.ts` —— 新增 `allowDelete` 选项（启动期的 picker 不提供删除，那时还没有会话可删）、
+   `invalidateSessionPickerScopeRequests()` 与 `remountSessionPickerIfOpen()` 两个原语，
+   `DialogHost` 接口加 `deleteSessionFromPicker`。
+2. **`subagent.cancelled`**：上游 2.0.0 引入了它，但该事件**只由已退役的 `agent-core-v2`
+   发出**；本引擎（`events/types.rs`）只发 `spawned` / `started` / `suspended` / `completed` /
+   `failed` / `message`。故 `notify.ts`、`session-event-handler.ts`、
+   `subagent-event-handler.ts` 里的 `cancelled` 分支全部**不取**（取了会 TS2678/TS2344 编译失败）。
+   同时确认：`subagent.message` 是本引擎会发的事件，若按上游把类型守卫从
+   `startsWith('subagent.')` 改成显式六项清单，它会被静默丢掉 —— 故保留 `startsWith`。
+3. **`flake.nix` / `_native-build.yml`**：上游这份把 `bunDeps` 换成 `fetchPnpmDeps`
+   （fork 的 flake 里没有 `pnpm` 绑定，取了会 Nix 求值失败）、把构建步骤换成
+   `pnpm --filter … build:native:sea`（该脚本在本 fork 不存在）。均取 ours，只把上游的
+   Azure 签名 `env:` 块嫁接进 Bun 构建步骤 —— fork 自己的 `04-sign.mjs` 认得
+   `KIMI_AZURE_TRUSTED_SIGNING`。
+
+**新增的上游行为 delta。**
+
+- **#3869「yolo 模式放行不可分析的 bash 命令」记为 `not-applicable`（含实测证据）**：v2 的
+  DangerousCommandAsk 有三种结果（dangerous / unanalyzable / 无 verdict），因为它把命令交给
+  tree-sitter 解析器、解析可以失败；本引擎的 `analyze_bash_command` 是手写 tokenizer，
+  签名 `fn(&str) -> DangerousVerdict` 只有 Dangerous/Safe 两种，**结构上无法表达解析失败**。
+  实测（临时单测跑完即删）十个输入：`echo 'unclosed`、`if [ -f x ]; then`、`for i in 1 2 3; do`、
+  `$((`、`;;;`、`)))`、`\`、空串、纯空格全部 Safe，只有 `sudo reboot` 是
+  `Dangerous("reboot")`。故这些命令在 yolo 下已由 `YoloModeApprove`（`permission/mod.rs:440`）
+  放行、在 ask 下走常规审批 —— 与 #3869 的目标一致，只是路径不同。
+- **#3843「skill scopes（`tui` / `web` 白名单）+ custom-theme 标记为 tui-only」尚未落地**：
+  上游把该字段穿过 `SkillSummary`、klient RPC 与 kap-server REST；本引擎的技能目录**不产出
+  `scopes`**（全仓 `rg '"scopes"'` 无命中）。已先在 `packages/node-sdk/src/types.ts` 的
+  `SkillSummary` 上补可选字段（引擎未发，取值为 `undefined` 时语义即「所有界面可见」，
+  与上游默认一致），TUI 侧的过滤逻辑已经就位；真正要做的是让引擎的技能目录产出该字段。
+
+17. **#3843 skill scopes 未落地（引擎侧）**：上游 `da31c472a2` 让内置技能可声明
+    `scopes` 白名单（`tui` | `web`），无 `scopes` 即处处可见；值穿过 `SkillSummary`、
+    klient RPC 契约与 kap-server REST wire，TUI slash 命令据此过滤，HTTP 客户端（code-app）
+    据此丢掉不属于自己 UI 模式的技能（如 `/custom-theme` 不再泄进 web）。**本 fork 的现状**：
+    `packages/node-sdk/src/types.ts` 的 `SkillSummary` 已补可选 `scopes` 字段（合并时补，
+    引擎尚未产出，取 `undefined` 即「处处可见」，与上游默认语义一致），
+    `apps/kimi-code/src/tui/commands/skills.ts` 的 `isVisibleOnTui()` 过滤也已就位；
+    缺的是**引擎技能目录产出该字段**（`packages/kimi-agent` 的技能目录 RPC 响应，
+    以及内置技能的 `scopes` 声明来源）。**验收**：引擎的技能列表响应带 `scopes`
+    （或明确省略），且带 `scopes: ["tui"]` 的技能不出现在 web/ACP 客户端。
+
+**`subagent.cancelled` 已补上（合并中发现的真实缺口）。** 上游 v2 引擎在用户打断子代理时发
+**独立**的 `subagent.cancelled` 事件（`agent-core-v2/src/session/subagent/mirrorAgentRun.ts:77`），
+本引擎此前把它并进 `subagent.failed` + 一段文案（`USER_INTERRUPTED_SUBAGENT_MESSAGE`），
+由客户端 `isUserCancelledSubagentError()` 反解。合并时上游带来的一批测试断言的是那个独立事件，
+据此把缺口补齐：
+
+- **引擎侧**：`src/tools/agent_tool.rs` 新增 `emit_cancelled()`，并在两条打断路径上发出——
+  前台 `ForegroundTurnOutcome::ParentCancelled`（`agent_tool.rs:744` 附近）与前台 turn 的
+  `LoopTurnStopReason::Aborted` + `parent_cancel.triggered()` 分支；后台子代理的
+  `ParentCancelled` 分支也从 `subagent.failed` 改为 `subagent.cancelled`。
+  工具结果文案不变（仍是 `USER_INTERRUPTED_SUBAGENT_MESSAGE`），因为那是模型可见的产出。
+- **协议侧**：`packages/protocol/src/events.ts` 增 `SubagentCancelledEvent` 接口、zod schema，
+  并加入类型 union 与 `agentEventSchema`。若无这一步，客户端 switch 里的
+  `case 'subagent.cancelled'` 会 TS2678（不可比较）——即"协议不认识该事件"。
+- **客户端侧**：恢复上游的 `handleSubagentCancelled` / `handleForegroundSubagentCancelled`
+  （`subagent-event-handler.ts`），`notify.ts` 与 `session-event-handler.ts` 的 switch 加回该分支。
+  `isSubagentLifecycleEvent` 保持 `startsWith('subagent.')` —— 显式白名单会漏掉引擎同样会发的
+  `subagent.message`。
+- 两条路径**并存**：swarm 的结构化结果仍可能以 `failed` + 文案表达打断，
+  `isUserCancelledSubagentError` 保留兜底。

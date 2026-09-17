@@ -43,6 +43,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
 | `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
 | `/remote-control` | `/rc` | Open a remote-control tunnel for the current session. Requires the `remote-control` experimental flag | Yes |
+| `/desktop` | `/install-desktop` | Open the Kimi Code desktop app page in your browser (URL follows the active region: `https://www.kimi.com/code` or `https://www.kimi.ai/code`). See [`kimi install-app`](./kimi-command.md#kimi-install-app) | Yes |
 
 ## Modes & Run Control
 

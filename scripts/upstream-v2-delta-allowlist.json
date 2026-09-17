@@ -5,20 +5,108 @@
   "recordedAt": "2026-09-17",
   "entries": [
     {
+      "sha": "86e08208e3445171f6500c948234d7e3a0684324",
+      "date": "2026-09-17",
+      "subject": "feat(agent-core-v2): approve unanalyzable bash commands in yolo permission mode (#3869)",
+      "verdict": "not-applicable",
+      "note": "No counterpart state exists in this engine, so there is nothing to approve or ask about. v2's DangerousCommandAsk policy has three outcomes (dangerous / unanalyzable / no-verdict) because it feeds each Bash command through the tree-sitter bash parser, which can reject input: an unparseable command became a distinct `unanalyzable` verdict and was asked about in every mode, which is what #3869 relaxes for yolo. The fork's analyzer is `native/permission_engine/dangerous_command.rs::analyze_bash_command`, a hand-written tokenizer whose signature (`fn(&str) -> DangerousVerdict`, two variants Dangerous/Safe) cannot express a parse failure — `tokenize_command` returns `Vec<String>` with no error path — so an unrecognizable command can only fall through as Safe to the normal chain. Verified empirically rather than by reading: a temporary unit test ran ten inputs through the real function and every unparseable one (`echo 'unclosed`, `if [ -f x ]; then`, `for i in 1 2 3; do`, `$((`, `;;;`, `)))`, `` `\\` ``, the empty string, and blanks) returned Safe while `sudo reboot` returned Dangerous(\"reboot\"); the probe was then removed. Consequence: in yolo mode our engine already approves these commands (YoloModeApprove, `permission/mod.rs:440`), and in ask mode they already reach the user's normal approval decision rather than a special unanalyzable prompt — the behavior #3869 asks for, reached by a different route. No port needed."
+    },
+    {
       "sha": "31f1b6824d1900aeea71b69c824c6354a0dd9019",
       "date": "2026-09-17",
       "subject": "fix(agent-core-v2): mark MCP servers needs-auth when a tool call returns 401 (#3846)",
       "verdict": "ported",
-      "roadmap": "§6.1",
-      "note": "Ported into the Rust engine. `McpManager::mark_needs_auth` (packages/kimi-agent/src/mcp/manager.rs:397) flips a live entry to `needs-auth` after a *call* is rejected: status gate (`connected`/`needs-auth`, manager.rs:409-416), `should_mark_needs_auth` reuse (manager.rs:1235), originating-client binding via `Arc::ptr_eq` (manager.rs:423-428), concurrent-grant guard (manager.rs:436-438), close client + drop cached tools (manager.rs:441-448), error `{name} requires OAuth - run /mcp-config login {name}` plus `raw_tools.clear()` (manager.rs:449-455), compare-and-clear of the rejected grant (manager.rs:459-469), then `emit_status`. `McpManager::call_tool` invokes it on the transport-error branch and returns the actionable message instead of `MCP execution error:` (manager.rs:943-956). `ServerState.connected_at_ms` (manager.rs:96, set at manager.rs:1174) and `oauth_clock` (manager.rs:379) supply the connection time the concurrency window compares against. OAuth side: `McpOAuthTokens.obtained_at_ms` (src/mcp/oauth/service.rs:34) stamped by `store_tokens` (service.rs:117) and by refresh (service.rs:224), `same_grant` (service.rs:49), `is_concurrent_grant` with the 10 s grace window (service.rs:67), `peek_rejected_grant` (service.rs:134), `clear_tokens_if_current` (service.rs:148), and the device-login grant stamped at src/mcp/oauth/device.rs:132. Fork divergence: v2's message points at the `<server>__authenticate` tool, which this engine does not expose - the port names `/mcp-config login <name>`, the flow the CLI actually has (the same text the connect-time flip already used). v2's `isUnauthorizedLikeError` McpError exclusion is structural here: application-level tool failures arrive as `Ok` with `is_error` set, so only transport errors reach the sniff. Tests: manager.rs:2674 `test_tool_call_401_flips_server_to_needs_auth`, manager.rs:2756 `test_concurrent_grant_survives_a_call_401`; service.rs:401/430/466/497; mock mode `401-on-call` at src/mcp/http.rs:176,275."
+      "note": "Ported into the Rust engine. `McpManager::mark_needs_auth` (packages/kimi-agent/src/mcp/manager.rs:397) flips a live entry to `needs-auth` after a *call* is rejected: status gate (`connected`/`needs-auth`, manager.rs:409-416), `should_mark_needs_auth` reuse (manager.rs:1235), originating-client binding via `Arc::ptr_eq` (manager.rs:423-428), concurrent-grant guard (manager.rs:436-438), close client + drop cached tools (manager.rs:441-448), error `{name} requires OAuth - run /mcp-config login {name}` plus `raw_tools.clear()` (manager.rs:449-455), compare-and-clear of the rejected grant (manager.rs:459-469), then `emit_status`. `McpManager::call_tool` invokes it on the transport-error branch and returns the actionable message instead of `MCP execution error:` (manager.rs:943-956). `ServerState.connected_at_ms` (manager.rs:96, set at manager.rs:1174) and `oauth_clock` (manager.rs:379) supply the connection time the concurrency window compares against. OAuth side: `McpOAuthTokens.obtained_at_ms` (src/mcp/oauth/service.rs:34) stamped by `store_tokens` (service.rs:117) and by refresh (service.rs:224), `same_grant` (service.rs:49), `is_concurrent_grant` with the 10 s grace window (service.rs:67), `peek_rejected_grant` (service.rs:134), `clear_tokens_if_current` (service.rs:148), and the device-login grant stamped at src/mcp/oauth/device.rs:132. Fork divergence: v2's message points at the `<server>__authenticate` tool, which this engine does not expose - the port names `/mcp-config login <name>`, the flow the CLI actually has (the same text the connect-time flip already used). v2's `isUnauthorizedLikeError` McpError exclusion is structural here: application-level tool failures arrive as `Ok` with `is_error` set, so only transport errors reach the sniff. Tests: manager.rs:2674 `test_tool_call_401_flips_server_to_needs_auth`, manager.rs:2756 `test_concurrent_grant_survives_a_call_401`; service.rs:401/430/466/497; mock mode `401-on-call` at src/mcp/http.rs:176,275.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "bd06178913d2cc4ebd229ecee6714081105e5ae1",
+      "date": "2026-09-17",
+      "subject": "fix(kap-server): avoid duplicating steered prompt content (#3853)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcript projector fix (coreEventMap / coreBinding). The Rust engine has its own transcript implementation (packages/kimi-agent/src/server/transcript/, server/v3/) fed from the turn loop, not from a kap-server projector, and no package in this fork imports @moonshot-ai/transcript. The steer-then-project duplication this fixes has no Rust path."
+    },
+    {
+      "sha": "0cf413f7759c314766ba30250a9875ac1af1185e",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): open a new turn for abort-reissued steers in cold transcripts (#3844)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcriptService.ts plus packages/transcript groupTurns. History rebuild in the engine lives in server/v3/history.rs and turn boundaries come from the live turn loop, not from this TS grouper; nothing imports @moonshot-ai/transcript here."
+    },
+    {
+      "sha": "da31c472a2f10c969b879c0c760888f80affb041",
+      "date": "2026-09-16",
+      "subject": "feat(agent-core-v2): add skill scopes and mark custom-theme as tui-only (#3843)",
+      "verdict": "not-applicable",
+      "note": "Skill-catalog metadata (scope / tuiOnly on builtin skills) consumed by the TS slash surface. The Rust engine does not read the TS catalog — skill discovery is packages/kimi-agent/src/skills/ over SKILL.md — and the retired-package half is the catalog entry itself. The live-file half (apps/kimi-code/src/tui/commands/skills.ts) is not a retired-package delta and arrives with a normal upstream merge."
+    },
+    {
+      "sha": "9c5e9b48634be1dfae921fb48f9afc3a23ffd1ad",
+      "date": "2026-09-16",
+      "subject": "fix(agent-core-v2): watch Windows 8.3 short paths through their long form (#3840)",
+      "verdict": "not-applicable",
+      "note": "Re-triaged 2026-09-17: the defect is libuv-specific and the fork has no libuv watcher. Upstream's crash is `Assertion failed: !_wcsnicmp(filename, dir, dirlen)` in libuv's fs-event.c, reached because change notifications arrive under the long path while the watch root was registered in 8.3 form. packages/kimi-agent/src/server/fs_watch.rs polls `tokio::fs::metadata` on a timer instead — no OS watcher, no libuv, so that assertion is unreachable. The two behavioural halves are already satisfied: the fork echoes the requested path verbatim (the mapping-back upstream adds), and an 8.3 path resolves to the same file as its long form, so the poll sees the same mtime either way (verified on this machine: `C:/Users/ADMINI~1/.kimi-code/mcp.json` and `C:/Users/Administrator/.kimi-code/mcp.json` report inode 281474977003976 and mtime 1789609827). The commit's follow-up fix (children named `..cache` counted as inside the root) is likewise moot: the fork compares no relative paths.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "41eac5d2e71b0e1cd5648e910a4ae8b6139adc73",
+      "date": "2026-09-16",
+      "subject": "feat(kap-server): keep client metadata on prompts and skill activations (#3764)",
+      "verdict": "tracked",
+      "note": "Opaque client metadata on a prompt / skill-activation origin, carried through prompt events, transcript projection, snapshots and history rebuilds, plus `display_text` entries driving session titles, undo labels and fork titles. Not ported: `rg \"display_text|client_metadata|clientMetadata\" packages/kimi-agent/src` is empty, and the host-side title derivation (packages/node-sdk/src/native/sdk-rpc-client-native.ts promptMetadataTextFromPrompt) reads the prompt text with no metadata channel. ROADMAP §6.1 work item: thread the metadata object through RunTurnInput → origin → history so a host-supplied display_text wins for titles.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "cafd9b5a65509fe57332cbc0eb1fb19f0443fb0e",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): rebuild chat transcript after undo (#3837)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcript rebuild-on-undo plus the undoService participation hook. The Rust engine owns undo in the turn loop and rebuilds history in server/v3/history.rs from its own session store, so the kap-server projector path this fixes does not exist here."
+    },
+    {
+      "sha": "1c7e996aa8bdd7a6f32447f1d89e43c0646b41bc",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): record user slash skill activations steered into a running turn (#3832)",
+      "verdict": "tracked",
+      "note": "The live half is real and missing here: packages/transcript/src/contract/{origin,schema}.ts gained a `skill_activation` origin variant (trigger user-slash + skillName + skillArgs), and this fork still has only the `user` variant (`rg \"skill_activation\" packages/transcript/src/contract/` is empty) — the package sits at upstream 0.0.2, untouched since the merge. Nothing in-tree imports @moonshot-ai/transcript yet, so it is not user-visible; the Rust engine projects its own origins (server/transcript/model.rs:81 UserOriginKind, :308 TranscriptUserOrigin) and a steered slash activation must reach those too. The TS half arrives with the next upstream merge; ROADMAP §6.1 carries the engine-side item.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "f4e5822164800ec138f77b0f323e2374963bfe19",
+      "date": "2026-09-16",
+      "subject": "fix(agent-core-v2): stop aborted-operation errors from escaping to process crashes (#3838)",
+      "verdict": "ported",
+      "note": "Ported 2026-09-17. packages/telemetry/src/crash.ts now guards the sole-listener rethrow with `!isAbortError(reason)` and carries upstream's matching comment; the file is byte-identical to upstream/main. Test: telemetry.test.ts `does not rethrow an aborted-operation rejection when it is the only listener`. The agent-core-v2 half is xstate2 abort plumbing with no Rust counterpart.",
+      "roadmap": "§6.1"
+    },
+    {
+      "sha": "8660a07b3a0b7984971371d77f316e802e5e83fe",
+      "date": "2026-09-16",
+      "subject": "fix(tower): subagent cards still showing \"completed\" during rework (#3833)",
+      "verdict": "not-applicable",
+      "note": "kap-server coreEventMap projection of tower rework state. The Rust engine feeds tower / subagent cards from its own event stream (packages/kimi-agent/src/server/subagent/manager.rs → WS events) and has no coreEventMap projection; this status mapping is a kap-server-only concern."
+    },
+    {
+      "sha": "402ee71c1a38addf424d3977064c7103728417db",
+      "date": "2026-09-16",
+      "subject": "feat(kap-server): accept text parts in skill activation attachments (#3831)",
+      "verdict": "not-applicable",
+      "note": "Retired-package half is kap-server/src/protocol/rest-skill.ts widening the attachment part union to accept text. The live REST contract here is the Rust server (packages/kimi-agent/src/server/), whose skill routes carry their own typed body; scripts/scan-parity.mjs cross-checks REST endpoints across the two sides and reports no delta for this route."
+    },
+    {
+      "sha": "2bb6e12c7e3ecc19521d21fcffc832075ed13200",
+      "date": "2026-09-16",
+      "subject": "fix: prevent duplicate steer messages in transcript clients (#3828)",
+      "verdict": "not-applicable",
+      "note": "agent-core-v2 loopService de-duplication of steer prompts for the TS transcript clients. The Rust engine queues a steer in ServerEngine::enqueue_steer (packages/kimi-agent/src/server/engine.rs:558) and drains it once per step head (drain_steers); the message is moved out of the queue on drain, so the double-emit this fixes has no Rust path."
     },
     {
       "sha": "5653c739b9c0dbafd1e4b3d36edeb0fe44ec71f4",
       "date": "2026-09-15",
       "subject": "feat(agent-core-v2): upload images as file references for Kimi models (#3784)",
       "verdict": "tracked",
-      "roadmap": "§6.1",
-      "note": "Media request budget ported: `packages/kimi-agent/src/llm/media_budget.rs` (20 MB / 10 MB constants at :18,22, byte accounting at :169, oldest-first omission at :107-116, placeholder at :209) applied to a request-scoped copy before every LLM call (`src/turn_loop/run_turn.rs:856`, emergency-compaction retry at :924) and surfaced through the engine's existing `WarningEvent` channel (`run_turn.rs:329`). The file-reference upload half is not reachable from the engine: there is no provider-side files API (`src/server/files.rs:82,388` is the daemon's own local store), `ms://` has no Rust producer, and `ContentBlock::ImageUrl` carries no `id` (`src/rpc/types.rs:462-482`) — images still go inline as base64 data URLs (`src/llm/openai.rs:145`, `src/llm/anthropic.rs:227`). ROADMAP §6.1 item 17 lists the four pieces the upload half needs."
+      "note": "Media request budget ported: `packages/kimi-agent/src/llm/media_budget.rs` (20 MB / 10 MB constants at :18,22, byte accounting at :169, oldest-first omission at :107-116, placeholder at :209) applied to a request-scoped copy before every LLM call (`src/turn_loop/run_turn.rs:856`, emergency-compaction retry at :924) and surfaced through the engine's existing `WarningEvent` channel (`run_turn.rs:329`). The file-reference upload half is not reachable from the engine: there is no provider-side files API (`src/server/files.rs:82,388` is the daemon's own local store), `ms://` has no Rust producer, and `ContentBlock::ImageUrl` carries no `id` (`src/rpc/types.rs:462-482`) — images still go inline as base64 data URLs (`src/llm/openai.rs:145`, `src/llm/anthropic.rs:227`). ROADMAP §6.1 item 17 lists the four pieces the upload half needs.",
+      "roadmap": "§6.1"
     },
     {
       "sha": "7d174ac93352ccfc835d186ac7b8185d0194e6b5",
@@ -319,87 +407,6 @@
       "subject": "refactor(agent-core-v2): single producer for turn and step ids (#3662)",
       "verdict": "not-applicable",
       "note": "Rust receives turn_id from the caller and owns step ids internally; no duplicate-producer risk."
-    },
-    {
-      "sha": "bd06178913d2cc4ebd229ecee6714081105e5ae1",
-      "date": "2026-09-17",
-      "subject": "fix(kap-server): avoid duplicating steered prompt content (#3853)",
-      "verdict": "not-applicable",
-      "note": "kap-server transcript projector fix (coreEventMap / coreBinding). The Rust engine has its own transcript implementation (packages/kimi-agent/src/server/transcript/, server/v3/) fed from the turn loop, not from a kap-server projector, and no package in this fork imports @moonshot-ai/transcript. The steer-then-project duplication this fixes has no Rust path."
-    },
-    {
-      "sha": "0cf413f7759c314766ba30250a9875ac1af1185e",
-      "date": "2026-09-16",
-      "subject": "fix(kap-server): open a new turn for abort-reissued steers in cold transcripts (#3844)",
-      "verdict": "not-applicable",
-      "note": "kap-server transcriptService.ts plus packages/transcript groupTurns. History rebuild in the engine lives in server/v3/history.rs and turn boundaries come from the live turn loop, not from this TS grouper; nothing imports @moonshot-ai/transcript here."
-    },
-    {
-      "sha": "da31c472a2f10c969b879c0c760888f80affb041",
-      "date": "2026-09-16",
-      "subject": "feat(agent-core-v2): add skill scopes and mark custom-theme as tui-only (#3843)",
-      "verdict": "not-applicable",
-      "note": "Skill-catalog metadata (scope / tuiOnly on builtin skills) consumed by the TS slash surface. The Rust engine does not read the TS catalog — skill discovery is packages/kimi-agent/src/skills/ over SKILL.md — and the retired-package half is the catalog entry itself. The live-file half (apps/kimi-code/src/tui/commands/skills.ts) is not a retired-package delta and arrives with a normal upstream merge."
-    },
-    {
-      "sha": "9c5e9b48634be1dfae921fb48f9afc3a23ffd1ad",
-      "date": "2026-09-16",
-      "subject": "fix(agent-core-v2): watch Windows 8.3 short paths through their long form (#3840)",
-      "verdict": "not-applicable",
-      "roadmap": "§6.1",
-      "note": "Re-triaged 2026-09-17: the defect is libuv-specific and the fork has no libuv watcher. Upstream's crash is `Assertion failed: !_wcsnicmp(filename, dir, dirlen)` in libuv's fs-event.c, reached because change notifications arrive under the long path while the watch root was registered in 8.3 form. packages/kimi-agent/src/server/fs_watch.rs polls `tokio::fs::metadata` on a timer instead — no OS watcher, no libuv, so that assertion is unreachable. The two behavioural halves are already satisfied: the fork echoes the requested path verbatim (the mapping-back upstream adds), and an 8.3 path resolves to the same file as its long form, so the poll sees the same mtime either way (verified on this machine: `C:/Users/ADMINI~1/.kimi-code/mcp.json` and `C:/Users/Administrator/.kimi-code/mcp.json` report inode 281474977003976 and mtime 1789609827). The commit's follow-up fix (children named `..cache` counted as inside the root) is likewise moot: the fork compares no relative paths."
-    },
-    {
-      "sha": "41eac5d2e71b0e1cd5648e910a4ae8b6139adc73",
-      "date": "2026-09-16",
-      "subject": "feat(kap-server): keep client metadata on prompts and skill activations (#3764)",
-      "verdict": "tracked",
-      "roadmap": "§6.1",
-      "note": "Opaque client metadata on a prompt / skill-activation origin, carried through prompt events, transcript projection, snapshots and history rebuilds, plus `display_text` entries driving session titles, undo labels and fork titles. Not ported: `rg \"display_text|client_metadata|clientMetadata\" packages/kimi-agent/src` is empty, and the host-side title derivation (packages/node-sdk/src/native/sdk-rpc-client-native.ts promptMetadataTextFromPrompt) reads the prompt text with no metadata channel. ROADMAP §6.1 work item: thread the metadata object through RunTurnInput → origin → history so a host-supplied display_text wins for titles."
-    },
-    {
-      "sha": "cafd9b5a65509fe57332cbc0eb1fb19f0443fb0e",
-      "date": "2026-09-16",
-      "subject": "fix(kap-server): rebuild chat transcript after undo (#3837)",
-      "verdict": "not-applicable",
-      "note": "kap-server transcript rebuild-on-undo plus the undoService participation hook. The Rust engine owns undo in the turn loop and rebuilds history in server/v3/history.rs from its own session store, so the kap-server projector path this fixes does not exist here."
-    },
-    {
-      "sha": "1c7e996aa8bdd7a6f32447f1d89e43c0646b41bc",
-      "date": "2026-09-16",
-      "subject": "fix(kap-server): record user slash skill activations steered into a running turn (#3832)",
-      "verdict": "tracked",
-      "roadmap": "§6.1",
-      "note": "The live half is real and missing here: packages/transcript/src/contract/{origin,schema}.ts gained a `skill_activation` origin variant (trigger user-slash + skillName + skillArgs), and this fork still has only the `user` variant (`rg \"skill_activation\" packages/transcript/src/contract/` is empty) — the package sits at upstream 0.0.2, untouched since the merge. Nothing in-tree imports @moonshot-ai/transcript yet, so it is not user-visible; the Rust engine projects its own origins (server/transcript/model.rs:81 UserOriginKind, :308 TranscriptUserOrigin) and a steered slash activation must reach those too. The TS half arrives with the next upstream merge; ROADMAP §6.1 carries the engine-side item."
-    },
-    {
-      "sha": "f4e5822164800ec138f77b0f323e2374963bfe19",
-      "date": "2026-09-16",
-      "subject": "fix(agent-core-v2): stop aborted-operation errors from escaping to process crashes (#3838)",
-      "verdict": "ported",
-      "roadmap": "§6.1",
-      "note": "Ported 2026-09-17. packages/telemetry/src/crash.ts now guards the sole-listener rethrow with `!isAbortError(reason)` and carries upstream's matching comment; the file is byte-identical to upstream/main. Test: telemetry.test.ts `does not rethrow an aborted-operation rejection when it is the only listener`. The agent-core-v2 half is xstate2 abort plumbing with no Rust counterpart."
-    },
-    {
-      "sha": "8660a07b3a0b7984971371d77f316e802e5e83fe",
-      "date": "2026-09-16",
-      "subject": "fix(tower): subagent cards still showing \"completed\" during rework (#3833)",
-      "verdict": "not-applicable",
-      "note": "kap-server coreEventMap projection of tower rework state. The Rust engine feeds tower / subagent cards from its own event stream (packages/kimi-agent/src/server/subagent/manager.rs → WS events) and has no coreEventMap projection; this status mapping is a kap-server-only concern."
-    },
-    {
-      "sha": "402ee71c1a38addf424d3977064c7103728417db",
-      "date": "2026-09-16",
-      "subject": "feat(kap-server): accept text parts in skill activation attachments (#3831)",
-      "verdict": "not-applicable",
-      "note": "Retired-package half is kap-server/src/protocol/rest-skill.ts widening the attachment part union to accept text. The live REST contract here is the Rust server (packages/kimi-agent/src/server/), whose skill routes carry their own typed body; scripts/scan-parity.mjs cross-checks REST endpoints across the two sides and reports no delta for this route."
-    },
-    {
-      "sha": "2bb6e12c7e3ecc19521d21fcffc832075ed13200",
-      "date": "2026-09-16",
-      "subject": "fix: prevent duplicate steer messages in transcript clients (#3828)",
-      "verdict": "not-applicable",
-      "note": "agent-core-v2 loopService de-duplication of steer prompts for the TS transcript clients. The Rust engine queues a steer in ServerEngine::enqueue_steer (packages/kimi-agent/src/server/engine.rs:558) and drains it once per step head (drain_steers); the message is moved out of the queue on drain, so the double-emit this fixes has no Rust path."
     }
   ]
 }

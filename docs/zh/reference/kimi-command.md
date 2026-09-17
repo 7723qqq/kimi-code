@@ -197,6 +197,16 @@ kimi web --port 58628    # 指定绑定端口
 
 生成新的持久化 bearer token（写入 `~/.kimi-code/server.token`），旧 token 立即失效。token 是整个 home 目录共享的，所有运行中的实例会在下一次鉴权校验时自动换用新 token，无需重启。
 
+### `kimi install-app`
+
+打印 Kimi Code 桌面端页面地址并在默认浏览器中打开，无需离开终端即可下载并安装桌面端应用。页面地址随当前区域而定：国内区域为 `https://www.kimi.com/code`，全球区域为 `https://www.kimi.ai/code`。
+
+```sh
+kimi install-app
+```
+
+该子命令没有任何选项。在 TUI 中也可以通过斜杠命令 `/desktop`（别名 `/install-desktop`）打开同一页面。
+
 ### `kimi doctor`
 
 校验 `config.toml` 和 `tui.toml`，不会启动 TUI，也不会修改任一文件。默认检查 `KIMI_CODE_HOME` 下的文件；未设置该环境变量时检查 `~/.kimi-code`。默认路径缺失时会显示为跳过，因为内置默认值仍可生效。
@@ -267,10 +277,10 @@ kimi migrate
 立即检查最新版本并展示更新提示，选择操作后退出。也可以使用别名 `kimi update`。
 
 ```sh
-kimi upgrade
+kimi upgrade [-y]
 ```
 
-对全局 npm、pnpm、yarn、bun 安装，`kimi upgrade` 会展示更新选项；选择 `Install update now` 后运行对应的前台安装命令。对 native 安装（含 Windows），会在前台下载并校验新二进制，并在下次启动时替换生效。当前安装方式无法自动升级时，改为打印手动更新命令。
+对全局 npm、pnpm、yarn、bun 安装，`kimi upgrade` 会展示更新选项；选择 `Install update now` 后运行对应的前台安装命令。对 native 安装（含 Windows），会在前台下载并校验新二进制，并在下次启动时替换生效。当前安装方式无法自动升级时，改为打印手动更新命令。传入 `-y, --yes` 可跳过确认提示，直接安装更新。
 
 ### `kimi vis`
 

@@ -24,7 +24,7 @@ export class BackgroundAgentStatusComponent implements Component {
           : 'error';
 
     const bullet =
-      this.data.phase === 'failed'
+      this.data.phase === 'failed' || this.data.phase === 'killed'
         ? currentTheme.fg(tone, FAILURE_MARK)
         : currentTheme.fg(tone, STATUS_BULLET);
     const text =

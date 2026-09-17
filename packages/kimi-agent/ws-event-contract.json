@@ -103,6 +103,7 @@
     "subagent.spawned",
     "subagent.started",
     "subagent.suspended",
+    "subagent.cancelled",
     "subagent.completed",
     "subagent.failed",
     "compaction.started",

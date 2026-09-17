@@ -28,6 +28,23 @@ export async function runVerifyStep({ requireGatekeeper = false } = {}) {
   // does not modify the binary, so this stays valid after macOS signing.
   await verifyChecksum(executable);
 
+  if (process.platform === 'win32') {
+    if (process.env.KIMI_AZURE_TRUSTED_SIGNING !== 'true') {
+      console.log('Verify step skipped (unsigned Windows build)');
+      return;
+    }
+    console.log(`==> Get-AuthenticodeSignature ${executable}`);
+    await run('pwsh', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `$sig = Get-AuthenticodeSignature '${executable}'; ` +
+        '"$($sig.Status) | $($sig.SignerCertificate.Subject)"; ' +
+        "if ($sig.Status -ne 'Valid') { exit 1 }",
+    ]);
+    return;
+  }
+
   if (process.platform !== 'darwin') {
     console.log('Verify step skipped (not macOS)');
     return;

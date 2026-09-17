@@ -45,6 +45,8 @@ export interface DialogHost {
   fetchMoreSessions(waitForInFlight?: boolean): Promise<boolean>;
   drainSessionsForSearch(): Promise<void>;
   resumeSession(targetSessionId: string): Promise<boolean>;
+  /** Delete a session from the picker, keeping the picker's own state coherent. */
+  deleteSessionFromPicker(session: SessionRow): Promise<void>;
   requireSession(): Session;
   stop(exitCode?: number): Promise<void>;
   applyStartupModesToResumedSession(session: Session): Promise<void>;
@@ -85,10 +87,12 @@ export class DialogHostController {
     readonly applyStartupModes: boolean;
     readonly closeOnCancel: boolean;
     readonly forwardEditorExit: boolean;
+    readonly allowDelete: boolean;
   } = {
     applyStartupModes: false,
     closeOnCancel: false,
     forwardEditorExit: false,
+    allowDelete: true,
   };
   private sessionPickerScopeRequestToken = 0;
   private sessionPickerComponent: SessionPickerComponent | undefined;
@@ -151,6 +155,7 @@ export class DialogHostController {
       applyStartupModes: false,
       closeOnCancel: false,
       forwardEditorExit: false,
+      allowDelete: true,
     });
   }
 
@@ -159,6 +164,9 @@ export class DialogHostController {
       applyStartupModes: true,
       closeOnCancel: true,
       forwardEditorExit: true,
+      // The startup picker runs before any session exists: there is nothing to
+      // delete, and the handler swaps sessions underneath it.
+      allowDelete: false,
     });
   }
 
@@ -166,11 +174,13 @@ export class DialogHostController {
     readonly applyStartupModes: boolean;
     readonly closeOnCancel: boolean;
     readonly forwardEditorExit: boolean;
+    readonly allowDelete: boolean;
   }): Promise<void> {
     this.sessionPickerOptions = options;
     await this.host.fetchSessions('cwd');
     this.mountSessionPicker({
       applyStartupModes: options.applyStartupModes,
+      allowDelete: options.allowDelete,
       onCancel: () => {
         this.hideSessionPicker();
         if (options.closeOnCancel) void this.host.stop();
@@ -197,6 +207,7 @@ export class DialogHostController {
     this.mountSessionPicker({
       initialSelectedSessionId: selectedSessionId,
       applyStartupModes: this.sessionPickerOptions.applyStartupModes,
+      allowDelete: this.sessionPickerOptions.allowDelete,
       onCancel: () => {
         this.hideSessionPicker();
         if (this.sessionPickerOptions.closeOnCancel) void this.host.stop();
@@ -231,6 +242,8 @@ export class DialogHostController {
     // startup (bare --session); later /sessions switches keep the picked
     // session's own persisted modes.
     readonly applyStartupModes?: boolean;
+    // The startup picker has no session to delete yet, so it omits this.
+    readonly allowDelete?: boolean;
   }): void {
     this.host.state.activeDialog = 'session-picker';
     const picker = new SessionPickerComponent({
@@ -248,19 +261,25 @@ export class DialogHostController {
       onSearchDrain: () => {
         void this.host.drainSessionsForSearch();
       },
-      onSelect: (session: SessionRow) => {
-        void this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
+      // The promise is returned rather than voided: the picker keys its input
+      // lock off the call's return value, and a Ctrl+X landing mid-select
+      // would otherwise race the session swap the selection started.
+      onSelect: (session: SessionRow) =>
+        this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
           (error) => {
             this.host.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
           },
-        );
-      },
+        ),
       onCancel: options.onCancel,
       onCtrlC: options.onCtrlC,
       onCtrlD: options.onCtrlD,
       onToggleScope: (selectedSessionId: string) => {
         void this.toggleSessionPickerScope(selectedSessionId);
       },
+      onDeleteRequest:
+        options.allowDelete === true
+          ? (session: SessionRow) => this.host.deleteSessionFromPicker(session)
+          : undefined,
     });
     this.sessionPickerComponent = picker;
     this.mountEditorReplacement(picker);
@@ -270,6 +289,9 @@ export class DialogHostController {
     session: SessionRow,
     applyStartupModes: boolean,
   ): Promise<void> {
+    // Invalidate any pending scope-toggle remount: it would replace the picker
+    // and drop the selection lock.
+    this.sessionPickerScopeRequestToken += 1;
     if (resolve(session.work_dir) !== resolve(this.host.state.appState.workDir)) {
       await this.host.showResumeOtherWorkDirHint(session);
       if (applyStartupModes) await this.host.stop(0);
@@ -379,6 +401,41 @@ export class DialogHostController {
    */
   get sessionPickerRequestToken(): number {
     return this.sessionPickerScopeRequestToken;
+  }
+
+  /**
+   * Discard any in-flight scope-toggle remount. A delete is about to lock the
+   * picker, and a remount landing mid-delete would replace it.
+   */
+  invalidateSessionPickerScopeRequests(): void {
+    this.sessionPickerScopeRequestToken += 1;
+  }
+
+  /**
+   * Rebuild the picker in place when it is still the active dialog, so a list
+   * mutated by the caller (a deleted row) is reflected without losing the
+   * scope/selection the user had. A no-op once the dialog closed.
+   */
+  remountSessionPickerIfOpen(): void {
+    if (this.host.state.activeDialog !== 'session-picker') return;
+    this.mountSessionPicker({
+      applyStartupModes: this.sessionPickerOptions.applyStartupModes,
+      allowDelete: this.sessionPickerOptions.allowDelete,
+      onCancel: () => {
+        this.hideSessionPicker();
+        if (this.sessionPickerOptions.closeOnCancel) void this.host.stop();
+      },
+      onCtrlC: this.sessionPickerOptions.forwardEditorExit
+        ? () => {
+            this.host.state.editor.onCtrlC?.();
+          }
+        : undefined,
+      onCtrlD: this.sessionPickerOptions.forwardEditorExit
+        ? () => {
+            this.host.state.editor.onCtrlD?.();
+          }
+        : undefined,
+    });
   }
 
   setSessionPickerPaging(hasMore: boolean, loadingMore: boolean): void {

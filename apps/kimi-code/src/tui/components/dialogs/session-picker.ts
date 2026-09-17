@@ -14,6 +14,7 @@ import {
 import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 export interface SessionRow {
@@ -82,7 +83,7 @@ function sessionSearchText(session: SessionRow): string {
 export class SessionPickerComponent extends Container implements Focusable {
   private sessions: SessionRow[];
   private currentSessionId: string;
-  private onSelect: (session: SessionRow) => void;
+  private onSelect: (session: SessionRow) => void | Promise<void>;
   private onCancel: () => void;
   private onToggleScope?: (selectedSessionId: string) => void;
   private maxVisibleSessions: number;
@@ -93,6 +94,8 @@ export class SessionPickerComponent extends Container implements Focusable {
   private hasMore: boolean;
   private loadingMore: boolean;
   private list: SearchableList<SessionRow>;
+  private deleteState?: { session: SessionRow; phase: 'confirm' | 'deleting' };
+  private selectInFlight = false;
 
   focused = false;
 
@@ -103,7 +106,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     scope?: 'cwd' | 'all';
     initialSelectedSessionId?: string;
     pageSize?: number;
-    onSelect: (session: SessionRow) => void;
+    onSelect: (session: SessionRow) => void | Promise<void>;
     onCancel: () => void;
     onCtrlC?: () => void;
     onCtrlD?: () => void;
@@ -117,6 +120,8 @@ export class SessionPickerComponent extends Container implements Focusable {
     onLoadMore?: () => void;
     /** Fired when a search query becomes active while pages remain unfetched. */
     onSearchDrain?: () => void;
+    /** Fired after the user confirms deletion with `y`; the picker clears its delete state once the request settles. */
+    onDeleteRequest?: (session: SessionRow) => Promise<void>;
   }) {
     super();
     this.sessions = opts.sessions;
@@ -144,12 +149,14 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.visibleCount = Math.min(this.sessions.length, initialLoadedPages * this.pageSize);
     this.onCtrlC = opts.onCtrlC;
     this.onCtrlD = opts.onCtrlD;
+    this.onDeleteRequest = opts.onDeleteRequest;
   }
 
   private readonly onCtrlC?: () => void;
   private readonly onCtrlD?: () => void;
   private readonly onLoadMore?: () => void;
   private readonly onSearchDrain?: () => void;
+  private readonly onDeleteRequest?: (session: SessionRow) => Promise<void>;
 
   /** Appends a freshly fetched page, keeping the cursor and active query. */
   appendSessions(rows: SessionRow[]): void {
@@ -211,6 +218,13 @@ export class SessionPickerComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
+    if (this.deleteState !== undefined) {
+      this.handleDeleteInput(data);
+      return;
+    }
+    // A selection runs resume/switch asynchronously; input during that window
+    // (e.g. Ctrl+X delete) would race the session swap.
+    if (this.selectInFlight) return;
     if (matchesKey(data, Key.ctrl('c'))) {
       this.onCtrlC?.();
       return;
@@ -223,6 +237,14 @@ export class SessionPickerComponent extends Container implements Focusable {
       this.onToggleScope?.(this.list.selected()?.id ?? this.currentSessionId);
       return;
     }
+    if (matchesKey(data, Key.ctrl('x'))) {
+      const selected = this.list.selected();
+      if (selected !== undefined && this.onDeleteRequest !== undefined) {
+        this.deleteState = { session: selected, phase: 'confirm' };
+        this.invalidate();
+      }
+      return;
+    }
     if (matchesKey(data, Key.escape)) {
       if (this.list.clearQuery()) {
         this.visibleCount = Math.min(this.filteredSessions().length, this.pageSize);
@@ -233,7 +255,16 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
     if (matchesKey(data, Key.enter)) {
       const session = this.list.selected();
-      if (session) this.onSelect(session);
+      if (session) {
+        const selection = this.onSelect(session);
+        if (selection !== undefined) {
+          this.selectInFlight = true;
+          const clear = (): void => {
+            this.selectInFlight = false;
+          };
+          void selection.then(clear, clear);
+        }
+      }
       return;
     }
 
@@ -241,6 +272,55 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.list.handleKey(data)) {
       this.syncVisibleCount(previousQuery);
     }
+  }
+
+  private handleDeleteInput(data: string): void {
+    const state = this.deleteState;
+    if (state === undefined || state.phase === 'deleting') return;
+    const k = printableChar(data);
+    if (matchesKey(data, Key.escape) || k === 'n' || k === 'N') {
+      this.deleteState = undefined;
+      this.invalidate();
+      return;
+    }
+    if (k === 'y' || k === 'Y') {
+      this.deleteState = { session: state.session, phase: 'deleting' };
+      this.invalidate();
+      const sessionId = state.session.id;
+      const clear = (): void => {
+        if (this.deleteState?.session.id !== sessionId) return;
+        this.deleteState = undefined;
+        this.invalidate();
+      };
+      // then(clear, clear): rejections settle too — the host has already surfaced the failure.
+      void this.onDeleteRequest?.(state.session).then(clear, clear);
+    }
+  }
+
+  private renderDeleteStateLine(width: number): string {
+    const state = this.deleteState;
+    if (state === undefined) return '';
+    const rawTitle = (state.session.title ?? state.session.id).trim() || state.session.id;
+    const isImported = Boolean(state.session.metadata?.['imported_from_kimi_cli']);
+    const label = singleLine(
+      isImported ? `${t('tui.migration.badgeImported')} ${rawTitle}` : rawTitle,
+    );
+    const prefix = state.phase === 'confirm' ? 'Delete session "' : 'Deleting session "';
+    const suffix = state.phase === 'confirm' ? '"? [y/N]' : '"…';
+    const labelBudget = Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix));
+    const shown = truncateToWidth(label, labelBudget, ELLIPSIS);
+    // The suffix carries the confirm/cancel keys: it survives by truncating
+    // the head (prefix + label) instead of the composed line.
+    const head = truncateToWidth(
+      prefix + shown,
+      Math.max(0, width - visibleWidth(suffix)),
+      ELLIPSIS,
+    );
+    const styled =
+      state.phase === 'confirm'
+        ? currentTheme.boldFg('warning', head + suffix)
+        : currentTheme.fg('textMuted', head + suffix);
+    return truncateToWidth(styled, width, ELLIPSIS);
   }
 
   override render(width: number): string[] {
@@ -306,6 +386,9 @@ export class SessionPickerComponent extends Container implements Focusable {
       ...(view.query.length > 0 ? [t('tui.dialogs.modelSelector.hintBackspace')] : []),
       t('tui.dialogs.modelSelector.hintNavigate'),
       scopeHint,
+      ...(this.onDeleteRequest !== undefined
+        ? [t('tui.dialogs.sessionPicker.hintDelete')]
+        : []),
       t('tui.dialogs.modelSelector.hintSelect'),
       t('tui.dialogs.modelSelector.hintCancel'),
     ].filter((item): item is string => item !== undefined);
@@ -391,6 +474,11 @@ export class SessionPickerComponent extends Container implements Focusable {
         totalSuffix: totalSuffix + moreSuffix,
       });
       lines.push(currentTheme.fg('textMuted', truncateToWidth(footer, width, ELLIPSIS)));
+    }
+
+    if (this.deleteState !== undefined) {
+      lines.push('');
+      lines.push(this.renderDeleteStateLine(width));
     }
 
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

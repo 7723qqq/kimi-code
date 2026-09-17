@@ -5,11 +5,10 @@
 
 import { isAbsolute, relative, sep } from 'node:path';
 
-import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
-import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import { Container, Spacer, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
-
 import { t } from '#/i18n';
+import { Markdown } from '#/tui/components/markdown/markdown';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import {
@@ -28,6 +27,7 @@ import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '#/tui/constant/symbol
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
+import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { notifyResultState } from '#/tui/utils/notify-result';
@@ -2295,7 +2295,10 @@ export class ToolCallComponent extends Container {
       const message = str(this.toolCall.args['message']).trim();
       if (message.length === 0) return;
       this.addChild(
-        new Markdown(message, 2, 0, this.markdownTheme, undefined, createMarkdownOptions()),
+        new Markdown(message, 2, 0, this.markdownTheme, undefined, {
+          ...createMarkdownOptions(),
+          copySource: true,
+        }),
       );
       return;
     }

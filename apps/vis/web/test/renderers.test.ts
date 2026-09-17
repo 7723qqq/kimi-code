@@ -53,6 +53,7 @@ const HISTORICAL_OR_HEADER_TYPES = new Set([
   'micro_compaction.apply',
   'staleGuard.recorded',
   'staleGuard.cleared',
+  'prompt.accepted',
 ]);
 
 describe('wire renderers', () => {

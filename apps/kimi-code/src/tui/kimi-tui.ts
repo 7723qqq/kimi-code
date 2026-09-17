@@ -231,6 +231,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
+    markdown: input.tuiConfig.markdown,
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -2676,8 +2677,68 @@ export class KimiTUI {
     return this.dialogController.showSessionPicker();
   }
 
+
   hideSessionPicker(): void {
     this.dialogController.hideSessionPicker();
+  }
+
+  async deleteSessionFromPicker(session: SessionRow): Promise<void> {
+    // Invalidate any pending scope-toggle remount: it would replace the picker
+    // that is about to lock itself for the delete.
+    this.dialogController.invalidateSessionPickerScopeRequests();
+    try {
+      await this.waitForLazyCreation();
+      if (session.id === this.state.appState.sessionId && this.session !== undefined) {
+        await this.deleteCurrentSessionFromPicker(session);
+        return;
+      }
+      await this.harness.deleteSession(session.id);
+      // fetchSessions swallows refetch errors, so drop the row locally first —
+      // a failed refetch must not resurrect it in the remounted list.
+      this.state.sessions = this.state.sessions.filter((row) => row.id !== session.id);
+      await this.fetchSessions(this.state.sessionsScope);
+      this.dialogController.remountSessionPickerIfOpen();
+      this.showStatus('Session deleted.');
+    } catch (error) {
+      this.showError(`Failed to delete session ${session.id}: ${formatErrorMessage(error)}`);
+    }
+  }
+
+  private async deleteCurrentSessionFromPicker(session: SessionRow): Promise<void> {
+    // The picker stays mounted (locking input) until the replacement session
+    // is ready — restoring the editor mid-flight would let a prompt race the swap.
+    try {
+      // Tear down before deleting so no events from the dying session reach the UI.
+      await this.closeSession('deleting session');
+      await this.harness.deleteSession(session.id);
+    } catch (error) {
+      // The engine aborts a failed delete and keeps the session: reattach,
+      // falling back to a fresh session if it is gone. showError runs after
+      // the switch because switchToSession clears the transcript.
+      const message = `Failed to delete session ${session.id}: ${formatErrorMessage(error)}`;
+      try {
+        const resumed = await this.harness.resumeSession({
+          id: session.id,
+          replayTurnLimit: REPLAY_TURN_LIMIT,
+        });
+        await this.switchToSession(resumed, `Resumed session (${resumed.id}).`);
+      } catch {
+        // Reattach failed and the session is already unloaded: detach before
+        // the fallback create so a failed create leaves no ghost UI behind.
+        this.setAppState({ sessionId: '' });
+        this.transcriptRenderer.clearTranscriptAndRedraw();
+        await this.createNewSession();
+      }
+      this.showError(message);
+      this.hideSessionPicker();
+      return;
+    }
+    // The session is gone whether or not replacement creation succeeds: detach
+    // first so a failed create leaves no ghost (stale id + transcript) behind.
+    this.setAppState({ sessionId: '' });
+    this.transcriptRenderer.clearTranscriptAndRedraw();
+    await this.createNewSession();
+    this.hideSessionPicker();
   }
 
   openUndoSelector(): void {

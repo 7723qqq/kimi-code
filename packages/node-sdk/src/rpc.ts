@@ -81,12 +81,6 @@ export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
   /**
-   * Client-managed session tool denylist (full-replace semantics), forwarded
-   * to engines with profile tool gating. Omit to keep the persisted value;
-   * `[]` clears the client portion.
-   */
-  readonly disabledTools?: readonly string[];
-  /**
    * Client-chosen prompt record id, unique for the Agent's persisted history
    * and echoed on the consuming turn's `turn.started` (`promptId`). Honored by
    * the v2 RPC client only.

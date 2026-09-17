@@ -27,6 +27,7 @@ import {
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
 import { LocaleSelectorComponent } from '../components/dialogs/locale-selector';
+import { MermaidPreferenceSelectorComponent } from '../components/dialogs/mermaid-preference-selector';
 import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import {
@@ -37,9 +38,16 @@ import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
+import {
+  DEFAULT_MARKDOWN_CONFIG,
+  DEFAULT_TUI_CONFIG,
+  saveTuiConfig,
+  type MarkdownConfig,
+  type TuiConfig,
+} from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
@@ -90,6 +98,7 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     upgrade: host.state.appState.upgrade,
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
     astron: DEFAULT_TUI_CONFIG.astron,
+    markdown: host.state.appState.markdown ?? DEFAULT_MARKDOWN_CONFIG,
   };
 }
 
@@ -1067,6 +1076,65 @@ export async function applySurveyPreferenceChoice(
   host.showStatus(`Feedback survey ${enabled ? 'enabled' : 'disabled'}.`);
 }
 
+export function showMermaidPreferencePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new MermaidPreferenceSelectorComponent({
+      currentValue: host.state.appState.markdown?.mermaid !== 'off',
+      onSelect: (value) => {
+        host.restoreEditor();
+        void applyMermaidPreferenceChoice(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+type MermaidPreferenceHost = {
+  readonly state: {
+    readonly appState: Pick<
+      SlashCommandHost['state']['appState'],
+      'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'markdown'
+    >;
+    readonly transcriptContainer: { invalidate(): void };
+    readonly ui: { requestRender(force?: boolean): void };
+  };
+  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'markdown'>): void;
+  showStatus(msg: string, color?: string): void;
+};
+
+export async function applyMermaidPreferenceChoice(
+  host: MermaidPreferenceHost,
+  enabled: boolean,
+): Promise<void> {
+  const mermaid: MermaidRenderMode = enabled ? 'final' : 'off';
+  if (mermaid === (host.state.appState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid)) {
+    host.showStatus(`Mermaid diagrams already ${enabled ? 'enabled' : 'disabled'}.`);
+    return;
+  }
+
+  const markdown: MarkdownConfig = { mermaid };
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
+      markdown,
+    });
+  } catch (error) {
+    host.showStatus(
+      `Failed to save mermaid diagram setting: ${formatErrorMessage(error)}`,
+      'error',
+    );
+    return;
+  }
+
+  setMarkdownMermaidMode(mermaid);
+  host.setAppState({ markdown });
+  host.state.transcriptContainer.invalidate();
+  host.state.ui.requestRender(true);
+  host.showStatus(`Mermaid diagrams ${enabled ? 'enabled' : 'disabled'}.`);
+}
+
 export function showSettingsSelector(host: SlashCommandHost): void {
   host.mountEditorReplacement(
     new SettingsSelectorComponent({
@@ -1091,6 +1159,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'theme':
       showThemePicker(host);
+      return;
+    case 'mermaid':
+      showMermaidPreferencePicker(host);
       return;
     case 'editor':
       showEditorPicker(host);

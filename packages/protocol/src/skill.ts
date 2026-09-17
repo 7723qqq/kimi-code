@@ -10,5 +10,6 @@ export const skillDescriptorSchema = z.object({
   type: z.string().optional(),
   /** `true` when the skill is user-slash only (model must not auto-invoke). */
   disable_model_invocation: z.boolean().optional(),
+  scopes: z.array(z.enum(['tui', 'web'])).optional(),
 });
 export type SkillDescriptor = z.infer<typeof skillDescriptorSchema>;

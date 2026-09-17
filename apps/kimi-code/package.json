@@ -98,6 +98,7 @@
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
     "jimp": "^1.6.1",
+    "lovely-mermaid": "0.3.3",
     "pathe": "^2.0.3",
     "semver": "^7.7.4",
     "smol-toml": "^1.6.1",

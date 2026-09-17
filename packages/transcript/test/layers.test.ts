@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { transcriptEventSchema } from '#/contract/events';
+import { projectTranscriptUserOrigin } from '#/contract/origin';
 import {
   agentTranscriptSnapshotSchema,
   isPlainAgentId,
@@ -12,6 +13,7 @@ import {
   transcriptGradeSpecSchema,
   transcriptSubscribeV2PayloadSchema,
   transcriptUserMessagesResponseSchema,
+  transcriptUserOriginSchema,
 } from '#/contract/schema';
 import { filterOpsForGrade, isAppendOnly, redactSnapshotForGrade } from '#/granularity/filterOps';
 import { detachGrades, gradeFor, needsResetOnTransition } from '#/granularity/grade';
@@ -25,6 +27,65 @@ import { ViewRegistry } from '#/view/registry';
 
 const idLabel = (i: TranscriptItem): string =>
   i.kind === 'turn' ? i.turnId : i.kind === 'marker' ? i.markerId : i.refId;
+
+describe('client metadata in transcript user origins', () => {
+  it('retains user-invoked single skill frame metadata without exposing model-triggered activations as user input', () => {
+    const origin = { kind: 'skill_activation', trigger: 'user-slash', skillName: 'example-skill', skillArgs: 'args', clientMetadata: [{ display_text: 'Save button' }] };
+    expect(transcriptUserOriginSchema.parse(projectTranscriptUserOrigin(origin))).toEqual(origin);
+    expect(projectTranscriptUserOrigin({ ...origin, trigger: 'model-tool' })).toBeUndefined();
+  });
+
+  it('rebuilds a user turn payload without server-local paths', () => {
+    const clientMetadata = [{ display_text: 'Visible prompt' }];
+    const origin = {
+      kind: 'user',
+      clientMetadata,
+      skillActivations: [{ activationId: 'a1', skillName: 'deploy', skillArgs: 'now', skillPath: '/private/deploy/SKILL.md' }],
+      attachments: [{ name: 'notes.pdf', mediaType: 'application/pdf', size: 42, path: '/private/notes.pdf' }],
+    };
+    const snapshot = groupMessagesIntoSnapshot([
+      { role: 'user', content: [{ type: 'text', text: 'rendered skill' }, { type: 'text', text: 'visible prompt' }], toolCalls: [], origin },
+      { role: 'assistant', content: [{ type: 'text', text: 'reply' }], toolCalls: [] },
+    ]);
+    const turn = snapshot.items.find((item) => item.kind === 'turn');
+    expect(turn?.origin).toEqual({ kind: 'user', payload: { kind: 'user', clientMetadata, skillActivations: [{ skillName: 'deploy', skillArgs: 'now' }] } });
+    expect(JSON.stringify(turn)).not.toContain('/private/');
+    expect(JSON.stringify(snapshot.attachments)).not.toContain('/private/');
+  });
+
+  it('keeps opening prompt metadata when rebuilding history turns', () => {
+    const clientMetadata = [{ kimi_code_composer: { version: 1, doc: { type: 'doc' } } }];
+    const origin = { kind: 'user', clientMetadata };
+    const snapshot = groupMessagesIntoSnapshot([
+      { role: 'user', content: [{ type: 'text', text: 'visible prompt' }], toolCalls: [], origin },
+      { role: 'assistant', content: [{ type: 'text', text: 'reply' }], toolCalls: [] },
+    ]);
+    const turn = snapshot.items.find((item) => item.kind === 'turn');
+    expect(turn?.origin).toEqual({ kind: 'user', payload: { kind: 'user', clientMetadata } });
+    expect(turn?.prompt).toBe('visible prompt');
+  });
+
+  it('projects and validates independent document snapshots without losing their nested fields', () => {
+    const clientMetadata = [
+      { kimi_code_composer: { version: 1, doc: { type: 'doc', content: [{ type: 'paragraph' }] }, captureIds: ['capture-a'] } },
+      { kimi_code_composer: { version: 1, captureIds: ['capture-b'] } },
+    ];
+    const projected = projectTranscriptUserOrigin({ kind: 'user', clientMetadata });
+    expect(transcriptUserOriginSchema.parse(projected)).toEqual({ kind: 'user', clientMetadata });
+    expect(projectTranscriptUserOrigin({ kind: 'user' })).toStrictEqual({ kind: 'user' });
+    expect(projectTranscriptUserOrigin({ kind: 'injection', clientMetadata })).toBeUndefined();
+  });
+});
+
+describe('user slash skill activations as transcript origins', () => {
+  it('projects a user-invoked activation and rejects a model-triggered one', () => {
+    const origin = { kind: 'skill_activation', trigger: 'user-slash', skillName: 'example-skill', skillArgs: 'args' };
+    expect(transcriptUserOriginSchema.parse(projectTranscriptUserOrigin(origin))).toEqual(origin);
+    expect(projectTranscriptUserOrigin({ ...origin, trigger: 'model-tool' })).toBeUndefined();
+    expect(projectTranscriptUserOrigin({ ...origin, skillName: '' })).toBeUndefined();
+    expect(projectTranscriptUserOrigin({ kind: 'user' })).toStrictEqual({ kind: 'user' });
+  });
+});
 
 const turnOp = (n: number): TranscriptOperation => ({
   op: 'turn.upsert',
@@ -2394,11 +2455,12 @@ describe('foldWireRecordFacts (cold facts)', () => {
     ]);
     const folded = foldWireRecordFacts(
       [
-        { type: 'turn.prompt', input: [{ type: 'text', text: 'run' }], origin: { kind: 'user' }, promptId: 'prompt-live', time: 1 },
-        { type: 'turn.ended', turnId: 0, reason: 'failed', error: { message: 'later failure' }, time: 2 },
+        { type: 'turn.prompt', turnId: 2, input: [{ type: 'text', text: 'run' }], origin: { kind: 'user' }, promptId: 'prompt-live', time: 1 },
+        { type: 'turn.ended', turnId: 2, reason: 'failed', error: { message: 'later failure' }, time: 2 },
       ],
       base,
     );
+    expect(folded.items).toHaveLength(2);
     const blocked = folded.items[0];
     const live = folded.items[1];
     if (blocked?.kind !== 'turn' || live?.kind !== 'turn') throw new Error('expected turns');

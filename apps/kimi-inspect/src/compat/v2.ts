@@ -170,6 +170,13 @@ export interface DebugEventBusSnapshot {
   readonly scopePath: string;
   readonly all: number;
   readonly perType: Record<string, number>;
+  /**
+   * Per-subscribing-agent counts. The native debug surface serves
+   * `scopePath` / `all` / `perType` only (v2 built this from the in-process
+   * `eventBusService`, which this engine replaces), so the field is optional
+   * and callers must treat it as absent.
+   */
+  readonly perAgent?: Record<string, number>;
 }
 
 export interface DebugEventSubscriptions {

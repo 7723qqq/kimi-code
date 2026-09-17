@@ -197,6 +197,16 @@ Deprecated — only stops a server started by a version before 0.28.0. Those ver
 
 Generate a new persistent bearer token (written to `~/.kimi-code/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
 
+### `kimi install-app`
+
+Print the Kimi Code desktop app page and open it in the default browser, so you can download and install the desktop app without leaving the terminal. The URL follows the active region: `https://www.kimi.com/code` on the mainland region, `https://www.kimi.ai/code` on the global region.
+
+```sh
+kimi install-app
+```
+
+This subcommand has no flags. The same page is also reachable from the TUI with the `/desktop` (alias `/install-desktop`) slash command.
+
 ### `kimi doctor`
 
 Validate `config.toml` and `tui.toml` without starting the TUI or modifying either file. By default, the command checks the files under `KIMI_CODE_HOME` (or `~/.kimi-code` when the environment variable is unset). Missing default files are reported as skipped because built-in defaults can apply.
@@ -267,10 +277,10 @@ For full migration instructions, see [Migrating from kimi-cli](../guides/migrati
 Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.
 
 ```sh
-kimi upgrade
+kimi upgrade [-y]
 ```
 
-For global npm, pnpm, yarn, and bun installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead.
+For global npm, pnpm, yarn, and bun installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
 
 ### `kimi vis`
 

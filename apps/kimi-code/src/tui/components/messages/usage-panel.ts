@@ -83,10 +83,10 @@ function buildSessionUsageSection(
   error: string | undefined,
   value: Colorize,
   muted: Colorize,
-  errorStyle: Colorize,
 ): string[] {
-  if (error !== undefined) return [errorStyle(`  ${error}`)];
-  const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)?.byModel;
+  if (error !== undefined) return [muted(`  ${error}`)];
+  const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)
+    ?.byModel;
   const entries = Object.entries(byModel ?? {});
   if (entries.length === 0) return [muted(`  ${t('tui.messages.usagePanel.noTokenUsage')}`)];
 
@@ -272,17 +272,10 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
   const accent = (text: string) => currentTheme.boldFg('primary', text);
   const value = (text: string) => currentTheme.fg('text', text);
   const muted = (text: string) => currentTheme.fg('textDim', text);
-  const errorStyle = (text: string) => currentTheme.fg('error', text);
 
   const lines: string[] = [
     accent(t('tui.messages.usagePanel.sessionUsage')),
-    ...buildSessionUsageSection(
-      options.sessionUsage,
-      options.sessionUsageError,
-      value,
-      muted,
-      errorStyle,
-    ),
+    ...buildSessionUsageSection(options.sessionUsage, options.sessionUsageError, value, muted),
   ];
 
   if (options.maxContextTokens > 0) {

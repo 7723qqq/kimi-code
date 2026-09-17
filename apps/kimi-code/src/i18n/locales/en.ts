@@ -50,6 +50,7 @@ export default {
       agent:
         'Agent profile to use for this invocation (v2 engine only). Custom profiles are discovered from agent directories or loaded via --agent-file.',
       agentFile: 'Load an agent definition from a Markdown file and select it (v2 engine only).',
+      upgradeYes: 'Skip the confirmation prompt and install the update directly.',
       exportOutput: 'Output ZIP path.',
       exportYes: 'Skip previous-session confirmation.',
       exportSessionId: 'Session id to export. Defaults to the most recent session.',
@@ -321,7 +322,7 @@ export default {
           'Note: the runtime binaries were left untouched, but Kimi Code plugin wiring is disabled for new sessions. Restart Kimi Code before reinstalling from the Official tab.',
         listTitle: ' Plugins ({{count}}) ',
         reloadHint: 'Run /new or /reload to apply plugin changes.',
-        webbridgeIntro: '*Two steps left to use Kimi WebBridge:*',
+        webbridgeIntro: '*Two steps left to use Kimi Browser Extension:*',
         webbridgeStep1: '1. Install the browser extension',
         webbridgeChromeLink:
           '   - [Chrome Web Store](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
@@ -566,6 +567,8 @@ export default {
         permissionDesc: 'Choose how tool actions are approved.',
         theme: 'Theme',
         themeDesc: 'Change the terminal UI theme.',
+        mermaid: 'Mermaid diagrams',
+        mermaidDesc: 'Draw mermaid code blocks as diagrams, or keep them as source.',
         language: 'Language',
         languageDesc: 'Change the interface language (restart required).',
         editor: 'Editor',
@@ -717,6 +720,7 @@ export default {
         empty: 'No sessions found.',
         scopeHintAll: 'Ctrl+A all',
         scopeHintCwd: 'Ctrl+A current cwd',
+        hintDelete: 'Ctrl+X delete',
         justNow: 'just now',
         minutesAgo: '{{minutes}}m ago',
         hoursAgo: '{{hours}}h ago',
